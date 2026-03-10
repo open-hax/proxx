@@ -1,0 +1,427 @@
+export interface SessionListItem {
+  readonly id: string;
+  readonly title: string;
+  readonly createdAt: number;
+  readonly updatedAt: number;
+  readonly messageCount: number;
+  readonly lastMessagePreview: string;
+  readonly forkedFromSessionId?: string;
+  readonly forkedFromMessageId?: string;
+}
+
+export interface SessionMessage {
+  readonly id: string;
+  readonly role: "system" | "user" | "assistant" | "tool";
+  readonly content: string;
+  readonly reasoningContent?: string;
+  readonly model?: string;
+  readonly createdAt: number;
+}
+
+export interface SessionRecord {
+  readonly id: string;
+  readonly title: string;
+  readonly createdAt: number;
+  readonly updatedAt: number;
+  readonly promptCacheKey: string;
+  readonly forkedFromSessionId?: string;
+  readonly forkedFromMessageId?: string;
+  readonly messages: SessionMessage[];
+}
+
+export interface CredentialAccount {
+  readonly id: string;
+  readonly authType: "api_key" | "oauth_bearer";
+  readonly secretPreview: string;
+  readonly secret?: string;
+  readonly refreshTokenPreview?: string;
+  readonly refreshToken?: string;
+  readonly expiresAt?: number;
+}
+
+export interface CredentialProvider {
+  readonly id: string;
+  readonly authType: "api_key" | "oauth_bearer";
+  readonly accountCount: number;
+  readonly accounts: CredentialAccount[];
+}
+
+export interface RequestLogEntry {
+  readonly id: string;
+  readonly timestamp: number;
+  readonly providerId: string;
+  readonly accountId: string;
+  readonly authType: "api_key" | "oauth_bearer" | "local" | "none";
+  readonly model: string;
+  readonly upstreamMode: string;
+  readonly upstreamPath: string;
+  readonly status: number;
+  readonly latencyMs: number;
+  readonly promptTokens?: number;
+  readonly completionTokens?: number;
+  readonly totalTokens?: number;
+  readonly error?: string;
+}
+
+export interface KeyPoolStatus {
+  readonly providerId: string;
+  readonly authType: "api_key" | "oauth_bearer" | "unknown";
+  readonly totalAccounts: number;
+  readonly availableAccounts: number;
+  readonly cooldownAccounts: number;
+  readonly nextReadyInMs: number;
+}
+
+export interface ProviderRequestLogSummary {
+  readonly count: number;
+  readonly lastTimestamp: number;
+}
+
+export interface ToolSeed {
+  readonly id: string;
+  readonly description: string;
+  readonly enabled: boolean;
+}
+
+export interface McpServerSeed {
+  readonly id: string;
+  readonly script: string;
+  readonly cwd?: string;
+  readonly args: readonly string[];
+  readonly port?: number;
+  readonly sourceFile: string;
+  readonly running: false;
+}
+
+export interface SearchResult {
+  readonly sessionId: string;
+  readonly sessionTitle: string;
+  readonly messageId: string;
+  readonly role: "system" | "user" | "assistant" | "tool";
+  readonly content: string;
+  readonly createdAt: number;
+  readonly distance: number;
+}
+
+export interface UsageTrendPoint {
+  readonly t: string;
+  readonly v: number;
+}
+
+export interface UsageAccountSummary {
+  readonly accountId: string;
+  readonly displayName: string;
+  readonly providerId: string;
+  readonly authType: "api_key" | "oauth_bearer" | "local" | "none";
+  readonly status: "healthy" | "cooldown" | "idle";
+  readonly requestCount: number;
+  readonly totalTokens: number;
+  readonly promptTokens: number;
+  readonly completionTokens: number;
+  readonly lastUsedAt: string | null;
+}
+
+export interface UsageOverview {
+  readonly generatedAt: string;
+  readonly summary: {
+    readonly requests24h: number;
+    readonly tokens24h: number;
+    readonly promptTokens24h: number;
+    readonly completionTokens24h: number;
+    readonly errorRate24h: number;
+    readonly topModel: string | null;
+    readonly topProvider: string | null;
+    readonly activeAccounts: number;
+  };
+  readonly trends: {
+    readonly requests: readonly UsageTrendPoint[];
+    readonly tokens: readonly UsageTrendPoint[];
+    readonly errors: readonly UsageTrendPoint[];
+  };
+  readonly accounts: readonly UsageAccountSummary[];
+}
+
+const AUTH_TOKEN_KEY = "open-hax-proxy.auth-token";
+const AUTH_TOKEN_COOKIE = "open_hax_proxy_auth_token";
+
+function readCookie(name: string): string {
+  if (typeof document === "undefined") {
+    return "";
+  }
+
+  const prefix = `${name}=`;
+  const match = document.cookie
+    .split(";")
+    .map((part) => part.trim())
+    .find((part) => part.startsWith(prefix));
+  if (!match) {
+    return "";
+  }
+
+  try {
+    return decodeURIComponent(match.slice(prefix.length));
+  } catch {
+    return match.slice(prefix.length);
+  }
+}
+
+function writeCookie(name: string, value: string): void {
+  if (typeof document === "undefined") {
+    return;
+  }
+
+  if (value.length === 0) {
+    document.cookie = `${name}=; Max-Age=0; Path=/; SameSite=Lax`;
+    return;
+  }
+
+  document.cookie = `${name}=${encodeURIComponent(value)}; Max-Age=${60 * 60 * 24 * 30}; Path=/; SameSite=Lax`;
+}
+
+function readStoredAuthToken(): string {
+  const fromLocalStorage = typeof localStorage !== "undefined" ? localStorage.getItem(AUTH_TOKEN_KEY)?.trim() ?? "" : "";
+  if (fromLocalStorage.length > 0) {
+    return fromLocalStorage;
+  }
+
+  const fromCookie = readCookie(AUTH_TOKEN_COOKIE).trim();
+  if (fromCookie.length > 0 && typeof localStorage !== "undefined") {
+    localStorage.setItem(AUTH_TOKEN_KEY, fromCookie);
+  }
+  return fromCookie;
+}
+
+function authHeaders(): Headers {
+  const headers = new Headers();
+  const token = readStoredAuthToken();
+  if (token && token.length > 0) {
+    headers.set("authorization", `Bearer ${token}`);
+  }
+  return headers;
+}
+
+async function requestJson<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const headers = authHeaders();
+
+  if (init.headers) {
+    const incoming = new Headers(init.headers);
+    for (const [key, value] of incoming.entries()) {
+      headers.set(key, value);
+    }
+  }
+
+  const response = await fetch(path, {
+    ...init,
+    headers,
+  });
+
+  const text = await response.text();
+  const parsed = text.length > 0 ? JSON.parse(text) : {};
+
+  if (!response.ok) {
+    const message = typeof parsed?.error?.message === "string"
+      ? parsed.error.message
+      : typeof parsed?.detail === "string"
+        ? parsed.detail
+        : `Request failed: ${response.status}`;
+    throw new Error(message);
+  }
+
+  return parsed as T;
+}
+
+export function getSavedAuthToken(): string {
+  return readStoredAuthToken();
+}
+
+export function saveAuthToken(token: string): void {
+  if (typeof localStorage !== "undefined") {
+    if (token.length > 0) {
+      localStorage.setItem(AUTH_TOKEN_KEY, token);
+    } else {
+      localStorage.removeItem(AUTH_TOKEN_KEY);
+    }
+  }
+  writeCookie(AUTH_TOKEN_COOKIE, token);
+}
+
+export async function listSessions(): Promise<SessionListItem[]> {
+  const payload = await requestJson<{ readonly sessions: SessionListItem[] }>("/api/ui/sessions");
+  return payload.sessions;
+}
+
+export async function createSession(title?: string): Promise<SessionRecord> {
+  const payload = await requestJson<{ readonly session: SessionRecord }>("/api/ui/sessions", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ title }),
+  });
+  return payload.session;
+}
+
+export async function getSession(sessionId: string): Promise<SessionRecord> {
+  const payload = await requestJson<{ readonly session: SessionRecord }>(`/api/ui/sessions/${sessionId}`);
+  return payload.session;
+}
+
+export async function getSessionPromptCacheKey(sessionId: string): Promise<string> {
+  const payload = await requestJson<{ readonly promptCacheKey: string }>(`/api/ui/sessions/${sessionId}/cache-key`);
+  return payload.promptCacheKey;
+}
+
+export async function addSessionMessage(
+  sessionId: string,
+  message: {
+    readonly role: "system" | "user" | "assistant" | "tool";
+    readonly content: string;
+    readonly reasoningContent?: string;
+    readonly model?: string;
+  },
+): Promise<SessionMessage> {
+  const payload = await requestJson<{ readonly message: SessionMessage }>(`/api/ui/sessions/${sessionId}/messages`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(message),
+  });
+  return payload.message;
+}
+
+export async function forkSession(sessionId: string, messageId?: string): Promise<SessionRecord> {
+  const payload = await requestJson<{ readonly session: SessionRecord }>(`/api/ui/sessions/${sessionId}/fork`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ messageId }),
+  });
+  return payload.session;
+}
+
+export async function searchSessionHistory(query: string, limit: number): Promise<{ readonly source: string; readonly results: SearchResult[] }> {
+  return requestJson<{ readonly source: string; readonly results: SearchResult[] }>("/api/ui/sessions/search", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ query, limit }),
+  });
+}
+
+export async function runChatCompletion(payload: Record<string, unknown>): Promise<Record<string, unknown>> {
+  return requestJson<Record<string, unknown>>("/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function listModels(): Promise<string[]> {
+  const payload = await requestJson<{
+    readonly data?: ReadonlyArray<{ readonly id?: string }>;
+  }>("/v1/models");
+
+  if (!Array.isArray(payload.data)) {
+    return [];
+  }
+
+  return payload.data
+    .map((model) => (typeof model.id === "string" ? model.id.trim() : ""))
+    .filter((modelId, index, all) => modelId.length > 0 && all.indexOf(modelId) === index)
+    .sort((a, b) => a.localeCompare(b));
+}
+
+export async function getUsageOverview(): Promise<UsageOverview> {
+  return requestJson<UsageOverview>("/api/ui/dashboard/overview");
+}
+
+export async function listCredentials(reveal: boolean): Promise<{
+  readonly providers: CredentialProvider[];
+  readonly keyPoolStatuses: Record<string, KeyPoolStatus>;
+  readonly requestLogSummary: Record<string, ProviderRequestLogSummary>;
+}> {
+  const query = reveal ? "?reveal=1" : "";
+  return requestJson(`/api/ui/credentials${query}`);
+}
+
+export async function addApiKeyCredential(providerId: string, accountId: string, apiKey: string): Promise<void> {
+  await requestJson("/api/ui/credentials/api-key", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ providerId, accountId, apiKey }),
+  });
+}
+
+export async function startOpenAiBrowserOAuth(redirectBaseUrl: string): Promise<{
+  readonly authorizeUrl: string;
+}> {
+  return requestJson("/api/ui/credentials/openai/oauth/browser/start", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ redirectBaseUrl }),
+  });
+}
+
+export async function startOpenAiDeviceOAuth(): Promise<{
+  readonly verificationUrl: string;
+  readonly userCode: string;
+  readonly deviceAuthId: string;
+  readonly intervalMs: number;
+}> {
+  return requestJson("/api/ui/credentials/openai/oauth/device/start", {
+    method: "POST",
+  });
+}
+
+export async function pollOpenAiDeviceOAuth(deviceAuthId: string, userCode: string): Promise<{
+  readonly state: "pending" | "authorized" | "failed";
+  readonly reason?: string;
+}> {
+  return requestJson("/api/ui/credentials/openai/oauth/device/poll", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ deviceAuthId, userCode }),
+  });
+}
+
+export async function listRequestLogs(filters: {
+  readonly providerId?: string;
+  readonly accountId?: string;
+  readonly limit?: number;
+}): Promise<RequestLogEntry[]> {
+  const query = new URLSearchParams();
+  if (filters.providerId) {
+    query.set("providerId", filters.providerId);
+  }
+  if (filters.accountId) {
+    query.set("accountId", filters.accountId);
+  }
+  if (typeof filters.limit === "number") {
+    query.set("limit", String(filters.limit));
+  }
+
+  const suffix = query.toString().length > 0 ? `?${query.toString()}` : "";
+  const payload = await requestJson<{ readonly entries: RequestLogEntry[] }>(`/api/ui/request-logs${suffix}`);
+  return payload.entries;
+}
+
+export async function listToolSeeds(model: string): Promise<ToolSeed[]> {
+  const payload = await requestJson<{ readonly tools: ToolSeed[] }>(`/api/ui/tools?model=${encodeURIComponent(model)}`);
+  return payload.tools;
+}
+
+export async function listMcpSeeds(): Promise<McpServerSeed[]> {
+  const payload = await requestJson<{ readonly servers: McpServerSeed[] }>("/api/ui/mcp-servers");
+  return payload.servers;
+}

@@ -1,0 +1,915 @@
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function asString(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+function asNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function stringifyUnknown(value: unknown): string {
+  if (typeof value === "string") {
+    return value;
+  }
+
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+const INTERLEAVED_REASONING_KEYS = new Set(["reasoning_content", "reasoning_details", "tool_calls", "function_call"]);
+const INTERLEAVED_REASONING_PART_TYPES = new Set(["reasoning", "reasoning_content", "reasoning_details"]);
+const SUPPORTED_CHAT_MESSAGE_ROLES = new Set(["system", "developer", "user", "assistant", "tool"]);
+const TEXT_PART_TYPES = new Set(["text", "input_text", "output_text", "refusal"]);
+
+function contentToText(content: unknown): string {
+  if (typeof content === "string") {
+    return content;
+  }
+
+  if (Array.isArray(content)) {
+    const chunks: string[] = [];
+    for (const part of content) {
+      if (typeof part === "string") {
+        chunks.push(part);
+        continue;
+      }
+
+      if (!isRecord(part)) {
+        continue;
+      }
+
+      const partType = asString(part["type"]);
+      if (partType && INTERLEAVED_REASONING_PART_TYPES.has(partType)) {
+        continue;
+      }
+      if (partType && !TEXT_PART_TYPES.has(partType)) {
+        continue;
+      }
+
+      const text = asString(part["text"]) ?? asString(part["refusal"]);
+      if (text) {
+        chunks.push(text);
+      }
+    }
+
+    return chunks.join("");
+  }
+
+  if (content === null || content === undefined) {
+    return "";
+  }
+
+  return stringifyUnknown(content);
+}
+
+function instructionTextFromMessages(messages: unknown): string {
+  if (!Array.isArray(messages)) {
+    return "";
+  }
+
+  const parts: string[] = [];
+  for (const entry of messages) {
+    if (!isRecord(entry)) {
+      continue;
+    }
+
+    const role = asString(entry["role"]);
+    if (role !== "system" && role !== "developer") {
+      continue;
+    }
+
+    const text = contentToText(entry["content"]);
+    if (text.length > 0) {
+      parts.push(text);
+    }
+  }
+
+  return parts.join("\n");
+}
+
+function appendStringPart(parts: string[], value: unknown): void {
+  const text = asString(value);
+  if (text && text.length > 0) {
+    parts.push(text);
+  }
+}
+
+function extractReasoningTextFromResponsesItem(item: Record<string, unknown>): string {
+  const parts: string[] = [];
+  appendStringPart(parts, item["reasoning"]);
+  appendStringPart(parts, item["text"]);
+
+  const summary = item["summary"];
+  if (typeof summary === "string") {
+    appendStringPart(parts, summary);
+  }
+
+  if (Array.isArray(summary)) {
+    for (const entry of summary) {
+      if (!isRecord(entry)) {
+        continue;
+      }
+
+      appendStringPart(parts, entry["text"]);
+      appendStringPart(parts, entry["summary"]);
+    }
+  }
+
+  return parts.join("");
+}
+
+function hasMeaningfulContent(content: unknown): boolean {
+  if (typeof content === "string") {
+    return content.length > 0;
+  }
+
+  if (Array.isArray(content)) {
+    return content.length > 0;
+  }
+
+  return content !== null && content !== undefined;
+}
+
+function normalizeImagePartForResponses(part: Record<string, unknown>): Record<string, unknown> | null {
+  const imageUrlData = isRecord(part["image_url"]) ? part["image_url"] : null;
+  const imageUrl = asString(imageUrlData?.["url"]) ?? asString(part["image_url"]);
+  const fileId = asString(part["file_id"]);
+  const detail = asString(part["detail"]) ?? asString(imageUrlData?.["detail"]);
+
+  if (imageUrl || fileId) {
+    const normalized: Record<string, unknown> = {
+      type: "input_image"
+    };
+
+    if (imageUrl) {
+      normalized["image_url"] = imageUrl;
+    }
+
+    if (fileId) {
+      normalized["file_id"] = fileId;
+    }
+
+    if (detail) {
+      normalized["detail"] = detail;
+    }
+
+    return normalized;
+  }
+
+  const source = isRecord(part["source"]) ? part["source"] : null;
+  const sourceType = asString(source?.["type"]);
+
+  if (sourceType === "url") {
+    const sourceUrl = asString(source?.["url"]);
+    if (sourceUrl) {
+      return {
+        type: "input_image",
+        image_url: sourceUrl
+      };
+    }
+  }
+
+  if (sourceType === "base64") {
+    const sourceData = asString(source?.["data"]);
+    if (sourceData) {
+      const sourceMediaType = asString(source?.["media_type"]) ?? "application/octet-stream";
+      return {
+        type: "input_image",
+        image_url: `data:${sourceMediaType};base64,${sourceData}`
+      };
+    }
+  }
+
+  const directUrl = asString(part["url"]);
+  if (directUrl) {
+    return {
+      type: "input_image",
+      image_url: directUrl
+    };
+  }
+
+  const data = asString(part["data"]);
+  if (data) {
+    const mediaType = asString(part["mime_type"]) ?? asString(part["mimeType"]) ?? asString(part["media_type"]) ?? "application/octet-stream";
+    return {
+      type: "input_image",
+      image_url: `data:${mediaType};base64,${data}`
+    };
+  }
+
+  return null;
+}
+
+function normalizeChatContentPartForResponses(role: string, part: unknown): unknown {
+  if (typeof part === "string") {
+    return {
+      type: role === "assistant" ? "output_text" : "input_text",
+      text: part
+    };
+  }
+
+  if (!isRecord(part)) {
+    return part;
+  }
+
+  const type = asString(part["type"]);
+  if (type && INTERLEAVED_REASONING_PART_TYPES.has(type)) {
+    return null;
+  }
+  if (type === "text" || type === "input_text" || type === "output_text") {
+    return {
+      type: role === "assistant" ? "output_text" : "input_text",
+      text: asString(part["text"]) ?? ""
+    };
+  }
+
+  if (type === "image_url" || type === "input_image" || type === "image") {
+    const normalizedImage = normalizeImagePartForResponses(part);
+    if (normalizedImage) {
+      return normalizedImage;
+    }
+
+    return part;
+  }
+
+  const sanitized = { ...part };
+  for (const key of INTERLEAVED_REASONING_KEYS) {
+    delete sanitized[key];
+  }
+
+  return sanitized;
+}
+
+function normalizeChatMessageContentForResponses(role: string, content: unknown): unknown {
+  if (typeof content === "string") {
+    return content;
+  }
+
+  if (!Array.isArray(content)) {
+    return content;
+  }
+
+  return content
+    .map((part) => normalizeChatContentPartForResponses(role, part))
+    .filter((part) => part !== null);
+}
+
+function normalizeToolCallArguments(value: unknown): string {
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (value === null || value === undefined) {
+    return "{}";
+  }
+
+  return stringifyUnknown(value);
+}
+
+function chatMessagesToResponsesInput(messages: unknown): unknown[] {
+  if (!Array.isArray(messages)) {
+    return [];
+  }
+
+  const input: unknown[] = [];
+  for (const [messageIndex, entry] of messages.entries()) {
+    if (!isRecord(entry)) {
+      continue;
+    }
+
+    const role = asString(entry["role"]);
+    if (!role) {
+      throw new Error("messages entries must include a string role");
+    }
+
+    if (!SUPPORTED_CHAT_MESSAGE_ROLES.has(role)) {
+      throw new Error(`unsupported messages role: ${role}`);
+    }
+
+    if (role === "tool") {
+      const callId = asString(entry["tool_call_id"]);
+      if (!callId) {
+        continue;
+      }
+
+      input.push({
+        type: "function_call_output",
+        call_id: callId,
+        output: contentToText(entry["content"])
+      });
+      continue;
+    }
+
+    if (role === "assistant") {
+      const toolCalls = Array.isArray(entry["tool_calls"]) ? entry["tool_calls"] : [];
+      if (hasMeaningfulContent(entry["content"])) {
+        input.push({
+          role,
+          content: normalizeChatMessageContentForResponses(role, entry["content"])
+        });
+      }
+
+      for (const [toolIndex, toolCall] of toolCalls.entries()) {
+        if (!isRecord(toolCall)) {
+          continue;
+        }
+
+        const type = asString(toolCall["type"]) ?? "function";
+        if (type !== "function") {
+          continue;
+        }
+
+        const functionData = isRecord(toolCall["function"]) ? toolCall["function"] : null;
+        const functionName = functionData ? asString(functionData["name"]) : undefined;
+        if (!functionName) {
+          continue;
+        }
+
+        const callId = asString(toolCall["id"]) ?? `call_${messageIndex}_${toolIndex}`;
+        input.push({
+          type: "function_call",
+          call_id: callId,
+          name: functionName,
+          arguments: normalizeToolCallArguments(functionData ? functionData["arguments"] : undefined)
+        });
+      }
+
+      if (!hasMeaningfulContent(entry["content"]) && toolCalls.length === 0) {
+        input.push({
+          role,
+          content: ""
+        });
+      }
+
+      continue;
+    }
+
+    input.push({
+      role,
+      content: normalizeChatMessageContentForResponses(role, entry["content"] ?? "")
+    });
+  }
+
+  return input;
+}
+
+export function shouldUseResponsesUpstream(model: unknown, prefixes: readonly string[]): boolean {
+  if (typeof model !== "string") {
+    return false;
+  }
+
+  const normalizedModel = model.toLowerCase();
+  for (const prefix of prefixes) {
+    if (normalizedModel.startsWith(prefix.toLowerCase())) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function normalizeToolsForResponses(tools: unknown): unknown {
+  if (!Array.isArray(tools)) {
+    return tools;
+  }
+
+  const mapped: unknown[] = [];
+  for (const tool of tools) {
+    if (!isRecord(tool)) {
+      continue;
+    }
+
+    const type = asString(tool["type"]) ?? "function";
+    if (type !== "function") {
+      mapped.push(tool);
+      continue;
+    }
+
+    if (asString(tool["name"])) {
+      mapped.push(tool);
+      continue;
+    }
+
+    const functionConfig = isRecord(tool["function"]) ? tool["function"] : null;
+    const name = functionConfig ? asString(functionConfig["name"]) : undefined;
+    if (!name) {
+      continue;
+    }
+
+    const normalizedTool: Record<string, unknown> = {
+      type: "function",
+      name
+    };
+
+    const description = functionConfig ? asString(functionConfig["description"]) : undefined;
+    if (description) {
+      normalizedTool["description"] = description;
+    }
+
+    if (functionConfig && functionConfig["parameters"] !== undefined) {
+      normalizedTool["parameters"] = functionConfig["parameters"];
+    }
+
+    if (functionConfig && typeof functionConfig["strict"] === "boolean") {
+      normalizedTool["strict"] = functionConfig["strict"];
+    }
+
+    mapped.push(normalizedTool);
+  }
+
+  return mapped;
+}
+
+function normalizeToolChoiceForResponses(toolChoice: unknown): unknown {
+  if (!isRecord(toolChoice)) {
+    return toolChoice;
+  }
+
+  const type = asString(toolChoice["type"]);
+  if (type !== "function") {
+    return toolChoice;
+  }
+
+  const directName = asString(toolChoice["name"]);
+  if (directName) {
+    return {
+      type: "function",
+      name: directName
+    };
+  }
+
+  const functionConfig = isRecord(toolChoice["function"]) ? toolChoice["function"] : null;
+  const functionName = functionConfig ? asString(functionConfig["name"]) : undefined;
+  if (!functionName) {
+    return toolChoice;
+  }
+
+  return {
+    type: "function",
+    name: functionName
+  };
+}
+
+export function chatRequestToResponsesRequest(requestBody: Record<string, unknown>): Record<string, unknown> {
+  const payload: Record<string, unknown> = {
+    model: requestBody["model"],
+    instructions: instructionTextFromMessages(requestBody["messages"]),
+    input: chatMessagesToResponsesInput(requestBody["messages"]),
+  };
+
+  const maxTokens = asNumber(requestBody["max_tokens"]);
+  if (maxTokens !== undefined) {
+    payload["max_output_tokens"] = maxTokens;
+  }
+
+  const maxCompletionTokens = asNumber(requestBody["max_completion_tokens"]);
+  if (maxCompletionTokens !== undefined && payload["max_output_tokens"] === undefined) {
+    payload["max_output_tokens"] = maxCompletionTokens;
+  }
+
+  const passthroughKeys = [
+    "temperature",
+    "top_p",
+    "presence_penalty",
+    "frequency_penalty",
+    "parallel_tool_calls",
+    "max_tool_calls",
+    "include",
+    "metadata",
+    "user",
+    "service_tier",
+    "truncation",
+    "prompt_cache_key"
+  ];
+
+  for (const key of passthroughKeys) {
+    if (requestBody[key] !== undefined) {
+      payload[key] = requestBody[key];
+    }
+  }
+
+  if (requestBody["reasoning"] !== undefined) {
+    payload["reasoning"] = requestBody["reasoning"];
+  }
+
+  const reasoningEffort = asString(requestBody["reasoningEffort"]) ?? asString(requestBody["reasoning_effort"]);
+  const reasoningSummary = asString(requestBody["reasoningSummary"]) ?? asString(requestBody["reasoning_summary"]);
+  if (reasoningEffort || reasoningSummary) {
+    const reasoning = isRecord(payload["reasoning"]) ? { ...payload["reasoning"] } : {};
+    if (reasoningEffort && reasoning["effort"] === undefined) {
+      reasoning["effort"] = reasoningEffort;
+    }
+    if (reasoningSummary && reasoning["summary"] === undefined) {
+      reasoning["summary"] = reasoningSummary;
+    }
+    payload["reasoning"] = reasoning;
+  }
+
+  if (requestBody["text"] !== undefined) {
+    payload["text"] = requestBody["text"];
+  }
+
+  const textVerbosity = asString(requestBody["textVerbosity"]) ?? asString(requestBody["text_verbosity"]);
+  if (textVerbosity) {
+    const text = isRecord(payload["text"]) ? { ...payload["text"] } : {};
+    if (!isRecord(text["format"])) {
+      text["format"] = { type: "text" };
+    }
+    if (text["verbosity"] === undefined) {
+      text["verbosity"] = textVerbosity;
+    }
+    payload["text"] = text;
+  }
+
+  if (requestBody["tools"] !== undefined) {
+    payload["tools"] = normalizeToolsForResponses(requestBody["tools"]);
+  }
+
+  if (requestBody["tool_choice"] !== undefined) {
+    payload["tool_choice"] = normalizeToolChoiceForResponses(requestBody["tool_choice"]);
+  }
+
+  return payload;
+}
+
+function responsesOutputToChatMessage(output: unknown): {
+  readonly content: string | null;
+  readonly reasoningContent: string;
+  readonly toolCalls: ReadonlyArray<Record<string, unknown>>;
+  readonly finishReason: "stop" | "tool_calls";
+} {
+  if (!Array.isArray(output)) {
+    return {
+      content: "",
+      reasoningContent: "",
+      toolCalls: [],
+      finishReason: "stop"
+    };
+  }
+
+  const textParts: string[] = [];
+  const reasoningParts: string[] = [];
+  const toolCalls: Record<string, unknown>[] = [];
+
+  for (const [index, item] of output.entries()) {
+    if (!isRecord(item)) {
+      continue;
+    }
+
+    const itemType = asString(item["type"]);
+    if (itemType === "message") {
+      const role = asString(item["role"]);
+      if (role !== "assistant") {
+        continue;
+      }
+
+      appendStringPart(reasoningParts, item["reasoning_content"]);
+      appendStringPart(reasoningParts, item["reasoning"]);
+
+      const content = item["content"];
+      if (!Array.isArray(content)) {
+        continue;
+      }
+
+      for (const part of content) {
+        if (!isRecord(part)) {
+          continue;
+        }
+
+        const partType = asString(part["type"]);
+        if (partType === "output_text") {
+          const text = asString(part["text"]);
+          if (text) {
+            textParts.push(text);
+          }
+          continue;
+        }
+
+        if (partType === "reasoning" || partType === "thinking" || partType === "summary_text") {
+          appendStringPart(reasoningParts, part["text"]);
+          appendStringPart(reasoningParts, part["reasoning"]);
+        }
+      }
+      continue;
+    }
+
+    if (itemType === "reasoning") {
+      const reasoningText = extractReasoningTextFromResponsesItem(item);
+      if (reasoningText.length > 0) {
+        reasoningParts.push(reasoningText);
+      }
+      continue;
+    }
+
+    if (itemType === "function_call") {
+      const functionName = asString(item["name"]);
+      if (!functionName) {
+        continue;
+      }
+
+      const callId = asString(item["call_id"]) ?? `call_${index}`;
+      const argumentsText = normalizeToolCallArguments(item["arguments"]);
+
+      toolCalls.push({
+        id: callId,
+        type: "function",
+        function: {
+          name: functionName,
+          arguments: argumentsText
+        }
+      });
+    }
+  }
+
+  const textContent = textParts.join("");
+  const reasoningContent = reasoningParts.join("");
+  if (toolCalls.length > 0) {
+    return {
+      content: textContent.length > 0 ? textContent : null,
+      reasoningContent,
+      toolCalls,
+      finishReason: "tool_calls"
+    };
+  }
+
+  return {
+    content: textContent,
+    reasoningContent,
+    toolCalls,
+    finishReason: "stop"
+  };
+}
+
+export function responsesToChatCompletion(responseBody: unknown, fallbackModel: string): Record<string, unknown> {
+  if (!isRecord(responseBody)) {
+    throw new Error("Invalid upstream responses payload");
+  }
+
+  const id = asString(responseBody["id"]) ?? `chatcmpl_${Date.now()}`;
+  const createdAt = asNumber(responseBody["created_at"]) ?? Math.floor(Date.now() / 1000);
+  const model = asString(responseBody["model"]) ?? fallbackModel;
+  const mappedMessage = responsesOutputToChatMessage(responseBody["output"]);
+
+  const message: Record<string, unknown> = {
+    role: "assistant",
+    content: mappedMessage.content
+  };
+  if (mappedMessage.reasoningContent.length > 0) {
+    message["reasoning_content"] = mappedMessage.reasoningContent;
+  }
+  if (mappedMessage.toolCalls.length > 0) {
+    message["tool_calls"] = mappedMessage.toolCalls;
+  }
+
+  const completion: Record<string, unknown> = {
+    id,
+    object: "chat.completion",
+    created: createdAt,
+    model,
+    choices: [
+      {
+        index: 0,
+        message,
+        finish_reason: mappedMessage.finishReason
+      }
+    ],
+    system_fingerprint: ""
+  };
+
+  const usage = isRecord(responseBody["usage"]) ? responseBody["usage"] : null;
+  if (usage) {
+    const promptTokens = asNumber(usage["input_tokens"]);
+    const completionTokens = asNumber(usage["output_tokens"]);
+    const totalTokens = asNumber(usage["total_tokens"]);
+
+    if (promptTokens !== undefined && completionTokens !== undefined && totalTokens !== undefined) {
+      completion["usage"] = {
+        prompt_tokens: promptTokens,
+        completion_tokens: completionTokens,
+        total_tokens: totalTokens
+      };
+    }
+  }
+
+  return completion;
+}
+
+function parseResponsesSsePayloads(streamText: string): Array<Record<string, unknown>> {
+  const blocks = streamText.split(/\r?\n\r?\n/);
+  const payloads: Array<Record<string, unknown>> = [];
+
+  for (const block of blocks) {
+    const dataLines = block
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.startsWith("data:"))
+      .map((line) => line.slice(5).trim());
+
+    if (dataLines.length === 0) {
+      continue;
+    }
+
+    const data = dataLines.join("\n").trim();
+    if (data.length === 0 || data === "[DONE]") {
+      continue;
+    }
+
+    try {
+      const parsed: unknown = JSON.parse(data);
+      if (isRecord(parsed)) {
+        payloads.push(parsed);
+      }
+    } catch {
+      // Ignore malformed SSE payloads and keep parsing the stream.
+    }
+  }
+
+  return payloads;
+}
+
+export function responsesEventStreamToErrorPayload(streamText: string): Record<string, unknown> | undefined {
+  for (const payload of parseResponsesSsePayloads(streamText)) {
+    const type = asString(payload["type"]);
+    if (type === "error" && isRecord(payload["error"])) {
+      return payload["error"];
+    }
+
+    if (type === "response.failed") {
+      const response = isRecord(payload["response"]) ? payload["response"] : null;
+      if (response && isRecord(response["error"])) {
+        return response["error"];
+      }
+    }
+  }
+
+  return undefined;
+}
+
+export function responsesEventStreamToChatCompletion(streamText: string, fallbackModel: string): Record<string, unknown> {
+  const payloads = parseResponsesSsePayloads(streamText);
+  let terminalResponse: Record<string, unknown> | undefined;
+  let latestResponse: Record<string, unknown> | undefined;
+  const textDeltas: string[] = [];
+
+  for (const payload of payloads) {
+    const type = asString(payload["type"]);
+    const response = isRecord(payload["response"]) ? payload["response"] : null;
+    if (response) {
+      latestResponse = response;
+    }
+
+    if (type === "response.output_text.delta") {
+      const delta = asString(payload["delta"]);
+      if (delta) {
+        textDeltas.push(delta);
+      }
+    }
+
+    if ((type === "response.completed" || type === "response.incomplete") && response) {
+      terminalResponse = response;
+    }
+  }
+
+  if (terminalResponse) {
+    return responsesToChatCompletion(terminalResponse, fallbackModel);
+  }
+
+  if (textDeltas.length > 0) {
+    return responsesToChatCompletion({
+      ...(latestResponse ?? {}),
+      output: [
+        {
+          type: "message",
+          role: "assistant",
+          content: [
+            {
+              type: "output_text",
+              text: textDeltas.join("")
+            }
+          ]
+        }
+      ]
+    }, fallbackModel);
+  }
+
+  throw new Error("Invalid upstream responses event-stream payload");
+}
+
+interface StreamToolCall {
+  readonly index: number;
+  readonly id: string;
+  readonly type: "function";
+  readonly function: {
+    readonly name: string;
+    readonly arguments: string;
+  };
+}
+
+function completionToStreamDelta(completion: Record<string, unknown>): {
+  readonly id: string;
+  readonly created: number;
+  readonly model: string;
+  readonly delta: Record<string, unknown>;
+  readonly finishReason: string;
+} {
+  const id = asString(completion["id"]) ?? `chatcmpl_${Date.now()}`;
+  const created = asNumber(completion["created"]) ?? Math.floor(Date.now() / 1000);
+  const model = asString(completion["model"]) ?? "unknown";
+  const choices = Array.isArray(completion["choices"]) ? completion["choices"] : [];
+  const firstChoice = choices.length > 0 && isRecord(choices[0]) ? choices[0] : {};
+  const message = isRecord(firstChoice["message"]) ? firstChoice["message"] : {};
+  const finishReason = asString(firstChoice["finish_reason"]) ?? "stop";
+
+  const delta: Record<string, unknown> = {
+    role: "assistant"
+  };
+
+  const reasoning = asString(message["reasoning_content"]) ?? asString(message["reasoning"]);
+  if (reasoning && reasoning.length > 0) {
+    delta["reasoning_content"] = reasoning;
+  }
+
+  const toolCalls = Array.isArray(message["tool_calls"]) ? message["tool_calls"] : [];
+  if (toolCalls.length > 0) {
+    const mapped = toolCalls
+      .map<StreamToolCall | null>((entry, index) => {
+        if (!isRecord(entry)) {
+          return null;
+        }
+
+        const functionData = isRecord(entry["function"]) ? entry["function"] : null;
+        const functionName = functionData ? asString(functionData["name"]) : undefined;
+        if (!functionName) {
+          return null;
+        }
+
+        const functionArguments = functionData ? normalizeToolCallArguments(functionData["arguments"]) : "{}";
+
+        return {
+          index,
+          id: asString(entry["id"]) ?? `call_${index}`,
+          type: "function",
+          function: {
+            name: functionName,
+            arguments: functionArguments
+          }
+        };
+      })
+      .filter((entry): entry is StreamToolCall => entry !== null);
+
+    delta["tool_calls"] = mapped;
+  } else {
+    const content = message["content"];
+    delta["content"] = typeof content === "string" ? content : "";
+  }
+
+  return {
+    id,
+    created,
+    model,
+    delta,
+    finishReason
+  };
+}
+
+export function chatCompletionToSse(completion: Record<string, unknown>): string {
+  const streamData = completionToStreamDelta(completion);
+
+  const firstChunk = {
+    id: streamData.id,
+    object: "chat.completion.chunk",
+    created: streamData.created,
+    model: streamData.model,
+    choices: [
+      {
+        index: 0,
+        delta: streamData.delta,
+        finish_reason: null
+      }
+    ]
+  };
+
+  const finalChunk = {
+    id: streamData.id,
+    object: "chat.completion.chunk",
+    created: streamData.created,
+    model: streamData.model,
+    choices: [
+      {
+        index: 0,
+        delta: {},
+        finish_reason: streamData.finishReason
+      }
+    ]
+  };
+
+  return `data: ${JSON.stringify(firstChunk)}\n\n` +
+    `data: ${JSON.stringify(finalChunk)}\n\n` +
+    "data: [DONE]\n\n";
+}

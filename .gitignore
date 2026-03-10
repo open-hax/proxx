@@ -1,0 +1,9 @@
+node_modules/
+dist/
+logs/
+data/
+coverage/
+
+.env
+keys.json
+models.json

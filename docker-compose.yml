@@ -1,0 +1,66 @@
+services:
+  open-hax-openai-proxy:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "${PROXY_PORT:-8789}:8789"
+      - "${PROXY_WEB_PORT:-5174}:5174"
+    environment:
+      NODE_ENV: production
+      PROXY_HOST: 0.0.0.0
+      PROXY_PORT: "8789"
+      PROXY_AUTH_TOKEN: "${PROXY_AUTH_TOKEN:-change-me-open-hax-proxy-token}"
+      PROXY_KEYS_FILE: /workspace/service-config/keys.json
+      PROXY_MODELS_FILE: /workspace/service-config/models.json
+      PROXY_REQUEST_LOGS_FILE: /app/data/request-logs.json
+      UPSTREAM_PROVIDER_ID: "${UPSTREAM_PROVIDER_ID:-vivgrid}"
+      UPSTREAM_FALLBACK_PROVIDER_IDS: "${UPSTREAM_FALLBACK_PROVIDER_IDS:-ollama-cloud}"
+      UPSTREAM_BASE_URL: "${UPSTREAM_BASE_URL:-https://api.vivgrid.com}"
+      UPSTREAM_PROVIDER_BASE_URLS: "${UPSTREAM_PROVIDER_BASE_URLS:-vivgrid=https://api.vivgrid.com,ollama-cloud=https://ollama.com}"
+      OPENAI_PROVIDER_ID: "${OPENAI_PROVIDER_ID:-openai}"
+      OPENAI_BASE_URL: "${OPENAI_BASE_URL:-https://chatgpt.com/backend-api}"
+      OLLAMA_BASE_URL: "${OLLAMA_BASE_URL:-http://ollama:11434}"
+      UPSTREAM_CHAT_COMPLETIONS_PATH: "${UPSTREAM_CHAT_COMPLETIONS_PATH:-/v1/chat/completions}"
+      OPENAI_CHAT_COMPLETIONS_PATH: "${OPENAI_CHAT_COMPLETIONS_PATH:-/codex/responses/compact}"
+      UPSTREAM_MESSAGES_PATH: "${UPSTREAM_MESSAGES_PATH:-/v1/messages}"
+      UPSTREAM_MESSAGES_MODEL_PREFIXES: "${UPSTREAM_MESSAGES_MODEL_PREFIXES:-claude-}"
+      UPSTREAM_MESSAGES_INTERLEAVED_THINKING_BETA: "${UPSTREAM_MESSAGES_INTERLEAVED_THINKING_BETA:-interleaved-thinking-2025-05-14}"
+      UPSTREAM_RESPONSES_PATH: "${UPSTREAM_RESPONSES_PATH:-/v1/responses}"
+      OPENAI_RESPONSES_PATH: "${OPENAI_RESPONSES_PATH:-/codex/responses/compact}"
+      UPSTREAM_RESPONSES_MODEL_PREFIXES: "${UPSTREAM_RESPONSES_MODEL_PREFIXES:-gpt-}"
+      OPENAI_MODEL_PREFIXES: "${OPENAI_MODEL_PREFIXES:-openai/,openai:}"
+      OLLAMA_CHAT_PATH: "${OLLAMA_CHAT_PATH:-/api/chat}"
+      OLLAMA_MODEL_PREFIXES: "${OLLAMA_MODEL_PREFIXES:-ollama/,ollama:}"
+      PROXY_KEY_RELOAD_MS: "${PROXY_KEY_RELOAD_MS:-5000}"
+      PROXY_KEY_COOLDOWN_MS: "${PROXY_KEY_COOLDOWN_MS:-30000}"
+      UPSTREAM_REQUEST_TIMEOUT_MS: "${UPSTREAM_REQUEST_TIMEOUT_MS:-180000}"
+      PROXY_ALLOW_UNAUTHENTICATED: "${PROXY_ALLOW_UNAUTHENTICATED:-false}"
+      CHROMA_URL: "${CHROMA_URL:-http://host.docker.internal:8000}"
+      CHROMA_COLLECTION: "${CHROMA_COLLECTION:-open_hax_proxy_sessions}"
+      CHROMA_EMBED_MODEL: "${CHROMA_EMBED_MODEL:-nomic-embed-text:latest}"
+    volumes:
+      - ./:/workspace/service-config:ro
+      - ./data:/app/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "Promise.all([fetch('http://127.0.0.1:8789/health',{headers:{Authorization:'Bearer '+(process.env.PROXY_AUTH_TOKEN||'')}}), fetch('http://127.0.0.1:5174')]).then(([proxyResponse, webResponse]) => { if (!proxyResponse.ok || !webResponse.ok) { process.exit(1); } }).catch(() => process.exit(1))"
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+    networks:
+      ai-infra: {}
+
+networks:
+  ai-infra:
+    external: true
+    name: ai-infra

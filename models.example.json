@@ -1,0 +1,23 @@
+{
+  "models": [
+    "gpt-5.2-codex",
+    "gpt-5.1-codex",
+    "gpt-5.1-codex-max",
+    "claude-opus-4-5",
+    "gpt-5.3-codex",
+    "gemini-3-flash-preview",
+    "gpt-5.2",
+    "DeepSeek-V3.2",
+    "gemini-3-pro-preview",
+    "gpt-5.1",
+    "gpt-5",
+    "gpt-5-mini",
+    "gemini-2.5-flash",
+    "gemini-2.5-pro",
+    "glm-5",
+    "Kimi-K2.5",
+    "gemini-3.1-pro-preview",
+    "qwen3.5:4b-q8_0",
+    "qwen3.5:2b-bf16"
+  ]
+}
