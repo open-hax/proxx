@@ -117,6 +117,22 @@ function quotaToneClass(remainingPercent: number | null): string {
   return "credentials-quota-fill-good";
 }
 
+function formatServiceTier(entry: RequestLogEntry): string {
+  if (!entry.serviceTier) {
+    return "standard";
+  }
+
+  if (entry.serviceTierSource === "fast_mode") {
+    return "fast mode";
+  }
+
+  if (entry.serviceTier === "priority") {
+    return "priority";
+  }
+
+  return entry.serviceTier.replace(/[_-]+/g, " ");
+}
+
 function sortAccounts(accounts: readonly CredentialAccount[]): CredentialAccount[] {
   return [...accounts].sort((left, right) => {
     const leftLabel = (left.email ?? left.displayName ?? left.id).toLowerCase();
@@ -872,7 +888,7 @@ export function CredentialsPage(): JSX.Element {
                 <span>{entry.status} · {entry.latencyMs}ms</span>
               </header>
               <p>
-                {entry.model} · {entry.upstreamMode} · {new Date(entry.timestamp).toLocaleString()}
+                {entry.model} · {entry.upstreamMode} · {formatServiceTier(entry)} · {new Date(entry.timestamp).toLocaleString()}
                 {typeof entry.totalTokens === "number" ? ` · ${entry.totalTokens} tok` : ""}
               </p>
               {entry.error && <small>{entry.error}</small>}

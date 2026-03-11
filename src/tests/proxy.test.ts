@@ -372,6 +372,19 @@ test("persists request logs with usage counts for dashboard surfaces", async () 
           setTimeout(resolve, 10);
         });
       }
+
+      const overviewResponse = await app.inject({
+        method: "GET",
+        url: "/api/ui/dashboard/overview",
+      });
+      assert.equal(overviewResponse.statusCode, 200);
+      const overviewPayload: unknown = overviewResponse.json();
+      assert.ok(isRecord(overviewPayload));
+      assert.ok(isRecord(overviewPayload.summary));
+      assert.ok(isRecord(overviewPayload.summary.serviceTierRequests24h));
+      assert.equal(overviewPayload.summary.serviceTierRequests24h.fastMode, 0);
+      assert.equal(overviewPayload.summary.serviceTierRequests24h.priority, 0);
+      assert.equal(overviewPayload.summary.serviceTierRequests24h.standard, 1);
     }
   );
 
@@ -382,6 +395,8 @@ test("persists request logs with usage counts for dashboard surfaces", async () 
   assert.equal(parsed.entries.length, 1);
   assert.ok(isRecord(parsed.entries[0]));
   assert.equal(parsed.entries[0].model, "gpt-5.3-codex");
+  assert.equal(parsed.entries[0].serviceTier, undefined);
+  assert.equal(parsed.entries[0].serviceTierSource, "none");
   assert.equal(parsed.entries[0].promptTokens, 15);
   assert.equal(parsed.entries[0].completionTokens, 9);
   assert.equal(parsed.entries[0].totalTokens, 24);
@@ -2143,6 +2158,31 @@ test("applies global fast mode to responses requests through proxy settings", as
       assert.ok(isRecord(observedBody));
       assert.equal(observedBody.service_tier, "priority");
       assert.equal(observedBody.open_hax, undefined);
+
+      const requestLogsPayload = await app.inject({
+        method: "GET",
+        url: "/api/ui/request-logs?limit=1",
+      });
+      assert.equal(requestLogsPayload.statusCode, 200);
+      const requestLogsBody: unknown = requestLogsPayload.json();
+      assert.ok(isRecord(requestLogsBody));
+      assert.ok(Array.isArray(requestLogsBody.entries));
+      assert.ok(isRecord(requestLogsBody.entries[0]));
+      assert.equal(requestLogsBody.entries[0].serviceTier, "priority");
+      assert.equal(requestLogsBody.entries[0].serviceTierSource, "fast_mode");
+
+      const overviewResponse = await app.inject({
+        method: "GET",
+        url: "/api/ui/dashboard/overview",
+      });
+      assert.equal(overviewResponse.statusCode, 200);
+      const overviewPayload: unknown = overviewResponse.json();
+      assert.ok(isRecord(overviewPayload));
+      assert.ok(isRecord(overviewPayload.summary));
+      assert.ok(isRecord(overviewPayload.summary.serviceTierRequests24h));
+      assert.equal(overviewPayload.summary.serviceTierRequests24h.fastMode, 1);
+      assert.equal(overviewPayload.summary.serviceTierRequests24h.priority, 0);
+      assert.equal(overviewPayload.summary.serviceTierRequests24h.standard, 0);
     }
   );
 });
@@ -2200,6 +2240,98 @@ test("request-level service tier overrides global fast mode", async () => {
       assert.equal(response.statusCode, 200);
       assert.ok(isRecord(observedBody));
       assert.equal(observedBody.service_tier, "default");
+
+      const requestLogsPayload = await app.inject({
+        method: "GET",
+        url: "/api/ui/request-logs?limit=1",
+      });
+      assert.equal(requestLogsPayload.statusCode, 200);
+      const requestLogsBody: unknown = requestLogsPayload.json();
+      assert.ok(isRecord(requestLogsBody));
+      assert.ok(Array.isArray(requestLogsBody.entries));
+      assert.ok(isRecord(requestLogsBody.entries[0]));
+      assert.equal(requestLogsBody.entries[0].serviceTier, "default");
+      assert.equal(requestLogsBody.entries[0].serviceTierSource, "explicit");
+
+      const overviewResponse = await app.inject({
+        method: "GET",
+        url: "/api/ui/dashboard/overview",
+      });
+      assert.equal(overviewResponse.statusCode, 200);
+      const overviewPayload: unknown = overviewResponse.json();
+      assert.ok(isRecord(overviewPayload));
+      assert.ok(isRecord(overviewPayload.summary));
+      assert.ok(isRecord(overviewPayload.summary.serviceTierRequests24h));
+      assert.equal(overviewPayload.summary.serviceTierRequests24h.fastMode, 0);
+      assert.equal(overviewPayload.summary.serviceTierRequests24h.priority, 0);
+      assert.equal(overviewPayload.summary.serviceTierRequests24h.standard, 1);
+    }
+  );
+});
+
+test("does not tag non-responses requests with a service tier", async () => {
+  let observedBody: unknown;
+
+  await withProxyApp(
+    {
+      keys: ["key-a"],
+      upstreamHandler: async (_request, body) => {
+        observedBody = JSON.parse(body);
+
+        return {
+          status: 200,
+          headers: {
+            "content-type": "application/json"
+          },
+          body: JSON.stringify({
+            id: "chatcmpl_non_responses_tier",
+            object: "chat.completion",
+            created: 1772516801,
+            model: "claude-3-7-sonnet",
+            choices: [
+              {
+                index: 0,
+                message: {
+                  role: "assistant",
+                  content: "ok"
+                },
+                finish_reason: "stop"
+              }
+            ]
+          })
+        };
+      }
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json",
+          "x-open-hax-fast-mode": "true"
+        },
+        payload: {
+          model: "claude-3-7-sonnet",
+          messages: [{ role: "user", content: "hello" }],
+          stream: false
+        }
+      });
+
+      assert.equal(response.statusCode, 200);
+      assert.ok(isRecord(observedBody));
+      assert.equal(observedBody.service_tier, undefined);
+
+      const requestLogsPayload = await app.inject({
+        method: "GET",
+        url: "/api/ui/request-logs?limit=1",
+      });
+      assert.equal(requestLogsPayload.statusCode, 200);
+      const requestLogsBody: unknown = requestLogsPayload.json();
+      assert.ok(isRecord(requestLogsBody));
+      assert.ok(Array.isArray(requestLogsBody.entries));
+      assert.ok(isRecord(requestLogsBody.entries[0]));
+      assert.equal(requestLogsBody.entries[0].serviceTier, undefined);
+      assert.equal(requestLogsBody.entries[0].serviceTierSource, "none");
     }
   );
 });

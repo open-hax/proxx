@@ -25,6 +25,22 @@ function formatDate(value: string | null): string {
   return value ? new Date(value).toLocaleString() : "Never";
 }
 
+function formatServiceTier(entry: RequestLogEntry): string {
+  if (!entry.serviceTier) {
+    return "Standard";
+  }
+
+  if (entry.serviceTierSource === "fast_mode") {
+    return "Fast mode";
+  }
+
+  if (entry.serviceTier === "priority") {
+    return "Priority";
+  }
+
+  return entry.serviceTier.replace(/[_-]+/g, " ");
+}
+
 function metricTone(value: number, inverse = false): string {
   if (value <= 0) {
     return "dashboard-metric-neutral";
@@ -77,6 +93,38 @@ function donutSegments(accounts: readonly UsageAccountSummary[]): JSX.Element {
         return element;
       })}
     </svg>
+  );
+}
+
+function serviceTierShareBars(summary: UsageOverview["summary"]): JSX.Element {
+  const tiers = [
+    { label: "Fast mode", value: summary.serviceTierRequests24h.fastMode, className: "dashboard-tier-fast_mode" },
+    { label: "Priority", value: summary.serviceTierRequests24h.priority, className: "dashboard-tier-explicit" },
+    { label: "Standard", value: summary.serviceTierRequests24h.standard, className: "dashboard-tier-none" },
+  ];
+  const total = tiers.reduce((sum, tier) => sum + tier.value, 0);
+
+  if (total <= 0) {
+    return <div className="dashboard-account-empty">No tiered request activity yet.</div>;
+  }
+
+  return (
+    <div className="dashboard-tier-summary">
+      {tiers.map((tier) => {
+        const percent = total > 0 ? (tier.value / total) * 100 : 0;
+        return (
+          <div key={tier.label} className="dashboard-tier-summary-row">
+            <div className="dashboard-tier-summary-labels">
+              <strong>{tier.label}</strong>
+              <small>{formatCompactNumber(tier.value)} req · {formatPercent(percent)}</small>
+            </div>
+            <div className="dashboard-tier-summary-track" aria-hidden="true">
+              <span className={`dashboard-tier-summary-fill ${tier.className}`} style={{ width: `${Math.max(percent, tier.value > 0 ? 6 : 0)}%` }} />
+            </div>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
@@ -202,21 +250,31 @@ export function DashboardPage(): JSX.Element {
         <article className="dashboard-panel panel-sheen">
           <header className="dashboard-panel-header">
             <div>
-              <h3>Traffic Trend</h3>
-              <p>Hourly request and token movement.</p>
+              <h3>Service Tier Mix</h3>
+              <p>How the last 24h request volume splits across fast mode, priority, and standard traffic.</p>
             </div>
           </header>
-          <div className="dashboard-trend-grid">
-            <div>
-              <span className="dashboard-chart-label">Requests</span>
-              {overview ? miniBars(overview.trends.requests) : <div className="dashboard-sparkbars dashboard-sparkbars-placeholder" />}
-            </div>
-            <div>
-              <span className="dashboard-chart-label">Tokens</span>
-              {overview ? miniBars(overview.trends.tokens) : <div className="dashboard-sparkbars dashboard-sparkbars-placeholder" />}
-            </div>
-          </div>
+          {overview ? serviceTierShareBars(overview.summary) : <div className="dashboard-account-empty">Loading tier mix…</div>}
         </article>
+      </section>
+
+      <section className="dashboard-panel panel-sheen">
+        <header className="dashboard-panel-header">
+          <div>
+            <h3>Traffic Trend</h3>
+            <p>Hourly request and token movement.</p>
+          </div>
+        </header>
+        <div className="dashboard-trend-grid">
+          <div>
+            <span className="dashboard-chart-label">Requests</span>
+            {overview ? miniBars(overview.trends.requests) : <div className="dashboard-sparkbars dashboard-sparkbars-placeholder" />}
+          </div>
+          <div>
+            <span className="dashboard-chart-label">Tokens</span>
+            {overview ? miniBars(overview.trends.tokens) : <div className="dashboard-sparkbars dashboard-sparkbars-placeholder" />}
+          </div>
+        </div>
       </section>
 
       <section className="dashboard-detail-grid dashboard-detail-grid-wide">
@@ -261,6 +319,7 @@ export function DashboardPage(): JSX.Element {
               <span>When</span>
               <span>Provider</span>
               <span>Model</span>
+              <span>Tier</span>
               <span>Status</span>
               <span>Latency</span>
             </div>
@@ -271,6 +330,9 @@ export function DashboardPage(): JSX.Element {
                 <span>{new Date(entry.timestamp).toLocaleTimeString()}</span>
                 <span>{entry.providerId}/{entry.accountId}</span>
                 <span>{entry.model}</span>
+                <span className={`dashboard-status-pill dashboard-tier-pill dashboard-tier-${entry.serviceTierSource}`}>
+                  {formatServiceTier(entry)}
+                </span>
                 <span className={`dashboard-status-pill dashboard-status-${entry.status >= 400 ? "cooldown" : "healthy"}`}>{entry.status}</span>
                 <span>{Math.round(entry.latencyMs)} ms</span>
               </div>

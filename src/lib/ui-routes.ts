@@ -50,6 +50,11 @@ interface UsageOverviewResponse {
     readonly topModel: string | null;
     readonly topProvider: string | null;
     readonly activeAccounts: number;
+    readonly serviceTierRequests24h: {
+      readonly fastMode: number;
+      readonly priority: number;
+      readonly standard: number;
+    };
   };
   readonly trends: {
     readonly requests: readonly TrendPoint[];
@@ -173,10 +178,21 @@ async function buildUsageOverview(
   const modelTotals = new Map<string, number>();
   const providerTotals = new Map<string, number>();
   const accountStats = new Map<string, UsageAccountSummary>();
+  let fastModeTierRequests = 0;
+  let priorityTierRequests = 0;
+  let standardTierRequests = 0;
 
   for (const entry of recentLogs) {
     modelTotals.set(entry.model, (modelTotals.get(entry.model) ?? 0) + usageCount(entry.totalTokens));
     providerTotals.set(entry.providerId, (providerTotals.get(entry.providerId) ?? 0) + usageCount(entry.totalTokens));
+
+    if (entry.serviceTierSource === "fast_mode") {
+      fastModeTierRequests += 1;
+    } else if (entry.serviceTier === "priority") {
+      priorityTierRequests += 1;
+    } else {
+      standardTierRequests += 1;
+    }
 
     const mapKey = `${entry.providerId}\0${entry.accountId}`;
     const current = accountStats.get(mapKey);
@@ -269,6 +285,11 @@ async function buildUsageOverview(
       topModel,
       topProvider,
       activeAccounts,
+      serviceTierRequests24h: {
+        fastMode: fastModeTierRequests,
+        priority: priorityTierRequests,
+        standard: standardTierRequests,
+      },
     },
     trends: {
       requests: bucketSeries.map((point) => ({ t: point.t, v: point.requests })),

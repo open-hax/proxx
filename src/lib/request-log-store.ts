@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
 export type RequestAuthType = "api_key" | "oauth_bearer" | "local" | "none";
+export type RequestServiceTierSource = "fast_mode" | "explicit" | "none";
 
 export interface RequestLogEntry {
   readonly id: string;
@@ -14,6 +15,8 @@ export interface RequestLogEntry {
   readonly upstreamPath: string;
   readonly status: number;
   readonly latencyMs: number;
+  readonly serviceTier?: string;
+  readonly serviceTierSource: RequestServiceTierSource;
   readonly promptTokens?: number;
   readonly completionTokens?: number;
   readonly totalTokens?: number;
@@ -35,6 +38,8 @@ export interface RequestLogRecordInput {
   readonly upstreamPath: string;
   readonly status: number;
   readonly latencyMs: number;
+  readonly serviceTier?: string;
+  readonly serviceTierSource?: RequestServiceTierSource;
   readonly promptTokens?: number;
   readonly completionTokens?: number;
   readonly totalTokens?: number;
@@ -85,6 +90,8 @@ function hydrateEntry(raw: unknown): RequestLogEntry | null {
   const upstreamPath = asString(raw.upstreamPath)?.trim();
   const status = asNumber(raw.status);
   const latencyMs = asNumber(raw.latencyMs);
+  const serviceTier = asString(raw.serviceTier)?.trim();
+  const serviceTierSource = raw.serviceTierSource;
 
   if (!providerId || !accountId || !model || !upstreamMode || !upstreamPath || status === undefined || latencyMs === undefined) {
     return null;
@@ -94,6 +101,13 @@ function hydrateEntry(raw: unknown): RequestLogEntry | null {
     authType === "api_key" || authType === "oauth_bearer" || authType === "local" || authType === "none"
       ? authType
       : "none";
+
+  const normalizedServiceTierSource: RequestServiceTierSource =
+    serviceTierSource === "fast_mode" || serviceTierSource === "explicit" || serviceTierSource === "none"
+      ? serviceTierSource
+      : serviceTier
+        ? "explicit"
+        : "none";
 
   return {
     id: asString(raw.id) ?? crypto.randomUUID(),
@@ -106,6 +120,8 @@ function hydrateEntry(raw: unknown): RequestLogEntry | null {
     upstreamPath,
     status,
     latencyMs,
+    serviceTier,
+    serviceTierSource: normalizedServiceTierSource,
     promptTokens: sanitizeOptionalCount(asNumber(raw.promptTokens)),
     completionTokens: sanitizeOptionalCount(asNumber(raw.completionTokens)),
     totalTokens: sanitizeOptionalCount(asNumber(raw.totalTokens)),
@@ -185,6 +201,8 @@ export class RequestLogStore {
       upstreamPath: input.upstreamPath,
       status: input.status,
       latencyMs: input.latencyMs,
+      serviceTier: input.serviceTier?.trim() || undefined,
+      serviceTierSource: input.serviceTierSource ?? (input.serviceTier ? "explicit" : "none"),
       promptTokens: sanitizeOptionalCount(input.promptTokens),
       completionTokens: sanitizeOptionalCount(input.completionTokens),
       totalTokens: sanitizeOptionalCount(input.totalTokens),

@@ -62,6 +62,8 @@ export interface RequestLogEntry {
   readonly upstreamPath: string;
   readonly status: number;
   readonly latencyMs: number;
+  readonly serviceTier?: string;
+  readonly serviceTierSource: "fast_mode" | "explicit" | "none";
   readonly promptTokens?: number;
   readonly completionTokens?: number;
   readonly totalTokens?: number;
@@ -141,6 +143,11 @@ export interface UsageOverview {
     readonly topModel: string | null;
     readonly topProvider: string | null;
     readonly activeAccounts: number;
+    readonly serviceTierRequests24h: {
+      readonly fastMode: number;
+      readonly priority: number;
+      readonly standard: number;
+    };
   };
   readonly trends: {
     readonly requests: readonly UsageTrendPoint[];
