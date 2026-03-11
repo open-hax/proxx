@@ -12,11 +12,13 @@ import { RequestLogStore } from "./request-log-store.js";
 import { ChromaSessionIndex } from "./chroma-session-index.js";
 import { SessionStore, type ChatRole } from "./session-store.js";
 import { getToolSeedForModel, loadMcpSeeds } from "./tool-mcp-seed.js";
+import type { ProxySettingsStore } from "./proxy-settings-store.js";
 
 interface UiRouteDependencies {
   readonly config: ProxyConfig;
   readonly keyPool: KeyPool;
   readonly requestLogStore: RequestLogStore;
+  readonly proxySettingsStore: ProxySettingsStore;
 }
 
 interface UsageAccountSummary {
@@ -396,6 +398,19 @@ export async function registerUiRoutes(app: FastifyInstance, deps: UiRouteDepend
     };
     return seeds;
   };
+
+  app.get("/api/ui/settings", async (_request, reply) => {
+    reply.send(deps.proxySettingsStore.get());
+  });
+
+  app.post<{ Body: { readonly fastMode?: unknown } }>("/api/ui/settings", async (request, reply) => {
+    const nextSettings = await deps.proxySettingsStore.set({
+      fastMode: parseBoolean(request.body?.fastMode),
+    });
+
+    app.log.info({ fastMode: nextSettings.fastMode }, "updated proxy UI settings");
+    reply.send(nextSettings);
+  });
 
   app.get("/api/ui/sessions", async (_request, reply) => {
     const sessions = await sessionStore.listSessions();

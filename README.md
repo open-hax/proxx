@@ -11,6 +11,7 @@ OpenAI-compatible proxy server with provider-scoped account rotation.
 - Preserves reasoning traces when translating Responses/Messages payloads by mapping them to OpenAI-compatible `reasoning_content` in non-stream and synthetic stream responses.
 - Maps OpenAI-style reasoning controls (`reasoning_effort` / `reasoning.effort`) into Claude `thinking` payloads and adds the interleaved-thinking beta header when enabled.
 - Model-aware routing to OpenAI provider: models prefixed with `openai/` or `openai:` route to configured OpenAI endpoints.
+- Global fast-mode toggle for Responses traffic: the proxy can inject `service_tier: "priority"` for GPT/Responses requests, with per-request overrides still respected.
 - Model-aware routing to Ollama base API: models prefixed with `ollama/` or `ollama:` are sent to Ollama `POST /api/chat`.
 - Built-in React/Vite console with a usage dashboard plus Chat, Credentials, and Tools/MCP pages.
 - OpenAI OAuth browser + device flows based on OpenCode Codex plugin behavior (PKCE, state, callback exchange, account extraction).
@@ -112,6 +113,7 @@ Notes:
 - `PROXY_KEYS_FILE` (default: `./keys.json`, fallback: `VIVGRID_KEYS_FILE`)
 - `PROXY_MODELS_FILE` (default: `./models.json`, fallback: `VIVGRID_MODELS_FILE`)
 - `PROXY_REQUEST_LOGS_FILE` (default: `./data/request-logs.json`)
+- `PROXY_SETTINGS_FILE` (default: `./data/proxy-settings.json`)
 - `PROXY_KEY_RELOAD_MS` (default: `5000`, fallback: `VIVGRID_KEY_RELOAD_MS`)
 - `PROXY_KEY_COOLDOWN_MS` (default: `30000`, fallback: `VIVGRID_KEY_COOLDOWN_MS`)
 - `UPSTREAM_REQUEST_TIMEOUT_MS` (default: `180000`)

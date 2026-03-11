@@ -30,6 +30,7 @@ import {
 } from "./lib/provider-utils.js";
 import { RequestLogStore } from "./lib/request-log-store.js";
 import { PromptAffinityStore } from "./lib/prompt-affinity-store.js";
+import { ProxySettingsStore } from "./lib/proxy-settings-store.js";
 import { registerUiRoutes } from "./lib/ui-routes.js";
 import {
   ensureOllamaContextFits,
@@ -153,6 +154,8 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
   await requestLogStore.warmup();
   const promptAffinityStore = new PromptAffinityStore(config.promptAffinityFilePath);
   await promptAffinityStore.warmup();
+  const proxySettingsStore = new ProxySettingsStore(config.settingsFilePath);
+  await proxySettingsStore.warmup();
 
   const ollamaCatalogRoutes = buildOllamaCatalogRoutes(config);
   const modelCatalogTtlMs = 30_000;
@@ -423,7 +426,22 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       return;
     }
 
-    const requestedModelInput = typeof request.body.model === "string" ? request.body.model : "";
+    const proxySettings = proxySettingsStore.get();
+    const requestBody = proxySettings.fastMode
+      ? {
+        open_hax: {
+          fast_mode: true,
+          ...(isRecord(request.body.open_hax) ? request.body.open_hax : {}),
+        },
+        ...request.body,
+      }
+      : request.body;
+
+    if (proxySettings.fastMode) {
+      reply.header("x-open-hax-fast-mode", "priority");
+    }
+
+    const requestedModelInput = typeof requestBody.model === "string" ? requestBody.model : "";
     let routingModelInput = requestedModelInput;
     let resolvedModelCatalog: ResolvedModelCatalog | null = null;
     try {
@@ -438,7 +456,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       request.log.warn({ error: toErrorMessage(error) }, "failed to resolve dynamic model aliases; using requested model as-is");
     }
 
-    const { strategy, context } = selectProviderStrategy(config, request.headers, request.body, requestedModelInput, routingModelInput);
+    const { strategy, context } = selectProviderStrategy(config, request.headers, requestBody, requestedModelInput, routingModelInput);
     reply.header("x-open-hax-upstream-mode", strategy.mode);
 
     let payload: ReturnType<typeof strategy.buildPayload>;
@@ -451,7 +469,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
 
     if (strategy.mode === "ollama_chat" || strategy.mode === "local_ollama_chat") {
       const candidateRequestBody = payload.upstreamPayload;
-      if (isRecord(candidateRequestBody) && !requestHasExplicitNumCtx(request.body)) {
+      if (isRecord(candidateRequestBody) && !requestHasExplicitNumCtx(requestBody)) {
         const budget = await ensureOllamaContextFits(config.ollamaBaseUrl, candidateRequestBody, Math.min(config.requestTimeoutMs, 30_000));
         if (budget && budget.requiredContextTokens > budget.availableContextTokens) {
           sendOpenAiError(
@@ -481,7 +499,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     }
 
     const availability = await inspectProviderAvailability(keyPool, providerRoutes);
-    const promptCacheKey = extractPromptCacheKey(request.body);
+    const promptCacheKey = extractPromptCacheKey(requestBody);
     const execution = await executeProviderFallback(
       strategy,
       reply,
@@ -721,7 +739,8 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
   await registerUiRoutes(app, {
     config,
     keyPool,
-    requestLogStore
+    requestLogStore,
+    proxySettingsStore
   });
 
   app.addHook("onClose", async () => {

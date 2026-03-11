@@ -237,6 +237,14 @@ function asNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
+function asString(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+function asBoolean(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
+}
+
 function buildPayloadResult(upstreamPayload: Record<string, unknown>): BuildPayloadResult {
   return {
     upstreamPayload,
@@ -245,12 +253,77 @@ function buildPayloadResult(upstreamPayload: Record<string, unknown>): BuildPayl
 }
 
 function buildRequestBodyForUpstream(context: StrategyRequestContext): Record<string, unknown> {
-  return context.routedModel !== context.requestedModelInput
-    ? {
-      ...context.requestBody,
-      model: context.routedModel
-    }
-    : context.requestBody;
+  const upstreamBody: Record<string, unknown> = {
+    ...context.requestBody,
+  };
+
+  if (context.routedModel !== context.requestedModelInput) {
+    upstreamBody.model = context.routedModel;
+  }
+
+  delete upstreamBody["open_hax"];
+  return upstreamBody;
+}
+
+function readHeaderValue(headers: IncomingHttpHeaders, name: string): string | undefined {
+  const value = headers[name.toLowerCase()];
+  if (Array.isArray(value)) {
+    return value.join(", ");
+  }
+
+  return typeof value === "string" ? value : undefined;
+}
+
+function parseBooleanHeader(value: string | undefined): boolean | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized)) {
+    return true;
+  }
+
+  if (["0", "false", "no", "off"].includes(normalized)) {
+    return false;
+  }
+
+  return undefined;
+}
+
+function resolveRequestedServiceTier(context: StrategyRequestContext): string | undefined {
+  const openHax = isRecord(context.requestBody["open_hax"]) ? context.requestBody["open_hax"] : null;
+
+  const explicitServiceTier = asString(openHax?.["service_tier"]) ?? asString(openHax?.["serviceTier"]);
+  if (explicitServiceTier?.trim()) {
+    return explicitServiceTier.trim();
+  }
+
+  const headerServiceTier = readHeaderValue(context.clientHeaders, "x-open-hax-service-tier")?.trim();
+  if (headerServiceTier) {
+    return headerServiceTier;
+  }
+
+  const fastMode = asBoolean(openHax?.["fast_mode"])
+    ?? asBoolean(openHax?.["fastMode"])
+    ?? parseBooleanHeader(readHeaderValue(context.clientHeaders, "x-open-hax-fast-mode"));
+
+  if (fastMode) {
+    return "priority";
+  }
+
+  return undefined;
+}
+
+function applyRequestedServiceTier(upstreamPayload: Record<string, unknown>, context: StrategyRequestContext): void {
+  if (upstreamPayload["service_tier"] !== undefined) {
+    return;
+  }
+
+  const serviceTier = resolveRequestedServiceTier(context);
+  if (serviceTier) {
+    upstreamPayload["service_tier"] = serviceTier;
+  }
 }
 
 function recordAttempt(
@@ -824,7 +897,9 @@ class ResponsesProviderStrategy extends TransformedJsonProviderStrategy {
   }
 
   public buildPayload(context: StrategyRequestContext): BuildPayloadResult {
-    return buildPayloadResult(chatRequestToResponsesRequest(buildRequestBodyForUpstream(context)));
+    const upstreamPayload = chatRequestToResponsesRequest(buildRequestBodyForUpstream(context));
+    applyRequestedServiceTier(upstreamPayload, context);
+    return buildPayloadResult(upstreamPayload);
   }
 
   protected convertResponseToChatCompletion(upstreamJson: unknown, routedModel: string): Record<string, unknown> {
@@ -848,6 +923,7 @@ class OpenAiResponsesProviderStrategy extends TransformedJsonProviderStrategy {
 
   public buildPayload(context: StrategyRequestContext): BuildPayloadResult {
     const upstreamPayload = chatRequestToResponsesRequest(buildRequestBodyForUpstream(context));
+    applyRequestedServiceTier(upstreamPayload, context);
     delete upstreamPayload["max_output_tokens"];
     upstreamPayload["store"] = false;
     upstreamPayload["stream"] = true;

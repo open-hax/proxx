@@ -52,6 +52,7 @@ async function withProxyApp(
   const modelsPath = path.join(tempDir, "models.json");
   const requestLogsPath = path.join(tempDir, "request-logs.json");
   const promptAffinityPath = path.join(tempDir, "prompt-affinity.json");
+  const settingsPath = path.join(tempDir, "proxy-settings.json");
 
   const keysPayload = options.keysPayload ?? { keys: options.keys };
   await writeFile(keysPath, JSON.stringify(keysPayload, null, 2), "utf8");
@@ -112,6 +113,7 @@ async function withProxyApp(
     modelsFilePath: modelsPath,
     requestLogsFilePath: requestLogsPath,
     promptAffinityFilePath: promptAffinityPath,
+    settingsFilePath: settingsPath,
     keyReloadMs: 50,
     keyCooldownMs: 10000,
     requestTimeoutMs: 2000,
@@ -2070,6 +2072,134 @@ test("retries transient upstream server errors on the same key before rotating",
       assert.ok(isRecord(payload));
       assert.equal(payload.id, "chatcmpl-retry-same-key");
       assert.deepEqual(observedKeys, ["key-a", "key-a", "key-a"]);
+    }
+  );
+});
+
+test("applies global fast mode to responses requests through proxy settings", async () => {
+  let observedBody: unknown;
+
+  await withProxyApp(
+    {
+      keys: ["key-a"],
+      upstreamHandler: async (_request, body) => {
+        observedBody = JSON.parse(body);
+
+        return {
+          status: 200,
+          headers: {
+            "content-type": "application/json"
+          },
+          body: JSON.stringify({
+            id: "resp_fast_mode",
+            object: "response",
+            created_at: 1772516800,
+            model: "gpt-5.3-codex",
+            output: [
+              {
+                id: "msg_fast_mode",
+                type: "message",
+                role: "assistant",
+                content: [
+                  {
+                    type: "output_text",
+                    text: "fast-mode-ok"
+                  }
+                ]
+              }
+            ]
+          })
+        };
+      }
+    },
+    async ({ app }) => {
+      const settingsResponse = await app.inject({
+        method: "POST",
+        url: "/api/ui/settings",
+        headers: {
+          "content-type": "application/json"
+        },
+        payload: {
+          fastMode: true
+        }
+      });
+
+      assert.equal(settingsResponse.statusCode, 200);
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json"
+        },
+        payload: {
+          model: "gpt-5.3-codex",
+          messages: [{ role: "user", content: "hello" }],
+          stream: false
+        }
+      });
+
+      assert.equal(response.statusCode, 200);
+      assert.ok(isRecord(observedBody));
+      assert.equal(observedBody.service_tier, "priority");
+      assert.equal(observedBody.open_hax, undefined);
+    }
+  );
+});
+
+test("request-level service tier overrides global fast mode", async () => {
+  let observedBody: unknown;
+
+  await withProxyApp(
+    {
+      keys: ["key-a"],
+      upstreamHandler: async (_request, body) => {
+        observedBody = JSON.parse(body);
+
+        return {
+          status: 200,
+          headers: {
+            "content-type": "application/json"
+          },
+          body: JSON.stringify({
+            id: "resp_service_tier_override",
+            object: "response",
+            created_at: 1772516800,
+            model: "gpt-5.3-codex",
+            output: []
+          })
+        };
+      }
+    },
+    async ({ app }) => {
+      await app.inject({
+        method: "POST",
+        url: "/api/ui/settings",
+        headers: {
+          "content-type": "application/json"
+        },
+        payload: {
+          fastMode: true
+        }
+      });
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json"
+        },
+        payload: {
+          model: "gpt-5.3-codex",
+          messages: [{ role: "user", content: "hello" }],
+          stream: false,
+          service_tier: "default"
+        }
+      });
+
+      assert.equal(response.statusCode, 200);
+      assert.ok(isRecord(observedBody));
+      assert.equal(observedBody.service_tier, "default");
     }
   );
 });

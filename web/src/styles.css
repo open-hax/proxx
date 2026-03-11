@@ -81,6 +81,19 @@ textarea {
   gap: 8px;
 }
 
+.shell-settings-card {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(9, 21, 30, 0.68);
+}
+
+.shell-settings-card small {
+  color: var(--text-dim);
+}
+
 .shell-auth label {
   color: var(--text-muted);
   font-size: 0.9rem;

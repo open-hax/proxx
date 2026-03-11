@@ -113,6 +113,10 @@ export interface UsageTrendPoint {
   readonly v: number;
 }
 
+export interface ProxyUiSettings {
+  readonly fastMode: boolean;
+}
+
 export interface UsageAccountSummary {
   readonly accountId: string;
   readonly displayName: string;
@@ -410,6 +414,20 @@ export async function listModels(): Promise<string[]> {
 
 export async function getUsageOverview(): Promise<UsageOverview> {
   return requestJson<UsageOverview>("/api/ui/dashboard/overview");
+}
+
+export async function getProxyUiSettings(): Promise<ProxyUiSettings> {
+  return requestJson<ProxyUiSettings>("/api/ui/settings");
+}
+
+export async function saveProxyUiSettings(settings: ProxyUiSettings): Promise<ProxyUiSettings> {
+  return requestJson<ProxyUiSettings>("/api/ui/settings", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(settings),
+  });
 }
 
 export async function listCredentials(reveal: boolean): Promise<{
