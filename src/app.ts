@@ -2,8 +2,12 @@ import Fastify, { type FastifyInstance } from "fastify";
 
 import { DEFAULT_MODELS, type ProxyConfig } from "./lib/config.js";
 import { KeyPool, type ProviderCredential } from "./lib/key-pool.js";
+import { CredentialStore } from "./lib/credential-store.js";
+import { OpenAiOAuthManager } from "./lib/openai-oauth.js";
 import { loadModels, toOpenAiModel } from "./lib/models.js";
 import { buildForwardHeaders } from "./lib/proxy.js";
+import { initializePolicyEngine, createPolicyEngine, type PolicyEngine } from "./lib/policy/index.js";
+import { DEFAULT_POLICY_CONFIG } from "./lib/policy/index.js";
 import {
   buildLargestModelAliases,
   buildOllamaCatalogRoutes,
@@ -49,6 +53,12 @@ import {
 } from "./lib/ollama-native.js";
 import { applyNativeOllamaAuth } from "./lib/native-auth.js";
 import { requestHasExplicitNumCtx } from "./lib/ollama-compat.js";
+import { createSqlConnection, closeConnection, type Sql } from "./lib/db/index.js";
+import { SqlCredentialStore } from "./lib/db/sql-credential-store.js";
+import { SqlAuthPersistence } from "./lib/auth/sql-persistence.js";
+import { SqlGitHubAllowlist } from "./lib/auth/github-allowlist.js";
+import { seedFromJsonFile } from "./lib/db/json-seeder.js";
+import { registerOAuthRoutes, createVerifyBearerToken } from "./lib/oauth-routes.js";
 
 interface ChatCompletionRequest {
   readonly model?: string;
@@ -118,6 +128,43 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     bodyLimit: 300 * 1024 * 1024
   });
 
+  let sql: Sql | undefined;
+  let sqlCredentialStore: SqlCredentialStore | undefined;
+  let sqlAuthPersistence: SqlAuthPersistence | undefined;
+  let sqlGitHubAllowlist: SqlGitHubAllowlist | undefined;
+
+  if (config.databaseUrl) {
+    try {
+      sql = createSqlConnection({ connectionString: config.databaseUrl });
+      app.log.info("connecting to database");
+
+      sqlCredentialStore = new SqlCredentialStore(sql);
+      await sqlCredentialStore.init();
+      app.log.info("credential store initialized");
+
+      sqlAuthPersistence = new SqlAuthPersistence(sql);
+      await sqlAuthPersistence.init();
+      app.log.info("auth persistence initialized");
+
+      sqlGitHubAllowlist = new SqlGitHubAllowlist(sql);
+      app.log.info("github allowlist initialized");
+
+      if (config.keysFilePath) {
+        try {
+          const seedResult = await seedFromJsonFile(sql, config.keysFilePath, config.upstreamProviderId);
+          app.log.info({ providers: seedResult.providers, accounts: seedResult.accounts }, "seeded credentials from json file");
+        } catch (error) {
+          app.log.warn({ error: toErrorMessage(error) }, "failed to seed credentials from json file; continuing with existing data");
+        }
+      }
+
+      app.log.info("database connection established");
+    } catch (error) {
+      app.log.error({ error: toErrorMessage(error) }, "failed to initialize database connection");
+      throw error;
+    }
+  }
+
   const keyPool = new KeyPool({
     keysFilePath: config.keysFilePath,
     reloadIntervalMs: config.keyReloadMs,
@@ -133,6 +180,75 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
   await requestLogStore.warmup();
   const promptAffinityStore = new PromptAffinityStore(config.promptAffinityFilePath);
   await promptAffinityStore.warmup();
+
+  let policyEngine: PolicyEngine;
+  try {
+    policyEngine = await initializePolicyEngine(config.policyConfigPath);
+    app.log.info({ policyConfigPath: config.policyConfigPath }, "policy engine initialized");
+  } catch (error) {
+    app.log.warn({ error: toErrorMessage(error) }, "failed to load policy config; using defaults");
+    policyEngine = createPolicyEngine(DEFAULT_POLICY_CONFIG);
+  }
+
+  const credentialStore = new CredentialStore(config.keysFilePath, config.upstreamProviderId);
+  const oauthManager = new OpenAiOAuthManager();
+
+  async function refreshExpiredOAuthAccount(credential: ProviderCredential): Promise<ProviderCredential | null> {
+    if (!credential.refreshToken) {
+      return null;
+    }
+
+    try {
+      app.log.info({ accountId: credential.accountId, providerId: credential.providerId }, "refreshing expired OAuth token");
+      
+      const newTokens = await oauthManager.refreshToken(credential.refreshToken);
+      
+      const newCredential: ProviderCredential = {
+        providerId: credential.providerId,
+        accountId: newTokens.accountId,
+        token: newTokens.accessToken,
+        authType: "oauth_bearer",
+        chatgptAccountId: newTokens.accountId,
+        planType: newTokens.planType,
+        refreshToken: newTokens.refreshToken ?? credential.refreshToken,
+        expiresAt: newTokens.expiresAt,
+      };
+
+      await credentialStore.upsertOAuthAccount(
+        credential.providerId,
+        newCredential.accountId,
+        newCredential.token,
+        newCredential.refreshToken,
+        newCredential.expiresAt,
+        newCredential.chatgptAccountId,
+      );
+
+      await keyPool.warmup();
+
+      app.log.info({ 
+        accountId: newCredential.accountId, 
+        providerId: newCredential.providerId,
+        expiresAt: newCredential.expiresAt,
+      }, "OAuth token refreshed successfully");
+
+      return newCredential;
+    } catch (error) {
+      app.log.warn({ 
+        error: toErrorMessage(error), 
+        accountId: credential.accountId,
+        providerId: credential.providerId,
+      }, "failed to refresh OAuth token");
+      return null;
+    }
+  }
+
+  async function ensureFreshAccounts(providerId: string): Promise<void> {
+    const expiredAccounts = keyPool.getExpiredAccountsWithRefreshTokens(providerId);
+    
+    for (const account of expiredAccounts) {
+      await refreshExpiredOAuthAccount(account);
+    }
+  }
 
   const ollamaCatalogRoutes = buildOllamaCatalogRoutes(config);
   const modelCatalogTtlMs = 30_000;
@@ -432,6 +548,8 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       return;
     }
 
+    await ensureFreshAccounts(config.upstreamProviderId);
+
     let providerRoutes = buildProviderRoutes(
       config,
       context.openAiPrefixed,
@@ -453,6 +571,8 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       context,
       payload,
       promptCacheKey,
+      refreshExpiredOAuthAccount,
+      policyEngine,
     );
 
     if (execution.handled) {
@@ -749,8 +869,28 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     requestLogStore
   });
 
+  if (sql && sqlAuthPersistence && sqlGitHubAllowlist && sqlCredentialStore) {
+    await registerOAuthRoutes(app, {
+      clientId: config.githubOAuthClientId,
+      clientSecret: config.githubOAuthClientSecret,
+      callbackPath: config.githubOAuthCallbackPath,
+      allowedUsers: config.githubAllowedUsers,
+      sessionSecret: config.sessionSecret,
+      upstreamProviderId: config.upstreamProviderId,
+      keysFilePath: config.keysFilePath,
+    }, {
+      sql,
+      authPersistence: sqlAuthPersistence,
+      allowlist: sqlGitHubAllowlist,
+      credentialStore: sqlCredentialStore,
+    });
+  }
+
   app.addHook("onClose", async () => {
     await requestLogStore.close();
+    if (sql) {
+      await closeConnection(sql);
+    }
   });
 
   app.setNotFoundHandler(async (request, reply) => {

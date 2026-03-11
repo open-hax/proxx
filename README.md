@@ -21,6 +21,13 @@ Required setup:
 - Set `PROXY_AUTH_TOKEN` in `.env` unless you are only doing local unauthenticated debugging
 - Adjust `UPSTREAM_*`, `OPENAI_*`, `OLLAMA_*`, and optional `CHROMA_*` settings in `.env` for your environment
 
+Env-backed providers:
+
+- `OPENROUTER_API_KEY` automatically exposes an `openrouter` provider route
+- `REQUESTY_API_TOKEN` automatically exposes a `requesty` provider route
+- Both providers default to OpenAI-compatible `/v1/chat/completions` routing
+- You can target them by setting `UPSTREAM_PROVIDER_ID=openrouter` or `UPSTREAM_PROVIDER_ID=requesty`, or by listing them in `UPSTREAM_FALLBACK_PROVIDER_IDS`
+
 ## Run
 
 Start the API server:

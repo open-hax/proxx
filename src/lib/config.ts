@@ -36,9 +36,17 @@ export interface ProxyConfig {
   readonly upstreamTransientRetryBackoffMs: number;
   readonly proxyAuthToken?: string;
   readonly allowUnauthenticated: boolean;
+  readonly policyConfigPath?: string;
+  readonly databaseUrl?: string;
+  readonly githubOAuthClientId?: string;
+  readonly githubOAuthClientSecret?: string;
+  readonly githubOAuthCallbackPath: string;
+  readonly githubAllowedUsers: readonly string[];
+  readonly sessionSecret: string;
 }
 
 export const DEFAULT_MODELS: readonly string[] = [
+  "gpt-5.4",
   "gpt-5.2-codex",
   "gpt-5.1-codex",
   "gpt-5.1-codex-max",
@@ -131,8 +139,12 @@ function booleanFromEnvAliases(names: readonly string[], fallback: boolean): boo
 
 function csvFromEnv(name: string, fallback: readonly string[]): string[] {
   const raw = process.env[name];
-  if (!raw) {
+  if (raw === undefined) {
     return [...fallback];
+  }
+
+  if (raw === "") {
+    return [];
   }
 
   const items = raw
@@ -140,7 +152,7 @@ function csvFromEnv(name: string, fallback: readonly string[]): string[] {
     .map((entry) => entry.trim())
     .filter((entry) => entry.length > 0);
 
-  return items.length > 0 ? items : [...fallback];
+  return items;
 }
 
 function providerBaseUrlsFromEnv(
@@ -171,9 +183,23 @@ function providerBaseUrlsFromEnv(
   return parsed;
 }
 
+function defaultProviderBaseUrl(providerId: string): string {
+  switch (providerId.trim()) {
+    case "openrouter":
+      return (process.env.OPENROUTER_BASE_URL ?? "https://openrouter.ai/api/v1").replace(/\/+$/, "");
+    case "requesty":
+      return (process.env.REQUESTY_BASE_URL ?? "https://router.requesty.ai/v1").replace(/\/+$/, "");
+    case "ollama-cloud":
+      return "https://ollama.com";
+    case "vivgrid":
+    default:
+      return "https://api.vivgrid.com";
+  }
+}
+
 export function loadConfig(cwd: string = process.cwd()): ProxyConfig {
   const upstreamProviderId = (process.env.UPSTREAM_PROVIDER_ID ?? "vivgrid").trim();
-  const upstreamBaseUrl = (process.env.UPSTREAM_BASE_URL ?? "https://api.vivgrid.com").replace(/\/+$/, "");
+  const upstreamBaseUrl = (process.env.UPSTREAM_BASE_URL ?? defaultProviderBaseUrl(upstreamProviderId)).replace(/\/+$/, "");
   const defaultFallbackProviders = upstreamProviderId === "vivgrid"
     ? ["ollama-cloud"]
     : upstreamProviderId === "ollama-cloud"
@@ -191,7 +217,9 @@ export function loadConfig(cwd: string = process.cwd()): ProxyConfig {
   )];
   const upstreamProviderBaseUrls = providerBaseUrlsFromEnv("UPSTREAM_PROVIDER_BASE_URLS", {
     vivgrid: "https://api.vivgrid.com",
-    "ollama-cloud": "https://ollama.com"
+    "ollama-cloud": "https://ollama.com",
+    openrouter: defaultProviderBaseUrl("openrouter"),
+    requesty: defaultProviderBaseUrl("requesty")
   });
   upstreamProviderBaseUrls[upstreamProviderId] = upstreamBaseUrl;
   const openaiProviderId = (process.env.OPENAI_PROVIDER_ID ?? "openai").trim();
@@ -238,6 +266,19 @@ export function loadConfig(cwd: string = process.cwd()): ProxyConfig {
     "small"
   ]);
 
+  const databaseUrlRaw = process.env.DATABASE_URL?.trim();
+  const databaseUrl = databaseUrlRaw && databaseUrlRaw.length > 0 ? databaseUrlRaw : undefined;
+
+  const githubOAuthClientId = process.env.GITHUB_OAUTH_CLIENT_ID?.trim() || undefined;
+  const githubOAuthClientSecret = process.env.GITHUB_OAUTH_CLIENT_SECRET?.trim() || undefined;
+  const githubOAuthCallbackPath = process.env.GITHUB_OAUTH_CALLBACK_PATH?.trim() || "/auth/github/callback";
+  const githubAllowedUsers = csvFromEnv("GITHUB_ALLOWED_USERS", []);
+
+  const sessionSecretRaw = process.env.SESSION_SECRET?.trim();
+  const sessionSecret = sessionSecretRaw && sessionSecretRaw.length > 0
+    ? sessionSecretRaw
+    : proxyAuthToken ?? "default-session-secret-change-in-production";
+
   return {
     host: process.env.PROXY_HOST ?? "127.0.0.1",
     port: numberFromEnvAliases(["PROXY_PORT"], 8789),
@@ -275,6 +316,13 @@ export function loadConfig(cwd: string = process.cwd()): ProxyConfig {
     upstreamTransientRetryCount: nonNegativeNumberFromEnvAliases(["UPSTREAM_TRANSIENT_RETRY_COUNT"], 2),
     upstreamTransientRetryBackoffMs: numberFromEnvAliases(["UPSTREAM_TRANSIENT_RETRY_BACKOFF_MS"], 350),
     proxyAuthToken,
-    allowUnauthenticated
+    allowUnauthenticated,
+    policyConfigPath: process.env.PROXY_POLICY_CONFIG_FILE ?? undefined,
+    databaseUrl,
+    githubOAuthClientId,
+    githubOAuthClientSecret,
+    githubOAuthCallbackPath,
+    githubAllowedUsers,
+    sessionSecret,
   };
 }

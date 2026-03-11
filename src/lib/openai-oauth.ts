@@ -32,6 +32,8 @@ interface TokenResponse {
   readonly access_token: string;
   readonly refresh_token?: string;
   readonly expires_in?: number;
+  readonly chatgpt_account_id?: string;
+  readonly chatgpt_plan_type?: string;
 }
 
 interface DeviceAuthorizationResponse {
@@ -63,6 +65,7 @@ export interface OAuthTokens {
   readonly refreshToken?: string;
   readonly expiresAt?: number;
   readonly accountId: string;
+  readonly planType?: string;
 }
 
 export type DevicePollResult =
@@ -72,9 +75,11 @@ export type DevicePollResult =
 
 interface JwtClaims {
   readonly chatgpt_account_id?: string;
+  readonly chatgpt_plan_type?: string;
   readonly organizations?: ReadonlyArray<{ readonly id: string }>;
   readonly "https://api.openai.com/auth"?: {
     readonly chatgpt_account_id?: string;
+    readonly chatgpt_plan_type?: string;
   };
 }
 
@@ -135,6 +140,13 @@ function accountIdFromClaims(claims: JwtClaims): string | undefined {
     claims.chatgpt_account_id ??
     claims["https://api.openai.com/auth"]?.chatgpt_account_id ??
     claims.organizations?.[0]?.id
+  );
+}
+
+function planTypeFromClaims(claims: JwtClaims): string | undefined {
+  return (
+    claims.chatgpt_plan_type ??
+    claims["https://api.openai.com/auth"]?.chatgpt_plan_type
   );
 }
 
@@ -205,11 +217,14 @@ async function exchangeAuthorizationCode(
 }
 
 function toOAuthTokens(tokens: TokenResponse): OAuthTokens {
+  const accessClaims = parseJwtClaims(tokens.access_token);
+  const planType = tokens.chatgpt_plan_type ?? (accessClaims ? planTypeFromClaims(accessClaims) : undefined);
   return {
     accountId: extractAccountId(tokens),
     accessToken: tokens.access_token,
     refreshToken: tokens.refresh_token,
     expiresAt: typeof tokens.expires_in === "number" ? Date.now() + tokens.expires_in * 1000 : undefined,
+    planType,
   };
 }
 
@@ -404,6 +419,34 @@ export class OpenAiOAuthManager {
       state: "failed",
       reason: `OpenAI device authorization poll failed with status ${response.status}`,
     };
+  }
+
+  public async refreshToken(refreshToken: string): Promise<OAuthTokens> {
+    const response = await this.fetchFn(`${OPENAI_ISSUER}/oauth/token`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        grant_type: "refresh_token",
+        refresh_token: refreshToken,
+        client_id: OPENAI_CLIENT_ID,
+      }).toString(),
+    });
+
+    if (!response.ok) {
+      throw new Error(`OpenAI token refresh failed with status ${response.status}`);
+    }
+
+    const tokens = (await response.json()) as TokenResponse;
+    return toOAuthTokens(tokens);
+  }
+
+  public isTokenExpired(expiresAt: number | undefined, bufferMs: number = 60000): boolean {
+    if (typeof expiresAt !== "number") {
+      return false;
+    }
+    return this.now() >= expiresAt - bufferMs;
   }
 
   private pruneState(): void {

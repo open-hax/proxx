@@ -362,19 +362,26 @@ export async function registerUiRoutes(app: FastifyInstance, deps: UiRouteDepend
     resolve(process.cwd(), "ecosystems"),
   ]);
 
-  const initialSemanticIndexSync = (async () => {
-    try {
-      const existingDocuments = await sessionStore.collectSearchDocuments();
-      for (const message of existingDocuments) {
-        await sessionIndex.indexMessage(message);
-      }
-    } catch (error) {
-      app.log.warn(
-        { error: error instanceof Error ? error.message : String(error) },
-        "failed to warm semantic session index from stored sessions",
-      );
+  let initialSemanticIndexSync: Promise<void> | undefined;
+  const ensureInitialSemanticIndexSync = async (): Promise<void> => {
+    if (!initialSemanticIndexSync) {
+      initialSemanticIndexSync = (async () => {
+        try {
+          const existingDocuments = await sessionStore.collectSearchDocuments();
+          for (const message of existingDocuments) {
+            await sessionIndex.indexMessage(message);
+          }
+        } catch (error) {
+          app.log.warn(
+            { error: error instanceof Error ? error.message : String(error) },
+            "failed to warm semantic session index from stored sessions",
+          );
+        }
+      })();
     }
-  })();
+
+    await initialSemanticIndexSync;
+  };
 
   let mcpSeedCache: { readonly loadedAt: number; readonly seeds: Awaited<ReturnType<typeof loadMcpSeeds>> } | undefined;
 
@@ -486,7 +493,7 @@ export async function registerUiRoutes(app: FastifyInstance, deps: UiRouteDepend
   app.post<{
     Body: { readonly query?: string; readonly limit?: number };
   }>("/api/ui/sessions/search", async (request, reply) => {
-    await initialSemanticIndexSync;
+    await ensureInitialSemanticIndexSync();
 
     const query = typeof request.body?.query === "string" ? request.body.query.trim() : "";
     if (query.length === 0) {

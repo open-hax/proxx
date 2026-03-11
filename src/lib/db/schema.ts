@@ -1,0 +1,200 @@
+export const SCHEMA_VERSION = 1;
+
+export const CREATE_PROVIDERS_TABLE = `
+CREATE TABLE IF NOT EXISTS providers (
+  id TEXT PRIMARY KEY,
+  auth_type TEXT NOT NULL DEFAULT 'api_key',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+`;
+
+export const CREATE_ACCOUNTS_TABLE = `
+CREATE TABLE IF NOT EXISTS accounts (
+  id TEXT NOT NULL,
+  provider_id TEXT NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
+  token TEXT NOT NULL,
+  refresh_token TEXT,
+  expires_at BIGINT,
+  chatgpt_account_id TEXT,
+  plan_type TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (id, provider_id)
+);
+`;
+
+export const CREATE_ACCOUNTS_INDEX = `
+CREATE INDEX IF NOT EXISTS idx_accounts_provider_id ON accounts(provider_id);
+`;
+
+export const CREATE_COOLDOWN_TABLE = `
+CREATE TABLE IF NOT EXISTS account_cooldown (
+  provider_id TEXT NOT NULL,
+  account_id TEXT NOT NULL,
+  cooldown_until BIGINT NOT NULL,
+  PRIMARY KEY (provider_id, account_id)
+);
+`;
+
+export const CREATE_SESSIONS_TABLE = `
+CREATE TABLE IF NOT EXISTS sessions (
+  id TEXT PRIMARY KEY,
+  subject TEXT NOT NULL,
+  client_id TEXT NOT NULL,
+  scopes JSONB NOT NULL DEFAULT '[]',
+  resource TEXT,
+  extra JSONB,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  expires_at BIGINT NOT NULL
+);
+`;
+
+export const CREATE_ACCESS_TOKENS_TABLE = `
+CREATE TABLE IF NOT EXISTS access_tokens (
+  token TEXT PRIMARY KEY,
+  client_id TEXT NOT NULL,
+  subject TEXT NOT NULL,
+  scopes JSONB NOT NULL DEFAULT '[]',
+  resource TEXT,
+  extra JSONB,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  expires_at BIGINT NOT NULL
+);
+`;
+
+export const CREATE_REFRESH_TOKENS_TABLE = `
+CREATE TABLE IF NOT EXISTS refresh_tokens (
+  token TEXT PRIMARY KEY,
+  client_id TEXT NOT NULL,
+  subject TEXT NOT NULL,
+  scopes JSONB NOT NULL DEFAULT '[]',
+  resource TEXT,
+  extra JSONB,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  expires_at BIGINT NOT NULL
+);
+`;
+
+export const CREATE_GITHUB_ALLOWLIST_TABLE = `
+CREATE TABLE IF NOT EXISTS github_allowlist (
+  login TEXT PRIMARY KEY,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+`;
+
+export const CREATE_CLIENTS_TABLE = `
+CREATE TABLE IF NOT EXISTS clients (
+  client_id TEXT PRIMARY KEY,
+  client_secret TEXT NOT NULL,
+  client_name TEXT NOT NULL,
+  redirect_uris JSONB NOT NULL,
+  token_endpoint_auth_method TEXT NOT NULL DEFAULT 'client_secret_basic',
+  grant_types JSONB NOT NULL DEFAULT '["authorization_code","refresh_token"]',
+  response_types JSONB NOT NULL DEFAULT '["code"]',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+`;
+
+export const CREATE_VERSION_TABLE = `
+CREATE TABLE IF NOT EXISTS schema_version (
+  version INTEGER PRIMARY KEY,
+  applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+`;
+
+export const INSERT_VERSION = `
+INSERT INTO schema_version (version) VALUES ($1)
+ON CONFLICT (version) DO NOTHING;
+`;
+
+export const CHECK_VERSION_EXISTS = `
+SELECT 1 FROM schema_version WHERE version = $1;
+`;
+
+export const ALL_MIGRATIONS = [
+  { version: 1, sql: CREATE_PROVIDERS_TABLE },
+  { version: 1, sql: CREATE_ACCOUNTS_TABLE },
+  { version: 1, sql: CREATE_ACCOUNTS_INDEX },
+  { version: 1, sql: CREATE_COOLDOWN_TABLE },
+  { version: 1, sql: CREATE_SESSIONS_TABLE },
+  { version: 1, sql: CREATE_ACCESS_TOKENS_TABLE },
+  { version: 1, sql: CREATE_REFRESH_TOKENS_TABLE },
+  { version: 1, sql: CREATE_GITHUB_ALLOWLIST_TABLE },
+  { version: 1, sql: CREATE_CLIENTS_TABLE },
+  { version: 1, sql: CREATE_VERSION_TABLE },
+];
+
+export const UPSERT_PROVIDER = `
+INSERT INTO providers (id, auth_type, updated_at)
+VALUES ($1, $2, NOW())
+ON CONFLICT (id) DO UPDATE SET
+  auth_type = EXCLUDED.auth_type,
+  updated_at = NOW();
+`;
+
+export const INSERT_ACCOUNT = `
+INSERT INTO accounts (id, provider_id, token, refresh_token, expires_at, chatgpt_account_id, plan_type, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+ON CONFLICT (id, provider_id) DO UPDATE SET
+  token = EXCLUDED.token,
+  refresh_token = EXCLUDED.refresh_token,
+  expires_at = EXCLUDED.expires_at,
+  chatgpt_account_id = EXCLUDED.chatgpt_account_id,
+  plan_type = EXCLUDED.plan_type,
+  updated_at = NOW();
+`;
+
+export const SELECT_ALL_PROVIDERS = `
+SELECT id, auth_type FROM providers ORDER BY id;
+`;
+
+export const SELECT_ACCOUNTS_BY_PROVIDER = `
+SELECT id, provider_id, token, refresh_token, expires_at, chatgpt_account_id, plan_type
+FROM accounts
+WHERE provider_id = $1
+ORDER BY id;
+`;
+
+export const SELECT_ALL_ACCOUNTS = `
+SELECT id, provider_id, token, refresh_token, expires_at, chatgpt_account_id, plan_type
+FROM accounts
+ORDER BY provider_id, id;
+`;
+
+export const DELETE_ACCOUNT = `
+DELETE FROM accounts WHERE id = $1 AND provider_id = $2;
+`;
+
+export const SET_COOLDOWN = `
+INSERT INTO account_cooldown (provider_id, account_id, cooldown_until)
+VALUES ($1, $2, $3)
+ON CONFLICT (provider_id, account_id) DO UPDATE SET
+  cooldown_until = EXCLUDED.cooldown_until;
+`;
+
+export const GET_COOLDOWN = `
+SELECT cooldown_until FROM account_cooldown
+WHERE provider_id = $1 AND account_id = $2;
+`;
+
+export const CLEAR_EXPIRED_COOLDOWNS = `
+DELETE FROM account_cooldown WHERE cooldown_until < $1;
+`;
+
+export const UPSERT_GITHUB_USER = `
+INSERT INTO github_allowlist (login) VALUES ($1)
+ON CONFLICT (login) DO NOTHING;
+`;
+
+export const DELETE_GITHUB_USER = `
+DELETE FROM github_allowlist WHERE login = $1;
+`;
+
+export const SELECT_GITHUB_ALLOWLIST = `
+SELECT login FROM github_allowlist ORDER BY login;
+`;
+
+export const IS_GITHUB_USER_ALLOWED = `
+SELECT 1 FROM github_allowlist WHERE login = $1;
+`;

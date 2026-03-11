@@ -294,6 +294,53 @@ export async function responseIndicatesMissingModel(response: Response, requeste
     || lowered.includes("model_not_found");
 }
 
+const MODEL_NOT_SUPPORTED_WITH_CHATGPT_PATTERNS = [
+  "model is not supported",
+  "model is not available",
+  "not supported when using codex",
+  "not supported with a chatgpt account",
+  "not supported with chatgpt account",
+  "model_not_supported_for_account",
+];
+
+export async function responseIndicatesModelNotSupportedForAccount(response: Response, requestedModel: string): Promise<boolean> {
+  if (response.status !== 400 && response.status !== 422) {
+    return false;
+  }
+
+  let payload: unknown;
+  try {
+    payload = await response.clone().json();
+  } catch {
+    try {
+      payload = await response.clone().text();
+    } catch {
+      return false;
+    }
+  }
+
+  const message = extractErrorMessage(payload);
+  if (!message) {
+    return false;
+  }
+
+  const lowered = message.toLowerCase();
+  
+  if (!MODEL_NOT_SUPPORTED_WITH_CHATGPT_PATTERNS.some(pattern => lowered.includes(pattern))) {
+    return false;
+  }
+
+  const normalizedRequestedModel = requestedModel.trim().toLowerCase();
+  if (normalizedRequestedModel.length === 0) {
+    return true;
+  }
+
+  const modelInMessage = lowered.includes(normalizedRequestedModel);
+  const accountMentioned = lowered.includes("chatgpt") || lowered.includes("account");
+  
+  return modelInMessage || accountMentioned;
+}
+
 const QUOTA_ERROR_PATTERNS = [
   "outstanding_balance",
   "outstanding-balance",

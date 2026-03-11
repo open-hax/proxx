@@ -21,6 +21,30 @@ async function withKeysFile(payload: unknown, fn: (keysFilePath: string) => Prom
   }
 }
 
+async function withEnv(values: Record<string, string | undefined>, fn: () => Promise<void>): Promise<void> {
+  const previous = new Map<string, string | undefined>();
+  for (const [key, value] of Object.entries(values)) {
+    previous.set(key, process.env[key]);
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
+
+  try {
+    await fn();
+  } finally {
+    for (const [key, value] of previous.entries()) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
+}
+
 test("accepts provider key arrays and generates internal UUID account IDs", async () => {
   await withKeysFile(
     {
@@ -160,5 +184,49 @@ test("prefers non-busy accounts before reusing in-flight accounts", async () => 
       const status = await keyPool.getStatus("ollama-cloud");
       assert.equal(status.inFlightAccounts, 0);
     }
+  );
+});
+
+test("loads env-backed openrouter and requesty providers alongside file accounts", { concurrency: false }, async () => {
+  await withEnv(
+    {
+      OPENROUTER_API_KEY: "or-key-1",
+      REQUESTY_API_TOKEN: "req-key-1",
+      OPENROUTER_PROVIDER_ID: undefined,
+      REQUESTY_PROVIDER_ID: undefined,
+    },
+    async () => {
+      await withKeysFile(
+        {
+          providers: {
+            "ollama-cloud": {
+              accounts: ["oc-key-1"],
+            },
+          },
+        },
+        async (keysFilePath) => {
+          const keyPool = new KeyPool({
+            keysFilePath,
+            reloadIntervalMs: 10,
+            defaultCooldownMs: 1000,
+            defaultProviderId: "ollama-cloud",
+          });
+
+          await keyPool.warmup();
+          const openrouterAccounts = await keyPool.getRequestOrder("openrouter");
+          const requestyAccounts = await keyPool.getRequestOrder("requesty");
+
+          assert.equal(openrouterAccounts.length, 1);
+          assert.equal(openrouterAccounts[0]?.providerId, "openrouter");
+          assert.equal(openrouterAccounts[0]?.token, "or-key-1");
+          assert.ok(UUID_PATTERN.test(openrouterAccounts[0]?.accountId ?? ""));
+
+          assert.equal(requestyAccounts.length, 1);
+          assert.equal(requestyAccounts[0]?.providerId, "requesty");
+          assert.equal(requestyAccounts[0]?.token, "req-key-1");
+          assert.ok(UUID_PATTERN.test(requestyAccounts[0]?.accountId ?? ""));
+        },
+      );
+    },
   );
 });
