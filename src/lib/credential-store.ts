@@ -10,6 +10,9 @@ interface NormalizedAccount {
   refreshToken?: string;
   expiresAt?: number;
   chatgptAccountId?: string;
+  email?: string;
+  subject?: string;
+  planType?: string;
 }
 
 interface NormalizedProvider {
@@ -25,12 +28,16 @@ interface NormalizedCredentials {
 export interface CredentialAccountView {
   readonly id: string;
   readonly authType: ProviderAuthType;
+  readonly displayName: string;
   readonly secretPreview: string;
   readonly secret?: string;
   readonly refreshTokenPreview?: string;
   readonly refreshToken?: string;
   readonly expiresAt?: number;
   readonly chatgptAccountId?: string;
+  readonly email?: string;
+  readonly subject?: string;
+  readonly planType?: string;
 }
 
 export interface CredentialProviderView {
@@ -120,6 +127,56 @@ function maskSecret(secret: string): string {
   return `${secret.slice(0, 4)}...${secret.slice(-4)}`;
 }
 
+function parseJwtClaims(token: string): Record<string, unknown> | undefined {
+  const parts = token.split(".");
+  if (parts.length !== 3) {
+    return undefined;
+  }
+
+  try {
+    const parsed = JSON.parse(Buffer.from(parts[1] ?? "", "base64url").toString("utf8"));
+    return isRecord(parsed) ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function deriveOAuthMetadataFromToken(token: string): {
+  readonly email?: string;
+  readonly subject?: string;
+  readonly chatgptAccountId?: string;
+  readonly planType?: string;
+} {
+  const claims = parseJwtClaims(token);
+  if (!claims) {
+    return {};
+  }
+
+  const profile = isRecord(claims["https://api.openai.com/profile"])
+    ? claims["https://api.openai.com/profile"]
+    : undefined;
+  const auth = isRecord(claims["https://api.openai.com/auth"])
+    ? claims["https://api.openai.com/auth"]
+    : undefined;
+
+  const email = (asString(claims.email) ?? asString(profile?.email))?.trim().toLowerCase();
+  const subject = asString(claims.sub)?.trim();
+  const chatgptAccountId = (asString(claims.chatgpt_account_id)
+    ?? asString(auth?.chatgpt_account_id))?.trim();
+  const planType = asString(auth?.chatgpt_plan_type)?.trim().toLowerCase();
+
+  return {
+    email: email && email.length > 0 ? email : undefined,
+    subject: subject && subject.length > 0 ? subject : undefined,
+    chatgptAccountId: chatgptAccountId && chatgptAccountId.length > 0 ? chatgptAccountId : undefined,
+    planType: planType && planType.length > 0 ? planType : undefined,
+  };
+}
+
+function accountDisplayName(account: Pick<NormalizedAccount, "email" | "chatgptAccountId" | "id">): string {
+  return account.email ?? account.chatgptAccountId ?? account.id;
+}
+
 function normalizeAccounts(
   providerId: string,
   authType: ProviderAuthType,
@@ -146,9 +203,21 @@ function normalizeAccounts(
     const expiresAt = isRecord(rawAccount)
       ? asNumber(rawAccount.expires_at) ?? asNumber(rawAccount.expiresAt)
       : undefined;
+    const derivedOauthMetadata = authType === "oauth_bearer"
+      ? deriveOAuthMetadataFromToken(token)
+      : {};
     const chatgptAccountId = isRecord(rawAccount)
-      ? asString(rawAccount.chatgpt_account_id) ?? asString(rawAccount.chatgptAccountId)
-      : undefined;
+      ? asString(rawAccount.chatgpt_account_id) ?? asString(rawAccount.chatgptAccountId) ?? derivedOauthMetadata.chatgptAccountId
+      : derivedOauthMetadata.chatgptAccountId;
+    const email = isRecord(rawAccount)
+      ? asString(rawAccount.email) ?? derivedOauthMetadata.email
+      : derivedOauthMetadata.email;
+    const subject = isRecord(rawAccount)
+      ? asString(rawAccount.subject) ?? asString(rawAccount.sub) ?? derivedOauthMetadata.subject
+      : derivedOauthMetadata.subject;
+    const planType = isRecord(rawAccount)
+      ? asString(rawAccount.plan_type) ?? asString(rawAccount.planType) ?? derivedOauthMetadata.planType
+      : derivedOauthMetadata.planType;
 
     accounts.push({
       id: accountIdFromRaw(providerId, index, rawAccount),
@@ -157,6 +226,9 @@ function normalizeAccounts(
       refreshToken,
       expiresAt,
       chatgptAccountId,
+      email,
+      subject,
+      planType,
     });
   }
 
@@ -238,6 +310,15 @@ function toPersistedJson(normalized: NormalizedCredentials): Record<string, unkn
         if (account.chatgptAccountId) {
           payload.chatgpt_account_id = account.chatgptAccountId;
         }
+        if (account.email) {
+          payload.email = account.email;
+        }
+        if (account.subject) {
+          payload.subject = account.subject;
+        }
+        if (account.planType) {
+          payload.plan_type = account.planType;
+        }
         return payload;
       }
 
@@ -270,6 +351,7 @@ export class CredentialStore {
           return {
             id: account.id,
             authType: account.authType,
+            displayName: accountDisplayName(account),
             secretPreview: maskSecret(account.token),
             secret: revealSecrets ? account.token : undefined,
             refreshTokenPreview: account.refreshToken
@@ -280,6 +362,9 @@ export class CredentialStore {
               : undefined,
             expiresAt: account.expiresAt,
             chatgptAccountId: account.chatgptAccountId,
+            email: account.email,
+            subject: account.subject,
+            planType: account.planType,
           };
         });
 
@@ -330,6 +415,9 @@ export class CredentialStore {
     refreshToken?: string,
     expiresAt?: number,
     chatgptAccountId?: string,
+    email?: string,
+    subject?: string,
+    planType?: string,
   ): Promise<void> {
     const normalized = await this.readNormalized();
     const id = normalizeProviderId(providerId, this.defaultProviderId);
@@ -351,6 +439,9 @@ export class CredentialStore {
       refreshToken,
       expiresAt,
       chatgptAccountId,
+      email,
+      subject,
+      planType,
     });
 
     normalized.providers[id] = provider;

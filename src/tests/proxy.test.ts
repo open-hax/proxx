@@ -21,6 +21,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
+function makeJwt(payload: Record<string, unknown>): string {
+  const header = Buffer.from(JSON.stringify({ alg: "none", typ: "JWT" })).toString("base64url");
+  const body = Buffer.from(JSON.stringify(payload)).toString("base64url");
+  return `${header}.${body}.sig`;
+}
+
 async function readRequestBody(request: IncomingMessage): Promise<string> {
   const chunks: Buffer[] = [];
   for await (const chunk of request) {
@@ -377,6 +383,143 @@ test("persists request logs with usage counts for dashboard surfaces", async () 
   assert.equal(parsed.entries[0].promptTokens, 15);
   assert.equal(parsed.entries[0].completionTokens, 9);
   assert.equal(parsed.entries[0].totalTokens, 24);
+});
+
+test("fetches live OpenAI Codex quota windows and persists refreshed OAuth tokens", async () => {
+  const originalFetch = globalThis.fetch;
+  const refreshedAccessToken = makeJwt({
+    "https://api.openai.com/auth": {
+      chatgpt_account_id: "workspace-a",
+      chatgpt_plan_type: "pro",
+    },
+    "https://api.openai.com/profile": {
+      email: "quota@example.com",
+    },
+    sub: "user-quota",
+  });
+
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+
+    if (url === "https://auth.openai.com/oauth/token") {
+      return new Response(JSON.stringify({
+        access_token: refreshedAccessToken,
+        refresh_token: "refresh-token-new",
+        expires_in: 3600,
+      }), {
+        status: 200,
+        headers: {
+          "content-type": "application/json",
+        },
+      });
+    }
+
+    if (url === "https://chatgpt.com/backend-api/wham/usage") {
+      const headers = new Headers(init?.headers);
+      assert.equal(headers.get("authorization"), `Bearer ${refreshedAccessToken}`);
+      assert.equal(headers.get("chatgpt-account-id"), "workspace-a");
+      assert.equal(headers.get("originator"), "codex_cli_rs");
+
+      return new Response(JSON.stringify({
+        usage: {
+          rate_limit: {
+            primary_window: {
+              remaining_percent: 72,
+              reset_after_seconds: 1800,
+            },
+            secondary_window: {
+              remaining_percent: 54,
+              resets_at: "2030-01-01T00:00:00.000Z",
+            },
+          },
+          plan_type: "pro",
+        },
+      }), {
+        status: 200,
+        headers: {
+          "content-type": "application/json",
+        },
+      });
+    }
+
+    throw new Error(`Unexpected fetch URL in quota test: ${url}`);
+  };
+
+  try {
+    await withProxyApp(
+      {
+        keys: [],
+        keysPayload: {
+          providers: {
+            openai: {
+              auth: "oauth_bearer",
+              accounts: [
+                {
+                  id: "openai-a",
+                  access_token: makeJwt({
+                    "https://api.openai.com/auth": {
+                      chatgpt_account_id: "workspace-a",
+                      chatgpt_plan_type: "plus",
+                    },
+                    "https://api.openai.com/profile": {
+                      email: "quota@example.com",
+                    },
+                    sub: "user-quota",
+                  }),
+                  refresh_token: "refresh-token-old",
+                  expires_at: Date.now() - 1000,
+                  chatgpt_account_id: "workspace-a",
+                  email: "quota@example.com",
+                  plan_type: "plus",
+                },
+              ],
+            },
+          },
+        },
+        upstreamHandler: async () => ({
+          status: 404,
+          headers: {
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({ error: "not_used" }),
+        }),
+      },
+      async ({ app, tempDir }) => {
+        const response = await app.inject({
+          method: "GET",
+          url: "/api/ui/credentials/openai/quota",
+        });
+
+        assert.equal(response.statusCode, 200);
+        const payload: unknown = response.json();
+        assert.ok(isRecord(payload));
+        assert.ok(Array.isArray(payload.accounts));
+        assert.equal(payload.accounts.length, 1);
+        assert.ok(isRecord(payload.accounts[0]));
+        assert.equal(payload.accounts[0].providerId, "openai");
+        assert.equal(payload.accounts[0].accountId, "openai-a");
+        assert.equal(payload.accounts[0].status, "ok");
+        assert.equal(payload.accounts[0].planType, "pro");
+        assert.ok(isRecord(payload.accounts[0].fiveHour));
+        assert.equal(payload.accounts[0].fiveHour.remainingPercent, 72);
+        assert.ok(isRecord(payload.accounts[0].weekly));
+        assert.equal(payload.accounts[0].weekly.remainingPercent, 54);
+
+        const keysJson = await readFile(path.join(tempDir, "keys.json"), "utf8");
+        const parsedKeys: unknown = JSON.parse(keysJson);
+        assert.ok(isRecord(parsedKeys));
+        assert.ok(isRecord(parsedKeys.providers));
+        assert.ok(isRecord(parsedKeys.providers.openai));
+        assert.ok(Array.isArray(parsedKeys.providers.openai.accounts));
+        assert.ok(isRecord(parsedKeys.providers.openai.accounts[0]));
+        assert.equal(parsedKeys.providers.openai.accounts[0].access_token, refreshedAccessToken);
+        assert.equal(parsedKeys.providers.openai.accounts[0].refresh_token, "refresh-token-new");
+        assert.equal(parsedKeys.providers.openai.accounts[0].plan_type, "pro");
+      },
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test("does not misclassify gemini models as local ollama because they contain mini", async () => {

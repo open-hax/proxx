@@ -66,6 +66,10 @@ function transientRetryDelayMs(context: StrategyRequestContext, retryIndex: numb
   return context.config.upstreamTransientRetryBackoffMs * (retryIndex + 1);
 }
 
+function shouldRetrySameCredentialForServerError(status: number): boolean {
+  return status === 502 || status === 503 || status === 504;
+}
+
 function reorderCandidatesForAffinity<T extends { readonly providerId: string; readonly account: ProviderCredential }>(
   candidates: readonly T[],
   preferred: PreferredAffinity | undefined,
@@ -1179,10 +1183,6 @@ export async function executeProviderFallback(
           latencyMs: Date.now() - attemptStartedAt,
           error: toErrorMessage(error)
         }, candidateStrategy.mode);
-        if (hasRetryRemaining) {
-          await sleep(transientRetryDelayMs(context, retryIndex));
-          continue;
-        }
         break;
       }
 
@@ -1230,7 +1230,7 @@ export async function executeProviderFallback(
 
       if (upstreamResponse.status >= 500 && upstreamResponse.status <= 599) {
         accumulator.sawUpstreamServerError = true;
-        if (hasRetryRemaining) {
+        if (hasRetryRemaining && shouldRetrySameCredentialForServerError(upstreamResponse.status)) {
           try {
             await upstreamResponse.arrayBuffer();
           } catch {

@@ -7,6 +7,7 @@ import type { ProxyConfig } from "./config.js";
 import { CredentialStore } from "./credential-store.js";
 import type { KeyPool, KeyPoolAccountStatus } from "./key-pool.js";
 import { OpenAiOAuthManager } from "./openai-oauth.js";
+import { fetchOpenAiQuotaSnapshots } from "./openai-quota.js";
 import { RequestLogStore } from "./request-log-store.js";
 import { ChromaSessionIndex } from "./chroma-session-index.js";
 import { SessionStore, type ChatRole } from "./session-store.js";
@@ -529,6 +530,20 @@ export async function registerUiRoutes(app: FastifyInstance, deps: UiRouteDepend
     reply.send(overview);
   });
 
+  app.get<{
+    Querystring: { readonly accountId?: string };
+  }>("/api/ui/credentials/openai/quota", async (request, reply) => {
+    const overview = await fetchOpenAiQuotaSnapshots(credentialStore, {
+      providerId: deps.config.openaiProviderId,
+      accountId: typeof request.query.accountId === "string" && request.query.accountId.trim().length > 0
+        ? request.query.accountId.trim()
+        : undefined,
+      logger: app.log,
+    });
+
+    reply.send(overview);
+  });
+
   app.post<{
     Body: { readonly providerId?: string; readonly accountId?: string; readonly apiKey?: string };
   }>("/api/ui/credentials/api-key", async (request, reply) => {
@@ -569,9 +584,10 @@ export async function registerUiRoutes(app: FastifyInstance, deps: UiRouteDepend
     reply.send(payload);
   });
 
-  app.get<{
-    Querystring: { readonly state?: string; readonly code?: string; readonly error?: string; readonly error_description?: string };
-  }>("/api/ui/credentials/openai/oauth/browser/callback", async (request, reply) => {
+  const handleOpenAiBrowserCallback = async (
+    request: { readonly query: { readonly state?: string; readonly code?: string; readonly error?: string; readonly error_description?: string } },
+    reply: { header: (name: string, value: string) => void; send: (value: unknown) => void },
+  ) => {
     const error = request.query.error;
     if (typeof error === "string" && error.length > 0) {
       reply.header("content-type", "text/html");
@@ -596,17 +612,32 @@ export async function registerUiRoutes(app: FastifyInstance, deps: UiRouteDepend
         tokens.accessToken,
         tokens.refreshToken,
         tokens.expiresAt,
-        tokens.accountId,
+        tokens.chatgptAccountId,
+        tokens.email,
+        tokens.subject,
       );
       await deps.keyPool.warmup().catch(() => undefined);
+      app.log.info({
+        providerId: deps.config.openaiProviderId,
+        accountId: tokens.accountId,
+        chatgptAccountId: tokens.chatgptAccountId,
+      }, "saved OpenAI OAuth account from browser flow");
 
       reply.header("content-type", "text/html");
-      reply.send(htmlSuccess(`Saved OpenAI OAuth account ${tokens.accountId}.`));
+      reply.send(htmlSuccess(`Saved OpenAI OAuth account ${tokens.chatgptAccountId ?? tokens.accountId}.`));
     } catch (oauthError) {
       reply.header("content-type", "text/html");
       reply.send(htmlError(oauthError instanceof Error ? oauthError.message : String(oauthError)));
     }
-  });
+  };
+
+  app.get<{
+    Querystring: { readonly state?: string; readonly code?: string; readonly error?: string; readonly error_description?: string };
+  }>("/api/ui/credentials/openai/oauth/browser/callback", handleOpenAiBrowserCallback);
+
+  app.get<{
+    Querystring: { readonly state?: string; readonly code?: string; readonly error?: string; readonly error_description?: string };
+  }>("/auth/callback", handleOpenAiBrowserCallback);
 
   app.post("/api/ui/credentials/openai/oauth/device/start", async (_request, reply) => {
     try {
@@ -636,9 +667,16 @@ export async function registerUiRoutes(app: FastifyInstance, deps: UiRouteDepend
         result.tokens.accessToken,
         result.tokens.refreshToken,
         result.tokens.expiresAt,
-        result.tokens.accountId,
+        result.tokens.chatgptAccountId,
+        result.tokens.email,
+        result.tokens.subject,
       );
       await deps.keyPool.warmup().catch(() => undefined);
+      app.log.info({
+        providerId: deps.config.openaiProviderId,
+        accountId: result.tokens.accountId,
+        chatgptAccountId: result.tokens.chatgptAccountId,
+      }, "saved OpenAI OAuth account from device flow");
     }
 
     reply.send(result);
