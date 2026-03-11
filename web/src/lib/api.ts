@@ -449,6 +449,16 @@ export async function addApiKeyCredential(providerId: string, accountId: string,
   });
 }
 
+export async function removeCredential(providerId: string, accountId: string): Promise<void> {
+  await requestJson("/api/ui/credentials/account", {
+    method: "DELETE",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ providerId, accountId }),
+  });
+}
+
 export async function getOpenAiCredentialQuota(accountId?: string): Promise<CredentialQuotaOverview> {
   const query = new URLSearchParams();
   if (accountId && accountId.trim().length > 0) {

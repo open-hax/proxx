@@ -448,6 +448,29 @@ export class CredentialStore {
     await this.writeNormalized(normalized);
   }
 
+  public async removeAccount(providerId: string, accountId: string): Promise<boolean> {
+    const normalized = await this.readNormalized();
+    const id = normalizeProviderId(providerId, this.defaultProviderId);
+    const provider = normalized.providers[id];
+    if (!provider) {
+      return false;
+    }
+
+    const before = provider.accounts.length;
+    provider.accounts = provider.accounts.filter((account) => account.id !== accountId);
+
+    if (provider.accounts.length === before) {
+      return false;
+    }
+
+    if (provider.accounts.length === 0) {
+      delete normalized.providers[id];
+    }
+
+    await this.writeNormalized(normalized);
+    return true;
+  }
+
   private async readNormalized(): Promise<NormalizedCredentials> {
     try {
       const contents = await readFile(this.filePath, "utf8");

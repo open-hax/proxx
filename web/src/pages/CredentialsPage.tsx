@@ -15,6 +15,7 @@ import {
   type KeyPoolStatus,
   type ProviderRequestLogSummary,
   type RequestLogEntry,
+  removeCredential,
   startOpenAiBrowserOAuth,
   startOpenAiDeviceOAuth,
 } from "../lib/api";
@@ -526,6 +527,23 @@ export function CredentialsPage(): JSX.Element {
     }
   }, []);
 
+  const handleRemoveAccount = useCallback(async (providerId: string, accountId: string, displayName: string) => {
+    if (!window.confirm(`Remove credential "${displayName}" (${providerId}/${accountId})?`)) {
+      return;
+    }
+
+    setError(null);
+
+    try {
+      await removeCredential(providerId, accountId);
+      setStatus(`Removed credential ${displayName}.`);
+      await refreshCredentials();
+      await refreshQuota();
+    } catch (removeError) {
+      setError(removeError instanceof Error ? removeError.message : String(removeError));
+    }
+  }, [refreshCredentials, refreshQuota]);
+
   const renderQuotaRow = (label: string, window: CredentialQuotaWindow | null) => {
     const remainingPercent = window?.remainingPercent ?? null;
     const width = remainingPercent === null ? 0 : Math.min(100, Math.max(0, remainingPercent));
@@ -664,6 +682,13 @@ export function CredentialsPage(): JSX.Element {
               </div>
             )}
           </dl>
+          <button
+            type="button"
+            className="credentials-remove-button"
+            onClick={() => void handleRemoveAccount(providerId, account.id, account.displayName)}
+          >
+            Remove credential
+          </button>
         </details>
       </article>
     );

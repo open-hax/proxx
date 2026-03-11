@@ -1016,6 +1016,23 @@ button:disabled {
   overflow-wrap: anywhere;
 }
 
+.credentials-remove-button {
+  margin-top: 12px;
+  padding: 6px 14px;
+  font-size: 0.78rem;
+  color: #ffc6bb;
+  background: rgba(255, 80, 60, 0.12);
+  border: 1px solid rgba(255, 80, 60, 0.3);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.credentials-remove-button:hover {
+  background: rgba(255, 80, 60, 0.25);
+  border-color: rgba(255, 80, 60, 0.5);
+}
+
 .credentials-form {
   display: grid;
   gap: 8px;

@@ -581,6 +581,28 @@ export async function registerUiRoutes(app: FastifyInstance, deps: UiRouteDepend
     reply.code(201).send({ ok: true, providerId, accountId });
   });
 
+  app.delete<{
+    Body: { readonly providerId?: string; readonly accountId?: string };
+  }>("/api/ui/credentials/account", async (request, reply) => {
+    const providerId = typeof request.body?.providerId === "string" ? request.body.providerId.trim() : "";
+    const accountId = typeof request.body?.accountId === "string" ? request.body.accountId.trim() : "";
+
+    if (providerId.length === 0 || accountId.length === 0) {
+      reply.code(400).send({ error: "provider_id_and_account_id_required" });
+      return;
+    }
+
+    const removed = await credentialStore.removeAccount(providerId, accountId);
+    if (!removed) {
+      reply.code(404).send({ error: "account_not_found" });
+      return;
+    }
+
+    await deps.keyPool.warmup().catch(() => undefined);
+    app.log.info({ providerId, accountId }, "removed credential account");
+    reply.send({ ok: true, providerId, accountId });
+  });
+
   app.post<{
     Body: { readonly redirectBaseUrl?: string };
   }>("/api/ui/credentials/openai/oauth/browser/start", async (request, reply) => {
