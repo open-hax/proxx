@@ -3,7 +3,7 @@ services:
     name: open-hax-openai-proxy
     runtime: node
     region: oregon
-    plan: starter
+    plan: free
     buildCommand: npm install && npm run build
     startCommand: npm run start
     healthCheckPath: /health

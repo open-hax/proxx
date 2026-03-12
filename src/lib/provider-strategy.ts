@@ -889,7 +889,8 @@ class OpenAiResponsesProviderStrategy extends TransformedJsonProviderStrategy {
 
   public matches(context: StrategyRequestContext): boolean {
     return context.openAiPrefixed
-      && shouldUseResponsesUpstream(context.routedModel, context.config.responsesModelPrefixes);
+      && (context.routedModel === "gpt-5.4"
+        || shouldUseResponsesUpstream(context.routedModel, context.config.responsesModelPrefixes));
   }
 
   public getUpstreamPath(context: StrategyRequestContext): string {
