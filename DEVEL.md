@@ -94,7 +94,7 @@ Notes:
 - `UPSTREAM_PROVIDER_ID` (default: `vivgrid`; provider key in `keys.json`)
 - `UPSTREAM_FALLBACK_PROVIDER_IDS` (default: auto `ollama-cloud` when primary is `vivgrid`, or `vivgrid` when primary is `ollama-cloud`; comma-separated)
 - `UPSTREAM_BASE_URL` (default: `https://api.vivgrid.com`)
-- `UPSTREAM_PROVIDER_BASE_URLS` (optional mapping: `provider=url,provider=url`; defaults include `vivgrid=https://api.vivgrid.com` and `ollama-cloud=https://ollama.com`)
+- `UPSTREAM_PROVIDER_BASE_URLS` (optional mapping: `provider=url,provider=url`; defaults include `vivgrid=https://api.vivgrid.com`, `ollama-cloud=https://ollama.com`, and `ob1=https://dashboard.openblocklabs.com/api`)
 - `OPENAI_PROVIDER_ID` (default: `openai`; provider key in `keys.json`)
 - `OPENAI_BASE_URL` (default: `https://chatgpt.com/backend-api`)
 - `OLLAMA_BASE_URL` (default: `http://127.0.0.1:11434`)

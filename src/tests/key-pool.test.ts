@@ -187,11 +187,13 @@ test("prefers non-busy accounts before reusing in-flight accounts", async () => 
   );
 });
 
-test("loads env-backed openrouter and requesty providers alongside file accounts", { concurrency: false }, async () => {
+test("loads env-backed ob1, openrouter and requesty providers alongside file accounts", { concurrency: false }, async () => {
   await withEnv(
     {
+      OB1_API_KEY: "ob1-key-1",
       OPENROUTER_API_KEY: "or-key-1",
       REQUESTY_API_TOKEN: "req-key-1",
+      OB1_PROVIDER_ID: undefined,
       OPENROUTER_PROVIDER_ID: undefined,
       REQUESTY_PROVIDER_ID: undefined,
     },
@@ -213,8 +215,14 @@ test("loads env-backed openrouter and requesty providers alongside file accounts
           });
 
           await keyPool.warmup();
+          const ob1Accounts = await keyPool.getRequestOrder("ob1");
           const openrouterAccounts = await keyPool.getRequestOrder("openrouter");
           const requestyAccounts = await keyPool.getRequestOrder("requesty");
+
+          assert.equal(ob1Accounts.length, 1);
+          assert.equal(ob1Accounts[0]?.providerId, "ob1");
+          assert.equal(ob1Accounts[0]?.token, "ob1-key-1");
+          assert.ok(UUID_PATTERN.test(ob1Accounts[0]?.accountId ?? ""));
 
           assert.equal(openrouterAccounts.length, 1);
           assert.equal(openrouterAccounts[0]?.providerId, "openrouter");
