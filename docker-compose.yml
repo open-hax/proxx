@@ -41,7 +41,7 @@ services:
       PROXY_KEY_COOLDOWN_MS: "${PROXY_KEY_COOLDOWN_MS:-30000}"
       UPSTREAM_REQUEST_TIMEOUT_MS: "${UPSTREAM_REQUEST_TIMEOUT_MS:-180000}"
       PROXY_ALLOW_UNAUTHENTICATED: "${PROXY_ALLOW_UNAUTHENTICATED:-false}"
-      DATABASE_URL: "${DATABASE_URL:-postgresql://openai_proxy:localdev123@open-hax-openai-proxy-db:5432/openai_proxy}" # pragma: allowlist secret
+      DATABASE_URL: "${DATABASE_URL:-postgresql://openai_proxy:openai_proxy@open-hax-openai-proxy-db:5432/openai_proxy}" # pragma: allowlist secret
       CHROMA_URL: "${CHROMA_URL:-http://host.docker.internal:8000}"
       CHROMA_COLLECTION: "${CHROMA_COLLECTION:-open_hax_proxy_sessions}"
       CHROMA_EMBED_MODEL: "${CHROMA_EMBED_MODEL:-nomic-embed-text:latest}"
@@ -71,7 +71,7 @@ services:
     environment:
       POSTGRES_DB: openai_proxy
       POSTGRES_USER: openai_proxy
-      POSTGRES_PASSWORD: localdev123 # pragma: allowlist secret
+      POSTGRES_PASSWORD: openai_proxy # pragma: allowlist secret
     ports:
       - "${PROXY_DB_PORT:-5432}:5432"
     volumes:

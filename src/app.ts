@@ -380,7 +380,8 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
 
     if (config.proxyAuthToken) {
       const rawPath = (request.raw.url ?? request.url).split("?", 1)[0] ?? request.url;
-      const allowUnauthenticatedRoute = rawPath === "/api/ui/credentials/openai/oauth/browser/callback";
+      const allowUnauthenticatedRoute = rawPath === "/health"
+        || rawPath === "/api/ui/credentials/openai/oauth/browser/callback";
 
       if (allowUnauthenticatedRoute) {
         return;

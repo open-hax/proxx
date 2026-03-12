@@ -5120,6 +5120,34 @@ test("reports health diagnostics with key-pool state", async () => {
   );
 });
 
+test("allows unauthenticated access to health when proxy auth is enabled", async () => {
+  await withProxyApp(
+    {
+      proxyAuthToken: "proxy-secret",
+      keys: ["key-a"],
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: {
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({ ok: true })
+      }),
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "GET",
+        url: "/health"
+      });
+
+      assert.equal(response.statusCode, 200);
+      const payload: unknown = response.json();
+      assert.ok(isRecord(payload));
+      assert.equal(payload.ok, true);
+      assert.equal(payload.authMode, "token");
+    }
+  );
+});
+
 test("serves model catalog from models JSON file", async () => {
   await withProxyApp(
     {
