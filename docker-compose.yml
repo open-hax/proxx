@@ -5,6 +5,7 @@ services:
       dockerfile: Dockerfile
     ports:
       - "${PROXY_PORT:-8789}:8789"
+      - "${OPENAI_OAUTH_CALLBACK_PORT:-1455}:8789"
       - "${PROXY_WEB_PORT:-5174}:5174"
     environment:
       NODE_ENV: production
@@ -39,8 +40,13 @@ services:
       CHROMA_URL: "${CHROMA_URL:-http://host.docker.internal:8000}"
       CHROMA_COLLECTION: "${CHROMA_COLLECTION:-open_hax_proxy_sessions}"
       CHROMA_EMBED_MODEL: "${CHROMA_EMBED_MODEL:-nomic-embed-text:latest}"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "${OTEL_EXPORTER_OTLP_ENDPOINT:-}"
+      OTEL_EXPORTER_OTLP_HEADERS: "${OTEL_EXPORTER_OTLP_HEADERS:-}"
+      OTEL_SERVICE_NAME: "${OTEL_SERVICE_NAME:-proxx}"
+      OTEL_RESOURCE_ATTRIBUTES: "${OTEL_RESOURCE_ATTRIBUTES:-service.name=proxx}"
     volumes:
-      - ./:/workspace/service-config:ro
+      - ./keys.json:/workspace/service-config/keys.json
+      - ./models.json:/workspace/service-config/models.json:ro
       - ./data:/app/data
     extra_hosts:
       - "host.docker.internal:host-gateway"

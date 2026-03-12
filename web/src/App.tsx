@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { NavLink, Route, Routes } from "react-router-dom";
 
-import { getSavedAuthToken, saveAuthToken } from "./lib/api";
+import { getProxyUiSettings, getSavedAuthToken, saveAuthToken, saveProxyUiSettings } from "./lib/api";
 import { ChatPage } from "./pages/ChatPage";
 import { CredentialsPage } from "./pages/CredentialsPage";
 import { DashboardPage } from "./pages/DashboardPage";
@@ -15,6 +15,19 @@ export function App(): JSX.Element {
   const [tokenInput, setTokenInput] = useState(() => getSavedAuthToken());
   const [savedToken, setSavedToken] = useState(() => getSavedAuthToken());
   const [showSaved, setShowSaved] = useState(false);
+  const [fastMode, setFastMode] = useState(false);
+  const [fastModeSaving, setFastModeSaving] = useState(false);
+  const [fastModeMessage, setFastModeMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    void getProxyUiSettings()
+      .then((settings) => {
+        setFastMode(settings.fastMode);
+      })
+      .catch((error) => {
+        setFastModeMessage(error instanceof Error ? error.message : String(error));
+      });
+  }, []);
 
   const handleSaveToken = () => {
     const trimmed = tokenInput.trim();
@@ -22,6 +35,23 @@ export function App(): JSX.Element {
     setSavedToken(trimmed);
     setShowSaved(true);
     setTimeout(() => setShowSaved(false), 2000);
+  };
+
+  const handleFastModeToggle = async (nextValue: boolean) => {
+    setFastMode(nextValue);
+    setFastModeSaving(true);
+    setFastModeMessage(null);
+
+    try {
+      const saved = await saveProxyUiSettings({ fastMode: nextValue });
+      setFastMode(saved.fastMode);
+      setFastModeMessage(saved.fastMode ? "Global fast mode enabled." : "Global fast mode disabled.");
+    } catch (error) {
+      setFastMode(!nextValue);
+      setFastModeMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setFastModeSaving(false);
+    }
   };
 
   const hasUnsavedChanges = tokenInput.trim() !== savedToken.trim();
@@ -58,6 +88,24 @@ export function App(): JSX.Element {
                     : "Token is stored for this browser."
                   : "No token set (works only if proxy allows unauthenticated access)."}
           </small>
+
+          <div className="shell-settings-card">
+            <label className="toggle-row">
+              <input
+                type="checkbox"
+                checked={fastMode}
+                disabled={fastModeSaving}
+                onChange={(event) => {
+                  void handleFastModeToggle(event.currentTarget.checked);
+                }}
+              />
+              Global fast mode (priority tier)
+            </label>
+            <small>
+              Applies `service_tier: \"priority\"` to proxied Responses requests unless a request already sets its own tier.
+            </small>
+            {fastModeMessage && <small>{fastModeMessage}</small>}
+          </div>
         </div>
       </header>
 

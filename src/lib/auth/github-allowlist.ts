@@ -36,6 +36,6 @@ export class SqlGitHubAllowlist {
     const rows = await this.sql<{ login: string }[]>`
       SELECT login FROM github_allowlist ORDER BY login
     `;
-    return rows.map((row) => row.login);
+    return rows.map((row: { login: string }) => row.login);
   }
 }

@@ -1,4 +1,4 @@
-import Fastify, { type FastifyInstance } from "fastify";
+import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
 
 import { DEFAULT_MODELS, type ProxyConfig } from "./lib/config.js";
 import { KeyPool, type ProviderCredential } from "./lib/key-pool.js";
@@ -32,12 +32,12 @@ import {
   sendOpenAiError,
   toErrorMessage,
 } from "./lib/provider-utils.js";
+import { getTelemetry, type TelemetrySpan } from "./lib/telemetry/otel.js";
 import { RequestLogStore } from "./lib/request-log-store.js";
 import { PromptAffinityStore } from "./lib/prompt-affinity-store.js";
+import { ProxySettingsStore } from "./lib/proxy-settings-store.js";
 import { registerUiRoutes } from "./lib/ui-routes.js";
 import {
-  ensureNativeOllamaChatContextFits,
-  ensureNativeOllamaEmbedContextFits,
   ensureOllamaContextFits,
 } from "./lib/ollama-context.js";
 import {
@@ -105,6 +105,28 @@ function joinUrl(baseUrl: string, path: string): string {
   const normalizedBase = baseUrl.replace(/\/+$/, "");
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
   return `${normalizedBase}${normalizedPath}`;
+}
+
+function parseJsonIfPossible(body: string): unknown {
+  if (body.trim().length === 0) {
+    return undefined;
+  }
+
+  try {
+    return JSON.parse(body);
+  } catch {
+    return undefined;
+  }
+}
+
+function copyInjectedResponseHeaders(reply: FastifyReply, headers: Record<string, string | string[] | undefined>): void {
+  for (const [name, value] of Object.entries(headers)) {
+    if (typeof value === "undefined" || name.toLowerCase() === "content-length") {
+      continue;
+    }
+
+    reply.header(name, value);
+  }
 }
 
 const SUPPORTED_V1_ENDPOINTS = [
@@ -180,6 +202,8 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
   await requestLogStore.warmup();
   const promptAffinityStore = new PromptAffinityStore(config.promptAffinityFilePath);
   await promptAffinityStore.warmup();
+  const proxySettingsStore = new ProxySettingsStore(config.settingsFilePath);
+  await proxySettingsStore.warmup();
 
   let policyEngine: PolicyEngine;
   try {
@@ -208,7 +232,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
         accountId: newTokens.accountId,
         token: newTokens.accessToken,
         authType: "oauth_bearer",
-        chatgptAccountId: newTokens.accountId,
+        chatgptAccountId: newTokens.chatgptAccountId ?? credential.chatgptAccountId,
         planType: newTokens.planType,
         refreshToken: newTokens.refreshToken ?? credential.refreshToken,
         expiresAt: newTokens.expiresAt,
@@ -221,6 +245,9 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
         newCredential.refreshToken,
         newCredential.expiresAt,
         newCredential.chatgptAccountId,
+        newTokens.email,
+        newTokens.subject,
+        newTokens.planType,
       );
 
       await keyPool.warmup();
@@ -347,6 +374,21 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     return resolvedCatalog;
   }
 
+  async function injectNativeBridge(
+    url: string,
+    payload: Record<string, unknown>,
+    requestHeaders: Record<string, unknown>,
+  ) {
+    return app.inject({
+      method: "POST",
+      url,
+      headers: {
+        ...applyNativeOllamaAuth({ headers: requestHeaders } as never, config),
+      },
+      payload,
+    });
+  }
+
   if (config.allowUnauthenticated) {
     app.log.warn("proxy auth disabled via PROXY_ALLOW_UNAUTHENTICATED=true");
   }
@@ -356,11 +398,16 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     reply.header("Access-Control-Allow-Origin", origin ?? "*");
     reply.header("Vary", "Origin");
     reply.header("Access-Control-Allow-Headers", "Authorization, Content-Type, Accept, X-Requested-With, Cookie");
-    reply.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    reply.header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
 
     if (config.proxyAuthToken) {
+      if (request.method === "OPTIONS") {
+        return;
+      }
+
       const rawPath = (request.raw.url ?? request.url).split("?", 1)[0] ?? request.url;
-      const allowUnauthenticatedRoute = rawPath === "/api/ui/credentials/openai/oauth/browser/callback";
+      const allowUnauthenticatedRoute = rawPath === "/api/ui/credentials/openai/oauth/browser/callback"
+        || rawPath === "/auth/callback";
 
       if (allowUnauthenticatedRoute) {
         return;
@@ -373,6 +420,27 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
         sendOpenAiError(reply, 401, "Unauthorized", "invalid_request_error", "unauthorized");
       }
     }
+  });
+
+  // Attach a telemetry span to each request
+  app.decorateRequest("_otelSpan", null);
+
+  app.addHook("onRequest", async (request) => {
+    if (request.method === "OPTIONS") return;
+    const span = getTelemetry().startSpan("http.request", {
+      "http.method": request.method,
+      "http.path": (request.raw.url ?? request.url).split("?")[0],
+    });
+    (request as any)._otelSpan = span;
+  });
+
+  app.addHook("onResponse", async (request, reply) => {
+    const span = (request as any)._otelSpan as TelemetrySpan | null;
+    if (!span) return;
+    span.setAttribute("http.status_code", reply.statusCode);
+    if (reply.statusCode >= 400) span.setStatus("error", `HTTP ${reply.statusCode}`);
+    else span.setStatus("ok");
+    span.end();
   });
 
   app.options("/", async (_request, reply) => {
@@ -416,6 +484,14 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
   });
 
   app.options("/api/tags", async (_request, reply) => {
+    reply.code(204).send();
+  });
+
+  app.options("/api/ui", async (_request, reply) => {
+    reply.code(204).send();
+  });
+
+  app.options("/api/ui/*", async (_request, reply) => {
     reply.code(204).send();
   });
 
@@ -481,17 +557,8 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
   });
 
   app.get("/api/tags", async (_request, reply) => {
-    const upstreamResponse = await fetchWithResponseTimeout(joinUrl(config.ollamaBaseUrl, "/api/tags"), {
-      method: "GET",
-      headers: { accept: "application/json" },
-    }, Math.min(config.requestTimeoutMs, 30_000));
-
-    if (!upstreamResponse.ok) {
-      reply.code(upstreamResponse.status).send(await upstreamResponse.text());
-      return;
-    }
-
-    reply.send(await upstreamResponse.json());
+    const catalog = await getResolvedModelCatalog();
+    reply.send(modelIdsToNativeTags(catalog.modelIds));
   });
 
   app.post<{ Body: ChatCompletionRequest }>("/v1/chat/completions", async (request, reply) => {
@@ -500,7 +567,22 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       return;
     }
 
-    const requestedModelInput = typeof request.body.model === "string" ? request.body.model : "";
+    const proxySettings = proxySettingsStore.get();
+    const requestBody = proxySettings.fastMode
+      ? {
+        open_hax: {
+          fast_mode: true,
+          ...(isRecord(request.body.open_hax) ? request.body.open_hax : {}),
+        },
+        ...request.body,
+      }
+      : request.body;
+
+    if (proxySettings.fastMode) {
+      reply.header("x-open-hax-fast-mode", "priority");
+    }
+
+    const requestedModelInput = typeof requestBody.model === "string" ? requestBody.model : "";
     let routingModelInput = requestedModelInput;
     let resolvedModelCatalog: ResolvedModelCatalog | null = null;
     try {
@@ -515,7 +597,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       request.log.warn({ error: toErrorMessage(error) }, "failed to resolve dynamic model aliases; using requested model as-is");
     }
 
-    const { strategy, context } = selectProviderStrategy(config, request.headers, request.body, requestedModelInput, routingModelInput);
+    const { strategy, context } = selectProviderStrategy(config, request.headers, requestBody, requestedModelInput, routingModelInput);
     reply.header("x-open-hax-upstream-mode", strategy.mode);
 
     let payload: ReturnType<typeof strategy.buildPayload>;
@@ -528,7 +610,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
 
     if (strategy.mode === "ollama_chat" || strategy.mode === "local_ollama_chat") {
       const candidateRequestBody = payload.upstreamPayload;
-      if (isRecord(candidateRequestBody) && !requestHasExplicitNumCtx(request.body)) {
+      if (isRecord(candidateRequestBody) && !requestHasExplicitNumCtx(requestBody)) {
         const budget = await ensureOllamaContextFits(config.ollamaBaseUrl, candidateRequestBody, Math.min(config.requestTimeoutMs, 30_000));
         if (budget && budget.requiredContextTokens > budget.availableContextTokens) {
           sendOpenAiError(
@@ -560,7 +642,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     }
 
     const availability = await inspectProviderAvailability(keyPool, providerRoutes);
-    const promptCacheKey = extractPromptCacheKey(request.body);
+    const promptCacheKey = extractPromptCacheKey(requestBody);
     const execution = await executeProviderFallback(
       strategy,
       reply,
@@ -720,153 +802,90 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
   });
 
   app.post<{ Body: Record<string, unknown> }>("/api/chat", async (request, reply) => {
-    const body = isRecord(request.body) ? { ...request.body } : {};
-    const options = isRecord(body["options"]) ? { ...body["options"] } : {};
-    const hasExplicitNumCtx = typeof options["num_ctx"] !== "undefined" || typeof body["num_ctx"] !== "undefined";
+    const bridgeResponse = await injectNativeBridge(
+      "/v1/chat/completions",
+      nativeChatToOpenAiRequest(isRecord(request.body) ? request.body : {}),
+      request.headers,
+    );
 
-    if (!hasExplicitNumCtx) {
-      const budget = await ensureNativeOllamaChatContextFits(config.ollamaBaseUrl, body, Math.min(config.requestTimeoutMs, 30_000));
-      if (budget && budget.requiredContextTokens > budget.availableContextTokens) {
-        reply.code(400).send({
-          error: `Request exceeds model context window for ${budget.model}. Estimated input tokens: ${budget.estimatedInputTokens}, requested output tokens: ${budget.requestedOutputTokens}, required total: ${budget.requiredContextTokens}, available: ${budget.availableContextTokens}. Reduce input size or use a model with a larger context window.`,
-        });
-        return;
-      }
+    copyInjectedResponseHeaders(reply, bridgeResponse.headers as Record<string, string | string[] | undefined>);
+    reply.code(bridgeResponse.statusCode);
 
-      if (budget) {
-        options["num_ctx"] = budget.recommendedNumCtx;
-        body["options"] = options;
-      }
+    const contentType = String(bridgeResponse.headers["content-type"] ?? "application/json");
+    const parsed = parseJsonIfPossible(bridgeResponse.body);
+    if (contentType.toLowerCase().includes("application/json") && isRecord(parsed) && Array.isArray(parsed["choices"])) {
+      reply.send(chatCompletionToNativeChat(parsed));
+      return;
     }
 
-    const upstreamResponse = await fetchWithResponseTimeout(joinUrl(config.ollamaBaseUrl, "/api/chat"), {
-      method: "POST",
-      headers: buildForwardHeaders(request.headers),
-      body: JSON.stringify(body),
-    }, config.requestTimeoutMs);
-
-    reply.code(upstreamResponse.status);
-    reply.header("content-type", upstreamResponse.headers.get("content-type") ?? "application/json");
-    reply.send(await upstreamResponse.text());
+    reply.send(bridgeResponse.body);
   });
 
   app.post<{ Body: Record<string, unknown> }>("/api/generate", async (request, reply) => {
-    const originalBody = isRecord(request.body) ? request.body : {};
-    const syntheticChatBody = nativeGenerateToChatRequest(originalBody);
-    const nativeBody = {
-      ...originalBody,
-      system: typeof originalBody["system"] === "string" ? originalBody["system"] : undefined,
-      prompt: typeof originalBody["prompt"] === "string" ? originalBody["prompt"] : "",
-      options: isRecord(originalBody["options"]) ? { ...originalBody["options"] } : {},
-    } as Record<string, unknown>;
+    const bridgeResponse = await injectNativeBridge(
+      "/v1/chat/completions",
+      nativeGenerateToChatRequest(isRecord(request.body) ? request.body : {}),
+      request.headers,
+    );
 
-    const hasExplicitNumCtx = isRecord(nativeBody["options"]) && typeof nativeBody["options"]["num_ctx"] !== "undefined"
-      || typeof nativeBody["num_ctx"] !== "undefined";
+    copyInjectedResponseHeaders(reply, bridgeResponse.headers as Record<string, string | string[] | undefined>);
+    reply.code(bridgeResponse.statusCode);
 
-    if (!hasExplicitNumCtx) {
-      const budget = await ensureNativeOllamaChatContextFits(config.ollamaBaseUrl, {
-        model: nativeBody["model"],
-        messages: syntheticChatBody["messages"],
-        tools: syntheticChatBody["tools"],
-        options: nativeBody["options"],
-      }, Math.min(config.requestTimeoutMs, 30_000));
-      if (budget && budget.requiredContextTokens > budget.availableContextTokens) {
-        reply.code(400).send({
-          error: `Request exceeds model context window for ${budget.model}. Estimated input tokens: ${budget.estimatedInputTokens}, requested output tokens: ${budget.requestedOutputTokens}, required total: ${budget.requiredContextTokens}, available: ${budget.availableContextTokens}. Reduce input size or use a model with a larger context window.`,
-        });
-        return;
-      }
-
-      if (budget && isRecord(nativeBody["options"])) {
-        nativeBody["options"] = {
-          ...nativeBody["options"],
-          num_ctx: budget.recommendedNumCtx,
-        };
-      }
+    const contentType = String(bridgeResponse.headers["content-type"] ?? "application/json");
+    const parsed = parseJsonIfPossible(bridgeResponse.body);
+    if (contentType.toLowerCase().includes("application/json") && isRecord(parsed) && Array.isArray(parsed["choices"])) {
+      reply.send(chatCompletionToNativeGenerate(parsed));
+      return;
     }
 
-    const upstreamResponse = await fetchWithResponseTimeout(joinUrl(config.ollamaBaseUrl, "/api/generate"), {
-      method: "POST",
-      headers: buildForwardHeaders(request.headers),
-      body: JSON.stringify(nativeBody),
-    }, config.requestTimeoutMs);
-
-    reply.code(upstreamResponse.status);
-    reply.header("content-type", upstreamResponse.headers.get("content-type") ?? "application/json");
-    reply.send(await upstreamResponse.text());
+    reply.send(bridgeResponse.body);
   });
 
   app.post<{ Body: Record<string, unknown> }>("/api/embed", async (request, reply) => {
-    const body = isRecord(request.body) ? { ...request.body } : {};
-    const options = isRecord(body["options"]) ? { ...body["options"] } : {};
-    const hasExplicitNumCtx = typeof options["num_ctx"] !== "undefined" || typeof body["num_ctx"] !== "undefined";
+    const bridgeResponse = await injectNativeBridge(
+      "/v1/embeddings",
+      nativeEmbedToOpenAiRequest(isRecord(request.body) ? request.body : {}),
+      request.headers,
+    );
 
-    if (!hasExplicitNumCtx) {
-      const budget = await ensureNativeOllamaEmbedContextFits(config.ollamaBaseUrl, body, Math.min(config.requestTimeoutMs, 30_000));
-      if (budget && budget.requiredContextTokens > budget.availableContextTokens) {
-        reply.code(400).send({
-          error: `Embedding request exceeds model context window for ${budget.model}. Estimated input tokens: ${budget.estimatedInputTokens}, available: ${budget.availableContextTokens}. Reduce input size or use a model with a larger context window.`,
-        });
-        return;
-      }
+    copyInjectedResponseHeaders(reply, bridgeResponse.headers as Record<string, string | string[] | undefined>);
+    reply.code(bridgeResponse.statusCode);
 
-      if (budget) {
-        options["num_ctx"] = budget.recommendedNumCtx;
-        body["options"] = options;
-      }
+    const contentType = String(bridgeResponse.headers["content-type"] ?? "application/json");
+    const parsed = parseJsonIfPossible(bridgeResponse.body);
+    if (contentType.toLowerCase().includes("application/json") && isRecord(parsed) && Array.isArray(parsed["data"])) {
+      reply.send(openAiEmbeddingsToNativeEmbed(parsed));
+      return;
     }
 
-    const upstreamResponse = await fetchWithResponseTimeout(joinUrl(config.ollamaBaseUrl, "/api/embed"), {
-      method: "POST",
-      headers: buildForwardHeaders(request.headers),
-      body: JSON.stringify(body),
-    }, config.requestTimeoutMs);
-
-    reply.code(upstreamResponse.status);
-    reply.header("content-type", upstreamResponse.headers.get("content-type") ?? "application/json");
-    reply.send(await upstreamResponse.text());
+    reply.send(bridgeResponse.body);
   });
 
   app.post<{ Body: Record<string, unknown> }>("/api/embeddings", async (request, reply) => {
-    const normalized = nativeEmbedToOpenAiRequest(isRecord(request.body) ? request.body : {});
-    const body = {
-      ...(isRecord(request.body) ? request.body : {}),
-      model: normalized.model,
-      input: normalized.input,
-    } as Record<string, unknown>;
-    const options = isRecord(body["options"]) ? { ...body["options"] } : {};
-    const hasExplicitNumCtx = typeof options["num_ctx"] !== "undefined" || typeof body["num_ctx"] !== "undefined";
+    const bridgeResponse = await injectNativeBridge(
+      "/v1/embeddings",
+      nativeEmbedToOpenAiRequest(isRecord(request.body) ? request.body : {}),
+      request.headers,
+    );
 
-    if (!hasExplicitNumCtx) {
-      const budget = await ensureNativeOllamaEmbedContextFits(config.ollamaBaseUrl, body, Math.min(config.requestTimeoutMs, 30_000));
-      if (budget && budget.requiredContextTokens > budget.availableContextTokens) {
-        reply.code(400).send({
-          error: `Embedding request exceeds model context window for ${budget.model}. Estimated input tokens: ${budget.estimatedInputTokens}, available: ${budget.availableContextTokens}. Reduce input size or use a model with a larger context window.`,
-        });
-        return;
-      }
+    copyInjectedResponseHeaders(reply, bridgeResponse.headers as Record<string, string | string[] | undefined>);
+    reply.code(bridgeResponse.statusCode);
 
-      if (budget) {
-        options["num_ctx"] = budget.recommendedNumCtx;
-        body["options"] = options;
-      }
+    const contentType = String(bridgeResponse.headers["content-type"] ?? "application/json");
+    const parsed = parseJsonIfPossible(bridgeResponse.body);
+    if (contentType.toLowerCase().includes("application/json") && isRecord(parsed) && Array.isArray(parsed["data"])) {
+      reply.send(openAiEmbeddingsToNativeEmbeddings(parsed));
+      return;
     }
 
-    const upstreamResponse = await fetchWithResponseTimeout(joinUrl(config.ollamaBaseUrl, "/api/embeddings"), {
-      method: "POST",
-      headers: buildForwardHeaders(request.headers),
-      body: JSON.stringify(body),
-    }, config.requestTimeoutMs);
-
-    reply.code(upstreamResponse.status);
-    reply.header("content-type", upstreamResponse.headers.get("content-type") ?? "application/json");
-    reply.send(await upstreamResponse.text());
+    reply.send(bridgeResponse.body);
   });
 
   await registerUiRoutes(app, {
     config,
     keyPool,
-    requestLogStore
+    requestLogStore,
+    proxySettingsStore
   });
 
   if (sql && sqlAuthPersistence && sqlGitHubAllowlist && sqlCredentialStore) {

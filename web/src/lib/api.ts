@@ -32,11 +32,16 @@ export interface SessionRecord {
 export interface CredentialAccount {
   readonly id: string;
   readonly authType: "api_key" | "oauth_bearer";
+  readonly displayName: string;
   readonly secretPreview: string;
   readonly secret?: string;
   readonly refreshTokenPreview?: string;
   readonly refreshToken?: string;
   readonly expiresAt?: number;
+  readonly chatgptAccountId?: string;
+  readonly email?: string;
+  readonly subject?: string;
+  readonly planType?: string;
 }
 
 export interface CredentialProvider {
@@ -57,6 +62,8 @@ export interface RequestLogEntry {
   readonly upstreamPath: string;
   readonly status: number;
   readonly latencyMs: number;
+  readonly serviceTier?: string;
+  readonly serviceTierSource: "fast_mode" | "explicit" | "none";
   readonly promptTokens?: number;
   readonly completionTokens?: number;
   readonly totalTokens?: number;
@@ -108,6 +115,10 @@ export interface UsageTrendPoint {
   readonly v: number;
 }
 
+export interface ProxyUiSettings {
+  readonly fastMode: boolean;
+}
+
 export interface UsageAccountSummary {
   readonly accountId: string;
   readonly displayName: string;
@@ -132,6 +143,11 @@ export interface UsageOverview {
     readonly topModel: string | null;
     readonly topProvider: string | null;
     readonly activeAccounts: number;
+    readonly serviceTierRequests24h: {
+      readonly fastMode: number;
+      readonly priority: number;
+      readonly standard: number;
+    };
   };
   readonly trends: {
     readonly requests: readonly UsageTrendPoint[];
@@ -141,8 +157,63 @@ export interface UsageOverview {
   readonly accounts: readonly UsageAccountSummary[];
 }
 
+export interface CredentialQuotaWindow {
+  readonly usedPercent: number | null;
+  readonly remainingPercent: number | null;
+  readonly resetsAt: string | null;
+  readonly resetAfterSeconds: number | null;
+}
+
+export interface CredentialQuotaAccountSummary {
+  readonly providerId: string;
+  readonly accountId: string;
+  readonly displayName: string;
+  readonly email?: string;
+  readonly planType?: string;
+  readonly chatgptAccountId?: string;
+  readonly status: "ok" | "error";
+  readonly fetchedAt: string;
+  readonly fiveHour: CredentialQuotaWindow | null;
+  readonly weekly: CredentialQuotaWindow | null;
+  readonly error?: string;
+}
+
+export interface CredentialQuotaOverview {
+  readonly generatedAt: string;
+  readonly accounts: readonly CredentialQuotaAccountSummary[];
+}
+
 const AUTH_TOKEN_KEY = "open-hax-proxy.auth-token";
 const AUTH_TOKEN_COOKIE = "open_hax_proxy_auth_token";
+
+function configuredApiBaseUrl(): string {
+  const env = (import.meta as { readonly env?: Record<string, unknown> }).env;
+  const explicit = typeof env?.VITE_API_BASE_URL === "string" ? env.VITE_API_BASE_URL.trim() : "";
+  if (explicit.length > 0) {
+    return explicit.replace(/\/+$/, "");
+  }
+
+  if (typeof window === "undefined") {
+    return "";
+  }
+
+  const { protocol, hostname, port } = window.location;
+  if (port === "5174") {
+    return `${protocol}//${hostname}:8789`;
+  }
+
+  return "";
+}
+
+const API_BASE_URL = configuredApiBaseUrl();
+
+function buildApiUrl(path: string): string {
+  if (/^https?:\/\//i.test(path)) {
+    return path;
+  }
+
+  return `${API_BASE_URL}${path}`;
+}
 
 function readCookie(name: string): string {
   if (typeof document === "undefined") {
@@ -210,7 +281,7 @@ async function requestJson<T>(path: string, init: RequestInit = {}): Promise<T> 
     }
   }
 
-  const response = await fetch(path, {
+  const response = await fetch(buildApiUrl(path), {
     ...init,
     headers,
   });
@@ -243,6 +314,18 @@ export function saveAuthToken(token: string): void {
     }
   }
   writeCookie(AUTH_TOKEN_COOKIE, token);
+}
+
+export function getApiOrigin(): string {
+  if (API_BASE_URL.length > 0) {
+    return API_BASE_URL;
+  }
+
+  if (typeof window !== "undefined") {
+    return window.location.origin;
+  }
+
+  return "";
 }
 
 export async function listSessions(): Promise<SessionListItem[]> {
@@ -340,6 +423,20 @@ export async function getUsageOverview(): Promise<UsageOverview> {
   return requestJson<UsageOverview>("/api/ui/dashboard/overview");
 }
 
+export async function getProxyUiSettings(): Promise<ProxyUiSettings> {
+  return requestJson<ProxyUiSettings>("/api/ui/settings");
+}
+
+export async function saveProxyUiSettings(settings: ProxyUiSettings): Promise<ProxyUiSettings> {
+  return requestJson<ProxyUiSettings>("/api/ui/settings", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(settings),
+  });
+}
+
 export async function listCredentials(reveal: boolean): Promise<{
   readonly providers: CredentialProvider[];
   readonly keyPoolStatuses: Record<string, KeyPoolStatus>;
@@ -357,6 +454,26 @@ export async function addApiKeyCredential(providerId: string, accountId: string,
     },
     body: JSON.stringify({ providerId, accountId, apiKey }),
   });
+}
+
+export async function removeCredential(providerId: string, accountId: string): Promise<void> {
+  await requestJson("/api/ui/credentials/account", {
+    method: "DELETE",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ providerId, accountId }),
+  });
+}
+
+export async function getOpenAiCredentialQuota(accountId?: string): Promise<CredentialQuotaOverview> {
+  const query = new URLSearchParams();
+  if (accountId && accountId.trim().length > 0) {
+    query.set("accountId", accountId.trim());
+  }
+
+  const suffix = query.size > 0 ? `?${query.toString()}` : "";
+  return requestJson<CredentialQuotaOverview>(`/api/ui/credentials/openai/quota${suffix}`);
 }
 
 export async function startOpenAiBrowserOAuth(redirectBaseUrl: string): Promise<{

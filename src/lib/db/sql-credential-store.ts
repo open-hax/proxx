@@ -116,7 +116,7 @@ export class SqlCredentialStore {
     const authType = rows.length > 0 && rows[0]?.token
       ? this.inferAuthType(rows[0].token)
       : "api_key";
-    return rows.map((row) => toProviderCredential(row, authType));
+    return rows.map((row: AccountRow) => toProviderCredential(row, authType));
   }
 
   private inferAuthType(_token: string): ProviderAuthType {

@@ -1,5 +1,8 @@
+import { createHash } from "node:crypto";
+
 const OPENAI_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
 const OPENAI_ISSUER = "https://auth.openai.com";
+const OPENAI_BROWSER_CALLBACK_PORT = "1455";
 
 interface PkceCodes {
   readonly verifier: string;
@@ -65,6 +68,9 @@ export interface OAuthTokens {
   readonly refreshToken?: string;
   readonly expiresAt?: number;
   readonly accountId: string;
+  readonly chatgptAccountId?: string;
+  readonly email?: string;
+  readonly subject?: string;
   readonly planType?: string;
 }
 
@@ -74,12 +80,17 @@ export type DevicePollResult =
   | { readonly state: "failed"; readonly reason: string };
 
 interface JwtClaims {
+  readonly sub?: string;
+  readonly email?: string;
   readonly chatgpt_account_id?: string;
   readonly chatgpt_plan_type?: string;
   readonly organizations?: ReadonlyArray<{ readonly id: string }>;
   readonly "https://api.openai.com/auth"?: {
     readonly chatgpt_account_id?: string;
     readonly chatgpt_plan_type?: string;
+  };
+  readonly "https://api.openai.com/profile"?: {
+    readonly email?: string;
   };
 }
 
@@ -150,26 +161,82 @@ function planTypeFromClaims(claims: JwtClaims): string | undefined {
   );
 }
 
-function extractAccountId(tokens: TokenResponse): string {
-  if (tokens.id_token) {
-    const claims = parseJwtClaims(tokens.id_token);
-    if (claims) {
-      const accountId = accountIdFromClaims(claims);
-      if (accountId) {
-        return accountId;
-      }
-    }
+function identityDiscriminatorFromClaims(claims: JwtClaims | undefined): string | undefined {
+  const subject = claims?.sub?.trim();
+  if (subject && subject.length > 0) {
+    return `sub:${subject}`;
   }
 
+  const email = claims?.email?.trim().toLowerCase()
+    ?? claims?.["https://api.openai.com/profile"]?.email?.trim().toLowerCase();
+  if (email && email.length > 0) {
+    return `email:${email}`;
+  }
+
+  return undefined;
+}
+
+function storageAccountId(chatgptAccountId: string, discriminator: string): string {
+  const digest = createHash("sha256")
+    .update(chatgptAccountId)
+    .update("\0")
+    .update(discriminator)
+    .digest("hex")
+    .slice(0, 12);
+
+  return `${chatgptAccountId}-${digest}`;
+}
+
+function emailFromClaims(claims: JwtClaims | undefined): string | undefined {
+  const email = claims?.email?.trim().toLowerCase()
+    ?? claims?.["https://api.openai.com/profile"]?.email?.trim().toLowerCase();
+  return email && email.length > 0 ? email : undefined;
+}
+
+function subjectFromClaims(claims: JwtClaims | undefined): string | undefined {
+  const subject = claims?.sub?.trim();
+  return subject && subject.length > 0 ? subject : undefined;
+}
+
+function extractAccountIdentity(tokens: TokenResponse): {
+  readonly accountId: string;
+  readonly chatgptAccountId?: string;
+  readonly email?: string;
+  readonly subject?: string;
+} {
+  const idTokenClaims = tokens.id_token ? parseJwtClaims(tokens.id_token) : undefined;
   const accessClaims = parseJwtClaims(tokens.access_token);
-  if (accessClaims) {
-    const accountId = accountIdFromClaims(accessClaims);
-    if (accountId) {
-      return accountId;
-    }
+
+  const chatgptAccountId = (idTokenClaims ? accountIdFromClaims(idTokenClaims) : undefined)
+    ?? (accessClaims ? accountIdFromClaims(accessClaims) : undefined);
+  const email = emailFromClaims(idTokenClaims) ?? emailFromClaims(accessClaims);
+  const subject = subjectFromClaims(idTokenClaims) ?? subjectFromClaims(accessClaims);
+  const discriminator = identityDiscriminatorFromClaims(idTokenClaims)
+    ?? identityDiscriminatorFromClaims(accessClaims);
+
+  if (chatgptAccountId && discriminator) {
+    return {
+      accountId: storageAccountId(chatgptAccountId, discriminator),
+      chatgptAccountId,
+      email,
+      subject,
+    };
   }
 
-  return `openai-${Date.now()}`;
+  if (chatgptAccountId) {
+    return {
+      accountId: chatgptAccountId,
+      chatgptAccountId,
+      email,
+      subject,
+    };
+  }
+
+  return {
+    accountId: `openai-${Date.now()}`,
+    email,
+    subject,
+  };
 }
 
 function buildAuthorizationUrl(redirectUri: string, pkce: PkceCodes, state: string): string {
@@ -187,6 +254,18 @@ function buildAuthorizationUrl(redirectUri: string, pkce: PkceCodes, state: stri
   });
 
   return `${OPENAI_ISSUER}/oauth/authorize?${params.toString()}`;
+}
+
+function normalizeBrowserRedirectBaseUrl(redirectBaseUrl: string): string {
+  const url = new URL(redirectBaseUrl);
+
+  if (url.hostname === "127.0.0.1" || url.hostname === "::1") {
+    url.hostname = "localhost";
+  }
+
+  url.port = OPENAI_BROWSER_CALLBACK_PORT;
+
+  return url.toString();
 }
 
 async function exchangeAuthorizationCode(
@@ -217,10 +296,18 @@ async function exchangeAuthorizationCode(
 }
 
 function toOAuthTokens(tokens: TokenResponse): OAuthTokens {
+  const identity = extractAccountIdentity(tokens);
+  const idTokenClaims = tokens.id_token ? parseJwtClaims(tokens.id_token) : undefined;
   const accessClaims = parseJwtClaims(tokens.access_token);
-  const planType = tokens.chatgpt_plan_type ?? (accessClaims ? planTypeFromClaims(accessClaims) : undefined);
+  const planType = tokens.chatgpt_plan_type
+    ?? (idTokenClaims ? planTypeFromClaims(idTokenClaims) : undefined)
+    ?? (accessClaims ? planTypeFromClaims(accessClaims) : undefined);
+
   return {
-    accountId: extractAccountId(tokens),
+    accountId: identity.accountId,
+    chatgptAccountId: identity.chatgptAccountId,
+    email: identity.email,
+    subject: identity.subject,
     accessToken: tokens.access_token,
     refreshToken: tokens.refresh_token,
     expiresAt: typeof tokens.expires_in === "number" ? Date.now() + tokens.expires_in * 1000 : undefined,
@@ -250,7 +337,8 @@ export class OpenAiOAuthManager {
   public async startBrowserFlow(redirectBaseUrl: string): Promise<BrowserAuthStartResponse> {
     const pkce = await generatePkce();
     const state = generateState();
-    const redirectUri = new URL("/api/ui/credentials/openai/oauth/browser/callback", redirectBaseUrl).toString();
+    const normalizedBaseUrl = normalizeBrowserRedirectBaseUrl(redirectBaseUrl);
+    const redirectUri = new URL("/auth/callback", normalizedBaseUrl).toString();
 
     this.browserPending.set(state, {
       createdAt: this.now(),

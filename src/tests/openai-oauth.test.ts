@@ -142,3 +142,56 @@ test("browser completion reuses cached callback result", async () => {
   assert.deepEqual(second, first);
   assert.equal(tokenExchangeCalls, 1);
 });
+
+
+test("browser flow normalizes loopback callback to localhost auth callback route on the Codex callback port", async () => {
+  const manager = new OpenAiOAuthManager();
+  const started = await manager.startBrowserFlow("http://127.0.0.1:8789");
+
+  assert.equal(started.redirectUri, "http://localhost:1455/auth/callback");
+  assert.match(started.authorizeUrl, /redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fauth%2Fcallback/);
+});
+
+test("browser flow derives distinct storage ids for different identities on the same ChatGPT account", async () => {
+  let tokenExchangeCalls = 0;
+
+  const tokenResponses = [
+    {
+      id_token: makeJwt({ chatgpt_account_id: "acct-shared", sub: "user-a" }),
+      access_token: "access-a",
+      refresh_token: "refresh-a",
+      expires_in: 1800,
+    },
+    {
+      id_token: makeJwt({ chatgpt_account_id: "acct-shared", sub: "user-b" }),
+      access_token: "access-b",
+      refresh_token: "refresh-b",
+      expires_in: 1800,
+    },
+  ];
+
+  const manager = new OpenAiOAuthManager({
+    fetchFn: async (input) => {
+      const url = String(input);
+      if (url.endsWith("/oauth/token")) {
+        const payload = tokenResponses[tokenExchangeCalls];
+        tokenExchangeCalls += 1;
+        if (!payload) {
+          throw new Error("Unexpected extra token exchange");
+        }
+        return jsonResponse(payload);
+      }
+
+      throw new Error(`Unexpected URL: ${url}`);
+    },
+  });
+
+  const firstStart = await manager.startBrowserFlow("http://127.0.0.1:8789");
+  const secondStart = await manager.startBrowserFlow("http://127.0.0.1:8789");
+  const first = await manager.completeBrowserFlow(firstStart.state, "browser-code-1");
+  const second = await manager.completeBrowserFlow(secondStart.state, "browser-code-2");
+
+  assert.equal(first.chatgptAccountId, "acct-shared");
+  assert.equal(second.chatgptAccountId, "acct-shared");
+  assert.notEqual(first.accountId, second.accountId);
+});

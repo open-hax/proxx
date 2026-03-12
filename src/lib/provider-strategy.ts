@@ -52,6 +52,7 @@ import {
   toErrorMessage,
 } from "./provider-utils.js";
 import { resolveRequestRoutingState } from "./provider-routing.js";
+import { getTelemetry } from "./telemetry/otel.js";
 
 function joinUrl(baseUrl: string, path: string): string {
   const normalizedBase = baseUrl.replace(/\/+$/, "");
@@ -67,6 +68,10 @@ function sleep(ms: number): Promise<void> {
 
 function transientRetryDelayMs(context: StrategyRequestContext, retryIndex: number): number {
   return context.config.upstreamTransientRetryBackoffMs * (retryIndex + 1);
+}
+
+function shouldRetrySameCredentialForServerError(status: number): boolean {
+  return status === 502 || status === 503 || status === 504;
 }
 
 function reorderCandidatesForAffinity<T extends { readonly providerId: string; readonly account: ProviderCredential }>(
@@ -170,6 +175,8 @@ export interface ProviderAvailabilitySummary {
 interface BuildPayloadResult {
   readonly upstreamPayload: Record<string, unknown>;
   readonly bodyText: string;
+  readonly serviceTier?: string;
+  readonly serviceTierSource: "fast_mode" | "explicit" | "none";
 }
 
 function providerAccountsForRequest(
@@ -272,20 +279,145 @@ function asNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
-function buildPayloadResult(upstreamPayload: Record<string, unknown>): BuildPayloadResult {
+function asString(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+function asBoolean(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
+}
+
+function hasExplicitServiceTierRequest(context: StrategyRequestContext): boolean {
+  const openHax = isRecord(context.requestBody["open_hax"]) ? context.requestBody["open_hax"] : null;
+
+  return Boolean(
+    asString(context.requestBody["service_tier"])?.trim()
+      || asString(openHax?.["service_tier"])?.trim()
+      || asString(openHax?.["serviceTier"])?.trim()
+      || readHeaderValue(context.clientHeaders, "x-open-hax-service-tier")?.trim(),
+  );
+}
+
+function requestedFastMode(context: StrategyRequestContext): boolean {
+  const openHax = isRecord(context.requestBody["open_hax"]) ? context.requestBody["open_hax"] : null;
+
+  return Boolean(
+    asBoolean(openHax?.["fast_mode"])
+      ?? asBoolean(openHax?.["fastMode"])
+      ?? parseBooleanHeader(readHeaderValue(context.clientHeaders, "x-open-hax-fast-mode")),
+  );
+}
+
+function resolveLoggedServiceTier(
+  upstreamPayload: Record<string, unknown>,
+  context?: StrategyRequestContext,
+): { readonly serviceTier?: string; readonly serviceTierSource: "fast_mode" | "explicit" | "none" } {
+  const serviceTier = asString(upstreamPayload["service_tier"])?.trim();
+
+  if (!serviceTier) {
+    return {
+      serviceTierSource: "none",
+    };
+  }
+
+  if (!context) {
+    return {
+      serviceTier,
+      serviceTierSource: "explicit",
+    };
+  }
+
+  return {
+    serviceTier,
+    serviceTierSource: !hasExplicitServiceTierRequest(context) && requestedFastMode(context) && serviceTier === "priority"
+      ? "fast_mode"
+      : "explicit",
+  };
+}
+
+function buildPayloadResult(upstreamPayload: Record<string, unknown>, context?: StrategyRequestContext): BuildPayloadResult {
+  const { serviceTier, serviceTierSource } = resolveLoggedServiceTier(upstreamPayload, context);
+
   return {
     upstreamPayload,
-    bodyText: JSON.stringify(upstreamPayload)
+    bodyText: JSON.stringify(upstreamPayload),
+    serviceTier,
+    serviceTierSource,
   };
 }
 
 function buildRequestBodyForUpstream(context: StrategyRequestContext): Record<string, unknown> {
-  return context.routedModel !== context.requestedModelInput
-    ? {
-      ...context.requestBody,
-      model: context.routedModel
-    }
-    : context.requestBody;
+  const upstreamBody: Record<string, unknown> = {
+    ...context.requestBody,
+  };
+
+  if (context.routedModel !== context.requestedModelInput) {
+    upstreamBody.model = context.routedModel;
+  }
+
+  delete upstreamBody["open_hax"];
+  return upstreamBody;
+}
+
+function readHeaderValue(headers: IncomingHttpHeaders, name: string): string | undefined {
+  const value = headers[name.toLowerCase()];
+  if (Array.isArray(value)) {
+    return value.join(", ");
+  }
+
+  return typeof value === "string" ? value : undefined;
+}
+
+function parseBooleanHeader(value: string | undefined): boolean | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized)) {
+    return true;
+  }
+
+  if (["0", "false", "no", "off"].includes(normalized)) {
+    return false;
+  }
+
+  return undefined;
+}
+
+function resolveRequestedServiceTier(context: StrategyRequestContext): string | undefined {
+  const openHax = isRecord(context.requestBody["open_hax"]) ? context.requestBody["open_hax"] : null;
+
+  const explicitServiceTier = asString(openHax?.["service_tier"]) ?? asString(openHax?.["serviceTier"]);
+  if (explicitServiceTier?.trim()) {
+    return explicitServiceTier.trim();
+  }
+
+  const headerServiceTier = readHeaderValue(context.clientHeaders, "x-open-hax-service-tier")?.trim();
+  if (headerServiceTier) {
+    return headerServiceTier;
+  }
+
+  const fastMode = asBoolean(openHax?.["fast_mode"])
+    ?? asBoolean(openHax?.["fastMode"])
+    ?? parseBooleanHeader(readHeaderValue(context.clientHeaders, "x-open-hax-fast-mode"));
+
+  if (fastMode) {
+    return "priority";
+  }
+
+  return undefined;
+}
+
+function applyRequestedServiceTier(upstreamPayload: Record<string, unknown>, context: StrategyRequestContext): void {
+  if (upstreamPayload["service_tier"] !== undefined) {
+    return;
+  }
+
+  const serviceTier = resolveRequestedServiceTier(context);
+  if (serviceTier) {
+    upstreamPayload["service_tier"] = serviceTier;
+  }
 }
 
 function recordAttempt(
@@ -298,6 +430,8 @@ function recordAttempt(
     readonly upstreamPath: string;
     readonly status: number;
     readonly latencyMs: number;
+    readonly serviceTier?: string;
+    readonly serviceTierSource?: "fast_mode" | "explicit" | "none";
     readonly promptTokens?: number;
     readonly completionTokens?: number;
     readonly totalTokens?: number;
@@ -314,6 +448,8 @@ function recordAttempt(
     upstreamPath: values.upstreamPath,
     status: values.status,
     latencyMs: values.latencyMs,
+    serviceTier: values.serviceTier,
+    serviceTierSource: values.serviceTierSource,
     promptTokens: values.promptTokens,
     completionTokens: values.completionTokens,
     totalTokens: values.totalTokens,
@@ -735,7 +871,7 @@ class OllamaProviderStrategy extends BaseProviderStrategy {
   }
 
   public buildPayload(context: StrategyRequestContext): BuildPayloadResult {
-    return buildPayloadResult(chatRequestToOllamaRequest(context.requestBody, context.config.ollamaModelPrefixes));
+    return buildPayloadResult(chatRequestToOllamaRequest(context.requestBody, context.config.ollamaModelPrefixes), context);
   }
 
   public override async handleLocalAttempt(
@@ -843,7 +979,7 @@ class MessagesProviderStrategy extends TransformedJsonProviderStrategy {
   }
 
   public buildPayload(context: StrategyRequestContext): BuildPayloadResult {
-    return buildPayloadResult(chatRequestToMessagesRequest(buildRequestBodyForUpstream(context)));
+    return buildPayloadResult(chatRequestToMessagesRequest(buildRequestBodyForUpstream(context)), context);
   }
 
   public override applyRequestHeaders(headers: Headers, context: ProviderAttemptContext, payload: Record<string, unknown>): void {
@@ -874,7 +1010,9 @@ class ResponsesProviderStrategy extends TransformedJsonProviderStrategy {
   }
 
   public buildPayload(context: StrategyRequestContext): BuildPayloadResult {
-    return buildPayloadResult(chatRequestToResponsesRequest(buildRequestBodyForUpstream(context)));
+    const upstreamPayload = chatRequestToResponsesRequest(buildRequestBodyForUpstream(context));
+    applyRequestedServiceTier(upstreamPayload, context);
+    return buildPayloadResult(upstreamPayload, context);
   }
 
   protected convertResponseToChatCompletion(upstreamJson: unknown, routedModel: string): Record<string, unknown> {
@@ -898,10 +1036,11 @@ class OpenAiResponsesProviderStrategy extends TransformedJsonProviderStrategy {
 
   public buildPayload(context: StrategyRequestContext): BuildPayloadResult {
     const upstreamPayload = chatRequestToResponsesRequest(buildRequestBodyForUpstream(context));
+    applyRequestedServiceTier(upstreamPayload, context);
     delete upstreamPayload["max_output_tokens"];
     upstreamPayload["store"] = false;
     upstreamPayload["stream"] = true;
-    return buildPayloadResult(upstreamPayload);
+    return buildPayloadResult(upstreamPayload, context);
   }
 
   public override async handleProviderAttempt(
@@ -979,7 +1118,7 @@ class OpenAiChatCompletionsProviderStrategy extends BaseProviderStrategy {
   }
 
   public buildPayload(context: StrategyRequestContext): BuildPayloadResult {
-    return buildPayloadResult(buildRequestBodyForUpstream(context));
+    return buildPayloadResult(buildRequestBodyForUpstream(context), context);
   }
 }
 
@@ -997,7 +1136,7 @@ class ChatCompletionsProviderStrategy extends BaseProviderStrategy {
   }
 
   public buildPayload(context: StrategyRequestContext): BuildPayloadResult {
-    return buildPayloadResult(buildRequestBodyForUpstream(context));
+    return buildPayloadResult(buildRequestBodyForUpstream(context), context);
   }
 }
 
@@ -1080,6 +1219,20 @@ export async function executeLocalStrategy(
   const upstreamHeaders = buildForwardHeaders(context.clientHeaders);
   const attemptStartedAt = Date.now();
 
+  const upstreamSpan = getTelemetry().startSpan("proxy.upstream_attempt", {
+    "proxy.provider_id": "ollama",
+    "proxy.account_id": "local",
+    "proxy.auth_type": "local",
+    "proxy.upstream_mode": strategy.mode,
+    "proxy.upstream_path": upstreamPath,
+    "proxy.model": context.routedModel,
+    "proxy.requested_model": context.requestedModelInput,
+  });
+  upstreamSpan.setAttributes({
+    "proxy.service_tier": payload.serviceTier,
+    "proxy.service_tier_source": payload.serviceTierSource,
+  });
+
   let upstreamResponse: Response;
   try {
     upstreamResponse = await fetchWithResponseTimeout(upstreamUrl, {
@@ -1088,13 +1241,20 @@ export async function executeLocalStrategy(
       body: payload.bodyText
     }, context.upstreamAttemptTimeoutMs);
   } catch (error) {
+    const latencyMs = Date.now() - attemptStartedAt;
+    upstreamSpan.setAttribute("proxy.latency_ms", latencyMs);
+    upstreamSpan.setAttribute("proxy.status", 0);
+    upstreamSpan.recordError(error);
+    upstreamSpan.end();
     recordAttempt(requestLogStore, { ...context, baseUrl: context.config.ollamaBaseUrl }, {
       providerId: "ollama",
       accountId: "local",
       authType: "local",
       upstreamPath,
       status: 0,
-      latencyMs: Date.now() - attemptStartedAt,
+      latencyMs,
+      serviceTier: payload.serviceTier,
+      serviceTierSource: payload.serviceTierSource,
       error: toErrorMessage(error)
     }, strategy.mode);
     sendOpenAiError(
@@ -1107,13 +1267,22 @@ export async function executeLocalStrategy(
     return;
   }
 
+    const latencyMs = Date.now() - attemptStartedAt;
+    upstreamSpan.setAttribute("proxy.status", upstreamResponse.status);
+    upstreamSpan.setAttribute("proxy.latency_ms", latencyMs);
+    if (upstreamResponse.ok) upstreamSpan.setStatus("ok");
+    else upstreamSpan.setStatus("error", `HTTP ${upstreamResponse.status}`);
+    upstreamSpan.end();
+
     const requestLogEntryId = recordAttempt(requestLogStore, { ...context, baseUrl: context.config.ollamaBaseUrl }, {
       providerId: "ollama",
       accountId: "local",
       authType: "local",
       upstreamPath,
       status: upstreamResponse.status,
-      latencyMs: Date.now() - attemptStartedAt
+      latencyMs,
+      serviceTier: payload.serviceTier,
+      serviceTierSource: payload.serviceTierSource
     }, strategy.mode);
 
     await updateUsageCountsFromResponse(requestLogStore, requestLogEntryId, upstreamResponse, strategy.mode, context.routedModel);
@@ -1227,6 +1396,22 @@ export async function executeProviderFallback(
       const attemptStartedAt = Date.now();
       const hasRetryRemaining = retryIndex < context.config.upstreamTransientRetryCount;
 
+      const upstreamSpan = getTelemetry().startSpan("proxy.upstream_attempt", {
+        "proxy.provider_id": candidate.providerId,
+        "proxy.account_id": candidate.account.accountId,
+        "proxy.auth_type": candidate.account.authType,
+        "proxy.upstream_mode": candidateStrategy.mode,
+        "proxy.upstream_path": upstreamPath,
+        "proxy.model": context.routedModel,
+        "proxy.requested_model": context.requestedModelInput,
+        "proxy.base_url": candidate.baseUrl,
+        "proxy.fallback_attempt": accumulator.attempts,
+      });
+      upstreamSpan.setAttributes({
+        "proxy.service_tier": candidatePayload.serviceTier,
+        "proxy.service_tier_source": candidatePayload.serviceTierSource,
+      });
+
       let upstreamResponse: Response;
       try {
         upstreamResponse = await fetchWithResponseTimeout(upstreamUrl, {
@@ -1235,6 +1420,11 @@ export async function executeProviderFallback(
           body: candidatePayload.bodyText
         }, context.upstreamAttemptTimeoutMs);
       } catch (error) {
+        const latencyMs = Date.now() - attemptStartedAt;
+        upstreamSpan.setAttribute("proxy.latency_ms", latencyMs);
+        upstreamSpan.setAttribute("proxy.status", 0);
+        upstreamSpan.recordError(error);
+        upstreamSpan.end();
         accumulator.sawRequestError = true;
         recordAttempt(requestLogStore, providerContext, {
           providerId: candidate.providerId,
@@ -1242,11 +1432,17 @@ export async function executeProviderFallback(
           authType: candidate.account.authType,
           upstreamPath,
           status: 0,
-          latencyMs: Date.now() - attemptStartedAt,
+          latencyMs,
+          serviceTier: candidatePayload.serviceTier,
+          serviceTierSource: candidatePayload.serviceTierSource,
           error: toErrorMessage(error)
         }, candidateStrategy.mode);
         break;
       }
+
+      const latencyMs = Date.now() - attemptStartedAt;
+      upstreamSpan.setAttribute("proxy.status", upstreamResponse.status);
+      upstreamSpan.setAttribute("proxy.latency_ms", latencyMs);
 
       const requestLogEntryId = recordAttempt(requestLogStore, providerContext, {
         providerId: candidate.providerId,
@@ -1254,7 +1450,9 @@ export async function executeProviderFallback(
         authType: candidate.account.authType,
         upstreamPath,
         status: upstreamResponse.status,
-        latencyMs: Date.now() - attemptStartedAt
+        latencyMs,
+        serviceTier: candidatePayload.serviceTier,
+        serviceTierSource: candidatePayload.serviceTierSource
       }, candidateStrategy.mode);
 
       await updateUsageCountsFromResponse(requestLogStore, requestLogEntryId, upstreamResponse, candidateStrategy.mode, context.routedModel);
@@ -1269,6 +1467,8 @@ export async function executeProviderFallback(
         ) {
           preferredReassignmentAllowed = true;
         }
+        upstreamSpan.setStatus("error", "rate_limited");
+        upstreamSpan.end();
         break;
       }
 
@@ -1287,18 +1487,21 @@ export async function executeProviderFallback(
         } catch {
           // Ignore body read failures while failing over.
         }
+        upstreamSpan.setStatus("error", "quota_exhausted");
+        upstreamSpan.end();
         break;
       }
 
       if (upstreamResponse.status >= 500 && upstreamResponse.status <= 599) {
         accumulator.sawUpstreamServerError = true;
-        const retrySameCredential = hasRetryRemaining && [502, 503, 504].includes(upstreamResponse.status);
-        if (retrySameCredential) {
+        if (hasRetryRemaining && shouldRetrySameCredentialForServerError(upstreamResponse.status)) {
           try {
             await upstreamResponse.arrayBuffer();
           } catch {
             // Ignore body read failures while retrying.
           }
+          upstreamSpan.setStatus("error", `upstream_server_error_${upstreamResponse.status}`);
+          upstreamSpan.end();
           await sleep(transientRetryDelayMs(context, retryIndex));
           continue;
         }
@@ -1308,12 +1511,16 @@ export async function executeProviderFallback(
         } catch {
           // Ignore body read failures while failing over.
         }
+        upstreamSpan.setStatus("error", `upstream_server_error_${upstreamResponse.status}`);
+        upstreamSpan.end();
         break;
       }
 
       reply.header("x-open-hax-upstream-mode", candidateStrategy.mode);
       const outcome = await candidateStrategy.handleProviderAttempt(reply, upstreamResponse, providerContext);
       if (outcome.kind === "handled") {
+        upstreamSpan.setStatus("ok");
+        upstreamSpan.end();
         if (
           promptCacheKey
           && (
@@ -1354,6 +1561,8 @@ export async function executeProviderFallback(
         await summarizeUpstreamError(upstreamResponse);
       }
 
+      upstreamSpan.setStatus("error", `fallback_continue_${upstreamResponse.status}`);
+      upstreamSpan.end();
       break;
     }
 
