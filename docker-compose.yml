@@ -21,8 +21,6 @@ services:
       OPENAI_PROVIDER_ID: "${OPENAI_PROVIDER_ID:-openai}"
       OPENAI_BASE_URL: "${OPENAI_BASE_URL:-https://chatgpt.com/backend-api}"
       OLLAMA_BASE_URL: "${OLLAMA_BASE_URL:-http://ollama:11434}"
-      OB1_BASE_URL: "${OB1_BASE_URL:-https://dashboard.openblocklabs.com/api}"
-      OB1_API_KEY: "${OB1_API_KEY:-}"
       UPSTREAM_CHAT_COMPLETIONS_PATH: "${UPSTREAM_CHAT_COMPLETIONS_PATH:-/v1/chat/completions}"
       OPENAI_CHAT_COMPLETIONS_PATH: "${OPENAI_CHAT_COMPLETIONS_PATH:-/codex/responses/compact}"
       UPSTREAM_MESSAGES_PATH: "${UPSTREAM_MESSAGES_PATH:-/v1/messages}"

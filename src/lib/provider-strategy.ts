@@ -45,6 +45,7 @@ import {
   responseIndicatesQuotaError,
   sendOpenAiError,
   shouldEnableInterleavedThinkingHeader,
+  stripSseCommentLines,
   streamPayloadIndicatesQuotaError,
   streamPayloadHasReasoningTrace,
   streamPayloadHasSubstantiveChunks,
@@ -600,7 +601,7 @@ abstract class BaseProviderStrategy implements ProviderStrategy {
         };
       }
 
-      const streamText = await upstreamResponse.text();
+      const streamText = stripSseCommentLines(await upstreamResponse.text());
       if (streamPayloadIndicatesQuotaError(streamText) && context.hasMoreCandidates) {
         return {
           kind: "continue",

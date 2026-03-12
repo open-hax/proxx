@@ -352,60 +352,58 @@ test("routes claude models through chat completions for the requesty provider", 
 });
 
 test("routes claude models through chat completions for the ob1 provider", { concurrency: false }, async () => {
-  await withEnv(
+  await withProxyApp(
     {
-      OB1_API_KEY: "ob1-key-1",
-      OPENROUTER_API_KEY: undefined,
-      REQUESTY_API_TOKEN: undefined,
+      keys: [],
+      keysPayload: {
+        providers: {
+          ob1: {
+            auth: "api_key",
+            accounts: ["ob1-key-1"],
+          },
+        },
+      },
+      configOverrides: {
+        upstreamProviderId: "ob1",
+        upstreamFallbackProviderIds: [],
+      },
+      upstreamHandler: async (request, body) => {
+        if (request.url === "/api/embed" || request.url === "/api/embeddings") {
+          return {
+            status: 200,
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ embeddings: [[0.1, 0.2, 0.3]] }),
+          };
+        }
+        assert.equal(request.url, "/v1/chat/completions");
+        assert.match(body, /claude-opus-4-5/);
+        assert.equal(request.headers.authorization, "Bearer ob1-key-1");
+        return {
+          status: 200,
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            id: "cmpl-ob1",
+            object: "chat.completion",
+            created: 1,
+            model: "claude-opus-4-5",
+            choices: [{ index: 0, message: { role: "assistant", content: "ok" }, finish_reason: "stop" }],
+          }),
+        };
+      },
     },
-    async () => {
-      await withProxyApp(
-        {
-          keys: [],
-          keysPayload: { providers: {} },
-          configOverrides: {
-            upstreamProviderId: "ob1",
-            upstreamFallbackProviderIds: [],
-          },
-          upstreamHandler: async (request, body) => {
-            if (request.url === "/api/embed" || request.url === "/api/embeddings") {
-              return {
-                status: 200,
-                headers: { "content-type": "application/json" },
-                body: JSON.stringify({ embeddings: [[0.1, 0.2, 0.3]] }),
-              };
-            }
-            assert.equal(request.url, "/v1/chat/completions");
-            assert.match(body, /claude-opus-4-5/);
-            assert.equal(request.headers.authorization, "Bearer ob1-key-1");
-            return {
-              status: 200,
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify({
-                id: "cmpl-ob1",
-                object: "chat.completion",
-                created: 1,
-                model: "claude-opus-4-5",
-                choices: [{ index: 0, message: { role: "assistant", content: "ok" }, finish_reason: "stop" }],
-              }),
-            };
-          },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        payload: {
+          model: "claude-opus-4-5",
+          messages: [{ role: "user", content: "hello" }],
         },
-        async ({ app }) => {
-          const response = await app.inject({
-            method: "POST",
-            url: "/v1/chat/completions",
-            payload: {
-              model: "claude-opus-4-5",
-              messages: [{ role: "user", content: "hello" }],
-            },
-            headers: {
-              authorization: "Bearer local-test",
-            },
-          });
-          assert.equal(response.statusCode, 200);
+        headers: {
+          authorization: "Bearer local-test",
         },
-      );
+      });
+      assert.equal(response.statusCode, 200);
     },
   );
 });
