@@ -45,6 +45,7 @@ import {
   responseIndicatesQuotaError,
   sendOpenAiError,
   shouldEnableInterleavedThinkingHeader,
+  stripSseCommentLines,
   streamPayloadIndicatesQuotaError,
   streamPayloadHasReasoningTrace,
   streamPayloadHasSubstantiveChunks,
@@ -247,7 +248,7 @@ function providerAccountsForRequestWithPolicy(
 
 function providerUsesOpenAiChatCompletions(providerId: string): boolean {
   const normalized = providerId.trim().toLowerCase();
-  return normalized === "openrouter" || normalized === "requesty";
+  return normalized === "ob1" || normalized === "openrouter" || normalized === "requesty";
 }
 
 interface UsageCounts {
@@ -736,7 +737,7 @@ abstract class BaseProviderStrategy implements ProviderStrategy {
         };
       }
 
-      const streamText = await upstreamResponse.text();
+      const streamText = stripSseCommentLines(await upstreamResponse.text());
       if (streamPayloadIndicatesQuotaError(streamText) && context.hasMoreCandidates) {
         return {
           kind: "continue",

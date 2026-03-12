@@ -9,7 +9,7 @@
     "dev": "node --env-file-if-exists=.env --import tsx src/main.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node --env-file-if-exists=.env dist/main.js",
-    "test": "pnpm run build && node --test dist/tests/*.test.js",
+    "test": "pnpm run build && node --test --test-concurrency=1 dist/tests/*.test.js",
     "web:dev": "vite --config web/vite.config.ts",
     "web:build": "vite build --config web/vite.config.ts",
     "web:preview": "vite preview --config web/vite.config.ts"

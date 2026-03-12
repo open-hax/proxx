@@ -47,8 +47,12 @@ Env-backed providers:
 
 - `OPENROUTER_API_KEY` automatically exposes an `openrouter` provider route
 - `REQUESTY_API_TOKEN` automatically exposes a `requesty` provider route
-- Both providers default to OpenAI-compatible `/v1/chat/completions` routing
-- You can target them by setting `UPSTREAM_PROVIDER_ID=openrouter` or `UPSTREAM_PROVIDER_ID=requesty`, or by listing them in `UPSTREAM_FALLBACK_PROVIDER_IDS`
+- These providers default to OpenAI-compatible `/v1/chat/completions` routing
+
+Additional provider ids:
+
+- `ob1` is available as a standard provider id. Configure it in `keys.json` and target it with `UPSTREAM_PROVIDER_ID=ob1`.
+- The default base URL for `ob1` is `https://dashboard.openblocklabs.com/api`.
 
 ## Run
 

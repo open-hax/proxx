@@ -186,6 +186,8 @@ function providerBaseUrlsFromEnv(
 
 function defaultProviderBaseUrl(providerId: string): string {
   switch (providerId.trim()) {
+    case "ob1":
+      return (process.env.OB1_BASE_URL ?? "https://dashboard.openblocklabs.com/api").replace(/\/+$/, "");
     case "openrouter":
       return (process.env.OPENROUTER_BASE_URL ?? "https://openrouter.ai/api/v1").replace(/\/+$/, "");
     case "requesty":
@@ -219,6 +221,7 @@ export function loadConfig(cwd: string = process.cwd()): ProxyConfig {
   const upstreamProviderBaseUrls = providerBaseUrlsFromEnv("UPSTREAM_PROVIDER_BASE_URLS", {
     vivgrid: "https://api.vivgrid.com",
     "ollama-cloud": "https://ollama.com",
+    ob1: defaultProviderBaseUrl("ob1"),
     openrouter: defaultProviderBaseUrl("openrouter"),
     requesty: defaultProviderBaseUrl("requesty")
   });
