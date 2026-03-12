@@ -89,7 +89,9 @@ async function withProxyApp(
     upstreamProviderBaseUrls: {
       vivgrid: `http://127.0.0.1:${address.port}`,
       "ollama-cloud": `http://127.0.0.1:${address.port}`,
-      openai: `http://127.0.0.1:${address.port}`
+      openai: `http://127.0.0.1:${address.port}`,
+      openrouter: `http://127.0.0.1:${address.port}`,
+      requesty: `http://127.0.0.1:${address.port}`,
     },
     upstreamBaseUrl: `http://127.0.0.1:${address.port}`,
     openaiProviderId: "openai",
@@ -120,9 +122,14 @@ async function withProxyApp(
     streamBootstrapTimeoutMs: 2000,
     upstreamTransientRetryCount: 2,
     upstreamTransientRetryBackoffMs: 1,
-    proxyAuthToken: options.proxyAuthToken,
-    allowUnauthenticated: options.allowUnauthenticated ?? true,
-    ...options.configOverrides
+    proxyAuthToken: "test-token",
+    allowUnauthenticated: false,
+    databaseUrl: undefined,
+    githubOAuthClientId: undefined,
+    githubOAuthClientSecret: undefined,
+    githubOAuthCallbackPath: "/auth/github/callback",
+    githubAllowedUsers: [],
+    sessionSecret: "test-session-secret",
   };
 
   const app = await createApp(config);
@@ -140,6 +147,30 @@ async function withProxyApp(
       });
     });
     await rm(tempDir, { recursive: true, force: true });
+  }
+}
+
+async function withEnv(values: Record<string, string | undefined>, fn: () => Promise<void>): Promise<void> {
+  const previous = new Map<string, string | undefined>();
+  for (const [key, value] of Object.entries(values)) {
+    previous.set(key, process.env[key]);
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
+
+  try {
+    await fn();
+  } finally {
+    for (const [key, value] of previous.entries()) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
   }
 }
 
@@ -201,6 +232,120 @@ test("rotates API key when first key is rate-limited", async () => {
       assert.equal(payload.id, "chatcmpl-123");
       assert.deepEqual(observedKeys, ["key-a", "key-b"]);
     }
+  );
+});
+
+test("routes claude models through chat completions for the openrouter provider", { concurrency: false }, async () => {
+  await withEnv(
+    {
+      OPENROUTER_API_KEY: "or-key-1",
+      REQUESTY_API_TOKEN: undefined,
+    },
+    async () => {
+      await withProxyApp(
+        {
+          keys: [],
+          keysPayload: { providers: {} },
+          configOverrides: {
+            upstreamProviderId: "openrouter",
+            upstreamFallbackProviderIds: [],
+          },
+          upstreamHandler: async (request, body) => {
+            if (request.url === "/api/embed" || request.url === "/api/embeddings") {
+              return {
+                status: 200,
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ embeddings: [[0.1, 0.2, 0.3]] }),
+              };
+            }
+            assert.equal(request.url, "/v1/chat/completions");
+            assert.match(body, /claude-opus-4-5/);
+            return {
+              status: 200,
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                id: "cmpl-openrouter",
+                object: "chat.completion",
+                created: 1,
+                model: "claude-opus-4-5",
+                choices: [{ index: 0, message: { role: "assistant", content: "ok" }, finish_reason: "stop" }],
+              }),
+            };
+          },
+        },
+        async ({ app }) => {
+          const response = await app.inject({
+            method: "POST",
+            url: "/v1/chat/completions",
+            payload: {
+              model: "claude-opus-4-5",
+              messages: [{ role: "user", content: "hello" }],
+            },
+            headers: {
+              authorization: "Bearer local-test",
+            },
+          });
+          assert.equal(response.statusCode, 200);
+        },
+      );
+    },
+  );
+});
+
+test("routes claude models through chat completions for the requesty provider", { concurrency: false }, async () => {
+  await withEnv(
+    {
+      OPENROUTER_API_KEY: undefined,
+      REQUESTY_API_TOKEN: "req-key-1",
+    },
+    async () => {
+      await withProxyApp(
+        {
+          keys: [],
+          keysPayload: { providers: {} },
+          configOverrides: {
+            upstreamProviderId: "requesty",
+            upstreamFallbackProviderIds: [],
+          },
+          upstreamHandler: async (request, body) => {
+            if (request.url === "/api/embed" || request.url === "/api/embeddings") {
+              return {
+                status: 200,
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ embeddings: [[0.1, 0.2, 0.3]] }),
+              };
+            }
+            assert.equal(request.url, "/v1/chat/completions");
+            assert.match(body, /claude-opus-4-5/);
+            return {
+              status: 200,
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                id: "cmpl-requesty",
+                object: "chat.completion",
+                created: 1,
+                model: "claude-opus-4-5",
+                choices: [{ index: 0, message: { role: "assistant", content: "ok" }, finish_reason: "stop" }],
+              }),
+            };
+          },
+        },
+        async ({ app }) => {
+          const response = await app.inject({
+            method: "POST",
+            url: "/v1/chat/completions",
+            payload: {
+              model: "claude-opus-4-5",
+              messages: [{ role: "user", content: "hello" }],
+            },
+            headers: {
+              authorization: "Bearer local-test",
+            },
+          });
+          assert.equal(response.statusCode, 200);
+        },
+      );
+    },
   );
 });
 
@@ -3093,20 +3238,25 @@ test("rejects invalid ollama num_ctx values", async () => {
   );
 });
 
-test("serves native /api/tags from the resolved model catalog", async () => {
+test("serves native /api/tags from the upstream ollama endpoint", async () => {
+  let observedPath = "";
   await withProxyApp(
     {
       keys: [],
       models: ["qwen3.5:4b-q8_0", "qwen3.5:2b-bf16"],
-      upstreamHandler: async () => ({
-        status: 200,
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ ok: true })
-      })
+      upstreamHandler: async (request) => {
+        observedPath = request.url ?? "";
+        return {
+          status: 200,
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ models: [{ name: "qwen3.5:4b-q8_0" }, { name: "qwen3.5:2b-bf16" }] })
+        };
+      }
     },
     async ({ app }) => {
       const response = await app.inject({ method: "GET", url: "/api/tags" });
       assert.equal(response.statusCode, 200);
+      assert.equal(observedPath, "/api/tags");
       const payload: unknown = response.json();
       assert.ok(isRecord(payload));
       assert.ok(Array.isArray(payload.models));
@@ -3115,7 +3265,7 @@ test("serves native /api/tags from the resolved model catalog", async () => {
   );
 });
 
-test("proxies native /api/chat through /v1/chat/completions", async () => {
+test("proxies native /api/chat through the upstream ollama chat endpoint", async () => {
   let observedPath = "";
   let observedBody: unknown;
 
@@ -3152,7 +3302,7 @@ test("proxies native /api/chat through /v1/chat/completions", async () => {
       });
 
       assert.equal(response.statusCode, 200);
-      assert.equal(observedPath, "/v1/chat/completions");
+      assert.equal(observedPath, "/api/chat");
       assert.ok(isRecord(observedBody));
       assert.equal(observedBody.model, "qwen3.5:4b-q8_0");
       const payload: unknown = response.json();
@@ -3204,7 +3354,7 @@ test("serves /v1/embeddings from local ollama-compatible upstream", async () => 
   );
 });
 
-test("proxies native /api/embed and /api/embeddings via /v1/embeddings", async () => {
+test("proxies native /api/embed and /api/embeddings to their matching upstream ollama endpoints", async () => {
   let observedPath = "";
 
   await withProxyApp(
@@ -3212,6 +3362,13 @@ test("proxies native /api/embed and /api/embeddings via /v1/embeddings", async (
       keys: [],
       upstreamHandler: async (request) => {
         observedPath = request.url ?? "";
+        if (observedPath === "/api/embeddings") {
+          return {
+            status: 200,
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ embedding: [1, 2, 3] })
+          };
+        }
         return {
           status: 200,
           headers: { "content-type": "application/json" },
@@ -3245,6 +3402,7 @@ test("proxies native /api/embed and /api/embeddings via /v1/embeddings", async (
         }
       });
       assert.equal(singleResponse.statusCode, 200);
+      assert.equal(observedPath, "/api/embeddings");
       const singlePayload: unknown = singleResponse.json();
       assert.ok(isRecord(singlePayload));
       assert.deepEqual(singlePayload.embedding, [1, 2, 3]);
@@ -3252,33 +3410,19 @@ test("proxies native /api/embed and /api/embeddings via /v1/embeddings", async (
   );
 });
 
-test("proxies native /api/generate through chat completions", async () => {
+test("proxies native /api/generate through the upstream ollama generate endpoint", async () => {
   await withProxyApp(
     {
       keys: [],
-      upstreamHandler: async () => ({
+      upstreamHandler: async (request) => ({
         status: 200,
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          id: "resp_generate",
-          object: "chat.completion",
-          created: 1772516803,
-          model: "qwen3.5:2b-bf16",
-          choices: [
-            {
-              index: 0,
-              finish_reason: "stop",
-              message: {
-                role: "assistant",
-                content: '{"ok":true}'
-              }
-            }
-          ],
-          usage: {
-            prompt_tokens: 3,
-            completion_tokens: 2,
-            total_tokens: 5
-          }
+          model: request.url === "/api/generate" ? "qwen3.5:2b-bf16" : "unknown",
+          response: '{"ok":true}',
+          done: true,
+          done_reason: "stop",
+          context: [1, 2, 3],
         })
       })
     },

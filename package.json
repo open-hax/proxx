@@ -15,10 +15,17 @@
     "web:preview": "vite preview --config web/vite.config.ts"
   },
   "dependencies": {
+    "@fastify/cookie": "^11.0.2",
     "chromadb": "^3.2.2",
-    "fastify": "^4.27.0"
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
+    "fastify": "^4.27.0",
+    "postgres": "^3.4.8",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
     "@types/node": "^22.10.0",
     "@types/react": "^18.3.5",
     "@types/react-dom": "^18.3.0",

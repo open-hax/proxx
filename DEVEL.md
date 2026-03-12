@@ -2,8 +2,6 @@
 
 OpenAI-compatible proxy server with provider-scoped account rotation.
 
-For workspace-specific development notes and the original internal guide, see `DEVEL.md`.
-
 ## Features
 
 - `POST /v1/chat/completions` compatibility endpoint.
@@ -13,7 +11,6 @@ For workspace-specific development notes and the original internal guide, see `D
 - Preserves reasoning traces when translating Responses/Messages payloads by mapping them to OpenAI-compatible `reasoning_content` in non-stream and synthetic stream responses.
 - Maps OpenAI-style reasoning controls (`reasoning_effort` / `reasoning.effort`) into Claude `thinking` payloads and adds the interleaved-thinking beta header when enabled.
 - Model-aware routing to OpenAI provider: models prefixed with `openai/` or `openai:` route to configured OpenAI endpoints.
-- Global fast-mode toggle for Responses traffic: the proxy can inject `service_tier: "priority"` for GPT/Responses requests, with per-request overrides still respected.
 - Model-aware routing to Ollama base API: models prefixed with `ollama/` or `ollama:` are sent to Ollama `POST /api/chat`.
 - Built-in React/Vite console with a usage dashboard plus Chat, Credentials, and Tools/MCP pages.
 - OpenAI OAuth browser + device flows based on OpenCode Codex plugin behavior (PKCE, state, callback exchange, account extraction).
@@ -25,74 +22,54 @@ For workspace-specific development notes and the original internal guide, see `D
 - Cross-provider fallback for shared models (for example `vivgrid` <-> `ollama-cloud`) when one provider's keys or upstream path fails.
 - Flexible `keys.json` supports both API-key and OAuth bearer accounts, with multiple accounts per provider.
 
-## Standalone Setup
+## Setup
+
+1. Create `keys.json` from `keys.example.json`.
+2. Optionally create `models.json` from `models.example.json`.
+3. Set `PROXY_AUTH_TOKEN` (required by default).
+4. Start the server.
 
 ```bash
-git clone https://github.com/open-hax/proxx.git
-cd proxx
-pnpm install
-cp .env.example .env
-cp keys.example.json keys.json
-cp models.example.json models.json
-```
-
-Required setup:
-
-- Put real provider credentials in `keys.json`
-- Set `PROXY_AUTH_TOKEN` in `.env` unless you are only doing local unauthenticated debugging
-- Adjust `UPSTREAM_*`, `OPENAI_*`, `OLLAMA_*`, optional `CHROMA_*`, and optional `OTEL_*` settings in `.env` for your environment
-
-Env-backed providers:
-
-- `OPENROUTER_API_KEY` automatically exposes an `openrouter` provider route
-- `REQUESTY_API_TOKEN` automatically exposes a `requesty` provider route
-- Both providers default to OpenAI-compatible `/v1/chat/completions` routing
-- You can target them by setting `UPSTREAM_PROVIDER_ID=openrouter` or `UPSTREAM_PROVIDER_ID=requesty`, or by listing them in `UPSTREAM_FALLBACK_PROVIDER_IDS`
-
-## Run
-
-Start the API server:
-
-```bash
-pnpm dev
+pnpm --filter @workspace/open-hax-openai-proxy dev
 ```
 
 Build and run production mode:
 
 ```bash
-pnpm build
-pnpm start
+pnpm --filter @workspace/open-hax-openai-proxy build
+pnpm --filter @workspace/open-hax-openai-proxy start
 ```
 
-Run tests:
+Run the web console in dev mode:
 
 ```bash
-pnpm test
+pnpm --filter @workspace/open-hax-openai-proxy web:dev
 ```
 
-## Web Console
-
-Run the web UI in dev mode:
+Build the web console:
 
 ```bash
-pnpm web:dev
-```
-
-Build the web UI:
-
-```bash
-pnpm web:build
-```
-
-Preview the built UI:
-
-```bash
-pnpm web:preview
+pnpm --filter @workspace/open-hax-openai-proxy web:build
 ```
 
 ## Docker Compose
 
-From this repository root:
+The container stack now mirrors the host-side shared-context pattern: one container, `pm2-runtime` as PID 1, and two managed processes inside it:
+
+- `open-hax-openai-proxy` for the API on `8789`
+- `open-hax-openai-proxy-web` for the bundled web companion on `5174`
+
+From the workspace root, manage the proxy through the root stack registry:
+
+```bash
+pnpm docker:stack status open-hax-openai-proxy
+pnpm docker:stack use-container open-hax-openai-proxy -- --build
+pnpm docker:stack use-host open-hax-openai-proxy
+pnpm docker:stack ps open-hax-openai-proxy
+pnpm docker:stack logs open-hax-openai-proxy -- -f
+```
+
+From `services/open-hax-openai-proxy`, the local compose workflow is still available:
 
 ```bash
 docker compose up --build -d
@@ -106,8 +83,9 @@ Notes:
 - `data/` stays bind-mounted for request logs and session history.
 - The compose stack now defaults `OLLAMA_BASE_URL` to `http://ollama:11434` when attached to the shared `ai-infra` network; `CHROMA_URL` still defaults to `host.docker.internal` unless you also containerize Chroma on a shared network.
 - The web companion is exposed on `${PROXY_WEB_PORT:-5174}`.
-- The checked-in host PM2 source now includes both the API and web companion in `ecosystem.container.config.cjs`.
-- OTEL export can be enabled with standard `OTEL_EXPORTER_OTLP_*`, `OTEL_SERVICE_NAME`, and `OTEL_RESOURCE_ATTRIBUTES` environment variables.
+- The checked-in host PM2 source now includes both the API and web companion in `ecosystems/services_open_hax_proxy.cljs`.
+- The root stack registry now knows the related host PM2 apps, so plain container `up` is blocked while the host PM2 side is online.
+- Use `use-container` and `use-host` to switch ownership cleanly between the host PM2 pair and the containerized pair.
 
 ## Environment Variables
 
@@ -134,7 +112,6 @@ Notes:
 - `PROXY_KEYS_FILE` (default: `./keys.json`, fallback: `VIVGRID_KEYS_FILE`)
 - `PROXY_MODELS_FILE` (default: `./models.json`, fallback: `VIVGRID_MODELS_FILE`)
 - `PROXY_REQUEST_LOGS_FILE` (default: `./data/request-logs.json`)
-- `PROXY_SETTINGS_FILE` (default: `./data/proxy-settings.json`)
 - `PROXY_KEY_RELOAD_MS` (default: `5000`, fallback: `VIVGRID_KEY_RELOAD_MS`)
 - `PROXY_KEY_COOLDOWN_MS` (default: `30000`, fallback: `VIVGRID_KEY_COOLDOWN_MS`)
 - `UPSTREAM_REQUEST_TIMEOUT_MS` (default: `180000`)
@@ -143,11 +120,6 @@ Notes:
 - `CHROMA_URL` (optional; default: `http://127.0.0.1:8000`)
 - `CHROMA_COLLECTION` (optional; default: `open_hax_proxy_sessions`)
 - `CHROMA_EMBED_MODEL` (optional; default: `nomic-embed-text:latest`; served from Ollama)
-- `OTEL_EXPORTER_OTLP_ENDPOINT` (optional; OTLP HTTP base URL for telemetry export)
-- `OTEL_EXPORTER_OTLP_HEADERS` (optional; comma-separated OTLP headers, for example ingest auth)
-- `OTEL_SERVICE_NAME` (optional; default: `proxx`)
-- `OTEL_RESOURCE_ATTRIBUTES` (optional; comma-separated OTEL resource attributes)
-- `OTEL_SDK_DISABLED` (optional; set `true` to disable telemetry even when endpoint and headers are set)
 
 ## Chroma + Ollama
 
@@ -250,7 +222,6 @@ Example:
 curl --request POST \
   --url http://127.0.0.1:8789/v1/chat/completions \
   --header 'Content-Type: application/json' \
-  --header 'Authorization: Bearer change-me-open-hax-proxy-token' \
   --data '{
     "model": "gemini-3.1-pro-preview",
     "messages": [

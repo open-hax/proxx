@@ -7,6 +7,8 @@ import type { ProxyConfig } from "./config.js";
 import type { ProviderCredential } from "./key-pool.js";
 import type { RequestLogStore } from "./request-log-store.js";
 import type { PromptAffinityStore } from "./prompt-affinity-store.js";
+import type { PolicyEngine } from "./policy/index.js";
+import { orderAccountsByPolicy } from "./provider-policy.js";
 import {
   buildForwardHeaders,
   buildUpstreamHeadersForCredential,
@@ -39,6 +41,7 @@ import {
   requestWantsReasoningTrace,
   responseIsEventStream,
   responseIndicatesMissingModel,
+  responseIndicatesModelNotSupportedForAccount,
   responseIndicatesQuotaError,
   sendOpenAiError,
   shouldEnableInterleavedThinkingHeader,
@@ -139,6 +142,7 @@ interface ProviderAttemptOutcomeContinue {
   readonly upstreamServerError?: boolean;
   readonly upstreamInvalidRequest?: boolean;
   readonly modelNotFound?: boolean;
+  readonly modelNotSupportedForAccount?: boolean;
 }
 
 type ProviderAttemptOutcome = ProviderAttemptOutcomeHandled | ProviderAttemptOutcomeContinue;
@@ -149,6 +153,7 @@ interface FallbackAccumulator {
   sawUpstreamServerError: boolean;
   sawUpstreamInvalidRequest: boolean;
   sawModelNotFound: boolean;
+  sawModelNotSupportedForAccount: boolean;
   attempts: number;
 }
 
@@ -179,36 +184,70 @@ function providerAccountsForRequest(
   providerId: string,
   routedModel: string,
 ): ProviderCredential[] {
-  if (providerId !== "openai" || routedModel !== "gpt-5.4") {
+  if (providerId !== "openai") {
     return [...accounts];
   }
 
-  const stronglySupportedPlans = new Set(["plus", "pro", "business", "enterprise"]);
-  const stronglySupportedAccounts = accounts.filter((account) => stronglySupportedPlans.has(account.planType ?? ""));
-  const paidAccounts = accounts.filter((account) => account.planType !== "free");
-  const prioritized = stronglySupportedAccounts.length > 0
-    ? stronglySupportedAccounts
-    : paidAccounts.length > 0
-      ? paidAccounts
-      : [...accounts];
-  const planWeight = (planType: string | undefined): number => {
-    switch (planType) {
-      case "plus":
-        return 5;
-      case "pro":
-      case "business":
-      case "enterprise":
-        return 4;
-      case "team":
-        return 2;
-      case "free":
-        return 0;
-      default:
-        return 1;
-    }
-  };
+  const isGptModel = routedModel.startsWith("gpt-");
+  if (!isGptModel) {
+    return [...accounts];
+  }
 
-  return [...prioritized].sort((left, right) => planWeight(right.planType) - planWeight(left.planType));
+  if (routedModel === "gpt-5.4") {
+    const stronglySupportedPlans = new Set(["plus", "pro", "business", "enterprise"]);
+    const stronglySupportedAccounts = accounts.filter((account) => stronglySupportedPlans.has(account.planType ?? ""));
+    const paidAccounts = accounts.filter((account) => account.planType !== "free");
+    const prioritized = stronglySupportedAccounts.length > 0
+      ? stronglySupportedAccounts
+      : paidAccounts.length > 0
+        ? paidAccounts
+        : [...accounts];
+    const planWeight = (planType: string | undefined): number => {
+      switch (planType) {
+        case "plus":
+          return 5;
+        case "pro":
+        case "business":
+        case "enterprise":
+          return 4;
+        case "team":
+          return 2;
+        case "free":
+          return 0;
+        default:
+          return 1;
+      }
+    };
+
+    return [...prioritized].sort((left, right) => planWeight(right.planType) - planWeight(left.planType));
+  }
+
+  const freeAccounts = accounts.filter((account) => account.planType === "free");
+  const nonFreeAccounts = accounts.filter((account) => account.planType !== "free");
+  const prioritized = freeAccounts.length > 0
+    ? [...freeAccounts, ...nonFreeAccounts]
+    : [...accounts];
+
+  return prioritized;
+}
+
+function providerAccountsForRequestWithPolicy(
+  policy: PolicyEngine,
+  accounts: readonly ProviderCredential[],
+  providerId: string,
+  routedModel: string,
+  context: {
+    openAiPrefixed: boolean;
+    localOllama: boolean;
+    explicitOllama: boolean;
+  },
+): ProviderCredential[] {
+  return orderAccountsByPolicy(policy, providerId, accounts, routedModel, context);
+}
+
+function providerUsesOpenAiChatCompletions(providerId: string): boolean {
+  const normalized = providerId.trim().toLowerCase();
+  return normalized === "openrouter" || normalized === "requesty";
 }
 
 interface UsageCounts {
@@ -560,6 +599,21 @@ abstract class BaseProviderStrategy implements ProviderStrategy {
       return {
         kind: "continue",
         modelNotFound: true
+      };
+    }
+
+    const modelNotSupportedForAccount = await responseIndicatesModelNotSupportedForAccount(upstreamResponse, context.routedModel);
+    if (modelNotSupportedForAccount) {
+      try {
+        await upstreamResponse.arrayBuffer();
+      } catch {
+        // Ignore body read failures while failing over.
+      }
+
+      return {
+        kind: "continue",
+        modelNotSupportedForAccount: true,
+        requestError: true
       };
     }
 
@@ -1136,6 +1190,11 @@ function selectRemoteProviderStrategyForRoute(
   context: StrategyRequestContext,
   providerId: string,
 ): ProviderStrategy {
+  if (providerUsesOpenAiChatCompletions(providerId)) {
+    return PROVIDER_STRATEGIES.find((entry) => entry.mode === "chat_completions")
+      ?? PROVIDER_STRATEGIES[PROVIDER_STRATEGIES.length - 1]!;
+  }
+
   const routeContext: StrategyRequestContext = {
     ...context,
     openAiPrefixed: providerId === context.config.openaiProviderId,
@@ -1243,11 +1302,14 @@ export async function executeProviderFallback(
     getRequestOrder(providerId: string): Promise<ProviderCredential[]>;
     markInFlight(credential: ProviderCredential): () => void;
     markRateLimited(credential: ProviderCredential, retryAfterMs?: number): void;
+    isAccountExpired?(credential: ProviderCredential): boolean;
   },
   providerRoutes: readonly ProviderRoute[],
   context: StrategyRequestContext,
   payload: BuildPayloadResult,
   promptCacheKey?: string,
+  refreshExpiredToken?: (credential: ProviderCredential) => Promise<ProviderCredential | null>,
+  policy?: PolicyEngine,
 ): Promise<ProviderFallbackExecutionResult> {
   const accumulator: FallbackAccumulator = {
     sawRateLimit: false,
@@ -1255,6 +1317,7 @@ export async function executeProviderFallback(
     sawUpstreamServerError: false,
     sawUpstreamInvalidRequest: false,
     sawModelNotFound: false,
+    sawModelNotSupportedForAccount: false,
     attempts: 0,
   };
 
@@ -1263,11 +1326,14 @@ export async function executeProviderFallback(
   for (const route of providerRoutes) {
     let routeAccounts: ProviderCredential[];
     try {
-      routeAccounts = providerAccountsForRequest(
-        await keyPool.getRequestOrder(route.providerId),
-        route.providerId,
-        context.routedModel,
-      );
+      const rawAccounts = await keyPool.getRequestOrder(route.providerId);
+      routeAccounts = policy
+        ? providerAccountsForRequestWithPolicy(policy, rawAccounts, route.providerId, context.routedModel, {
+            openAiPrefixed: context.openAiPrefixed,
+            localOllama: context.localOllama,
+            explicitOllama: context.explicitOllama,
+          })
+        : providerAccountsForRequest(rawAccounts, route.providerId, context.routedModel);
     } catch {
       continue;
     }
@@ -1478,6 +1544,7 @@ export async function executeProviderFallback(
       accumulator.sawUpstreamServerError ||= outcome.upstreamServerError === true;
       accumulator.sawUpstreamInvalidRequest ||= outcome.upstreamInvalidRequest === true;
       accumulator.sawModelNotFound ||= outcome.modelNotFound === true;
+      accumulator.sawModelNotSupportedForAccount ||= outcome.modelNotSupportedForAccount === true;
 
       if (!upstreamResponse.ok && outcome.requestError === true && (upstreamResponse.status === 401 || upstreamResponse.status === 403)) {
         keyPool.markRateLimited(candidate.account, Math.min(context.config.keyCooldownMs, 10_000));
@@ -1490,7 +1557,7 @@ export async function executeProviderFallback(
         }
       }
 
-      if (!upstreamResponse.ok && outcome.requestError === true && !outcome.modelNotFound) {
+      if (!upstreamResponse.ok && outcome.requestError === true && !outcome.modelNotFound && !outcome.modelNotSupportedForAccount) {
         await summarizeUpstreamError(upstreamResponse);
       }
 

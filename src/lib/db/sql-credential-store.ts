@@ -1,0 +1,205 @@
+import type { Sql } from "./index.js";
+import type { ProviderCredential, ProviderAuthType } from "../key-pool.js";
+import {
+  CREATE_PROVIDERS_TABLE,
+  CREATE_ACCOUNTS_TABLE,
+  CREATE_ACCOUNTS_INDEX,
+  CREATE_VERSION_TABLE,
+  INSERT_VERSION,
+  CHECK_VERSION_EXISTS,
+  UPSERT_PROVIDER,
+  INSERT_ACCOUNT,
+  SELECT_ALL_PROVIDERS,
+  SELECT_ACCOUNTS_BY_PROVIDER,
+  SELECT_ALL_ACCOUNTS,
+  DELETE_ACCOUNT,
+  SET_COOLDOWN,
+  GET_COOLDOWN,
+  CLEAR_EXPIRED_COOLDOWNS,
+  SCHEMA_VERSION,
+} from "./schema.js";
+
+interface ProviderRow {
+  id: string;
+  auth_type: string;
+}
+
+interface AccountRow {
+  id: string;
+  provider_id: string;
+  token: string;
+  refresh_token: string | null;
+  expires_at: number | null;
+  chatgpt_account_id: string | null;
+  plan_type: string | null;
+}
+
+interface CooldownRow {
+  cooldown_until: string;
+}
+
+function normalizeAuthType(raw: string): ProviderAuthType {
+  const normalized = raw.trim().toLowerCase();
+  if (normalized === "oauth" || normalized === "oauth_bearer" || normalized === "oauth-bearer") {
+    return "oauth_bearer";
+  }
+  return "api_key";
+}
+
+function toProviderCredential(row: AccountRow, authType: ProviderAuthType): ProviderCredential {
+  return {
+    providerId: row.provider_id,
+    accountId: row.id,
+    token: row.token,
+    authType,
+    refreshToken: row.refresh_token ?? undefined,
+    expiresAt: row.expires_at ?? undefined,
+    chatgptAccountId: row.chatgpt_account_id ?? undefined,
+    planType: row.plan_type ?? undefined,
+  };
+}
+
+export interface SqlCredentialStoreStatus {
+  initialized: boolean;
+  providerCount: number;
+  totalAccountCount: number;
+}
+
+export class SqlCredentialStore {
+  private initialized = false;
+  private readonly cooldowns = new Map<string, number>();
+
+  public constructor(private readonly sql: Sql) {}
+
+  public async init(): Promise<void> {
+    await this.runMigrations();
+    this.initialized = true;
+  }
+
+  private async runMigrations(): Promise<void> {
+    await this.sql.unsafe(CREATE_PROVIDERS_TABLE);
+    await this.sql.unsafe(CREATE_ACCOUNTS_TABLE);
+    await this.sql.unsafe(CREATE_ACCOUNTS_INDEX);
+    await this.sql.unsafe(CREATE_VERSION_TABLE);
+
+    const versionExists = await this.sql.unsafe<Array<{ "?column?": number }>>(
+      CHECK_VERSION_EXISTS,
+      [SCHEMA_VERSION]
+    );
+    if (versionExists.length === 0) {
+      await this.sql.unsafe(INSERT_VERSION, [SCHEMA_VERSION]);
+    }
+  }
+
+  public async getStatus(): Promise<SqlCredentialStoreStatus> {
+    const providers = await this.sql.unsafe<ProviderRow[]>(SELECT_ALL_PROVIDERS);
+    const accounts = await this.sql.unsafe<AccountRow[]>(SELECT_ALL_ACCOUNTS);
+
+    return {
+      initialized: this.initialized,
+      providerCount: providers.length,
+      totalAccountCount: accounts.length,
+    };
+  }
+
+  public async getAllProviders(): Promise<Map<string, { authType: ProviderAuthType }>> {
+    const rows = await this.sql.unsafe<ProviderRow[]>(SELECT_ALL_PROVIDERS);
+    const result = new Map<string, { authType: ProviderAuthType }>();
+    for (const row of rows) {
+      result.set(row.id, { authType: normalizeAuthType(row.auth_type) });
+    }
+    return result;
+  }
+
+  public async getAccountsByProvider(providerId: string): Promise<ProviderCredential[]> {
+    const rows = await this.sql.unsafe<AccountRow[]>(SELECT_ACCOUNTS_BY_PROVIDER, [providerId]);
+    const authType = rows.length > 0 && rows[0]?.token
+      ? this.inferAuthType(rows[0].token)
+      : "api_key";
+    return rows.map((row: AccountRow) => toProviderCredential(row, authType));
+  }
+
+  private inferAuthType(_token: string): ProviderAuthType {
+    return "api_key";
+  }
+
+  public async getAllAccounts(): Promise<Map<string, ProviderCredential[]>> {
+    const rows = await this.sql.unsafe<AccountRow[]>(SELECT_ALL_ACCOUNTS);
+    const result = new Map<string, ProviderCredential[]>();
+
+    for (const row of rows) {
+      const accounts = result.get(row.provider_id) ?? [];
+      const authType = this.inferAuthType(row.token);
+      accounts.push(toProviderCredential(row, authType));
+      result.set(row.provider_id, accounts);
+    }
+
+    return result;
+  }
+
+  public async upsertProvider(providerId: string, authType: ProviderAuthType): Promise<void> {
+    await this.sql.unsafe(UPSERT_PROVIDER, [providerId, authType]);
+  }
+
+  public async upsertAccount(account: ProviderCredential): Promise<void> {
+    await this.upsertProvider(account.providerId, account.authType);
+    await this.sql.unsafe(INSERT_ACCOUNT, [
+      account.accountId,
+      account.providerId,
+      account.token,
+      account.refreshToken ?? null,
+      account.expiresAt ?? null,
+      account.chatgptAccountId ?? null,
+      account.planType ?? null,
+    ]);
+  }
+
+  public async upsertAccounts(accounts: readonly ProviderCredential[]): Promise<void> {
+    for (const account of accounts) {
+      await this.upsertAccount(account);
+    }
+  }
+
+  public async deleteAccount(providerId: string, accountId: string): Promise<void> {
+    await this.sql.unsafe(DELETE_ACCOUNT, [accountId, providerId]);
+  }
+
+  public setCooldown(providerId: string, accountId: string, cooldownUntil: number): void {
+    this.cooldowns.set(`${providerId}:${accountId}`, cooldownUntil);
+  }
+
+  public getCooldown(providerId: string, accountId: string): number | undefined {
+    return this.cooldowns.get(`${providerId}:${accountId}`);
+  }
+
+  public async persistCooldown(providerId: string, accountId: string, cooldownUntil: number): Promise<void> {
+    await this.sql.unsafe(SET_COOLDOWN, [providerId, accountId, cooldownUntil]);
+    this.cooldowns.set(`${providerId}:${accountId}`, cooldownUntil);
+  }
+
+  public async loadCooldowns(): Promise<void> {
+    const now = Date.now();
+    await this.sql.unsafe(CLEAR_EXPIRED_COOLDOWNS, [now]);
+
+    this.cooldowns.clear();
+  }
+
+  public async loadAccountsIntoKeyPool(
+    keyPool: {
+      updateAccountCredential(providerId: string, old: ProviderCredential, updated: ProviderCredential): void;
+    },
+    defaultProviderId: string,
+  ): Promise<void> {
+    const accountsByProvider = await this.getAllAccounts();
+
+    for (const [providerId, accounts] of accountsByProvider) {
+      for (const account of accounts) {
+        keyPool.updateAccountCredential(providerId, account, account);
+      }
+    }
+
+    if (!accountsByProvider.has(defaultProviderId)) {
+      accountsByProvider.set(defaultProviderId, []);
+    }
+  }
+}

@@ -18,6 +18,8 @@ export interface ProviderCredential {
   readonly authType: ProviderAuthType;
   readonly chatgptAccountId?: string;
   readonly planType?: string;
+  readonly refreshToken?: string;
+  readonly expiresAt?: number;
 }
 
 export interface KeyPoolStatus {
@@ -155,6 +157,30 @@ function readPlanType(account: unknown): string | undefined {
   return normalized && normalized.length > 0 ? normalized : undefined;
 }
 
+function readExpiresAt(account: unknown): number | undefined {
+  if (!isRecord(account)) {
+    return undefined;
+  }
+
+  const rawExpiresAt = account["expires_at"] ?? account["expiresAt"];
+  if (typeof rawExpiresAt === "number" && Number.isFinite(rawExpiresAt)) {
+    return rawExpiresAt;
+  }
+
+  return undefined;
+}
+
+function readRefreshToken(account: unknown): string | undefined {
+  if (!isRecord(account)) {
+    return undefined;
+  }
+
+  const rawRefreshToken = asString(account["refresh_token"])
+    ?? asString(account["refreshToken"]);
+  const normalized = rawRefreshToken?.trim();
+  return normalized && normalized.length > 0 ? normalized : undefined;
+}
+
 function normalizeProviderAccounts(
   providerId: string,
   authType: ProviderAuthType,
@@ -181,6 +207,8 @@ function normalizeProviderAccounts(
       authType,
       chatgptAccountId: readChatgptAccountId(rawAccount),
       planType: readPlanType(rawAccount),
+      expiresAt: readExpiresAt(rawAccount),
+      refreshToken: readRefreshToken(rawAccount),
     });
   }
 
@@ -262,6 +290,94 @@ async function readProvidersFile(path: string, defaultProviderId: string): Promi
   return providers;
 }
 
+function createEnvProviderState(providerId: string, token: string): ProviderState {
+  const normalizedProviderId = normalizeProviderId(providerId);
+  const normalizedToken = token.trim();
+  return {
+    authType: "api_key",
+    accounts: [{
+      providerId: normalizedProviderId,
+      accountId: deterministicAccountId(normalizedProviderId, normalizedToken),
+      token: normalizedToken,
+      authType: "api_key",
+    }],
+    nextOffset: 0,
+  };
+}
+
+function readProvidersFromEnv(): Map<string, ProviderState> {
+  const providers = new Map<string, ProviderState>();
+  const openrouterKey = process.env.OPENROUTER_API_KEY?.trim();
+  if (openrouterKey) {
+    providers.set(
+      normalizeProviderId(process.env.OPENROUTER_PROVIDER_ID ?? "openrouter"),
+      createEnvProviderState(process.env.OPENROUTER_PROVIDER_ID ?? "openrouter", openrouterKey),
+    );
+  }
+
+  const requestyKey = (process.env.REQUESTY_API_TOKEN ?? process.env.REQUESTY_API_KEY ?? "").trim();
+  if (requestyKey) {
+    providers.set(
+      normalizeProviderId(process.env.REQUESTY_PROVIDER_ID ?? "requesty"),
+      createEnvProviderState(process.env.REQUESTY_PROVIDER_ID ?? "requesty", requestyKey),
+    );
+  }
+
+  return providers;
+}
+
+function mergeProviderStates(left: ProviderState | undefined, right: ProviderState | undefined): ProviderState | undefined {
+  if (!left) {
+    return right;
+  }
+  if (!right) {
+    return left;
+  }
+
+  const seen = new Set<string>();
+  const accounts: ProviderCredential[] = [];
+  for (const account of [...left.accounts, ...right.accounts]) {
+    if (seen.has(account.token)) {
+      continue;
+    }
+    seen.add(account.token);
+    accounts.push(account);
+  }
+
+  return {
+    authType: left.authType,
+    accounts,
+    nextOffset: left.nextOffset,
+  };
+}
+
+async function readProvidersFromSources(path: string, defaultProviderId: string): Promise<Map<string, ProviderState>> {
+  const envProviders = readProvidersFromEnv();
+  let fileProviders: Map<string, ProviderState> | null = null;
+
+  try {
+    fileProviders = await readProvidersFile(path, defaultProviderId);
+  } catch (error) {
+    if (envProviders.size === 0) {
+      throw error;
+    }
+  }
+
+  const merged = new Map<string, ProviderState>();
+  for (const [providerId, state] of fileProviders ?? []) {
+    merged.set(providerId, state);
+  }
+  for (const [providerId, state] of envProviders) {
+    merged.set(providerId, mergeProviderStates(merged.get(providerId), state) ?? state);
+  }
+
+  if (merged.size === 0) {
+    throw new Error("No provider accounts found in keys file or environment");
+  }
+
+  return merged;
+}
+
 function accountCooldownKey(credential: ProviderCredential): string {
   return `${credential.providerId}\0${credential.token}`;
 }
@@ -301,6 +417,11 @@ export class KeyPool {
         continue;
       }
 
+      const isExpired = typeof credential.expiresAt === "number" && credential.expiresAt <= now;
+      if (isExpired) {
+        continue;
+      }
+
       const cooldownUntil = this.cooldownByAccountKey.get(accountCooldownKey(credential)) ?? 0;
       if (cooldownUntil <= now) {
         if ((this.inFlightByAccountKey.get(accountCooldownKey(credential)) ?? 0) > 0) {
@@ -312,6 +433,89 @@ export class KeyPool {
     }
 
     return [...idle, ...busy];
+  }
+
+  public async getAllAccounts(providerId: string = this.config.defaultProviderId): Promise<ProviderCredential[]> {
+    await this.ensureFreshProviders(false);
+
+    const normalizedProviderId = normalizeProviderId(providerId);
+    const providerState = this.providers.get(normalizedProviderId);
+    if (!providerState) {
+      return [];
+    }
+
+    return [...providerState.accounts];
+  }
+
+  public updateAccountCredential(providerId: string, oldCredential: ProviderCredential, newCredential: ProviderCredential): void {
+    const normalizedProviderId = normalizeProviderId(providerId);
+    const providerState = this.providers.get(normalizedProviderId);
+    if (!providerState) {
+      return;
+    }
+
+    const index = providerState.accounts.findIndex(
+      (account) => account.accountId === oldCredential.accountId && account.providerId === oldCredential.providerId
+    );
+    if (index >= 0) {
+      providerState.accounts[index] = newCredential;
+    }
+  }
+
+  public async getRequestOrderWithRefresh(
+    providerId: string = this.config.defaultProviderId,
+    refreshExpiredToken: (credential: ProviderCredential) => Promise<ProviderCredential | null>,
+  ): Promise<ProviderCredential[]> {
+    const accounts = await this.getRequestOrder(providerId);
+    const now = Date.now();
+    const refreshed: ProviderCredential[] = [];
+    const valid: ProviderCredential[] = [];
+
+    for (const account of accounts) {
+      const isExpired = typeof account.expiresAt === "number" && account.expiresAt <= now;
+      if (!isExpired) {
+        valid.push(account);
+        continue;
+      }
+
+      if (!account.refreshToken) {
+        continue;
+      }
+
+      try {
+        const refreshedAccount = await refreshExpiredToken(account);
+        if (refreshedAccount) {
+          refreshed.push(refreshedAccount);
+        }
+      } catch {
+        // Skip accounts that fail refresh
+      }
+    }
+
+    return [...valid, ...refreshed];
+  }
+
+  public isAccountExpired(credential: ProviderCredential): boolean {
+    if (typeof credential.expiresAt !== "number") {
+      return false;
+    }
+    return Date.now() >= credential.expiresAt;
+  }
+
+  public getExpiredAccountsWithRefreshTokens(providerId: string = this.config.defaultProviderId): ProviderCredential[] {
+    const normalizedProviderId = normalizeProviderId(providerId);
+    const providerState = this.providers.get(normalizedProviderId);
+    if (!providerState) {
+      return [];
+    }
+
+    const now = Date.now();
+    return providerState.accounts.filter(
+      (account) => typeof account.expiresAt === "number"
+        && account.expiresAt <= now
+        && typeof account.refreshToken === "string"
+        && account.refreshToken.length > 0
+    );
   }
 
   public markInFlight(credential: ProviderCredential): () => void {
@@ -465,7 +669,7 @@ export class KeyPool {
     this.lastReloadAt = Date.now();
 
     try {
-      const providers = await readProvidersFile(this.config.keysFilePath, this.config.defaultProviderId);
+      const providers = await readProvidersFromSources(this.config.keysFilePath, this.config.defaultProviderId);
       const previousOffsets = new Map<string, number>();
       for (const [providerId, state] of this.providers.entries()) {
         previousOffsets.set(providerId, state.nextOffset);
