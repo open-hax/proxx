@@ -113,6 +113,7 @@ interface StrategyRequestContext {
   readonly routedModel: string;
   readonly explicitOllama: boolean;
   readonly openAiPrefixed: boolean;
+  readonly factoryPrefixed: boolean;
   readonly localOllama: boolean;
   readonly clientWantsStream: boolean;
   readonly needsReasoningTrace: boolean;
@@ -1347,6 +1348,7 @@ export function selectProviderStrategy(
     routedModel: routingState.routedModel,
     explicitOllama: routingState.explicitOllama,
     openAiPrefixed: routingState.openAiPrefixed,
+    factoryPrefixed: routingState.factoryPrefixed,
     localOllama: routingState.localOllama,
     clientWantsStream,
     needsReasoningTrace,
@@ -1369,6 +1371,7 @@ function selectRemoteProviderStrategyForRoute(
   const routeContext: StrategyRequestContext = {
     ...context,
     openAiPrefixed: providerId === context.config.openaiProviderId,
+    factoryPrefixed: providerId === "factory",
     explicitOllama: false,
     localOllama: false,
   };

@@ -23,6 +23,7 @@ export interface ProxyConfig {
   readonly responsesModelPrefixes: readonly string[];
   readonly ollamaChatPath: string;
   readonly ollamaV1ChatPath: string;
+  readonly factoryModelPrefixes: readonly string[];
   readonly openaiModelPrefixes: readonly string[];
   readonly ollamaModelPrefixes: readonly string[];
   readonly keysFilePath: string;
@@ -206,6 +207,8 @@ function providerBaseUrlsFromEnv(
 
 function defaultProviderBaseUrl(providerId: string): string {
   switch (providerId.trim()) {
+    case "factory":
+      return (process.env.FACTORY_BASE_URL ?? "https://api.factory.ai").replace(/\/+$/, "");
     case "openrouter":
       return (process.env.OPENROUTER_BASE_URL ?? "https://openrouter.ai/api/v1").replace(/\/+$/, "");
     case "requesty":
@@ -242,7 +245,8 @@ export function loadConfig(cwd: string = process.cwd()): ProxyConfig {
     vivgrid: "https://api.vivgrid.com",
     "ollama-cloud": "https://ollama.com",
     openrouter: defaultProviderBaseUrl("openrouter"),
-    requesty: defaultProviderBaseUrl("requesty")
+    requesty: defaultProviderBaseUrl("requesty"),
+    factory: defaultProviderBaseUrl("factory"),
   });
   upstreamProviderBaseUrls[upstreamProviderId] = upstreamBaseUrl;
   const openaiProviderId = (process.env.OPENAI_PROVIDER_ID ?? "openai").trim();
@@ -327,6 +331,7 @@ export function loadConfig(cwd: string = process.cwd()): ProxyConfig {
     responsesModelPrefixes: csvFromEnv("UPSTREAM_RESPONSES_MODEL_PREFIXES", ["gpt-"]),
     ollamaChatPath: process.env.OLLAMA_CHAT_PATH ?? "/api/chat",
     ollamaV1ChatPath: process.env.OLLAMA_V1_CHAT_PATH ?? "/v1/chat/completions",
+    factoryModelPrefixes: csvFromEnv("FACTORY_MODEL_PREFIXES", ["factory/", "factory:"]),
     openaiModelPrefixes: csvFromEnv("OPENAI_MODEL_PREFIXES", ["openai/", "openai:"]),
     ollamaModelPrefixes: csvFromEnv("OLLAMA_MODEL_PREFIXES", ["ollama/", "ollama:"]),
     keysFilePath: optionalFilePathFromEnvAliases(["PROXY_KEYS_FILE", "VIVGRID_KEYS_FILE"], cwd)

@@ -650,13 +650,21 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       return;
     }
 
-    let providerRoutes = buildProviderRoutes(
-      config,
-      context.openAiPrefixed,
-      !context.openAiPrefixed && strategy.mode === "responses"
-    );
-    if (!context.openAiPrefixed && resolvedModelCatalog) {
-      providerRoutes = resolveProviderRoutesForModel(providerRoutes, context.routedModel, resolvedModelCatalog);
+    let providerRoutes: ProviderRoute[];
+    if (context.factoryPrefixed) {
+      const factoryBaseUrl = config.upstreamProviderBaseUrls["factory"] ?? "https://api.factory.ai";
+      providerRoutes = config.disabledProviderIds.includes("factory")
+        ? []
+        : [{ providerId: "factory", baseUrl: factoryBaseUrl }];
+    } else {
+      providerRoutes = buildProviderRoutes(
+        config,
+        context.openAiPrefixed,
+        !context.openAiPrefixed && strategy.mode === "responses"
+      );
+      if (!context.openAiPrefixed && resolvedModelCatalog) {
+        providerRoutes = resolveProviderRoutesForModel(providerRoutes, context.routedModel, resolvedModelCatalog);
+      }
     }
     providerRoutes = orderProviderRoutesByPolicy(policyEngine, providerRoutes, context.requestedModelInput, context.routedModel, {
       openAiPrefixed: context.openAiPrefixed,

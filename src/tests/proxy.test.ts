@@ -110,6 +110,7 @@ async function withProxyApp(
     responsesModelPrefixes: ["gpt-"],
     ollamaChatPath: "/api/chat",
     ollamaV1ChatPath: "/v1/chat/completions",
+    factoryModelPrefixes: ["factory/", "factory:"],
     openaiModelPrefixes: ["openai/", "openai:"],
     ollamaModelPrefixes: ["ollama/", "ollama:"],
     keysFilePath: keysPath,

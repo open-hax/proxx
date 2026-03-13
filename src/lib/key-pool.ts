@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { getTelemetry } from "./telemetry/otel.js";
 
 import { normalizeEpochMilliseconds } from "./epoch.js";
+import { loadFactoryAuthV2, parseJwtExpiry } from "./factory-auth.js";
 
 export type ProviderAuthType = "api_key" | "oauth_bearer";
 
@@ -335,6 +336,16 @@ function createEnvProviderState(providerId: string, token: string): ProviderStat
 
 function readProvidersFromEnv(): Map<string, ProviderState> {
   const providers = new Map<string, ProviderState>();
+  const rawFactoryKey = process.env.FACTORY_API_KEY;
+  if (typeof rawFactoryKey === "string") {
+    const factoryKey = rawFactoryKey.trim();
+    if (factoryKey.length > 0) {
+      providers.set("factory", createEnvProviderState("factory", factoryKey));
+    } else {
+      console.warn("[key-pool] FACTORY_API_KEY is set but empty — skipping factory provider from env");
+    }
+  }
+
   const openrouterKey = process.env.OPENROUTER_API_KEY?.trim();
   if (openrouterKey) {
     providers.set(
@@ -405,6 +416,39 @@ async function readProvidersFromAccountStore(accountStore: ProviderAccountStore)
   return merged;
 }
 
+async function readFactoryOAuthProviders(): Promise<Map<string, ProviderState>> {
+  const providers = new Map<string, ProviderState>();
+
+  try {
+    const credentials = await loadFactoryAuthV2();
+    if (!credentials) {
+      return providers;
+    }
+
+    const expiresAt = parseJwtExpiry(credentials.accessToken) ?? undefined;
+    const account: ProviderCredential = {
+      providerId: "factory",
+      accountId: deterministicAccountId("factory", credentials.accessToken),
+      token: credentials.accessToken,
+      authType: "oauth_bearer",
+      refreshToken: credentials.refreshToken.length > 0 ? credentials.refreshToken : undefined,
+      expiresAt,
+    };
+
+    providers.set("factory", {
+      authType: "oauth_bearer",
+      accounts: [account],
+      nextOffset: 0,
+    });
+  } catch (error) {
+    console.warn(
+      `[key-pool] Failed to load Factory OAuth credentials: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+
+  return providers;
+}
+
 async function readProvidersFromSources(
   path: string,
   defaultProviderId: string,
@@ -415,6 +459,7 @@ async function readProvidersFromSources(
   const inlineJsonProviders = readProvidersFromJsonEnv(defaultProviderId);
   let fileProviders: Map<string, ProviderState> | null = null;
   let accountStoreProviders: Map<string, ProviderState> | null = null;
+  const factoryOAuthProviders = await readFactoryOAuthProviders();
 
   if (accountStore) {
     accountStoreProviders = await readProvidersFromAccountStore(accountStore);
@@ -423,7 +468,7 @@ async function readProvidersFromSources(
   try {
     fileProviders = await readProvidersFile(path, defaultProviderId);
   } catch (error) {
-    if (envProviders.size === 0 && inlineJsonProviders.size === 0 && (accountStoreProviders?.size ?? 0) === 0) {
+    if (envProviders.size === 0 && inlineJsonProviders.size === 0 && (accountStoreProviders?.size ?? 0) === 0 && factoryOAuthProviders.size === 0) {
       throw error;
     }
   }
@@ -448,6 +493,9 @@ async function readProvidersFromSources(
     if (preferAccountStoreProviders && merged.has(providerId)) {
       continue;
     }
+    merged.set(providerId, mergeProviderStates(merged.get(providerId), state) ?? state);
+  }
+  for (const [providerId, state] of factoryOAuthProviders) {
     merged.set(providerId, mergeProviderStates(merged.get(providerId), state) ?? state);
   }
 

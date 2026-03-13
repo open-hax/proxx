@@ -18,6 +18,9 @@
     "Kimi-K2.5",
     "gemini-3.1-pro-preview",
     "qwen3.5:4b-q8_0",
-    "qwen3.5:2b-bf16"
+    "qwen3.5:2b-bf16",
+    "factory/claude-opus-4-5",
+    "factory/gpt-5",
+    "factory/gemini-3-pro-preview"
   ]
 }
