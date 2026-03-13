@@ -512,6 +512,45 @@ export async function pollOpenAiDeviceOAuth(deviceAuthId: string, userCode: stri
   });
 }
 
+// ─── Factory.ai OAuth API ─────────────────────────────────────────────────
+
+export async function startFactoryBrowserOAuth(redirectBaseUrl: string): Promise<{
+  readonly authorizeUrl: string;
+  readonly state: string;
+}> {
+  return requestJson("/api/ui/credentials/factory/oauth/browser/start", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ redirectBaseUrl }),
+  });
+}
+
+export async function startFactoryDeviceOAuth(): Promise<{
+  readonly verificationUrl: string;
+  readonly userCode: string;
+  readonly deviceAuthId: string;
+  readonly intervalMs: number;
+}> {
+  return requestJson("/api/ui/credentials/factory/oauth/device/start", {
+    method: "POST",
+  });
+}
+
+export async function pollFactoryDeviceOAuth(deviceAuthId: string): Promise<{
+  readonly state: "pending" | "authorized" | "failed";
+  readonly reason?: string;
+}> {
+  return requestJson("/api/ui/credentials/factory/oauth/device/poll", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ deviceAuthId }),
+  });
+}
+
 export async function listRequestLogs(filters: {
   readonly providerId?: string;
   readonly accountId?: string;

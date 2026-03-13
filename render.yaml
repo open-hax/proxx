@@ -3,7 +3,7 @@ services:
     name: open-hax-openai-proxy
     runtime: node
     region: oregon
-    plan: starter
+    plan: free
     buildCommand: npm install && npm run build
     startCommand: npm run start
     healthCheckPath: /health
@@ -12,16 +12,20 @@ services:
         value: "22"
       - key: PORT
         value: "8789"
+      - key: PROXY_PORT
+        value: "8789"
       - key: PROXY_AUTH_TOKEN
         generateValue: true
       - key: UPSTREAM_PROVIDER_ID
-        value: vivgrid
+        value: openai
       - key: UPSTREAM_FALLBACK_PROVIDER_IDS
         value: ollama-cloud
+      - key: DISABLED_PROVIDER_IDS
+        value: vivgrid
       - key: UPSTREAM_BASE_URL
-        value: https://api.vivgrid.com
+        value: https://chatgpt.com/backend-api
       - key: UPSTREAM_PROVIDER_BASE_URLS
-        value: vivgrid=https://api.vivgrid.com,ollama-cloud=https://ollama.com,openai=https://chatgpt.com/backend-api
+        value: ollama-cloud=https://ollama.com,openai=https://chatgpt.com/backend-api,vivgrid=https://api.vivgrid.com
       - key: OPENAI_PROVIDER_ID
         value: openai
       - key: OPENAI_BASE_URL
@@ -33,7 +37,7 @@ services:
       - key: UPSTREAM_RESPONSES_MODEL_PREFIXES
         value: ""
       - key: OPENAI_MODEL_PREFIXES
-        value: openai/,openai:
+        value: "openai/,openai:"
       - key: PROXY_KEY_RELOAD_MS
         value: "5000"
       - key: PROXY_KEY_COOLDOWN_MS

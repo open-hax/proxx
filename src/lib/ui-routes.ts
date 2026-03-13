@@ -4,9 +4,10 @@ import { access, readFile } from "node:fs/promises";
 import type { FastifyInstance } from "fastify";
 
 import type { ProxyConfig } from "./config.js";
-import { CredentialStore } from "./credential-store.js";
+import type { CredentialStoreLike } from "./credential-store.js";
 import type { KeyPool, KeyPoolAccountStatus } from "./key-pool.js";
 import { OpenAiOAuthManager } from "./openai-oauth.js";
+import { FactoryOAuthManager } from "./factory-oauth.js";
 import { fetchOpenAiQuotaSnapshots } from "./openai-quota.js";
 import { RequestLogStore } from "./request-log-store.js";
 import { ChromaSessionIndex } from "./chroma-session-index.js";
@@ -18,6 +19,7 @@ interface UiRouteDependencies {
   readonly config: ProxyConfig;
   readonly keyPool: KeyPool;
   readonly requestLogStore: RequestLogStore;
+  readonly credentialStore: CredentialStoreLike;
   readonly proxySettingsStore: ProxySettingsStore;
 }
 
@@ -163,7 +165,7 @@ function bucketStart(timestamp: number, bucketMs: number): number {
 async function buildUsageOverview(
   requestLogStore: RequestLogStore,
   keyPool: KeyPool,
-  credentialStore: CredentialStore,
+  credentialStore: CredentialStoreLike,
 ): Promise<UsageOverviewResponse> {
   const allLogs = requestLogStore.snapshot();
   const allStatuses: Record<string, Awaited<ReturnType<KeyPool["getStatus"]>>> = await keyPool.getAllStatuses().catch(() => ({}));
@@ -308,7 +310,17 @@ async function buildUsageOverview(
   };
 }
 
+export function escapeHtml(str: string): string {
+  return str
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
 function htmlSuccess(message: string): string {
+  const safe = escapeHtml(message);
   return `<!doctype html>
 <html>
   <head>
@@ -323,7 +335,7 @@ function htmlSuccess(message: string): string {
   <body>
     <section class="card">
       <h1>Authorization Successful</h1>
-      <p>${message}</p>
+      <p>${safe}</p>
     </section>
     <script>setTimeout(() => window.close(), 1500)</script>
   </body>
@@ -331,6 +343,7 @@ function htmlSuccess(message: string): string {
 }
 
 function htmlError(message: string): string {
+  const safe = escapeHtml(message);
   return `<!doctype html>
 <html>
   <head>
@@ -345,7 +358,7 @@ function htmlError(message: string): string {
   <body>
     <section class="card">
       <h1>Authorization Failed</h1>
-      <p>${message}</p>
+      <p>${safe}</p>
     </section>
   </body>
 </html>`;
@@ -378,8 +391,9 @@ export async function registerUiRoutes(app: FastifyInstance, deps: UiRouteDepend
     ollamaBaseUrl: deps.config.ollamaBaseUrl,
     embeddingModel: process.env.CHROMA_EMBED_MODEL ?? "nomic-embed-text:latest",
   });
-  const credentialStore = new CredentialStore(deps.config.keysFilePath, deps.config.upstreamProviderId);
+  const credentialStore = deps.credentialStore;
   const oauthManager = new OpenAiOAuthManager();
+  const factoryOAuthManager = new FactoryOAuthManager();
   const ecosystemsDir = await firstExistingPath([
     resolve(process.cwd(), "../../ecosystems"),
     resolve(process.cwd(), "../ecosystems"),
@@ -588,12 +602,15 @@ export async function registerUiRoutes(app: FastifyInstance, deps: UiRouteDepend
   });
 
   app.post<{
-    Body: { readonly providerId?: string; readonly accountId?: string; readonly apiKey?: string };
+    Body: { readonly providerId?: string; readonly accountId?: string; readonly credentialValue?: string; readonly apiKey?: string };
   }>("/api/ui/credentials/api-key", async (request, reply) => {
     const providerId = typeof request.body?.providerId === "string"
       ? request.body.providerId
       : deps.config.upstreamProviderId;
-    const apiKey = typeof request.body?.apiKey === "string" ? request.body.apiKey.trim() : "";
+    const credentialValueRaw = typeof request.body?.credentialValue === "string"
+      ? request.body.credentialValue
+      : request.body?.apiKey;
+    const apiKey = typeof credentialValueRaw === "string" ? credentialValueRaw.trim() : "";
     if (apiKey.length === 0) {
       reply.code(400).send({ error: "api_key_required" });
       return;
@@ -747,6 +764,113 @@ export async function registerUiRoutes(app: FastifyInstance, deps: UiRouteDepend
     }
 
     reply.send(result);
+  });
+
+  // ─── Factory.ai OAuth Routes ────────────────────────────────────────────
+
+  app.post("/api/ui/credentials/factory/oauth/device/start", async (_request, reply) => {
+    try {
+      const payload = await factoryOAuthManager.startDeviceFlow();
+      reply.send(payload);
+    } catch (error) {
+      reply.code(502).send({ error: "device_flow_start_failed", detail: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.post<{
+    Body: { readonly deviceAuthId?: string };
+  }>("/api/ui/credentials/factory/oauth/device/poll", async (request, reply) => {
+    const deviceAuthId = typeof request.body?.deviceAuthId === "string" ? request.body.deviceAuthId : "";
+
+    if (deviceAuthId.length === 0) {
+      reply.code(400).send({ error: "device_auth_id_required" });
+      return;
+    }
+
+    const result = await factoryOAuthManager.pollDeviceFlow(deviceAuthId);
+    if (result.state === "authorized") {
+      await credentialStore.upsertOAuthAccount(
+        "factory",
+        result.tokens.accountId,
+        result.tokens.accessToken,
+        result.tokens.refreshToken,
+        result.tokens.expiresAt,
+        undefined,
+        result.tokens.email,
+      );
+      await deps.keyPool.warmup().catch(() => undefined);
+      app.log.info({
+        providerId: "factory",
+        accountId: result.tokens.accountId,
+        email: result.tokens.email,
+      }, "saved Factory OAuth account from device flow");
+    }
+
+    reply.send(result);
+  });
+
+  app.post<{
+    Body: { readonly redirectBaseUrl?: string };
+  }>("/api/ui/credentials/factory/oauth/browser/start", async (request, reply) => {
+    const requestBaseUrl = inferBaseUrl(request);
+    const redirectBaseUrl =
+      typeof request.body?.redirectBaseUrl === "string" && request.body.redirectBaseUrl.trim().length > 0
+        ? request.body.redirectBaseUrl.trim()
+        : requestBaseUrl;
+
+    if (!redirectBaseUrl) {
+      reply.code(400).send({ error: "redirect_base_url_required" });
+      return;
+    }
+
+    const redirectUri = new URL("/auth/factory/callback", redirectBaseUrl).toString();
+    const payload = factoryOAuthManager.startBrowserFlow(redirectUri);
+    reply.send(payload);
+  });
+
+  app.get<{
+    Querystring: { readonly state?: string; readonly code?: string; readonly error?: string; readonly error_description?: string };
+  }>("/auth/factory/callback", async (request, reply) => {
+    const error = request.query.error;
+    if (typeof error === "string" && error.length > 0) {
+      reply.header("content-type", "text/html");
+      reply.send(htmlError(request.query.error_description ?? error));
+      return;
+    }
+
+    const state = typeof request.query.state === "string" ? request.query.state : "";
+    const code = typeof request.query.code === "string" ? request.query.code : "";
+
+    if (state.length === 0 || code.length === 0) {
+      reply.header("content-type", "text/html");
+      reply.send(htmlError("Missing OAuth callback state or code."));
+      return;
+    }
+
+    try {
+      const tokens = await factoryOAuthManager.completeBrowserFlow(state, code);
+      await credentialStore.upsertOAuthAccount(
+        "factory",
+        tokens.accountId,
+        tokens.accessToken,
+        tokens.refreshToken,
+        tokens.expiresAt,
+        undefined,
+        tokens.email,
+      );
+      await deps.keyPool.warmup().catch(() => undefined);
+      app.log.info({
+        providerId: "factory",
+        accountId: tokens.accountId,
+        email: tokens.email,
+      }, "saved Factory OAuth account from browser flow");
+
+      reply.header("content-type", "text/html");
+      reply.send(htmlSuccess(`Saved Factory.ai OAuth account${tokens.email ? ` (${tokens.email})` : ""}.`));
+    } catch (oauthError) {
+      reply.header("content-type", "text/html");
+      reply.send(htmlError(oauthError instanceof Error ? oauthError.message : String(oauthError)));
+    }
   });
 
   app.get<{

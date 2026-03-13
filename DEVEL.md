@@ -24,7 +24,7 @@ OpenAI-compatible proxy server with provider-scoped account rotation.
 
 ## Setup
 
-1. Create `keys.json` from `keys.example.json`.
+1. Provide credentials through `keys.json`, `PROXY_KEYS_JSON` / `UPSTREAM_KEYS_JSON`, or SQL via `DATABASE_URL`.
 2. Optionally create `models.json` from `models.example.json`.
 3. Set `PROXY_AUTH_TOKEN` (required by default).
 4. Start the server.
@@ -79,7 +79,7 @@ docker compose logs -f
 
 Notes:
 
-- `keys.json` is still required for startup.
+- upstream credentials are still required for proxying, but they can come from SQL, inline JSON env, or `keys.json`.
 - `data/` stays bind-mounted for request logs and session history.
 - The compose stack now defaults `OLLAMA_BASE_URL` to `http://ollama:11434` when attached to the shared `ai-infra` network; `CHROMA_URL` still defaults to `host.docker.internal` unless you also containerize Chroma on a shared network.
 - The web companion is exposed on `${PROXY_WEB_PORT:-5174}`.
@@ -90,7 +90,7 @@ Notes:
 ## Environment Variables
 
 - `PROXY_HOST` (default: `127.0.0.1`)
-- `PROXY_PORT` (default: `8789`)
+- `PROXY_PORT` (default: `8789`; falls back to `PORT` for Render-style runtimes)
 - `UPSTREAM_PROVIDER_ID` (default: `vivgrid`; provider key in `keys.json`)
 - `UPSTREAM_FALLBACK_PROVIDER_IDS` (default: auto `ollama-cloud` when primary is `vivgrid`, or `vivgrid` when primary is `ollama-cloud`; comma-separated)
 - `UPSTREAM_BASE_URL` (default: `https://api.vivgrid.com`)
@@ -117,6 +117,8 @@ Notes:
 - `UPSTREAM_REQUEST_TIMEOUT_MS` (default: `180000`)
 - `PROXY_AUTH_TOKEN` (required unless `PROXY_ALLOW_UNAUTHENTICATED=true`)
 - `PROXY_ALLOW_UNAUTHENTICATED` (default: `false`; use `true` only for local debugging)
+- `PROXY_KEYS_JSON` / `UPSTREAM_KEYS_JSON` (optional inline JSON credential payload; useful on Render when not mounting `keys.json`)
+- `DISABLED_PROVIDER_IDS` (optional comma-separated provider ids to remove from routing without deleting stored credentials)
 - `CHROMA_URL` (optional; default: `http://127.0.0.1:8000`)
 - `CHROMA_COLLECTION` (optional; default: `open_hax_proxy_sessions`)
 - `CHROMA_EMBED_MODEL` (optional; default: `nomic-embed-text:latest`; served from Ollama)

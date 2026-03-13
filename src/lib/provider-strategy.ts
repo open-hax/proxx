@@ -35,6 +35,13 @@ import {
 } from "./ollama-compat.js";
 import type { ProviderRoute } from "./provider-routing.js";
 import {
+  buildFactoryAnthropicHeaders,
+  buildFactoryCommonHeaders,
+  getFactoryEndpointPath,
+  getFactoryModelType,
+  inlineSystemPrompt,
+} from "./factory-compat.js";
+import {
   appendCsvHeaderValue,
   chatCompletionHasReasoningContent,
   fetchWithResponseTimeout,
@@ -113,6 +120,7 @@ interface StrategyRequestContext {
   readonly routedModel: string;
   readonly explicitOllama: boolean;
   readonly openAiPrefixed: boolean;
+  readonly factoryPrefixed: boolean;
   readonly localOllama: boolean;
   readonly clientWantsStream: boolean;
   readonly needsReasoningTrace: boolean;
@@ -250,7 +258,7 @@ function providerUsesOpenAiChatCompletions(providerId: string): boolean {
   return normalized === "openrouter" || normalized === "requesty";
 }
 
-interface UsageCounts {
+export interface UsageCounts {
   readonly promptTokens?: number;
   readonly completionTokens?: number;
   readonly totalTokens?: number;
@@ -517,13 +525,183 @@ function usageCountsForMode(mode: UpstreamMode, upstreamJson: unknown, routedMod
   return usageCountsFromUpstreamJson(upstreamJson, routedModel);
 }
 
+/**
+ * Parse SSE stream text to extract token usage counts.
+ *
+ * Handles four distinct SSE wire formats:
+ *
+ * 1. **OpenAI Chat Completions** (`chat_completions`, `openai_chat_completions`):
+ *    The final chunk before `data: [DONE]` carries a `usage` object with
+ *    `prompt_tokens`, `completion_tokens`, `total_tokens` when the request
+ *    included `stream_options.include_usage: true`.
+ *
+ * 2. **Anthropic Messages** (`messages`):
+ *    `message_start` contains `message.usage.input_tokens`;
+ *    `message_delta` contains `usage.output_tokens`.
+ *
+ * 3. **OpenAI Responses** (`responses`, `openai_responses`):
+ *    `response.completed` events embed the full response object which includes
+ *    `usage.input_tokens`, `usage.output_tokens`, `usage.total_tokens`.
+ *
+ * 4. **Ollama** (`ollama_chat`, `local_ollama_chat`):
+ *    Newline-delimited JSON; the final object with `done: true` carries
+ *    `prompt_eval_count` and `eval_count`.
+ *
+ * Returns `{}` (no usage) when the stream does not contain usage data — this
+ * is the expected path for providers that omit it.  Never throws.
+ */
+export function extractUsageCountsFromSseText(
+  streamText: string,
+  mode: UpstreamMode,
+  routedModel: string,
+): UsageCounts {
+  try {
+    if (mode === "messages") {
+      return extractUsageFromAnthropicSse(streamText);
+    }
+
+    if (mode === "responses" || mode === "openai_responses") {
+      return extractUsageFromResponsesSse(streamText, routedModel);
+    }
+
+    if (mode === "ollama_chat" || mode === "local_ollama_chat") {
+      return extractUsageFromOllamaNdjson(streamText);
+    }
+
+    // chat_completions / openai_chat_completions — standard OpenAI SSE
+    return extractUsageFromOpenAiChatSse(streamText);
+  } catch {
+    return {};
+  }
+}
+
+function extractUsageFromOpenAiChatSse(streamText: string): UsageCounts {
+  const lines = streamText.split("\n");
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i].trim();
+    if (!line.startsWith("data: ") || line === "data: [DONE]") {
+      continue;
+    }
+
+    try {
+      const payload: unknown = JSON.parse(line.slice(6));
+      if (!isRecord(payload)) continue;
+      const usage = isRecord(payload["usage"]) ? payload["usage"] : null;
+      if (!usage) continue;
+
+      const promptTokens = asNumber(usage["prompt_tokens"]);
+      const completionTokens = asNumber(usage["completion_tokens"]);
+      const totalTokens = asNumber(usage["total_tokens"])
+        ?? (promptTokens !== undefined && completionTokens !== undefined ? promptTokens + completionTokens : undefined);
+
+      if (promptTokens !== undefined || completionTokens !== undefined) {
+        return { promptTokens, completionTokens, totalTokens };
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return {};
+}
+
+function extractUsageFromAnthropicSse(streamText: string): UsageCounts {
+  let inputTokens: number | undefined;
+  let outputTokens: number | undefined;
+
+  const chunks = streamText.split("\n\n");
+  for (const chunk of chunks) {
+    const dataLine = chunk.split("\n").find((l) => l.startsWith("data: "));
+    if (!dataLine) continue;
+
+    try {
+      const payload: unknown = JSON.parse(dataLine.slice(6));
+      if (!isRecord(payload)) continue;
+      const type = asString(payload["type"]);
+
+      if (type === "message_start") {
+        const message = isRecord(payload["message"]) ? payload["message"] : null;
+        const usage = message && isRecord(message["usage"]) ? message["usage"] : null;
+        if (usage) {
+          inputTokens = asNumber(usage["input_tokens"]) ?? inputTokens;
+        }
+      }
+
+      if (type === "message_delta") {
+        const usage = isRecord(payload["usage"]) ? payload["usage"] : null;
+        if (usage) {
+          outputTokens = asNumber(usage["output_tokens"]) ?? outputTokens;
+        }
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  if (inputTokens === undefined && outputTokens === undefined) {
+    return {};
+  }
+
+  const promptTokens = inputTokens;
+  const completionTokens = outputTokens ?? 0;
+  const totalTokens = (promptTokens ?? 0) + completionTokens;
+
+  return { promptTokens, completionTokens, totalTokens };
+}
+
+function extractUsageFromResponsesSse(streamText: string, routedModel: string): UsageCounts {
+  try {
+    const chatCompletion = responsesEventStreamToChatCompletion(streamText, routedModel);
+    return usageCountsFromCompletion(chatCompletion);
+  } catch {
+    return {};
+  }
+}
+
+function extractUsageFromOllamaNdjson(streamText: string): UsageCounts {
+  const lines = streamText.split("\n");
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i].trim();
+    if (!line) continue;
+
+    try {
+      const payload: unknown = JSON.parse(line);
+      if (!isRecord(payload)) continue;
+      if (payload["done"] !== true) continue;
+
+      const promptTokens = asNumber(payload["prompt_eval_count"]);
+      const completionTokens = asNumber(payload["eval_count"]);
+      if (promptTokens !== undefined && completionTokens !== undefined) {
+        return {
+          promptTokens,
+          completionTokens,
+          totalTokens: promptTokens + completionTokens,
+        };
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return {};
+}
+
 async function extractUsageCounts(
   response: Response,
   mode: UpstreamMode,
   routedModel: string,
 ): Promise<UsageCounts> {
-  if (!response.ok || responseIsEventStream(response)) {
+  if (!response.ok) {
     return {};
+  }
+
+  if (responseIsEventStream(response)) {
+    try {
+      const streamText = await response.clone().text();
+      return extractUsageCountsFromSseText(streamText, mode, routedModel);
+    } catch {
+      return {};
+    }
   }
 
   try {
@@ -1027,7 +1205,8 @@ class OpenAiResponsesProviderStrategy extends TransformedJsonProviderStrategy {
 
   public matches(context: StrategyRequestContext): boolean {
     return context.openAiPrefixed
-      && shouldUseResponsesUpstream(context.routedModel, context.config.responsesModelPrefixes);
+      && (context.routedModel === "gpt-5.4"
+        || shouldUseResponsesUpstream(context.routedModel, context.config.responsesModelPrefixes));
   }
 
   public getUpstreamPath(context: StrategyRequestContext): string {
@@ -1140,9 +1319,188 @@ class ChatCompletionsProviderStrategy extends BaseProviderStrategy {
   }
 }
 
+/**
+ * Factory.ai Anthropic Messages strategy.
+ *
+ * Routes claude-* models to Factory's `/api/llm/a/v1/messages` endpoint,
+ * translating OpenAI chat format to Anthropic Messages format and back.
+ * Adds all Factory-specific headers and handles system prompt inlining for fk- keys.
+ */
+class FactoryMessagesProviderStrategy extends TransformedJsonProviderStrategy {
+  public readonly mode = "messages" as const;
+
+  public readonly isLocal = false;
+
+  public matches(context: StrategyRequestContext): boolean {
+    return context.factoryPrefixed
+      && getFactoryModelType(context.routedModel) === "anthropic";
+  }
+
+  public getUpstreamPath(_context: StrategyRequestContext): string {
+    return getFactoryEndpointPath("anthropic");
+  }
+
+  public buildPayload(context: StrategyRequestContext): BuildPayloadResult {
+    const messagesPayload = chatRequestToMessagesRequest(buildRequestBodyForUpstream(context));
+    // Inline system content into first user message to avoid Factory 403 with fk- keys.
+    // We always inline for Factory to keep behavior consistent across credential types.
+    const inlinedPayload = inlineSystemPrompt(messagesPayload);
+    return buildPayloadResult(inlinedPayload, context);
+  }
+
+  public override applyRequestHeaders(headers: Headers, context: ProviderAttemptContext, payload: Record<string, unknown>): void {
+    const anthropicHeaders = buildFactoryAnthropicHeaders(
+      context.routedModel,
+      payload,
+      context.config.messagesInterleavedThinkingBeta,
+    );
+    for (const [name, value] of Object.entries(anthropicHeaders)) {
+      headers.set(name, value);
+    }
+  }
+
+  protected convertResponseToChatCompletion(upstreamJson: unknown, routedModel: string): Record<string, unknown> {
+    return messagesToChatCompletion(upstreamJson, routedModel);
+  }
+}
+
+/**
+ * Factory.ai OpenAI Responses strategy.
+ *
+ * Routes gpt-* models to Factory's `/api/llm/o/v1/responses` endpoint,
+ * translating OpenAI chat format to Responses format and back.
+ * Adds Factory-specific headers. Streaming handled via Responses event stream translation.
+ */
+class FactoryResponsesProviderStrategy extends TransformedJsonProviderStrategy {
+  public readonly mode = "responses" as const;
+
+  public readonly isLocal = false;
+
+  public matches(context: StrategyRequestContext): boolean {
+    return context.factoryPrefixed
+      && getFactoryModelType(context.routedModel) === "openai";
+  }
+
+  public getUpstreamPath(_context: StrategyRequestContext): string {
+    return getFactoryEndpointPath("openai");
+  }
+
+  public buildPayload(context: StrategyRequestContext): BuildPayloadResult {
+    const upstreamPayload = chatRequestToResponsesRequest(buildRequestBodyForUpstream(context));
+    applyRequestedServiceTier(upstreamPayload, context);
+    delete upstreamPayload["max_output_tokens"];
+    upstreamPayload["store"] = false;
+    upstreamPayload["stream"] = true;
+    return buildPayloadResult(upstreamPayload, context);
+  }
+
+  public override applyRequestHeaders(headers: Headers, context: ProviderAttemptContext, _payload: Record<string, unknown>): void {
+    const factoryHeaders = buildFactoryCommonHeaders(context.routedModel);
+    for (const [name, value] of Object.entries(factoryHeaders)) {
+      headers.set(name, value);
+    }
+  }
+
+  public override async handleProviderAttempt(
+    reply: FastifyReply,
+    upstreamResponse: Response,
+    context: ProviderAttemptContext
+  ): Promise<ProviderAttemptOutcome> {
+    const contentType = upstreamResponse.headers.get("content-type") ?? "";
+    const looksLikeEventStream = contentType.toLowerCase().includes("text/event-stream")
+      || contentType.length === 0;
+
+    if (!upstreamResponse.ok || !looksLikeEventStream) {
+      return super.handleProviderAttempt(reply, upstreamResponse, context);
+    }
+
+    const streamText = await upstreamResponse.text();
+    const upstreamError = responsesEventStreamToErrorPayload(streamText);
+    if (upstreamError) {
+      reply.header("x-open-hax-upstream-provider", context.providerId);
+      reply.code(400);
+      reply.header("content-type", "application/json");
+      reply.send({ error: upstreamError });
+      return { kind: "handled" };
+    }
+
+    let chatCompletion: Record<string, unknown>;
+    try {
+      chatCompletion = responsesEventStreamToChatCompletion(streamText, context.routedModel);
+    } catch {
+      return {
+        kind: "continue",
+        requestError: true
+      };
+    }
+
+    if (context.needsReasoningTrace && !chatCompletionHasReasoningContent(chatCompletion) && context.hasMoreCandidates) {
+      return {
+        kind: "continue",
+        requestError: true
+      };
+    }
+
+    reply.header("x-open-hax-upstream-provider", context.providerId);
+    if (context.clientWantsStream) {
+      reply.code(200);
+      reply.header("content-type", "text/event-stream; charset=utf-8");
+      reply.header("cache-control", "no-cache");
+      reply.header("x-accel-buffering", "no");
+      reply.send(chatCompletionToSse(chatCompletion));
+      return { kind: "handled" };
+    }
+
+    reply.code(200);
+    reply.header("content-type", "application/json");
+    reply.send(chatCompletion);
+    return { kind: "handled" };
+  }
+
+  protected convertResponseToChatCompletion(upstreamJson: unknown, routedModel: string): Record<string, unknown> {
+    return responsesToChatCompletion(upstreamJson, routedModel);
+  }
+}
+
+/**
+ * Factory.ai Common Chat Completions strategy.
+ *
+ * Routes non-Claude, non-GPT models (gemini, glm, kimi, DeepSeek, etc.)
+ * to Factory's `/api/llm/o/v1/chat/completions` endpoint.
+ * Passes through standard chat completions format with Factory-specific headers.
+ */
+class FactoryChatCompletionsProviderStrategy extends BaseProviderStrategy {
+  public readonly mode = "chat_completions" as const;
+
+  public readonly isLocal = false;
+
+  public matches(context: StrategyRequestContext): boolean {
+    return context.factoryPrefixed
+      && getFactoryModelType(context.routedModel) === "common";
+  }
+
+  public getUpstreamPath(_context: StrategyRequestContext): string {
+    return getFactoryEndpointPath("common");
+  }
+
+  public buildPayload(context: StrategyRequestContext): BuildPayloadResult {
+    return buildPayloadResult(buildRequestBodyForUpstream(context), context);
+  }
+
+  public override applyRequestHeaders(headers: Headers, context: ProviderAttemptContext, _payload: Record<string, unknown>): void {
+    const factoryHeaders = buildFactoryCommonHeaders(context.routedModel);
+    for (const [name, value] of Object.entries(factoryHeaders)) {
+      headers.set(name, value);
+    }
+  }
+}
+
 const PROVIDER_STRATEGIES: readonly ProviderStrategy[] = [
   new OllamaProviderStrategy(),
   new LocalOllamaProviderStrategy(),
+  new FactoryMessagesProviderStrategy(),
+  new FactoryResponsesProviderStrategy(),
+  new FactoryChatCompletionsProviderStrategy(),
   new OpenAiResponsesProviderStrategy(),
   new OpenAiChatCompletionsProviderStrategy(),
   new MessagesProviderStrategy(),
@@ -1176,6 +1534,7 @@ export function selectProviderStrategy(
     routedModel: routingState.routedModel,
     explicitOllama: routingState.explicitOllama,
     openAiPrefixed: routingState.openAiPrefixed,
+    factoryPrefixed: routingState.factoryPrefixed,
     localOllama: routingState.localOllama,
     clientWantsStream,
     needsReasoningTrace,
@@ -1191,13 +1550,16 @@ function selectRemoteProviderStrategyForRoute(
   providerId: string,
 ): ProviderStrategy {
   if (providerUsesOpenAiChatCompletions(providerId)) {
-    return PROVIDER_STRATEGIES.find((entry) => entry.mode === "chat_completions")
+    // Use the generic ChatCompletionsProviderStrategy (the one that always matches),
+    // not a Factory-specific strategy which would produce Factory endpoint paths.
+    return PROVIDER_STRATEGIES.find((entry) => entry.mode === "chat_completions" && entry.matches({ ...context, factoryPrefixed: false, openAiPrefixed: false, explicitOllama: false, localOllama: false }))
       ?? PROVIDER_STRATEGIES[PROVIDER_STRATEGIES.length - 1]!;
   }
 
   const routeContext: StrategyRequestContext = {
     ...context,
     openAiPrefixed: providerId === context.config.openaiProviderId,
+    factoryPrefixed: providerId === "factory",
     explicitOllama: false,
     localOllama: false,
   };
@@ -1546,13 +1908,78 @@ export async function executeProviderFallback(
       accumulator.sawModelNotFound ||= outcome.modelNotFound === true;
       accumulator.sawModelNotSupportedForAccount ||= outcome.modelNotSupportedForAccount === true;
 
-      if (!upstreamResponse.ok && outcome.requestError === true && (upstreamResponse.status === 401 || upstreamResponse.status === 403)) {
+      if (!upstreamResponse.ok && outcome.requestError === true && upstreamResponse.status === 401 && candidate.account.authType === "oauth_bearer" && candidate.account.refreshToken && refreshExpiredToken) {
+        const refreshedCredential = await refreshExpiredToken(candidate.account);
+        if (refreshedCredential) {
+          const refreshedHeaders = buildUpstreamHeadersForCredential(context.clientHeaders, refreshedCredential);
+          const refreshedRelease = keyPool.markInFlight(refreshedCredential);
+          const refreshedAttemptStartedAt = Date.now();
+          let refreshedResponse: Response;
+          try {
+            refreshedResponse = await fetchWithResponseTimeout(upstreamUrl, {
+              method: "POST",
+              headers: refreshedHeaders,
+              body: candidatePayload.bodyText
+            }, context.upstreamAttemptTimeoutMs);
+          } catch (error) {
+            refreshedRelease();
+            releaseInFlight();
+            throw error;
+          }
+
+          try {
+            const refreshedLatencyMs = Date.now() - refreshedAttemptStartedAt;
+            const refreshedLogId = recordAttempt(requestLogStore, providerContext, {
+              providerId: candidate.providerId,
+              accountId: refreshedCredential.accountId,
+              authType: refreshedCredential.authType,
+              upstreamPath,
+              status: refreshedResponse.status,
+              latencyMs: refreshedLatencyMs,
+              serviceTier: candidatePayload.serviceTier,
+              serviceTierSource: candidatePayload.serviceTierSource
+            }, candidateStrategy.mode);
+            await updateUsageCountsFromResponse(requestLogStore, refreshedLogId, refreshedResponse, candidateStrategy.mode, context.routedModel);
+            if (isRateLimitResponse(refreshedResponse)) {
+              accumulator.sawRateLimit = true;
+              keyPool.markRateLimited(refreshedCredential, parseRetryAfterMs(refreshedResponse.headers.get("retry-after")));
+              try {
+                await refreshedResponse.arrayBuffer();
+              } catch {
+                // Ignore body read failures while failing over after refresh.
+              }
+              break;
+            }
+            reply.header("x-open-hax-upstream-mode", candidateStrategy.mode);
+            const refreshedOutcome = await candidateStrategy.handleProviderAttempt(reply, refreshedResponse, providerContext);
+            if (refreshedOutcome.kind === "handled") {
+              releaseInFlight();
+              return { handled: true, candidateCount: candidates.length, summary: accumulator };
+            }
+            accumulator.sawRateLimit ||= refreshedOutcome.rateLimit === true;
+            accumulator.sawRequestError ||= refreshedOutcome.requestError === true;
+            accumulator.sawUpstreamServerError ||= refreshedOutcome.upstreamServerError === true;
+            accumulator.sawUpstreamInvalidRequest ||= refreshedOutcome.upstreamInvalidRequest === true;
+            accumulator.sawModelNotFound ||= refreshedOutcome.modelNotFound === true;
+            accumulator.sawModelNotSupportedForAccount ||= refreshedOutcome.modelNotSupportedForAccount === true;
+            if (!refreshedResponse.ok && refreshedOutcome.requestError === true && (refreshedResponse.status === 401 || refreshedResponse.status === 403)) {
+              keyPool.markRateLimited(refreshedCredential, Math.min(context.config.keyCooldownMs, 10_000));
+              if (preferredAffinity && candidate.providerId === preferredAffinity.providerId && refreshedCredential.accountId === preferredAffinity.accountId) {
+                preferredReassignmentAllowed = true;
+              }
+            }
+            break;
+          } finally {
+            refreshedRelease();
+          }
+        }
         keyPool.markRateLimited(candidate.account, Math.min(context.config.keyCooldownMs, 10_000));
-        if (
-          preferredAffinity
-          && candidate.providerId === preferredAffinity.providerId
-          && candidate.account.accountId === preferredAffinity.accountId
-        ) {
+        if (preferredAffinity && candidate.providerId === preferredAffinity.providerId && candidate.account.accountId === preferredAffinity.accountId) {
+          preferredReassignmentAllowed = true;
+        }
+      } else if (!upstreamResponse.ok && outcome.requestError === true && (upstreamResponse.status === 401 || upstreamResponse.status === 403)) {
+        keyPool.markRateLimited(candidate.account, Math.min(context.config.keyCooldownMs, 10_000));
+        if (preferredAffinity && candidate.providerId === preferredAffinity.providerId && candidate.account.accountId === preferredAffinity.accountId) {
           preferredReassignmentAllowed = true;
         }
       }

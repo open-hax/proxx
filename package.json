@@ -8,6 +8,7 @@
   "scripts": {
     "dev": "node --env-file-if-exists=.env --import tsx src/main.ts",
     "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
     "start": "node --env-file-if-exists=.env dist/main.js",
     "test": "pnpm run build && node --test dist/tests/*.test.js",
     "web:dev": "vite --config web/vite.config.ts",

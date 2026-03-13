@@ -122,6 +122,14 @@ export const DEFAULT_FALLBACK_BEHAVIOR: FallbackBehavior = {
   skipOnServerError: false,
 };
 
+const DEFAULT_GPT_PROVIDER_ORDER: readonly ProviderId[] = [
+  "openai",
+  "ollama-cloud",
+  "openrouter",
+  "requesty",
+  "vivgrid",
+];
+
 export const DEFAULT_POLICY_CONFIG: PolicyConfig = {
   version: "1.0",
   
@@ -130,6 +138,7 @@ export const DEFAULT_POLICY_CONFIG: PolicyConfig = {
       {
         modelPattern: "gpt-5.4",
         requiresPaidPlan: true,
+        preferredProviders: DEFAULT_GPT_PROVIDER_ORDER,
         accountOrdering: {
           kind: "custom_weight",
           weights: { plus: 5, pro: 4, business: 4, enterprise: 4, team: 2, unknown: 1, free: 0 },
@@ -137,6 +146,7 @@ export const DEFAULT_POLICY_CONFIG: PolicyConfig = {
       },
       {
         modelPattern: /^gpt-/,
+        preferredProviders: DEFAULT_GPT_PROVIDER_ORDER,
         accountOrdering: { kind: "prefer_free" },
       },
     ],

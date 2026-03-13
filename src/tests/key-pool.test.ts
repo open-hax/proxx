@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 
 import { KeyPool } from "../lib/key-pool.js";
+import type { ProviderCredential, ProviderAuthType } from "../lib/key-pool.js";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
@@ -119,7 +120,7 @@ test("preserves explicit account IDs while auto-generating for string entries", 
         "ollama-cloud": {
           auth: "api_key",
           accounts: [
-            { id: "oc-primary", api_key: "oc-key-primary" },
+            { id: "oc-primary", token: "oc-token-primary" },
             "oc-key-fallback"
           ]
         }
@@ -156,8 +157,8 @@ test("prefers non-busy accounts before reusing in-flight accounts", async () => 
         "ollama-cloud": {
           auth: "api_key",
           accounts: [
-            { id: "oc-a", api_key: "oc-key-a" },
-            { id: "oc-b", api_key: "oc-key-b" }
+            { id: "oc-a", token: "oc-token-a" },
+            { id: "oc-b", token: "oc-token-b" }
           ]
         }
       }
@@ -190,7 +191,7 @@ test("prefers non-busy accounts before reusing in-flight accounts", async () => 
 test("loads env-backed openrouter and requesty providers alongside file accounts", { concurrency: false }, async () => {
   await withEnv(
     {
-      OPENROUTER_API_KEY: "or-key-1",
+      OPENROUTER_API_KEY: "or-token-1", // pragma: allowlist secret
       REQUESTY_API_TOKEN: "req-key-1",
       OPENROUTER_PROVIDER_ID: undefined,
       REQUESTY_PROVIDER_ID: undefined,
@@ -218,7 +219,7 @@ test("loads env-backed openrouter and requesty providers alongside file accounts
 
           assert.equal(openrouterAccounts.length, 1);
           assert.equal(openrouterAccounts[0]?.providerId, "openrouter");
-          assert.equal(openrouterAccounts[0]?.token, "or-key-1");
+          assert.equal(openrouterAccounts[0]?.token, "or-token-1");
           assert.ok(UUID_PATTERN.test(openrouterAccounts[0]?.accountId ?? ""));
 
           assert.equal(requestyAccounts.length, 1);
@@ -229,4 +230,158 @@ test("loads env-backed openrouter and requesty providers alongside file accounts
       );
     },
   );
+});
+
+test("treats epoch-second OAuth expirations as future timestamps", async () => {
+  const expiresAtSeconds = Math.floor(Date.now() / 1000) + 3600;
+
+  await withKeysFile(
+    {
+      providers: {
+        openai: {
+          auth: "oauth_bearer",
+          accounts: [{
+            id: "oa-plus",
+            access_token: "oa-token",
+            refresh_token: "oa-refresh",
+            expires_at: expiresAtSeconds,
+            chatgpt_account_id: "cgpt-plus",
+            plan_type: "plus",
+          }],
+        },
+      },
+    },
+    async (keysFilePath) => {
+      const keyPool = new KeyPool({
+        keysFilePath,
+        reloadIntervalMs: 10,
+        defaultCooldownMs: 1000,
+        defaultProviderId: "openai",
+      });
+
+      await keyPool.warmup();
+      const accounts = await keyPool.getRequestOrder("openai");
+
+      assert.equal(accounts.length, 1);
+      assert.equal(accounts[0]?.accountId, "oa-plus");
+      assert.equal(accounts[0]?.expiresAt, expiresAtSeconds * 1000);
+      assert.equal(keyPool.isAccountExpired(accounts[0]!), false);
+    },
+  );
+});
+
+test("loads inline JSON credentials from env without a keys file", { concurrency: false }, async () => {
+  await withEnv(
+    {
+      PROXY_KEYS_JSON: JSON.stringify({
+        providers: {
+          vivgrid: {
+            auth: "api_key",
+            accounts: [{ id: "env-vg", token: "vg-inline-token" }],
+          },
+        },
+      }),
+    },
+    async () => {
+      const keyPool = new KeyPool({
+        keysFilePath: path.join(os.tmpdir(), `missing-${Date.now()}.json`),
+        reloadIntervalMs: 10,
+        defaultCooldownMs: 1000,
+        defaultProviderId: "vivgrid",
+      });
+
+      await keyPool.warmup();
+      const accounts = await keyPool.getRequestOrder("vivgrid");
+
+      assert.equal(accounts.length, 1);
+      assert.equal(accounts[0]?.providerId, "vivgrid");
+      assert.equal(accounts[0]?.accountId, "env-vg");
+      assert.equal(accounts[0]?.token, "vg-inline-token");
+    },
+  );
+});
+
+test("ignores malformed inline JSON credentials from env when another source is available", { concurrency: false }, async () => {
+  await withEnv(
+    {
+      PROXY_KEYS_JSON: "{not-valid-json",
+    },
+    async () => {
+      await withKeysFile(
+        {
+          providers: {
+            vivgrid: {
+              auth: "api_key",
+              accounts: [{ id: "file-vg", token: "vg-file-token" }],
+            },
+          },
+        },
+        async (keysFilePath) => {
+          const warnings: string[] = [];
+          const originalWarn = console.warn;
+          console.warn = (message?: unknown, ...args: unknown[]) => {
+            warnings.push([message, ...args].map((value) => String(value)).join(" "));
+          };
+
+          try {
+            const keyPool = new KeyPool({
+              keysFilePath,
+              reloadIntervalMs: 10,
+              defaultCooldownMs: 1000,
+              defaultProviderId: "vivgrid",
+            });
+
+            await keyPool.warmup();
+            const accounts = await keyPool.getRequestOrder("vivgrid");
+
+            assert.equal(accounts.length, 1);
+            assert.equal(accounts[0]?.accountId, "file-vg");
+            assert.equal(accounts[0]?.token, "vg-file-token");
+            assert.ok(warnings.some((entry) => entry.includes("Failed to parse inline keys JSON from env")));
+          } finally {
+            console.warn = originalWarn;
+          }
+        },
+      );
+    },
+  );
+});
+
+test("loads credentials from account store when database-backed source is configured", async () => {
+  const accountStore = {
+    async getAllProviders(): Promise<Map<string, { authType: ProviderAuthType }>> {
+      return new Map([
+        ["openai", { authType: "oauth_bearer" }],
+      ]);
+    },
+    async getAllAccounts(): Promise<Map<string, ProviderCredential[]>> {
+      return new Map([
+        ["openai", [{
+          providerId: "openai",
+          accountId: "db-openai-1",
+          token: "db-token-1",
+          authType: "oauth_bearer",
+          refreshToken: "db-refresh-1",
+          chatgptAccountId: "cgpt-db-1",
+        }]],
+      ]);
+    },
+  };
+
+  const keyPool = new KeyPool({
+    keysFilePath: path.join(os.tmpdir(), `missing-${Date.now()}-${Math.random()}.json`),
+    reloadIntervalMs: 10,
+    defaultCooldownMs: 1000,
+    defaultProviderId: "openai",
+    accountStore,
+  });
+
+  await keyPool.warmup();
+  const accounts = await keyPool.getRequestOrder("openai");
+
+  assert.equal(accounts.length, 1);
+  assert.equal(accounts[0]?.providerId, "openai");
+  assert.equal(accounts[0]?.accountId, "db-openai-1");
+  assert.equal(accounts[0]?.token, "db-token-1");
+  assert.equal(accounts[0]?.authType, "oauth_bearer");
 });

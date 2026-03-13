@@ -2,6 +2,9 @@ import { readFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { getTelemetry } from "./telemetry/otel.js";
 
+import { normalizeEpochMilliseconds } from "./epoch.js";
+import { loadFactoryAuthV2, parseJwtExpiry } from "./factory-auth.js";
+
 export type ProviderAuthType = "api_key" | "oauth_bearer";
 
 export interface KeyPoolConfig {
@@ -9,6 +12,8 @@ export interface KeyPoolConfig {
   readonly reloadIntervalMs: number;
   readonly defaultCooldownMs: number;
   readonly defaultProviderId: string;
+  readonly accountStore?: ProviderAccountStore;
+  readonly preferAccountStoreProviders?: boolean;
 }
 
 export interface ProviderCredential {
@@ -46,6 +51,11 @@ interface ProviderState {
   readonly authType: ProviderAuthType;
   readonly accounts: ProviderCredential[];
   nextOffset: number;
+}
+
+export interface ProviderAccountStore {
+  getAllProviders(): Promise<Map<string, { authType: ProviderAuthType }>>;
+  getAllAccounts(): Promise<Map<string, ProviderCredential[]>>;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -163,11 +173,9 @@ function readExpiresAt(account: unknown): number | undefined {
   }
 
   const rawExpiresAt = account["expires_at"] ?? account["expiresAt"];
-  if (typeof rawExpiresAt === "number" && Number.isFinite(rawExpiresAt)) {
-    return rawExpiresAt;
-  }
-
-  return undefined;
+  return typeof rawExpiresAt === "number" && Number.isFinite(rawExpiresAt)
+    ? normalizeEpochMilliseconds(rawExpiresAt)
+    : undefined;
 }
 
 function readRefreshToken(account: unknown): string | undefined {
@@ -290,6 +298,34 @@ async function readProvidersFile(path: string, defaultProviderId: string): Promi
   return providers;
 }
 
+function readProvidersFromJsonValue(raw: unknown, defaultProviderId: string): Map<string, ProviderState> {
+  const providers = parseProviders(raw, defaultProviderId);
+
+  if (providers.size === 0) {
+    throw new Error("No provider accounts found in inline keys JSON");
+  }
+
+  return providers;
+}
+
+function readProvidersFromJsonEnv(defaultProviderId: string): Map<string, ProviderState> {
+  const raw = process.env.PROXY_KEYS_JSON ?? process.env.UPSTREAM_KEYS_JSON ?? process.env.VIVGRID_KEYS_JSON;
+  const normalized = raw?.trim();
+  if (!normalized) {
+    return new Map<string, ProviderState>();
+  }
+
+  try {
+    const parsed: unknown = JSON.parse(normalized);
+    return readProvidersFromJsonValue(parsed, defaultProviderId);
+  } catch (error) {
+    console.warn(
+      `[key-pool] Failed to parse inline keys JSON from env: ${error instanceof Error ? error.message : String(error)}`
+    );
+    return new Map<string, ProviderState>();
+  }
+}
+
 function createEnvProviderState(providerId: string, token: string): ProviderState {
   const normalizedProviderId = normalizeProviderId(providerId);
   const normalizedToken = token.trim();
@@ -307,6 +343,16 @@ function createEnvProviderState(providerId: string, token: string): ProviderStat
 
 function readProvidersFromEnv(): Map<string, ProviderState> {
   const providers = new Map<string, ProviderState>();
+  const rawFactoryKey = process.env.FACTORY_API_KEY;
+  if (typeof rawFactoryKey === "string") {
+    const factoryKey = rawFactoryKey.trim();
+    if (factoryKey.length > 0) {
+      providers.set("factory", createEnvProviderState("factory", factoryKey));
+    } else {
+      console.warn("[key-pool] FACTORY_API_KEY is set but empty — skipping factory provider from env");
+    }
+  }
+
   const openrouterKey = process.env.OPENROUTER_API_KEY?.trim();
   if (openrouterKey) {
     providers.set(
@@ -351,23 +397,112 @@ function mergeProviderStates(left: ProviderState | undefined, right: ProviderSta
   };
 }
 
-async function readProvidersFromSources(path: string, defaultProviderId: string): Promise<Map<string, ProviderState>> {
+async function readProvidersFromAccountStore(accountStore: ProviderAccountStore): Promise<Map<string, ProviderState>> {
+  const providers = await accountStore.getAllProviders();
+  const accountsByProvider = await accountStore.getAllAccounts();
+  const merged = new Map<string, ProviderState>();
+  const providerIds = new Set<string>([
+    ...providers.keys(),
+    ...accountsByProvider.keys(),
+  ]);
+
+  for (const providerId of providerIds) {
+    const authType = providers.get(providerId)?.authType ?? accountsByProvider.get(providerId)?.[0]?.authType ?? "api_key";
+    const accounts = accountsByProvider.get(providerId) ?? [];
+    if (accounts.length === 0) {
+      continue;
+    }
+
+    merged.set(providerId, {
+      authType,
+      accounts,
+      nextOffset: 0,
+    });
+  }
+
+  return merged;
+}
+
+async function readFactoryOAuthProviders(): Promise<Map<string, ProviderState>> {
+  const providers = new Map<string, ProviderState>();
+
+  try {
+    const credentials = await loadFactoryAuthV2();
+    if (!credentials) {
+      return providers;
+    }
+
+    const expiresAt = parseJwtExpiry(credentials.accessToken) ?? undefined;
+    const account: ProviderCredential = {
+      providerId: "factory",
+      accountId: deterministicAccountId("factory", credentials.accessToken),
+      token: credentials.accessToken,
+      authType: "oauth_bearer",
+      refreshToken: credentials.refreshToken.length > 0 ? credentials.refreshToken : undefined,
+      expiresAt,
+    };
+
+    providers.set("factory", {
+      authType: "oauth_bearer",
+      accounts: [account],
+      nextOffset: 0,
+    });
+  } catch (error) {
+    console.warn(
+      `[key-pool] Failed to load Factory OAuth credentials: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+
+  return providers;
+}
+
+async function readProvidersFromSources(
+  path: string,
+  defaultProviderId: string,
+  accountStore?: ProviderAccountStore,
+  preferAccountStoreProviders = false,
+): Promise<Map<string, ProviderState>> {
   const envProviders = readProvidersFromEnv();
+  const inlineJsonProviders = readProvidersFromJsonEnv(defaultProviderId);
   let fileProviders: Map<string, ProviderState> | null = null;
+  let accountStoreProviders: Map<string, ProviderState> | null = null;
+  const factoryOAuthProviders = await readFactoryOAuthProviders();
+
+  if (accountStore) {
+    accountStoreProviders = await readProvidersFromAccountStore(accountStore);
+  }
 
   try {
     fileProviders = await readProvidersFile(path, defaultProviderId);
   } catch (error) {
-    if (envProviders.size === 0) {
+    if (envProviders.size === 0 && inlineJsonProviders.size === 0 && (accountStoreProviders?.size ?? 0) === 0 && factoryOAuthProviders.size === 0) {
       throw error;
     }
   }
 
   const merged = new Map<string, ProviderState>();
-  for (const [providerId, state] of fileProviders ?? []) {
+  for (const [providerId, state] of accountStoreProviders ?? []) {
     merged.set(providerId, state);
   }
+  for (const [providerId, state] of fileProviders ?? []) {
+    if (preferAccountStoreProviders && merged.has(providerId)) {
+      continue;
+    }
+    merged.set(providerId, mergeProviderStates(merged.get(providerId), state) ?? state);
+  }
+  for (const [providerId, state] of inlineJsonProviders) {
+    if (preferAccountStoreProviders && merged.has(providerId)) {
+      continue;
+    }
+    merged.set(providerId, mergeProviderStates(merged.get(providerId), state) ?? state);
+  }
   for (const [providerId, state] of envProviders) {
+    if (preferAccountStoreProviders && merged.has(providerId)) {
+      continue;
+    }
+    merged.set(providerId, mergeProviderStates(merged.get(providerId), state) ?? state);
+  }
+  for (const [providerId, state] of factoryOAuthProviders) {
     merged.set(providerId, mergeProviderStates(merged.get(providerId), state) ?? state);
   }
 
@@ -669,7 +804,12 @@ export class KeyPool {
     this.lastReloadAt = Date.now();
 
     try {
-      const providers = await readProvidersFromSources(this.config.keysFilePath, this.config.defaultProviderId);
+      const providers = await readProvidersFromSources(
+        this.config.keysFilePath,
+        this.config.defaultProviderId,
+        this.config.accountStore,
+        this.config.preferAccountStoreProviders,
+      );
       const previousOffsets = new Map<string, number>();
       for (const [providerId, state] of this.providers.entries()) {
         previousOffsets.set(providerId, state.nextOffset);

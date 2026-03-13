@@ -4,6 +4,12 @@ import { DEFAULT_MODELS, type ProxyConfig } from "./lib/config.js";
 import { KeyPool, type ProviderCredential } from "./lib/key-pool.js";
 import { CredentialStore } from "./lib/credential-store.js";
 import { OpenAiOAuthManager } from "./lib/openai-oauth.js";
+import {
+  factoryCredentialNeedsRefresh,
+  parseJwtExpiry,
+  persistFactoryAuthV2,
+  refreshFactoryOAuthToken,
+} from "./lib/factory-auth.js";
 import { loadModels, toOpenAiModel } from "./lib/models.js";
 import { buildForwardHeaders } from "./lib/proxy.js";
 import { initializePolicyEngine, createPolicyEngine, type PolicyEngine } from "./lib/policy/index.js";
@@ -25,6 +31,7 @@ import {
   inspectProviderAvailability,
   selectProviderStrategy,
 } from "./lib/provider-strategy.js";
+import { orderProviderRoutesByPolicy } from "./lib/provider-policy.js";
 import {
   fetchWithResponseTimeout,
   hasBearerToken,
@@ -57,8 +64,9 @@ import { createSqlConnection, closeConnection, type Sql } from "./lib/db/index.j
 import { SqlCredentialStore } from "./lib/db/sql-credential-store.js";
 import { SqlAuthPersistence } from "./lib/auth/sql-persistence.js";
 import { SqlGitHubAllowlist } from "./lib/auth/github-allowlist.js";
-import { seedFromJsonFile } from "./lib/db/json-seeder.js";
-import { registerOAuthRoutes, createVerifyBearerToken } from "./lib/oauth-routes.js";
+import { seedFromJsonFile, seedFromJsonValue } from "./lib/db/json-seeder.js";
+import { registerOAuthRoutes } from "./lib/oauth-routes.js";
+import { RuntimeCredentialStore } from "./lib/runtime-credential-store.js";
 
 interface ChatCompletionRequest {
   readonly model?: string;
@@ -173,10 +181,25 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
 
       if (config.keysFilePath) {
         try {
-          const seedResult = await seedFromJsonFile(sql, config.keysFilePath, config.upstreamProviderId);
+          const seedResult = await seedFromJsonFile(sql, config.keysFilePath, config.upstreamProviderId, {
+            skipExistingProviders: true,
+          });
           app.log.info({ providers: seedResult.providers, accounts: seedResult.accounts }, "seeded credentials from json file");
         } catch (error) {
           app.log.warn({ error: toErrorMessage(error) }, "failed to seed credentials from json file; continuing with existing data");
+        }
+      }
+
+      const inlineKeysJson = process.env.PROXY_KEYS_JSON ?? process.env.UPSTREAM_KEYS_JSON ?? process.env.VIVGRID_KEYS_JSON;
+      if (typeof inlineKeysJson === "string" && inlineKeysJson.trim().length > 0) {
+        try {
+          const parsedInlineKeys: unknown = JSON.parse(inlineKeysJson);
+          const seedResult = await seedFromJsonValue(sql, parsedInlineKeys, config.upstreamProviderId, {
+            skipExistingProviders: true,
+          });
+          app.log.info({ providers: seedResult.providers, accounts: seedResult.accounts }, "seeded credentials from inline json env");
+        } catch (error) {
+          app.log.warn({ error: toErrorMessage(error) }, "failed to seed credentials from inline json env; continuing with existing data");
         }
       }
 
@@ -191,7 +214,9 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     keysFilePath: config.keysFilePath,
     reloadIntervalMs: config.keyReloadMs,
     defaultCooldownMs: config.keyCooldownMs,
-    defaultProviderId: config.upstreamProviderId
+    defaultProviderId: config.upstreamProviderId,
+    accountStore: sqlCredentialStore,
+    preferAccountStoreProviders: sqlCredentialStore !== undefined,
   });
   try {
     await keyPool.warmup();
@@ -215,11 +240,17 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
   }
 
   const credentialStore = new CredentialStore(config.keysFilePath, config.upstreamProviderId);
+  const runtimeCredentialStore = new RuntimeCredentialStore(credentialStore, sqlCredentialStore);
   const oauthManager = new OpenAiOAuthManager();
 
   async function refreshExpiredOAuthAccount(credential: ProviderCredential): Promise<ProviderCredential | null> {
     if (!credential.refreshToken) {
       return null;
+    }
+
+    // Factory OAuth credentials use WorkOS refresh, not OpenAI OAuth
+    if (credential.providerId === "factory") {
+      return refreshFactoryAccount(credential);
     }
 
     try {
@@ -238,7 +269,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
         expiresAt: newTokens.expiresAt,
       };
 
-      await credentialStore.upsertOAuthAccount(
+      await runtimeCredentialStore.upsertOAuthAccount(
         credential.providerId,
         newCredential.accountId,
         newCredential.token,
@@ -269,11 +300,73 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     }
   }
 
+  async function refreshFactoryAccount(credential: ProviderCredential): Promise<ProviderCredential | null> {
+    if (!credential.refreshToken) {
+      return null;
+    }
+
+    try {
+      app.log.info({ accountId: credential.accountId, providerId: "factory" }, "refreshing Factory OAuth token via WorkOS");
+
+      const refreshed = await refreshFactoryOAuthToken(credential.refreshToken);
+      const expiresAt = refreshed.expiresAt ?? parseJwtExpiry(refreshed.accessToken) ?? undefined;
+
+      const newCredential: ProviderCredential = {
+        providerId: "factory",
+        accountId: credential.accountId,
+        token: refreshed.accessToken,
+        authType: "oauth_bearer",
+        refreshToken: refreshed.refreshToken,
+        expiresAt,
+      };
+
+      // Update the credential in the KeyPool's in-memory state
+      keyPool.updateAccountCredential("factory", credential, newCredential);
+
+      // Persist to the credential store (file or SQL)
+      await runtimeCredentialStore.upsertOAuthAccount(
+        "factory",
+        newCredential.accountId,
+        newCredential.token,
+        newCredential.refreshToken,
+        newCredential.expiresAt,
+      );
+
+      // Also persist to the encrypted auth.v2 file so credentials survive restarts
+      await persistFactoryAuthV2(refreshed.accessToken, refreshed.refreshToken);
+
+      app.log.info({
+        accountId: newCredential.accountId,
+        providerId: "factory",
+        expiresAt: newCredential.expiresAt,
+      }, "Factory OAuth token refreshed successfully");
+
+      return newCredential;
+    } catch (error) {
+      app.log.warn({
+        error: toErrorMessage(error),
+        accountId: credential.accountId,
+        providerId: "factory",
+      }, "failed to refresh Factory OAuth token");
+      return null;
+    }
+  }
+
   async function ensureFreshAccounts(providerId: string): Promise<void> {
     const expiredAccounts = keyPool.getExpiredAccountsWithRefreshTokens(providerId);
     
     for (const account of expiredAccounts) {
       await refreshExpiredOAuthAccount(account);
+    }
+
+    // Factory OAuth: proactively refresh tokens within 30-min window (before they expire)
+    if (providerId === "factory") {
+      const allFactoryAccounts = await keyPool.getAllAccounts("factory").catch(() => [] as ProviderCredential[]);
+      for (const account of allFactoryAccounts) {
+        if (factoryCredentialNeedsRefresh(account)) {
+          await refreshFactoryAccount(account);
+        }
+      }
     }
   }
 
@@ -406,8 +499,8 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       }
 
       const rawPath = (request.raw.url ?? request.url).split("?", 1)[0] ?? request.url;
-      const allowUnauthenticatedRoute = rawPath === "/api/ui/credentials/openai/oauth/browser/callback"
-        || rawPath === "/auth/callback";
+      const allowUnauthenticatedRoute = rawPath === "/health" || rawPath === "/api/ui/credentials/openai/oauth/browser/callback"
+        || rawPath === "/auth/callback" || rawPath === "/auth/factory/callback";
 
       if (allowUnauthenticatedRoute) {
         return;
@@ -630,15 +723,30 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       return;
     }
 
-    await ensureFreshAccounts(config.upstreamProviderId);
+    let providerRoutes: ProviderRoute[];
+    if (context.factoryPrefixed) {
+      const factoryBaseUrl = config.upstreamProviderBaseUrls["factory"] ?? "https://api.factory.ai";
+      providerRoutes = config.disabledProviderIds.includes("factory")
+        ? []
+        : [{ providerId: "factory", baseUrl: factoryBaseUrl }];
+    } else {
+      providerRoutes = buildProviderRoutes(
+        config,
+        context.openAiPrefixed,
+        !context.openAiPrefixed && strategy.mode === "responses"
+      );
+      if (!context.openAiPrefixed && resolvedModelCatalog) {
+        providerRoutes = resolveProviderRoutesForModel(providerRoutes, context.routedModel, resolvedModelCatalog);
+      }
+    }
+    providerRoutes = orderProviderRoutesByPolicy(policyEngine, providerRoutes, context.requestedModelInput, context.routedModel, {
+      openAiPrefixed: context.openAiPrefixed,
+      localOllama: context.localOllama,
+      explicitOllama: context.explicitOllama,
+    });
 
-    let providerRoutes = buildProviderRoutes(
-      config,
-      context.openAiPrefixed,
-      !context.openAiPrefixed && strategy.mode === "responses"
-    );
-    if (!context.openAiPrefixed && resolvedModelCatalog) {
-      providerRoutes = resolveProviderRoutesForModel(providerRoutes, context.routedModel, resolvedModelCatalog);
+    for (const providerId of new Set(providerRoutes.map((route) => route.providerId))) {
+      await ensureFreshAccounts(providerId);
     }
 
     const availability = await inspectProviderAvailability(keyPool, providerRoutes);
@@ -885,6 +993,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     config,
     keyPool,
     requestLogStore,
+    credentialStore: runtimeCredentialStore,
     proxySettingsStore
   });
 

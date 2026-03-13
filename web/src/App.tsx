@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { NavLink, Route, Routes } from "react-router-dom";
+import { NavLink, Route, Routes, useLocation } from "react-router-dom";
 
 import { getProxyUiSettings, getSavedAuthToken, saveAuthToken, saveProxyUiSettings } from "./lib/api";
 import { ChatPage } from "./pages/ChatPage";
@@ -54,11 +54,14 @@ export function App(): JSX.Element {
     }
   };
 
+  const location = useLocation();
+  const isDashboard = location.pathname === "/" || location.pathname === "";
+
   const hasUnsavedChanges = tokenInput.trim() !== savedToken.trim();
   const hasStoredToken = savedToken.trim().length > 0;
 
   return (
-    <div className="shell-root">
+    <div className={`shell-root${isDashboard ? " shell-root-dashboard" : ""}`}>
       <header className="shell-header">
         <div className="shell-brand">
           <h1>Open Hax Proxy Console</h1>

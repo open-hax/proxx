@@ -1,4 +1,5 @@
 import type { ProviderCredential } from "./key-pool.js";
+import type { ProviderRoute } from "./provider-routing.js";
 import type { PolicyEngine, AccountInfo, ModelInfo, PlanType } from "./policy/index.js";
 
 function toPlanType(planType: string | undefined): PlanType {
@@ -71,7 +72,7 @@ export function orderAccountsByPolicy(
     return [];
   }
   
-  const modelInfo = toModelInfo(accounts[0]?.providerId ?? providerId, routedModel, context);
+  const modelInfo = toModelInfo(routedModel, routedModel, context);
   const accountInfos = accounts.map(toAccountInfo);
   
   const result = policy.orderAccounts(providerId, accountInfos, modelInfo);
@@ -85,6 +86,10 @@ export function orderAccountsByPolicy(
       orderedCredentials.push(credential);
     }
   }
+
+  if (result.appliesConstraint) {
+    return orderedCredentials;
+  }
   
   for (const credential of accounts) {
     if (!orderedIds.has(credential.accountId)) {
@@ -93,6 +98,45 @@ export function orderAccountsByPolicy(
   }
   
   return orderedCredentials;
+}
+
+export function orderProviderRoutesByPolicy(
+  policy: PolicyEngine,
+  routes: readonly ProviderRoute[],
+  requestedModel: string,
+  routedModel: string,
+  context: {
+    openAiPrefixed: boolean;
+    localOllama: boolean;
+    explicitOllama: boolean;
+  },
+): ProviderRoute[] {
+  if (routes.length <= 1) {
+    return [...routes];
+  }
+
+  const modelInfo = toModelInfo(requestedModel, routedModel, context);
+  const orderedProviderIds = policy.orderProviders(
+    routes.map((route) => route.providerId),
+    modelInfo,
+  );
+  const routeByProviderId = new Map(routes.map((route) => [route.providerId, route]));
+  const orderedRoutes: ProviderRoute[] = [];
+
+  for (const providerId of orderedProviderIds) {
+    const route = routeByProviderId.get(providerId);
+    if (route) {
+      orderedRoutes.push(route);
+    }
+  }
+
+  for (const route of routes) {
+    if (!orderedRoutes.some((entry) => entry.providerId === route.providerId)) {
+      orderedRoutes.push(route);
+    }
+  }
+
+  return orderedRoutes;
 }
 
 export function getPlanWeightsForModel(

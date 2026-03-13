@@ -9,6 +9,7 @@ import {
   type UsageAccountSummary,
   type UsageOverview,
 } from "../lib/api";
+import { formatAuthType } from "../lib/format";
 
 function formatCompactNumber(value: number): string {
   return new Intl.NumberFormat("en-US", {
@@ -293,7 +294,7 @@ export function DashboardPage(): JSX.Element {
                 <div className="dashboard-provider-card-header">
                   <strong>{status.providerId}</strong>
                   <span className={`dashboard-status-pill dashboard-status-${status.cooldownAccounts > 0 ? "cooldown" : "healthy"}`}>
-                    {status.authType}
+                    {formatAuthType(status.authType)}
                   </span>
                 </div>
                 <dl>
@@ -363,7 +364,7 @@ export function DashboardPage(): JSX.Element {
               <div key={`${account.providerId}-${account.accountId}`} className="dashboard-account-row">
                 <div>
                   <strong>{account.displayName}</strong>
-                  <small>{account.authType}</small>
+                  <small>{formatAuthType(account.authType)}</small>
                 </div>
                 <span className={`dashboard-status-pill dashboard-status-${account.status}`}>{account.status}</span>
                 <span>{formatCompactNumber(account.requestCount)}</span>

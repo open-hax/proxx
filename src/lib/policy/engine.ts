@@ -75,6 +75,53 @@ function findMatchingRoutingRule(
   return undefined;
 }
 
+function findMatchingProviderPreferenceRule(
+  model: ModelInfo,
+  rules: readonly ModelRoutingRule[],
+): ModelRoutingRule | undefined {
+  const modelId = model.routedModel;
+
+  for (const rule of rules) {
+    if (!matchesPattern(modelId, rule.modelPattern)) {
+      continue;
+    }
+
+    if ((rule.preferredProviders?.length ?? 0) > 0 || (rule.excludedProviders?.length ?? 0) > 0) {
+      return rule;
+    }
+  }
+
+  return undefined;
+}
+
+function orderProvidersByRule(
+  providerIds: readonly ProviderId[],
+  rule: ModelRoutingRule | undefined,
+): ProviderId[] {
+  if (providerIds.length <= 1) {
+    return [...providerIds];
+  }
+
+  const originalOrder = new Map(providerIds.map((providerId, index) => [providerId, index]));
+  const excludedProviders = new Set(rule?.excludedProviders ?? []);
+  const filteredProviderIds = providerIds.filter((providerId) => !excludedProviders.has(providerId));
+  const preferredProviders = rule?.preferredProviders ?? [];
+  if (preferredProviders.length === 0) {
+    return [...filteredProviderIds];
+  }
+
+  const preferredOrder = new Map(preferredProviders.map((providerId, index) => [providerId, index]));
+
+  return [...filteredProviderIds].sort((left, right) => {
+    const leftPriority = preferredOrder.get(left) ?? preferredProviders.length;
+    const rightPriority = preferredOrder.get(right) ?? preferredProviders.length;
+    if (leftPriority !== rightPriority) {
+      return leftPriority - rightPriority;
+    }
+    return (originalOrder.get(left) ?? 0) - (originalOrder.get(right) ?? 0);
+  });
+}
+
 export interface AccountOrderingResult {
   readonly ordered: readonly AccountInfo[];
   readonly appliesConstraint: boolean;
@@ -87,6 +134,11 @@ export interface PolicyEngine {
     accounts: readonly AccountInfo[],
     model: ModelInfo,
   ): AccountOrderingResult;
+
+  orderProviders(
+    providerIds: readonly ProviderId[],
+    model: ModelInfo,
+  ): readonly ProviderId[];
   
   selectStrategy(
     strategies: readonly StrategyInfo[],
@@ -152,7 +204,15 @@ export function createPolicyEngine(config: PolicyConfig): PolicyEngine {
     ): AccountOrderingResult {
       return createAccountOrdering(accounts, model, config);
     },
-    
+
+    orderProviders(
+      providerIds: readonly ProviderId[],
+      model: ModelInfo,
+    ): readonly ProviderId[] {
+      const rule = findMatchingProviderPreferenceRule(model, config.modelRouting.rules);
+      return orderProvidersByRule(providerIds, rule);
+    },
+     
     selectStrategy(
       strategies: readonly StrategyInfo[],
       providerId: ProviderId,

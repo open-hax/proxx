@@ -15,6 +15,7 @@ export interface ResolvedModelCatalog {
 export interface RequestRoutingState {
   readonly explicitOllama: boolean;
   readonly openAiPrefixed: boolean;
+  readonly factoryPrefixed: boolean;
   readonly localOllama: boolean;
   readonly routedModel: string;
 }
@@ -75,22 +76,27 @@ export function shouldUseLocalOllama(model: string, patterns: readonly string[])
 }
 
 export function resolveRequestRoutingState(config: ProxyConfig, requestedModel: string): RequestRoutingState {
-  const explicitOllama = hasModelPrefix(requestedModel, config.ollamaModelPrefixes);
-  const openAiPrefixed = hasModelPrefix(requestedModel, config.openaiModelPrefixes);
+  const factoryPrefixed = hasModelPrefix(requestedModel, config.factoryModelPrefixes);
+  const explicitOllama = !factoryPrefixed && hasModelPrefix(requestedModel, config.ollamaModelPrefixes);
+  const openAiPrefixed = !factoryPrefixed && hasModelPrefix(requestedModel, config.openaiModelPrefixes);
   const localOllama = explicitOllama
     || (!explicitOllama
     && !openAiPrefixed
+    && !factoryPrefixed
     && config.localOllamaEnabled
     && shouldUseLocalOllama(requestedModel, config.localOllamaModelPatterns));
-  const routedModel = explicitOllama
-    ? stripModelPrefix(requestedModel, config.ollamaModelPrefixes)
-    : openAiPrefixed
-      ? stripModelPrefix(requestedModel, config.openaiModelPrefixes)
-      : requestedModel;
+  const routedModel = factoryPrefixed
+    ? stripModelPrefix(requestedModel, config.factoryModelPrefixes)
+    : explicitOllama
+      ? stripModelPrefix(requestedModel, config.ollamaModelPrefixes)
+      : openAiPrefixed
+        ? stripModelPrefix(requestedModel, config.openaiModelPrefixes)
+        : requestedModel;
 
   return {
     explicitOllama,
     openAiPrefixed,
+    factoryPrefixed,
     localOllama,
     routedModel
   };
@@ -224,6 +230,10 @@ function routeForProvider(config: ProxyConfig, providerId: string): ProviderRout
     return null;
   }
 
+  if (config.disabledProviderIds.includes(normalizedProviderId)) {
+    return null;
+  }
+
   const baseUrl = (normalizedProviderId === config.openaiProviderId
     ? config.openaiBaseUrl
     : config.upstreamProviderBaseUrls[normalizedProviderId] ?? "")
@@ -328,14 +338,20 @@ export function resolveProviderRoutesForModel(
     return [...routes];
   }
 
+  const normalizedModel = routedModel.trim().toLowerCase();
+  const configuredModels = new Set(
+    catalog.modelIds.map((modelId) => modelId.trim().toLowerCase()).filter((modelId) => modelId.length > 0)
+  );
+  if (configuredModels.has(normalizedModel) && !catalog.dynamicOllamaModelIds.some((modelId) => modelId.trim().toLowerCase() === normalizedModel)) {
+    return [...routes];
+  }
+
   const dynamicOllamaModels = new Set(
     catalog.dynamicOllamaModelIds.map((modelId) => modelId.trim().toLowerCase()).filter((modelId) => modelId.length > 0)
   );
   if (dynamicOllamaModels.size === 0) {
     return [...routes];
   }
-
-  const normalizedModel = routedModel.trim().toLowerCase();
   const modelKnownOnOllama = dynamicOllamaModels.has(normalizedModel);
 
   if (!modelKnownOnOllama) {

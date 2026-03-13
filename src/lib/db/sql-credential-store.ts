@@ -1,5 +1,7 @@
 import type { Sql } from "./index.js";
 import type { ProviderCredential, ProviderAuthType } from "../key-pool.js";
+import { normalizeEpochMilliseconds } from "../epoch.js";
+import type { CredentialAccountView, CredentialProviderView } from "../credential-store.js";
 import {
   CREATE_PROVIDERS_TABLE,
   CREATE_ACCOUNTS_TABLE,
@@ -53,10 +55,18 @@ function toProviderCredential(row: AccountRow, authType: ProviderAuthType): Prov
     token: row.token,
     authType,
     refreshToken: row.refresh_token ?? undefined,
-    expiresAt: row.expires_at ?? undefined,
+    expiresAt: normalizeEpochMilliseconds(row.expires_at ?? undefined),
     chatgptAccountId: row.chatgpt_account_id ?? undefined,
     planType: row.plan_type ?? undefined,
   };
+}
+
+function maskSecret(secret: string): string {
+  if (secret.length <= 8) {
+    return `${secret.slice(0, 2)}***${secret.slice(-2)}`;
+  }
+
+  return `${secret.slice(0, 4)}...${secret.slice(-4)}`;
 }
 
 export interface SqlCredentialStoreStatus {
@@ -102,6 +112,45 @@ export class SqlCredentialStore {
     };
   }
 
+  public async listProviders(revealSecrets: boolean): Promise<CredentialProviderView[]> {
+    const providerRows = await this.sql.unsafe<ProviderRow[]>(SELECT_ALL_PROVIDERS);
+    const accountRows = await this.sql.unsafe<AccountRow[]>(SELECT_ALL_ACCOUNTS);
+    const authTypeByProvider = new Map<string, ProviderAuthType>(
+      providerRows.map((row) => [row.id, normalizeAuthType(row.auth_type)])
+    );
+    const accountsByProvider = new Map<string, CredentialAccountView[]>();
+
+    for (const row of accountRows) {
+      const authType = authTypeByProvider.get(row.provider_id) ?? "api_key";
+      const accounts = accountsByProvider.get(row.provider_id) ?? [];
+      accounts.push({
+        id: row.id,
+        authType,
+        displayName: row.chatgpt_account_id ?? row.id,
+        secretPreview: maskSecret(row.token),
+        secret: revealSecrets ? row.token : undefined,
+        refreshTokenPreview: row.refresh_token ? maskSecret(row.refresh_token) : undefined,
+        refreshToken: revealSecrets ? row.refresh_token ?? undefined : undefined,
+        expiresAt: normalizeEpochMilliseconds(row.expires_at ?? undefined),
+        chatgptAccountId: row.chatgpt_account_id ?? undefined,
+        planType: row.plan_type ?? undefined,
+      });
+      accountsByProvider.set(row.provider_id, accounts);
+    }
+
+    return providerRows
+      .map((row): CredentialProviderView => {
+        const accounts = accountsByProvider.get(row.id) ?? [];
+        return {
+          id: row.id,
+          authType: normalizeAuthType(row.auth_type),
+          accountCount: accounts.length,
+          accounts,
+        };
+      })
+      .sort((left, right) => left.id.localeCompare(right.id));
+  }
+
   public async getAllProviders(): Promise<Map<string, { authType: ProviderAuthType }>> {
     const rows = await this.sql.unsafe<ProviderRow[]>(SELECT_ALL_PROVIDERS);
     const result = new Map<string, { authType: ProviderAuthType }>();
@@ -113,10 +162,9 @@ export class SqlCredentialStore {
 
   public async getAccountsByProvider(providerId: string): Promise<ProviderCredential[]> {
     const rows = await this.sql.unsafe<AccountRow[]>(SELECT_ACCOUNTS_BY_PROVIDER, [providerId]);
-    const authType = rows.length > 0 && rows[0]?.token
-      ? this.inferAuthType(rows[0].token)
-      : "api_key";
-    return rows.map((row: AccountRow) => toProviderCredential(row, authType));
+    const providers = await this.getAllProviders();
+    const authType = providers.get(providerId)?.authType ?? "api_key";
+    return rows.map((row) => toProviderCredential(row, authType));
   }
 
   private inferAuthType(_token: string): ProviderAuthType {
@@ -124,12 +172,13 @@ export class SqlCredentialStore {
   }
 
   public async getAllAccounts(): Promise<Map<string, ProviderCredential[]>> {
+    const providers = await this.getAllProviders();
     const rows = await this.sql.unsafe<AccountRow[]>(SELECT_ALL_ACCOUNTS);
     const result = new Map<string, ProviderCredential[]>();
 
     for (const row of rows) {
       const accounts = result.get(row.provider_id) ?? [];
-      const authType = this.inferAuthType(row.token);
+      const authType = providers.get(row.provider_id)?.authType ?? this.inferAuthType(row.token);
       accounts.push(toProviderCredential(row, authType));
       result.set(row.provider_id, accounts);
     }
@@ -154,6 +203,38 @@ export class SqlCredentialStore {
     ]);
   }
 
+  public async upsertApiKeyAccount(providerId: string, accountId: string, apiKey: string): Promise<void> {
+    await this.upsertAccount({
+      providerId,
+      accountId,
+      token: apiKey,
+      authType: "api_key",
+    });
+  }
+
+  public async upsertOAuthAccount(
+    providerId: string,
+    accountId: string,
+    accessToken: string,
+    refreshToken?: string,
+    expiresAt?: number,
+    chatgptAccountId?: string,
+    _email?: string,
+    _subject?: string,
+    planType?: string,
+  ): Promise<void> {
+    await this.upsertAccount({
+      providerId,
+      accountId,
+      token: accessToken,
+      authType: "oauth_bearer",
+      refreshToken,
+      expiresAt,
+      chatgptAccountId,
+      planType,
+    });
+  }
+
   public async upsertAccounts(accounts: readonly ProviderCredential[]): Promise<void> {
     for (const account of accounts) {
       await this.upsertAccount(account);
@@ -162,6 +243,20 @@ export class SqlCredentialStore {
 
   public async deleteAccount(providerId: string, accountId: string): Promise<void> {
     await this.sql.unsafe(DELETE_ACCOUNT, [accountId, providerId]);
+  }
+
+  public async removeAccount(providerId: string, accountId: string): Promise<boolean> {
+    const before = await this.sql.unsafe<Array<{ id: string }>>(
+      "SELECT id FROM accounts WHERE id = $1 AND provider_id = $2 LIMIT 1",
+      [accountId, providerId],
+    );
+
+    if (before.length === 0) {
+      return false;
+    }
+
+    await this.deleteAccount(providerId, accountId);
+    return true;
   }
 
   public setCooldown(providerId: string, accountId: string, cooldownUntil: number): void {

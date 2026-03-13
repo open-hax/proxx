@@ -1,4 +1,4 @@
-import { CredentialStore, type CredentialAccountView } from "./credential-store.js";
+import type { CredentialAccountView, CredentialStoreLike } from "./credential-store.js";
 
 const OPENAI_TOKEN_URL = "https://auth.openai.com/oauth/token";
 const OPENAI_USAGE_URL = "https://chatgpt.com/backend-api/wham/usage";
@@ -294,7 +294,7 @@ function accountNeedsRefresh(account: CredentialAccountView): boolean {
 async function ensureFreshAccount(
   providerId: string,
   account: CredentialAccountView,
-  credentialStore: CredentialStore,
+  credentialStore: CredentialStoreLike,
   fetchFn: typeof fetch,
   logger?: LoggerLike,
 ): Promise<CredentialAccountView> {
@@ -408,7 +408,7 @@ function extractQuotaWindows(payload: unknown): {
 async function fetchQuotaForAccount(
   providerId: string,
   account: CredentialAccountView,
-  credentialStore: CredentialStore,
+  credentialStore: CredentialStoreLike,
   fetchFn: typeof fetch,
   logger?: LoggerLike,
 ): Promise<OpenAiQuotaAccountSnapshot> {
@@ -499,7 +499,7 @@ async function fetchQuotaForAccount(
 }
 
 export async function fetchOpenAiQuotaSnapshots(
-  credentialStore: CredentialStore,
+  credentialStore: CredentialStoreLike,
   options: {
     readonly providerId: string;
     readonly accountId?: string;

@@ -65,6 +65,14 @@ function validateAccountOrderingRule(rule: unknown): boolean {
 function validateModelRoutingRule(rule: unknown): boolean {
   if (!isObject(rule)) return false;
   if (typeof rule.modelPattern !== "string" && !(rule.modelPattern instanceof RegExp)) return false;
+
+  if (rule.preferredProviders !== undefined && (!Array.isArray(rule.preferredProviders) || !rule.preferredProviders.every((p) => typeof p === "string"))) {
+    return false;
+  }
+
+  if (rule.excludedProviders !== undefined && (!Array.isArray(rule.excludedProviders) || !rule.excludedProviders.every((p) => typeof p === "string"))) {
+    return false;
+  }
   
   if (rule.accountOrdering && !validateAccountOrderingRule(rule.accountOrdering)) {
     return false;

@@ -14,6 +14,18 @@
         "openai-oauth-access-token-1",
         "openai-oauth-access-token-2"
       ]
+    },
+    "factory": {
+      "auth": "api_key",
+      "accounts": [
+        "fk-example-factory-api-key-1",
+        {
+          "id": "factory-oauth",
+          "auth": "oauth_bearer",
+          "access_token": "eyJhbGciOiJSUzI1NiIs...",
+          "refresh_token": "example-refresh-token"
+        }
+      ]
     }
   }
 }

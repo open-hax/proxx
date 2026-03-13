@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
 import type { ProviderAuthType } from "./key-pool.js";
+import { normalizeEpochMilliseconds } from "./epoch.js";
 
 interface NormalizedAccount {
   id: string;
@@ -45,6 +46,23 @@ export interface CredentialProviderView {
   readonly authType: ProviderAuthType;
   readonly accountCount: number;
   readonly accounts: CredentialAccountView[];
+}
+
+export interface CredentialStoreLike {
+  listProviders(revealSecrets: boolean): Promise<CredentialProviderView[]>;
+  upsertApiKeyAccount(providerId: string, accountId: string, apiKey: string): Promise<void>;
+  upsertOAuthAccount(
+    providerId: string,
+    accountId: string,
+    accessToken: string,
+    refreshToken?: string,
+    expiresAt?: number,
+    chatgptAccountId?: string,
+    email?: string,
+    subject?: string,
+    planType?: string,
+  ): Promise<void>;
+  removeAccount(providerId: string, accountId: string): Promise<boolean>;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -201,7 +219,7 @@ function normalizeAccounts(
       ? asString(rawAccount.refresh_token) ?? asString(rawAccount.refreshToken)
       : undefined;
     const expiresAt = isRecord(rawAccount)
-      ? asNumber(rawAccount.expires_at) ?? asNumber(rawAccount.expiresAt)
+      ? normalizeEpochMilliseconds(asNumber(rawAccount.expires_at) ?? asNumber(rawAccount.expiresAt))
       : undefined;
     const derivedOauthMetadata = authType === "oauth_bearer"
       ? deriveOAuthMetadataFromToken(token)

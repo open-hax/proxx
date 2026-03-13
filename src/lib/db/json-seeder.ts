@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 
+import { normalizeEpochMilliseconds } from "../epoch.js";
 import type { ProviderCredential, ProviderAuthType } from "../key-pool.js";
 import type { Sql } from "./index.js";
 
@@ -98,7 +99,7 @@ function parseJsonCredentials(raw: unknown, defaultProviderId: string): Map<stri
           ? asString(rawAccount.plan_type) ?? asString(rawAccount.planType)
           : undefined,
         expiresAt: isRecord(rawAccount)
-          ? asNumber(rawAccount.expires_at) ?? asNumber(rawAccount.expiresAt)
+          ? normalizeEpochMilliseconds(asNumber(rawAccount.expires_at) ?? asNumber(rawAccount.expiresAt))
           : undefined,
         refreshToken: isRecord(rawAccount)
           ? asString(rawAccount.refresh_token) ?? asString(rawAccount.refreshToken)
@@ -143,6 +144,7 @@ export async function seedFromJsonFile(
   sql: Sql,
   filePath: string,
   defaultProviderId: string,
+  options?: { readonly skipExistingProviders?: boolean },
 ): Promise<{ providers: number; accounts: number }> {
   let contents: string;
   try {
@@ -152,10 +154,29 @@ export async function seedFromJsonFile(
   }
 
   const parsed: unknown = JSON.parse(contents);
+  return seedFromJsonValue(sql, parsed, defaultProviderId, options);
+}
+
+export async function seedFromJsonValue(
+  sql: Sql,
+  parsed: unknown,
+  defaultProviderId: string,
+  options?: { readonly skipExistingProviders?: boolean },
+): Promise<{ providers: number; accounts: number }> {
   const providers = parseJsonCredentials(parsed, defaultProviderId);
+  const skipExistingProviders = options?.skipExistingProviders === true;
 
   let accountCount = 0;
   for (const [providerId, { authType, accounts }] of providers) {
+    if (skipExistingProviders) {
+      const existingProviders = await sql<{ id: string }[]>`
+        SELECT id FROM providers WHERE id = ${providerId} LIMIT 1
+      `;
+      if (existingProviders.length > 0) {
+        continue;
+      }
+    }
+
     await sql`
       INSERT INTO providers (id, auth_type)
       VALUES (${providerId}, ${authType})

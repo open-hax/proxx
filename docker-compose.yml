@@ -1,5 +1,8 @@
 services:
   open-hax-openai-proxy:
+    depends_on:
+      open-hax-openai-proxy-db:
+        condition: service_healthy
     build:
       context: .
       dockerfile: Dockerfile
@@ -11,14 +14,16 @@ services:
       NODE_ENV: production
       PROXY_HOST: 0.0.0.0
       PROXY_PORT: "8789"
+      PORT: "8789"
       PROXY_AUTH_TOKEN: "${PROXY_AUTH_TOKEN:-change-me-open-hax-proxy-token}"
       PROXY_KEYS_FILE: /workspace/service-config/keys.json
       PROXY_MODELS_FILE: /workspace/service-config/models.json
       PROXY_REQUEST_LOGS_FILE: /app/data/request-logs.json
-      UPSTREAM_PROVIDER_ID: "${UPSTREAM_PROVIDER_ID:-vivgrid}"
+      UPSTREAM_PROVIDER_ID: "${UPSTREAM_PROVIDER_ID:-openai}"
       UPSTREAM_FALLBACK_PROVIDER_IDS: "${UPSTREAM_FALLBACK_PROVIDER_IDS:-ollama-cloud}"
-      UPSTREAM_BASE_URL: "${UPSTREAM_BASE_URL:-https://api.vivgrid.com}"
-      UPSTREAM_PROVIDER_BASE_URLS: "${UPSTREAM_PROVIDER_BASE_URLS:-vivgrid=https://api.vivgrid.com,ollama-cloud=https://ollama.com}"
+      DISABLED_PROVIDER_IDS: "${DISABLED_PROVIDER_IDS:-vivgrid}"
+      UPSTREAM_BASE_URL: "${UPSTREAM_BASE_URL:-https://chatgpt.com/backend-api}"
+      UPSTREAM_PROVIDER_BASE_URLS: "${UPSTREAM_PROVIDER_BASE_URLS:-ollama-cloud=https://ollama.com,openai=https://chatgpt.com/backend-api,vivgrid=https://api.vivgrid.com}"
       OPENAI_PROVIDER_ID: "${OPENAI_PROVIDER_ID:-openai}"
       OPENAI_BASE_URL: "${OPENAI_BASE_URL:-https://chatgpt.com/backend-api}"
       OLLAMA_BASE_URL: "${OLLAMA_BASE_URL:-http://ollama:11434}"
@@ -28,7 +33,7 @@ services:
       UPSTREAM_MESSAGES_MODEL_PREFIXES: "${UPSTREAM_MESSAGES_MODEL_PREFIXES:-claude-}"
       UPSTREAM_MESSAGES_INTERLEAVED_THINKING_BETA: "${UPSTREAM_MESSAGES_INTERLEAVED_THINKING_BETA:-interleaved-thinking-2025-05-14}"
       UPSTREAM_RESPONSES_PATH: "${UPSTREAM_RESPONSES_PATH:-/v1/responses}"
-      OPENAI_RESPONSES_PATH: "${OPENAI_RESPONSES_PATH:-/codex/responses/compact}"
+      OPENAI_RESPONSES_PATH: "${OPENAI_RESPONSES_PATH:-/codex/responses}"
       UPSTREAM_RESPONSES_MODEL_PREFIXES: "${UPSTREAM_RESPONSES_MODEL_PREFIXES:-gpt-}"
       OPENAI_MODEL_PREFIXES: "${OPENAI_MODEL_PREFIXES:-openai/,openai:}"
       OLLAMA_CHAT_PATH: "${OLLAMA_CHAT_PATH:-/api/chat}"
@@ -37,6 +42,7 @@ services:
       PROXY_KEY_COOLDOWN_MS: "${PROXY_KEY_COOLDOWN_MS:-30000}"
       UPSTREAM_REQUEST_TIMEOUT_MS: "${UPSTREAM_REQUEST_TIMEOUT_MS:-180000}"
       PROXY_ALLOW_UNAUTHENTICATED: "${PROXY_ALLOW_UNAUTHENTICATED:-false}"
+      DATABASE_URL: "${DATABASE_URL:-postgresql://openai_proxy:openai_proxy@open-hax-openai-proxy-db:5432/openai_proxy}" # pragma: allowlist secret
       CHROMA_URL: "${CHROMA_URL:-http://host.docker.internal:8000}"
       CHROMA_COLLECTION: "${CHROMA_COLLECTION:-open_hax_proxy_sessions}"
       CHROMA_EMBED_MODEL: "${CHROMA_EMBED_MODEL:-nomic-embed-text:latest}"
@@ -66,7 +72,29 @@ services:
     networks:
       ai-infra: {}
 
+  open-hax-openai-proxy-db:
+    image: postgres:16-bookworm
+    environment:
+      POSTGRES_DB: openai_proxy
+      POSTGRES_USER: openai_proxy
+      POSTGRES_PASSWORD: openai_proxy # pragma: allowlist secret
+    ports:
+      - "${PROXY_DB_PORT:-5432}:5432"
+    volumes:
+      - open-hax-openai-proxy-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U openai_proxy -d openai_proxy"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      ai-infra: {}
+
 networks:
   ai-infra:
     external: true
     name: ai-infra
+
+volumes:
+  open-hax-openai-proxy-db-data:

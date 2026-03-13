@@ -6,6 +6,7 @@ import {
   getOpenAiCredentialQuota,
   listCredentials,
   listRequestLogs,
+  pollFactoryDeviceOAuth,
   pollOpenAiDeviceOAuth,
   type CredentialAccount,
   type CredentialProvider,
@@ -16,11 +17,15 @@ import {
   type ProviderRequestLogSummary,
   type RequestLogEntry,
   removeCredential,
+  startFactoryBrowserOAuth,
+  startFactoryDeviceOAuth,
   startOpenAiBrowserOAuth,
   startOpenAiDeviceOAuth,
 } from "../lib/api";
+import { formatAuthType } from "../lib/format";
 
 interface DeviceAuthState {
+  readonly provider: "openai" | "factory";
   readonly verificationUrl: string;
   readonly userCode: string;
   readonly deviceAuthId: string;
@@ -141,9 +146,7 @@ function sortAccounts(accounts: readonly CredentialAccount[]): CredentialAccount
   });
 }
 
-function authTypeLabel(authType: CredentialAccount["authType"] | CredentialProvider["authType"]): string {
-  return authType === "oauth_bearer" ? "OAuth" : "API key";
-}
+
 
 function getEmailDomain(email?: string): string | null {
   if (!email) {
@@ -173,7 +176,7 @@ function accountSearchBlob(entry: AccountEntry): string {
     planLabel,
     emailDomain,
     entry.account.secretPreview,
-    authTypeLabel(entry.account.authType),
+    formatAuthType(entry.account.authType),
   ]
     .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
     .join("\n")
@@ -343,7 +346,7 @@ export function CredentialsPage(): JSX.Element {
           provider.accounts.length === provider.accountCount
             ? `${provider.accountCount} account(s) connected`
             : `${provider.accounts.length} of ${provider.accountCount} account(s) shown`,
-        badge: authTypeLabel(provider.authType),
+        badge: formatAuthType(provider.authType),
         badgeMuted: `${provider.accounts.length} shown`,
         accounts: provider.accounts.map((account) => ({
           providerId: provider.id,
@@ -470,7 +473,7 @@ export function CredentialsPage(): JSX.Element {
 
     try {
       const payload = await startOpenAiDeviceOAuth();
-      setDeviceAuth(payload);
+      setDeviceAuth({ ...payload, provider: "openai" });
       setStatus(`Device auth started. Enter code ${payload.userCode}; polling continues automatically.`);
     } catch (oauthError) {
       setError(oauthError instanceof Error ? oauthError.message : String(oauthError));
@@ -487,7 +490,9 @@ export function CredentialsPage(): JSX.Element {
     setError(null);
 
     try {
-      const result = await pollOpenAiDeviceOAuth(deviceAuth.deviceAuthId, deviceAuth.userCode);
+      const result = deviceAuth.provider === "factory"
+        ? await pollFactoryDeviceOAuth(deviceAuth.deviceAuthId)
+        : await pollOpenAiDeviceOAuth(deviceAuth.deviceAuthId, deviceAuth.userCode);
       if (result.state === "pending") {
         setStatus("Authorization is still pending.");
         return;
@@ -498,7 +503,8 @@ export function CredentialsPage(): JSX.Element {
         return;
       }
 
-      setStatus("OpenAI OAuth account saved from device flow.");
+      const providerLabel = deviceAuth.provider === "factory" ? "Factory.ai" : "OpenAI";
+      setStatus(`${providerLabel} OAuth account saved from device flow.`);
       setDeviceAuth(null);
       await refreshCredentials();
       await refreshQuota();
@@ -524,6 +530,60 @@ export function CredentialsPage(): JSX.Element {
       window.clearInterval(timer);
     };
   }, [deviceAuth, pollDeviceOAuth]);
+
+  const startFactoryBrowser = async () => {
+    setError(null);
+
+    try {
+      const payload = await startFactoryBrowserOAuth(getApiOrigin());
+      const popup = window.open(payload.authorizeUrl, "factory-oauth", "popup=yes,width=560,height=720");
+
+      if (!popup) {
+        throw new Error("Browser blocked popup. Allow popups and try again.");
+      }
+
+      if (browserOAuthWatchRef.current !== null) {
+        window.clearInterval(browserOAuthWatchRef.current);
+        browserOAuthWatchRef.current = null;
+      }
+
+      browserOAuthWatchRef.current = window.setInterval(() => {
+        if (!popup.closed) {
+          return;
+        }
+
+        if (browserOAuthWatchRef.current !== null) {
+          window.clearInterval(browserOAuthWatchRef.current);
+          browserOAuthWatchRef.current = null;
+        }
+
+        void refreshCredentials();
+        setStatus("Factory.ai browser OAuth flow finished. Credentials refreshed.");
+      }, 750);
+
+      setStatus("Factory.ai browser OAuth window opened. Finish sign-in to save credentials.");
+    } catch (oauthError) {
+      setError(oauthError instanceof Error ? oauthError.message : String(oauthError));
+    }
+  };
+
+  const startFactoryDevice = async () => {
+    setError(null);
+
+    try {
+      const payload = await startFactoryDeviceOAuth();
+      setDeviceAuth({ ...payload, provider: "factory" });
+      setStatus(`Factory.ai device auth started. Enter code ${payload.userCode}; polling continues automatically.`);
+    } catch (oauthError) {
+      setError(oauthError instanceof Error ? oauthError.message : String(oauthError));
+    }
+  };
+
+  const handleAddFactoryKey = () => {
+    setApiKeyProvider("factory");
+    setApiKeyAccount("");
+    setApiKeyValue("");
+  };
 
   const handleCopyField = useCallback(async (value: string, fieldKey: string) => {
     try {
@@ -606,7 +666,7 @@ export function CredentialsPage(): JSX.Element {
           <div className="credentials-provider-badges">
             {showProviderBadge && <span className="credentials-badge credentials-badge-muted">{providerId}</span>}
             {planLabel && <span className="credentials-badge credentials-badge-accent">{planLabel}</span>}
-            <span className="credentials-badge credentials-badge-muted">{authTypeLabel(account.authType)}</span>
+            <span className="credentials-badge credentials-badge-muted">{formatAuthType(account.authType)}</span>
           </div>
         </header>
 
@@ -805,6 +865,11 @@ export function CredentialsPage(): JSX.Element {
 
         <form className="credentials-form" onSubmit={(event) => void handleApiKeySubmit(event)}>
           <h3>Add API key account</h3>
+          <div className="credentials-form-shortcuts">
+            <button type="button" onClick={handleAddFactoryKey} className="credentials-shortcut-button">
+              Add Factory Key
+            </button>
+          </div>
           <input
             value={apiKeyProvider}
             onChange={(event) => setApiKeyProvider(event.currentTarget.value)}
@@ -833,12 +898,37 @@ export function CredentialsPage(): JSX.Element {
             <button type="button" onClick={() => void startDeviceOAuth()}>
               Start device flow
             </button>
-            <button type="button" onClick={() => void pollDeviceOAuth()} disabled={!deviceAuth}>
-              {devicePolling ? "Polling..." : "Poll device flow"}
+            <button type="button" onClick={() => void pollDeviceOAuth()} disabled={!deviceAuth || deviceAuth.provider !== "openai"}>
+              {devicePolling && deviceAuth?.provider === "openai" ? "Polling..." : "Poll device flow"}
             </button>
           </div>
 
-          {deviceAuth && (
+          {deviceAuth && deviceAuth.provider === "openai" && (
+            <p>
+              Visit{" "}
+              <a href={deviceAuth.verificationUrl} target="_blank" rel="noreferrer">
+                {deviceAuth.verificationUrl}
+              </a>{" "}
+              and enter code <strong>{deviceAuth.userCode}</strong>.
+            </p>
+          )}
+        </div>
+
+        <div className="credentials-oauth">
+          <h3>Factory.ai OAuth</h3>
+          <div className="credentials-oauth-row">
+            <button type="button" onClick={() => void startFactoryBrowser()}>
+              Start browser flow
+            </button>
+            <button type="button" onClick={() => void startFactoryDevice()}>
+              Start device flow
+            </button>
+            <button type="button" onClick={() => void pollDeviceOAuth()} disabled={!deviceAuth || deviceAuth.provider !== "factory"}>
+              {devicePolling && deviceAuth?.provider === "factory" ? "Polling..." : "Poll device flow"}
+            </button>
+          </div>
+
+          {deviceAuth && deviceAuth.provider === "factory" && (
             <p>
               Visit{" "}
               <a href={deviceAuth.verificationUrl} target="_blank" rel="noreferrer">
