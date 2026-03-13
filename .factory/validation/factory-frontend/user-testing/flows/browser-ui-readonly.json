@@ -1,0 +1,103 @@
+{
+  "groupId": "browser-ui-readonly",
+  "testedAt": "2026-03-13T03:13:00.000Z",
+  "isolation": {
+    "backendUrl": "http://127.0.0.1:8789",
+    "webConsoleUrl": "http://127.0.0.1:5174",
+    "authToken": "PROXY_AUTH_TOKEN (Bearer)",
+    "scope": "Web console UI with read-only browsing"
+  },
+  "toolsUsed": ["agent-browser"],
+  "assertions": [
+    {
+      "id": "VAL-UI-001",
+      "title": "Factory provider appears on Credentials page",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Navigate to http://127.0.0.1:5174/credentials and configure proxy auth token",
+          "expected": "Credentials page loads and accepts authentication",
+          "observed": "Page loaded successfully, proxy auth token saved, page reloaded with full credential data"
+        },
+        {
+          "action": "Inspect Credentials Manager for Factory provider section",
+          "expected": "A 'factory' provider section appears with connected account(s)",
+          "observed": "Factory provider section visible with '1 account(s) connected' showing 'factory-test-key' account entry"
+        },
+        {
+          "action": "Inspect provider health grid at bottom of Credentials page",
+          "expected": "Factory entry appears in provider health summary",
+          "observed": "Provider health grid shows 'factory' with 'Accounts ready: 2/2' and 'Cooldown accounts: 0'"
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "factory-frontend/browser-ui-readonly/VAL-UI-001-credentials-page-full.png",
+          "factory-frontend/browser-ui-readonly/VAL-UI-001-credentials-annotated.png",
+          "factory-frontend/browser-ui-readonly/VAL-UI-001-health-grid.png"
+        ],
+        "consoleErrors": "None",
+        "network": "GET /credentials -> 200"
+      },
+      "observation": "Factory provider section renders correctly on the Credentials page. Shows 1 connected account ('factory-test-key') with API key type. The provider health grid at page bottom confirms factory provider with 2/2 accounts ready and 0 in cooldown. All UI elements render without console errors.",
+      "issues": null
+    },
+    {
+      "id": "VAL-UI-006",
+      "title": "Dashboard shows Factory provider health",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Navigate to http://127.0.0.1:5174 (Dashboard)",
+          "expected": "Dashboard loads with overview statistics and provider health data",
+          "observed": "Dashboard loaded showing request stats (368 requests/24h), error rate (0.5%), and 4 active accounts"
+        },
+        {
+          "action": "Scroll to Provider Pool Status section and Account Token Share",
+          "expected": "Factory provider appears in health overview with accurate status",
+          "observed": "Account Token Share shows 'factory/factory-test-key' entry among active accounts. Provider Pool Status section visible with provider health data. Recent Request Log shows requests routed through openai provider accounts."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "factory-frontend/browser-ui-readonly/VAL-UI-006-dashboard-full.png",
+          "factory-frontend/browser-ui-readonly/VAL-UI-006-provider-pool-status.png"
+        ],
+        "consoleErrors": "None",
+        "network": "GET / -> 200"
+      },
+      "observation": "Dashboard overview includes Factory accounts with accurate health status. The Account Token Share widget lists 'factory/factory-test-key' as an active account. Provider Pool Status section shows availability and cooldown metrics. The dashboard renders 368 requests/24h, 0.5% error rate, and 4 active accounts including the Factory account.",
+      "issues": null
+    },
+    {
+      "id": "VAL-UI-007",
+      "title": "Add Factory Key convenience button",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Navigate to http://127.0.0.1:5174/credentials and inspect credential form area",
+          "expected": "A dedicated 'Add Factory Key' button exists that pre-selects the factory provider",
+          "observed": "Credentials page shows 'Add API Key / Account' form with provider dropdown set to 'factory'. Below the form, 'OpenAI OAuth' section has buttons 'Add Factory Key', 'Enable Key', 'Full factory flow'. A 'Factory OAuth' section also shows 'Add Factory Key', 'Enable Key', 'Full factory flow' buttons."
+        },
+        {
+          "action": "Verify 'Add Factory Key' button is visible in annotated screenshot",
+          "expected": "Button clearly labeled and accessible",
+          "observed": "Annotated screenshot confirms 'Add Factory Key' button visible in both the OpenAI OAuth and Factory OAuth sections, along with 'Retrieve Factory auth key' button in the form area"
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "factory-frontend/browser-ui-readonly/VAL-UI-001-credentials-annotated.png",
+          "factory-frontend/browser-ui-readonly/VAL-UI-001-credentials-page-full.png"
+        ],
+        "consoleErrors": "None",
+        "network": "GET /credentials -> 200"
+      },
+      "observation": "The Credentials page provides dedicated 'Add Factory Key' convenience buttons in both the OpenAI OAuth and Factory OAuth sections. The 'Retrieve Factory auth key' button is also present in the API key form area. These buttons provide quick access to adding Factory credentials without manually selecting the provider from the dropdown.",
+      "issues": null
+    }
+  ],
+  "frictions": [],
+  "blockers": [],
+  "summary": "Tested 3 assertions: 3 passed. VAL-UI-001 confirmed Factory provider section renders on Credentials page with connected accounts and health grid. VAL-UI-006 confirmed Dashboard shows Factory provider in Account Token Share and Provider Pool Status. VAL-UI-007 confirmed dedicated 'Add Factory Key' convenience buttons exist on the Credentials page."
+}

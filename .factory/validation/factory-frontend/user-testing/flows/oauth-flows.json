@@ -1,0 +1,76 @@
+{
+  "groupId": "oauth-flows",
+  "testedAt": "2026-03-13T00:00:00.000Z",
+  "isolation": {
+    "backendUrl": "http://127.0.0.1:8789",
+    "authToken": "PROXY_AUTH_TOKEN (Bearer)",
+    "scope": "API endpoints only, no browser UI"
+  },
+  "toolsUsed": ["curl"],
+  "assertions": [
+    {
+      "id": "VAL-UI-004",
+      "title": "Factory OAuth device flow",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "POST /api/ui/credentials/factory/oauth/device/start with Authorization header and empty JSON body",
+          "expected": "JSON with verificationUrl, userCode, deviceAuthId, intervalMs",
+          "observed": "200 OK — returned {verificationUrl: 'https://auth.factory.ai/device?user_code=SSCW-QXLK', userCode: 'SSCW-QXLK', deviceAuthId: '6996f3fd-f23e-4896-8d1f-c15c3d2727d3', intervalMs: 5000}"
+        },
+        {
+          "action": "POST /api/ui/credentials/factory/oauth/device/poll with deviceAuthId from step 1",
+          "expected": "JSON with state: 'pending' (since auth not completed)",
+          "observed": "200 OK — returned {state: 'pending'}"
+        }
+      ],
+      "evidence": {
+        "curlOutput": [
+          "factory-frontend/oauth-flows/VAL-UI-004-device-start.txt",
+          "factory-frontend/oauth-flows/VAL-UI-004-device-poll.txt"
+        ],
+        "consoleErrors": "N/A (curl-based test)",
+        "network": "POST /api/ui/credentials/factory/oauth/device/start -> 200, POST /api/ui/credentials/factory/oauth/device/poll -> 200"
+      },
+      "observation": "Device flow start returns all required fields (verificationUrl, userCode, deviceAuthId, intervalMs) with sensible values. verificationUrl points to auth.factory.ai, intervalMs is 5000ms. Poll endpoint returns pending state for an incomplete auth flow, confirming the polling mechanism works.",
+      "issues": null
+    },
+    {
+      "id": "VAL-UI-005",
+      "title": "Factory OAuth browser flow",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "POST /api/ui/credentials/factory/oauth/browser/start with redirectBaseUrl='http://127.0.0.1:8789'",
+          "expected": "JSON with authorizeUrl containing OAuth parameters (client_id, redirect_uri, state, response_type)",
+          "observed": "200 OK — returned authorizeUrl: 'https://api.workos.com/user_management/authorize?client_id=client_01HNM792M5G5G1A2THWPXKFMXB&redirect_uri=http%3A%2F%2F127.0.0.1%3A8789%2Fauth%2Ffactory%2Fcallback&response_type=code&state=c4b7ae9b-b205-49b6-8975-75eac4ee8cda'"
+        },
+        {
+          "action": "GET /auth/factory/callback?state=invalid&code=invalid",
+          "expected": "Error HTML page indicating invalid state/code",
+          "observed": "200 OK — HTML page titled 'Open Hax OAuth Failed' with message 'Authorization Failed: Unknown or expired OAuth state'"
+        }
+      ],
+      "evidence": {
+        "curlOutput": [
+          "factory-frontend/oauth-flows/VAL-UI-005-browser-start.txt",
+          "factory-frontend/oauth-flows/VAL-UI-005-browser-callback-invalid.txt"
+        ],
+        "consoleErrors": "N/A (curl-based test)",
+        "network": "POST /api/ui/credentials/factory/oauth/browser/start -> 200, GET /auth/factory/callback?state=invalid&code=invalid -> 200"
+      },
+      "observation": "Browser flow start returns authorizeUrl pointing to WorkOS with correct OAuth params: client_id=client_01HNM792M5G5G1A2THWPXKFMXB, redirect_uri to /auth/factory/callback, response_type=code, and a UUID state. Callback endpoint handles invalid state/code gracefully with a styled error page showing 'Unknown or expired OAuth state'.",
+      "issues": null
+    }
+  ],
+  "frictions": [
+    {
+      "description": "Device start endpoint requires Content-Type: application/json with at least an empty body '{}' — sending no body with that content-type returns 400 (FST_ERR_CTP_EMPTY_JSON_BODY)",
+      "resolved": true,
+      "resolution": "Sent empty JSON object '{}' as request body",
+      "affectedAssertions": ["VAL-UI-004"]
+    }
+  ],
+  "blockers": [],
+  "summary": "Tested 2 assertions: 2 passed. VAL-UI-004 (device flow) confirmed start endpoint returns verificationUrl, userCode, deviceAuthId, intervalMs and poll endpoint returns pending state. VAL-UI-005 (browser flow) confirmed start endpoint returns valid WorkOS authorizeUrl with OAuth parameters and callback endpoint handles invalid state/code with error page."
+}
