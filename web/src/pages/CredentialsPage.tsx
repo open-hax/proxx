@@ -19,6 +19,7 @@ import {
   startOpenAiBrowserOAuth,
   startOpenAiDeviceOAuth,
 } from "../lib/api";
+import { formatAuthType } from "../lib/format";
 
 interface DeviceAuthState {
   readonly verificationUrl: string;
@@ -141,9 +142,7 @@ function sortAccounts(accounts: readonly CredentialAccount[]): CredentialAccount
   });
 }
 
-function authTypeLabel(authType: CredentialAccount["authType"] | CredentialProvider["authType"]): string {
-  return authType === "oauth_bearer" ? "OAuth" : "API key";
-}
+
 
 function getEmailDomain(email?: string): string | null {
   if (!email) {
@@ -173,7 +172,7 @@ function accountSearchBlob(entry: AccountEntry): string {
     planLabel,
     emailDomain,
     entry.account.secretPreview,
-    authTypeLabel(entry.account.authType),
+    formatAuthType(entry.account.authType),
   ]
     .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
     .join("\n")
@@ -343,7 +342,7 @@ export function CredentialsPage(): JSX.Element {
           provider.accounts.length === provider.accountCount
             ? `${provider.accountCount} account(s) connected`
             : `${provider.accounts.length} of ${provider.accountCount} account(s) shown`,
-        badge: authTypeLabel(provider.authType),
+        badge: formatAuthType(provider.authType),
         badgeMuted: `${provider.accounts.length} shown`,
         accounts: provider.accounts.map((account) => ({
           providerId: provider.id,
@@ -606,7 +605,7 @@ export function CredentialsPage(): JSX.Element {
           <div className="credentials-provider-badges">
             {showProviderBadge && <span className="credentials-badge credentials-badge-muted">{providerId}</span>}
             {planLabel && <span className="credentials-badge credentials-badge-accent">{planLabel}</span>}
-            <span className="credentials-badge credentials-badge-muted">{authTypeLabel(account.authType)}</span>
+            <span className="credentials-badge credentials-badge-muted">{formatAuthType(account.authType)}</span>
           </div>
         </header>
 
