@@ -355,12 +355,12 @@ button:disabled {
   stroke: rgba(145, 198, 218, 0.12);
 }
 
-.dashboard-donut-segment-0 { stroke: #56d8ff; }
-.dashboard-donut-segment-1 { stroke: #82f0b8; }
-.dashboard-donut-segment-2 { stroke: #ffcc7d; }
-.dashboard-donut-segment-3 { stroke: #ff907c; }
-.dashboard-donut-segment-4 { stroke: #82a8ff; }
-.dashboard-donut-segment-5 { stroke: #c79bff; }
+.dashboard-donut-segment-0 { stroke: #56d8ff; background-color: #56d8ff; }
+.dashboard-donut-segment-1 { stroke: #82f0b8; background-color: #82f0b8; }
+.dashboard-donut-segment-2 { stroke: #ffcc7d; background-color: #ffcc7d; }
+.dashboard-donut-segment-3 { stroke: #ff907c; background-color: #ff907c; }
+.dashboard-donut-segment-4 { stroke: #82a8ff; background-color: #82a8ff; }
+.dashboard-donut-segment-5 { stroke: #c79bff; background-color: #c79bff; }
 
 .dashboard-donut-empty {
   min-height: 160px;
