@@ -54,6 +54,10 @@ textarea {
   gap: 14px;
 }
 
+.shell-root-dashboard {
+  max-width: 1920px;
+}
+
 .shell-header {
   display: grid;
   grid-template-columns: 1.4fr 1fr;
@@ -308,7 +312,7 @@ button:disabled {
 }
 
 .dashboard-detail-grid-wide {
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr 2fr;
 }
 
 .dashboard-panel {
