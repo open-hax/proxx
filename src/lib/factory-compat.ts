@@ -193,6 +193,31 @@ export function inlineSystemPrompt(payload: Record<string, unknown>): Record<str
   return { ...rest, messages };
 }
 
+const OPENCODE_SYSTEM_PROMPT_SIGNATURE = "you are opencode, the best coding agent on the planet";
+
+const FACTORY_SAFE_OPENCODE_SYSTEM_PROMPT = [
+  "You are a software engineering assistant running inside a CLI tool.",
+  "Be concise, correct, and action-oriented.",
+  "Only call tools when you need to inspect files, run commands, or fetch data. For simple replies, respond directly without tools.",
+  "Do not run shell commands (e.g. `echo`) just to print the answer.",
+  "Use the provided tools when needed; do not invent tools.",
+  "Ask a clarifying question only when you cannot proceed safely.",
+  "Avoid destructive actions and avoid exposing secrets.",
+].join("\n");
+
+/**
+ * Factory.ai sometimes rejects the full OpenCode system prompt (403). When detected,
+ * replace it with a short, provider-safe instruction set.
+ */
+export function sanitizeFactorySystemPrompt(systemText: string): string {
+  const lowered = systemText.toLowerCase();
+  if (!lowered.includes(OPENCODE_SYSTEM_PROMPT_SIGNATURE)) {
+    return systemText;
+  }
+
+  return FACTORY_SAFE_OPENCODE_SYSTEM_PROMPT;
+}
+
 /**
  * Check if a credential uses an fk- prefixed API key (Factory static key).
  */

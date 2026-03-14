@@ -44,6 +44,7 @@ import {
   getFactoryEndpointPath,
   getFactoryModelType,
   inlineSystemPrompt,
+  sanitizeFactorySystemPrompt,
 } from "./factory-compat.js";
 import {
   appendCsvHeaderValue,
@@ -83,6 +84,17 @@ function transientRetryDelayMs(context: StrategyRequestContext, retryIndex: numb
 
 function shouldRetrySameCredentialForServerError(status: number): boolean {
   return status === 502 || status === 503 || status === 504;
+}
+
+function shouldCooldownCredentialOnAuthFailure(providerId: string, status: number): boolean {
+  if (status === 401) {
+    return true;
+  }
+  if (status === 403) {
+    // Factory 403 often indicates request/prompt rejection rather than credential failure.
+    return providerId !== "factory";
+  }
+  return false;
 }
 
 function reorderCandidatesForAffinity<T extends { readonly providerId: string; readonly account: ProviderCredential }>(
@@ -1654,9 +1666,17 @@ class FactoryMessagesProviderStrategy extends TransformedJsonProviderStrategy {
 
   public buildPayload(context: StrategyRequestContext): BuildPayloadResult {
     const messagesPayload = chatRequestToMessagesRequest(buildRequestBodyForUpstream(context));
+    const rawSystem = messagesPayload["system"];
+    const sanitizedSystem = typeof rawSystem === "string" ? sanitizeFactorySystemPrompt(rawSystem) : rawSystem;
+    const sanitizedPayload = sanitizedSystem === rawSystem
+      ? messagesPayload
+      : {
+          ...messagesPayload,
+          system: sanitizedSystem,
+        };
     // Inline system content into first user message to avoid Factory 403 with fk- keys.
     // We always inline for Factory to keep behavior consistent across credential types.
-    const inlinedPayload = inlineSystemPrompt(messagesPayload);
+    const inlinedPayload = inlineSystemPrompt(sanitizedPayload);
     return buildPayloadResult(inlinedPayload, context);
   }
 
@@ -2341,10 +2361,12 @@ export async function executeProviderFallback(
             accumulator.sawUpstreamInvalidRequest ||= refreshedOutcome.upstreamInvalidRequest === true;
             accumulator.sawModelNotFound ||= refreshedOutcome.modelNotFound === true;
             accumulator.sawModelNotSupportedForAccount ||= refreshedOutcome.modelNotSupportedForAccount === true;
-            if (!refreshedResponse.ok && refreshedOutcome.requestError === true && (refreshedResponse.status === 401 || refreshedResponse.status === 403)) {
-              keyPool.markRateLimited(refreshedCredential, Math.min(context.config.keyCooldownMs, 10_000));
-              if (preferredAffinity && candidate.providerId === preferredAffinity.providerId && refreshedCredential.accountId === preferredAffinity.accountId) {
-                preferredReassignmentAllowed = true;
+      if (!refreshedResponse.ok && refreshedOutcome.requestError === true && (refreshedResponse.status === 401 || refreshedResponse.status === 403)) {
+              if (shouldCooldownCredentialOnAuthFailure(candidate.providerId, refreshedResponse.status)) {
+                keyPool.markRateLimited(refreshedCredential, Math.min(context.config.keyCooldownMs, 10_000));
+                if (preferredAffinity && candidate.providerId === preferredAffinity.providerId && refreshedCredential.accountId === preferredAffinity.accountId) {
+                  preferredReassignmentAllowed = true;
+                }
               }
             }
             break;
@@ -2357,9 +2379,11 @@ export async function executeProviderFallback(
           preferredReassignmentAllowed = true;
         }
       } else if (!upstreamResponse.ok && outcome.requestError === true && (upstreamResponse.status === 401 || upstreamResponse.status === 403)) {
-        keyPool.markRateLimited(candidate.account, Math.min(context.config.keyCooldownMs, 10_000));
-        if (preferredAffinity && candidate.providerId === preferredAffinity.providerId && candidate.account.accountId === preferredAffinity.accountId) {
-          preferredReassignmentAllowed = true;
+        if (shouldCooldownCredentialOnAuthFailure(candidate.providerId, upstreamResponse.status)) {
+          keyPool.markRateLimited(candidate.account, Math.min(context.config.keyCooldownMs, 10_000));
+          if (preferredAffinity && candidate.providerId === preferredAffinity.providerId && candidate.account.accountId === preferredAffinity.accountId) {
+            preferredReassignmentAllowed = true;
+          }
         }
       }
 

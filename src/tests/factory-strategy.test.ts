@@ -17,6 +17,7 @@ import {
   buildFactoryCommonHeaders,
   buildFactoryAnthropicHeaders,
   inlineSystemPrompt,
+  sanitizeFactorySystemPrompt,
   isFkKey,
 } from "../lib/factory-compat.js";
 import type { ProviderCredential } from "../lib/key-pool.js";
@@ -355,6 +356,19 @@ test("inlineSystemPrompt handles array content on first user message", () => {
   assert.ok(Array.isArray(firstContent));
   assert.equal((firstContent as Record<string, unknown>[]).length, 2);
   assert.equal((firstContent as Record<string, unknown>[])[0]?.["text"], "Be helpful.");
+});
+
+test("sanitizeFactorySystemPrompt replaces OpenCode system prompt", () => {
+  const prompt = "You are OpenCode, the best coding agent on the planet.\n\nTool usage rules...";
+  const sanitized = sanitizeFactorySystemPrompt(prompt);
+  assert.notEqual(sanitized, prompt);
+  assert.ok(!sanitized.includes("OpenCode"));
+  assert.ok(sanitized.toLowerCase().includes("software engineering assistant"));
+});
+
+test("sanitizeFactorySystemPrompt leaves normal prompts unchanged", () => {
+  const prompt = "You are a helpful assistant.";
+  assert.equal(sanitizeFactorySystemPrompt(prompt), prompt);
 });
 
 // ─── Unit Tests: isFkKey ────────────────────────────────────────────────────
@@ -719,6 +733,68 @@ test("factory claude requests inline system prompt into first user message", { c
           const content = firstUser["content"];
           assert.ok(typeof content === "string");
           assert.ok(content.includes("You are a coding assistant."));
+          assert.ok(content.includes("Write hello world"));
+        },
+      );
+    },
+  );
+});
+
+test("factory claude requests sanitize OpenCode system prompt before upstream", { concurrency: false }, async () => {
+  let capturedBody = "";
+
+  await withEnv(
+    {
+      FACTORY_API_KEY: "fk-test-key", // pragma: allowlist secret
+      FACTORY_AUTH_V2_FILE: "/tmp/nonexistent-auth-v2-file",
+      FACTORY_AUTH_V2_KEY: "/tmp/nonexistent-auth-v2-key",
+    },
+    async () => {
+      await withProxyApp(
+        {
+          keys: [],
+          keysPayload: { providers: {} },
+          upstreamHandler: async (_request, body) => {
+            capturedBody = body;
+
+            return {
+              status: 200,
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                id: "msg_123",
+                type: "message",
+                role: "assistant",
+                content: [{ type: "text", text: "OK" }],
+                model: "claude-opus-4-5",
+                usage: { input_tokens: 10, output_tokens: 5 },
+              }),
+            };
+          },
+        },
+        async ({ app }) => {
+          const response = await app.inject({
+            method: "POST",
+            url: "/v1/chat/completions",
+            payload: {
+              model: "factory/claude-opus-4-5",
+              messages: [
+                { role: "system", content: "You are OpenCode, the best coding agent on the planet." },
+                { role: "user", content: "Write hello world" },
+              ],
+            },
+          });
+
+          assert.equal(response.statusCode, 200);
+
+          const parsedBody = JSON.parse(capturedBody) as Record<string, unknown>;
+          const messages = parsedBody["messages"] as Record<string, unknown>[];
+          const firstUser = messages.find((m) => m["role"] === "user");
+          assert.ok(firstUser);
+
+          const content = firstUser["content"];
+          assert.ok(typeof content === "string");
+          assert.ok(!content.includes("You are OpenCode"));
+          assert.ok(content.toLowerCase().includes("software engineering assistant"));
           assert.ok(content.includes("Write hello world"));
         },
       );
