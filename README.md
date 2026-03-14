@@ -219,6 +219,43 @@ The prefix is stripped before upstream dispatch, and accounts are selected from 
 
 For migrated legacy OAuth accounts, the `openai` provider is treated as a ChatGPT Codex upstream, not the OpenAI Platform API. Those accounts require `chatgpt_account_id` metadata and are sent to `/codex/responses` by default.
 
+## Factory.ai Provider
+
+The proxy supports [Factory.ai](https://factory.ai) as a provider, routing requests to `https://api.factory.ai` with automatic credential management.
+
+### Credentials
+
+Factory credentials can be supplied in three ways (all sources merge at runtime):
+
+1. **Environment variable** — set `FACTORY_API_KEY` with your Factory API key.
+2. **Local auth files** — the proxy reads `~/.factory/auth.v2.file` and `~/.factory/auth.v2.key` (OAuth tokens written by the Factory CLI). Override paths with `FACTORY_AUTH_V2_FILE` / `FACTORY_AUTH_V2_KEY`.
+3. **`keys.json`** — add a `factory` provider entry with `"auth": "api_key"` and an `"accounts"` array containing your key(s). See `keys.example.json` for a complete example including OAuth bearer accounts.
+
+### Model Routing
+
+Prefix a model name with `factory/` or `factory:` to route it through the Factory provider:
+
+- `"model": "factory/claude-opus-4-5"`
+- `"model": "factory/gpt-5"`
+- `"model": "factory/gemini-3-pro-preview"`
+
+The prefix is stripped before the request is sent upstream. Any model available on Factory.ai can be used.
+
+### OAuth Setup (Web Console)
+
+The web console exposes two OAuth flows for obtaining Factory credentials interactively:
+
+- **Device flow** — `POST /api/ui/credentials/factory/oauth/device/start` initiates a device-code grant; poll with `POST /api/ui/credentials/factory/oauth/device/poll`.
+- **Browser flow** — `POST /api/ui/credentials/factory/oauth/browser/start` returns an authorization URL for PKCE-based browser login.
+
+Both flows store the resulting tokens so the proxy can use them for subsequent requests.
+
+### Environment Variables
+
+- `FACTORY_API_KEY` — Factory API key (creates a `factory` provider automatically).
+- `FACTORY_BASE_URL` — override the default `https://api.factory.ai` endpoint.
+- `FACTORY_MODEL_PREFIXES` — model prefixes that trigger Factory routing (default: `factory/,factory:`).
+
 ## Ollama `num_ctx` Control Through OpenAI API
 
 When you send requests through `POST /v1/chat/completions`, route to Ollama by prefixing the model:

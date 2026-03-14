@@ -58,7 +58,11 @@ export interface CredentialStoreLike {
     refreshToken?: string,
     expiresAt?: number,
     chatgptAccountId?: string,
+    email?: string,
+    subject?: string,
+    planType?: string,
   ): Promise<void>;
+  removeAccount(providerId: string, accountId: string): Promise<boolean>;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

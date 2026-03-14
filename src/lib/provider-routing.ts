@@ -15,6 +15,7 @@ export interface ResolvedModelCatalog {
 export interface RequestRoutingState {
   readonly explicitOllama: boolean;
   readonly openAiPrefixed: boolean;
+  readonly factoryPrefixed: boolean;
   readonly localOllama: boolean;
   readonly routedModel: string;
 }
@@ -75,22 +76,27 @@ export function shouldUseLocalOllama(model: string, patterns: readonly string[])
 }
 
 export function resolveRequestRoutingState(config: ProxyConfig, requestedModel: string): RequestRoutingState {
-  const explicitOllama = hasModelPrefix(requestedModel, config.ollamaModelPrefixes);
-  const openAiPrefixed = hasModelPrefix(requestedModel, config.openaiModelPrefixes);
+  const factoryPrefixed = hasModelPrefix(requestedModel, config.factoryModelPrefixes);
+  const explicitOllama = !factoryPrefixed && hasModelPrefix(requestedModel, config.ollamaModelPrefixes);
+  const openAiPrefixed = !factoryPrefixed && hasModelPrefix(requestedModel, config.openaiModelPrefixes);
   const localOllama = explicitOllama
     || (!explicitOllama
     && !openAiPrefixed
+    && !factoryPrefixed
     && config.localOllamaEnabled
     && shouldUseLocalOllama(requestedModel, config.localOllamaModelPatterns));
-  const routedModel = explicitOllama
-    ? stripModelPrefix(requestedModel, config.ollamaModelPrefixes)
-    : openAiPrefixed
-      ? stripModelPrefix(requestedModel, config.openaiModelPrefixes)
-      : requestedModel;
+  const routedModel = factoryPrefixed
+    ? stripModelPrefix(requestedModel, config.factoryModelPrefixes)
+    : explicitOllama
+      ? stripModelPrefix(requestedModel, config.ollamaModelPrefixes)
+      : openAiPrefixed
+        ? stripModelPrefix(requestedModel, config.openaiModelPrefixes)
+        : requestedModel;
 
   return {
     explicitOllama,
     openAiPrefixed,
+    factoryPrefixed,
     localOllama,
     routedModel
   };

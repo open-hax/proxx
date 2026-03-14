@@ -31,6 +31,9 @@ export class RuntimeCredentialStore implements CredentialStoreLike {
     refreshToken?: string,
     expiresAt?: number,
     chatgptAccountId?: string,
+    email?: string,
+    subject?: string,
+    planType?: string,
   ): Promise<void> {
     if (this.sqlStore) {
       await this.sqlStore.upsertOAuthAccount(
@@ -40,6 +43,9 @@ export class RuntimeCredentialStore implements CredentialStoreLike {
         refreshToken,
         expiresAt,
         chatgptAccountId,
+        email,
+        subject,
+        planType,
       );
       return;
     }
@@ -51,6 +57,17 @@ export class RuntimeCredentialStore implements CredentialStoreLike {
       refreshToken,
       expiresAt,
       chatgptAccountId,
+      email,
+      subject,
+      planType,
     );
+  }
+
+  public async removeAccount(providerId: string, accountId: string): Promise<boolean> {
+    if (this.sqlStore) {
+      return this.sqlStore.removeAccount(providerId, accountId);
+    }
+
+    return this.fileStore.removeAccount(providerId, accountId);
   }
 }

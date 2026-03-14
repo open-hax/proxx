@@ -126,12 +126,14 @@ export class SqlCredentialStore {
       accounts.push({
         id: row.id,
         authType,
+        displayName: row.chatgpt_account_id ?? row.id,
         secretPreview: maskSecret(row.token),
         secret: revealSecrets ? row.token : undefined,
         refreshTokenPreview: row.refresh_token ? maskSecret(row.refresh_token) : undefined,
         refreshToken: revealSecrets ? row.refresh_token ?? undefined : undefined,
         expiresAt: normalizeEpochMilliseconds(row.expires_at ?? undefined),
         chatgptAccountId: row.chatgpt_account_id ?? undefined,
+        planType: row.plan_type ?? undefined,
       });
       accountsByProvider.set(row.provider_id, accounts);
     }
@@ -217,6 +219,9 @@ export class SqlCredentialStore {
     refreshToken?: string,
     expiresAt?: number,
     chatgptAccountId?: string,
+    _email?: string,
+    _subject?: string,
+    planType?: string,
   ): Promise<void> {
     await this.upsertAccount({
       providerId,
@@ -226,6 +231,7 @@ export class SqlCredentialStore {
       refreshToken,
       expiresAt,
       chatgptAccountId,
+      planType,
     });
   }
 
@@ -237,6 +243,20 @@ export class SqlCredentialStore {
 
   public async deleteAccount(providerId: string, accountId: string): Promise<void> {
     await this.sql.unsafe(DELETE_ACCOUNT, [accountId, providerId]);
+  }
+
+  public async removeAccount(providerId: string, accountId: string): Promise<boolean> {
+    const before = await this.sql.unsafe<Array<{ id: string }>>(
+      "SELECT id FROM accounts WHERE id = $1 AND provider_id = $2 LIMIT 1",
+      [accountId, providerId],
+    );
+
+    if (before.length === 0) {
+      return false;
+    }
+
+    await this.deleteAccount(providerId, accountId);
+    return true;
   }
 
   public setCooldown(providerId: string, accountId: string, cooldownUntil: number): void {

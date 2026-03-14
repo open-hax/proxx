@@ -3,6 +3,7 @@ dist/
 logs/
 data/
 coverage/
+.factory/
 
 .env
 keys.json
