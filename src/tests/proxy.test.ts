@@ -93,6 +93,7 @@ async function withProxyApp(
       openai: `http://127.0.0.1:${address.port}`,
       openrouter: `http://127.0.0.1:${address.port}`,
       requesty: `http://127.0.0.1:${address.port}`,
+      gemini: `http://127.0.0.1:${address.port}`,
     },
     upstreamBaseUrl: `http://127.0.0.1:${address.port}`,
     openaiProviderId: "openai",
@@ -107,6 +108,7 @@ async function withProxyApp(
     messagesInterleavedThinkingBeta: "interleaved-thinking-2025-05-14",
     responsesPath: "/v1/responses",
     openaiResponsesPath: "/v1/responses",
+    imagesGenerationsPath: "/v1/images/generations",
     responsesModelPrefixes: ["gpt-"],
     ollamaChatPath: "/api/chat",
     ollamaV1ChatPath: "/v1/chat/completions",
@@ -372,6 +374,209 @@ test("routes claude models through chat completions for the requesty provider", 
             },
           });
           assert.equal(response.statusCode, 200);
+        },
+      );
+    },
+  );
+});
+
+test("routes /v1/responses through requesty when REQUESTY_API_KEY is configured", { concurrency: false }, async () => {
+  await withEnv(
+    {
+      OPENROUTER_API_KEY: undefined,
+      REQUESTY_API_TOKEN: undefined,
+      REQUESTY_API_KEY: "req-token-1", // pragma: allowlist secret
+      OPENROUTER_PROVIDER_ID: undefined,
+      REQUESTY_PROVIDER_ID: undefined,
+      GEMINI_API_KEY: undefined,
+      GEMINI_PROVIDER_ID: undefined,
+    },
+    async () => {
+      await withProxyApp(
+        {
+          keys: [],
+          keysPayload: { providers: {} },
+          configOverrides: {
+            upstreamProviderId: "requesty",
+            upstreamFallbackProviderIds: [],
+          },
+          upstreamHandler: async (request, body) => {
+            if (request.url === "/api/embed" || request.url === "/api/embeddings") {
+              return {
+                status: 200,
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ embeddings: [[0.1, 0.2, 0.3]] }),
+              };
+            }
+
+            assert.equal(request.url, "/v1/responses");
+            const parsed = JSON.parse(body) as Record<string, unknown>;
+            assert.equal(parsed.model, "gpt-image-1");
+
+            return {
+              status: 200,
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ id: "resp-requesty", object: "response" }),
+            };
+          },
+        },
+        async ({ app }) => {
+          const response = await app.inject({
+            method: "POST",
+            url: "/v1/responses",
+            payload: {
+              model: "gpt-image-1",
+              input: "draw a cat",
+              stream: false,
+            },
+            headers: {
+              authorization: "Bearer local-test",
+            },
+          });
+
+          assert.equal(response.statusCode, 200);
+          const payload = response.json();
+          assert.ok(isRecord(payload));
+          assert.equal(payload.id, "resp-requesty");
+        },
+      );
+    },
+  );
+});
+
+test("routes /v1/images/generations through requesty", { concurrency: false }, async () => {
+  await withEnv(
+    {
+      OPENROUTER_API_KEY: undefined,
+      REQUESTY_API_TOKEN: "req-token-1",
+      REQUESTY_API_KEY: undefined,
+      OPENROUTER_PROVIDER_ID: undefined,
+      REQUESTY_PROVIDER_ID: undefined,
+      GEMINI_API_KEY: undefined,
+      GEMINI_PROVIDER_ID: undefined,
+    },
+    async () => {
+      await withProxyApp(
+        {
+          keys: [],
+          keysPayload: { providers: {} },
+          configOverrides: {
+            upstreamProviderId: "requesty",
+            upstreamFallbackProviderIds: [],
+          },
+          upstreamHandler: async (request, body) => {
+            if (request.url === "/api/embed" || request.url === "/api/embeddings") {
+              return {
+                status: 200,
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ embeddings: [[0.1, 0.2, 0.3]] }),
+              };
+            }
+
+            assert.equal(request.url, "/v1/images/generations");
+            const parsed = JSON.parse(body) as Record<string, unknown>;
+            assert.equal(parsed.model, "gpt-image-1");
+
+            return {
+              status: 200,
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                created: 1,
+                data: [{ b64_json: "AAAA" }],
+              }),
+            };
+          },
+        },
+        async ({ app }) => {
+          const response = await app.inject({
+            method: "POST",
+            url: "/v1/images/generations",
+            payload: {
+              model: "gpt-image-1",
+              prompt: "a red square",
+              response_format: "b64_json",
+            },
+            headers: {
+              authorization: "Bearer local-test",
+            },
+          });
+
+          assert.equal(response.statusCode, 200);
+          const payload = response.json();
+          assert.ok(isRecord(payload));
+          assert.deepEqual(payload.data, [{ b64_json: "AAAA" }]);
+        },
+      );
+    },
+  );
+});
+
+test("routes chat completions through native Gemini generateContent when GEMINI_API_KEY is configured", { concurrency: false }, async () => {
+  await withEnv(
+    {
+      GEMINI_API_KEY: "gem-key-1", // pragma: allowlist secret
+      GEMINI_PROVIDER_ID: undefined,
+      OPENROUTER_API_KEY: undefined,
+      REQUESTY_API_TOKEN: undefined,
+      REQUESTY_API_KEY: undefined,
+      OPENROUTER_PROVIDER_ID: undefined,
+      REQUESTY_PROVIDER_ID: undefined,
+    },
+    async () => {
+      await withProxyApp(
+        {
+          keys: [],
+          keysPayload: { providers: {} },
+          configOverrides: {
+            upstreamProviderId: "gemini",
+            upstreamFallbackProviderIds: [],
+          },
+          upstreamHandler: async (request, body) => {
+            if (request.url === "/api/embed" || request.url === "/api/embeddings") {
+              return {
+                status: 200,
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ embeddings: [[0.1, 0.2, 0.3]] }),
+              };
+            }
+
+            assert.match(request.url ?? "", /\/models\/gemini-2\.5-pro:generateContent$/);
+            assert.equal(request.headers["x-goog-api-key"], "gem-key-1");
+            assert.equal(request.headers.authorization, undefined);
+
+            const parsed = JSON.parse(body) as Record<string, unknown>;
+            assert.ok(Array.isArray(parsed.contents));
+
+            return {
+              status: 200,
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                candidates: [{ content: { role: "model", parts: [{ text: "hi" }] }, finishReason: "STOP" }],
+                usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 2, totalTokenCount: 3 },
+              }),
+            };
+          },
+        },
+        async ({ app }) => {
+          const response = await app.inject({
+            method: "POST",
+            url: "/v1/chat/completions",
+            payload: {
+              model: "gemini-2.5-pro",
+              messages: [{ role: "user", content: "hello" }],
+              stream: false,
+            },
+            headers: {
+              authorization: "Bearer local-test",
+            },
+          });
+
+          assert.equal(response.statusCode, 200);
+          const payload = response.json();
+          assert.ok(isRecord(payload));
+          assert.equal(payload.object, "chat.completion");
+          assert.equal((payload.choices as any)[0].message.content, "hi");
+          assert.equal((payload.usage as any).total_tokens, 3);
         },
       );
     },
@@ -1398,7 +1603,7 @@ test("prefers paid codex oauth accounts for gpt-5.4 over free accounts", async (
   );
 });
 
-test("prefers free codex oauth accounts for gpt-5.3-codex before paid accounts", async () => {
+test("prefers free codex oauth accounts for gpt-5.2-codex before paid accounts", async () => {
   const observedAuth: string[] = [];
 
   await withProxyApp(
@@ -1437,7 +1642,7 @@ test("prefers free codex oauth accounts for gpt-5.3-codex before paid accounts",
 
         const parsedBody = JSON.parse(body);
         assert.ok(isRecord(parsedBody));
-        assert.equal(parsedBody.model, "gpt-5.3-codex");
+        assert.equal(parsedBody.model, "gpt-5.2-codex");
         assert.equal(request.headers["chatgpt-account-id"], "cgpt-free");
 
         return {
@@ -1447,7 +1652,7 @@ test("prefers free codex oauth accounts for gpt-5.3-codex before paid accounts",
             id: "resp-free-openai-priority",
             object: "response",
             created_at: 1772916804,
-            model: "gpt-5.3-codex",
+            model: "gpt-5.2-codex",
             output: [
               {
                 id: "msg-free-openai-priority",
@@ -1478,7 +1683,7 @@ test("prefers free codex oauth accounts for gpt-5.3-codex before paid accounts",
           "content-type": "application/json"
         },
         payload: {
-          model: "gpt-5.3-codex",
+          model: "gpt-5.2-codex",
           messages: [{ role: "user", content: "hello" }],
           stream: false
         }
@@ -1492,7 +1697,7 @@ test("prefers free codex oauth accounts for gpt-5.3-codex before paid accounts",
       const payload: unknown = response.json();
       assert.ok(isRecord(payload));
       assert.equal(payload.object, "chat.completion");
-      assert.equal(payload.model, "gpt-5.3-codex");
+      assert.equal(payload.model, "gpt-5.2-codex");
       assert.ok(Array.isArray(payload.choices));
       assert.ok(isRecord(payload.choices[0]));
       assert.ok(isRecord(payload.choices[0].message));

@@ -63,6 +63,14 @@ export class RuntimeCredentialStore implements CredentialStoreLike {
     );
   }
 
+  public async flush(): Promise<void> {
+    if (this.sqlStore) {
+      return;
+    }
+
+    await this.fileStore.flush();
+  }
+
   public async removeAccount(providerId: string, accountId: string): Promise<boolean> {
     if (this.sqlStore) {
       return this.sqlStore.removeAccount(providerId, accountId);

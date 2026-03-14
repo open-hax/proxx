@@ -26,6 +26,18 @@ function formatDate(value: string | null): string {
   return value ? new Date(value).toLocaleString() : "Never";
 }
 
+function formatMaybeMs(value: number | null): string {
+  return typeof value === "number" && Number.isFinite(value) ? `${Math.round(value)} ms` : "-";
+}
+
+function formatMaybeTps(value: number | null): string {
+  return typeof value === "number" && Number.isFinite(value) ? `${value.toFixed(value >= 10 ? 0 : 1)} t/s` : "-";
+}
+
+function formatMaybeScore(value: number | null): string {
+  return typeof value === "number" && Number.isFinite(value) ? `${Math.round(value * 100)}%` : "-";
+}
+
 function formatServiceTier(entry: RequestLogEntry): string {
   if (!entry.serviceTier) {
     return "Standard";
@@ -135,6 +147,7 @@ export function DashboardPage(): JSX.Element {
   const [requestLogs, setRequestLogs] = useState<RequestLogEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [accountSort, setAccountSort] = useState("health");
 
   useEffect(() => {
     let cancelled = false;
@@ -144,7 +157,7 @@ export function DashboardPage(): JSX.Element {
       setError(null);
       try {
         const [nextOverview, credentials, nextLogs] = await Promise.all([
-          getUsageOverview(),
+          getUsageOverview(accountSort),
           listCredentials(false),
           listRequestLogs({ limit: 12 }),
         ]);
@@ -173,7 +186,7 @@ export function DashboardPage(): JSX.Element {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, []);
+  }, [accountSort]);
 
   const topAccounts = useMemo(() => overview?.accounts.slice(0, 6) ?? [], [overview]);
   const recentAccounts = useMemo(() => (overview?.accounts ?? []).slice(0, 10), [overview]);
@@ -208,6 +221,10 @@ export function DashboardPage(): JSX.Element {
           <strong>{loading ? "..." : formatCompactNumber(overview?.summary.tokens24h ?? 0)}</strong>
           <small>
             In {formatCompactNumber(overview?.summary.promptTokens24h ?? 0)} / Out {formatCompactNumber(overview?.summary.completionTokens24h ?? 0)}
+            {" · "}
+            Cached {formatCompactNumber(overview?.summary.cachedPromptTokens24h ?? 0)}
+            {" · "}
+            Cache hit {formatPercent(overview?.summary.cacheHitRate24h ?? 0)}
           </small>
         </article>
         <article className={`dashboard-metric-card ${metricTone(overview?.summary.errorRate24h ?? 0, true)}`}>
@@ -346,13 +363,29 @@ export function DashboardPage(): JSX.Element {
         <header className="dashboard-panel-header">
           <div>
             <h3>Account Health</h3>
-            <p>Recent load, token totals, and cooldown state across connected accounts.</p>
+            <p>Ordered by health by default; you can also sort by tokens/requests/TTFT/TPS.</p>
+          </div>
+          <div className="dashboard-panel-controls">
+            <label>
+              Sort&nbsp;
+              <select value={accountSort} onChange={(event) => setAccountSort(event.target.value)}>
+                <option value="health">Health</option>
+                <option value="ttft">TTFT</option>
+                <option value="tps">TPS</option>
+                <option value="tokens">Tokens</option>
+                <option value="requests">Requests</option>
+              </select>
+            </label>
           </div>
         </header>
         <div className="dashboard-account-table">
           <div className="dashboard-account-table-header">
             <span>Account</span>
             <span>Status</span>
+            <span>Health</span>
+            <span>TTFT</span>
+            <span>TPS</span>
+            <span>Cache</span>
             <span>Requests</span>
             <span>Tokens</span>
             <span>Last Seen</span>
@@ -367,6 +400,15 @@ export function DashboardPage(): JSX.Element {
                   <small>{formatAuthType(account.authType)}</small>
                 </div>
                 <span className={`dashboard-status-pill dashboard-status-${account.status}`}>{account.status}</span>
+                <span>{formatMaybeScore(account.healthScore)}</span>
+                <span>{formatMaybeMs(account.avgTtftMs)}</span>
+                <span>{formatMaybeTps(account.avgTps)}</span>
+                <span>
+                  {account.cacheKeyUseCount > 0
+                    ? `${formatPercent((account.cacheHitCount / account.cacheKeyUseCount) * 100)} (${account.cacheHitCount}/${account.cacheKeyUseCount})`
+                    : "-"}
+                  {account.cachedPromptTokens > 0 ? ` · ${formatCompactNumber(account.cachedPromptTokens)} cached` : ""}
+                </span>
                 <span>{formatCompactNumber(account.requestCount)}</span>
                 <span>{formatCompactNumber(account.totalTokens)}</span>
                 <span>{formatDate(account.lastUsedAt)}</span>

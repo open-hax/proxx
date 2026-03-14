@@ -363,3 +363,33 @@ export function resolveProviderRoutesForModel(
   const nonOllamaRoutes = routes.filter((route) => !providerIdLooksLikeOllama(route.providerId));
   return [...ollamaRoutes, ...nonOllamaRoutes];
 }
+
+const OPENAI_COMPATIBLE_API_PROVIDERS = new Set(["vivgrid", "openai", "factory", "requesty"]);
+
+function providerSupportsOpenAiCompatibleApi(providerId: string, openAiProviderId?: string): boolean {
+  const normalized = providerId.trim().toLowerCase();
+  if (OPENAI_COMPATIBLE_API_PROVIDERS.has(normalized)) {
+    return true;
+  }
+
+  const normalizedOpenAiProviderId = openAiProviderId?.trim().toLowerCase();
+  return typeof normalizedOpenAiProviderId === "string"
+    && normalizedOpenAiProviderId.length > 0
+    && normalized === normalizedOpenAiProviderId;
+}
+
+export function providerSupportsResponsesApi(providerId: string, openAiProviderId?: string): boolean {
+  return providerSupportsOpenAiCompatibleApi(providerId, openAiProviderId);
+}
+
+export function filterResponsesApiRoutes(routes: readonly ProviderRoute[], openAiProviderId?: string): ProviderRoute[] {
+  return routes.filter((route) => providerSupportsResponsesApi(route.providerId, openAiProviderId));
+}
+
+export function providerSupportsImagesApi(providerId: string, openAiProviderId?: string): boolean {
+  return providerSupportsOpenAiCompatibleApi(providerId, openAiProviderId);
+}
+
+export function filterImagesApiRoutes(routes: readonly ProviderRoute[], openAiProviderId?: string): ProviderRoute[] {
+  return routes.filter((route) => providerSupportsImagesApi(route.providerId, openAiProviderId));
+}

@@ -124,11 +124,19 @@ export interface UsageAccountSummary {
   readonly displayName: string;
   readonly providerId: string;
   readonly authType: "api_key" | "oauth_bearer" | "local" | "none";
+  readonly planType?: string;
   readonly status: "healthy" | "cooldown" | "idle";
   readonly requestCount: number;
   readonly totalTokens: number;
   readonly promptTokens: number;
   readonly completionTokens: number;
+  readonly cachedPromptTokens: number;
+  readonly cacheHitCount: number;
+  readonly cacheKeyUseCount: number;
+  readonly avgTtftMs: number | null;
+  readonly avgTps: number | null;
+  readonly healthScore: number | null;
+  readonly transientDebuff: number | null;
   readonly lastUsedAt: string | null;
 }
 
@@ -139,6 +147,9 @@ export interface UsageOverview {
     readonly tokens24h: number;
     readonly promptTokens24h: number;
     readonly completionTokens24h: number;
+    readonly cachedPromptTokens24h: number;
+    readonly cacheKeyUses24h: number;
+    readonly cacheHitRate24h: number;
     readonly errorRate24h: number;
     readonly topModel: string | null;
     readonly topProvider: string | null;
@@ -404,6 +415,16 @@ export async function runChatCompletion(payload: Record<string, unknown>): Promi
   });
 }
 
+export async function runImageGeneration(payload: Record<string, unknown>): Promise<Record<string, unknown>> {
+  return requestJson<Record<string, unknown>>("/v1/images/generations", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+}
+
 export async function listModels(): Promise<string[]> {
   const payload = await requestJson<{
     readonly data?: ReadonlyArray<{ readonly id?: string }>;
@@ -419,8 +440,11 @@ export async function listModels(): Promise<string[]> {
     .sort((a, b) => a.localeCompare(b));
 }
 
-export async function getUsageOverview(): Promise<UsageOverview> {
-  return requestJson<UsageOverview>("/api/ui/dashboard/overview");
+export async function getUsageOverview(sort?: string): Promise<UsageOverview> {
+  const query = typeof sort === "string" && sort.trim().length > 0
+    ? `?sort=${encodeURIComponent(sort.trim())}`
+    : "";
+  return requestJson<UsageOverview>(`/api/ui/dashboard/overview${query}`);
 }
 
 export async function getProxyUiSettings(): Promise<ProxyUiSettings> {

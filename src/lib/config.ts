@@ -20,6 +20,7 @@ export interface ProxyConfig {
   readonly messagesInterleavedThinkingBeta?: string;
   readonly responsesPath: string;
   readonly openaiResponsesPath: string;
+  readonly imagesGenerationsPath: string;
   readonly responsesModelPrefixes: readonly string[];
   readonly ollamaChatPath: string;
   readonly ollamaV1ChatPath: string;
@@ -213,6 +214,8 @@ function defaultProviderBaseUrl(providerId: string): string {
       return (process.env.OPENROUTER_BASE_URL ?? "https://openrouter.ai/api/v1").replace(/\/+$/, "");
     case "requesty":
       return (process.env.REQUESTY_BASE_URL ?? "https://router.requesty.ai/v1").replace(/\/+$/, "");
+    case "gemini":
+      return (process.env.GEMINI_BASE_URL ?? "https://generativelanguage.googleapis.com/v1beta").replace(/\/+$/, "");
     case "ollama-cloud":
       return "https://ollama.com";
     case "vivgrid":
@@ -246,6 +249,7 @@ export function loadConfig(cwd: string = process.cwd()): ProxyConfig {
     "ollama-cloud": "https://ollama.com",
     openrouter: defaultProviderBaseUrl("openrouter"),
     requesty: defaultProviderBaseUrl("requesty"),
+    gemini: defaultProviderBaseUrl("gemini"),
     factory: defaultProviderBaseUrl("factory"),
   });
   upstreamProviderBaseUrls[upstreamProviderId] = upstreamBaseUrl;
@@ -328,6 +332,7 @@ export function loadConfig(cwd: string = process.cwd()): ProxyConfig {
       : undefined,
     responsesPath: process.env.UPSTREAM_RESPONSES_PATH ?? "/v1/responses",
     openaiResponsesPath: process.env.OPENAI_RESPONSES_PATH ?? "/codex/responses",
+    imagesGenerationsPath: process.env.UPSTREAM_IMAGES_GENERATIONS_PATH ?? "/v1/images/generations",
     responsesModelPrefixes: csvFromEnv("UPSTREAM_RESPONSES_MODEL_PREFIXES", ["gpt-"]),
     ollamaChatPath: process.env.OLLAMA_CHAT_PATH ?? "/api/chat",
     ollamaV1ChatPath: process.env.OLLAMA_V1_CHAT_PATH ?? "/v1/chat/completions",

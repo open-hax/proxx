@@ -8,6 +8,7 @@ import type { ProviderCredential } from "./key-pool.js";
 import type { RequestLogStore } from "./request-log-store.js";
 import type { PromptAffinityStore } from "./prompt-affinity-store.js";
 import type { PolicyEngine } from "./policy/index.js";
+import type { AccountHealthStore } from "./db/account-health-store.js";
 import { orderAccountsByPolicy } from "./provider-policy.js";
 import {
   buildForwardHeaders,
@@ -23,6 +24,9 @@ import {
   responsesEventStreamToErrorPayload,
   responsesToChatCompletion,
   shouldUseResponsesUpstream,
+  responsesOutputHasReasoning,
+  writeInterleavedResponsesSse,
+  extractTerminalResponseFromEventStream,
 } from "./responses-compat.js";
 import {
   chatRequestToMessagesRequest,
@@ -40,6 +44,7 @@ import {
   getFactoryEndpointPath,
   getFactoryModelType,
   inlineSystemPrompt,
+  sanitizeFactorySystemPrompt,
 } from "./factory-compat.js";
 import {
   appendCsvHeaderValue,
@@ -63,7 +68,15 @@ import { getTelemetry } from "./telemetry/otel.js";
 
 function joinUrl(baseUrl: string, path: string): string {
   const normalizedBase = baseUrl.replace(/\/+$/, "");
-  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  let normalizedPath = path.startsWith("/") ? path : `/${path}`;
+
+  // Avoid accidental `/v1/v1/...` joins when the provider base URL already includes the OpenAI version segment.
+  const baseLower = normalizedBase.toLowerCase();
+  const pathLower = normalizedPath.toLowerCase();
+  if (pathLower.startsWith("/v1/") && baseLower.endsWith("/v1")) {
+    normalizedPath = normalizedPath.slice(3);
+  }
+
   return `${normalizedBase}${normalizedPath}`;
 }
 
@@ -79,6 +92,17 @@ function transientRetryDelayMs(context: StrategyRequestContext, retryIndex: numb
 
 function shouldRetrySameCredentialForServerError(status: number): boolean {
   return status === 502 || status === 503 || status === 504;
+}
+
+function shouldCooldownCredentialOnAuthFailure(providerId: string, status: number): boolean {
+  if (status === 401) {
+    return true;
+  }
+  if (status === 403) {
+    // Factory 403 often indicates request/prompt rejection rather than credential failure.
+    return providerId !== "factory";
+  }
+  return false;
 }
 
 function reorderCandidatesForAffinity<T extends { readonly providerId: string; readonly account: ProviderCredential }>(
@@ -105,6 +129,10 @@ function reorderCandidatesForAffinity<T extends { readonly providerId: string; r
 type UpstreamMode =
   | "chat_completions"
   | "responses"
+  | "responses_passthrough"
+  | "openai_responses_passthrough"
+  | "images"
+  | "gemini_chat"
   | "messages"
   | "openai_chat_completions"
   | "openai_responses"
@@ -125,6 +153,8 @@ interface StrategyRequestContext {
   readonly clientWantsStream: boolean;
   readonly needsReasoningTrace: boolean;
   readonly upstreamAttemptTimeoutMs: number;
+  readonly responsesPassthrough?: boolean;
+  readonly imagesPassthrough?: boolean;
 }
 
 interface ProviderAttemptContext extends StrategyRequestContext {
@@ -178,6 +208,7 @@ interface PreferredAffinity {
 
 export interface ProviderAvailabilitySummary {
   readonly sawConfiguredProvider: boolean;
+  readonly prompt_cache_key?: string;
 }
 
 interface BuildPayloadResult {
@@ -185,6 +216,39 @@ interface BuildPayloadResult {
   readonly bodyText: string;
   readonly serviceTier?: string;
   readonly serviceTierSource: "fast_mode" | "explicit" | "none";
+}
+
+function gptModelRequiresPaidPlan(routedModel: string): boolean {
+  const match = routedModel.match(/^gpt-(\d+)(?:[.-]([a-z0-9]+))?/i);
+  if (!match) {
+    return false;
+  }
+
+  const major = Number.parseInt(match[1] ?? "", 10);
+  if (!Number.isFinite(major)) {
+    return false;
+  }
+
+  if (major > 5) {
+    return true;
+  }
+
+  if (major !== 5) {
+    return false;
+  }
+
+  const qualifier = match[2];
+  if (!qualifier) {
+    return false;
+  }
+
+  if (/^\d+$/.test(qualifier)) {
+    const minor = Number.parseInt(qualifier, 10);
+    return Number.isFinite(minor) && minor >= 3;
+  }
+
+  // Non-numeric qualifiers like `gpt-5-mini` should be treated as paid-required.
+  return true;
 }
 
 function providerAccountsForRequest(
@@ -201,33 +265,37 @@ function providerAccountsForRequest(
     return [...accounts];
   }
 
-  if (routedModel === "gpt-5.4") {
+  if (gptModelRequiresPaidPlan(routedModel)) {
     const stronglySupportedPlans = new Set(["plus", "pro", "business", "enterprise"]);
-    const stronglySupportedAccounts = accounts.filter((account) => stronglySupportedPlans.has(account.planType ?? ""));
-    const paidAccounts = accounts.filter((account) => account.planType !== "free");
-    const prioritized = stronglySupportedAccounts.length > 0
-      ? stronglySupportedAccounts
-      : paidAccounts.length > 0
-        ? paidAccounts
-        : [...accounts];
-    const planWeight = (planType: string | undefined): number => {
-      switch (planType) {
-        case "plus":
-          return 5;
-        case "pro":
-        case "business":
-        case "enterprise":
-          return 4;
-        case "team":
-          return 2;
-        case "free":
-          return 0;
-        default:
-          return 1;
-      }
-    };
 
-    return [...prioritized].sort((left, right) => planWeight(right.planType) - planWeight(left.planType));
+    const stronglySupportedAccounts = accounts.filter(
+      (account) => stronglySupportedPlans.has(account.planType ?? ""),
+    );
+
+    const teamAccounts = accounts.filter((account) => account.planType === "team");
+
+    const otherPaidAccounts = accounts.filter((account) => {
+      const planType = account.planType ?? "unknown";
+      if (planType === "free") {
+        return false;
+      }
+      if (planType === "team") {
+        return false;
+      }
+      if (stronglySupportedPlans.has(planType)) {
+        return false;
+      }
+      return true;
+    });
+
+    const freeAccounts = accounts.filter((account) => account.planType === "free");
+
+    return [
+      ...stronglySupportedAccounts,
+      ...teamAccounts,
+      ...otherPaidAccounts,
+      ...freeAccounts,
+    ];
   }
 
   const freeAccounts = accounts.filter((account) => account.planType === "free");
@@ -258,10 +326,76 @@ function providerUsesOpenAiChatCompletions(providerId: string): boolean {
   return normalized === "openrouter" || normalized === "requesty";
 }
 
+function planCostTier(planType: string | undefined): number {
+  const normalized = (planType ?? "").trim().toLowerCase();
+  switch (normalized) {
+    case "free":
+      return 0;
+    case "team":
+      return 1;
+    case "plus":
+    case "pro":
+    case "business":
+    case "enterprise":
+      return 2;
+    case "unknown":
+    default:
+      return 1;
+  }
+}
+
+function reorderAccountsForLatency(
+  requestLogStore: RequestLogStore,
+  providerId: string,
+  accounts: readonly ProviderCredential[],
+  routedModel: string,
+  upstreamMode: string,
+): ProviderCredential[] {
+  const TTFT_GRACE_MS = 120;
+  const WINDOW_SIZE = 6;
+
+  const window = [...accounts.slice(0, WINDOW_SIZE)];
+  const tail = accounts.slice(window.length);
+
+  const perfFor = (account: ProviderCredential) => {
+    return requestLogStore.getPerfSummary(providerId, account.accountId, routedModel, upstreamMode);
+  };
+
+  window.sort((a, b) => {
+    const perfA = perfFor(a);
+    const perfB = perfFor(b);
+
+    const ttftA = perfA?.ewmaTtftMs ?? Number.POSITIVE_INFINITY;
+    const ttftB = perfB?.ewmaTtftMs ?? Number.POSITIVE_INFINITY;
+
+    const ttftDelta = Math.abs(ttftA - ttftB);
+    if (ttftDelta > TTFT_GRACE_MS) {
+      return ttftA - ttftB;
+    }
+
+    const costA = planCostTier(a.planType);
+    const costB = planCostTier(b.planType);
+    if (costA !== costB) {
+      return costA - costB;
+    }
+
+    const tpsA = perfA?.ewmaTps ?? Number.NEGATIVE_INFINITY;
+    const tpsB = perfB?.ewmaTps ?? Number.NEGATIVE_INFINITY;
+    if (tpsA !== tpsB) {
+      return tpsB - tpsA;
+    }
+
+    return 0;
+  });
+
+  return [...window, ...tail];
+}
+
 export interface UsageCounts {
   readonly promptTokens?: number;
   readonly completionTokens?: number;
   readonly totalTokens?: number;
+  readonly cachedPromptTokens?: number;
 }
 
 interface ProviderStrategy {
@@ -367,6 +501,22 @@ function buildRequestBodyForUpstream(context: StrategyRequestContext): Record<st
   return upstreamBody;
 }
 
+function ensureChatCompletionsUsageInStream(upstreamBody: Record<string, unknown>): void {
+  if (upstreamBody["stream"] !== true) {
+    return;
+  }
+
+  const existing = isRecord(upstreamBody["stream_options"]) ? upstreamBody["stream_options"] : null;
+  if (existing) {
+    if (existing["include_usage"] === undefined) {
+      existing["include_usage"] = true;
+    }
+    return;
+  }
+
+  upstreamBody["stream_options"] = { include_usage: true };
+}
+
 function readHeaderValue(headers: IncomingHttpHeaders, name: string): string | undefined {
   const value = headers[name.toLowerCase()];
   if (Array.isArray(value)) {
@@ -443,6 +593,7 @@ function recordAttempt(
     readonly promptTokens?: number;
     readonly completionTokens?: number;
     readonly totalTokens?: number;
+    readonly promptCacheKeyUsed?: boolean;
     readonly error?: string;
   },
   mode: UpstreamMode
@@ -461,10 +612,33 @@ function recordAttempt(
     promptTokens: values.promptTokens,
     completionTokens: values.completionTokens,
     totalTokens: values.totalTokens,
+    promptCacheKeyUsed: values.promptCacheKeyUsed,
+    ttftMs: values.latencyMs,
     error: values.error
   });
 
   return entry.id;
+}
+
+function cachedPromptTokensFromUsage(usage: Record<string, unknown>): number | undefined {
+  const direct = asNumber(usage["cached_tokens"]);
+  if (direct !== undefined) {
+    return direct;
+  }
+
+  const promptDetails = isRecord(usage["prompt_tokens_details"]) ? usage["prompt_tokens_details"] : null;
+  const cachedFromPromptDetails = promptDetails ? asNumber(promptDetails["cached_tokens"]) : undefined;
+  if (cachedFromPromptDetails !== undefined) {
+    return cachedFromPromptDetails;
+  }
+
+  const inputDetails = isRecord(usage["input_tokens_details"]) ? usage["input_tokens_details"] : null;
+  const cachedFromInputDetails = inputDetails ? asNumber(inputDetails["cached_tokens"]) : undefined;
+  if (cachedFromInputDetails !== undefined) {
+    return cachedFromInputDetails;
+  }
+
+  return undefined;
 }
 
 function usageCountsFromCompletion(completion: Record<string, unknown>): UsageCounts {
@@ -477,11 +651,13 @@ function usageCountsFromCompletion(completion: Record<string, unknown>): UsageCo
   const completionTokens = asNumber(usage["completion_tokens"]);
   const totalTokens = asNumber(usage["total_tokens"])
     ?? (promptTokens !== undefined && completionTokens !== undefined ? promptTokens + completionTokens : undefined);
+  const cachedPromptTokens = cachedPromptTokensFromUsage(usage);
 
   return {
     promptTokens,
     completionTokens,
     totalTokens,
+    cachedPromptTokens,
   };
 }
 
@@ -505,6 +681,19 @@ function usageCountsFromUpstreamJson(upstreamJson: unknown, routedModel: string)
   }
 }
 
+function usageCountsFromGeminiResponse(upstreamJson: Record<string, unknown>): UsageCounts {
+  const usageMetadata = isRecord(upstreamJson["usageMetadata"]) ? upstreamJson["usageMetadata"] : null;
+  if (!usageMetadata) {
+    return {};
+  }
+
+  const promptTokens = asNumber(usageMetadata["promptTokenCount"]);
+  const completionTokens = asNumber(usageMetadata["candidatesTokenCount"]);
+  const totalTokens = asNumber(usageMetadata["totalTokenCount"]);
+
+  return { promptTokens, completionTokens, totalTokens };
+}
+
 function usageCountsForMode(mode: UpstreamMode, upstreamJson: unknown, routedModel: string): UsageCounts {
   if (!isRecord(upstreamJson)) {
     return {};
@@ -514,8 +703,17 @@ function usageCountsForMode(mode: UpstreamMode, upstreamJson: unknown, routedMod
     return usageCountsFromCompletion(messagesToChatCompletion(upstreamJson, routedModel));
   }
 
-  if (mode === "responses" || mode === "openai_responses") {
+  if (
+    mode === "responses"
+    || mode === "openai_responses"
+    || mode === "responses_passthrough"
+    || mode === "openai_responses_passthrough"
+  ) {
     return usageCountsFromCompletion(responsesToChatCompletion(upstreamJson, routedModel));
+  }
+
+  if (mode === "gemini_chat") {
+    return usageCountsFromGeminiResponse(upstreamJson);
   }
 
   if (mode === "ollama_chat" || mode === "local_ollama_chat") {
@@ -560,8 +758,17 @@ export function extractUsageCountsFromSseText(
       return extractUsageFromAnthropicSse(streamText);
     }
 
-    if (mode === "responses" || mode === "openai_responses") {
+    if (
+      mode === "responses"
+      || mode === "openai_responses"
+      || mode === "responses_passthrough"
+      || mode === "openai_responses_passthrough"
+    ) {
       return extractUsageFromResponsesSse(streamText, routedModel);
+    }
+
+    if (mode === "gemini_chat") {
+      return extractUsageFromGeminiStream(streamText);
     }
 
     if (mode === "ollama_chat" || mode === "local_ollama_chat") {
@@ -573,6 +780,36 @@ export function extractUsageCountsFromSseText(
   } catch {
     return {};
   }
+}
+
+function extractUsageFromGeminiStream(streamText: string): UsageCounts {
+  let lastPayload: Record<string, unknown> | undefined;
+
+  for (const line of streamText.split("\n")) {
+    const trimmed = line.trim();
+    if (trimmed.length === 0) {
+      continue;
+    }
+
+    if (trimmed === "data: [DONE]" || trimmed === "[DONE]") {
+      continue;
+    }
+
+    const jsonText = trimmed.startsWith("data:")
+      ? trimmed.slice("data:".length).trim()
+      : trimmed;
+
+    try {
+      const parsed: unknown = JSON.parse(jsonText);
+      if (isRecord(parsed)) {
+        lastPayload = parsed;
+      }
+    } catch {
+      // ignore parse errors while scanning stream
+    }
+  }
+
+  return lastPayload ? usageCountsFromGeminiResponse(lastPayload) : {};
 }
 
 function extractUsageFromOpenAiChatSse(streamText: string): UsageCounts {
@@ -719,16 +956,33 @@ async function updateUsageCountsFromResponse(
   mode: UpstreamMode,
   routedModel: string,
 ): Promise<void> {
+  const readStartedAt = Date.now();
   const usageCounts = await extractUsageCounts(response, mode, routedModel);
+  const readDurationMs = Math.max(0, Date.now() - readStartedAt);
+
   if (
     usageCounts.promptTokens === undefined
     && usageCounts.completionTokens === undefined
     && usageCounts.totalTokens === undefined
+    && usageCounts.cachedPromptTokens === undefined
   ) {
     return;
   }
 
-  requestLogStore.update(entryId, usageCounts);
+  const isStream = responseIsEventStream(response);
+  const tps = isStream
+    && typeof usageCounts.completionTokens === "number"
+    && Number.isFinite(usageCounts.completionTokens)
+    && usageCounts.completionTokens > 0
+    && readDurationMs > 0
+      ? usageCounts.completionTokens / (readDurationMs / 1000)
+      : undefined;
+
+  requestLogStore.update(entryId, {
+    ...usageCounts,
+    cacheHit: typeof usageCounts.cachedPromptTokens === "number" && usageCounts.cachedPromptTokens > 0,
+    tps,
+  });
 }
 
 abstract class BaseProviderStrategy implements ProviderStrategy {
@@ -797,11 +1051,10 @@ abstract class BaseProviderStrategy implements ProviderStrategy {
 
     if (upstreamResponse.status === 400 || upstreamResponse.status === 422) {
       try {
-        await upstreamResponse.arrayBuffer();
+        await upstreamResponse.text();
       } catch {
         // Ignore body read failures while failing over.
       }
-
       return {
         kind: "continue",
         requestError: true,
@@ -1193,6 +1446,76 @@ class ResponsesProviderStrategy extends TransformedJsonProviderStrategy {
     return buildPayloadResult(upstreamPayload, context);
   }
 
+  public override async handleProviderAttempt(
+    reply: FastifyReply,
+    upstreamResponse: Response,
+    context: ProviderAttemptContext
+  ): Promise<ProviderAttemptOutcome> {
+    if (!upstreamResponse.ok) {
+      return this.handleStandardProviderAttempt(reply, upstreamResponse, context);
+    }
+
+    let upstreamJson: unknown;
+    try {
+      upstreamJson = await upstreamResponse.json();
+    } catch {
+      return {
+        kind: "continue",
+        requestError: true
+      };
+    }
+
+    if (!isRecord(upstreamJson)) {
+      return {
+        kind: "continue",
+        requestError: true
+      };
+    }
+
+    const chatCompletion = this.convertResponseToChatCompletion(upstreamJson, context.routedModel);
+    if (context.needsReasoningTrace && !chatCompletionHasReasoningContent(chatCompletion) && context.hasMoreCandidates) {
+      return {
+        kind: "continue",
+        requestError: true
+      };
+    }
+
+    reply.header("x-open-hax-upstream-provider", context.providerId);
+
+    if (context.clientWantsStream && responsesOutputHasReasoning(upstreamJson)) {
+      reply.code(200);
+      reply.header("content-type", "text/event-stream; charset=utf-8");
+      reply.header("cache-control", "no-cache");
+      reply.header("x-accel-buffering", "no");
+      reply.hijack();
+      const rawResponse = reply.raw;
+      rawResponse.statusCode = 200;
+      for (const [name, value] of Object.entries(reply.getHeaders())) {
+        if (value !== undefined) {
+          rawResponse.setHeader(name, value as never);
+        }
+      }
+      rawResponse.flushHeaders();
+      await writeInterleavedResponsesSse(upstreamJson, context.routedModel, (data) => rawResponse.write(data));
+      rawResponse.end();
+      return { kind: "handled" };
+    }
+
+    if (context.clientWantsStream) {
+      reply.code(200);
+      reply.header("content-type", "text/event-stream; charset=utf-8");
+      reply.header("cache-control", "no-cache");
+      reply.header("x-accel-buffering", "no");
+      reply.send(chatCompletionToSse(chatCompletion));
+      return { kind: "handled" };
+    }
+
+    reply.code(upstreamResponse.status);
+    reply.header("content-type", "application/json");
+    reply.send(chatCompletion);
+    return { kind: "handled" };
+  }
+
   protected convertResponseToChatCompletion(upstreamJson: unknown, routedModel: string): Record<string, unknown> {
     return responsesToChatCompletion(upstreamJson, routedModel);
   }
@@ -1216,7 +1539,6 @@ class OpenAiResponsesProviderStrategy extends TransformedJsonProviderStrategy {
   public buildPayload(context: StrategyRequestContext): BuildPayloadResult {
     const upstreamPayload = chatRequestToResponsesRequest(buildRequestBodyForUpstream(context));
     applyRequestedServiceTier(upstreamPayload, context);
-    delete upstreamPayload["max_output_tokens"];
     upstreamPayload["store"] = false;
     upstreamPayload["stream"] = true;
     return buildPayloadResult(upstreamPayload, context);
@@ -1263,7 +1585,28 @@ class OpenAiResponsesProviderStrategy extends TransformedJsonProviderStrategy {
     }
 
     reply.header("x-open-hax-upstream-provider", context.providerId);
+
     if (context.clientWantsStream) {
+      const terminalResponse = extractTerminalResponseFromEventStream(streamText);
+      if (terminalResponse && responsesOutputHasReasoning(terminalResponse)) {
+        reply.code(200);
+        reply.header("content-type", "text/event-stream; charset=utf-8");
+        reply.header("cache-control", "no-cache");
+        reply.header("x-accel-buffering", "no");
+        reply.hijack();
+        const rawResponse = reply.raw;
+        rawResponse.statusCode = 200;
+        for (const [name, value] of Object.entries(reply.getHeaders())) {
+          if (value !== undefined) {
+            rawResponse.setHeader(name, value as never);
+          }
+        }
+        rawResponse.flushHeaders();
+        await writeInterleavedResponsesSse(terminalResponse, context.routedModel, (data) => rawResponse.write(data));
+        rawResponse.end();
+        return { kind: "handled" };
+      }
+
       reply.code(200);
       reply.header("content-type", "text/event-stream; charset=utf-8");
       reply.header("cache-control", "no-cache");
@@ -1297,7 +1640,9 @@ class OpenAiChatCompletionsProviderStrategy extends BaseProviderStrategy {
   }
 
   public buildPayload(context: StrategyRequestContext): BuildPayloadResult {
-    return buildPayloadResult(buildRequestBodyForUpstream(context), context);
+    const upstreamPayload = buildRequestBodyForUpstream(context);
+    ensureChatCompletionsUsageInStream(upstreamPayload);
+    return buildPayloadResult(upstreamPayload, context);
   }
 }
 
@@ -1315,7 +1660,226 @@ class ChatCompletionsProviderStrategy extends BaseProviderStrategy {
   }
 
   public buildPayload(context: StrategyRequestContext): BuildPayloadResult {
-    return buildPayloadResult(buildRequestBodyForUpstream(context), context);
+    const upstreamPayload = buildRequestBodyForUpstream(context);
+    ensureChatCompletionsUsageInStream(upstreamPayload);
+    return buildPayloadResult(upstreamPayload, context);
+  }
+}
+
+class ImagesGenerationsPassthroughStrategy extends BaseProviderStrategy {
+  public readonly mode = "images" as const;
+
+  public readonly isLocal = false;
+
+  public matches(context: StrategyRequestContext): boolean {
+    return context.imagesPassthrough === true;
+  }
+
+  public getUpstreamPath(context: StrategyRequestContext): string {
+    return context.config.imagesGenerationsPath;
+  }
+
+  public buildPayload(context: StrategyRequestContext): BuildPayloadResult {
+    const upstreamPayload: Record<string, unknown> = { ...context.requestBody };
+    delete upstreamPayload["open_hax"];
+    return buildPayloadResult(upstreamPayload, context);
+  }
+}
+
+class ResponsesPassthroughStrategy extends BaseProviderStrategy {
+  public readonly mode = "responses_passthrough" as const;
+
+  public readonly isLocal = false;
+
+  public matches(context: StrategyRequestContext): boolean {
+    return context.responsesPassthrough === true && !context.openAiPrefixed;
+  }
+
+  public getUpstreamPath(context: StrategyRequestContext): string {
+    return context.config.responsesPath;
+  }
+
+  public buildPayload(context: StrategyRequestContext): BuildPayloadResult {
+    const upstreamPayload: Record<string, unknown> = { ...context.requestBody };
+    delete upstreamPayload["open_hax"];
+    return buildPayloadResult(upstreamPayload, context);
+  }
+
+  public override async handleProviderAttempt(
+    reply: FastifyReply,
+    upstreamResponse: Response,
+    context: ProviderAttemptContext,
+  ): Promise<ProviderAttemptOutcome> {
+    if (!upstreamResponse.ok) {
+      return this.handleStandardProviderAttempt(reply, upstreamResponse, context);
+    }
+
+    const contentType = upstreamResponse.headers.get("content-type") ?? "";
+    const isEventStream = contentType.toLowerCase().includes("text/event-stream");
+
+    reply.header("x-open-hax-upstream-provider", context.providerId);
+    reply.code(upstreamResponse.status);
+    copyUpstreamHeaders(reply, upstreamResponse.headers);
+
+    if (isEventStream) {
+      if (!upstreamResponse.body) {
+        return { kind: "continue", requestError: true };
+      }
+
+      reply.removeHeader("content-length");
+      reply.header("cache-control", "no-cache");
+      reply.header("x-accel-buffering", "no");
+      reply.header("content-type", "text/event-stream; charset=utf-8");
+      reply.hijack();
+      const rawResponse = reply.raw;
+      rawResponse.statusCode = upstreamResponse.status;
+      for (const [name, value] of Object.entries(reply.getHeaders())) {
+        if (value !== undefined) {
+          rawResponse.setHeader(name, value as never);
+        }
+      }
+      rawResponse.flushHeaders();
+      const nodeStream = Readable.fromWeb(upstreamResponse.body as never);
+      nodeStream.on("error", () => {
+        if (!rawResponse.writableEnded) {
+          rawResponse.end();
+        }
+      });
+      nodeStream.pipe(rawResponse);
+      return { kind: "handled" };
+    }
+
+    if (!upstreamResponse.body) {
+      const responseText = await upstreamResponse.text();
+      reply.send(responseText);
+      return { kind: "handled" };
+    }
+
+    const bytes = Buffer.from(await upstreamResponse.arrayBuffer());
+    reply.send(bytes);
+    return { kind: "handled" };
+  }
+}
+
+class OpenAiResponsesPassthroughStrategy extends BaseProviderStrategy {
+  public readonly mode = "openai_responses_passthrough" as const;
+
+  public readonly isLocal = false;
+
+  public matches(context: StrategyRequestContext): boolean {
+    return context.responsesPassthrough === true && context.openAiPrefixed;
+  }
+
+  public getUpstreamPath(context: StrategyRequestContext): string {
+    return context.config.openaiResponsesPath;
+  }
+
+  public buildPayload(context: StrategyRequestContext): BuildPayloadResult {
+    const upstreamPayload: Record<string, unknown> = { ...context.requestBody };
+    delete upstreamPayload["open_hax"];
+    upstreamPayload["store"] = false;
+    upstreamPayload["stream"] = true;
+    if (upstreamPayload["instructions"] === undefined) {
+      upstreamPayload["instructions"] = "";
+    }
+    return buildPayloadResult(upstreamPayload, context);
+  }
+
+  public override async handleProviderAttempt(
+    reply: FastifyReply,
+    upstreamResponse: Response,
+    context: ProviderAttemptContext,
+  ): Promise<ProviderAttemptOutcome> {
+    const contentType = upstreamResponse.headers.get("content-type") ?? "";
+    const looksLikeEventStream = contentType.toLowerCase().includes("text/event-stream")
+      || contentType.length === 0;
+
+    if (!upstreamResponse.ok && !looksLikeEventStream) {
+      return this.handleStandardProviderAttempt(reply, upstreamResponse, context);
+    }
+
+    if (!upstreamResponse.ok) {
+      const streamText = await upstreamResponse.text();
+      const upstreamError = responsesEventStreamToErrorPayload(streamText);
+      if (upstreamError) {
+        reply.header("x-open-hax-upstream-provider", context.providerId);
+        reply.code(400);
+        reply.header("content-type", "application/json");
+        reply.send({ error: upstreamError });
+        return { kind: "handled" };
+      }
+
+      return { kind: "continue", requestError: true };
+    }
+
+    if (context.clientWantsStream && looksLikeEventStream) {
+      if (!upstreamResponse.body) {
+        return { kind: "continue", requestError: true };
+      }
+
+      reply.header("x-open-hax-upstream-provider", context.providerId);
+      reply.code(upstreamResponse.status);
+      copyUpstreamHeaders(reply, upstreamResponse.headers);
+
+      reply.removeHeader("content-length");
+      reply.header("cache-control", "no-cache");
+      reply.header("x-accel-buffering", "no");
+      reply.header("content-type", "text/event-stream; charset=utf-8");
+      reply.hijack();
+      const rawResponse = reply.raw;
+      rawResponse.statusCode = upstreamResponse.status;
+      for (const [name, value] of Object.entries(reply.getHeaders())) {
+        if (value !== undefined) {
+          rawResponse.setHeader(name, value as never);
+        }
+      }
+      rawResponse.flushHeaders();
+      const nodeStream = Readable.fromWeb(upstreamResponse.body as never);
+      nodeStream.on("error", () => {
+        if (!rawResponse.writableEnded) {
+          rawResponse.end();
+        }
+      });
+      nodeStream.pipe(rawResponse);
+      return { kind: "handled" };
+    }
+
+    if (looksLikeEventStream) {
+      const streamText = await upstreamResponse.text();
+      const upstreamError = responsesEventStreamToErrorPayload(streamText);
+      if (upstreamError) {
+        reply.header("x-open-hax-upstream-provider", context.providerId);
+        reply.code(400);
+        reply.header("content-type", "application/json");
+        reply.send({ error: upstreamError });
+        return { kind: "handled" };
+      }
+
+      const terminalResponse = extractTerminalResponseFromEventStream(streamText);
+      if (!terminalResponse) {
+        return { kind: "continue", requestError: true };
+      }
+
+      reply.header("x-open-hax-upstream-provider", context.providerId);
+      reply.code(200);
+      reply.header("content-type", "application/json");
+      reply.send(terminalResponse);
+      return { kind: "handled" };
+    }
+
+    reply.header("x-open-hax-upstream-provider", context.providerId);
+    reply.code(upstreamResponse.status);
+    copyUpstreamHeaders(reply, upstreamResponse.headers);
+
+    if (!upstreamResponse.body) {
+      const responseText = await upstreamResponse.text();
+      reply.send(responseText);
+      return { kind: "handled" };
+    }
+
+    const bytes = Buffer.from(await upstreamResponse.arrayBuffer());
+    reply.send(bytes);
+    return { kind: "handled" };
   }
 }
 
@@ -1342,9 +1906,17 @@ class FactoryMessagesProviderStrategy extends TransformedJsonProviderStrategy {
 
   public buildPayload(context: StrategyRequestContext): BuildPayloadResult {
     const messagesPayload = chatRequestToMessagesRequest(buildRequestBodyForUpstream(context));
+    const rawSystem = messagesPayload["system"];
+    const sanitizedSystem = typeof rawSystem === "string" ? sanitizeFactorySystemPrompt(rawSystem) : rawSystem;
+    const sanitizedPayload = sanitizedSystem === rawSystem
+      ? messagesPayload
+      : {
+          ...messagesPayload,
+          system: sanitizedSystem,
+        };
     // Inline system content into first user message to avoid Factory 403 with fk- keys.
     // We always inline for Factory to keep behavior consistent across credential types.
-    const inlinedPayload = inlineSystemPrompt(messagesPayload);
+    const inlinedPayload = inlineSystemPrompt(sanitizedPayload);
     return buildPayloadResult(inlinedPayload, context);
   }
 
@@ -1388,7 +1960,6 @@ class FactoryResponsesProviderStrategy extends TransformedJsonProviderStrategy {
   public buildPayload(context: StrategyRequestContext): BuildPayloadResult {
     const upstreamPayload = chatRequestToResponsesRequest(buildRequestBodyForUpstream(context));
     applyRequestedServiceTier(upstreamPayload, context);
-    delete upstreamPayload["max_output_tokens"];
     upstreamPayload["store"] = false;
     upstreamPayload["stream"] = true;
     return buildPayloadResult(upstreamPayload, context);
@@ -1495,7 +2066,186 @@ class FactoryChatCompletionsProviderStrategy extends BaseProviderStrategy {
   }
 }
 
+function openAiContentToText(content: unknown): string {
+  if (typeof content === "string") {
+    return content;
+  }
+
+  if (!Array.isArray(content)) {
+    return "";
+  }
+
+  return content
+    .map((part) => {
+      if (typeof part === "string") {
+        return part;
+      }
+
+      if (isRecord(part) && typeof part.text === "string") {
+        return part.text;
+      }
+
+      return "";
+    })
+    .join("");
+}
+
+class GeminiChatProviderStrategy extends TransformedJsonProviderStrategy {
+  public readonly mode = "gemini_chat" as const;
+
+  public readonly isLocal = false;
+
+  public matches(_context: StrategyRequestContext): boolean {
+    // Selected explicitly in selectRemoteProviderStrategyForRoute for providerId === "gemini".
+    return false;
+  }
+
+  public getUpstreamPath(context: StrategyRequestContext): string {
+    const model = encodeURIComponent(context.routedModel);
+    return `/models/${model}:generateContent`;
+  }
+
+  public buildPayload(context: StrategyRequestContext): BuildPayloadResult {
+    const upstreamBody = buildRequestBodyForUpstream(context);
+    const rawMessages = Array.isArray(upstreamBody.messages) ? upstreamBody.messages : [];
+
+    const contents: Array<{ readonly role: string; readonly parts: Array<{ readonly text: string }> }> = [];
+    const systemParts: string[] = [];
+
+    for (const message of rawMessages) {
+      if (!isRecord(message)) {
+        continue;
+      }
+
+      const role = asString(message.role)?.trim().toLowerCase() ?? "";
+      const text = openAiContentToText(message.content).trim();
+      if (text.length === 0) {
+        continue;
+      }
+
+      if (role === "system") {
+        systemParts.push(text);
+        continue;
+      }
+
+      if (role === "user") {
+        contents.push({ role: "user", parts: [{ text }] });
+        continue;
+      }
+
+      if (role === "assistant") {
+        contents.push({ role: "model", parts: [{ text }] });
+        continue;
+      }
+    }
+
+    const generationConfig: Record<string, unknown> = {};
+    const temperature = asNumber(upstreamBody.temperature);
+    if (temperature !== undefined) {
+      generationConfig.temperature = temperature;
+    }
+    const maxTokens = asNumber(upstreamBody.max_output_tokens)
+      ?? asNumber(upstreamBody.max_tokens)
+      ?? asNumber(upstreamBody.maxTokens);
+    if (maxTokens !== undefined) {
+      generationConfig.maxOutputTokens = maxTokens;
+    }
+
+    const payload: Record<string, unknown> = {
+      contents,
+    };
+
+    if (systemParts.length > 0) {
+      payload.systemInstruction = {
+        parts: [{ text: systemParts.join("\n\n") }],
+      };
+    }
+
+    if (Object.keys(generationConfig).length > 0) {
+      payload.generationConfig = generationConfig;
+    }
+
+    return buildPayloadResult(payload, context);
+  }
+
+  public override applyRequestHeaders(headers: Headers, context: ProviderAttemptContext, _payload: Record<string, unknown>): void {
+    // Gemini uses API key auth (X-Goog-Api-Key header) rather than OpenAI bearer headers.
+    headers.delete("authorization");
+    headers.set("x-goog-api-key", context.account.token);
+    headers.set("content-type", "application/json");
+  }
+
+  protected convertResponseToChatCompletion(upstreamJson: unknown, routedModel: string): Record<string, unknown> {
+    const created = Math.floor(Date.now() / 1000);
+
+    if (!isRecord(upstreamJson)) {
+      return {
+        id: `chatcmpl-gemini-${created}`,
+        object: "chat.completion",
+        created,
+        model: routedModel,
+        choices: [{ index: 0, message: { role: "assistant", content: "" }, finish_reason: "stop" }],
+      };
+    }
+
+    const candidates = Array.isArray(upstreamJson.candidates) ? upstreamJson.candidates : [];
+    const firstCandidate = candidates.length > 0 && isRecord(candidates[0]) ? candidates[0] : undefined;
+    const candidateContent = firstCandidate && isRecord(firstCandidate.content) ? firstCandidate.content : undefined;
+    const parts = candidateContent && Array.isArray(candidateContent.parts) ? candidateContent.parts : [];
+    const text = parts
+      .map((part) => (isRecord(part) ? asString(part.text) ?? "" : ""))
+      .join("")
+      .trim();
+
+    const finishReasonRaw = firstCandidate ? asString(firstCandidate.finishReason) ?? asString(firstCandidate.finish_reason) : undefined;
+    const finishReason = finishReasonRaw
+      ? finishReasonRaw.toLowerCase() === "stop"
+        ? "stop"
+        : finishReasonRaw.toLowerCase() === "max_tokens"
+          ? "length"
+          : "stop"
+      : "stop";
+
+    const usageMetadata = isRecord(upstreamJson.usageMetadata) ? upstreamJson.usageMetadata : null;
+    const promptTokens = usageMetadata ? asNumber(usageMetadata.promptTokenCount) : undefined;
+    const completionTokens = usageMetadata ? asNumber(usageMetadata.candidatesTokenCount) : undefined;
+    const totalTokens = usageMetadata ? asNumber(usageMetadata.totalTokenCount) : undefined;
+
+    return {
+      id: `chatcmpl-gemini-${created}`,
+      object: "chat.completion",
+      created,
+      model: routedModel,
+      choices: [
+        {
+          index: 0,
+          message: { role: "assistant", content: text },
+          finish_reason: finishReason,
+        },
+      ],
+      ...(promptTokens !== undefined || completionTokens !== undefined || totalTokens !== undefined
+        ? {
+            usage: {
+              ...(promptTokens !== undefined ? { prompt_tokens: promptTokens } : {}),
+              ...(completionTokens !== undefined ? { completion_tokens: completionTokens } : {}),
+              ...(totalTokens !== undefined
+                ? { total_tokens: totalTokens }
+                : promptTokens !== undefined && completionTokens !== undefined
+                  ? { total_tokens: promptTokens + completionTokens }
+                  : {}),
+            },
+          }
+        : {}),
+    };
+  }
+}
+
+const GEMINI_CHAT_STRATEGY = new GeminiChatProviderStrategy();
+
 const PROVIDER_STRATEGIES: readonly ProviderStrategy[] = [
+  new ImagesGenerationsPassthroughStrategy(),
+  new OpenAiResponsesPassthroughStrategy(),
+  new ResponsesPassthroughStrategy(),
   new OllamaProviderStrategy(),
   new LocalOllamaProviderStrategy(),
   new FactoryMessagesProviderStrategy(),
@@ -1545,11 +2295,87 @@ export function selectProviderStrategy(
   return { strategy, context };
 }
 
+export function buildResponsesPassthroughContext(
+  config: ProxyConfig,
+  clientHeaders: IncomingHttpHeaders,
+  requestBody: Record<string, unknown>,
+  requestedModelInput: string,
+  routingModelInput: string,
+): {
+  readonly strategy: ProviderStrategy;
+  readonly context: StrategyRequestContext;
+} {
+  const routingState = resolveRequestRoutingState(config, routingModelInput);
+  const clientWantsStream = requestBody.stream === true;
+  const upstreamAttemptTimeoutMs = clientWantsStream
+    ? Math.min(config.requestTimeoutMs, config.streamBootstrapTimeoutMs)
+    : config.requestTimeoutMs;
+
+  const context: StrategyRequestContext = {
+    config,
+    clientHeaders,
+    requestBody,
+    requestedModelInput,
+    routingModelInput,
+    routedModel: routingState.routedModel,
+    explicitOllama: false,
+    openAiPrefixed: routingState.openAiPrefixed
+      || (!routingState.factoryPrefixed && config.upstreamProviderId === config.openaiProviderId),
+    factoryPrefixed: routingState.factoryPrefixed,
+    localOllama: false,
+    clientWantsStream,
+    needsReasoningTrace: false,
+    upstreamAttemptTimeoutMs,
+    responsesPassthrough: true,
+  };
+
+  const strategy = PROVIDER_STRATEGIES.find((entry) => entry.matches(context)) ?? PROVIDER_STRATEGIES[PROVIDER_STRATEGIES.length - 1]!;
+  return { strategy, context };
+}
+
+export function buildImagesPassthroughContext(
+  config: ProxyConfig,
+  clientHeaders: IncomingHttpHeaders,
+  requestBody: Record<string, unknown>,
+  model: string,
+): {
+  readonly strategy: ProviderStrategy;
+  readonly context: StrategyRequestContext;
+} {
+  const routingState = resolveRequestRoutingState(config, model);
+
+  const context: StrategyRequestContext = {
+    config,
+    clientHeaders,
+    requestBody,
+    requestedModelInput: model,
+    routingModelInput: model,
+    routedModel: routingState.routedModel,
+    explicitOllama: false,
+    openAiPrefixed: routingState.openAiPrefixed,
+    factoryPrefixed: routingState.factoryPrefixed,
+    localOllama: false,
+    clientWantsStream: false,
+    needsReasoningTrace: false,
+    upstreamAttemptTimeoutMs: config.requestTimeoutMs,
+    imagesPassthrough: true,
+  };
+
+  const strategy = PROVIDER_STRATEGIES.find((entry) => entry.matches(context)) ?? PROVIDER_STRATEGIES[PROVIDER_STRATEGIES.length - 1]!;
+  return { strategy, context };
+}
+
 function selectRemoteProviderStrategyForRoute(
   context: StrategyRequestContext,
   providerId: string,
 ): ProviderStrategy {
-  if (providerUsesOpenAiChatCompletions(providerId)) {
+  const normalizedProviderId = providerId.trim().toLowerCase();
+
+  if (normalizedProviderId === "gemini" && context.responsesPassthrough !== true && context.imagesPassthrough !== true) {
+    return GEMINI_CHAT_STRATEGY;
+  }
+
+  if (providerUsesOpenAiChatCompletions(providerId) && context.responsesPassthrough !== true && context.imagesPassthrough !== true) {
     // Use the generic ChatCompletionsProviderStrategy (the one that always matches),
     // not a Factory-specific strategy which would produce Factory endpoint paths.
     return PROVIDER_STRATEGIES.find((entry) => entry.mode === "chat_completions" && entry.matches({ ...context, factoryPrefixed: false, openAiPrefixed: false, explicitOllama: false, localOllama: false }))
@@ -1647,7 +2473,12 @@ export async function executeLocalStrategy(
       serviceTierSource: payload.serviceTierSource
     }, strategy.mode);
 
-    await updateUsageCountsFromResponse(requestLogStore, requestLogEntryId, upstreamResponse, strategy.mode, context.routedModel);
+    const usagePromise = updateUsageCountsFromResponse(requestLogStore, requestLogEntryId, upstreamResponse, strategy.mode, context.routedModel);
+    if (responseIsEventStream(upstreamResponse) && context.clientWantsStream) {
+      void usagePromise;
+    } else {
+      await usagePromise;
+    }
 
     await strategy.handleLocalAttempt(reply, upstreamResponse, {
       ...context,
@@ -1672,6 +2503,7 @@ export async function executeProviderFallback(
   promptCacheKey?: string,
   refreshExpiredToken?: (credential: ProviderCredential) => Promise<ProviderCredential | null>,
   policy?: PolicyEngine,
+  healthStore?: AccountHealthStore,
 ): Promise<ProviderFallbackExecutionResult> {
   const accumulator: FallbackAccumulator = {
     sawRateLimit: false,
@@ -1700,6 +2532,8 @@ export async function executeProviderFallback(
       continue;
     }
 
+    routeAccounts = reorderAccountsForLatency(requestLogStore, route.providerId, routeAccounts, context.routedModel, strategy.mode);
+
     const routeCandidates = routeAccounts.map((account) => ({
       providerId: route.providerId,
       baseUrl: route.baseUrl,
@@ -1717,10 +2551,41 @@ export async function executeProviderFallback(
       : undefined)
     : undefined;
 
-  const candidates = reorderCandidatesForAffinity(
-    providerRoutes.flatMap((route) => candidatesByProvider[route.providerId] ?? []),
-    preferredAffinity,
-  );
+  const allCandidates = providerRoutes.flatMap((route) => candidatesByProvider[route.providerId] ?? []);
+
+  const providerIndex = new Map(providerRoutes.map((route, index) => [route.providerId, index] as const));
+
+  const sortedCandidates = [...allCandidates].sort((left, right) => {
+    const idxLeft = providerIndex.get(left.providerId) ?? Number.MAX_SAFE_INTEGER;
+    const idxRight = providerIndex.get(right.providerId) ?? Number.MAX_SAFE_INTEGER;
+
+    // Respect provider ordering first (already policy-ordered), with an escape hatch
+    // for significant TTFT differences.
+    if (idxLeft !== idxRight) {
+      const perfLeft = requestLogStore.getPerfSummary(left.providerId, left.account.accountId, context.routedModel, strategy.mode);
+      const perfRight = requestLogStore.getPerfSummary(right.providerId, right.account.accountId, context.routedModel, strategy.mode);
+
+      const ttftLeft = perfLeft?.ewmaTtftMs;
+      const ttftRight = perfRight?.ewmaTtftMs;
+      if (
+        typeof ttftLeft === "number" && Number.isFinite(ttftLeft)
+        && typeof ttftRight === "number" && Number.isFinite(ttftRight)
+      ) {
+        const ttftDelta = Math.abs(ttftLeft - ttftRight);
+        if (ttftDelta > 120) {
+          return ttftLeft - ttftRight;
+        }
+      }
+
+      return idxLeft - idxRight;
+    }
+
+    // Within a provider, preserve upstream ordering (policy + account ordering + latency window).
+    return 0;
+  });
+
+  const candidates = reorderCandidatesForAffinity(sortedCandidates, preferredAffinity);
+
   if (candidates.length === 0) {
     return {
       handled: false,
@@ -1814,10 +2679,16 @@ export async function executeProviderFallback(
         status: upstreamResponse.status,
         latencyMs,
         serviceTier: candidatePayload.serviceTier,
-        serviceTierSource: candidatePayload.serviceTierSource
+        serviceTierSource: candidatePayload.serviceTierSource,
+        promptCacheKeyUsed: Boolean(promptCacheKey),
       }, candidateStrategy.mode);
 
-      await updateUsageCountsFromResponse(requestLogStore, requestLogEntryId, upstreamResponse, candidateStrategy.mode, context.routedModel);
+      const usagePromise = updateUsageCountsFromResponse(requestLogStore, requestLogEntryId, upstreamResponse, candidateStrategy.mode, context.routedModel);
+      if (responseIsEventStream(upstreamResponse) && context.clientWantsStream) {
+        void usagePromise;
+      } else {
+        await usagePromise;
+      }
 
       if (isRateLimitResponse(upstreamResponse)) {
         accumulator.sawRateLimit = true;
@@ -1836,7 +2707,16 @@ export async function executeProviderFallback(
 
       if (await responseIndicatesQuotaError(upstreamResponse)) {
         accumulator.sawRateLimit = true;
-        keyPool.markRateLimited(candidate.account, Math.min(context.config.keyCooldownMs, 60_000));
+        // A 402 indicates a payment/balance issue — the account is unusable
+        // until the user pays, so apply a long cooldown (24 hours) instead of
+        // the short transient cooldown used for normal quota exhaustion.
+        const quotaCooldownMs = upstreamResponse.status === 402
+          ? 24 * 60 * 60 * 1000
+          : Math.min(context.config.keyCooldownMs, 60_000);
+        keyPool.markRateLimited(candidate.account, quotaCooldownMs);
+        if (healthStore) {
+          healthStore.recordFailure(candidate.account, upstreamResponse.status, "quota_exhausted");
+        }
         if (
           preferredAffinity
           && candidate.providerId === preferredAffinity.providerId
@@ -1883,6 +2763,9 @@ export async function executeProviderFallback(
       if (outcome.kind === "handled") {
         upstreamSpan.setStatus("ok");
         upstreamSpan.end();
+        if (healthStore && upstreamResponse.ok) {
+          healthStore.recordSuccess(candidate.account, upstreamResponse.status);
+        }
         if (
           promptCacheKey
           && (
@@ -1901,6 +2784,17 @@ export async function executeProviderFallback(
         };
       }
 
+      if (
+        healthStore
+        && !upstreamResponse.ok
+        && upstreamResponse.status >= 500
+        && !outcome.upstreamInvalidRequest
+        && !outcome.modelNotFound
+        && !outcome.modelNotSupportedForAccount
+      ) {
+        healthStore.recordFailure(candidate.account, upstreamResponse.status);
+      }
+
       accumulator.sawRateLimit ||= outcome.rateLimit === true;
       accumulator.sawRequestError ||= outcome.requestError === true;
       accumulator.sawUpstreamServerError ||= outcome.upstreamServerError === true;
@@ -1911,7 +2805,9 @@ export async function executeProviderFallback(
       if (!upstreamResponse.ok && outcome.requestError === true && upstreamResponse.status === 401 && candidate.account.authType === "oauth_bearer" && candidate.account.refreshToken && refreshExpiredToken) {
         const refreshedCredential = await refreshExpiredToken(candidate.account);
         if (refreshedCredential) {
+          const refreshedProviderContext: ProviderAttemptContext = { ...providerContext, account: refreshedCredential };
           const refreshedHeaders = buildUpstreamHeadersForCredential(context.clientHeaders, refreshedCredential);
+          candidateStrategy.applyRequestHeaders(refreshedHeaders, refreshedProviderContext, candidatePayload.upstreamPayload);
           const refreshedRelease = keyPool.markInFlight(refreshedCredential);
           const refreshedAttemptStartedAt = Date.now();
           let refreshedResponse: Response;
@@ -1929,7 +2825,7 @@ export async function executeProviderFallback(
 
           try {
             const refreshedLatencyMs = Date.now() - refreshedAttemptStartedAt;
-            const refreshedLogId = recordAttempt(requestLogStore, providerContext, {
+            const refreshedLogId = recordAttempt(requestLogStore, refreshedProviderContext, {
               providerId: candidate.providerId,
               accountId: refreshedCredential.accountId,
               authType: refreshedCredential.authType,
@@ -1937,9 +2833,15 @@ export async function executeProviderFallback(
               status: refreshedResponse.status,
               latencyMs: refreshedLatencyMs,
               serviceTier: candidatePayload.serviceTier,
-              serviceTierSource: candidatePayload.serviceTierSource
+              serviceTierSource: candidatePayload.serviceTierSource,
+              promptCacheKeyUsed: Boolean(promptCacheKey),
             }, candidateStrategy.mode);
-            await updateUsageCountsFromResponse(requestLogStore, refreshedLogId, refreshedResponse, candidateStrategy.mode, context.routedModel);
+            const usagePromise = updateUsageCountsFromResponse(requestLogStore, refreshedLogId, refreshedResponse, candidateStrategy.mode, context.routedModel);
+            if (responseIsEventStream(refreshedResponse) && context.clientWantsStream) {
+              void usagePromise;
+            } else {
+              await usagePromise;
+            }
             if (isRateLimitResponse(refreshedResponse)) {
               accumulator.sawRateLimit = true;
               keyPool.markRateLimited(refreshedCredential, parseRetryAfterMs(refreshedResponse.headers.get("retry-after")));
@@ -1951,8 +2853,26 @@ export async function executeProviderFallback(
               break;
             }
             reply.header("x-open-hax-upstream-mode", candidateStrategy.mode);
-            const refreshedOutcome = await candidateStrategy.handleProviderAttempt(reply, refreshedResponse, providerContext);
+            const refreshedOutcome = await candidateStrategy.handleProviderAttempt(reply, refreshedResponse, refreshedProviderContext);
             if (refreshedOutcome.kind === "handled") {
+              upstreamSpan.setStatus("ok");
+              upstreamSpan.end();
+
+              if (healthStore && refreshedResponse.ok) {
+                healthStore.recordSuccess(refreshedCredential, refreshedResponse.status);
+              }
+
+              if (
+                promptCacheKey
+                && (
+                  preferredAffinity === undefined
+                  || preferredReassignmentAllowed
+                  || (candidate.providerId === preferredAffinity.providerId && refreshedCredential.accountId === preferredAffinity.accountId)
+                )
+              ) {
+                await promptAffinityStore.upsert(promptCacheKey, candidate.providerId, refreshedCredential.accountId);
+              }
+
               releaseInFlight();
               return { handled: true, candidateCount: candidates.length, summary: accumulator };
             }
@@ -1963,9 +2883,11 @@ export async function executeProviderFallback(
             accumulator.sawModelNotFound ||= refreshedOutcome.modelNotFound === true;
             accumulator.sawModelNotSupportedForAccount ||= refreshedOutcome.modelNotSupportedForAccount === true;
             if (!refreshedResponse.ok && refreshedOutcome.requestError === true && (refreshedResponse.status === 401 || refreshedResponse.status === 403)) {
-              keyPool.markRateLimited(refreshedCredential, Math.min(context.config.keyCooldownMs, 10_000));
-              if (preferredAffinity && candidate.providerId === preferredAffinity.providerId && refreshedCredential.accountId === preferredAffinity.accountId) {
-                preferredReassignmentAllowed = true;
+              if (shouldCooldownCredentialOnAuthFailure(candidate.providerId, refreshedResponse.status)) {
+                keyPool.markRateLimited(refreshedCredential, Math.min(context.config.keyCooldownMs, 10_000));
+                if (preferredAffinity && candidate.providerId === preferredAffinity.providerId && refreshedCredential.accountId === preferredAffinity.accountId) {
+                  preferredReassignmentAllowed = true;
+                }
               }
             }
             break;
@@ -1978,9 +2900,11 @@ export async function executeProviderFallback(
           preferredReassignmentAllowed = true;
         }
       } else if (!upstreamResponse.ok && outcome.requestError === true && (upstreamResponse.status === 401 || upstreamResponse.status === 403)) {
-        keyPool.markRateLimited(candidate.account, Math.min(context.config.keyCooldownMs, 10_000));
-        if (preferredAffinity && candidate.providerId === preferredAffinity.providerId && candidate.account.accountId === preferredAffinity.accountId) {
-          preferredReassignmentAllowed = true;
+        if (shouldCooldownCredentialOnAuthFailure(candidate.providerId, upstreamResponse.status)) {
+          keyPool.markRateLimited(candidate.account, Math.min(context.config.keyCooldownMs, 10_000));
+          if (preferredAffinity && candidate.providerId === preferredAffinity.providerId && candidate.account.accountId === preferredAffinity.accountId) {
+            preferredReassignmentAllowed = true;
+          }
         }
       }
 
@@ -2007,7 +2931,8 @@ export async function inspectProviderAvailability(
   keyPool: {
     getStatus(providerId: string): Promise<{ readonly totalAccounts: number }>;
   },
-  providerRoutes: readonly ProviderRoute[]
+  providerRoutes: readonly ProviderRoute[],
+  promptCacheKey?: string,
 ): Promise<ProviderAvailabilitySummary> {
   let sawConfiguredProvider = false;
 
@@ -2022,5 +2947,5 @@ export async function inspectProviderAvailability(
     }
   }
 
-  return { sawConfiguredProvider };
+  return { sawConfiguredProvider, prompt_cache_key: promptCacheKey };
 }

@@ -192,7 +192,7 @@ test("loads env-backed openrouter and requesty providers alongside file accounts
   await withEnv(
     {
       OPENROUTER_API_KEY: "or-token-1", // pragma: allowlist secret
-      REQUESTY_API_TOKEN: "req-key-1",
+      REQUESTY_API_TOKEN: "req-key-1", // pragma: allowlist secret
       OPENROUTER_PROVIDER_ID: undefined,
       REQUESTY_PROVIDER_ID: undefined,
     },
@@ -226,6 +226,47 @@ test("loads env-backed openrouter and requesty providers alongside file accounts
           assert.equal(requestyAccounts[0]?.providerId, "requesty");
           assert.equal(requestyAccounts[0]?.token, "req-key-1");
           assert.ok(UUID_PATTERN.test(requestyAccounts[0]?.accountId ?? ""));
+        },
+      );
+    },
+  );
+});
+
+test("loads env-backed gemini provider via GEMINI_API_KEY", { concurrency: false }, async () => {
+  await withEnv(
+    {
+      GEMINI_API_KEY: "gem-key-1", // pragma: allowlist secret
+      GEMINI_PROVIDER_ID: undefined,
+      OPENROUTER_API_KEY: undefined,
+      REQUESTY_API_TOKEN: undefined,
+      REQUESTY_API_KEY: undefined,
+      OPENROUTER_PROVIDER_ID: undefined,
+      REQUESTY_PROVIDER_ID: undefined,
+    },
+    async () => {
+      await withKeysFile(
+        {
+          providers: {
+            "ollama-cloud": {
+              accounts: ["oc-key-1"],
+            },
+          },
+        },
+        async (keysFilePath) => {
+          const keyPool = new KeyPool({
+            keysFilePath,
+            reloadIntervalMs: 10,
+            defaultCooldownMs: 1000,
+            defaultProviderId: "ollama-cloud",
+          });
+
+          await keyPool.warmup();
+          const geminiAccounts = await keyPool.getRequestOrder("gemini");
+
+          assert.equal(geminiAccounts.length, 1);
+          assert.equal(geminiAccounts[0]?.providerId, "gemini");
+          assert.equal(geminiAccounts[0]?.token, "gem-key-1");
+          assert.ok(UUID_PATTERN.test(geminiAccounts[0]?.accountId ?? ""));
         },
       );
     },

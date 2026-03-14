@@ -1,4 +1,25 @@
-export const SCHEMA_VERSION = 1;
+export const CREATE_ACCOUNT_HEALTH_TABLE = `
+CREATE TABLE IF NOT EXISTS account_health (
+  provider_id TEXT NOT NULL,
+  account_id TEXT NOT NULL,
+  success_count BIGINT NOT NULL DEFAULT 0,
+  failure_count BIGINT NOT NULL DEFAULT 0,
+  last_success_at BIGINT,
+  last_failure_at BIGINT,
+  last_error TEXT,
+  last_status INTEGER,
+  updated_at BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT,
+  PRIMARY KEY (provider_id, account_id)
+);
+`;
+
+export const CREATE_ACCOUNT_HEALTH_INDEX = `
+CREATE INDEX IF NOT EXISTS idx_account_health_score ON account_health(
+  (success_count::FLOAT / NULLIF(success_count + failure_count, 0)) DESC NULLS LAST
+);
+`;
+
+export const SCHEMA_VERSION = 2;
 
 export const CREATE_PROVIDERS_TABLE = `
 CREATE TABLE IF NOT EXISTS providers (
@@ -123,6 +144,8 @@ export const ALL_MIGRATIONS = [
   { version: 1, sql: CREATE_GITHUB_ALLOWLIST_TABLE },
   { version: 1, sql: CREATE_CLIENTS_TABLE },
   { version: 1, sql: CREATE_VERSION_TABLE },
+  { version: 2, sql: CREATE_ACCOUNT_HEALTH_TABLE },
+  { version: 2, sql: CREATE_ACCOUNT_HEALTH_INDEX },
 ];
 
 export const UPSERT_PROVIDER = `
@@ -197,4 +220,50 @@ SELECT login FROM github_allowlist ORDER BY login;
 
 export const IS_GITHUB_USER_ALLOWED = `
 SELECT 1 FROM github_allowlist WHERE login = $1;
+`;
+
+export const SELECT_ALL_ACCOUNT_HEALTH = `
+SELECT provider_id, account_id, success_count, failure_count, last_success_at, last_failure_at, last_error, last_status
+FROM account_health;
+`;
+
+export const SELECT_ACCOUNT_HEALTH = `
+SELECT provider_id, account_id, success_count, failure_count, last_success_at, last_failure_at, last_error, last_status
+FROM account_health
+WHERE provider_id = $1 AND account_id = $2;
+`;
+
+export const UPSERT_ACCOUNT_HEALTH_SUCCESS = `
+INSERT INTO account_health (provider_id, account_id, success_count, last_success_at, last_status, updated_at)
+VALUES ($1, $2, 1, $3, $4, $5)
+ON CONFLICT (provider_id, account_id) DO UPDATE SET
+  success_count = account_health.success_count + 1,
+  last_success_at = EXCLUDED.last_success_at,
+  last_status = EXCLUDED.last_status,
+  updated_at = EXCLUDED.updated_at;
+`;
+
+export const UPSERT_ACCOUNT_HEALTH_FAILURE = `
+INSERT INTO account_health (provider_id, account_id, failure_count, last_failure_at, last_error, last_status, updated_at)
+VALUES ($1, $2, 1, $3, $4, $5, $6)
+ON CONFLICT (provider_id, account_id) DO UPDATE SET
+  failure_count = account_health.failure_count + 1,
+  last_failure_at = EXCLUDED.last_failure_at,
+  last_error = EXCLUDED.last_error,
+  last_status = EXCLUDED.last_status,
+  updated_at = EXCLUDED.updated_at;
+`;
+
+export const SELECT_ACCOUNT_HEALTH_SCORES = `
+SELECT 
+  provider_id, 
+  account_id, 
+  success_count, 
+  failure_count,
+  CASE 
+    WHEN success_count + failure_count = 0 THEN 0.5
+    ELSE success_count::FLOAT / (success_count + failure_count)
+  END as health_score
+FROM account_health
+ORDER BY health_score DESC;
 `;

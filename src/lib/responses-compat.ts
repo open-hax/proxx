@@ -1,3 +1,5 @@
+import { setTimeout } from "node:timers/promises";
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
@@ -912,4 +914,268 @@ export function chatCompletionToSse(completion: Record<string, unknown>): string
   return `data: ${JSON.stringify(firstChunk)}\n\n` +
     `data: ${JSON.stringify(finalChunk)}\n\n` +
     "data: [DONE]\n\n";
+}
+
+export function responsesOutputHasReasoning(responseBody: unknown): boolean {
+  if (!isRecord(responseBody)) {
+    return false;
+  }
+
+  const output = responseBody["output"];
+  if (!Array.isArray(output)) {
+    return false;
+  }
+
+  for (const item of output) {
+    if (!isRecord(item)) {
+      continue;
+    }
+
+    if (asString(item["type"]) === "reasoning") {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+export function extractTerminalResponseFromEventStream(streamText: string): Record<string, unknown> | undefined {
+  const payloads = parseResponsesSsePayloads(streamText);
+  let lastTerminalResponse: Record<string, unknown> | undefined;
+
+  for (const payload of payloads) {
+    const type = asString(payload["type"]);
+    const response = isRecord(payload["response"]) ? payload["response"] : null;
+    if ((type === "response.completed" || type === "response.incomplete") && response) {
+      lastTerminalResponse = response;
+    }
+  }
+
+  return lastTerminalResponse;
+}
+
+function chunkTextByWords(text: string, wordsPerChunk: number): string[] {
+  const tokens = text.split(/(\s+)/);
+  const chunks: string[] = [];
+  let current = "";
+  let wordCount = 0;
+
+  for (const token of tokens) {
+    current += token;
+    if (token.trim().length > 0) {
+      wordCount++;
+    }
+
+    if (wordCount >= wordsPerChunk) {
+      chunks.push(current);
+      current = "";
+      wordCount = 0;
+    }
+  }
+
+  if (current.length > 0) {
+    chunks.push(current);
+  }
+
+  return chunks;
+}
+
+function sleepMs(ms: number): Promise<void> {
+  return setTimeout(ms);
+}
+
+// Optional streaming throttle for synthetic SSE chunking.
+// Operators can tune/disable this under load.
+// - STREAM_CHUNK_DELAY_MS=<n> sets a fixed per-chunk delay.
+// - STREAM_CHUNK_DELAY_MS_MIN/MAX=<n> sets a random delay range.
+// Defaults to 0ms.
+const STREAM_CHUNK_DELAY_RANGE_MS = (() => {
+  const fixedRaw = process.env.STREAM_CHUNK_DELAY_MS;
+  if (fixedRaw !== undefined) {
+    const fixed = Number(fixedRaw);
+    return Number.isFinite(fixed) && fixed >= 0 ? { min: fixed, max: fixed } : { min: 0, max: 0 };
+  }
+
+  const minRaw = process.env.STREAM_CHUNK_DELAY_MS_MIN;
+  const maxRaw = process.env.STREAM_CHUNK_DELAY_MS_MAX;
+
+  if (minRaw === undefined && maxRaw === undefined) {
+    return { min: 0, max: 0 };
+  }
+
+  const min = Number(minRaw ?? "0");
+  const max = Number(maxRaw ?? minRaw ?? "0");
+  if (!Number.isFinite(min) || !Number.isFinite(max) || min < 0 || max < 0) {
+    return { min: 0, max: 0 };
+  }
+
+  return { min: Math.min(min, max), max: Math.max(min, max) };
+})();
+
+function nextStreamChunkDelayMs(): number {
+  const { min, max } = STREAM_CHUNK_DELAY_RANGE_MS;
+  if (max <= 0) {
+    return 0;
+  }
+  if (min >= max) {
+    return min;
+  }
+  return min + Math.random() * (max - min);
+}
+
+export async function writeInterleavedResponsesSse(
+  responseBody: Record<string, unknown>,
+  fallbackModel: string,
+  writeFn: (data: string) => void,
+): Promise<void> {
+  const id = asString(responseBody["id"]) ?? `chatcmpl_${Date.now()}`;
+  const createdAt = asNumber(responseBody["created_at"]) ?? Math.floor(Date.now() / 1000);
+  const model = asString(responseBody["model"]) ?? fallbackModel;
+  const output = Array.isArray(responseBody["output"]) ? responseBody["output"] : [];
+
+  let isFirstChunk = true;
+  let toolCallIndex = 0;
+  let hasToolCalls = false;
+
+  const emitChunk = (delta: Record<string, unknown>, finishReason: string | null): void => {
+    const chunk = {
+      id,
+      object: "chat.completion.chunk",
+      created: createdAt,
+      model,
+      choices: [
+        {
+          index: 0,
+          delta,
+          finish_reason: finishReason
+        }
+      ]
+    };
+    writeFn(`data: ${JSON.stringify(chunk)}\n\n`);
+  };
+
+  const emitTextChunks = async (text: string, fieldName: "content" | "reasoning_content"): Promise<void> => {
+    if (text.length === 0) {
+      return;
+    }
+
+    const wordChunks = chunkTextByWords(text, 4);
+    for (const wordChunk of wordChunks) {
+      const delta: Record<string, unknown> = { [fieldName]: wordChunk };
+      if (isFirstChunk) {
+        delta["role"] = "assistant";
+        isFirstChunk = false;
+      }
+
+      emitChunk(delta, null);
+      const delayMs = nextStreamChunkDelayMs();
+      if (delayMs > 0) {
+        await sleepMs(delayMs);
+      }
+    }
+  };
+
+  for (const item of output) {
+    if (!isRecord(item)) {
+      continue;
+    }
+
+    const itemType = asString(item["type"]);
+
+    if (itemType === "reasoning") {
+      const reasoningText = extractReasoningTextFromResponsesItem(item);
+      await emitTextChunks(reasoningText, "reasoning_content");
+      continue;
+    }
+
+    if (itemType === "message") {
+      if (asString(item["role"]) !== "assistant") {
+        continue;
+      }
+
+      const topReasoningParts: string[] = [];
+      appendStringPart(topReasoningParts, item["reasoning_content"]);
+      appendStringPart(topReasoningParts, item["reasoning"]);
+      if (topReasoningParts.length > 0) {
+        await emitTextChunks(topReasoningParts.join(""), "reasoning_content");
+      }
+
+      const content = item["content"];
+      if (!Array.isArray(content)) {
+        continue;
+      }
+
+      for (const part of content) {
+        if (!isRecord(part)) {
+          continue;
+        }
+
+        const partType = asString(part["type"]);
+
+        if (partType === "output_text") {
+          const text = asString(part["text"]);
+          if (text) {
+            await emitTextChunks(text, "content");
+          }
+          continue;
+        }
+
+        if (partType === "reasoning" || partType === "thinking" || partType === "summary_text") {
+          const reasonParts: string[] = [];
+          appendStringPart(reasonParts, part["text"]);
+          appendStringPart(reasonParts, part["reasoning"]);
+          if (reasonParts.length > 0) {
+            await emitTextChunks(reasonParts.join(""), "reasoning_content");
+          }
+        }
+      }
+
+      continue;
+    }
+
+    if (itemType === "function_call") {
+      const functionName = asString(item["name"]);
+      if (!functionName) {
+        continue;
+      }
+
+      const callId = asString(item["call_id"]) ?? `call_${toolCallIndex}`;
+      const argumentsText = normalizeToolCallArguments(item["arguments"]);
+
+      const delta: Record<string, unknown> = {
+        tool_calls: [
+          {
+            index: toolCallIndex,
+            id: callId,
+            type: "function",
+            function: {
+              name: functionName,
+              arguments: argumentsText
+            }
+          }
+        ]
+      };
+
+      if (isFirstChunk) {
+        delta["role"] = "assistant";
+        isFirstChunk = false;
+      }
+
+      hasToolCalls = true;
+      emitChunk(delta, null);
+      toolCallIndex++;
+      const delayMs = nextStreamChunkDelayMs();
+      if (delayMs > 0) {
+        await sleepMs(delayMs);
+      }
+      continue;
+    }
+  }
+
+  if (isFirstChunk) {
+    emitChunk({ role: "assistant", content: "" }, null);
+  }
+
+  emitChunk({}, hasToolCalls ? "tool_calls" : "stop");
+  writeFn("data: [DONE]\n\n");
 }

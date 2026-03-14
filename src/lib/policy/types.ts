@@ -130,20 +130,72 @@ const DEFAULT_GPT_PROVIDER_ORDER: readonly ProviderId[] = [
   "vivgrid",
 ];
 
+/**
+ * Free-account model availability — last verified 2026-03-13.
+ *
+ * WORKS on free: gpt-5, gpt-5.1, gpt-5.1-codex, gpt-5.1-codex-max, gpt-5.2, gpt-5.2-codex
+ * BLOCKED on free: gpt-5.4, gpt-5.3-codex, gpt-5-mini
+ *
+ * To update: edit GPT_FREE_BLOCKED_MODELS below and the modelConstraints map.
+ */
+const GPT_FREE_BLOCKED_MODELS: readonly string[] = [
+  "gpt-5.4",
+  "gpt-5.3-codex",
+  "gpt-5-mini",
+];
+
+function escapeRegexLiteral(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+const GPT_FREE_BLOCKED_MODEL_PATTERN = new RegExp(
+  `^(?:${GPT_FREE_BLOCKED_MODELS.map(escapeRegexLiteral).join("|")})$`,
+);
+
+const PAID_PLAN_WEIGHTS: Record<PlanType, number> = {
+  plus: 5,
+  pro: 4,
+  business: 4,
+  enterprise: 4,
+  team: 2,
+  unknown: 1,
+  free: 0,
+};
+
+const PAID_PLANS: readonly PlanType[] = ["plus", "pro", "business", "enterprise", "team"];
+
+function buildFreeBlockedConstraints(
+  models: readonly string[],
+): Record<string, { requiresPlan: PlanType[]; excludesPlan: PlanType[] }> {
+  const constraints: Record<string, { requiresPlan: PlanType[]; excludesPlan: PlanType[] }> = {};
+  for (const model of models) {
+    constraints[model] = {
+      requiresPlan: [...PAID_PLANS],
+      excludesPlan: ["free"],
+    };
+  }
+  return constraints;
+}
+
 export const DEFAULT_POLICY_CONFIG: PolicyConfig = {
   version: "1.0",
   
   modelRouting: {
     rules: [
+      // Paid-only GPT models (free-account blocked — see list above)
       {
-        modelPattern: "gpt-5.4",
+        modelPattern: GPT_FREE_BLOCKED_MODEL_PATTERN,
         requiresPaidPlan: true,
         preferredProviders: DEFAULT_GPT_PROVIDER_ORDER,
-        accountOrdering: {
-          kind: "custom_weight",
-          weights: { plus: 5, pro: 4, business: 4, enterprise: 4, team: 2, unknown: 1, free: 0 },
-        },
+        accountOrdering: { kind: "custom_weight", weights: PAID_PLAN_WEIGHTS },
       },
+      {
+        modelPattern: /^gpt-[6-9]/,
+        requiresPaidPlan: true,
+        preferredProviders: DEFAULT_GPT_PROVIDER_ORDER,
+        accountOrdering: { kind: "custom_weight", weights: PAID_PLAN_WEIGHTS },
+      },
+      // All other GPT models — free accounts allowed and preferred
       {
         modelPattern: /^gpt-/,
         preferredProviders: DEFAULT_GPT_PROVIDER_ORDER,
@@ -170,11 +222,7 @@ export const DEFAULT_POLICY_CONFIG: PolicyConfig = {
   
   accountPreferences: {
     planWeights: DEFAULT_PLAN_WEIGHTS,
-    modelConstraints: {
-      "gpt-5.4": {
-        requiresPlan: ["plus", "pro", "business", "enterprise"],
-        excludesPlan: ["free"],
-      },
-    },
+    // Free-account exclusions — last verified 2026-03-13
+    modelConstraints: buildFreeBlockedConstraints(GPT_FREE_BLOCKED_MODELS),
   },
 };

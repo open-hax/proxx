@@ -1,3 +1,4 @@
+import { mkdirSync, writeFileSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
@@ -62,6 +63,7 @@ export interface CredentialStoreLike {
     subject?: string,
     planType?: string,
   ): Promise<void>;
+  flush?(): Promise<void>;
   removeAccount(providerId: string, accountId: string): Promise<boolean>;
 }
 
@@ -356,10 +358,133 @@ function toPersistedJson(normalized: NormalizedCredentials): Record<string, unkn
 }
 
 export class CredentialStore {
+  private cachedCredentials: NormalizedCredentials | null = null;
+  private dirty = false;
+  private writeEpoch = 0;
+  private flushTimer: ReturnType<typeof setTimeout> | null = null;
+  private flushInFlight: Promise<void> | null = null;
+  private static readonly FLUSH_DEBOUNCE_MS = 500;
+
+  private static processHooksInstalled = false;
+  private static flushAllHandler: (() => void) | null = null;
+  private static sigintHandler: (() => void) | null = null;
+  private static sigtermHandler: (() => void) | null = null;
+  private static readonly stores = new Set<CredentialStore>();
+
   public constructor(
     private readonly filePath: string,
     private readonly defaultProviderId: string,
-  ) {}
+  ) {
+    CredentialStore.stores.add(this);
+    CredentialStore.installProcessHooks();
+  }
+
+  public dispose(): void {
+    if (this.flushTimer) {
+      clearTimeout(this.flushTimer);
+      this.flushTimer = null;
+    }
+
+    CredentialStore.stores.delete(this);
+    if (CredentialStore.stores.size === 0) {
+      CredentialStore.uninstallProcessHooks();
+    }
+  }
+
+  public async close(): Promise<void> {
+    try {
+      await this.flush();
+    } finally {
+      this.dispose();
+    }
+  }
+
+  private static installProcessHooks(): void {
+    if (CredentialStore.processHooksInstalled) {
+      return;
+    }
+
+    CredentialStore.processHooksInstalled = true;
+
+    const flushAll = (): void => {
+      for (const store of CredentialStore.stores) {
+        try {
+          store.flushOnExit();
+        } catch {
+          // ignore
+        }
+      }
+    };
+
+    CredentialStore.flushAllHandler = flushAll;
+    CredentialStore.sigintHandler = (): void => {
+      flushAll();
+      process.exitCode = 130;
+    };
+    CredentialStore.sigtermHandler = (): void => {
+      flushAll();
+      process.exitCode = 143;
+    };
+
+    process.once("beforeExit", flushAll);
+    process.once("exit", flushAll);
+    process.once("SIGINT", CredentialStore.sigintHandler);
+    process.once("SIGTERM", CredentialStore.sigtermHandler);
+  }
+
+  private static uninstallProcessHooks(): void {
+    if (!CredentialStore.processHooksInstalled) {
+      return;
+    }
+
+    const flushAll = CredentialStore.flushAllHandler;
+    if (flushAll) {
+      process.off("beforeExit", flushAll);
+      process.off("exit", flushAll);
+    }
+
+    if (CredentialStore.sigintHandler) {
+      process.off("SIGINT", CredentialStore.sigintHandler);
+    }
+
+    if (CredentialStore.sigtermHandler) {
+      process.off("SIGTERM", CredentialStore.sigtermHandler);
+    }
+
+    CredentialStore.flushAllHandler = null;
+    CredentialStore.sigintHandler = null;
+    CredentialStore.sigtermHandler = null;
+    CredentialStore.processHooksInstalled = false;
+  }
+
+  public flushOnExit(): void {
+    if (this.flushTimer) {
+      clearTimeout(this.flushTimer);
+      this.flushTimer = null;
+    }
+
+    if (!this.dirty || !this.cachedCredentials) {
+      return;
+    }
+
+    try {
+      const payload = toPersistedJson(this.cachedCredentials);
+      mkdirSync(dirname(this.filePath), { recursive: true });
+      writeFileSync(this.filePath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+      this.dirty = false;
+    } catch {
+      // ignore exit flush errors
+    }
+  }
+
+  public async flush(): Promise<void> {
+    if (this.flushTimer) {
+      clearTimeout(this.flushTimer);
+      this.flushTimer = null;
+    }
+
+    await this.flushToDisk();
+  }
 
   public async listProviders(revealSecrets: boolean): Promise<CredentialProviderView[]> {
     const credentials = await this.readNormalized();
@@ -424,6 +549,7 @@ export class CredentialStore {
 
     normalized.providers[id] = provider;
     await this.writeNormalized(normalized);
+    await this.flush();
   }
 
   public async upsertOAuthAccount(
@@ -464,6 +590,7 @@ export class CredentialStore {
 
     normalized.providers[id] = provider;
     await this.writeNormalized(normalized);
+    await this.flush();
   }
 
   public async removeAccount(providerId: string, accountId: string): Promise<boolean> {
@@ -486,22 +613,83 @@ export class CredentialStore {
     }
 
     await this.writeNormalized(normalized);
+    await this.flush();
     return true;
   }
 
   private async readNormalized(): Promise<NormalizedCredentials> {
+    if (this.cachedCredentials) {
+      return this.cachedCredentials;
+    }
+
     try {
       const contents = await readFile(this.filePath, "utf8");
       const parsed: unknown = JSON.parse(contents);
-      return normalizeCredentials(parsed, this.defaultProviderId);
+      const normalized = normalizeCredentials(parsed, this.defaultProviderId);
+      this.cachedCredentials = normalized;
+      return normalized;
     } catch {
       return { providers: {} };
     }
   }
 
   private async writeNormalized(normalized: NormalizedCredentials): Promise<void> {
-    await mkdir(dirname(this.filePath), { recursive: true });
-    const payload = toPersistedJson(normalized);
-    await writeFile(this.filePath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+    this.cachedCredentials = normalized;
+    this.dirty = true;
+    this.writeEpoch += 1;
+    this.scheduleDebouncedFlush();
+  }
+
+  private scheduleDebouncedFlush(): void {
+    if (this.flushTimer) return;
+    this.flushTimer = setTimeout(() => {
+      this.flushTimer = null;
+      void this.flushToDisk().catch(() => {});
+    }, CredentialStore.FLUSH_DEBOUNCE_MS);
+  }
+
+  private async flushToDisk(): Promise<void> {
+    if (!this.cachedCredentials) {
+      return;
+    }
+
+    // If a write is already in-flight, always await it first so callers
+    // observe bind/write errors and so we serialize writes.
+    if (this.flushInFlight) {
+      await this.flushInFlight;
+      if (this.dirty) {
+        return this.flushToDisk();
+      }
+      return;
+    }
+
+    if (!this.dirty) {
+      return;
+    }
+
+    const epoch = this.writeEpoch;
+    const payload = toPersistedJson(this.cachedCredentials);
+
+    const writePromise = (async () => {
+      await mkdir(dirname(this.filePath), { recursive: true });
+      await writeFile(this.filePath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+    })();
+
+    this.flushInFlight = writePromise;
+
+    try {
+      await writePromise;
+    } finally {
+      this.flushInFlight = null;
+    }
+
+    // Only clear dirty if no new writes occurred during this flush.
+    if (this.writeEpoch === epoch) {
+      this.dirty = false;
+    }
+
+    if (this.dirty) {
+      return this.flushToDisk();
+    }
   }
 }

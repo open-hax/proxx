@@ -3,7 +3,7 @@
  */
 
 const AUTH_TYPE_LABELS: Record<string, string> = {
-  api_key: "API Key",
+  api_key: "API Key", // pragma: allowlist secret
   oauth_bearer: "OAuth",
   local: "Local",
   none: "None",

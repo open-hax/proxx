@@ -14,6 +14,7 @@ export interface KeyPoolConfig {
   readonly defaultProviderId: string;
   readonly accountStore?: ProviderAccountStore;
   readonly preferAccountStoreProviders?: boolean;
+  readonly expiryBufferMs?: number;
 }
 
 export interface ProviderCredential {
@@ -353,6 +354,14 @@ function readProvidersFromEnv(): Map<string, ProviderState> {
     }
   }
 
+  const geminiKey = process.env.GEMINI_API_KEY?.trim();
+  if (geminiKey) {
+    providers.set(
+      normalizeProviderId(process.env.GEMINI_PROVIDER_ID ?? "gemini"),
+      createEnvProviderState(process.env.GEMINI_PROVIDER_ID ?? "gemini", geminiKey),
+    );
+  }
+
   const openrouterKey = process.env.OPENROUTER_API_KEY?.trim();
   if (openrouterKey) {
     providers.set(
@@ -517,6 +526,12 @@ function accountCooldownKey(credential: ProviderCredential): string {
   return `${credential.providerId}\0${credential.token}`;
 }
 
+function resolveExpiryBufferMs(expiryBufferMs: unknown): number {
+  return Number.isFinite(expiryBufferMs)
+    ? Math.max(expiryBufferMs as number, 0)
+    : 60_000;
+}
+
 export class KeyPool {
   private readonly cooldownByAccountKey = new Map<string, number>();
   private readonly inFlightByAccountKey = new Map<string, number>();
@@ -544,6 +559,7 @@ export class KeyPool {
     const startOffset = providerState.nextOffset % accountCount;
     providerState.nextOffset = (providerState.nextOffset + 1) % accountCount;
 
+    const expiryBuffer = resolveExpiryBufferMs(this.config.expiryBufferMs);
     const idle: ProviderCredential[] = [];
     const busy: ProviderCredential[] = [];
     for (let index = 0; index < accountCount; index += 1) {
@@ -552,7 +568,7 @@ export class KeyPool {
         continue;
       }
 
-      const isExpired = typeof credential.expiresAt === "number" && credential.expiresAt <= now;
+      const isExpired = typeof credential.expiresAt === "number" && credential.expiresAt <= now + expiryBuffer;
       if (isExpired) {
         continue;
       }
@@ -601,33 +617,66 @@ export class KeyPool {
     providerId: string = this.config.defaultProviderId,
     refreshExpiredToken: (credential: ProviderCredential) => Promise<ProviderCredential | null>,
   ): Promise<ProviderCredential[]> {
-    const accounts = await this.getRequestOrder(providerId);
+    await this.ensureFreshProviders(false);
+
+    const normalizedProviderId = normalizeProviderId(providerId);
+    const providerState = this.providers.get(normalizedProviderId);
+    if (!providerState || providerState.accounts.length === 0) {
+      throw new Error(`No accounts configured for provider: ${normalizedProviderId}`);
+    }
+
+    const accountCount = providerState.accounts.length;
     const now = Date.now();
+    const startOffset = providerState.nextOffset % accountCount;
+    providerState.nextOffset = (providerState.nextOffset + 1) % accountCount;
+
+    const expiryBuffer = resolveExpiryBufferMs(this.config.expiryBufferMs);
+
+    const idle: ProviderCredential[] = [];
+    const busy: ProviderCredential[] = [];
+    const refreshCandidates: ProviderCredential[] = [];
+
+    for (let index = 0; index < accountCount; index += 1) {
+      const credential = providerState.accounts[(startOffset + index) % accountCount];
+      if (!credential) {
+        continue;
+      }
+
+      const cooldownUntil = this.cooldownByAccountKey.get(accountCooldownKey(credential)) ?? 0;
+      if (cooldownUntil > now) {
+        continue;
+      }
+
+      const needsRefresh = typeof credential.expiresAt === "number"
+        && credential.expiresAt <= now + expiryBuffer;
+
+      if (needsRefresh) {
+        if (credential.refreshToken) {
+          refreshCandidates.push(credential);
+        }
+        continue;
+      }
+
+      if ((this.inFlightByAccountKey.get(accountCooldownKey(credential)) ?? 0) > 0) {
+        busy.push(credential);
+      } else {
+        idle.push(credential);
+      }
+    }
+
     const refreshed: ProviderCredential[] = [];
-    const valid: ProviderCredential[] = [];
-
-    for (const account of accounts) {
-      const isExpired = typeof account.expiresAt === "number" && account.expiresAt <= now;
-      if (!isExpired) {
-        valid.push(account);
-        continue;
-      }
-
-      if (!account.refreshToken) {
-        continue;
-      }
-
+    for (const credential of refreshCandidates) {
       try {
-        const refreshedAccount = await refreshExpiredToken(account);
+        const refreshedAccount = await refreshExpiredToken(credential);
         if (refreshedAccount) {
           refreshed.push(refreshedAccount);
         }
       } catch {
-        // Skip accounts that fail refresh
+        // Skip accounts that fail refresh.
       }
     }
 
-    return [...valid, ...refreshed];
+    return [...idle, ...busy, ...refreshed];
   }
 
   public isAccountExpired(credential: ProviderCredential): boolean {
@@ -651,6 +700,47 @@ export class KeyPool {
         && typeof account.refreshToken === "string"
         && account.refreshToken.length > 0
     );
+  }
+
+  public getExpiringAccounts(windowMs: number): ProviderCredential[] {
+    const now = Date.now();
+    const result: ProviderCredential[] = [];
+
+    for (const providerState of this.providers.values()) {
+      for (const account of providerState.accounts) {
+        if (
+          typeof account.expiresAt === "number"
+          && account.expiresAt > now
+          && account.expiresAt <= now + windowMs
+          && typeof account.refreshToken === "string"
+          && account.refreshToken.length > 0
+        ) {
+          result.push(account);
+        }
+      }
+    }
+
+    return result;
+  }
+
+  public getAllExpiredWithRefreshTokens(): ProviderCredential[] {
+    const now = Date.now();
+    const result: ProviderCredential[] = [];
+
+    for (const providerState of this.providers.values()) {
+      for (const account of providerState.accounts) {
+        if (
+          typeof account.expiresAt === "number"
+          && account.expiresAt <= now
+          && typeof account.refreshToken === "string"
+          && account.refreshToken.length > 0
+        ) {
+          result.push(account);
+        }
+      }
+    }
+
+    return result;
   }
 
   public markInFlight(credential: ProviderCredential): () => void {

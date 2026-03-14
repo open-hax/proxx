@@ -94,7 +94,7 @@ test("FACTORY_BASE_URL env var overrides factory base URL", async () => {
 test("FACTORY_API_KEY env var creates factory provider in KeyPool", { concurrency: false }, async () => {
   await withEnv(
     {
-      FACTORY_API_KEY: "fk-test-factory-key-123",
+      FACTORY_API_KEY: "fk-test-factory-key-123", // pragma: allowlist secret
       FACTORY_AUTH_V2_FILE: "/tmp/nonexistent-auth-v2-file",
       FACTORY_AUTH_V2_KEY: "/tmp/nonexistent-auth-v2-key",
     },
@@ -306,7 +306,7 @@ test("parseJwtExpiry returns null for JWT without exp claim", () => {
 test("FACTORY_API_KEY and file-based factory keys coexist in KeyPool", { concurrency: false }, async () => {
   await withEnv(
     {
-      FACTORY_API_KEY: "fk-env-key",
+      FACTORY_API_KEY: "fk-env-key", // pragma: allowlist secret
       FACTORY_AUTH_V2_FILE: "/tmp/nonexistent-auth-v2-file",
       FACTORY_AUTH_V2_KEY: "/tmp/nonexistent-auth-v2-key",
     },
@@ -347,7 +347,7 @@ test("FACTORY_API_KEY and file-based factory keys coexist in KeyPool", { concurr
 test("decryptAuthV2 round-trips correctly with encryptAuthV2", () => {
   const keyBase64 = randomBytes(32).toString("base64");
   const data = {
-    access_token: "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0ZXN0IiwiZXhwIjoxNzAwMDAwMDAwfQ.sig",
+    access_token: "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0ZXN0IiwiZXhwIjoxNzAwMDAwMDAwfQ.sig", // pragma: allowlist secret
     refresh_token: "refresh-token-value",
   };
 
@@ -435,7 +435,7 @@ test("fk- API key and OAuth token coexist as separate accounts under factory", {
   try {
     await withEnv(
       {
-        FACTORY_API_KEY: "fk-my-api-key",
+        FACTORY_API_KEY: "fk-my-api-key", // pragma: allowlist secret
         FACTORY_AUTH_V2_FILE: authV2FilePath,
         FACTORY_AUTH_V2_KEY: authV2KeyPath,
       },
@@ -511,7 +511,7 @@ test("FACTORY_MODEL_PREFIXES env var overrides factory prefixes", async () => {
 test("fk- prefixed API key loads into KeyPool under factory provider", { concurrency: false }, async () => {
   await withEnv(
     {
-      FACTORY_API_KEY: "fk-abcdef123456",
+      FACTORY_API_KEY: "fk-abcdef123456", // pragma: allowlist secret
       FACTORY_AUTH_V2_FILE: "/tmp/nonexistent-auth-v2-file",
       FACTORY_AUTH_V2_KEY: "/tmp/nonexistent-auth-v2-key",
     },

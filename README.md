@@ -51,10 +51,11 @@ Alternative credential sources:
 
 Env-backed providers:
 
-- `OPENROUTER_API_KEY` automatically exposes an `openrouter` provider route
-- `REQUESTY_API_TOKEN` automatically exposes a `requesty` provider route
-- Both providers default to OpenAI-compatible `/v1/chat/completions` routing
-- You can target them by setting `UPSTREAM_PROVIDER_ID=openrouter` or `UPSTREAM_PROVIDER_ID=requesty`, or by listing them in `UPSTREAM_FALLBACK_PROVIDER_IDS`
+- `OPENROUTER_API_KEY` automatically exposes an `openrouter` provider route.
+- `REQUESTY_API_TOKEN` (or `REQUESTY_API_KEY`) automatically exposes a `requesty` provider route.
+- `GEMINI_API_KEY` automatically exposes a `gemini` provider route (native Gemini REST via `generateContent`).
+- `openrouter` and `requesty` default to OpenAI-compatible `/v1/chat/completions` routing.
+- You can target them by setting `UPSTREAM_PROVIDER_ID=openrouter|requesty|gemini`, or by listing them in `UPSTREAM_FALLBACK_PROVIDER_IDS`.
 
 ## Run
 
@@ -125,6 +126,9 @@ Notes:
 
 - `PROXY_HOST` (default: `127.0.0.1`)
 - `PROXY_PORT` (default: `8789`)
+- `OPENAI_OAUTH_CALLBACK_PORT` (default: `1455`; port used when building the browser OAuth redirect URL)
+- `STREAM_CHUNK_DELAY_MS` (optional; default: `0`; fixed delay added between synthetic SSE chunks)
+- `STREAM_CHUNK_DELAY_MS_MIN` / `STREAM_CHUNK_DELAY_MS_MAX` (optional; default: unset; random delay range between chunks)
 - `UPSTREAM_PROVIDER_ID` (default: `vivgrid`; provider key in `keys.json`)
 - `UPSTREAM_FALLBACK_PROVIDER_IDS` (default: auto `ollama-cloud` when primary is `vivgrid`, or `vivgrid` when primary is `ollama-cloud`; comma-separated)
 - `UPSTREAM_BASE_URL` (default: `https://api.vivgrid.com`)
@@ -139,6 +143,7 @@ Notes:
 - `UPSTREAM_MESSAGES_INTERLEAVED_THINKING_BETA` (default: `interleaved-thinking-2025-05-14`; set empty to disable auto `anthropic-beta` injection when thinking is enabled)
 - `UPSTREAM_RESPONSES_PATH` (default: `/v1/responses`)
 - `OPENAI_RESPONSES_PATH` (default: `/v1/responses`)
+- `UPSTREAM_IMAGES_GENERATIONS_PATH` (default: `/v1/images/generations`)
 - `UPSTREAM_RESPONSES_MODEL_PREFIXES` (default: `gpt-`; comma-separated prefixes)
 - `OPENAI_MODEL_PREFIXES` (default: `openai/,openai:`; comma-separated prefixes)
 - `OLLAMA_CHAT_PATH` (default: `/api/chat`)

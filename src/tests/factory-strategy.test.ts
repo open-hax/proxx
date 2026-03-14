@@ -17,6 +17,7 @@ import {
   buildFactoryCommonHeaders,
   buildFactoryAnthropicHeaders,
   inlineSystemPrompt,
+  sanitizeFactorySystemPrompt,
   isFkKey,
 } from "../lib/factory-compat.js";
 import type { ProviderCredential } from "../lib/key-pool.js";
@@ -100,6 +101,7 @@ async function withProxyApp(
       openai: `http://127.0.0.1:${address.port}`,
       openrouter: `http://127.0.0.1:${address.port}`,
       requesty: `http://127.0.0.1:${address.port}`,
+      gemini: `http://127.0.0.1:${address.port}`,
       factory: `http://127.0.0.1:${address.port}`,
     },
     upstreamBaseUrl: `http://127.0.0.1:${address.port}`,
@@ -115,6 +117,7 @@ async function withProxyApp(
     messagesInterleavedThinkingBeta: "interleaved-thinking-2025-05-14",
     responsesPath: "/v1/responses",
     openaiResponsesPath: "/v1/responses",
+    imagesGenerationsPath: "/v1/images/generations",
     responsesModelPrefixes: ["gpt-"],
     ollamaChatPath: "/api/chat",
     ollamaV1ChatPath: "/v1/chat/completions",
@@ -357,6 +360,19 @@ test("inlineSystemPrompt handles array content on first user message", () => {
   assert.equal((firstContent as Record<string, unknown>[])[0]?.["text"], "Be helpful.");
 });
 
+test("sanitizeFactorySystemPrompt replaces OpenCode system prompt", () => {
+  const prompt = "You are OpenCode, the best coding agent on the planet.\n\nTool usage rules...";
+  const sanitized = sanitizeFactorySystemPrompt(prompt);
+  assert.notEqual(sanitized, prompt);
+  assert.ok(!sanitized.includes("OpenCode"));
+  assert.ok(sanitized.toLowerCase().includes("software engineering assistant"));
+});
+
+test("sanitizeFactorySystemPrompt leaves normal prompts unchanged", () => {
+  const prompt = "You are a helpful assistant.";
+  assert.equal(sanitizeFactorySystemPrompt(prompt), prompt);
+});
+
 // ─── Unit Tests: isFkKey ────────────────────────────────────────────────────
 
 test("isFkKey detects fk- prefixed API keys", () => {
@@ -388,7 +404,7 @@ test("factory/claude-* routes to /api/llm/a/v1/messages", { concurrency: false }
 
   await withEnv(
     {
-      FACTORY_API_KEY: "fk-test-key",
+      FACTORY_API_KEY: "fk-test-key", // pragma: allowlist secret
       FACTORY_AUTH_V2_FILE: "/tmp/nonexistent-auth-v2-file",
       FACTORY_AUTH_V2_KEY: "/tmp/nonexistent-auth-v2-key",
     },
@@ -468,7 +484,7 @@ test("factory/gpt-* routes to /api/llm/o/v1/responses", { concurrency: false }, 
 
   await withEnv(
     {
-      FACTORY_API_KEY: "fk-test-key",
+      FACTORY_API_KEY: "fk-test-key", // pragma: allowlist secret
       FACTORY_AUTH_V2_FILE: "/tmp/nonexistent-auth-v2-file",
       FACTORY_AUTH_V2_KEY: "/tmp/nonexistent-auth-v2-key",
     },
@@ -537,7 +553,7 @@ test("factory/gemini-* routes to /api/llm/o/v1/chat/completions", { concurrency:
 
   await withEnv(
     {
-      FACTORY_API_KEY: "fk-test-key",
+      FACTORY_API_KEY: "fk-test-key", // pragma: allowlist secret
       FACTORY_AUTH_V2_FILE: "/tmp/nonexistent-auth-v2-file",
       FACTORY_AUTH_V2_KEY: "/tmp/nonexistent-auth-v2-key",
     },
@@ -606,7 +622,7 @@ test("factory/DeepSeek-* routes to /api/llm/o/v1/chat/completions with fireworks
 
   await withEnv(
     {
-      FACTORY_API_KEY: "fk-test-key",
+      FACTORY_API_KEY: "fk-test-key", // pragma: allowlist secret
       FACTORY_AUTH_V2_FILE: "/tmp/nonexistent-auth-v2-file",
       FACTORY_AUTH_V2_KEY: "/tmp/nonexistent-auth-v2-key",
     },
@@ -665,7 +681,7 @@ test("factory claude requests inline system prompt into first user message", { c
 
   await withEnv(
     {
-      FACTORY_API_KEY: "fk-test-key",
+      FACTORY_API_KEY: "fk-test-key", // pragma: allowlist secret
       FACTORY_AUTH_V2_FILE: "/tmp/nonexistent-auth-v2-file",
       FACTORY_AUTH_V2_KEY: "/tmp/nonexistent-auth-v2-key",
     },
@@ -726,6 +742,68 @@ test("factory claude requests inline system prompt into first user message", { c
   );
 });
 
+test("factory claude requests sanitize OpenCode system prompt before upstream", { concurrency: false }, async () => {
+  let capturedBody = "";
+
+  await withEnv(
+    {
+      FACTORY_API_KEY: "fk-test-key", // pragma: allowlist secret
+      FACTORY_AUTH_V2_FILE: "/tmp/nonexistent-auth-v2-file",
+      FACTORY_AUTH_V2_KEY: "/tmp/nonexistent-auth-v2-key",
+    },
+    async () => {
+      await withProxyApp(
+        {
+          keys: [],
+          keysPayload: { providers: {} },
+          upstreamHandler: async (_request, body) => {
+            capturedBody = body;
+
+            return {
+              status: 200,
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                id: "msg_123",
+                type: "message",
+                role: "assistant",
+                content: [{ type: "text", text: "OK" }],
+                model: "claude-opus-4-5",
+                usage: { input_tokens: 10, output_tokens: 5 },
+              }),
+            };
+          },
+        },
+        async ({ app }) => {
+          const response = await app.inject({
+            method: "POST",
+            url: "/v1/chat/completions",
+            payload: {
+              model: "factory/claude-opus-4-5",
+              messages: [
+                { role: "system", content: "You are OpenCode, the best coding agent on the planet." },
+                { role: "user", content: "Write hello world" },
+              ],
+            },
+          });
+
+          assert.equal(response.statusCode, 200);
+
+          const parsedBody = JSON.parse(capturedBody) as Record<string, unknown>;
+          const messages = parsedBody["messages"] as Record<string, unknown>[];
+          const firstUser = messages.find((m) => m["role"] === "user");
+          assert.ok(firstUser);
+
+          const content = firstUser["content"];
+          assert.ok(typeof content === "string");
+          assert.ok(!content.includes("You are OpenCode"));
+          assert.ok(content.toLowerCase().includes("software engineering assistant"));
+          assert.ok(content.includes("Write hello world"));
+        },
+      );
+    },
+  );
+});
+
 // VAL-HEADER-006: Messages endpoint body correctly translated
 
 test("factory claude requests translate chat format to Anthropic Messages format", { concurrency: false }, async () => {
@@ -733,7 +811,7 @@ test("factory claude requests translate chat format to Anthropic Messages format
 
   await withEnv(
     {
-      FACTORY_API_KEY: "fk-test-key",
+      FACTORY_API_KEY: "fk-test-key", // pragma: allowlist secret
       FACTORY_AUTH_V2_FILE: "/tmp/nonexistent-auth-v2-file",
       FACTORY_AUTH_V2_KEY: "/tmp/nonexistent-auth-v2-key",
     },
@@ -790,7 +868,7 @@ test("factory gpt requests translate chat format to Responses format", { concurr
 
   await withEnv(
     {
-      FACTORY_API_KEY: "fk-test-key",
+      FACTORY_API_KEY: "fk-test-key", // pragma: allowlist secret
       FACTORY_AUTH_V2_FILE: "/tmp/nonexistent-auth-v2-file",
       FACTORY_AUTH_V2_KEY: "/tmp/nonexistent-auth-v2-key",
     },
@@ -844,7 +922,7 @@ test("factory requests use Bearer authorization header", { concurrency: false },
 
   await withEnv(
     {
-      FACTORY_API_KEY: "fk-test-key-auth",
+      FACTORY_API_KEY: "fk-test-key-auth", // pragma: allowlist secret
       FACTORY_AUTH_V2_FILE: "/tmp/nonexistent-auth-v2-file",
       FACTORY_AUTH_V2_KEY: "/tmp/nonexistent-auth-v2-key",
     },
@@ -940,7 +1018,7 @@ test("factory/ prefix forces routing through Factory provider", { concurrency: f
 
   await withEnv(
     {
-      FACTORY_API_KEY: "fk-test-key",
+      FACTORY_API_KEY: "fk-test-key", // pragma: allowlist secret
       FACTORY_AUTH_V2_FILE: "/tmp/nonexistent-auth-v2-file",
       FACTORY_AUTH_V2_KEY: "/tmp/nonexistent-auth-v2-key",
     },

@@ -403,9 +403,9 @@ test("multiple Factory accounts rotate via round-robin", { concurrency: false },
             factory: {
               auth: "api_key",
               accounts: [
-                { id: "acct-1", api_key: "fk-key-1" },
-                { id: "acct-2", api_key: "fk-key-2" },
-                { id: "acct-3", api_key: "fk-key-3" },
+                { id: "acct-1", api_key: "fk-key-1" }, // pragma: allowlist secret
+                { id: "acct-2", api_key: "fk-key-2" }, // pragma: allowlist secret
+                { id: "acct-3", api_key: "fk-key-3" }, // pragma: allowlist secret
               ],
             },
           },
@@ -515,8 +515,8 @@ test("Factory account placed in cooldown after 429 response", { concurrency: fal
             factory: {
               auth: "api_key",
               accounts: [
-                { id: "acct-1", api_key: "fk-key-1" },
-                { id: "acct-2", api_key: "fk-key-2" },
+                { id: "acct-1", api_key: "fk-key-1" }, // pragma: allowlist secret
+                { id: "acct-2", api_key: "fk-key-2" }, // pragma: allowlist secret
               ],
             },
           },
@@ -562,7 +562,7 @@ test("Factory 429 cooldown: all accounts rate-limited returns empty", { concurre
             factory: {
               auth: "api_key",
               accounts: [
-                { id: "acct-1", api_key: "fk-key-1" },
+                { id: "acct-1", api_key: "fk-key-1" }, // pragma: allowlist secret
               ],
             },
           },
@@ -732,7 +732,7 @@ test("in-flight token remains valid during refresh (KeyPool snapshot)", { concur
 test("Factory credentials are isolated from other providers", { concurrency: false }, async () => {
   await withEnv(
     {
-      FACTORY_API_KEY: "fk-factory-only",
+      FACTORY_API_KEY: "fk-factory-only", // pragma: allowlist secret
       FACTORY_AUTH_V2_FILE: "/tmp/nonexistent-auth-v2-file",
       FACTORY_AUTH_V2_KEY: "/tmp/nonexistent-auth-v2-key",
     },
