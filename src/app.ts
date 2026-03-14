@@ -800,7 +800,11 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     }
 
     const requestBody = request.body;
-    app.log.info({ responsesBody: JSON.stringify(requestBody).slice(0, 2000) }, "responses passthrough: incoming body");
+    app.log.info({ 
+      responsesBody: JSON.stringify(requestBody).slice(0, 5000),
+      hasPromptCacheKey: !!requestBody.prompt_cache_key || !!requestBody.promptCacheKey,
+      promptCacheKey: requestBody.prompt_cache_key || requestBody.promptCacheKey
+    }, "responses passthrough: incoming body");
     const model = typeof requestBody.model === "string" ? requestBody.model : "";
     if (model.length === 0) {
       sendOpenAiError(reply, 400, "Missing required field: model", "invalid_request_error", "missing_model");
