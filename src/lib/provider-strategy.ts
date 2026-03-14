@@ -1524,6 +1524,7 @@ class OpenAiResponsesPassthroughStrategy extends BaseProviderStrategy {
   public buildPayload(context: StrategyRequestContext): BuildPayloadResult {
     const upstreamPayload: Record<string, unknown> = { ...context.requestBody };
     delete upstreamPayload["open_hax"];
+    delete upstreamPayload["max_output_tokens"];
     upstreamPayload["store"] = false;
     upstreamPayload["stream"] = true;
     if (upstreamPayload["instructions"] === undefined) {
@@ -1881,7 +1882,8 @@ export function buildResponsesPassthroughContext(
     routingModelInput: model,
     routedModel: routingState.routedModel,
     explicitOllama: false,
-    openAiPrefixed: routingState.openAiPrefixed,
+    openAiPrefixed: routingState.openAiPrefixed
+      || (!routingState.factoryPrefixed && config.upstreamProviderId === config.openaiProviderId),
     factoryPrefixed: routingState.factoryPrefixed,
     localOllama: false,
     clientWantsStream,
