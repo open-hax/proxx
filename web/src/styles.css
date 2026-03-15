@@ -49,9 +49,9 @@ textarea {
 .shell-root {
   max-width: 1400px;
   margin: 0 auto;
-  padding: 18px;
+  padding: 10px;
   display: grid;
-  gap: 14px;
+  gap: 8px;
 }
 
 .shell-root-dashboard {
@@ -63,37 +63,44 @@ textarea {
 
 .shell-header {
   display: grid;
-  grid-template-columns: 1.4fr 1fr;
-  gap: 16px;
-  padding: 16px;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  padding: 8px 12px;
   border: 1px solid var(--border);
-  border-radius: 16px;
+  border-radius: 12px;
   background: linear-gradient(155deg, rgba(19, 43, 58, 0.88), rgba(11, 26, 36, 0.86));
   box-shadow: var(--shadow-strong);
+  align-items: center;
 }
 
 .shell-brand h1 {
   margin: 0;
-  font-size: clamp(1.2rem, 1.3vw + 0.8rem, 2rem);
+  font-size: 1.1rem;
   letter-spacing: 0.02em;
 }
 
 .shell-brand p {
-  margin: 10px 0 0 0;
+  margin: 0;
+  font-size: 0.78rem;
+}
+
+.shell-brand p + p {
+  margin: 2px 0 0 0;
   color: var(--text-muted);
 }
 
 .shell-auth {
   display: grid;
-  gap: 8px;
+  gap: 4px;
+  font-size: 0.82rem;
 }
 
 .shell-settings-card {
   display: grid;
-  gap: 6px;
-  padding: 10px 12px;
+  gap: 4px;
+  padding: 6px 10px;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 8px;
   background: rgba(9, 21, 30, 0.68);
 }
 
@@ -115,11 +122,12 @@ textarea {
 input,
 select,
 textarea {
-  border-radius: 12px;
+  border-radius: 8px;
   border: 1px solid var(--border);
   background: rgba(7, 19, 28, 0.78);
   color: var(--text-main);
-  padding: 10px 12px;
+  padding: 5px 10px;
+  font-size: 0.82rem;
 }
 
 input:focus,
@@ -131,11 +139,12 @@ textarea:focus {
 }
 
 button {
-  border-radius: 12px;
+  border-radius: 8px;
   border: 1px solid rgba(90, 205, 237, 0.45);
   background: linear-gradient(140deg, rgba(33, 131, 158, 0.8), rgba(20, 75, 95, 0.9));
   color: var(--text-main);
-  padding: 9px 13px;
+  padding: 5px 10px;
+  font-size: 0.82rem;
   cursor: pointer;
   transition: transform 120ms ease, box-shadow 120ms ease;
 }
@@ -153,7 +162,7 @@ button:disabled {
 
 .shell-nav {
   display: flex;
-  gap: 8px;
+  gap: 4px;
 }
 
 .nav-link {
@@ -161,7 +170,8 @@ button:disabled {
   color: var(--text-muted);
   border: 1px solid var(--border);
   border-radius: 999px;
-  padding: 8px 14px;
+  padding: 4px 12px;
+  font-size: 0.82rem;
   background: rgba(16, 32, 44, 0.7);
 }
 
@@ -204,7 +214,7 @@ button:disabled {
     "metrics metrics metrics"
     "tokens  tier    trend"
     "pool    logs    health";
-  gap: 10px;
+  gap: 6px;
   height: 100%;
   min-height: 0;
   overflow: hidden;
@@ -222,7 +232,7 @@ button:disabled {
 .dashboard-panel,
 .dashboard-metric-card {
   border: 1px solid var(--border);
-  border-radius: 18px;
+  border-radius: 10px;
   background: rgba(12, 25, 35, 0.84);
   backdrop-filter: blur(8px);
   box-shadow: var(--shadow-strong);
@@ -230,16 +240,17 @@ button:disabled {
 
 .dashboard-hero {
   display: grid;
-  grid-template-columns: 1.4fr auto;
-  gap: 20px;
-  padding: 22px;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  padding: 8px 14px;
+  align-items: center;
 }
 
 .dashboard-kicker {
-  margin: 0 0 10px 0;
+  margin: 0 0 2px 0;
   text-transform: uppercase;
   letter-spacing: 0.18em;
-  font-size: 0.76rem;
+  font-size: 0.68rem;
   color: #9ae7ff;
 }
 
@@ -249,35 +260,45 @@ button:disabled {
 }
 
 .dashboard-hero h2 {
-  font-size: clamp(1.2rem, 1.2vw + 0.6rem, 1.8rem);
+  font-size: 1rem;
   max-width: 36ch;
 }
 
 .dashboard-hero p {
   color: var(--text-muted);
   max-width: 64ch;
+  margin: 2px 0 0;
+  font-size: 0.78rem;
 }
 
 .dashboard-hero-meta {
   display: grid;
-  gap: 10px;
-  align-content: start;
+  gap: 2px;
+  align-content: center;
   justify-items: end;
   color: var(--text-dim);
-  font-size: 0.9rem;
+  font-size: 0.75rem;
 }
 
 .dashboard-metrics-grid {
   grid-area: metrics;
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
+  gap: 6px;
 }
 
 .dashboard-metric-card {
-  padding: 16px;
+  padding: 8px 12px;
   display: grid;
-  gap: 8px;
+  gap: 4px;
+}
+
+.dashboard-metric-card span {
+  font-size: 0.72rem;
+}
+
+.dashboard-metric-card small {
+  font-size: 0.72rem;
 }
 
 .dashboard-metric-card span,
@@ -289,7 +310,7 @@ button:disabled {
 }
 
 .dashboard-metric-card strong {
-  font-size: 1.8rem;
+  font-size: 1.3rem;
   line-height: 1;
 }
 
@@ -310,7 +331,7 @@ button:disabled {
 }
 
 .dashboard-sparkbars {
-  height: 54px;
+  height: 32px;
   display: grid;
   grid-auto-flow: column;
   grid-auto-columns: minmax(0, 1fr);
@@ -335,10 +356,10 @@ button:disabled {
 /* detail-grid wrappers removed — panels are now direct grid children */
 
 .dashboard-panel {
-  padding: 16px;
+  padding: 8px 10px;
   display: grid;
   grid-template-rows: auto 1fr;
-  gap: 14px;
+  gap: 6px;
   min-height: 0;
   overflow: hidden;
 }
@@ -351,24 +372,29 @@ button:disabled {
 .dashboard-panel-header {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
+  gap: 8px;
   align-items: start;
 }
 
+.dashboard-panel h3 {
+  font-size: 0.88rem;
+}
+
 .dashboard-panel-header p {
-  margin: 6px 0 0 0;
+  margin: 2px 0 0 0;
+  font-size: 0.72rem;
 }
 
 .dashboard-donut-wrap {
   display: grid;
-  grid-template-columns: minmax(180px, 240px) 1fr;
-  gap: 18px;
+  grid-template-columns: minmax(100px, 140px) 1fr;
+  gap: 10px;
   align-items: center;
 }
 
 .dashboard-donut-chart {
   width: 100%;
-  max-width: 240px;
+  max-width: 140px;
   transform: rotate(-90deg);
 }
 
@@ -390,23 +416,25 @@ button:disabled {
 .dashboard-donut-segment-5 { stroke: #c79bff; background-color: #c79bff; }
 
 .dashboard-donut-empty {
-  min-height: 160px;
+  min-height: 80px;
   display: grid;
   place-items: center;
   color: var(--text-dim);
   border: 1px dashed rgba(147, 198, 218, 0.18);
-  border-radius: 16px;
+  border-radius: 10px;
+  font-size: 0.78rem;
 }
 
 .dashboard-donut-legend {
   display: grid;
-  gap: 10px;
+  gap: 4px;
+  font-size: 0.78rem;
 }
 
 .dashboard-legend-row {
   display: grid;
   grid-template-columns: auto 1fr;
-  gap: 10px;
+  gap: 6px;
   align-items: center;
 }
 
@@ -423,17 +451,17 @@ button:disabled {
 
 .dashboard-trend-grid {
   display: grid;
-  gap: 18px;
+  gap: 10px;
 }
 
 .dashboard-tier-summary {
   display: grid;
-  gap: 14px;
+  gap: 8px;
 }
 
 .dashboard-tier-summary-row {
   display: grid;
-  gap: 8px;
+  gap: 4px;
 }
 
 .dashboard-tier-summary-labels {
@@ -444,7 +472,7 @@ button:disabled {
 }
 
 .dashboard-tier-summary-labels strong {
-  font-size: 0.98rem;
+  font-size: 0.82rem;
 }
 
 .dashboard-tier-summary-labels small {
@@ -452,7 +480,7 @@ button:disabled {
 }
 
 .dashboard-tier-summary-track {
-  height: 10px;
+  height: 6px;
   border-radius: 999px;
   background: rgba(147, 198, 218, 0.08);
   overflow: hidden;
@@ -471,46 +499,49 @@ button:disabled {
 .dashboard-account-table-header,
 .dashboard-account-row {
   display: grid;
-  grid-template-columns: minmax(180px, 2fr) 120px 100px 120px minmax(150px, 1.2fr);
-  gap: 12px;
+  grid-template-columns: minmax(140px, 2fr) 80px 60px 80px minmax(100px, 1fr);
+  gap: 6px;
   align-items: center;
+  font-size: 0.75rem;
 }
 
 .dashboard-account-table-header {
-  padding: 0 0 12px 0;
+  padding: 0 0 6px 0;
   color: var(--text-dim);
-  font-size: 0.82rem;
+  font-size: 0.7rem;
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
 
 .dashboard-account-row {
-  padding: 12px 0;
+  padding: 6px 0;
   border-top: 1px solid rgba(147, 198, 218, 0.12);
 }
 
 .dashboard-account-empty {
-  padding: 24px 0;
+  padding: 12px 0;
   color: var(--text-dim);
+  font-size: 0.78rem;
 }
 
 .dashboard-provider-grid,
 .dashboard-log-table {
   display: grid;
-  gap: 12px;
+  gap: 6px;
 }
 
 .dashboard-provider-grid {
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
 }
 
 .dashboard-provider-card {
   border: 1px solid rgba(147, 198, 218, 0.16);
-  border-radius: 14px;
-  padding: 14px;
+  border-radius: 8px;
+  padding: 8px 10px;
   background: rgba(9, 19, 27, 0.62);
   display: grid;
-  gap: 12px;
+  gap: 6px;
+  font-size: 0.78rem;
 }
 
 .dashboard-provider-card-header {
@@ -522,7 +553,7 @@ button:disabled {
 
 .dashboard-provider-card dl {
   display: grid;
-  gap: 8px;
+  gap: 3px;
   margin: 0;
 }
 
@@ -549,27 +580,28 @@ button:disabled {
 .dashboard-log-header,
 .dashboard-log-row {
   display: grid;
-  grid-template-columns: 110px minmax(140px, 1.4fr) minmax(120px, 1.2fr) 110px 90px 90px;
-  gap: 12px;
+  grid-template-columns: 80px minmax(100px, 1.4fr) minmax(80px, 1fr) 80px 60px 60px;
+  gap: 6px;
   align-items: center;
+  font-size: 0.75rem;
 }
 
 .dashboard-log-header {
-  font-size: 0.82rem;
+  font-size: 0.7rem;
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
 
 .dashboard-log-row {
   border-top: 1px solid rgba(147, 198, 218, 0.12);
-  padding-top: 12px;
+  padding-top: 6px;
 }
 
 .dashboard-status-pill {
   width: fit-content;
-  padding: 4px 10px;
+  padding: 2px 7px;
   border-radius: 999px;
-  font-size: 0.8rem;
+  font-size: 0.7rem;
   text-transform: capitalize;
   border: 1px solid transparent;
 }
