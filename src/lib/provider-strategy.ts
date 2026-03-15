@@ -105,6 +105,24 @@ function shouldCooldownCredentialOnAuthFailure(providerId: string, status: numbe
   return false;
 }
 
+/**
+ * For API-key providers (vivgrid, ollama-cloud, openrouter, requesty, etc.),
+ * a 402 or 403 means the key has been disabled or the account was suspended.
+ * These should be treated as permanent failures — the key will not recover
+ * without manual intervention.
+ *
+ * OAuth accounts are excluded: 402/403 may be transient (plan changes,
+ * temporary holds) and the token can be refreshed.
+ */
+const PERMANENT_DISABLE_COOLDOWN_MS = 365 * 24 * 60 * 60 * 1000;
+
+function shouldPermanentlyDisableCredential(credential: ProviderCredential, status: number): boolean {
+  if (credential.authType !== "api_key") {
+    return false;
+  }
+  return status === 402 || status === 403;
+}
+
 function reorderCandidatesForAffinity<T extends { readonly providerId: string; readonly account: ProviderCredential }>(
   candidates: readonly T[],
   preferred: PreferredAffinity | undefined,
@@ -2830,12 +2848,12 @@ export async function executeProviderFallback(
 
       if (await responseIndicatesQuotaError(upstreamResponse)) {
         accumulator.sawRateLimit = true;
-        // A 402 indicates a payment/balance issue — the account is unusable
-        // until the user pays, so apply a long cooldown (24 hours) instead of
-        // the short transient cooldown used for normal quota exhaustion.
-        const quotaCooldownMs = upstreamResponse.status === 402
-          ? 24 * 60 * 60 * 1000
-          : Math.min(context.config.keyCooldownMs, 60_000);
+        const permanentlyDisable = shouldPermanentlyDisableCredential(candidate.account, upstreamResponse.status);
+        const quotaCooldownMs = permanentlyDisable
+          ? PERMANENT_DISABLE_COOLDOWN_MS
+          : upstreamResponse.status === 402
+            ? 24 * 60 * 60 * 1000
+            : Math.min(context.config.keyCooldownMs, 60_000);
         keyPool.markRateLimited(candidate.account, quotaCooldownMs);
         if (healthStore) {
           healthStore.recordFailure(candidate.account, upstreamResponse.status, "quota_exhausted");
@@ -3022,9 +3040,15 @@ export async function executeProviderFallback(
         if (preferredAffinity && candidate.providerId === preferredAffinity.providerId && candidate.account.accountId === preferredAffinity.accountId) {
           preferredReassignmentAllowed = true;
         }
-      } else if (!upstreamResponse.ok && outcome.requestError === true && (upstreamResponse.status === 401 || upstreamResponse.status === 403)) {
-        if (shouldCooldownCredentialOnAuthFailure(candidate.providerId, upstreamResponse.status)) {
-          keyPool.markRateLimited(candidate.account, Math.min(context.config.keyCooldownMs, 10_000));
+      } else if (!upstreamResponse.ok && outcome.requestError === true && (upstreamResponse.status === 401 || upstreamResponse.status === 402 || upstreamResponse.status === 403)) {
+        if (shouldCooldownCredentialOnAuthFailure(candidate.providerId, upstreamResponse.status) || shouldPermanentlyDisableCredential(candidate.account, upstreamResponse.status)) {
+          const cooldownMs = shouldPermanentlyDisableCredential(candidate.account, upstreamResponse.status)
+            ? PERMANENT_DISABLE_COOLDOWN_MS
+            : Math.min(context.config.keyCooldownMs, 10_000);
+          keyPool.markRateLimited(candidate.account, cooldownMs);
+          if (healthStore) {
+            healthStore.recordFailure(candidate.account, upstreamResponse.status, "credential_disabled");
+          }
           if (preferredAffinity && candidate.providerId === preferredAffinity.providerId && candidate.account.accountId === preferredAffinity.accountId) {
             preferredReassignmentAllowed = true;
           }

@@ -2343,6 +2343,100 @@ test("returns 429 when every key is rate-limited", async () => {
   );
 });
 
+test("permanently disables api_key accounts on 402 (payment required)", async () => {
+  let requestCount = 0;
+
+  await withProxyApp(
+    {
+      keys: ["suspended-key"],
+      upstreamHandler: async () => {
+        requestCount++;
+        return {
+          status: 402,
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ error: { message: "Payment required" } })
+        };
+      }
+    },
+    async ({ app }) => {
+      const first = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: { "content-type": "application/json" },
+        payload: {
+          model: "gpt-5.3-codex",
+          messages: [{ role: "user", content: "hello" }],
+          stream: false
+        }
+      });
+
+      assert.ok([402, 429, 500, 502].includes(first.statusCode), `first request should fail, got ${first.statusCode}`);
+      const firstCount = requestCount;
+      assert.equal(firstCount, 1, "should have made exactly one upstream attempt");
+
+      const second = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: { "content-type": "application/json" },
+        payload: {
+          model: "gpt-5.3-codex",
+          messages: [{ role: "user", content: "hello" }],
+          stream: false
+        }
+      });
+
+      assert.equal(requestCount, firstCount, "second request must not reach upstream — account is permanently disabled");
+      assert.ok([429, 500, 502].includes(second.statusCode), `second request should fail with no keys, got ${second.statusCode}`);
+    }
+  );
+});
+
+test("permanently disables api_key accounts on 403 (forbidden/suspended)", async () => {
+  let requestCount = 0;
+
+  await withProxyApp(
+    {
+      keys: ["banned-key"],
+      upstreamHandler: async () => {
+        requestCount++;
+        return {
+          status: 403,
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ error: { message: "Forbidden" } })
+        };
+      }
+    },
+    async ({ app }) => {
+      const first = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: { "content-type": "application/json" },
+        payload: {
+          model: "gpt-5.3-codex",
+          messages: [{ role: "user", content: "hello" }],
+          stream: false
+        }
+      });
+
+      assert.ok(first.statusCode >= 400, `first request should fail, got ${first.statusCode}`);
+      const firstCount = requestCount;
+
+      const second = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: { "content-type": "application/json" },
+        payload: {
+          model: "gpt-5.3-codex",
+          messages: [{ role: "user", content: "hello" }],
+          stream: false
+        }
+      });
+
+      assert.equal(requestCount, firstCount, "second request must not reach upstream — account is permanently disabled");
+    }
+  );
+});
+
 test("does not classify successful payload text as quota exhaustion", async () => {
   const observedKeys: string[] = [];
 
