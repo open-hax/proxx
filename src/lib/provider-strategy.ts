@@ -429,6 +429,32 @@ function asBoolean(value: unknown): boolean | undefined {
   return typeof value === "boolean" ? value : undefined;
 }
 
+function stripTrailingAssistantPrefill(payload: Record<string, unknown>): void {
+  const input = payload["input"];
+  if (!Array.isArray(input) || input.length === 0) {
+    return;
+  }
+
+  let lastIndex = input.length - 1;
+  while (lastIndex >= 0) {
+    const item = input[lastIndex];
+    if (!isRecord(item)) {
+      break;
+    }
+
+    const role = asString(item["role"]);
+    if (role !== "assistant") {
+      break;
+    }
+
+    lastIndex--;
+  }
+
+  if (lastIndex < input.length - 1) {
+    payload["input"] = input.slice(0, lastIndex + 1);
+  }
+}
+
 function hasExplicitServiceTierRequest(context: StrategyRequestContext): boolean {
   const openHax = isRecord(context.requestBody["open_hax"]) ? context.requestBody["open_hax"] : null;
 
@@ -1443,6 +1469,7 @@ class ResponsesProviderStrategy extends TransformedJsonProviderStrategy {
   public buildPayload(context: StrategyRequestContext): BuildPayloadResult {
     const upstreamPayload = chatRequestToResponsesRequest(buildRequestBodyForUpstream(context));
     applyRequestedServiceTier(upstreamPayload, context);
+    stripTrailingAssistantPrefill(upstreamPayload);
     return buildPayloadResult(upstreamPayload, context);
   }
 
@@ -1539,8 +1566,12 @@ class OpenAiResponsesProviderStrategy extends TransformedJsonProviderStrategy {
   public buildPayload(context: StrategyRequestContext): BuildPayloadResult {
     const upstreamPayload = chatRequestToResponsesRequest(buildRequestBodyForUpstream(context));
     applyRequestedServiceTier(upstreamPayload, context);
+    if (upstreamPayload["instructions"] == null) {
+      upstreamPayload["instructions"] = "";
+    }
     upstreamPayload["store"] = false;
     upstreamPayload["stream"] = true;
+    stripTrailingAssistantPrefill(upstreamPayload);
     return buildPayloadResult(upstreamPayload, context);
   }
 
@@ -1626,7 +1657,7 @@ class OpenAiResponsesProviderStrategy extends TransformedJsonProviderStrategy {
   }
 }
 
-class OpenAiChatCompletionsProviderStrategy extends BaseProviderStrategy {
+class OpenAiChatCompletionsProviderStrategy extends TransformedJsonProviderStrategy {
   public readonly mode = "openai_chat_completions" as const;
 
   public readonly isLocal = false;
@@ -1636,13 +1667,100 @@ class OpenAiChatCompletionsProviderStrategy extends BaseProviderStrategy {
   }
 
   public getUpstreamPath(context: StrategyRequestContext): string {
-    return context.config.openaiChatCompletionsPath;
+    return context.config.openaiResponsesPath;
   }
 
   public buildPayload(context: StrategyRequestContext): BuildPayloadResult {
-    const upstreamPayload = buildRequestBodyForUpstream(context);
-    ensureChatCompletionsUsageInStream(upstreamPayload);
+    const upstreamPayload = chatRequestToResponsesRequest(buildRequestBodyForUpstream(context));
+    applyRequestedServiceTier(upstreamPayload, context);
+    if (upstreamPayload["instructions"] == null) {
+      upstreamPayload["instructions"] = "";
+    }
+    upstreamPayload["store"] = false;
+    upstreamPayload["stream"] = true;
+    stripTrailingAssistantPrefill(upstreamPayload);
     return buildPayloadResult(upstreamPayload, context);
+  }
+
+  public override async handleProviderAttempt(
+    reply: FastifyReply,
+    upstreamResponse: Response,
+    context: ProviderAttemptContext
+  ): Promise<ProviderAttemptOutcome> {
+    const contentType = upstreamResponse.headers.get("content-type") ?? "";
+    const looksLikeEventStream = contentType.toLowerCase().includes("text/event-stream")
+      || contentType.length === 0;
+
+    if (!upstreamResponse.ok || !looksLikeEventStream) {
+      return super.handleProviderAttempt(reply, upstreamResponse, context);
+    }
+
+    const streamText = await upstreamResponse.text();
+    const upstreamError = responsesEventStreamToErrorPayload(streamText);
+    if (upstreamError) {
+      reply.header("x-open-hax-upstream-provider", context.providerId);
+      reply.code(400);
+      reply.header("content-type", "application/json");
+      reply.send({ error: upstreamError });
+      return { kind: "handled" };
+    }
+
+    let chatCompletion: Record<string, unknown>;
+    try {
+      chatCompletion = responsesEventStreamToChatCompletion(streamText, context.routedModel);
+    } catch {
+      return {
+        kind: "continue",
+        requestError: true
+      };
+    }
+
+    if (context.needsReasoningTrace && !chatCompletionHasReasoningContent(chatCompletion) && context.hasMoreCandidates) {
+      return {
+        kind: "continue",
+        requestError: true
+      };
+    }
+
+    reply.header("x-open-hax-upstream-provider", context.providerId);
+
+    if (context.clientWantsStream) {
+      const terminalResponse = extractTerminalResponseFromEventStream(streamText);
+      if (terminalResponse && responsesOutputHasReasoning(terminalResponse)) {
+        reply.code(200);
+        reply.header("content-type", "text/event-stream; charset=utf-8");
+        reply.header("cache-control", "no-cache");
+        reply.header("x-accel-buffering", "no");
+        reply.hijack();
+        const rawResponse = reply.raw;
+        rawResponse.statusCode = 200;
+        for (const [name, value] of Object.entries(reply.getHeaders())) {
+          if (value !== undefined) {
+            rawResponse.setHeader(name, value as never);
+          }
+        }
+        rawResponse.flushHeaders();
+        await writeInterleavedResponsesSse(terminalResponse, context.routedModel, (data) => rawResponse.write(data));
+        rawResponse.end();
+        return { kind: "handled" };
+      }
+
+      reply.code(200);
+      reply.header("content-type", "text/event-stream; charset=utf-8");
+      reply.header("cache-control", "no-cache");
+      reply.header("x-accel-buffering", "no");
+      reply.send(chatCompletionToSse(chatCompletion));
+      return { kind: "handled" };
+    }
+
+    reply.code(200);
+    reply.header("content-type", "application/json");
+    reply.send(chatCompletion);
+    return { kind: "handled" };
+  }
+
+  protected convertResponseToChatCompletion(upstreamJson: unknown, routedModel: string): Record<string, unknown> {
+    return responsesToChatCompletion(upstreamJson, routedModel);
   }
 }
 
@@ -1702,6 +1820,7 @@ class ResponsesPassthroughStrategy extends BaseProviderStrategy {
   public buildPayload(context: StrategyRequestContext): BuildPayloadResult {
     const upstreamPayload: Record<string, unknown> = { ...context.requestBody };
     delete upstreamPayload["open_hax"];
+    stripTrailingAssistantPrefill(upstreamPayload);
     return buildPayloadResult(upstreamPayload, context);
   }
 
@@ -1779,9 +1898,10 @@ class OpenAiResponsesPassthroughStrategy extends BaseProviderStrategy {
     delete upstreamPayload["open_hax"];
     upstreamPayload["store"] = false;
     upstreamPayload["stream"] = true;
-    if (upstreamPayload["instructions"] === undefined) {
+    if (upstreamPayload["instructions"] == null) {
       upstreamPayload["instructions"] = "";
     }
+    stripTrailingAssistantPrefill(upstreamPayload);
     return buildPayloadResult(upstreamPayload, context);
   }
 

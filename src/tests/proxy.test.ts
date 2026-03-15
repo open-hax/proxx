@@ -3745,6 +3745,213 @@ test("routes gpt-5.4 through responses for openai oauth accounts", async () => {
   );
 });
 
+test("injects instructions for gpt-5.2 routed through openai oauth (regression: codex instructions required)", async () => {
+  let observedPath = "";
+  let observedBody: Record<string, unknown> | undefined;
+
+  await withProxyApp(
+    {
+      keys: [],
+      keysPayload: {
+        providers: {
+          openai: {
+            auth: "oauth_bearer",
+            accounts: [
+              { id: "openai-a", access_token: "oa-token-a", chatgpt_account_id: "chatgpt-a" },
+            ]
+          }
+        }
+      },
+      configOverrides: {
+        upstreamProviderId: "openai",
+        upstreamFallbackProviderIds: [],
+      },
+      upstreamHandler: async (request, body) => {
+        observedPath = request.url ?? "";
+        observedBody = JSON.parse(body);
+
+        return {
+          status: 200,
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            id: "resp_gpt52",
+            object: "response",
+            created_at: 1772516810,
+            model: "gpt-5.2",
+            output: [
+              {
+                id: "msg_gpt52",
+                type: "message",
+                role: "assistant",
+                content: [{ type: "output_text", text: "Hello" }]
+              }
+            ],
+            usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 }
+          })
+        };
+      }
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: { "content-type": "application/json" },
+        payload: {
+          model: "gpt-5.2",
+          messages: [{ role: "user", content: "hello" }],
+          stream: false
+        }
+      });
+
+      assert.equal(response.statusCode, 200);
+      assert.equal(observedPath, "/v1/responses");
+      assert.ok(observedBody);
+      assert.ok(Array.isArray(observedBody.input), "payload must use responses input format");
+      assert.equal(typeof observedBody.instructions, "string", "instructions must be a string");
+      assert.equal(observedBody.store, false);
+      assert.equal(observedBody.stream, true);
+
+      const payload: unknown = response.json();
+      assert.ok(isRecord(payload));
+      assert.equal(payload.object, "chat.completion");
+      assert.equal(payload.model, "gpt-5.2");
+    }
+  );
+});
+
+test("openai passthrough coerces null instructions to empty string (regression: codex instructions required)", async () => {
+  let observedBody: Record<string, unknown> | undefined;
+
+  await withProxyApp(
+    {
+      keys: [],
+      keysPayload: {
+        providers: {
+          openai: {
+            auth: "oauth_bearer",
+            accounts: [
+              { id: "openai-a", access_token: "oa-token-a", chatgpt_account_id: "chatgpt-a" },
+            ]
+          }
+        }
+      },
+      configOverrides: {
+        upstreamProviderId: "openai",
+        upstreamFallbackProviderIds: [],
+      },
+      upstreamHandler: async (request, body) => {
+        observedBody = JSON.parse(body);
+
+        const streamText = [
+          `event: response.created\ndata: ${JSON.stringify({ type: "response.created", response: { id: "resp_pt", status: "in_progress", model: "gpt-5.2", output: [] } })}\n\n`,
+          `event: response.completed\ndata: ${JSON.stringify({ type: "response.completed", response: { id: "resp_pt", status: "completed", model: "gpt-5.2", output: [{ type: "message", role: "assistant", content: [{ type: "output_text", text: "OK" }] }], usage: { input_tokens: 5, output_tokens: 2, total_tokens: 7 } } })}\n\n`,
+        ].join("");
+
+        return {
+          status: 200,
+          headers: { "content-type": "text/event-stream; charset=utf-8" },
+          body: streamText
+        };
+      }
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/responses",
+        headers: { "content-type": "application/json" },
+        payload: {
+          model: "gpt-5.2",
+          input: [{ role: "user", content: [{ type: "input_text", text: "hello" }] }],
+          instructions: null,
+          stream: true
+        }
+      });
+
+      assert.equal(response.statusCode, 200);
+      assert.ok(observedBody);
+      assert.equal(observedBody.instructions, "", "null instructions must be coerced to empty string");
+      assert.equal(observedBody.store, false);
+      assert.equal(observedBody.stream, true);
+    }
+  );
+});
+
+test("openai chat completions strategy converts to responses format for codex path (regression)", async () => {
+  let observedPath = "";
+  let observedBody: Record<string, unknown> | undefined;
+
+  await withProxyApp(
+    {
+      keys: [],
+      keysPayload: {
+        providers: {
+          openai: {
+            auth: "oauth_bearer",
+            accounts: [
+              { id: "openai-a", access_token: "oa-token-a", chatgpt_account_id: "chatgpt-a" },
+            ]
+          }
+        }
+      },
+      models: ["glm-5"],
+      configOverrides: {
+        upstreamProviderId: "openai",
+        upstreamFallbackProviderIds: [],
+        responsesModelPrefixes: ["gpt-"],
+      },
+      upstreamHandler: async (request, body) => {
+        observedPath = request.url ?? "";
+        observedBody = JSON.parse(body);
+
+        return {
+          status: 200,
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            id: "resp_glm5",
+            object: "response",
+            created_at: 1772516810,
+            model: "glm-5",
+            output: [
+              {
+                id: "msg_glm5",
+                type: "message",
+                role: "assistant",
+                content: [{ type: "output_text", text: "GLM response" }]
+              }
+            ],
+            usage: { input_tokens: 8, output_tokens: 3, total_tokens: 11 }
+          })
+        };
+      }
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: { "content-type": "application/json" },
+        payload: {
+          model: "glm-5",
+          messages: [{ role: "user", content: "hello" }],
+          stream: false
+        }
+      });
+
+      assert.equal(response.statusCode, 200);
+      assert.equal(observedPath, "/v1/responses");
+      assert.ok(observedBody);
+      assert.ok(Array.isArray(observedBody.input), "payload must use responses input format");
+      assert.equal(typeof observedBody.instructions, "string", "instructions must be a string");
+      assert.equal(observedBody.store, false);
+      assert.equal(observedBody.stream, true);
+      assert.equal(observedBody.messages, undefined, "messages must not be sent to codex path");
+
+      const payload: unknown = response.json();
+      assert.ok(isRecord(payload));
+      assert.equal(payload.object, "chat.completion");
+    }
+  );
+});
+
 test("routes ollama-prefixed models to /api/chat and forwards num_ctx controls", async () => {
   let observedPath = "";
   let observedBody: unknown;
