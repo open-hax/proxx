@@ -104,6 +104,7 @@ export interface RequestLogPerfSummary {
 interface RequestLogDb {
   readonly entries: RequestLogEntry[];
   readonly hourlyBuckets?: readonly RequestLogHourlyBucket[];
+  readonly accountAccumulators?: readonly AccountUsageAccumulator[];
 }
 
 type HourlyBucket = {
@@ -263,12 +264,17 @@ function hydrateDb(raw: unknown, maxEntries: number): RequestLogDb {
         .filter((bucket): bucket is RequestLogHourlyBucket => bucket !== null)
     : [];
 
+  const accountAccumulators = Array.isArray(raw.accountAccumulators)
+    ? raw.accountAccumulators as AccountUsageAccumulator[]
+    : undefined;
+
   return {
     entries: raw.entries
       .map((entry) => hydrateEntry(entry))
       .filter((entry): entry is RequestLogEntry => entry !== null)
       .slice(-maxEntries),
     hourlyBuckets,
+    accountAccumulators,
   };
 }
 
@@ -730,7 +736,34 @@ export class RequestLogStore {
       }
 
       this.rebuildPerfIndex();
-      this.rebuildAccountAccumulators();
+
+      this.accountAccumulators.clear();
+      if (Array.isArray(db.accountAccumulators) && db.accountAccumulators.length > 0) {
+        for (const acc of db.accountAccumulators) {
+          if (isRecord(acc) && typeof acc.providerId === "string" && typeof acc.accountId === "string") {
+            const key = accountAccumulatorKey(acc.providerId as string, acc.accountId as string);
+            this.accountAccumulators.set(key, {
+              providerId: acc.providerId as string,
+              accountId: acc.accountId as string,
+              authType: (acc.authType as RequestAuthType) ?? "api_key",
+              requestCount: asNumber(acc.requestCount) ?? 0,
+              totalTokens: asNumber(acc.totalTokens) ?? 0,
+              promptTokens: asNumber(acc.promptTokens) ?? 0,
+              completionTokens: asNumber(acc.completionTokens) ?? 0,
+              cachedPromptTokens: asNumber(acc.cachedPromptTokens) ?? 0,
+              cacheHitCount: asNumber(acc.cacheHitCount) ?? 0,
+              cacheKeyUseCount: asNumber(acc.cacheKeyUseCount) ?? 0,
+              ttftSum: asNumber(acc.ttftSum) ?? 0,
+              ttftCount: asNumber(acc.ttftCount) ?? 0,
+              tpsSum: asNumber(acc.tpsSum) ?? 0,
+              tpsCount: asNumber(acc.tpsCount) ?? 0,
+              lastUsedAtMs: asNumber(acc.lastUsedAtMs) ?? 0,
+            });
+          }
+        }
+      } else {
+        this.rebuildAccountAccumulators();
+      }
     } catch (error) {
       if ((error as NodeJS.ErrnoException | undefined)?.code !== "ENOENT") {
         throw error;
@@ -758,6 +791,7 @@ export class RequestLogStore {
     await writeFile(this.filePath, JSON.stringify({
       entries: this.entries,
       hourlyBuckets: this.snapshotHourlyBuckets(),
+      accountAccumulators: this.snapshotAccountAccumulators(),
     }, null, 2), "utf8");
   }
 }
