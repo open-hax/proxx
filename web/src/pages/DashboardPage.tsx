@@ -152,6 +152,9 @@ export function DashboardPage(): JSX.Element {
   const [hasMore, setHasMore] = useState(true);
   const logSentinelRef = useRef<HTMLDivElement | null>(null);
   const logScrollRef = useRef<HTMLDivElement | null>(null);
+  const [healthVisible, setHealthVisible] = useState(50);
+  const healthSentinelRef = useRef<HTMLDivElement | null>(null);
+  const healthScrollRef = useRef<HTMLDivElement | null>(null);
 
   const LOG_PAGE_SIZE = 50;
 
@@ -223,12 +226,31 @@ export function DashboardPage(): JSX.Element {
     return () => observer.disconnect();
   }, [loadMoreLogs]);
 
+  const loadMoreHealth = useCallback(() => {
+    setHealthVisible((prev) => Math.min(prev + 50, allAccounts.length));
+  }, [allAccounts.length]);
+
+  useEffect(() => {
+    const sentinel = healthSentinelRef.current;
+    const scrollRoot = healthScrollRef.current;
+    if (!sentinel || !scrollRoot) return;
+    const observer = new IntersectionObserver(
+      (entries) => { if (entries[0]?.isIntersecting) loadMoreHealth(); },
+      { root: scrollRoot, rootMargin: "200px" },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [loadMoreHealth]);
+
+  useEffect(() => { setHealthVisible(50); }, [overview]);
+
   const topAccounts = useMemo(() =>
     [...(overview?.accounts ?? [])]
       .sort((a, b) => b.totalTokens - a.totalTokens)
       .slice(0, 6),
     [overview]);
-  const recentAccounts = useMemo(() => (overview?.accounts ?? []).slice(0, 10), [overview]);
+  const allAccounts = useMemo(() => overview?.accounts ?? [], [overview]);
+  const visibleAccounts = useMemo(() => allAccounts.slice(0, healthVisible), [allAccounts, healthVisible]);
   const providerStatuses = useMemo(() => Object.values(keyPoolStatuses).sort((a, b) => a.providerId.localeCompare(b.providerId)), [keyPoolStatuses]);
 
   return (
@@ -425,7 +447,7 @@ export function DashboardPage(): JSX.Element {
             </label>
           </div>
         </header>
-        <div className="dashboard-panel-scroll">
+        <div className="dashboard-panel-scroll" ref={healthScrollRef}>
           <div className="dashboard-account-table">
             <div className="dashboard-account-table-header">
               <span>Account</span>
@@ -438,10 +460,10 @@ export function DashboardPage(): JSX.Element {
               <span>Tokens</span>
               <span>Last Seen</span>
             </div>
-            {recentAccounts.length === 0 ? (
+            {visibleAccounts.length === 0 ? (
               <div className="dashboard-account-empty">No request log activity yet.</div>
             ) : (
-              recentAccounts.map((account) => (
+              visibleAccounts.map((account) => (
                 <div key={`${account.providerId}-${account.accountId}`} className="dashboard-account-row">
                   <div>
                     <strong>{account.displayName}</strong>
@@ -462,6 +484,14 @@ export function DashboardPage(): JSX.Element {
                   <span>{formatDate(account.lastUsedAt)}</span>
                 </div>
               ))
+            )}
+            {healthVisible < allAccounts.length && (
+              <div ref={healthSentinelRef} className="dashboard-log-sentinel">
+                <span className="dashboard-log-loading">Loading more…</span>
+              </div>
+            )}
+            {healthVisible >= allAccounts.length && allAccounts.length > 0 && (
+              <div ref={healthSentinelRef} className="dashboard-log-sentinel" />
             )}
           </div>
         </div>
