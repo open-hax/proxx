@@ -4024,6 +4024,70 @@ test("openai passthrough strips max_output_tokens for codex path (regression: un
   );
 });
 
+test("records token usage from codex SSE responses with missing content-type (regression)", async () => {
+  await withProxyApp(
+    {
+      keys: [],
+      keysPayload: {
+        providers: {
+          openai: {
+            auth: "oauth_bearer",
+            accounts: [
+              { id: "openai-a", access_token: "oa-token-a", chatgpt_account_id: "chatgpt-a" },
+            ]
+          }
+        }
+      },
+      configOverrides: {
+        upstreamProviderId: "openai",
+        upstreamFallbackProviderIds: [],
+        responsesModelPrefixes: ["gpt-"],
+      },
+      upstreamHandler: async () => {
+        const streamText = [
+          `event: response.created\ndata: ${JSON.stringify({ type: "response.created", response: { id: "resp_usage", status: "in_progress", model: "gpt-5.2", output: [] } })}\n\n`,
+          `event: response.completed\ndata: ${JSON.stringify({ type: "response.completed", response: { id: "resp_usage", status: "completed", model: "gpt-5.2", output: [{ type: "message", role: "assistant", content: [{ type: "output_text", text: "OK" }] }], usage: { input_tokens: 42, output_tokens: 7, total_tokens: 49 } } })}\n\n`,
+        ].join("");
+
+        return {
+          status: 200,
+          headers: {},
+          body: streamText
+        };
+      }
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: { "content-type": "application/json" },
+        payload: {
+          model: "gpt-5.2",
+          messages: [{ role: "user", content: "hello" }],
+          stream: false
+        }
+      });
+
+      assert.equal(response.statusCode, 200);
+
+      const logsResponse = await app.inject({
+        method: "GET",
+        url: "/api/ui/request-logs?limit=1",
+      });
+
+      assert.equal(logsResponse.statusCode, 200);
+      const logs: unknown = logsResponse.json();
+      assert.ok(isRecord(logs));
+      assert.ok(Array.isArray(logs.entries));
+      const entry = logs.entries[0];
+      assert.ok(isRecord(entry));
+      assert.equal(entry.promptTokens, 42, "promptTokens must be extracted from codex SSE usage.input_tokens");
+      assert.equal(entry.completionTokens, 7, "completionTokens must be extracted from codex SSE usage.output_tokens");
+      assert.equal(entry.totalTokens, 49, "totalTokens must be extracted from codex SSE usage.total_tokens");
+    }
+  );
+});
+
 test("openai chat completions strategy converts to responses format for codex path (regression)", async () => {
   let observedPath = "";
   let observedBody: Record<string, unknown> | undefined;

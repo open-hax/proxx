@@ -967,6 +967,22 @@ function extractUsageFromOllamaNdjson(streamText: string): UsageCounts {
   return {};
 }
 
+const ALWAYS_SSE_MODES: ReadonlySet<string> = new Set([
+  "openai_responses",
+  "openai_responses_passthrough",
+  "openai_chat_completions",
+]);
+
+function responseLooksLikeEventStream(response: Response, mode: UpstreamMode): boolean {
+  if (responseIsEventStream(response)) {
+    return true;
+  }
+  if (ALWAYS_SSE_MODES.has(mode)) {
+    return true;
+  }
+  return false;
+}
+
 async function extractUsageCounts(
   response: Response,
   mode: UpstreamMode,
@@ -976,7 +992,7 @@ async function extractUsageCounts(
     return {};
   }
 
-  if (responseIsEventStream(response)) {
+  if (responseLooksLikeEventStream(response, mode)) {
     try {
       const streamText = await response.clone().text();
       return extractUsageCountsFromSseText(streamText, mode, routedModel);
@@ -2615,7 +2631,7 @@ export async function executeLocalStrategy(
     }, strategy.mode);
 
     const usagePromise = updateUsageCountsFromResponse(requestLogStore, requestLogEntryId, upstreamResponse, strategy.mode, context.routedModel);
-    if (responseIsEventStream(upstreamResponse) && context.clientWantsStream) {
+    if (responseLooksLikeEventStream(upstreamResponse, strategy.mode) && context.clientWantsStream) {
       void usagePromise;
     } else {
       await usagePromise;
@@ -2825,7 +2841,7 @@ export async function executeProviderFallback(
       }, candidateStrategy.mode);
 
       const usagePromise = updateUsageCountsFromResponse(requestLogStore, requestLogEntryId, upstreamResponse, candidateStrategy.mode, context.routedModel);
-      if (responseIsEventStream(upstreamResponse) && context.clientWantsStream) {
+      if (responseLooksLikeEventStream(upstreamResponse, candidateStrategy.mode) && context.clientWantsStream) {
         void usagePromise;
       } else {
         await usagePromise;
@@ -2978,7 +2994,7 @@ export async function executeProviderFallback(
               promptCacheKeyUsed: Boolean(promptCacheKey),
             }, candidateStrategy.mode);
             const usagePromise = updateUsageCountsFromResponse(requestLogStore, refreshedLogId, refreshedResponse, candidateStrategy.mode, context.routedModel);
-            if (responseIsEventStream(refreshedResponse) && context.clientWantsStream) {
+            if (responseLooksLikeEventStream(refreshedResponse, candidateStrategy.mode) && context.clientWantsStream) {
               void usagePromise;
             } else {
               await usagePromise;
