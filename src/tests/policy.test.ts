@@ -14,7 +14,7 @@ function createModelInfo(routedModel: string): ModelInfo {
   };
 }
 
-test("de-prioritizes vivgrid for gpt model provider ordering", () => {
+test("de-prioritizes vivgrid and excludes ollama-cloud for gpt model provider ordering", () => {
   const policy = createPolicyEngine(DEFAULT_POLICY_CONFIG);
 
   const ordered = policy.orderProviders(
@@ -22,7 +22,8 @@ test("de-prioritizes vivgrid for gpt model provider ordering", () => {
     createModelInfo("gpt-5.4"),
   );
 
-  assert.deepEqual(ordered, ["openai", "ollama-cloud", "vivgrid"]);
+  // ollama-cloud has no GPT models (except gpt-oss), so it sorts after all preferred providers
+  assert.deepEqual(ordered, ["openai", "vivgrid", "ollama-cloud"]);
 });
 
 test("preserves provider order for non-gpt models", () => {

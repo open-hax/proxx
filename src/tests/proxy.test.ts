@@ -1074,7 +1074,7 @@ test("continues trying accounts after model-not-found response", async () => {
             },
             body: JSON.stringify({
               error: {
-                message: "model \"gpt-5.3-codex\" not found"
+                message: "model \"glm-5\" not found"
               }
             })
           };
@@ -1082,7 +1082,7 @@ test("continues trying accounts after model-not-found response", async () => {
 
         const parsedBody = JSON.parse(body);
         assert.ok(isRecord(parsedBody));
-        assert.equal(parsedBody.model, "gpt-5.3-codex");
+        assert.equal(parsedBody.model, "glm-5");
 
         return {
           status: 200,
@@ -1090,23 +1090,21 @@ test("continues trying accounts after model-not-found response", async () => {
             "content-type": "application/json"
           },
           body: JSON.stringify({
-            id: "resp-model-found-fallback",
-            object: "response",
-            created_at: 1772516816,
-            model: "gpt-5.3-codex",
-            output: [
+            id: "chatcmpl-model-found-fallback",
+            object: "chat.completion",
+            created: 1772516816,
+            model: "glm-5",
+            choices: [
               {
-                id: "msg-model-found-fallback",
-                type: "message",
-                role: "assistant",
-                content: [
-                  {
-                    type: "output_text",
-                    text: "fallback-after-missing-model"
-                  }
-                ]
+                index: 0,
+                message: {
+                  role: "assistant",
+                  content: "fallback-after-missing-model"
+                },
+                finish_reason: "stop"
               }
-            ]
+            ],
+            usage: { prompt_tokens: 5, completion_tokens: 5, total_tokens: 10 }
           })
         };
       }
@@ -1119,7 +1117,7 @@ test("continues trying accounts after model-not-found response", async () => {
           "content-type": "application/json"
         },
         payload: {
-          model: "gpt-5.3-codex",
+          model: "glm-5",
           messages: [{ role: "user", content: "hello" }],
           stream: false
         }

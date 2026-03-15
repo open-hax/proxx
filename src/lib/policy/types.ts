@@ -125,6 +125,14 @@ export const DEFAULT_FALLBACK_BEHAVIOR: FallbackBehavior = {
 const DEFAULT_GPT_PROVIDER_ORDER: readonly ProviderId[] = [
   "openai",
   "factory",
+  "openrouter",
+  "requesty",
+  "vivgrid",
+];
+
+const GPT_OSS_PROVIDER_ORDER: readonly ProviderId[] = [
+  "openai",
+  "factory",
   "ollama-cloud",
   "openrouter",
   "requesty",
@@ -183,6 +191,12 @@ export const DEFAULT_POLICY_CONFIG: PolicyConfig = {
   
   modelRouting: {
     rules: [
+      // gpt-oss — the only GPT model available on ollama-cloud
+      {
+        modelPattern: /^gpt-oss/,
+        preferredProviders: GPT_OSS_PROVIDER_ORDER,
+        accountOrdering: { kind: "prefer_free" },
+      },
       // Paid-only GPT models (free-account blocked — see list above)
       {
         modelPattern: GPT_FREE_BLOCKED_MODEL_PATTERN,
