@@ -208,7 +208,7 @@ button:disabled {
 .dashboard-layout {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;
-  grid-template-rows: auto auto 1fr 1fr;
+  grid-template-rows: auto auto auto 1fr;
   grid-template-areas:
     "hero    hero    hero"
     "metrics metrics metrics"
@@ -227,6 +227,12 @@ button:disabled {
 .dashboard-area-pool    { grid-area: pool; }
 .dashboard-area-logs    { grid-area: logs; }
 .dashboard-area-health  { grid-area: health; }
+
+.dashboard-area-tokens,
+.dashboard-area-tier,
+.dashboard-area-trend {
+  max-height: 180px;
+}
 
 .dashboard-hero,
 .dashboard-panel,

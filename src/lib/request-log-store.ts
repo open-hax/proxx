@@ -697,6 +697,13 @@ export class RequestLogStore {
     }
   }
 
+  private rebuildAccountAccumulators(): void {
+    this.accountAccumulators.clear();
+    for (const entry of this.entries) {
+      this.applyEntryToAccountAccumulator(entry);
+    }
+  }
+
   private async loadFromDisk(): Promise<void> {
     try {
       const contents = await readFile(this.filePath, "utf8");
@@ -723,6 +730,7 @@ export class RequestLogStore {
       }
 
       this.rebuildPerfIndex();
+      this.rebuildAccountAccumulators();
     } catch (error) {
       if ((error as NodeJS.ErrnoException | undefined)?.code !== "ENOENT") {
         throw error;
