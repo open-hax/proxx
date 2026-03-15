@@ -245,94 +245,93 @@ export function DashboardPage(): JSX.Element {
         </article>
       </section>
 
-      <article className="dashboard-panel panel-sheen dashboard-area-tokens">
-        <header className="dashboard-panel-header">
-          <div>
-            <h3>Account Token Share</h3>
-            <p>Who is carrying the last 24h load.</p>
-          </div>
-        </header>
-        <div className="dashboard-panel-scroll">
-          <div className="dashboard-donut-wrap">
-            {donutSegments(topAccounts)}
-            <div className="dashboard-donut-legend">
-              {topAccounts.map((account, index) => (
-                <div key={`${account.providerId}-${account.accountId}`} className="dashboard-legend-row">
-                  <span className={`dashboard-legend-swatch dashboard-donut-segment-${index % 6}`} />
-                  <div>
-                    <strong>{account.displayName}</strong>
-                    <small>{formatCompactNumber(account.totalTokens)} tokens</small>
+      <div className="dashboard-area-left">
+        <article className="dashboard-panel panel-sheen">
+          <header className="dashboard-panel-header">
+            <div>
+              <h3>Account Token Share</h3>
+              <p>Who is carrying the last 24h load.</p>
+            </div>
+          </header>
+          <div className="dashboard-panel-scroll">
+            <div className="dashboard-donut-wrap">
+              {donutSegments(topAccounts)}
+              <div className="dashboard-donut-legend">
+                {topAccounts.map((account, index) => (
+                  <div key={`${account.providerId}-${account.accountId}`} className="dashboard-legend-row">
+                    <span className={`dashboard-legend-swatch dashboard-donut-segment-${index % 6}`} />
+                    <div>
+                      <strong>{account.displayName}</strong>
+                      <small>{formatCompactNumber(account.totalTokens)} tokens</small>
+                    </div>
                   </div>
-                </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <article className="dashboard-panel panel-sheen">
+          <header className="dashboard-panel-header">
+            <div>
+              <h3>Service Tier Mix</h3>
+            </div>
+          </header>
+          <div className="dashboard-panel-scroll">
+            {overview ? serviceTierShareBars(overview.summary) : <div className="dashboard-account-empty">Loading tier mix…</div>}
+          </div>
+        </article>
+
+        <article className="dashboard-panel panel-sheen">
+          <header className="dashboard-panel-header">
+            <div>
+              <h3>Traffic Trend</h3>
+            </div>
+          </header>
+          <div className="dashboard-panel-scroll">
+            <div className="dashboard-trend-grid">
+              <div>
+                <span className="dashboard-chart-label">Requests</span>
+                {overview ? miniBars(overview.trends.requests) : <div className="dashboard-sparkbars dashboard-sparkbars-placeholder" />}
+              </div>
+              <div>
+                <span className="dashboard-chart-label">Tokens</span>
+                {overview ? miniBars(overview.trends.tokens) : <div className="dashboard-sparkbars dashboard-sparkbars-placeholder" />}
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <article className="dashboard-panel panel-sheen">
+          <header className="dashboard-panel-header">
+            <div>
+              <h3>Provider Pool</h3>
+            </div>
+          </header>
+          <div className="dashboard-panel-scroll">
+            <div className="dashboard-provider-grid">
+              {providerStatuses.length === 0 ? (
+                <div className="dashboard-account-empty">No provider status available yet.</div>
+              ) : providerStatuses.map((status) => (
+                <article key={status.providerId} className="dashboard-provider-card">
+                  <div className="dashboard-provider-card-header">
+                    <strong>{status.providerId}</strong>
+                    <span className={`dashboard-status-pill dashboard-status-${status.cooldownAccounts > 0 ? "cooldown" : "healthy"}`}>
+                      {formatAuthType(status.authType)}
+                    </span>
+                  </div>
+                  <dl>
+                    <div><dt>Total</dt><dd>{formatCompactNumber(status.totalAccounts)}</dd></div>
+                    <div><dt>Available</dt><dd>{formatCompactNumber(status.availableAccounts)}</dd></div>
+                    <div><dt>Cooling Down</dt><dd>{formatCompactNumber(status.cooldownAccounts)}</dd></div>
+                    <div><dt>Ready In</dt><dd>{status.nextReadyInMs > 0 ? `${Math.ceil(status.nextReadyInMs / 1000)}s` : "now"}</dd></div>
+                  </dl>
+                </article>
               ))}
             </div>
           </div>
-        </div>
-      </article>
-
-      <article className="dashboard-panel panel-sheen dashboard-area-tier">
-        <header className="dashboard-panel-header">
-          <div>
-            <h3>Service Tier Mix</h3>
-            <p>How the last 24h request volume splits across fast mode, priority, and standard traffic.</p>
-          </div>
-        </header>
-        <div className="dashboard-panel-scroll">
-          {overview ? serviceTierShareBars(overview.summary) : <div className="dashboard-account-empty">Loading tier mix…</div>}
-        </div>
-      </article>
-
-      <article className="dashboard-panel panel-sheen dashboard-area-trend">
-        <header className="dashboard-panel-header">
-          <div>
-            <h3>Traffic Trend</h3>
-            <p>Hourly request and token movement.</p>
-          </div>
-        </header>
-        <div className="dashboard-panel-scroll">
-          <div className="dashboard-trend-grid">
-            <div>
-              <span className="dashboard-chart-label">Requests</span>
-              {overview ? miniBars(overview.trends.requests) : <div className="dashboard-sparkbars dashboard-sparkbars-placeholder" />}
-            </div>
-            <div>
-              <span className="dashboard-chart-label">Tokens</span>
-              {overview ? miniBars(overview.trends.tokens) : <div className="dashboard-sparkbars dashboard-sparkbars-placeholder" />}
-            </div>
-          </div>
-        </div>
-      </article>
-
-      <article className="dashboard-panel panel-sheen dashboard-area-pool">
-        <header className="dashboard-panel-header">
-          <div>
-            <h3>Provider Pool Status</h3>
-            <p>Availability, cooldown pressure, and account counts per upstream provider.</p>
-          </div>
-        </header>
-        <div className="dashboard-panel-scroll">
-          <div className="dashboard-provider-grid">
-            {providerStatuses.length === 0 ? (
-              <div className="dashboard-account-empty">No provider status available yet.</div>
-            ) : providerStatuses.map((status) => (
-              <article key={status.providerId} className="dashboard-provider-card">
-                <div className="dashboard-provider-card-header">
-                  <strong>{status.providerId}</strong>
-                  <span className={`dashboard-status-pill dashboard-status-${status.cooldownAccounts > 0 ? "cooldown" : "healthy"}`}>
-                    {formatAuthType(status.authType)}
-                  </span>
-                </div>
-                <dl>
-                  <div><dt>Total</dt><dd>{formatCompactNumber(status.totalAccounts)}</dd></div>
-                  <div><dt>Available</dt><dd>{formatCompactNumber(status.availableAccounts)}</dd></div>
-                  <div><dt>Cooling Down</dt><dd>{formatCompactNumber(status.cooldownAccounts)}</dd></div>
-                  <div><dt>Ready In</dt><dd>{status.nextReadyInMs > 0 ? `${Math.ceil(status.nextReadyInMs / 1000)}s` : "now"}</dd></div>
-                </dl>
-              </article>
-            ))}
-          </div>
-        </div>
-      </article>
+        </article>
+      </div>
 
       <article className="dashboard-panel panel-sheen dashboard-area-logs">
         <header className="dashboard-panel-header">

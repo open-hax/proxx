@@ -208,31 +208,21 @@ button:disabled {
 .dashboard-layout {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;
-  grid-template-rows: auto auto auto 1fr;
+  grid-template-rows: auto auto 1fr;
   grid-template-areas:
     "hero    hero    hero"
     "metrics metrics metrics"
-    "tokens  tier    trend"
-    "pool    logs    health";
+    "left    logs    health";
   gap: 6px;
   height: 100%;
   min-height: 0;
   overflow: hidden;
 }
 
-.dashboard-hero         { grid-area: hero; }
-.dashboard-area-tokens  { grid-area: tokens; }
-.dashboard-area-tier    { grid-area: tier; }
-.dashboard-area-trend   { grid-area: trend; }
-.dashboard-area-pool    { grid-area: pool; }
-.dashboard-area-logs    { grid-area: logs; }
-.dashboard-area-health  { grid-area: health; }
-
-.dashboard-area-tokens,
-.dashboard-area-tier,
-.dashboard-area-trend {
-  max-height: 180px;
-}
+.dashboard-hero          { grid-area: hero; }
+.dashboard-area-left     { grid-area: left; display: grid; gap: 6px; grid-template-rows: auto auto auto auto 1fr; min-height: 0; overflow: hidden; }
+.dashboard-area-logs     { grid-area: logs; }
+.dashboard-area-health   { grid-area: health; }
 
 .dashboard-hero,
 .dashboard-panel,
@@ -1264,9 +1254,9 @@ a {
 
    .dashboard-layout {
      grid-template-columns: 1fr;
-     grid-template-rows: auto auto auto auto auto auto auto auto;
+     grid-template-rows: auto auto auto auto auto;
      grid-template-areas:
-       "hero" "metrics" "tokens" "tier" "trend" "pool" "logs" "health";
+       "hero" "metrics" "left" "logs" "health";
      height: auto;
      overflow-y: auto;
    }
