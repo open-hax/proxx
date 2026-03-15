@@ -32,6 +32,7 @@ export interface ProxyConfig {
   readonly requestLogsFilePath: string;
   readonly promptAffinityFilePath: string;
   readonly settingsFilePath: string;
+  readonly sessionsFilePath: string;
   readonly keyReloadMs: number;
   readonly keyCooldownMs: number;
   readonly requestTimeoutMs: number;
@@ -345,6 +346,7 @@ export function loadConfig(cwd: string = process.cwd()): ProxyConfig {
     requestLogsFilePath: filePathFromEnvAliases(["PROXY_REQUEST_LOGS_FILE"], "./data/request-logs.json", cwd),
     promptAffinityFilePath: filePathFromEnvAliases(["PROXY_PROMPT_AFFINITY_FILE"], "./data/prompt-affinity.json", cwd),
     settingsFilePath: filePathFromEnvAliases(["PROXY_SETTINGS_FILE"], "./data/proxy-settings.json", cwd),
+    sessionsFilePath: filePathFromEnvAliases(["PROXY_SESSIONS_FILE"], "./data/sessions.json", cwd),
     keyReloadMs: numberFromEnvAliases(["PROXY_KEY_RELOAD_MS", "VIVGRID_KEY_RELOAD_MS"], 5000),
     keyCooldownMs: numberFromEnvAliases(["PROXY_KEY_COOLDOWN_MS", "VIVGRID_KEY_RELOAD_MS"], 30000),
     requestTimeoutMs: numberFromEnvAliases(["UPSTREAM_REQUEST_TIMEOUT_MS"], 180000),

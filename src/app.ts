@@ -75,6 +75,13 @@ import { seedFromJsonFile, seedFromJsonValue } from "./lib/db/json-seeder.js";
 import { registerOAuthRoutes } from "./lib/oauth-routes.js";
 import { RuntimeCredentialStore } from "./lib/runtime-credential-store.js";
 import { TokenRefreshManager } from "./lib/token-refresh-manager.js";
+import {
+  buildWebSearchPrompt,
+  extractOutputTextFromResponses,
+  extractWebSearchSourcesFromResponses,
+  normalizeOpenAiModelForWebsearch,
+  type WebSearchContextSize,
+} from "./lib/websearch.js";
 
 interface ChatCompletionRequest {
   readonly model?: string;
@@ -264,6 +271,11 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
   const app = Fastify({
     logger: true,
     bodyLimit: 300 * 1024 * 1024
+  });
+
+  // Enable raw zip uploads for ChatGPT export import.
+  app.addContentTypeParser(["application/zip"], { parseAs: "buffer" }, (_request, body, done) => {
+    done(null, body);
   });
 
   let sql: Sql | undefined;
@@ -717,6 +729,10 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     reply.code(204).send();
   });
 
+  app.options("/api/tools/websearch", async (_request, reply) => {
+    reply.code(204).send();
+  });
+
   app.get("/health", async () => {
     let keyPoolStatus: unknown;
     let keyPoolProviders: unknown;
@@ -757,6 +773,110 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       keyPool: keyPoolStatus,
       keyPoolProviders
     };
+  });
+
+  app.post<{ Body: Record<string, unknown> }>("/api/tools/websearch", async (request, reply) => {
+    if (!isRecord(request.body)) {
+      sendOpenAiError(reply, 400, "Request body must be a JSON object", "invalid_request_error", "invalid_body");
+      return;
+    }
+
+    const query = typeof request.body.query === "string" ? request.body.query.trim() : "";
+    if (!query) {
+      sendOpenAiError(reply, 400, "Missing required field: query", "invalid_request_error", "missing_query");
+      return;
+    }
+
+    const requestedModel = typeof request.body.model === "string" ? request.body.model : undefined;
+    const model = normalizeOpenAiModelForWebsearch(requestedModel);
+
+    const numResultsRaw = typeof request.body.numResults === "number" ? request.body.numResults : undefined;
+    const numResults = Number.isFinite(numResultsRaw ?? NaN)
+      ? Math.max(1, Math.min(20, Math.trunc(numResultsRaw!)))
+      : 8;
+
+    const searchContextSizeRaw = typeof request.body.searchContextSize === "string"
+      ? request.body.searchContextSize
+      : undefined;
+    const searchContextSize: WebSearchContextSize =
+      searchContextSizeRaw === "low" || searchContextSizeRaw === "high" ? searchContextSizeRaw : "medium";
+
+    const allowedDomains = Array.isArray(request.body.allowedDomains)
+      ? request.body.allowedDomains.filter((d): d is string => typeof d === "string" && d.trim().length > 0)
+      : undefined;
+
+    const prompt = buildWebSearchPrompt({ query, numResults, year: new Date().getFullYear() });
+
+    const responsesPayload: Record<string, unknown> = {
+      model,
+      input: [
+        {
+          role: "user",
+          content: [{ type: "input_text", text: prompt }],
+        },
+      ],
+      tools: [
+        {
+          type: "web_search",
+          search_context_size: searchContextSize,
+          ...(allowedDomains && allowedDomains.length > 0
+            ? {
+                filters: {
+                  allowed_domains: allowedDomains,
+                },
+              }
+            : undefined),
+        },
+      ],
+      tool_choice: { type: "web_search" },
+      max_output_tokens: 900,
+      include: ["web_search_call.action.sources"],
+      stream: false,
+      store: false,
+    };
+
+    // Route through the existing /v1/responses machinery so we reuse:
+    // - OpenAI OAuth accounts
+    // - provider fallback/rotation
+    // - upstream error normalization
+    const injected = await app.inject({
+      method: "POST",
+      url: "/v1/responses",
+      headers: {
+        authorization: request.headers.authorization ?? "",
+        cookie: request.headers.cookie ?? "",
+      },
+      payload: responsesPayload,
+    });
+
+    if (injected.statusCode >= 400) {
+      reply.code(injected.statusCode);
+      for (const [name, value] of Object.entries(injected.headers)) {
+        if (typeof value === "string") reply.header(name, value);
+      }
+      reply.send(injected.body);
+      return;
+    }
+
+    let responseJson: unknown;
+    try {
+      responseJson = injected.json();
+    } catch {
+      sendOpenAiError(reply, 502, "Upstream returned non-JSON response", "server_error", "invalid_upstream");
+      return;
+    }
+
+    const output = extractOutputTextFromResponses(responseJson);
+    const sources = extractWebSearchSourcesFromResponses(responseJson);
+    const responseId = isRecord(responseJson) && typeof responseJson.id === "string" ? responseJson.id : undefined;
+
+    reply.send({
+      query,
+      model,
+      output,
+      sources,
+      responseId,
+    });
   });
 
   app.get("/v1/models", async (_request, reply) => {

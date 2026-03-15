@@ -143,6 +143,7 @@ async function withProxyApp(
     githubAllowedUsers: [],
     sessionSecret: "test-session-token", // pragma: allowlist secret
     ...options.configOverrides,
+    sessionsFilePath: options.configOverrides?.sessionsFilePath ?? path.join(tempDir, "sessions.json"),
   };
 
   const app = await createApp(config);

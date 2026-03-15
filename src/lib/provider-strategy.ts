@@ -1854,8 +1854,7 @@ class ResponsesPassthroughStrategy extends BaseProviderStrategy {
   }
 
   public buildPayload(context: StrategyRequestContext): BuildPayloadResult {
-    const upstreamPayload: Record<string, unknown> = { ...context.requestBody };
-    delete upstreamPayload["open_hax"];
+    const upstreamPayload = buildRequestBodyForUpstream(context);
     stripTrailingAssistantPrefill(upstreamPayload);
     return buildPayloadResult(upstreamPayload, context);
   }
@@ -1930,8 +1929,7 @@ class OpenAiResponsesPassthroughStrategy extends BaseProviderStrategy {
   }
 
   public buildPayload(context: StrategyRequestContext): BuildPayloadResult {
-    const upstreamPayload: Record<string, unknown> = { ...context.requestBody };
-    delete upstreamPayload["open_hax"];
+    const upstreamPayload = buildRequestBodyForUpstream(context);
     delete upstreamPayload["max_output_tokens"];
     upstreamPayload["store"] = false;
     upstreamPayload["stream"] = true;
