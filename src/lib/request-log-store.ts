@@ -1,5 +1,5 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { join } from "node:path";
 
 export type RequestAuthType = "api_key" | "oauth_bearer" | "local" | "none";
 export type RequestServiceTierSource = "fast_mode" | "explicit" | "none";
@@ -296,6 +296,28 @@ function hourBucketStartMs(timestampMs: number): number {
   return Math.floor(timestampMs / (60 * 60 * 1000)) * (60 * 60 * 1000);
 }
 
+function parseJsonlLines<T>(text: string, hydrate: (raw: unknown) => T | null): T[] {
+  const results: T[] = [];
+  for (const line of text.split("\n")) {
+    const trimmed = line.trim();
+    if (trimmed.length === 0) continue;
+    try {
+      const parsed = JSON.parse(trimmed);
+      const hydrated = hydrate(parsed);
+      if (hydrated !== null) results.push(hydrated);
+    } catch {
+      // skip malformed lines (e.g. truncated tail)
+    }
+  }
+  return results;
+}
+
+function toJsonl(items: readonly Record<string, unknown>[]): string {
+  return items.map((item) => JSON.stringify(item)).join("\n") + "\n";
+}
+
+
+
 function sumCount(value: number | undefined): number {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0;
 }
@@ -331,10 +353,18 @@ export class RequestLogStore {
   private persistChain: Promise<void> = Promise.resolve();
   private closed = false;
 
+  private readonly entriesPath: string;
+  private readonly hourlyBucketsPath: string;
+  private readonly accountAccumulatorsPath: string;
+
   public constructor(
-    private readonly filePath: string,
+    private readonly dirPath: string,
     private readonly maxEntries: number = 1000,
-  ) {}
+  ) {
+    this.entriesPath = join(dirPath, "entries.jsonl");
+    this.hourlyBucketsPath = join(dirPath, "hourly-buckets.jsonl");
+    this.accountAccumulatorsPath = join(dirPath, "account-accumulators.jsonl");
+  }
 
   public async warmup(): Promise<void> {
     if (this.warmupPromise) {
@@ -722,55 +752,61 @@ export class RequestLogStore {
   }
 
   private async loadFromDisk(): Promise<void> {
+    await mkdir(this.dirPath, { recursive: true });
+
     try {
-      const contents = await readFile(this.filePath, "utf8");
-      const parsed: unknown = JSON.parse(contents);
-      const db = hydrateDb(parsed, this.maxEntries);
-      this.entries.splice(0, this.entries.length, ...db.entries);
-
-      this.hourlyBuckets.clear();
-      for (const bucket of db.hourlyBuckets ?? []) {
-        this.hourlyBuckets.set(bucket.startMs, {
-          startMs: bucket.startMs,
-          requestCount: bucket.requestCount,
-          errorCount: bucket.errorCount,
-          totalTokens: bucket.totalTokens,
-          promptTokens: bucket.promptTokens,
-          completionTokens: bucket.completionTokens,
-          cachedPromptTokens: bucket.cachedPromptTokens,
-          cacheHitCount: bucket.cacheHitCount,
-          cacheKeyUseCount: bucket.cacheKeyUseCount,
-          fastModeRequestCount: bucket.fastModeRequestCount,
-          priorityRequestCount: bucket.priorityRequestCount,
-          standardRequestCount: bucket.standardRequestCount,
-        });
+      const entriesText = await readFile(this.entriesPath, "utf8");
+      const entries = parseJsonlLines(entriesText, hydrateEntry).slice(-this.maxEntries);
+      this.entries.splice(0, this.entries.length, ...entries);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException | undefined)?.code !== "ENOENT") {
+        throw error;
       }
+    }
 
-      this.rebuildPerfIndex();
+    try {
+      const bucketsText = await readFile(this.hourlyBucketsPath, "utf8");
+      const buckets = parseJsonlLines(bucketsText, hydrateHourlyBucket);
+      this.hourlyBuckets.clear();
+      for (const bucket of buckets) {
+        this.hourlyBuckets.set(bucket.startMs, { ...bucket });
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException | undefined)?.code !== "ENOENT") {
+        throw error;
+      }
+    }
+
+    this.rebuildPerfIndex();
+
+    try {
+      const accText = await readFile(this.accountAccumulatorsPath, "utf8");
+      const accumulators = parseJsonlLines(accText, (raw) => {
+        if (!isRecord(raw) || typeof raw.providerId !== "string" || typeof raw.accountId !== "string") return null;
+        return raw as unknown as AccountUsageAccumulator;
+      });
 
       this.accountAccumulators.clear();
-      if (Array.isArray(db.accountAccumulators) && db.accountAccumulators.length > 0) {
-        for (const acc of db.accountAccumulators) {
-          if (isRecord(acc) && typeof acc.providerId === "string" && typeof acc.accountId === "string") {
-            const key = accountAccumulatorKey(acc.providerId as string, acc.accountId as string);
-            this.accountAccumulators.set(key, {
-              providerId: acc.providerId as string,
-              accountId: acc.accountId as string,
-              authType: (acc.authType as RequestAuthType) ?? "api_key",
-              requestCount: asNumber(acc.requestCount) ?? 0,
-              totalTokens: asNumber(acc.totalTokens) ?? 0,
-              promptTokens: asNumber(acc.promptTokens) ?? 0,
-              completionTokens: asNumber(acc.completionTokens) ?? 0,
-              cachedPromptTokens: asNumber(acc.cachedPromptTokens) ?? 0,
-              cacheHitCount: asNumber(acc.cacheHitCount) ?? 0,
-              cacheKeyUseCount: asNumber(acc.cacheKeyUseCount) ?? 0,
-              ttftSum: asNumber(acc.ttftSum) ?? 0,
-              ttftCount: asNumber(acc.ttftCount) ?? 0,
-              tpsSum: asNumber(acc.tpsSum) ?? 0,
-              tpsCount: asNumber(acc.tpsCount) ?? 0,
-              lastUsedAtMs: asNumber(acc.lastUsedAtMs) ?? 0,
-            });
-          }
+      if (accumulators.length > 0) {
+        for (const acc of accumulators) {
+          const key = accountAccumulatorKey(acc.providerId, acc.accountId);
+          this.accountAccumulators.set(key, {
+            providerId: acc.providerId,
+            accountId: acc.accountId,
+            authType: acc.authType ?? "api_key",
+            requestCount: asNumber(acc.requestCount) ?? 0,
+            totalTokens: asNumber(acc.totalTokens) ?? 0,
+            promptTokens: asNumber(acc.promptTokens) ?? 0,
+            completionTokens: asNumber(acc.completionTokens) ?? 0,
+            cachedPromptTokens: asNumber(acc.cachedPromptTokens) ?? 0,
+            cacheHitCount: asNumber(acc.cacheHitCount) ?? 0,
+            cacheKeyUseCount: asNumber(acc.cacheKeyUseCount) ?? 0,
+            ttftSum: asNumber(acc.ttftSum) ?? 0,
+            ttftCount: asNumber(acc.ttftCount) ?? 0,
+            tpsSum: asNumber(acc.tpsSum) ?? 0,
+            tpsCount: asNumber(acc.tpsCount) ?? 0,
+            lastUsedAtMs: asNumber(acc.lastUsedAtMs) ?? 0,
+          });
         }
       } else {
         this.rebuildAccountAccumulators();
@@ -779,9 +815,7 @@ export class RequestLogStore {
       if ((error as NodeJS.ErrnoException | undefined)?.code !== "ENOENT") {
         throw error;
       }
-
-      await mkdir(dirname(this.filePath), { recursive: true });
-      await this.persistNow();
+      this.rebuildAccountAccumulators();
     }
   }
 
@@ -798,11 +832,11 @@ export class RequestLogStore {
   }
 
   private async persistNow(): Promise<void> {
-    await mkdir(dirname(this.filePath), { recursive: true });
-    await writeFile(this.filePath, JSON.stringify({
-      entries: this.entries,
-      hourlyBuckets: this.snapshotHourlyBuckets(),
-      accountAccumulators: this.snapshotAccountAccumulators(),
-    }, null, 2), "utf8");
+    await mkdir(this.dirPath, { recursive: true });
+    await Promise.all([
+      writeFile(this.entriesPath, toJsonl(this.entries as unknown as Record<string, unknown>[]), "utf8"),
+      writeFile(this.hourlyBucketsPath, toJsonl(this.snapshotHourlyBuckets() as unknown as Record<string, unknown>[]), "utf8"),
+      writeFile(this.accountAccumulatorsPath, toJsonl(this.snapshotAccountAccumulators() as unknown as Record<string, unknown>[]), "utf8"),
+    ]);
   }
 }

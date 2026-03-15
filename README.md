@@ -80,6 +80,10 @@ pnpm test
 
 ## Web Console
 
+The console can be reached either via the dedicated Vite preview server (default `5174`) **or** directly from the proxy port (`8789`) at `/`.
+
+Note: when `PROXY_AUTH_TOKEN` is set, the UI shell (`/` + `/assets/*`) is still served without auth so you can load the page and paste the token into the console. All `/api/*` and `/v1/*` routes remain protected.
+
 Run the web UI in dev mode:
 
 ```bash

@@ -50,7 +50,7 @@ async function withProxyApp(
   const tempDir = await mkdtemp(path.join(os.tmpdir(), "open-hax-proxy-test-"));
   const keysPath = path.join(tempDir, "keys.json");
   const modelsPath = path.join(tempDir, "models.json");
-  const requestLogsPath = path.join(tempDir, "request-logs.json");
+  const requestLogsPath = path.join(tempDir, "request-logs");
   const promptAffinityPath = path.join(tempDir, "prompt-affinity.json");
   const settingsPath = path.join(tempDir, "proxy-settings.json");
 
@@ -117,7 +117,7 @@ async function withProxyApp(
     ollamaModelPrefixes: ["ollama/", "ollama:"],
     keysFilePath: keysPath,
     modelsFilePath: modelsPath,
-    requestLogsFilePath: requestLogsPath,
+    requestLogsDir: requestLogsPath,
     promptAffinityFilePath: promptAffinityPath,
     settingsFilePath: settingsPath,
     keyReloadMs: 50,
@@ -739,7 +739,7 @@ test("persists request logs with usage counts for dashboard surfaces", async () 
 
       for (let attempt = 0; attempt < 20; attempt += 1) {
         try {
-          requestLogsJson = await readFile(path.join(tempDir, "request-logs.json"), "utf8");
+          requestLogsJson = await readFile(path.join(tempDir, "request-logs", "entries.jsonl"), "utf8");
           if (requestLogsJson.includes("gpt-5.3-codex")) {
             break;
           }
@@ -768,17 +768,15 @@ test("persists request logs with usage counts for dashboard surfaces", async () 
   );
 
   assert.ok(requestLogsJson.length > 0);
-  const parsed: unknown = JSON.parse(requestLogsJson);
-  assert.ok(isRecord(parsed));
-  assert.ok(Array.isArray(parsed.entries));
-  assert.equal(parsed.entries.length, 1);
-  assert.ok(isRecord(parsed.entries[0]));
-  assert.equal(parsed.entries[0].model, "gpt-5.3-codex");
-  assert.equal(parsed.entries[0].serviceTier, undefined);
-  assert.equal(parsed.entries[0].serviceTierSource, "none");
-  assert.equal(parsed.entries[0].promptTokens, 15);
-  assert.equal(parsed.entries[0].completionTokens, 9);
-  assert.equal(parsed.entries[0].totalTokens, 24);
+  const parsedEntries = requestLogsJson.trim().split("\n").map((line) => JSON.parse(line));
+  assert.equal(parsedEntries.length, 1);
+  assert.ok(isRecord(parsedEntries[0]));
+  assert.equal(parsedEntries[0].model, "gpt-5.3-codex");
+  assert.equal(parsedEntries[0].serviceTier, undefined);
+  assert.equal(parsedEntries[0].serviceTierSource, "none");
+  assert.equal(parsedEntries[0].promptTokens, 15);
+  assert.equal(parsedEntries[0].completionTokens, 9);
+  assert.equal(parsedEntries[0].totalTokens, 24);
 });
 
 test("fetches live OpenAI Codex quota windows and persists refreshed OAuth tokens", async () => {
@@ -2238,6 +2236,58 @@ test("accepts proxy auth token from cookie for browser-served UI and API request
 
       assert.equal(authorized.statusCode, 200);
       assert.equal(authorized.headers["x-open-hax-upstream-mode"], "chat_completions");
+    }
+  );
+});
+
+test("allows unauthenticated access to UI shell + assets even when proxy auth token is configured", async () => {
+  await withProxyApp(
+    {
+      keys: ["key-a"],
+      proxyAuthToken: "proxy-secret",
+      allowUnauthenticated: false,
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: {
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({ ok: true })
+      })
+    },
+    async ({ app }) => {
+      const index = await app.inject({
+        method: "GET",
+        url: "/"
+      });
+
+      assert.equal(index.statusCode, 200);
+
+      const contentType = String(index.headers["content-type"] ?? "");
+      if (contentType.toLowerCase().includes("text/html")) {
+        assert.match(index.body, /Open Hax Proxy Console/i);
+
+        const assetMatch = index.body.match(/\bsrc="(\/assets\/[^"]+)"/);
+        assert.ok(assetMatch, "expected index.html to reference a /assets/* script");
+
+        const asset = await app.inject({
+          method: "GET",
+          url: assetMatch[1]
+        });
+
+        assert.equal(asset.statusCode, 200);
+      } else {
+        const payload: unknown = index.json();
+        assert.ok(isRecord(payload));
+        assert.equal(payload.ok, true);
+      }
+
+      const settings = await app.inject({
+        method: "GET",
+        url: "/api/ui/settings"
+      });
+
+      assert.equal(settings.statusCode, 401);
+      assert.equal(settings.headers["x-open-hax-error-code"], "unauthorized");
     }
   );
 });

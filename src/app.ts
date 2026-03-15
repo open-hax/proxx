@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { dirname } from "node:path";
 
 import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
 
@@ -49,6 +50,7 @@ import { getTelemetry, type TelemetrySpan } from "./lib/telemetry/otel.js";
 import { RequestLogStore } from "./lib/request-log-store.js";
 import { PromptAffinityStore } from "./lib/prompt-affinity-store.js";
 import { ProxySettingsStore } from "./lib/proxy-settings-store.js";
+import { runFileMigrations } from "./lib/migrations.js";
 import { registerUiRoutes } from "./lib/ui-routes.js";
 import {
   ensureOllamaContextFits,
@@ -336,7 +338,12 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
   } catch (error) {
     app.log.warn({ error: toErrorMessage(error) }, "failed to warm up provider accounts; non-keyed routes may still work");
   }
-  const requestLogStore = new RequestLogStore(config.requestLogsFilePath, 5000);
+  await runFileMigrations({
+    dataDir: dirname(config.requestLogsDir),
+    log: (msg) => app.log.info(msg),
+  });
+
+  const requestLogStore = new RequestLogStore(config.requestLogsDir, 5000);
   await requestLogStore.warmup();
   const promptAffinityStore = new PromptAffinityStore(config.promptAffinityFilePath);
   await promptAffinityStore.warmup();
@@ -620,8 +627,24 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       }
 
       const rawPath = (request.raw.url ?? request.url).split("?", 1)[0] ?? request.url;
-      const allowUnauthenticatedRoute = rawPath === "/health" || rawPath === "/api/ui/credentials/openai/oauth/browser/callback"
-        || rawPath === "/auth/callback" || rawPath === "/auth/factory/callback";
+
+      // Allow the browser UI shell + static assets to load without auth.
+      // The UI itself will prompt for the proxy token and then attach it via
+      // Authorization header + cookie for protected /api + /v1 calls.
+      const isUiRoute = (request.method === "GET" || request.method === "HEAD")
+        && (rawPath === "/"
+          || rawPath === "/index.html"
+          || rawPath === "/chat"
+          || rawPath === "/images"
+          || rawPath === "/credentials"
+          || rawPath === "/tools"
+          || rawPath.startsWith("/assets/"));
+
+      const allowUnauthenticatedRoute = rawPath === "/health"
+        || rawPath === "/api/ui/credentials/openai/oauth/browser/callback"
+        || rawPath === "/auth/callback"
+        || rawPath === "/auth/factory/callback"
+        || isUiRoute;
 
       if (allowUnauthenticatedRoute) {
         return;

@@ -60,7 +60,7 @@ async function withProxyApp(
   const tempDir = await mkdtemp(path.join(os.tmpdir(), "factory-strategy-test-"));
   const keysPath = path.join(tempDir, "keys.json");
   const modelsPath = path.join(tempDir, "models.json");
-  const requestLogsPath = path.join(tempDir, "request-logs.json");
+  const requestLogsPath = path.join(tempDir, "request-logs");
   const promptAffinityPath = path.join(tempDir, "prompt-affinity.json");
   const settingsPath = path.join(tempDir, "proxy-settings.json");
 
@@ -126,7 +126,7 @@ async function withProxyApp(
     ollamaModelPrefixes: ["ollama/", "ollama:"],
     keysFilePath: keysPath,
     modelsFilePath: modelsPath,
-    requestLogsFilePath: requestLogsPath,
+    requestLogsDir: requestLogsPath,
     promptAffinityFilePath: promptAffinityPath,
     settingsFilePath: settingsPath,
     keyReloadMs: 50,
