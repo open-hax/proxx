@@ -124,6 +124,7 @@ export const DEFAULT_FALLBACK_BEHAVIOR: FallbackBehavior = {
 
 const DEFAULT_GPT_PROVIDER_ORDER: readonly ProviderId[] = [
   "openai",
+  "factory",
   "ollama-cloud",
   "openrouter",
   "requesty",
