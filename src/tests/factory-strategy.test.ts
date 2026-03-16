@@ -117,6 +117,7 @@ async function withProxyApp(
     messagesInterleavedThinkingBeta: "interleaved-thinking-2025-05-14",
     responsesPath: "/v1/responses",
     openaiResponsesPath: "/v1/responses",
+    openaiImagesGenerationsPaths: ["/v1/images/generations", "/images/generations", "/codex/images/generations"],
     imagesGenerationsPath: "/v1/images/generations",
     responsesModelPrefixes: ["gpt-"],
     ollamaChatPath: "/api/chat",

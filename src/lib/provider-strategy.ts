@@ -80,6 +80,23 @@ function joinUrl(baseUrl: string, path: string): string {
   return `${normalizedBase}${normalizedPath}`;
 }
 
+function dedupePaths(values: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const raw of values) {
+    const trimmed = raw.trim();
+    if (trimmed.length === 0) {
+      continue;
+    }
+    if (seen.has(trimmed)) {
+      continue;
+    }
+    seen.add(trimmed);
+    result.push(trimmed);
+  }
+  return result;
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
@@ -2764,319 +2781,357 @@ export async function executeProviderFallback(
     const releaseInFlight = keyPool.markInFlight(candidate.account);
 
     for (let retryIndex = 0; retryIndex <= context.config.upstreamTransientRetryCount; retryIndex += 1) {
-      accumulator.attempts += 1;
-      const providerContext: ProviderAttemptContext = {
+      const baseProviderContext: Omit<ProviderAttemptContext, "attempt"> = {
         ...context,
         providerId: candidate.providerId,
         baseUrl: candidate.baseUrl,
         account: candidate.account,
         hasMoreCandidates,
-        attempt: accumulator.attempts,
       };
-      const upstreamPath = candidateStrategy.getUpstreamPath(providerContext);
-      const upstreamUrl = joinUrl(candidate.baseUrl, upstreamPath);
-      const upstreamHeaders = buildUpstreamHeadersForCredential(context.clientHeaders, candidate.account);
-      candidateStrategy.applyRequestHeaders(upstreamHeaders, providerContext, candidatePayload.upstreamPayload);
-      const attemptStartedAt = Date.now();
+
+      const primaryUpstreamPath = candidateStrategy.getUpstreamPath(baseProviderContext);
+      const upstreamPaths = (candidate.providerId === context.config.openaiProviderId && candidateStrategy.mode === "images")
+        ? dedupePaths([primaryUpstreamPath, ...context.config.openaiImagesGenerationsPaths])
+        : [primaryUpstreamPath];
+
       const hasRetryRemaining = retryIndex < context.config.upstreamTransientRetryCount;
+      let shouldContinueTransientRetry = false;
 
-      const upstreamSpan = getTelemetry().startSpan("proxy.upstream_attempt", {
-        "proxy.provider_id": candidate.providerId,
-        "proxy.account_id": candidate.account.accountId,
-        "proxy.auth_type": candidate.account.authType,
-        "proxy.upstream_mode": candidateStrategy.mode,
-        "proxy.upstream_path": upstreamPath,
-        "proxy.model": context.routedModel,
-        "proxy.requested_model": context.requestedModelInput,
-        "proxy.base_url": candidate.baseUrl,
-        "proxy.fallback_attempt": accumulator.attempts,
-      });
-      upstreamSpan.setAttributes({
-        "proxy.service_tier": candidatePayload.serviceTier,
-        "proxy.service_tier_source": candidatePayload.serviceTierSource,
-      });
+      for (const [pathIndex, upstreamPath] of upstreamPaths.entries()) {
+        accumulator.attempts += 1;
+        const providerContext: ProviderAttemptContext = {
+          ...baseProviderContext,
+          attempt: accumulator.attempts,
+        };
 
-      let upstreamResponse: Response;
-      try {
-        upstreamResponse = await fetchWithResponseTimeout(upstreamUrl, {
-          method: "POST",
-          headers: upstreamHeaders,
-          body: candidatePayload.bodyText
-        }, context.upstreamAttemptTimeoutMs);
-      } catch (error) {
+        const upstreamUrl = joinUrl(candidate.baseUrl, upstreamPath);
+        const upstreamHeaders = buildUpstreamHeadersForCredential(context.clientHeaders, candidate.account);
+        candidateStrategy.applyRequestHeaders(upstreamHeaders, providerContext, candidatePayload.upstreamPayload);
+        const attemptStartedAt = Date.now();
+
+        const upstreamSpan = getTelemetry().startSpan("proxy.upstream_attempt", {
+          "proxy.provider_id": candidate.providerId,
+          "proxy.account_id": candidate.account.accountId,
+          "proxy.auth_type": candidate.account.authType,
+          "proxy.upstream_mode": candidateStrategy.mode,
+          "proxy.upstream_path": upstreamPath,
+          "proxy.model": context.routedModel,
+          "proxy.requested_model": context.requestedModelInput,
+          "proxy.base_url": candidate.baseUrl,
+          "proxy.fallback_attempt": accumulator.attempts,
+        });
+        upstreamSpan.setAttributes({
+          "proxy.service_tier": candidatePayload.serviceTier,
+          "proxy.service_tier_source": candidatePayload.serviceTierSource,
+        });
+
+        let upstreamResponse: Response;
+        try {
+          upstreamResponse = await fetchWithResponseTimeout(upstreamUrl, {
+            method: "POST",
+            headers: upstreamHeaders,
+            body: candidatePayload.bodyText
+          }, context.upstreamAttemptTimeoutMs);
+        } catch (error) {
+          const latencyMs = Date.now() - attemptStartedAt;
+          upstreamSpan.setAttribute("proxy.latency_ms", latencyMs);
+          upstreamSpan.setAttribute("proxy.status", 0);
+          upstreamSpan.recordError(error);
+          upstreamSpan.end();
+          accumulator.sawRequestError = true;
+          recordAttempt(requestLogStore, providerContext, {
+            providerId: candidate.providerId,
+            accountId: candidate.account.accountId,
+            authType: candidate.account.authType,
+            upstreamPath,
+            status: 0,
+            latencyMs,
+            serviceTier: candidatePayload.serviceTier,
+            serviceTierSource: candidatePayload.serviceTierSource,
+            error: toErrorMessage(error)
+          }, candidateStrategy.mode);
+          break;
+        }
+
         const latencyMs = Date.now() - attemptStartedAt;
+        upstreamSpan.setAttribute("proxy.status", upstreamResponse.status);
         upstreamSpan.setAttribute("proxy.latency_ms", latencyMs);
-        upstreamSpan.setAttribute("proxy.status", 0);
-        upstreamSpan.recordError(error);
-        upstreamSpan.end();
-        accumulator.sawRequestError = true;
-        recordAttempt(requestLogStore, providerContext, {
+
+        const requestLogEntryId = recordAttempt(requestLogStore, providerContext, {
           providerId: candidate.providerId,
           accountId: candidate.account.accountId,
           authType: candidate.account.authType,
           upstreamPath,
-          status: 0,
+          status: upstreamResponse.status,
           latencyMs,
           serviceTier: candidatePayload.serviceTier,
           serviceTierSource: candidatePayload.serviceTierSource,
-          error: toErrorMessage(error)
+          promptCacheKeyUsed: Boolean(promptCacheKey),
         }, candidateStrategy.mode);
-        break;
-      }
 
-      const latencyMs = Date.now() - attemptStartedAt;
-      upstreamSpan.setAttribute("proxy.status", upstreamResponse.status);
-      upstreamSpan.setAttribute("proxy.latency_ms", latencyMs);
+        const usagePromise = updateUsageCountsFromResponse(requestLogStore, requestLogEntryId, upstreamResponse, candidateStrategy.mode, context.routedModel);
+        if (responseLooksLikeEventStream(upstreamResponse, candidateStrategy.mode) && context.clientWantsStream) {
+          void usagePromise;
+        } else {
+          await usagePromise;
+        }
 
-      const requestLogEntryId = recordAttempt(requestLogStore, providerContext, {
-        providerId: candidate.providerId,
-        accountId: candidate.account.accountId,
-        authType: candidate.account.authType,
-        upstreamPath,
-        status: upstreamResponse.status,
-        latencyMs,
-        serviceTier: candidatePayload.serviceTier,
-        serviceTierSource: candidatePayload.serviceTierSource,
-        promptCacheKeyUsed: Boolean(promptCacheKey),
-      }, candidateStrategy.mode);
-
-      const usagePromise = updateUsageCountsFromResponse(requestLogStore, requestLogEntryId, upstreamResponse, candidateStrategy.mode, context.routedModel);
-      if (responseLooksLikeEventStream(upstreamResponse, candidateStrategy.mode) && context.clientWantsStream) {
-        void usagePromise;
-      } else {
-        await usagePromise;
-      }
-
-      if (isRateLimitResponse(upstreamResponse)) {
-        accumulator.sawRateLimit = true;
-        keyPool.markRateLimited(candidate.account, parseRetryAfterMs(upstreamResponse.headers.get("retry-after")));
+        // OpenAI OAuth accounts usually target ChatGPT backend-api; image endpoints may differ.
+        // If we see a 404, try alternate configured paths before failing over to another account.
         if (
-          preferredAffinity
-          && candidate.providerId === preferredAffinity.providerId
-          && candidate.account.accountId === preferredAffinity.accountId
+          upstreamResponse.status === 404
+          && candidate.providerId === context.config.openaiProviderId
+          && candidateStrategy.mode === "images"
+          && pathIndex < upstreamPaths.length - 1
         ) {
-          preferredReassignmentAllowed = true;
-        }
-        upstreamSpan.setStatus("error", "rate_limited");
-        upstreamSpan.end();
-        break;
-      }
-
-      if (await responseIndicatesQuotaError(upstreamResponse)) {
-        accumulator.sawRateLimit = true;
-        const permanentlyDisable = shouldPermanentlyDisableCredential(candidate.account, upstreamResponse.status);
-        const quotaCooldownMs = permanentlyDisable
-          ? PERMANENT_DISABLE_COOLDOWN_MS
-          : upstreamResponse.status === 402
-            ? 24 * 60 * 60 * 1000
-            : Math.min(context.config.keyCooldownMs, 60_000);
-        keyPool.markRateLimited(candidate.account, quotaCooldownMs);
-        if (healthStore) {
-          healthStore.recordFailure(candidate.account, upstreamResponse.status, "quota_exhausted");
-        }
-        if (
-          preferredAffinity
-          && candidate.providerId === preferredAffinity.providerId
-          && candidate.account.accountId === preferredAffinity.accountId
-        ) {
-          preferredReassignmentAllowed = true;
-        }
-        try {
-          await upstreamResponse.arrayBuffer();
-        } catch {
-          // Ignore body read failures while failing over.
-        }
-        upstreamSpan.setStatus("error", "quota_exhausted");
-        upstreamSpan.end();
-        break;
-      }
-
-      if (upstreamResponse.status >= 500 && upstreamResponse.status <= 599) {
-        accumulator.sawUpstreamServerError = true;
-        if (hasRetryRemaining && shouldRetrySameCredentialForServerError(upstreamResponse.status)) {
           try {
             await upstreamResponse.arrayBuffer();
           } catch {
-            // Ignore body read failures while retrying.
+            // ignore
+          }
+          upstreamSpan.setStatus("error", "openai_images_path_not_found");
+          upstreamSpan.end();
+          continue;
+        }
+
+        if (isRateLimitResponse(upstreamResponse)) {
+          accumulator.sawRateLimit = true;
+          keyPool.markRateLimited(candidate.account, parseRetryAfterMs(upstreamResponse.headers.get("retry-after")));
+          if (
+            preferredAffinity
+            && candidate.providerId === preferredAffinity.providerId
+            && candidate.account.accountId === preferredAffinity.accountId
+          ) {
+            preferredReassignmentAllowed = true;
+          }
+          upstreamSpan.setStatus("error", "rate_limited");
+          upstreamSpan.end();
+          break;
+        }
+
+        if (await responseIndicatesQuotaError(upstreamResponse)) {
+          accumulator.sawRateLimit = true;
+          const permanentlyDisable = shouldPermanentlyDisableCredential(candidate.account, upstreamResponse.status);
+          const quotaCooldownMs = permanentlyDisable
+            ? PERMANENT_DISABLE_COOLDOWN_MS
+            : upstreamResponse.status === 402
+              ? 24 * 60 * 60 * 1000
+              : Math.min(context.config.keyCooldownMs, 60_000);
+          keyPool.markRateLimited(candidate.account, quotaCooldownMs);
+          if (healthStore) {
+            healthStore.recordFailure(candidate.account, upstreamResponse.status, "quota_exhausted");
+          }
+          if (
+            preferredAffinity
+            && candidate.providerId === preferredAffinity.providerId
+            && candidate.account.accountId === preferredAffinity.accountId
+          ) {
+            preferredReassignmentAllowed = true;
+          }
+          try {
+            await upstreamResponse.arrayBuffer();
+          } catch {
+            // Ignore body read failures while failing over.
+          }
+          upstreamSpan.setStatus("error", "quota_exhausted");
+          upstreamSpan.end();
+          break;
+        }
+
+        if (upstreamResponse.status >= 500 && upstreamResponse.status <= 599) {
+          accumulator.sawUpstreamServerError = true;
+          if (hasRetryRemaining && shouldRetrySameCredentialForServerError(upstreamResponse.status)) {
+            try {
+              await upstreamResponse.arrayBuffer();
+            } catch {
+              // Ignore body read failures while retrying.
+            }
+            upstreamSpan.setStatus("error", `upstream_server_error_${upstreamResponse.status}`);
+            upstreamSpan.end();
+            await sleep(transientRetryDelayMs(context, retryIndex));
+            shouldContinueTransientRetry = true;
+            break;
+          }
+          keyPool.markRateLimited(candidate.account, Math.min(context.config.keyCooldownMs, 5000));
+          try {
+            await upstreamResponse.arrayBuffer();
+          } catch {
+            // Ignore body read failures while failing over.
           }
           upstreamSpan.setStatus("error", `upstream_server_error_${upstreamResponse.status}`);
           upstreamSpan.end();
-          await sleep(transientRetryDelayMs(context, retryIndex));
-          continue;
+          break;
         }
-        keyPool.markRateLimited(candidate.account, Math.min(context.config.keyCooldownMs, 5000));
-        try {
-          await upstreamResponse.arrayBuffer();
-        } catch {
-          // Ignore body read failures while failing over.
+
+        reply.header("x-open-hax-upstream-mode", candidateStrategy.mode);
+        const outcome = await candidateStrategy.handleProviderAttempt(reply, upstreamResponse, providerContext);
+        if (outcome.kind === "handled") {
+          upstreamSpan.setStatus("ok");
+          upstreamSpan.end();
+          if (healthStore && upstreamResponse.ok) {
+            healthStore.recordSuccess(candidate.account, upstreamResponse.status);
+          }
+          if (
+            promptCacheKey
+            && (
+              preferredAffinity === undefined
+              || preferredReassignmentAllowed
+              || (candidate.providerId === preferredAffinity.providerId && candidate.account.accountId === preferredAffinity.accountId)
+            )
+          ) {
+            await promptAffinityStore.upsert(promptCacheKey, candidate.providerId, candidate.account.accountId);
+          }
+          releaseInFlight();
+          return {
+            handled: true,
+            candidateCount: candidates.length,
+            summary: accumulator
+          };
         }
-        upstreamSpan.setStatus("error", `upstream_server_error_${upstreamResponse.status}`);
+
+        if (
+          healthStore
+          && !upstreamResponse.ok
+          && upstreamResponse.status >= 500
+          && !outcome.upstreamInvalidRequest
+          && !outcome.modelNotFound
+          && !outcome.modelNotSupportedForAccount
+        ) {
+          healthStore.recordFailure(candidate.account, upstreamResponse.status);
+        }
+
+        accumulator.sawRateLimit ||= outcome.rateLimit === true;
+        accumulator.sawRequestError ||= outcome.requestError === true;
+        accumulator.sawUpstreamServerError ||= outcome.upstreamServerError === true;
+        accumulator.sawUpstreamInvalidRequest ||= outcome.upstreamInvalidRequest === true;
+        accumulator.sawModelNotFound ||= outcome.modelNotFound === true;
+        accumulator.sawModelNotSupportedForAccount ||= outcome.modelNotSupportedForAccount === true;
+
+        if (!upstreamResponse.ok && outcome.requestError === true && upstreamResponse.status === 401 && candidate.account.authType === "oauth_bearer" && candidate.account.refreshToken && refreshExpiredToken) {
+          const refreshedCredential = await refreshExpiredToken(candidate.account);
+          if (refreshedCredential) {
+            const refreshedProviderContext: ProviderAttemptContext = { ...providerContext, account: refreshedCredential };
+            const refreshedHeaders = buildUpstreamHeadersForCredential(context.clientHeaders, refreshedCredential);
+            candidateStrategy.applyRequestHeaders(refreshedHeaders, refreshedProviderContext, candidatePayload.upstreamPayload);
+            const refreshedRelease = keyPool.markInFlight(refreshedCredential);
+            const refreshedAttemptStartedAt = Date.now();
+            let refreshedResponse: Response;
+            try {
+              refreshedResponse = await fetchWithResponseTimeout(upstreamUrl, {
+                method: "POST",
+                headers: refreshedHeaders,
+                body: candidatePayload.bodyText
+              }, context.upstreamAttemptTimeoutMs);
+            } catch (error) {
+              refreshedRelease();
+              releaseInFlight();
+              throw error;
+            }
+
+            try {
+              const refreshedLatencyMs = Date.now() - refreshedAttemptStartedAt;
+              const refreshedLogId = recordAttempt(requestLogStore, refreshedProviderContext, {
+                providerId: candidate.providerId,
+                accountId: refreshedCredential.accountId,
+                authType: refreshedCredential.authType,
+                upstreamPath,
+                status: refreshedResponse.status,
+                latencyMs: refreshedLatencyMs,
+                serviceTier: candidatePayload.serviceTier,
+                serviceTierSource: candidatePayload.serviceTierSource,
+                promptCacheKeyUsed: Boolean(promptCacheKey),
+              }, candidateStrategy.mode);
+              const usagePromise = updateUsageCountsFromResponse(requestLogStore, refreshedLogId, refreshedResponse, candidateStrategy.mode, context.routedModel);
+              if (responseLooksLikeEventStream(refreshedResponse, candidateStrategy.mode) && context.clientWantsStream) {
+                void usagePromise;
+              } else {
+                await usagePromise;
+              }
+              if (isRateLimitResponse(refreshedResponse)) {
+                accumulator.sawRateLimit = true;
+                keyPool.markRateLimited(refreshedCredential, parseRetryAfterMs(refreshedResponse.headers.get("retry-after")));
+                try {
+                  await refreshedResponse.arrayBuffer();
+                } catch {
+                  // Ignore body read failures while failing over after refresh.
+                }
+                break;
+              }
+              reply.header("x-open-hax-upstream-mode", candidateStrategy.mode);
+              const refreshedOutcome = await candidateStrategy.handleProviderAttempt(reply, refreshedResponse, refreshedProviderContext);
+              if (refreshedOutcome.kind === "handled") {
+                upstreamSpan.setStatus("ok");
+                upstreamSpan.end();
+
+                if (healthStore && refreshedResponse.ok) {
+                  healthStore.recordSuccess(refreshedCredential, refreshedResponse.status);
+                }
+
+                if (
+                  promptCacheKey
+                  && (
+                    preferredAffinity === undefined
+                    || preferredReassignmentAllowed
+                    || (candidate.providerId === preferredAffinity.providerId && refreshedCredential.accountId === preferredAffinity.accountId)
+                  )
+                ) {
+                  await promptAffinityStore.upsert(promptCacheKey, candidate.providerId, refreshedCredential.accountId);
+                }
+
+                releaseInFlight();
+                return { handled: true, candidateCount: candidates.length, summary: accumulator };
+              }
+              accumulator.sawRateLimit ||= refreshedOutcome.rateLimit === true;
+              accumulator.sawRequestError ||= refreshedOutcome.requestError === true;
+              accumulator.sawUpstreamServerError ||= refreshedOutcome.upstreamServerError === true;
+              accumulator.sawUpstreamInvalidRequest ||= refreshedOutcome.upstreamInvalidRequest === true;
+              accumulator.sawModelNotFound ||= refreshedOutcome.modelNotFound === true;
+              accumulator.sawModelNotSupportedForAccount ||= refreshedOutcome.modelNotSupportedForAccount === true;
+              if (!refreshedResponse.ok && refreshedOutcome.requestError === true && (refreshedResponse.status === 401 || refreshedResponse.status === 403)) {
+                if (shouldCooldownCredentialOnAuthFailure(candidate.providerId, refreshedResponse.status)) {
+                  keyPool.markRateLimited(refreshedCredential, Math.min(context.config.keyCooldownMs, 10_000));
+                  if (preferredAffinity && candidate.providerId === preferredAffinity.providerId && refreshedCredential.accountId === preferredAffinity.accountId) {
+                    preferredReassignmentAllowed = true;
+                  }
+                }
+              }
+              break;
+            } finally {
+              refreshedRelease();
+            }
+          }
+          keyPool.markRateLimited(candidate.account, Math.min(context.config.keyCooldownMs, 10_000));
+          if (preferredAffinity && candidate.providerId === preferredAffinity.providerId && candidate.account.accountId === preferredAffinity.accountId) {
+            preferredReassignmentAllowed = true;
+          }
+        } else if (!upstreamResponse.ok && outcome.requestError === true && (upstreamResponse.status === 401 || upstreamResponse.status === 402 || upstreamResponse.status === 403)) {
+          if (shouldCooldownCredentialOnAuthFailure(candidate.providerId, upstreamResponse.status) || shouldPermanentlyDisableCredential(candidate.account, upstreamResponse.status)) {
+            const cooldownMs = shouldPermanentlyDisableCredential(candidate.account, upstreamResponse.status)
+              ? PERMANENT_DISABLE_COOLDOWN_MS
+              : Math.min(context.config.keyCooldownMs, 10_000);
+            keyPool.markRateLimited(candidate.account, cooldownMs);
+            if (healthStore) {
+              healthStore.recordFailure(candidate.account, upstreamResponse.status, "credential_disabled");
+            }
+            if (preferredAffinity && candidate.providerId === preferredAffinity.providerId && candidate.account.accountId === preferredAffinity.accountId) {
+              preferredReassignmentAllowed = true;
+            }
+          }
+        }
+
+        if (!upstreamResponse.ok && outcome.requestError === true && !outcome.modelNotFound && !outcome.modelNotSupportedForAccount) {
+          await summarizeUpstreamError(upstreamResponse);
+        }
+
+        upstreamSpan.setStatus("error", `fallback_continue_${upstreamResponse.status}`);
         upstreamSpan.end();
         break;
       }
 
-      reply.header("x-open-hax-upstream-mode", candidateStrategy.mode);
-      const outcome = await candidateStrategy.handleProviderAttempt(reply, upstreamResponse, providerContext);
-      if (outcome.kind === "handled") {
-        upstreamSpan.setStatus("ok");
-        upstreamSpan.end();
-        if (healthStore && upstreamResponse.ok) {
-          healthStore.recordSuccess(candidate.account, upstreamResponse.status);
-        }
-        if (
-          promptCacheKey
-          && (
-            preferredAffinity === undefined
-            || preferredReassignmentAllowed
-            || (candidate.providerId === preferredAffinity.providerId && candidate.account.accountId === preferredAffinity.accountId)
-          )
-        ) {
-          await promptAffinityStore.upsert(promptCacheKey, candidate.providerId, candidate.account.accountId);
-        }
-        releaseInFlight();
-        return {
-          handled: true,
-          candidateCount: candidates.length,
-          summary: accumulator
-        };
+      if (shouldContinueTransientRetry) {
+        continue;
       }
 
-      if (
-        healthStore
-        && !upstreamResponse.ok
-        && upstreamResponse.status >= 500
-        && !outcome.upstreamInvalidRequest
-        && !outcome.modelNotFound
-        && !outcome.modelNotSupportedForAccount
-      ) {
-        healthStore.recordFailure(candidate.account, upstreamResponse.status);
-      }
-
-      accumulator.sawRateLimit ||= outcome.rateLimit === true;
-      accumulator.sawRequestError ||= outcome.requestError === true;
-      accumulator.sawUpstreamServerError ||= outcome.upstreamServerError === true;
-      accumulator.sawUpstreamInvalidRequest ||= outcome.upstreamInvalidRequest === true;
-      accumulator.sawModelNotFound ||= outcome.modelNotFound === true;
-      accumulator.sawModelNotSupportedForAccount ||= outcome.modelNotSupportedForAccount === true;
-
-      if (!upstreamResponse.ok && outcome.requestError === true && upstreamResponse.status === 401 && candidate.account.authType === "oauth_bearer" && candidate.account.refreshToken && refreshExpiredToken) {
-        const refreshedCredential = await refreshExpiredToken(candidate.account);
-        if (refreshedCredential) {
-          const refreshedProviderContext: ProviderAttemptContext = { ...providerContext, account: refreshedCredential };
-          const refreshedHeaders = buildUpstreamHeadersForCredential(context.clientHeaders, refreshedCredential);
-          candidateStrategy.applyRequestHeaders(refreshedHeaders, refreshedProviderContext, candidatePayload.upstreamPayload);
-          const refreshedRelease = keyPool.markInFlight(refreshedCredential);
-          const refreshedAttemptStartedAt = Date.now();
-          let refreshedResponse: Response;
-          try {
-            refreshedResponse = await fetchWithResponseTimeout(upstreamUrl, {
-              method: "POST",
-              headers: refreshedHeaders,
-              body: candidatePayload.bodyText
-            }, context.upstreamAttemptTimeoutMs);
-          } catch (error) {
-            refreshedRelease();
-            releaseInFlight();
-            throw error;
-          }
-
-          try {
-            const refreshedLatencyMs = Date.now() - refreshedAttemptStartedAt;
-            const refreshedLogId = recordAttempt(requestLogStore, refreshedProviderContext, {
-              providerId: candidate.providerId,
-              accountId: refreshedCredential.accountId,
-              authType: refreshedCredential.authType,
-              upstreamPath,
-              status: refreshedResponse.status,
-              latencyMs: refreshedLatencyMs,
-              serviceTier: candidatePayload.serviceTier,
-              serviceTierSource: candidatePayload.serviceTierSource,
-              promptCacheKeyUsed: Boolean(promptCacheKey),
-            }, candidateStrategy.mode);
-            const usagePromise = updateUsageCountsFromResponse(requestLogStore, refreshedLogId, refreshedResponse, candidateStrategy.mode, context.routedModel);
-            if (responseLooksLikeEventStream(refreshedResponse, candidateStrategy.mode) && context.clientWantsStream) {
-              void usagePromise;
-            } else {
-              await usagePromise;
-            }
-            if (isRateLimitResponse(refreshedResponse)) {
-              accumulator.sawRateLimit = true;
-              keyPool.markRateLimited(refreshedCredential, parseRetryAfterMs(refreshedResponse.headers.get("retry-after")));
-              try {
-                await refreshedResponse.arrayBuffer();
-              } catch {
-                // Ignore body read failures while failing over after refresh.
-              }
-              break;
-            }
-            reply.header("x-open-hax-upstream-mode", candidateStrategy.mode);
-            const refreshedOutcome = await candidateStrategy.handleProviderAttempt(reply, refreshedResponse, refreshedProviderContext);
-            if (refreshedOutcome.kind === "handled") {
-              upstreamSpan.setStatus("ok");
-              upstreamSpan.end();
-
-              if (healthStore && refreshedResponse.ok) {
-                healthStore.recordSuccess(refreshedCredential, refreshedResponse.status);
-              }
-
-              if (
-                promptCacheKey
-                && (
-                  preferredAffinity === undefined
-                  || preferredReassignmentAllowed
-                  || (candidate.providerId === preferredAffinity.providerId && refreshedCredential.accountId === preferredAffinity.accountId)
-                )
-              ) {
-                await promptAffinityStore.upsert(promptCacheKey, candidate.providerId, refreshedCredential.accountId);
-              }
-
-              releaseInFlight();
-              return { handled: true, candidateCount: candidates.length, summary: accumulator };
-            }
-            accumulator.sawRateLimit ||= refreshedOutcome.rateLimit === true;
-            accumulator.sawRequestError ||= refreshedOutcome.requestError === true;
-            accumulator.sawUpstreamServerError ||= refreshedOutcome.upstreamServerError === true;
-            accumulator.sawUpstreamInvalidRequest ||= refreshedOutcome.upstreamInvalidRequest === true;
-            accumulator.sawModelNotFound ||= refreshedOutcome.modelNotFound === true;
-            accumulator.sawModelNotSupportedForAccount ||= refreshedOutcome.modelNotSupportedForAccount === true;
-            if (!refreshedResponse.ok && refreshedOutcome.requestError === true && (refreshedResponse.status === 401 || refreshedResponse.status === 403)) {
-              if (shouldCooldownCredentialOnAuthFailure(candidate.providerId, refreshedResponse.status)) {
-                keyPool.markRateLimited(refreshedCredential, Math.min(context.config.keyCooldownMs, 10_000));
-                if (preferredAffinity && candidate.providerId === preferredAffinity.providerId && refreshedCredential.accountId === preferredAffinity.accountId) {
-                  preferredReassignmentAllowed = true;
-                }
-              }
-            }
-            break;
-          } finally {
-            refreshedRelease();
-          }
-        }
-        keyPool.markRateLimited(candidate.account, Math.min(context.config.keyCooldownMs, 10_000));
-        if (preferredAffinity && candidate.providerId === preferredAffinity.providerId && candidate.account.accountId === preferredAffinity.accountId) {
-          preferredReassignmentAllowed = true;
-        }
-      } else if (!upstreamResponse.ok && outcome.requestError === true && (upstreamResponse.status === 401 || upstreamResponse.status === 402 || upstreamResponse.status === 403)) {
-        if (shouldCooldownCredentialOnAuthFailure(candidate.providerId, upstreamResponse.status) || shouldPermanentlyDisableCredential(candidate.account, upstreamResponse.status)) {
-          const cooldownMs = shouldPermanentlyDisableCredential(candidate.account, upstreamResponse.status)
-            ? PERMANENT_DISABLE_COOLDOWN_MS
-            : Math.min(context.config.keyCooldownMs, 10_000);
-          keyPool.markRateLimited(candidate.account, cooldownMs);
-          if (healthStore) {
-            healthStore.recordFailure(candidate.account, upstreamResponse.status, "credential_disabled");
-          }
-          if (preferredAffinity && candidate.providerId === preferredAffinity.providerId && candidate.account.accountId === preferredAffinity.accountId) {
-            preferredReassignmentAllowed = true;
-          }
-        }
-      }
-
-      if (!upstreamResponse.ok && outcome.requestError === true && !outcome.modelNotFound && !outcome.modelNotSupportedForAccount) {
-        await summarizeUpstreamError(upstreamResponse);
-      }
-
-      upstreamSpan.setStatus("error", `fallback_continue_${upstreamResponse.status}`);
-      upstreamSpan.end();
       break;
     }
 

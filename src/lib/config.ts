@@ -20,6 +20,14 @@ export interface ProxyConfig {
   readonly messagesInterleavedThinkingBeta?: string;
   readonly responsesPath: string;
   readonly openaiResponsesPath: string;
+  /**
+   * Upstream paths to try for OpenAI OAuth-backed image generation.
+   *
+   * The proxy's OpenAI OAuth accounts commonly target ChatGPT's backend API
+   * (`OPENAI_BASE_URL=https://chatgpt.com/backend-api`), which does not
+   * necessarily expose the same Images endpoint paths as api.openai.com.
+   */
+  readonly openaiImagesGenerationsPaths: readonly string[];
   readonly imagesGenerationsPath: string;
   readonly responsesModelPrefixes: readonly string[];
   readonly ollamaChatPath: string;
@@ -310,6 +318,13 @@ export function loadConfig(cwd: string = process.cwd()): ProxyConfig {
     ? sessionSecretRaw
     : proxyAuthToken ?? "default-session-secret-change-in-production";
 
+  const imagesGenerationsPath = process.env.UPSTREAM_IMAGES_GENERATIONS_PATH ?? "/v1/images/generations";
+  const openaiImagesGenerationsPaths = csvFromEnv("OPENAI_IMAGES_GENERATIONS_PATHS", [
+    imagesGenerationsPath,
+    "/images/generations",
+    "/codex/images/generations",
+  ]);
+
   return {
     host: process.env.PROXY_HOST ?? process.env.HOST ?? "127.0.0.1",
     port: numberFromEnvAliases(["PROXY_PORT", "PORT"], 8789),
@@ -332,7 +347,8 @@ export function loadConfig(cwd: string = process.cwd()): ProxyConfig {
       : undefined,
     responsesPath: process.env.UPSTREAM_RESPONSES_PATH ?? "/v1/responses",
     openaiResponsesPath: process.env.OPENAI_RESPONSES_PATH ?? "/codex/responses",
-    imagesGenerationsPath: process.env.UPSTREAM_IMAGES_GENERATIONS_PATH ?? "/v1/images/generations",
+    openaiImagesGenerationsPaths,
+    imagesGenerationsPath,
     responsesModelPrefixes: csvFromEnv("UPSTREAM_RESPONSES_MODEL_PREFIXES", ["gpt-"]),
     ollamaChatPath: process.env.OLLAMA_CHAT_PATH ?? "/api/chat",
     ollamaV1ChatPath: process.env.OLLAMA_V1_CHAT_PATH ?? "/v1/chat/completions",
