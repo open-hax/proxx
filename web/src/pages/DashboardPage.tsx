@@ -22,6 +22,15 @@ function formatPercent(value: number): string {
   return `${value.toFixed(value >= 10 ? 0 : 1)}%`;
 }
 
+function formatUsd(value: number): string {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: value >= 1 ? 2 : 4,
+    maximumFractionDigits: value >= 1 ? 2 : 4,
+  }).format(value);
+}
+
 function formatDate(value: string | null): string {
   return value ? new Date(value).toLocaleString() : "Never";
 }
@@ -288,6 +297,13 @@ export function DashboardPage(): JSX.Element {
             Cache hit {formatPercent(overview?.summary.cacheHitRate24h ?? 0)}
           </small>
         </article>
+        <article className={`dashboard-metric-card ${metricTone(overview?.summary.imageCount24h ?? 0)}`}>
+          <span>Images / 24h</span>
+          <strong>{loading ? "..." : formatCompactNumber(overview?.summary.imageCount24h ?? 0)}</strong>
+          <small>
+            Cost {formatUsd(overview?.summary.imageCostUsd24h ?? 0)}
+          </small>
+        </article>
         <article className={`dashboard-metric-card ${metricTone(overview?.summary.errorRate24h ?? 0, true)}`}>
           <span>Error Rate</span>
           <strong>{loading ? "..." : formatPercent(overview?.summary.errorRate24h ?? 0)}</strong>
@@ -479,8 +495,14 @@ export function DashboardPage(): JSX.Element {
                       : "-"}
                     {account.cachedPromptTokens > 0 ? ` · ${formatCompactNumber(account.cachedPromptTokens)} cached` : ""}
                   </span>
-                  <span>{formatCompactNumber(account.requestCount)}</span>
-                  <span>{formatCompactNumber(account.totalTokens)}</span>
+                  <span>
+                    {formatCompactNumber(account.requestCount)}
+                    {account.imageCount > 0 ? ` · ${formatCompactNumber(account.imageCount)} img` : ""}
+                  </span>
+                  <span>
+                    {formatCompactNumber(account.totalTokens)}
+                    {account.imageCostUsd > 0 ? ` · ${formatUsd(account.imageCostUsd)}` : ""}
+                  </span>
                   <span>{formatDate(account.lastUsedAt)}</span>
                 </div>
               ))

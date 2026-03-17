@@ -21,6 +21,8 @@ export interface RequestLogEntry {
   readonly completionTokens?: number;
   readonly totalTokens?: number;
   readonly cachedPromptTokens?: number;
+  readonly imageCount?: number;
+  readonly imageCostUsd?: number;
   readonly promptCacheKeyUsed?: boolean;
   readonly cacheHit?: boolean;
   readonly ttftMs?: number;
@@ -50,6 +52,8 @@ export interface RequestLogRecordInput {
   readonly completionTokens?: number;
   readonly totalTokens?: number;
   readonly cachedPromptTokens?: number;
+  readonly imageCount?: number;
+  readonly imageCostUsd?: number;
   readonly promptCacheKeyUsed?: boolean;
   readonly cacheHit?: boolean;
   readonly ttftMs?: number;
@@ -66,6 +70,8 @@ export interface RequestLogHourlyBucket {
   readonly promptTokens: number;
   readonly completionTokens: number;
   readonly cachedPromptTokens: number;
+  readonly imageCount: number;
+  readonly imageCostUsd: number;
   readonly cacheHitCount: number;
   readonly cacheKeyUseCount: number;
   readonly fastModeRequestCount: number;
@@ -82,6 +88,8 @@ export interface AccountUsageAccumulator {
   readonly promptTokens: number;
   readonly completionTokens: number;
   readonly cachedPromptTokens: number;
+  readonly imageCount: number;
+  readonly imageCostUsd: number;
   readonly cacheHitCount: number;
   readonly cacheKeyUseCount: number;
   readonly ttftSum: number;
@@ -116,6 +124,8 @@ type HourlyBucket = {
   promptTokens: number;
   completionTokens: number;
   cachedPromptTokens: number;
+  imageCount: number;
+  imageCostUsd: number;
   cacheHitCount: number;
   cacheKeyUseCount: number;
   fastModeRequestCount: number;
@@ -147,6 +157,14 @@ function asNumber(value: unknown): number | undefined {
 }
 
 function sanitizeOptionalCount(value: number | undefined): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return undefined;
+  }
+
+  return value >= 0 ? value : undefined;
+}
+
+function sanitizeOptionalCost(value: number | undefined): number | undefined {
   if (typeof value !== "number" || !Number.isFinite(value)) {
     return undefined;
   }
@@ -218,6 +236,8 @@ function hydrateEntry(raw: unknown): RequestLogEntry | null {
     completionTokens: sanitizeOptionalCount(asNumber(raw.completionTokens)),
     totalTokens: sanitizeOptionalCount(asNumber(raw.totalTokens)),
     cachedPromptTokens: sanitizeOptionalCount(asNumber(raw.cachedPromptTokens)),
+    imageCount: sanitizeOptionalCount(asNumber(raw.imageCount)),
+    imageCostUsd: sanitizeOptionalCost(asNumber(raw.imageCostUsd)),
     promptCacheKeyUsed: raw.promptCacheKeyUsed === true,
     cacheHit: raw.cacheHit === true,
     ttftMs: sanitizeOptionalCount(asNumber(raw.ttftMs)),
@@ -244,6 +264,8 @@ function hydrateHourlyBucket(raw: unknown): RequestLogHourlyBucket | null {
     promptTokens: asNumber(raw.promptTokens) ?? 0,
     completionTokens: asNumber(raw.completionTokens) ?? 0,
     cachedPromptTokens: asNumber(raw.cachedPromptTokens) ?? 0,
+    imageCount: asNumber(raw.imageCount) ?? 0,
+    imageCostUsd: asNumber(raw.imageCostUsd) ?? 0,
     cacheHitCount: asNumber(raw.cacheHitCount) ?? 0,
     cacheKeyUseCount: asNumber(raw.cacheKeyUseCount) ?? 0,
     fastModeRequestCount: asNumber(raw.fastModeRequestCount) ?? 0,
@@ -317,6 +339,8 @@ type MutableAccountAccumulator = {
   promptTokens: number;
   completionTokens: number;
   cachedPromptTokens: number;
+  imageCount: number;
+  imageCostUsd: number;
   cacheHitCount: number;
   cacheKeyUseCount: number;
   ttftSum: number;
@@ -376,6 +400,8 @@ export class RequestLogStore {
       completionTokens: sanitizeOptionalCount(input.completionTokens),
       totalTokens: sanitizeOptionalCount(input.totalTokens),
       cachedPromptTokens: sanitizeOptionalCount(input.cachedPromptTokens),
+      imageCount: sanitizeOptionalCount(input.imageCount),
+      imageCostUsd: sanitizeOptionalCost(input.imageCostUsd),
       promptCacheKeyUsed: input.promptCacheKeyUsed === true,
       cacheHit: input.cacheHit === true,
       ttftMs: sanitizeOptionalCount(input.ttftMs),
@@ -404,6 +430,8 @@ export class RequestLogStore {
       readonly completionTokens?: number;
       readonly totalTokens?: number;
       readonly cachedPromptTokens?: number;
+      readonly imageCount?: number;
+      readonly imageCostUsd?: number;
       readonly promptCacheKeyUsed?: boolean;
       readonly cacheHit?: boolean;
       readonly ttftMs?: number;
@@ -431,6 +459,8 @@ export class RequestLogStore {
       completionTokens: sanitizeOptionalCount(patch.completionTokens) ?? current.completionTokens,
       totalTokens: sanitizeOptionalCount(patch.totalTokens) ?? current.totalTokens,
       cachedPromptTokens: sanitizeOptionalCount(patch.cachedPromptTokens) ?? current.cachedPromptTokens,
+      imageCount: sanitizeOptionalCount(patch.imageCount) ?? current.imageCount,
+      imageCostUsd: sanitizeOptionalCost(patch.imageCostUsd) ?? current.imageCostUsd,
       promptCacheKeyUsed: patch.promptCacheKeyUsed ?? current.promptCacheKeyUsed,
       cacheHit: patch.cacheHit ?? current.cacheHit,
       ttftMs: sanitizeOptionalCount(patch.ttftMs) ?? current.ttftMs,
@@ -464,6 +494,8 @@ export class RequestLogStore {
         promptTokens: bucket.promptTokens,
         completionTokens: bucket.completionTokens,
         cachedPromptTokens: bucket.cachedPromptTokens,
+        imageCount: bucket.imageCount,
+        imageCostUsd: bucket.imageCostUsd,
         cacheHitCount: bucket.cacheHitCount,
         cacheKeyUseCount: bucket.cacheKeyUseCount,
         fastModeRequestCount: bucket.fastModeRequestCount,
@@ -550,6 +582,8 @@ export class RequestLogStore {
       promptTokens: 0,
       completionTokens: 0,
       cachedPromptTokens: 0,
+      imageCount: 0,
+      imageCostUsd: 0,
       cacheHitCount: 0,
       cacheKeyUseCount: 0,
       fastModeRequestCount: 0,
@@ -578,7 +612,7 @@ export class RequestLogStore {
       accountId: entry.accountId,
       authType: entry.authType,
       requestCount: 0, totalTokens: 0, promptTokens: 0, completionTokens: 0,
-      cachedPromptTokens: 0, cacheHitCount: 0, cacheKeyUseCount: 0,
+      cachedPromptTokens: 0, imageCount: 0, imageCostUsd: 0, cacheHitCount: 0, cacheKeyUseCount: 0,
       ttftSum: 0, ttftCount: 0, tpsSum: 0, tpsCount: 0, lastUsedAtMs: 0,
     };
     acc.requestCount += 1;
@@ -586,6 +620,8 @@ export class RequestLogStore {
     acc.promptTokens += sanitizeOptionalCount(entry.promptTokens) ?? 0;
     acc.completionTokens += sanitizeOptionalCount(entry.completionTokens) ?? 0;
     acc.cachedPromptTokens += sanitizeOptionalCount(entry.cachedPromptTokens) ?? 0;
+    acc.imageCount += sanitizeOptionalCount(entry.imageCount) ?? 0;
+    acc.imageCostUsd += sanitizeOptionalCost(entry.imageCostUsd) ?? 0;
     if (entry.cacheHit) acc.cacheHitCount += 1;
     if (entry.promptCacheKeyUsed) acc.cacheKeyUseCount += 1;
     if (typeof entry.ttftMs === "number" && Number.isFinite(entry.ttftMs)) { acc.ttftSum += entry.ttftMs; acc.ttftCount += 1; }
@@ -602,6 +638,8 @@ export class RequestLogStore {
     acc.promptTokens += (sanitizeOptionalCount(next.promptTokens) ?? 0) - (sanitizeOptionalCount(prev.promptTokens) ?? 0);
     acc.completionTokens += (sanitizeOptionalCount(next.completionTokens) ?? 0) - (sanitizeOptionalCount(prev.completionTokens) ?? 0);
     acc.cachedPromptTokens += (sanitizeOptionalCount(next.cachedPromptTokens) ?? 0) - (sanitizeOptionalCount(prev.cachedPromptTokens) ?? 0);
+    acc.imageCount += (sanitizeOptionalCount(next.imageCount) ?? 0) - (sanitizeOptionalCount(prev.imageCount) ?? 0);
+    acc.imageCostUsd += (sanitizeOptionalCost(next.imageCostUsd) ?? 0) - (sanitizeOptionalCost(prev.imageCostUsd) ?? 0);
     if (next.cacheHit && !prev.cacheHit) acc.cacheHitCount += 1;
     if (next.promptCacheKeyUsed && !prev.promptCacheKeyUsed) acc.cacheKeyUseCount += 1;
     if (typeof next.ttftMs === "number" && Number.isFinite(next.ttftMs) && (prev.ttftMs === undefined || prev.ttftMs === null)) {
@@ -639,6 +677,8 @@ export class RequestLogStore {
     bucket.promptTokens += sumCount(entry.promptTokens);
     bucket.completionTokens += sumCount(entry.completionTokens);
     bucket.cachedPromptTokens += sumCount(entry.cachedPromptTokens);
+    bucket.imageCount += sumCount(entry.imageCount);
+    bucket.imageCostUsd += sumCount(entry.imageCostUsd);
 
     if (entry.promptCacheKeyUsed) {
       bucket.cacheKeyUseCount += 1;
@@ -659,6 +699,8 @@ export class RequestLogStore {
     bucket.promptTokens += sumCount(entry.promptTokens) - sumCount(previous.promptTokens);
     bucket.completionTokens += sumCount(entry.completionTokens) - sumCount(previous.completionTokens);
     bucket.cachedPromptTokens += sumCount(entry.cachedPromptTokens) - sumCount(previous.cachedPromptTokens);
+    bucket.imageCount += sumCount(entry.imageCount) - sumCount(previous.imageCount);
+    bucket.imageCostUsd += sumCount(entry.imageCostUsd) - sumCount(previous.imageCostUsd);
 
     // promptCacheKeyUsed / cacheHit are only ever expected to flip false->true.
     if (entry.promptCacheKeyUsed && !previous.promptCacheKeyUsed) {
@@ -807,6 +849,8 @@ export class RequestLogStore {
         promptTokens: bucket.promptTokens,
         completionTokens: bucket.completionTokens,
         cachedPromptTokens: bucket.cachedPromptTokens,
+        imageCount: bucket.imageCount,
+        imageCostUsd: bucket.imageCostUsd,
         cacheHitCount: bucket.cacheHitCount,
         cacheKeyUseCount: bucket.cacheKeyUseCount,
         fastModeRequestCount: bucket.fastModeRequestCount,
@@ -831,6 +875,8 @@ export class RequestLogStore {
             promptTokens: asNumber(acc.promptTokens) ?? 0,
             completionTokens: asNumber(acc.completionTokens) ?? 0,
             cachedPromptTokens: asNumber(acc.cachedPromptTokens) ?? 0,
+            imageCount: asNumber(acc.imageCount) ?? 0,
+            imageCostUsd: asNumber(acc.imageCostUsd) ?? 0,
             cacheHitCount: asNumber(acc.cacheHitCount) ?? 0,
             cacheKeyUseCount: asNumber(acc.cacheKeyUseCount) ?? 0,
             ttftSum: asNumber(acc.ttftSum) ?? 0,

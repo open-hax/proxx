@@ -52,6 +52,10 @@ export interface ProxyConfig {
    * backwards compatibility.
    */
   readonly openaiImagesGenerationsPaths: readonly string[];
+  /** Default USD cost per image (used when no provider override is set). */
+  readonly imageCostUsdDefault: number;
+  /** Optional per-provider USD cost per image overrides. */
+  readonly imageCostUsdByProvider: Readonly<Record<string, number>>;
   readonly imagesGenerationsPath: string;
   readonly responsesModelPrefixes: readonly string[];
   readonly ollamaChatPath: string;
@@ -161,6 +165,37 @@ function nonNegativeNumberFromEnvAliases(names: readonly string[], fallback: num
   }
 
   return fallback;
+}
+
+function numberMapFromEnv(name: string): Record<string, number> {
+  const raw = process.env[name];
+  if (!raw) {
+    return {};
+  }
+
+  const entries = raw
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+
+  const parsed: Record<string, number> = {};
+  for (const entry of entries) {
+    const separatorIndex = entry.indexOf("=");
+    if (separatorIndex <= 0 || separatorIndex === entry.length - 1) {
+      throw new Error(`Invalid numeric map in ${name}: ${entry}`);
+    }
+
+    const key = entry.slice(0, separatorIndex).trim();
+    const value = entry.slice(separatorIndex + 1).trim();
+    const amount = Number(value);
+    if (!Number.isFinite(amount) || amount < 0) {
+      throw new Error(`Invalid numeric map in ${name}: ${entry}`);
+    }
+
+    parsed[key.toLowerCase()] = amount;
+  }
+
+  return parsed;
 }
 
 function filePathFromEnvAliases(names: readonly string[], fallback: string, cwd: string): string {
@@ -370,6 +405,8 @@ export function loadConfig(cwd: string = process.cwd()): ProxyConfig {
     "/images/generations",
     "/codex/images/generations",
   ]);
+  const imageCostUsdDefault = nonNegativeNumberFromEnvAliases(["IMAGE_COST_USD_DEFAULT"], 0);
+  const imageCostUsdByProvider = numberMapFromEnv("IMAGE_COST_USD_BY_PROVIDER");
 
   const openaiOauthScopesRaw = (process.env.OPENAI_OAUTH_SCOPES ?? "openid profile email offline_access").trim();
   const openaiOauthScopes = openaiOauthScopesRaw.length > 0
@@ -416,6 +453,8 @@ export function loadConfig(cwd: string = process.cwd()): ProxyConfig {
     responsesPath: process.env.UPSTREAM_RESPONSES_PATH ?? "/v1/responses",
     openaiResponsesPath: process.env.OPENAI_RESPONSES_PATH ?? "/codex/responses",
     openaiImagesGenerationsPaths,
+    imageCostUsdDefault,
+    imageCostUsdByProvider,
     imagesGenerationsPath,
     responsesModelPrefixes: csvFromEnv("UPSTREAM_RESPONSES_MODEL_PREFIXES", ["gpt-"]),
     ollamaChatPath: process.env.OLLAMA_CHAT_PATH ?? "/api/chat",

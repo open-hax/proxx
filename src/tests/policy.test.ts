@@ -26,6 +26,17 @@ test("de-prioritizes vivgrid and excludes ollama-cloud for gpt model provider or
   assert.deepEqual(ordered, ["openai", "vivgrid", "ollama-cloud"]);
 });
 
+test("gpt-5.4 provider ordering includes factory", () => {
+  const policy = createPolicyEngine(DEFAULT_POLICY_CONFIG);
+
+  const ordered = policy.orderProviders(
+    ["vivgrid", "factory", "openai"],
+    createModelInfo("gpt-5.4"),
+  );
+
+  assert.deepEqual(ordered, ["openai", "factory", "vivgrid"]);
+});
+
 test("preserves provider order for non-gpt models", () => {
   const policy = createPolicyEngine(DEFAULT_POLICY_CONFIG);
 

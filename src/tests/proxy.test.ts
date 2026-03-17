@@ -111,6 +111,8 @@ async function withProxyApp(
     responsesPath: "/v1/responses",
     openaiResponsesPath: "/v1/responses",
     openaiImagesGenerationsPaths: ["/v1/images/generations", "/images/generations", "/codex/images/generations"],
+    imageCostUsdDefault: 0,
+    imageCostUsdByProvider: {},
     imagesGenerationsPath: "/v1/images/generations",
     responsesModelPrefixes: ["gpt-"],
     ollamaChatPath: "/api/chat",

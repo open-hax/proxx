@@ -35,6 +35,8 @@ interface UsageAccountSummary {
   readonly promptTokens: number;
   readonly completionTokens: number;
   readonly cachedPromptTokens: number;
+  readonly imageCount: number;
+  readonly imageCostUsd: number;
   readonly cacheHitCount: number;
   readonly cacheKeyUseCount: number;
   readonly avgTtftMs: number | null;
@@ -57,6 +59,8 @@ interface UsageOverviewResponse {
     readonly promptTokens24h: number;
     readonly completionTokens24h: number;
     readonly cachedPromptTokens24h: number;
+    readonly imageCount24h: number;
+    readonly imageCostUsd24h: number;
     readonly cacheKeyUses24h: number;
     readonly cacheHitRate24h: number;
     readonly errorRate24h: number;
@@ -200,6 +204,8 @@ async function buildUsageOverview(
   const promptTokens = recentBuckets.reduce((sum, bucket) => sum + bucket.promptTokens, 0);
   const completionTokens = recentBuckets.reduce((sum, bucket) => sum + bucket.completionTokens, 0);
   const cachedPromptTokens = recentBuckets.reduce((sum, bucket) => sum + bucket.cachedPromptTokens, 0);
+  const imageCount = recentBuckets.reduce((sum, bucket) => sum + bucket.imageCount, 0);
+  const imageCostUsd = recentBuckets.reduce((sum, bucket) => sum + bucket.imageCostUsd, 0);
   const cacheKeyUses = recentBuckets.reduce((sum, bucket) => sum + bucket.cacheKeyUseCount, 0);
   const cacheHits = recentBuckets.reduce((sum, bucket) => sum + bucket.cacheHitCount, 0);
   const totalErrors = recentBuckets.reduce((sum, bucket) => sum + bucket.errorCount, 0);
@@ -217,6 +223,8 @@ async function buildUsageOverview(
     promptTokens: number;
     completionTokens: number;
     cachedPromptTokens: number;
+    imageCount: number;
+    imageCostUsd: number;
     cacheHitCount: number;
     cacheKeyUseCount: number;
     ttftSum: number;
@@ -302,6 +310,8 @@ async function buildUsageOverview(
         promptTokens: 0,
         completionTokens: 0,
         cachedPromptTokens: 0,
+        imageCount: 0,
+        imageCostUsd: 0,
         cacheHitCount: 0,
         cacheKeyUseCount: 0,
         ttftSum: 0,
@@ -333,6 +343,8 @@ async function buildUsageOverview(
         promptTokens: agg.promptTokens,
         completionTokens: agg.completionTokens,
         cachedPromptTokens: agg.cachedPromptTokens,
+        imageCount: agg.imageCount,
+        imageCostUsd: agg.imageCostUsd,
         cacheHitCount: agg.cacheHitCount,
         cacheKeyUseCount: agg.cacheKeyUseCount,
         avgTtftMs: health.avgTtftMs,
@@ -371,6 +383,8 @@ async function buildUsageOverview(
       promptTokens24h: promptTokens,
       completionTokens24h: completionTokens,
       cachedPromptTokens24h: cachedPromptTokens,
+      imageCount24h: imageCount,
+      imageCostUsd24h: imageCostUsd,
       cacheKeyUses24h: cacheKeyUses,
       cacheHitRate24h,
       errorRate24h: percentage(totalErrors, totalRequests),

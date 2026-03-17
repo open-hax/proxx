@@ -67,6 +67,9 @@ export interface RequestLogEntry {
   readonly promptTokens?: number;
   readonly completionTokens?: number;
   readonly totalTokens?: number;
+  readonly cachedPromptTokens?: number;
+  readonly imageCount?: number;
+  readonly imageCostUsd?: number;
   readonly error?: string;
 }
 
@@ -131,6 +134,8 @@ export interface UsageAccountSummary {
   readonly promptTokens: number;
   readonly completionTokens: number;
   readonly cachedPromptTokens: number;
+  readonly imageCount: number;
+  readonly imageCostUsd: number;
   readonly cacheHitCount: number;
   readonly cacheKeyUseCount: number;
   readonly avgTtftMs: number | null;
@@ -148,6 +153,8 @@ export interface UsageOverview {
     readonly promptTokens24h: number;
     readonly completionTokens24h: number;
     readonly cachedPromptTokens24h: number;
+    readonly imageCount24h: number;
+    readonly imageCostUsd24h: number;
     readonly cacheKeyUses24h: number;
     readonly cacheHitRate24h: number;
     readonly errorRate24h: number;

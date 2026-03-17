@@ -439,6 +439,8 @@ export interface UsageCounts {
   readonly completionTokens?: number;
   readonly totalTokens?: number;
   readonly cachedPromptTokens?: number;
+  readonly imageCount?: number;
+  readonly imageCostUsd?: number;
 }
 
 interface ProviderStrategy {
@@ -663,6 +665,8 @@ function recordAttempt(
     readonly completionTokens?: number;
     readonly totalTokens?: number;
     readonly promptCacheKeyUsed?: boolean;
+    readonly imageCount?: number;
+    readonly imageCostUsd?: number;
     readonly error?: string;
   },
   mode: UpstreamMode
@@ -681,6 +685,8 @@ function recordAttempt(
     promptTokens: values.promptTokens,
     completionTokens: values.completionTokens,
     totalTokens: values.totalTokens,
+    imageCount: values.imageCount,
+    imageCostUsd: values.imageCostUsd,
     promptCacheKeyUsed: values.promptCacheKeyUsed,
     ttftMs: values.latencyMs,
     error: values.error
@@ -710,6 +716,62 @@ function cachedPromptTokensFromUsage(usage: Record<string, unknown>): number | u
   return undefined;
 }
 
+function imageCountFromImagesPayload(payload: Record<string, unknown>): number | undefined {
+  const data = payload["data"];
+  if (Array.isArray(data)) {
+    return data.length;
+  }
+
+  const images = payload["images"];
+  if (Array.isArray(images)) {
+    return images.length;
+  }
+
+  return undefined;
+}
+
+function imageCountFromResponsesPayload(payload: Record<string, unknown>): number | undefined {
+  let responsePayload: Record<string, unknown> = payload;
+  if (asString(payload["type"]) === "response.completed" && isRecord(payload["response"])) {
+    responsePayload = payload["response"] as Record<string, unknown>;
+  }
+
+  const output = Array.isArray(responsePayload["output"]) ? responsePayload["output"] : [];
+  if (output.length === 0) {
+    return undefined;
+  }
+
+  let count = 0;
+  for (const item of output) {
+    if (!isRecord(item)) continue;
+    const type = asString(item["type"]);
+    if (type === "image_generation_call") {
+      const result = item["result"];
+      if (Array.isArray(result)) {
+        count += result.length;
+      } else if (typeof result === "string") {
+        if (result.length > 0) {
+          count += 1;
+        }
+      } else {
+        count += 1;
+      }
+      continue;
+    }
+    if (type === "image" || type === "output_image") {
+      count += 1;
+    }
+  }
+
+  return count > 0 ? count : undefined;
+}
+
+function resolveImageCostUsd(config: ProxyConfig, providerId: string): number {
+  const normalized = providerId.trim().toLowerCase();
+  const override = config.imageCostUsdByProvider[normalized];
+  return override ?? config.imageCostUsdDefault;
+}
+
 function usageCountsFromCompletion(completion: Record<string, unknown>): UsageCounts {
   const usage = isRecord(completion["usage"]) ? completion["usage"] : null;
   if (!usage) {
@@ -735,19 +797,27 @@ function usageCountsFromUpstreamJson(upstreamJson: unknown, routedModel: string)
     return {};
   }
 
+  let counts: UsageCounts;
   try {
-    return usageCountsFromCompletion(responsesToChatCompletion(upstreamJson, routedModel));
+    counts = usageCountsFromCompletion(responsesToChatCompletion(upstreamJson, routedModel));
   } catch {
     try {
-      return usageCountsFromCompletion(messagesToChatCompletion(upstreamJson, routedModel));
+      counts = usageCountsFromCompletion(messagesToChatCompletion(upstreamJson, routedModel));
     } catch {
       try {
-        return usageCountsFromCompletion(ollamaToChatCompletion(upstreamJson, routedModel));
+        counts = usageCountsFromCompletion(ollamaToChatCompletion(upstreamJson, routedModel));
       } catch {
-        return usageCountsFromCompletion(upstreamJson);
+        counts = usageCountsFromCompletion(upstreamJson);
       }
     }
   }
+
+  const imageCount = imageCountFromImagesPayload(upstreamJson) ?? imageCountFromResponsesPayload(upstreamJson);
+  if (imageCount !== undefined) {
+    return { ...counts, imageCount };
+  }
+
+  return counts;
 }
 
 function usageCountsFromGeminiResponse(upstreamJson: Record<string, unknown>): UsageCounts {
@@ -778,7 +848,17 @@ function usageCountsForMode(mode: UpstreamMode, upstreamJson: unknown, routedMod
     || mode === "responses_passthrough"
     || mode === "openai_responses_passthrough"
   ) {
-    return usageCountsFromCompletion(responsesToChatCompletion(upstreamJson, routedModel));
+    const counts = usageCountsFromCompletion(responsesToChatCompletion(upstreamJson, routedModel));
+    const imageCount = imageCountFromResponsesPayload(upstreamJson);
+    if (imageCount !== undefined) {
+      return { ...counts, imageCount };
+    }
+    return counts;
+  }
+
+  if (mode === "images") {
+    const imageCount = imageCountFromImagesPayload(upstreamJson) ?? imageCountFromResponsesPayload(upstreamJson);
+    return imageCount !== undefined ? { imageCount } : {};
   }
 
   if (mode === "gemini_chat") {
@@ -823,6 +903,10 @@ export function extractUsageCountsFromSseText(
   routedModel: string,
 ): UsageCounts {
   try {
+    if (mode === "images") {
+      return extractUsageFromResponsesSse(streamText, routedModel);
+    }
+
     if (mode === "messages") {
       return extractUsageFromAnthropicSse(streamText);
     }
@@ -958,7 +1042,13 @@ function extractUsageFromAnthropicSse(streamText: string): UsageCounts {
 function extractUsageFromResponsesSse(streamText: string, routedModel: string): UsageCounts {
   try {
     const chatCompletion = responsesEventStreamToChatCompletion(streamText, routedModel);
-    return usageCountsFromCompletion(chatCompletion);
+    const counts = usageCountsFromCompletion(chatCompletion);
+    const terminalResponse = extractTerminalResponseFromEventStream(streamText);
+    const imageCount = terminalResponse ? imageCountFromResponsesPayload(terminalResponse) : undefined;
+    if (imageCount !== undefined) {
+      return { ...counts, imageCount };
+    }
+    return counts;
   } catch {
     return {};
   }
@@ -1040,16 +1130,26 @@ async function updateUsageCountsFromResponse(
   response: Response,
   mode: UpstreamMode,
   routedModel: string,
+  providerId: string,
+  config: ProxyConfig,
 ): Promise<void> {
   const readStartedAt = Date.now();
   const usageCounts = await extractUsageCounts(response, mode, routedModel);
   const readDurationMs = Math.max(0, Date.now() - readStartedAt);
+
+  const imageCount = typeof usageCounts.imageCount === "number" && Number.isFinite(usageCounts.imageCount)
+    ? usageCounts.imageCount
+    : undefined;
+  const imageCostUsd = imageCount !== undefined
+    ? imageCount * resolveImageCostUsd(config, providerId)
+    : undefined;
 
   if (
     usageCounts.promptTokens === undefined
     && usageCounts.completionTokens === undefined
     && usageCounts.totalTokens === undefined
     && usageCounts.cachedPromptTokens === undefined
+    && imageCount === undefined
   ) {
     return;
   }
@@ -1065,6 +1165,8 @@ async function updateUsageCountsFromResponse(
 
   requestLogStore.update(entryId, {
     ...usageCounts,
+    imageCount,
+    imageCostUsd,
     cacheHit: typeof usageCounts.cachedPromptTokens === "number" && usageCounts.cachedPromptTokens > 0,
     tps,
   });
@@ -1975,6 +2077,91 @@ class ImagesGenerationsPassthroughStrategy extends BaseProviderStrategy {
   }
 }
 
+class FactoryResponsesPassthroughStrategy extends BaseProviderStrategy {
+  public readonly mode = "responses_passthrough" as const;
+
+  public readonly isLocal = false;
+
+  public matches(context: StrategyRequestContext): boolean {
+    return context.responsesPassthrough === true
+      && context.factoryPrefixed
+      && getFactoryModelType(context.routedModel) === "openai";
+  }
+
+  public getUpstreamPath(_context: StrategyRequestContext): string {
+    return getFactoryEndpointPath("openai");
+  }
+
+  public buildPayload(context: StrategyRequestContext): BuildPayloadResult {
+    const upstreamPayload: Record<string, unknown> = { ...context.requestBody };
+    delete upstreamPayload["open_hax"];
+    stripTrailingAssistantPrefill(upstreamPayload);
+    return buildPayloadResult(upstreamPayload, context);
+  }
+
+  public override applyRequestHeaders(headers: Headers, context: ProviderAttemptContext, _payload: Record<string, unknown>): void {
+    const factoryHeaders = buildFactoryCommonHeaders(context.routedModel);
+    for (const [name, value] of Object.entries(factoryHeaders)) {
+      headers.set(name, value);
+    }
+  }
+
+  public override async handleProviderAttempt(
+    reply: FastifyReply,
+    upstreamResponse: Response,
+    context: ProviderAttemptContext,
+  ): Promise<ProviderAttemptOutcome> {
+    if (!upstreamResponse.ok) {
+      return this.handleStandardProviderAttempt(reply, upstreamResponse, context);
+    }
+
+    const contentType = upstreamResponse.headers.get("content-type") ?? "";
+    const isEventStream = contentType.toLowerCase().includes("text/event-stream");
+
+    reply.header("x-open-hax-upstream-provider", context.providerId);
+    reply.code(upstreamResponse.status);
+    copyUpstreamHeaders(reply, upstreamResponse.headers);
+
+    if (isEventStream) {
+      if (!upstreamResponse.body) {
+        return { kind: "continue", requestError: true };
+      }
+
+      reply.removeHeader("content-length");
+      reply.header("cache-control", "no-cache");
+      reply.header("x-accel-buffering", "no");
+      reply.header("content-type", "text/event-stream; charset=utf-8");
+      reply.hijack();
+      const rawResponse = reply.raw;
+      rawResponse.statusCode = upstreamResponse.status;
+      for (const [name, value] of Object.entries(reply.getHeaders())) {
+        if (value !== undefined) {
+          rawResponse.setHeader(name, value as never);
+        }
+      }
+      rawResponse.flushHeaders();
+      const nodeStream = Readable.fromWeb(upstreamResponse.body as never);
+      nodeStream.on("error", () => {
+        if (!rawResponse.writableEnded) {
+          rawResponse.end();
+        }
+      });
+      nodeStream.pipe(rawResponse);
+      return { kind: "handled" };
+    }
+
+    if (!upstreamResponse.body) {
+      const responseText = await upstreamResponse.text();
+      reply.send(responseText);
+      return { kind: "handled" };
+    }
+
+    const bytes = Buffer.from(await upstreamResponse.arrayBuffer());
+    reply.send(bytes);
+    return { kind: "handled" };
+  }
+}
+
 class ResponsesPassthroughStrategy extends BaseProviderStrategy {
   public readonly mode = "responses_passthrough" as const;
 
@@ -2537,6 +2724,7 @@ const GEMINI_CHAT_STRATEGY = new GeminiChatProviderStrategy();
 const PROVIDER_STRATEGIES: readonly ProviderStrategy[] = [
   new ImagesGenerationsPassthroughStrategy(),
   new OpenAiResponsesPassthroughStrategy(),
+  new FactoryResponsesPassthroughStrategy(),
   new ResponsesPassthroughStrategy(),
   new OllamaProviderStrategy(),
   new LocalOllamaProviderStrategy(),
@@ -2765,7 +2953,15 @@ export async function executeLocalStrategy(
       serviceTierSource: payload.serviceTierSource
     }, strategy.mode);
 
-    const usagePromise = updateUsageCountsFromResponse(requestLogStore, requestLogEntryId, upstreamResponse, strategy.mode, context.routedModel);
+    const usagePromise = updateUsageCountsFromResponse(
+      requestLogStore,
+      requestLogEntryId,
+      upstreamResponse,
+      strategy.mode,
+      context.routedModel,
+      "ollama",
+      context.config,
+    );
     if (responseLooksLikeEventStream(upstreamResponse, strategy.mode) && context.clientWantsStream) {
       void usagePromise;
     } else {
@@ -3044,7 +3240,15 @@ export async function executeProviderFallback(
           promptCacheKeyUsed: Boolean(promptCacheKey),
         }, candidateStrategy.mode);
 
-        const usagePromise = updateUsageCountsFromResponse(requestLogStore, requestLogEntryId, upstreamResponse, candidateStrategy.mode, context.routedModel);
+        const usagePromise = updateUsageCountsFromResponse(
+          requestLogStore,
+          requestLogEntryId,
+          upstreamResponse,
+          candidateStrategy.mode,
+          context.routedModel,
+          candidate.providerId,
+          context.config,
+        );
         if (responseLooksLikeEventStream(upstreamResponse, candidateStrategy.mode) && context.clientWantsStream) {
           void usagePromise;
         } else {
@@ -3272,7 +3476,15 @@ export async function executeProviderFallback(
                 serviceTierSource: candidatePayload.serviceTierSource,
                 promptCacheKeyUsed: Boolean(promptCacheKey),
               }, candidateStrategy.mode);
-              const usagePromise = updateUsageCountsFromResponse(requestLogStore, refreshedLogId, refreshedResponse, candidateStrategy.mode, context.routedModel);
+              const usagePromise = updateUsageCountsFromResponse(
+                requestLogStore,
+                refreshedLogId,
+                refreshedResponse,
+                candidateStrategy.mode,
+                context.routedModel,
+                candidate.providerId,
+                context.config,
+              );
               if (responseLooksLikeEventStream(refreshedResponse, candidateStrategy.mode) && context.clientWantsStream) {
                 void usagePromise;
               } else {

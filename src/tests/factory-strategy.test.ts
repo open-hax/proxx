@@ -120,6 +120,8 @@ async function withProxyApp(
     responsesPath: "/v1/responses",
     openaiResponsesPath: "/v1/responses",
     openaiImagesGenerationsPaths: ["/v1/images/generations", "/images/generations", "/codex/images/generations"],
+    imageCostUsdDefault: 0,
+    imageCostUsdByProvider: {},
     imagesGenerationsPath: "/v1/images/generations",
     responsesModelPrefixes: ["gpt-"],
     ollamaChatPath: "/api/chat",
@@ -545,6 +547,75 @@ test("factory/gpt-* routes to /api/llm/o/v1/responses", { concurrency: false }, 
           // Should NOT have Anthropic-specific headers
           assert.equal(capturedHeaders["anthropic-version"], undefined);
           assert.equal(capturedHeaders["x-api-key"], undefined);
+        },
+      );
+    },
+  );
+});
+
+test("/v1/responses routes gpt-* to Factory responses endpoint", { concurrency: false }, async () => {
+  let capturedUrl = "";
+  let capturedHeaders: Record<string, string> = {};
+  let capturedBody: Record<string, unknown> | null = null;
+
+  await withEnv(
+    {
+      FACTORY_API_KEY: "fk-test-key", // pragma: allowlist secret
+      FACTORY_AUTH_V2_FILE: "/tmp/nonexistent-auth-v2-file",
+      FACTORY_AUTH_V2_KEY: "/tmp/nonexistent-auth-v2-key",
+    },
+    async () => {
+      await withProxyApp(
+        {
+          keys: [],
+          keysPayload: { providers: {} },
+          configOverrides: {
+            upstreamProviderId: "factory",
+            upstreamFallbackProviderIds: [],
+          },
+          upstreamHandler: async (request, body) => {
+            capturedUrl = request.url ?? "";
+            capturedHeaders = {};
+            for (const [name, value] of Object.entries(request.headers)) {
+              if (typeof value === "string") {
+                capturedHeaders[name] = value;
+              }
+            }
+
+            capturedBody = JSON.parse(body) as Record<string, unknown>;
+
+            return {
+              status: 200,
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ id: "resp_factory", object: "response", output: [] }),
+            };
+          },
+        },
+        async ({ app }) => {
+          const response = await app.inject({
+            method: "POST",
+            url: "/v1/responses",
+            payload: {
+              model: "gpt-5.4",
+              input: "hello",
+              stream: false,
+            },
+          });
+
+          assert.equal(response.statusCode, 200);
+          assert.equal(capturedUrl, "/api/llm/o/v1/responses");
+          assert.equal(capturedHeaders["x-api-provider"], "openai");
+          assert.equal(capturedHeaders["x-factory-client"], "cli");
+          assert.equal(capturedHeaders["user-agent"], "factory-cli/0.74.0");
+
+          assert.ok(capturedBody);
+          assert.equal(capturedBody?.model, "gpt-5.4");
+          assert.equal(capturedBody?.input, "hello");
+          assert.equal(capturedBody?.stream, false);
+
+          const payload = response.json();
+          assert.ok(isRecord(payload));
+          assert.equal(payload["id"], "resp_factory");
         },
       );
     },
