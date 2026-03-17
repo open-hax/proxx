@@ -622,6 +622,105 @@ test("/v1/responses routes gpt-* to Factory responses endpoint", { concurrency: 
   );
 });
 
+test("Factory 4xx responses persist sanitized prompt-rejection diagnostics", { concurrency: false }, async () => {
+  await withEnv(
+    {
+      FACTORY_API_KEY: "fk-test-key", // pragma: allowlist secret
+      FACTORY_AUTH_V2_FILE: "/tmp/nonexistent-auth-v2-file",
+      FACTORY_AUTH_V2_KEY: "/tmp/nonexistent-auth-v2-key",
+    },
+    async () => {
+      await withProxyApp(
+        {
+          keys: [],
+          keysPayload: { providers: {} },
+          configOverrides: {
+            upstreamProviderId: "factory",
+            upstreamFallbackProviderIds: [],
+          },
+          upstreamHandler: async () => ({
+            status: 403,
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              error: {
+                type: "invalid_request_error",
+                code: "policy_violation",
+                message: "Prompt rejected by upstream policy",
+              },
+            }),
+          }),
+        },
+        async ({ app }) => {
+          const response = await app.inject({
+            method: "POST",
+            url: "/v1/responses",
+            headers: { "content-type": "application/json" },
+            payload: {
+              model: "gpt-5.4",
+              prompt_cache_key: "factory-diagnostic-key",
+              instructions: [
+                "You are OpenCode, the best coding agent on the planet.",
+                "```lisp",
+                "(prompt \"operation-mindfuck\")",
+                "```",
+              ].join("\n"),
+              input: [
+                {
+                  role: "user",
+                  content: [
+                    {
+                      type: "input_text",
+                      text: "<available_skills><skill>debug</skill></available_skills> Read AGENTS.md and CONTRACT.edn before responding.",
+                    },
+                  ],
+                },
+              ],
+              stream: false,
+            },
+          });
+
+          assert.ok(response.statusCode >= 400);
+
+          const logsResponse = await app.inject({
+            method: "GET",
+            url: "/api/ui/request-logs?limit=1",
+          });
+
+          assert.equal(logsResponse.statusCode, 200);
+          const logsPayload: unknown = logsResponse.json();
+          assert.ok(isRecord(logsPayload));
+          assert.ok(Array.isArray(logsPayload.entries));
+          assert.equal(logsPayload.entries.length, 1);
+
+          const entry = logsPayload.entries[0];
+          assert.ok(isRecord(entry));
+          assert.equal(entry.providerId, "factory");
+          assert.equal(entry.status, 403);
+          assert.equal(entry.error, "Prompt rejected by upstream policy");
+          assert.equal(entry.upstreamErrorCode, "policy_violation");
+          assert.equal(entry.upstreamErrorType, "invalid_request_error");
+          assert.equal(entry.upstreamErrorMessage, "Prompt rejected by upstream policy");
+          assert.ok(isRecord(entry.factoryDiagnostics));
+          assert.equal(entry.factoryDiagnostics.requestFormat, "responses");
+          assert.equal(entry.factoryDiagnostics.hasInstructions, true);
+          assert.equal(entry.factoryDiagnostics.hasOpencodeMarkers, true);
+          assert.equal(entry.factoryDiagnostics.hasAgentProtocolMarkers, true);
+          assert.equal(entry.factoryDiagnostics.hasCodeFence, true);
+          assert.equal(entry.factoryDiagnostics.hasXmlLikeTags, true);
+          assert.equal(entry.factoryDiagnostics.inputItemCount, 1);
+          assert.equal(entry.factoryDiagnostics.messageCount, 1);
+          assert.equal(entry.factoryDiagnostics.userMessageCount, 1);
+          assert.match(String(entry.factoryDiagnostics.promptCacheKeyHash), /^sha256:[0-9a-f]{12}$/);
+          assert.match(String(entry.factoryDiagnostics.textFingerprint), /^sha256:[0-9a-f]{12}$/);
+          assert.match(String(entry.factoryDiagnostics.instructionsFingerprint), /^sha256:[0-9a-f]{12}$/);
+          assert.ok(typeof entry.factoryDiagnostics.totalTextChars === "number" && entry.factoryDiagnostics.totalTextChars > 0);
+          assert.ok(typeof entry.factoryDiagnostics.maxTextBlockChars === "number" && entry.factoryDiagnostics.maxTextBlockChars > 0);
+        },
+      );
+    },
+  );
+});
+
 // VAL-ROUTE-003: Common models route to Factory common endpoint
 
 test("factory/gemini-* routes to /api/llm/o/v1/chat/completions", { concurrency: false }, async () => {

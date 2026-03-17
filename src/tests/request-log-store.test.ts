@@ -99,3 +99,65 @@ test("request log persistence reloads cleanly without leaving temp files behind"
     await reloaded.close();
   });
 });
+
+test("request log persistence preserves upstream error summaries and factory diagnostics", async () => {
+  await withTempDir(async (tempDir) => {
+    const filePath = path.join(tempDir, "request-logs.json");
+    const store = new RequestLogStore(filePath, 100);
+    await store.warmup();
+
+    store.record({
+      providerId: "factory",
+      accountId: "acct-factory",
+      authType: "oauth_bearer",
+      model: "gpt-5.4",
+      upstreamMode: "responses_passthrough",
+      upstreamPath: "/api/llm/o/v1/responses",
+      status: 403,
+      latencyMs: 812,
+      error: "Prompt rejected by upstream policy",
+      upstreamErrorCode: "policy_violation",
+      upstreamErrorType: "invalid_request_error",
+      upstreamErrorMessage: "Prompt rejected by upstream policy",
+      factoryDiagnostics: {
+        requestFormat: "responses",
+        promptCacheKeyHash: "sha256:1234567890ab",
+        inputItemCount: 2,
+        messageCount: 1,
+        userMessageCount: 1,
+        hasInstructions: true,
+        instructionsChars: 128,
+        totalTextChars: 1024,
+        maxTextBlockChars: 768,
+        hasReasoning: true,
+        hasCodeFence: true,
+        hasXmlLikeTags: true,
+        hasOpencodeMarkers: true,
+        hasAgentProtocolMarkers: true,
+        textFingerprint: "sha256:abcdef123456",
+        instructionsFingerprint: "sha256:fedcba654321",
+      },
+    });
+
+    await store.close();
+
+    const reloaded = new RequestLogStore(filePath, 100);
+    await reloaded.warmup();
+
+    const entries = reloaded.snapshot();
+    assert.equal(entries.length, 1);
+    const entry = entries[0];
+    assert.ok(entry);
+    assert.equal(entry.upstreamErrorCode, "policy_violation");
+    assert.equal(entry.upstreamErrorType, "invalid_request_error");
+    assert.equal(entry.upstreamErrorMessage, "Prompt rejected by upstream policy");
+    assert.ok(entry.factoryDiagnostics);
+    assert.equal(entry.factoryDiagnostics.requestFormat, "responses");
+    assert.equal(entry.factoryDiagnostics.promptCacheKeyHash, "sha256:1234567890ab");
+    assert.equal(entry.factoryDiagnostics.hasOpencodeMarkers, true);
+    assert.equal(entry.factoryDiagnostics.hasAgentProtocolMarkers, true);
+    assert.equal(entry.factoryDiagnostics.textFingerprint, "sha256:abcdef123456");
+
+    await reloaded.close();
+  });
+});

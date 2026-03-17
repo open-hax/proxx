@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { IncomingHttpHeaders } from "node:http";
 import { Readable } from "node:stream";
 
@@ -5,7 +6,7 @@ import type { FastifyReply } from "fastify";
 
 import type { ProxyConfig } from "./config.js";
 import type { ProviderCredential } from "./key-pool.js";
-import type { RequestLogStore } from "./request-log-store.js";
+import type { Factory4xxDiagnostics, RequestLogStore } from "./request-log-store.js";
 import type { PromptAffinityStore } from "./prompt-affinity-store.js";
 import type { PolicyEngine } from "./policy/index.js";
 import type { AccountHealthStore } from "./db/account-health-store.js";
@@ -472,6 +473,292 @@ function asString(value: unknown): string | undefined {
 
 function asBoolean(value: unknown): boolean | undefined {
   return typeof value === "boolean" ? value : undefined;
+}
+
+type FactoryDiagnosticAccumulator = {
+  readonly textHash: ReturnType<typeof createHash>;
+  totalTextChars: number;
+  maxTextBlockChars: number;
+  imageInputCount: number;
+  hasReasoning: boolean;
+  hasCodeFence: boolean;
+  hasXmlLikeTags: boolean;
+  hasOpencodeMarkers: boolean;
+  hasAgentProtocolMarkers: boolean;
+};
+
+type MutableFactory4xxDiagnostics = {
+  -readonly [K in keyof Factory4xxDiagnostics]: Factory4xxDiagnostics[K];
+};
+
+function normalizeDiagnosticText(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function shortHash(value: string): string | undefined {
+  const normalized = normalizeDiagnosticText(value);
+  if (normalized.length === 0) {
+    return undefined;
+  }
+
+  return `sha256:${createHash("sha256").update(normalized).digest("hex").slice(0, 12)}`;
+}
+
+function createFactoryDiagnosticAccumulator(): FactoryDiagnosticAccumulator {
+  return {
+    textHash: createHash("sha256"),
+    totalTextChars: 0,
+    maxTextBlockChars: 0,
+    imageInputCount: 0,
+    hasReasoning: false,
+    hasCodeFence: false,
+    hasXmlLikeTags: false,
+    hasOpencodeMarkers: false,
+    hasAgentProtocolMarkers: false,
+  };
+}
+
+function addDiagnosticText(accumulator: FactoryDiagnosticAccumulator, value: unknown): void {
+  if (typeof value !== "string") {
+    return;
+  }
+
+  const normalized = normalizeDiagnosticText(value);
+  if (normalized.length === 0) {
+    return;
+  }
+
+  accumulator.textHash.update(normalized);
+  accumulator.textHash.update("\n");
+  accumulator.totalTextChars += normalized.length;
+  accumulator.maxTextBlockChars = Math.max(accumulator.maxTextBlockChars, normalized.length);
+
+  const lowered = normalized.toLowerCase();
+  accumulator.hasCodeFence ||= normalized.includes("```");
+  accumulator.hasXmlLikeTags ||= /<\/?[a-z][^>]{0,80}>/i.test(normalized);
+  accumulator.hasOpencodeMarkers ||= lowered.includes("you are opencode") || lowered.includes("operation-mindfuck");
+  accumulator.hasAgentProtocolMarkers ||= lowered.includes("available_skills")
+    || lowered.includes("agents.md")
+    || lowered.includes("skill.md")
+    || lowered.includes("contract.edn")
+    || lowered.includes("skill-registry");
+}
+
+function collectDiagnosticContentText(accumulator: FactoryDiagnosticAccumulator, content: unknown): void {
+  if (typeof content === "string") {
+    addDiagnosticText(accumulator, content);
+    return;
+  }
+
+  if (!Array.isArray(content)) {
+    return;
+  }
+
+  for (const part of content) {
+    if (!isRecord(part)) {
+      continue;
+    }
+
+    const partType = asString(part["type"])?.toLowerCase() ?? "";
+    if (
+      partType.includes("image")
+      || part["image_url"] !== undefined
+      || part["imageUrl"] !== undefined
+    ) {
+      accumulator.imageInputCount += 1;
+    }
+    if (
+      partType === "reasoning"
+      || partType === "reasoning_content"
+      || partType === "reasoning_details"
+      || partType === "summary_text"
+      || partType === "thinking"
+    ) {
+      accumulator.hasReasoning = true;
+    }
+
+    addDiagnosticText(accumulator, part["text"]);
+  }
+}
+
+function finalizeDiagnosticFingerprint(accumulator: FactoryDiagnosticAccumulator): string | undefined {
+  if (accumulator.totalTextChars === 0) {
+    return undefined;
+  }
+
+  return `sha256:${accumulator.textHash.digest("hex").slice(0, 12)}`;
+}
+
+function buildFactory4xxDiagnostics(
+  upstreamPayload: Record<string, unknown>,
+  promptCacheKey?: string,
+): Factory4xxDiagnostics {
+  const accumulator = createFactoryDiagnosticAccumulator();
+  const diagnostics: MutableFactory4xxDiagnostics = {
+    requestFormat: "unknown",
+    promptCacheKeyHash: promptCacheKey ? shortHash(promptCacheKey) : undefined,
+    messageCount: 0,
+    inputItemCount: 0,
+    systemMessageCount: 0,
+    userMessageCount: 0,
+    assistantMessageCount: 0,
+    toolMessageCount: 0,
+    functionCallCount: 0,
+    functionCallOutputCount: 0,
+    imageInputCount: 0,
+    hasInstructions: false,
+    instructionsChars: 0,
+    totalTextChars: 0,
+    maxTextBlockChars: 0,
+    hasReasoning: false,
+    hasCodeFence: false,
+    hasXmlLikeTags: false,
+    hasOpencodeMarkers: false,
+    hasAgentProtocolMarkers: false,
+  };
+
+  const instructions = asString(upstreamPayload["instructions"]);
+  if (instructions !== undefined) {
+    const normalizedInstructions = normalizeDiagnosticText(instructions);
+    diagnostics.hasInstructions = true;
+    diagnostics.instructionsChars = normalizedInstructions.length;
+    diagnostics.instructionsFingerprint = shortHash(normalizedInstructions);
+    addDiagnosticText(accumulator, instructions);
+  }
+
+  const input = upstreamPayload["input"];
+  if (Array.isArray(input)) {
+    diagnostics.requestFormat = "responses";
+    diagnostics.inputItemCount = input.length;
+
+    for (const item of input) {
+      if (!isRecord(item)) {
+        continue;
+      }
+
+      const role = asString(item["role"]);
+      if (role === "system") {
+        diagnostics.messageCount = (diagnostics.messageCount ?? 0) + 1;
+        diagnostics.systemMessageCount = (diagnostics.systemMessageCount ?? 0) + 1;
+      } else if (role === "user") {
+        diagnostics.messageCount = (diagnostics.messageCount ?? 0) + 1;
+        diagnostics.userMessageCount = (diagnostics.userMessageCount ?? 0) + 1;
+      } else if (role === "assistant") {
+        diagnostics.messageCount = (diagnostics.messageCount ?? 0) + 1;
+        diagnostics.assistantMessageCount = (diagnostics.assistantMessageCount ?? 0) + 1;
+      } else if (role === "tool") {
+        diagnostics.messageCount = (diagnostics.messageCount ?? 0) + 1;
+        diagnostics.toolMessageCount = (diagnostics.toolMessageCount ?? 0) + 1;
+      }
+
+      const itemType = asString(item["type"])?.toLowerCase();
+      if (itemType === "function_call") {
+        diagnostics.functionCallCount = (diagnostics.functionCallCount ?? 0) + 1;
+      } else if (itemType === "function_call_output") {
+        diagnostics.functionCallOutputCount = (diagnostics.functionCallOutputCount ?? 0) + 1;
+      }
+
+      const toolCalls = Array.isArray(item["tool_calls"]) ? item["tool_calls"] : [];
+      diagnostics.functionCallCount = (diagnostics.functionCallCount ?? 0) + toolCalls.length;
+
+      if (
+        item["reasoning"] !== undefined
+        || item["reasoning_content"] !== undefined
+        || item["reasoning_details"] !== undefined
+      ) {
+        accumulator.hasReasoning = true;
+      }
+
+      addDiagnosticText(accumulator, item["reasoning"]);
+      addDiagnosticText(accumulator, item["reasoning_content"]);
+      collectDiagnosticContentText(accumulator, item["content"]);
+      addDiagnosticText(accumulator, item["output"]);
+    }
+  } else if (Array.isArray(upstreamPayload["messages"])) {
+    const messages = upstreamPayload["messages"] as unknown[];
+    diagnostics.requestFormat = upstreamPayload["anthropic_version"] !== undefined ? "messages" : "chat_completions";
+    diagnostics.messageCount = messages.length;
+
+    for (const message of messages) {
+      if (!isRecord(message)) {
+        continue;
+      }
+
+      const role = asString(message["role"]);
+      if (role === "system") {
+        diagnostics.systemMessageCount = (diagnostics.systemMessageCount ?? 0) + 1;
+      } else if (role === "user") {
+        diagnostics.userMessageCount = (diagnostics.userMessageCount ?? 0) + 1;
+      } else if (role === "assistant") {
+        diagnostics.assistantMessageCount = (diagnostics.assistantMessageCount ?? 0) + 1;
+      } else if (role === "tool") {
+        diagnostics.toolMessageCount = (diagnostics.toolMessageCount ?? 0) + 1;
+      }
+
+      const toolCalls = Array.isArray(message["tool_calls"]) ? message["tool_calls"] : [];
+      diagnostics.functionCallCount = (diagnostics.functionCallCount ?? 0) + toolCalls.length;
+
+      if (
+        message["reasoning"] !== undefined
+        || message["reasoning_content"] !== undefined
+        || message["reasoning_details"] !== undefined
+      ) {
+        accumulator.hasReasoning = true;
+      }
+
+      addDiagnosticText(accumulator, message["reasoning"]);
+      addDiagnosticText(accumulator, message["reasoning_content"]);
+      collectDiagnosticContentText(accumulator, message["content"]);
+    }
+
+    const topLevelSystem = upstreamPayload["system"];
+    if (topLevelSystem !== undefined) {
+      diagnostics.systemMessageCount = (diagnostics.systemMessageCount ?? 0) + 1;
+      diagnostics.messageCount = (diagnostics.messageCount ?? 0) + 1;
+      collectDiagnosticContentText(accumulator, topLevelSystem);
+    }
+  }
+
+  diagnostics.imageInputCount = accumulator.imageInputCount;
+  diagnostics.totalTextChars = accumulator.totalTextChars;
+  diagnostics.maxTextBlockChars = accumulator.maxTextBlockChars;
+  diagnostics.hasReasoning = accumulator.hasReasoning;
+  diagnostics.hasCodeFence = accumulator.hasCodeFence;
+  diagnostics.hasXmlLikeTags = accumulator.hasXmlLikeTags;
+  diagnostics.hasOpencodeMarkers = accumulator.hasOpencodeMarkers;
+  diagnostics.hasAgentProtocolMarkers = accumulator.hasAgentProtocolMarkers;
+  diagnostics.textFingerprint = finalizeDiagnosticFingerprint(accumulator);
+
+  return diagnostics;
+}
+
+async function updateFailedAttemptDiagnostics(
+  requestLogStore: RequestLogStore,
+  entryId: string,
+  response: Response,
+  providerId: string,
+  upstreamPayload: Record<string, unknown>,
+  promptCacheKey?: string,
+): Promise<void> {
+  if (response.ok) {
+    return;
+  }
+
+  const summary = await summarizeUpstreamError(response);
+  const isFactory4xx = providerId === "factory" && response.status >= 400 && response.status < 500;
+  const errorMessage = summary.upstreamErrorMessage;
+
+  if (!isFactory4xx && !summary.upstreamErrorCode && !summary.upstreamErrorType && !errorMessage) {
+    return;
+  }
+
+  requestLogStore.update(entryId, {
+    error: errorMessage,
+    upstreamErrorCode: summary.upstreamErrorCode,
+    upstreamErrorType: summary.upstreamErrorType,
+    upstreamErrorMessage: errorMessage,
+    factoryDiagnostics: isFactory4xx ? buildFactory4xxDiagnostics(upstreamPayload, promptCacheKey) : undefined,
+  });
 }
 
 function stripTrailingAssistantPrefill(payload: Record<string, unknown>): void {
@@ -3240,6 +3527,15 @@ export async function executeProviderFallback(
           promptCacheKeyUsed: Boolean(promptCacheKey),
         }, candidateStrategy.mode);
 
+        const diagnosticsPromise = updateFailedAttemptDiagnostics(
+          requestLogStore,
+          requestLogEntryId,
+          upstreamResponse,
+          candidate.providerId,
+          candidatePayload.upstreamPayload,
+          promptCacheKey,
+        );
+
         const usagePromise = updateUsageCountsFromResponse(
           requestLogStore,
           requestLogEntryId,
@@ -3254,6 +3550,7 @@ export async function executeProviderFallback(
         } else {
           await usagePromise;
         }
+        await diagnosticsPromise;
 
         // OpenAI image generation can target either Platform Images API (`api.openai.com`) or the
         // ChatGPT Codex Responses backend (`chatgpt.com/backend-api/codex/responses`).
@@ -3476,6 +3773,14 @@ export async function executeProviderFallback(
                 serviceTierSource: candidatePayload.serviceTierSource,
                 promptCacheKeyUsed: Boolean(promptCacheKey),
               }, candidateStrategy.mode);
+              const refreshedDiagnosticsPromise = updateFailedAttemptDiagnostics(
+                requestLogStore,
+                refreshedLogId,
+                refreshedResponse,
+                candidate.providerId,
+                candidatePayload.upstreamPayload,
+                promptCacheKey,
+              );
               const usagePromise = updateUsageCountsFromResponse(
                 requestLogStore,
                 refreshedLogId,
@@ -3490,6 +3795,7 @@ export async function executeProviderFallback(
               } else {
                 await usagePromise;
               }
+              await refreshedDiagnosticsPromise;
               if (isRateLimitResponse(refreshedResponse)) {
                 accumulator.sawRateLimit = true;
                 keyPool.markRateLimited(refreshedCredential, parseRetryAfterMs(refreshedResponse.headers.get("retry-after")));

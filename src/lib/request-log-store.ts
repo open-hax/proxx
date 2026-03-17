@@ -4,6 +4,31 @@ import { basename, dirname, join } from "node:path";
 export type RequestAuthType = "api_key" | "oauth_bearer" | "local" | "none";
 export type RequestServiceTierSource = "fast_mode" | "explicit" | "none";
 
+export interface Factory4xxDiagnostics {
+  readonly promptCacheKeyHash?: string;
+  readonly requestFormat: "responses" | "messages" | "chat_completions" | "unknown";
+  readonly messageCount?: number;
+  readonly inputItemCount?: number;
+  readonly systemMessageCount?: number;
+  readonly userMessageCount?: number;
+  readonly assistantMessageCount?: number;
+  readonly toolMessageCount?: number;
+  readonly functionCallCount?: number;
+  readonly functionCallOutputCount?: number;
+  readonly imageInputCount?: number;
+  readonly hasInstructions?: boolean;
+  readonly instructionsChars?: number;
+  readonly totalTextChars?: number;
+  readonly maxTextBlockChars?: number;
+  readonly hasReasoning?: boolean;
+  readonly hasCodeFence?: boolean;
+  readonly hasXmlLikeTags?: boolean;
+  readonly hasOpencodeMarkers?: boolean;
+  readonly hasAgentProtocolMarkers?: boolean;
+  readonly textFingerprint?: string;
+  readonly instructionsFingerprint?: string;
+}
+
 export interface RequestLogEntry {
   readonly id: string;
   readonly timestamp: number;
@@ -28,6 +53,10 @@ export interface RequestLogEntry {
   readonly ttftMs?: number;
   readonly tps?: number;
   readonly error?: string;
+  readonly upstreamErrorCode?: string;
+  readonly upstreamErrorType?: string;
+  readonly upstreamErrorMessage?: string;
+  readonly factoryDiagnostics?: Factory4xxDiagnostics;
 }
 
 export interface RequestLogFilters {
@@ -59,6 +88,10 @@ export interface RequestLogRecordInput {
   readonly ttftMs?: number;
   readonly tps?: number;
   readonly error?: string;
+  readonly upstreamErrorCode?: string;
+  readonly upstreamErrorType?: string;
+  readonly upstreamErrorMessage?: string;
+  readonly factoryDiagnostics?: Factory4xxDiagnostics;
   readonly timestamp?: number;
 }
 
@@ -172,6 +205,88 @@ function sanitizeOptionalCost(value: number | undefined): number | undefined {
   return value >= 0 ? value : undefined;
 }
 
+function sanitizeOptionalBoolean(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
+}
+
+function sanitizeOptionalShortString(value: unknown, maxLength = 240): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    return undefined;
+  }
+
+  return trimmed.length <= maxLength ? trimmed : trimmed.slice(0, maxLength);
+}
+
+function hydrateFactoryDiagnostics(raw: unknown): Factory4xxDiagnostics | undefined {
+  if (!isRecord(raw)) {
+    return undefined;
+  }
+
+  const requestFormatRaw = asString(raw.requestFormat);
+  const requestFormat: Factory4xxDiagnostics["requestFormat"] =
+    requestFormatRaw === "responses"
+    || requestFormatRaw === "messages"
+    || requestFormatRaw === "chat_completions"
+    || requestFormatRaw === "unknown"
+      ? requestFormatRaw
+      : "unknown";
+
+  const diagnostics: Factory4xxDiagnostics = {
+    requestFormat,
+    promptCacheKeyHash: sanitizeOptionalShortString(raw.promptCacheKeyHash, 80),
+    messageCount: sanitizeOptionalCount(asNumber(raw.messageCount)),
+    inputItemCount: sanitizeOptionalCount(asNumber(raw.inputItemCount)),
+    systemMessageCount: sanitizeOptionalCount(asNumber(raw.systemMessageCount)),
+    userMessageCount: sanitizeOptionalCount(asNumber(raw.userMessageCount)),
+    assistantMessageCount: sanitizeOptionalCount(asNumber(raw.assistantMessageCount)),
+    toolMessageCount: sanitizeOptionalCount(asNumber(raw.toolMessageCount)),
+    functionCallCount: sanitizeOptionalCount(asNumber(raw.functionCallCount)),
+    functionCallOutputCount: sanitizeOptionalCount(asNumber(raw.functionCallOutputCount)),
+    imageInputCount: sanitizeOptionalCount(asNumber(raw.imageInputCount)),
+    hasInstructions: sanitizeOptionalBoolean(raw.hasInstructions),
+    instructionsChars: sanitizeOptionalCount(asNumber(raw.instructionsChars)),
+    totalTextChars: sanitizeOptionalCount(asNumber(raw.totalTextChars)),
+    maxTextBlockChars: sanitizeOptionalCount(asNumber(raw.maxTextBlockChars)),
+    hasReasoning: sanitizeOptionalBoolean(raw.hasReasoning),
+    hasCodeFence: sanitizeOptionalBoolean(raw.hasCodeFence),
+    hasXmlLikeTags: sanitizeOptionalBoolean(raw.hasXmlLikeTags),
+    hasOpencodeMarkers: sanitizeOptionalBoolean(raw.hasOpencodeMarkers),
+    hasAgentProtocolMarkers: sanitizeOptionalBoolean(raw.hasAgentProtocolMarkers),
+    textFingerprint: sanitizeOptionalShortString(raw.textFingerprint, 80),
+    instructionsFingerprint: sanitizeOptionalShortString(raw.instructionsFingerprint, 80),
+  };
+
+  const hasSignal = diagnostics.promptCacheKeyHash !== undefined
+    || diagnostics.messageCount !== undefined
+    || diagnostics.inputItemCount !== undefined
+    || diagnostics.systemMessageCount !== undefined
+    || diagnostics.userMessageCount !== undefined
+    || diagnostics.assistantMessageCount !== undefined
+    || diagnostics.toolMessageCount !== undefined
+    || diagnostics.functionCallCount !== undefined
+    || diagnostics.functionCallOutputCount !== undefined
+    || diagnostics.imageInputCount !== undefined
+    || diagnostics.hasInstructions !== undefined
+    || diagnostics.instructionsChars !== undefined
+    || diagnostics.totalTextChars !== undefined
+    || diagnostics.maxTextBlockChars !== undefined
+    || diagnostics.hasReasoning !== undefined
+    || diagnostics.hasCodeFence !== undefined
+    || diagnostics.hasXmlLikeTags !== undefined
+    || diagnostics.hasOpencodeMarkers !== undefined
+    || diagnostics.hasAgentProtocolMarkers !== undefined
+    || diagnostics.textFingerprint !== undefined
+    || diagnostics.instructionsFingerprint !== undefined
+    || diagnostics.requestFormat !== "unknown";
+
+  return hasSignal ? diagnostics : undefined;
+}
+
 function emptyDb(): RequestLogDb {
   return {
     entries: [],
@@ -243,6 +358,10 @@ function hydrateEntry(raw: unknown): RequestLogEntry | null {
     ttftMs: sanitizeOptionalCount(asNumber(raw.ttftMs)),
     tps: asNumber(raw.tps),
     error: asString(raw.error),
+    upstreamErrorCode: sanitizeOptionalShortString(raw.upstreamErrorCode, 80),
+    upstreamErrorType: sanitizeOptionalShortString(raw.upstreamErrorType, 80),
+    upstreamErrorMessage: sanitizeOptionalShortString(raw.upstreamErrorMessage),
+    factoryDiagnostics: hydrateFactoryDiagnostics(raw.factoryDiagnostics),
   };
 }
 
@@ -403,11 +522,15 @@ export class RequestLogStore {
       imageCount: sanitizeOptionalCount(input.imageCount),
       imageCostUsd: sanitizeOptionalCost(input.imageCostUsd),
       promptCacheKeyUsed: input.promptCacheKeyUsed === true,
-      cacheHit: input.cacheHit === true,
-      ttftMs: sanitizeOptionalCount(input.ttftMs),
-      tps: input.tps,
-      error: input.error,
-    };
+    cacheHit: input.cacheHit === true,
+    ttftMs: sanitizeOptionalCount(input.ttftMs),
+    tps: input.tps,
+    error: input.error,
+    upstreamErrorCode: sanitizeOptionalShortString(input.upstreamErrorCode, 80),
+    upstreamErrorType: sanitizeOptionalShortString(input.upstreamErrorType, 80),
+    upstreamErrorMessage: sanitizeOptionalShortString(input.upstreamErrorMessage),
+    factoryDiagnostics: hydrateFactoryDiagnostics(input.factoryDiagnostics),
+  };
 
     this.entries.push(entry);
     const overflow = this.entries.length - this.maxEntries;
@@ -437,6 +560,10 @@ export class RequestLogStore {
       readonly ttftMs?: number;
       readonly tps?: number;
       readonly error?: string;
+      readonly upstreamErrorCode?: string;
+      readonly upstreamErrorType?: string;
+      readonly upstreamErrorMessage?: string;
+      readonly factoryDiagnostics?: Factory4xxDiagnostics;
     },
   ): RequestLogEntry | undefined {
     if (this.closed) {
@@ -466,6 +593,10 @@ export class RequestLogStore {
       ttftMs: sanitizeOptionalCount(patch.ttftMs) ?? current.ttftMs,
       tps: typeof patch.tps === "number" && Number.isFinite(patch.tps) ? patch.tps : current.tps,
       error: patch.error ?? current.error,
+      upstreamErrorCode: sanitizeOptionalShortString(patch.upstreamErrorCode, 80) ?? current.upstreamErrorCode,
+      upstreamErrorType: sanitizeOptionalShortString(patch.upstreamErrorType, 80) ?? current.upstreamErrorType,
+      upstreamErrorMessage: sanitizeOptionalShortString(patch.upstreamErrorMessage) ?? current.upstreamErrorMessage,
+      factoryDiagnostics: hydrateFactoryDiagnostics(patch.factoryDiagnostics) ?? current.factoryDiagnostics,
     };
 
     this.entries.splice(entryIndex, 1, next);
