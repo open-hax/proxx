@@ -1,18 +1,18 @@
 # Π handoff
 
-- time: 2026-03-18T21:02:21Z
+- time: 2026-03-18T21:07:09Z
 - branch: hotfix/gpt-5.4-free-access
-- pre-Π HEAD: f8706f6
+- pre-Π HEAD: 917f8b5
 - Π HEAD: pending at capture time; resolved by the final git commit created after artifact assembly
 
 ## Summary
-- Add Phase 1 multitenancy draft and tenant API key scaffolding for default-tenant auth resolution.
-- Add schema v4 tenant tables (`tenants`, `users`, `tenant_memberships`, `tenant_api_keys`) and initialize the default tenant during SQL credential-store startup.
-- Thread default tenant bootstrap into app SQL store construction while preserving current global provider credentials for later phases.
+- Add Phase 1 multitenancy draft, tenant schema v4 tables, and default-tenant bootstrap in SQL credential-store startup.
+- Add tenant API key utilities plus request auth resolution that distinguishes legacy admin, tenant API key, and unauthenticated modes.
+- Fix proxy test fixture typing so `proxyTokenPepper` remains required after `configOverrides` spreads, keeping typecheck/test/build green.
 
 ## Verification
-- pass: `pnpm run typecheck` (from latest receipt)
-- pass: `pnpm test` (from latest receipt)
+- pass: `pnpm run typecheck`
+- pass: `pnpm test` (273/273)
 - pass: `pnpm run build`
 - skipped: `pnpm run web:build` (no web assets changed)
 

@@ -40,7 +40,6 @@ import {
 import { orderProviderRoutesByPolicy } from "./lib/provider-policy.js";
 import {
   fetchWithResponseTimeout,
-  hasBearerToken,
   isRecord,
   sendOpenAiError,
   toErrorMessage,
@@ -78,6 +77,7 @@ import { registerOAuthRoutes } from "./lib/oauth-routes.js";
 import { RuntimeCredentialStore } from "./lib/runtime-credential-store.js";
 import { TokenRefreshManager } from "./lib/token-refresh-manager.js";
 import { DEFAULT_TENANT_ID } from "./lib/tenant-api-key.js";
+import { resolveRequestAuth } from "./lib/request-auth.js";
 
 interface ChatCompletionRequest {
   readonly model?: string;
@@ -769,6 +769,8 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     app.log.warn("proxy auth disabled via PROXY_ALLOW_UNAUTHENTICATED=true");
   }
 
+  app.decorateRequest("openHaxAuth", null);
+
   app.addHook("onRequest", async (request, reply) => {
     const origin = request.headers.origin;
     reply.header("Access-Control-Allow-Origin", origin ?? "*");
@@ -789,12 +791,22 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
         return;
       }
 
-      const authorization = request.headers.authorization;
-      const cookieToken = readCookieToken(request.headers.cookie, PROXY_AUTH_COOKIE_NAME);
-      const ok = hasBearerToken(authorization, config.proxyAuthToken) || cookieToken === config.proxyAuthToken;
-      if (!ok) {
+      const resolvedAuth = await resolveRequestAuth({
+        allowUnauthenticated: config.allowUnauthenticated,
+        proxyAuthToken: config.proxyAuthToken,
+        authorization: request.headers.authorization,
+        cookieToken: readCookieToken(request.headers.cookie, PROXY_AUTH_COOKIE_NAME),
+        resolveTenantApiKey: sqlCredentialStore
+          ? async (token) => sqlCredentialStore!.resolveTenantApiKey(token, config.proxyTokenPepper)
+          : undefined,
+      });
+
+      if (!resolvedAuth) {
         sendOpenAiError(reply, 401, "Unauthorized", "invalid_request_error", "unauthorized");
+        return;
       }
+
+      (request as any).openHaxAuth = resolvedAuth;
     }
   });
 
