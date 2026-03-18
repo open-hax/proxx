@@ -251,6 +251,24 @@ WHERE token_hash = $1 AND revoked_at IS NULL
 LIMIT 1;
 `;
 
+export const INSERT_TENANT_API_KEY = `
+INSERT INTO tenant_api_keys (id, tenant_id, label, prefix, token_hash, scopes)
+VALUES ($1, $2, $3, $4, $5, $6::jsonb);
+`;
+
+export const SELECT_TENANT_API_KEYS_BY_TENANT = `
+SELECT id, tenant_id, label, prefix, scopes, created_at, last_used_at, revoked_at
+FROM tenant_api_keys
+WHERE tenant_id = $1
+ORDER BY created_at DESC, id ASC;
+`;
+
+export const REVOKE_TENANT_API_KEY = `
+UPDATE tenant_api_keys
+SET revoked_at = NOW()
+WHERE tenant_id = $1 AND id = $2 AND revoked_at IS NULL;
+`;
+
 export const UPSERT_PROVIDER = `
 INSERT INTO providers (id, auth_type, updated_at)
 VALUES ($1, $2, NOW())

@@ -1,8 +1,9 @@
+import crypto from "node:crypto";
+
 import type { Sql } from "./index.js";
 import type { ProviderCredential, ProviderAuthType } from "../key-pool.js";
 import { normalizeEpochMilliseconds } from "../epoch.js";
-import { DEFAULT_TENANT_ID, normalizeTenantId } from "../tenant-api-key.js";
-import { hashTenantApiKey } from "../tenant-api-key.js";
+import { DEFAULT_TENANT_ID, buildTenantApiKeyPrefix, generateTenantApiKey, hashTenantApiKey, normalizeTenantId } from "../tenant-api-key.js";
 import type { CredentialAccountView, CredentialProviderView } from "../credential-store.js";
 import {
   CREATE_TENANTS_TABLE,
@@ -25,12 +26,15 @@ import {
   UPSERT_PROVIDER,
   UPSERT_TENANT,
   INSERT_ACCOUNT,
+  INSERT_TENANT_API_KEY,
   SELECT_ACTIVE_TENANT_API_KEY_BY_HASH,
   SELECT_ALL_TENANTS,
+  SELECT_TENANT_API_KEYS_BY_TENANT,
   SELECT_ALL_PROVIDERS,
   SELECT_ACCOUNTS_BY_PROVIDER,
   SELECT_ALL_ACCOUNTS,
   DELETE_ACCOUNT,
+  REVOKE_TENANT_API_KEY,
   SET_COOLDOWN,
   GET_COOLDOWN,
   CLEAR_EXPIRED_COOLDOWNS,
@@ -54,6 +58,8 @@ interface TenantApiKeyRow {
   label: string;
   prefix: string;
   scopes: string[] | string | null;
+  created_at?: string | null;
+  last_used_at?: string | null;
   revoked_at: string | null;
 }
 
@@ -118,6 +124,26 @@ export interface TenantApiKeyMatch {
   tenantId: string;
   label: string;
   prefix: string;
+  scopes: readonly string[];
+}
+
+export interface TenantApiKeyView {
+  id: string;
+  tenantId: string;
+  label: string;
+  prefix: string;
+  scopes: readonly string[];
+  createdAt: string | null;
+  lastUsedAt: string | null;
+  revokedAt: string | null;
+}
+
+export interface CreatedTenantApiKey {
+  id: string;
+  tenantId: string;
+  label: string;
+  prefix: string;
+  token: string;
   scopes: readonly string[];
 }
 
@@ -224,6 +250,62 @@ export class SqlCredentialStore {
       prefix: row.prefix,
       scopes: parseScopes(row.scopes),
     };
+  }
+
+  public async listTenantApiKeys(tenantId: string): Promise<TenantApiKeyView[]> {
+    const normalizedTenantId = normalizeTenantId(tenantId);
+    const rows = await this.sql.unsafe<TenantApiKeyRow[]>(SELECT_TENANT_API_KEYS_BY_TENANT, [normalizedTenantId]);
+    return rows.map((row) => ({
+      id: row.id,
+      tenantId: row.tenant_id,
+      label: row.label,
+      prefix: row.prefix,
+      scopes: parseScopes(row.scopes),
+      createdAt: row.created_at ?? null,
+      lastUsedAt: row.last_used_at ?? null,
+      revokedAt: row.revoked_at ?? null,
+    }));
+  }
+
+  public async createTenantApiKey(tenantId: string, label: string, scopes: readonly string[], pepper: string): Promise<CreatedTenantApiKey> {
+    const normalizedTenantId = normalizeTenantId(tenantId);
+    const normalizedLabel = label.trim();
+    if (normalizedLabel.length === 0) {
+      throw new Error("tenant api key label must not be empty");
+    }
+
+    const token = generateTenantApiKey();
+    const id = crypto.randomUUID();
+    const prefix = buildTenantApiKeyPrefix(token);
+    const tokenHash = hashTenantApiKey(token, pepper);
+    const normalizedScopes = scopes.filter((scope): scope is string => typeof scope === "string" && scope.trim().length > 0);
+
+    await this.sql.unsafe(INSERT_TENANT_API_KEY, [
+      id,
+      normalizedTenantId,
+      normalizedLabel,
+      prefix,
+      tokenHash,
+      JSON.stringify(normalizedScopes.length > 0 ? normalizedScopes : ["proxy:use"]),
+    ]);
+
+    return {
+      id,
+      tenantId: normalizedTenantId,
+      label: normalizedLabel,
+      prefix,
+      token,
+      scopes: normalizedScopes.length > 0 ? normalizedScopes : ["proxy:use"],
+    };
+  }
+
+  public async revokeTenantApiKey(tenantId: string, keyId: string): Promise<boolean> {
+    const normalizedTenantId = normalizeTenantId(tenantId);
+    const result = await this.sql.unsafe<Array<{ id: string }>>(
+      `${REVOKE_TENANT_API_KEY} RETURNING id`,
+      [normalizedTenantId, keyId],
+    );
+    return result.length > 0;
   }
 
   public async listProviders(revealSecrets: boolean): Promise<CredentialProviderView[]> {

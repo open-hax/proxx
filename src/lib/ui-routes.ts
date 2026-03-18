@@ -5,6 +5,7 @@ import type { FastifyInstance } from "fastify";
 
 import type { ProxyConfig } from "./config.js";
 import { CredentialStore, type CredentialStoreLike } from "./credential-store.js";
+import type { ResolvedRequestAuth } from "./request-auth.js";
 import type { KeyPool, KeyPoolAccountStatus } from "./key-pool.js";
 import { OpenAiOAuthManager } from "./openai-oauth.js";
 import { FactoryOAuthManager } from "./factory-oauth.js";
@@ -15,12 +16,14 @@ import { SessionStore, type ChatRole } from "./session-store.js";
 import { getToolSeedForModel, loadMcpSeeds } from "./tool-mcp-seed.js";
 import type { ProxySettingsStore } from "./proxy-settings-store.js";
 import type { EventStore } from "./db/event-store.js";
+import type { SqlCredentialStore } from "./db/sql-credential-store.js";
 
 interface UiRouteDependencies {
   readonly config: ProxyConfig;
   readonly keyPool: KeyPool;
   readonly requestLogStore: RequestLogStore;
   readonly credentialStore: CredentialStoreLike;
+  readonly sqlCredentialStore?: SqlCredentialStore;
   readonly proxySettingsStore: ProxySettingsStore;
   readonly eventStore?: EventStore;
   readonly refreshOpenAiOauthAccounts?: (accountId?: string) => Promise<{
@@ -213,6 +216,35 @@ function parseBoolean(value: unknown): boolean {
 
   const normalized = value.trim().toLowerCase();
   return normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on";
+}
+
+function getResolvedAuth(request: { readonly openHaxAuth?: unknown }): ResolvedRequestAuth | undefined {
+  const auth = request.openHaxAuth;
+  return typeof auth === "object" && auth !== null ? auth as ResolvedRequestAuth : undefined;
+}
+
+function authCanViewTenant(auth: ResolvedRequestAuth | undefined, tenantId: string): boolean {
+  if (!auth) {
+    return false;
+  }
+
+  if (auth.kind === "legacy_admin") {
+    return true;
+  }
+
+  return auth.tenantId === tenantId;
+}
+
+function authCanManageTenantKeys(auth: ResolvedRequestAuth | undefined, tenantId: string): boolean {
+  if (!auth) {
+    return false;
+  }
+
+  if (auth.kind === "legacy_admin") {
+    return true;
+  }
+
+  return (auth.role === "owner" || auth.role === "admin") && auth.tenantId === tenantId;
 }
 
 function toChatRole(value: unknown): ChatRole {
