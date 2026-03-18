@@ -66,6 +66,13 @@ type UsageWindow = "daily" | "weekly" | "monthly";
 interface UsageOverviewResponse {
   readonly window: UsageWindow;
   readonly generatedAt: string;
+  readonly coverage: {
+    readonly requestedWindowStart: string;
+    readonly coverageStart: string | null;
+    readonly hasFullWindowCoverage: boolean;
+    readonly retainedEntryCount: number;
+    readonly maxRetainedEntries: number;
+  };
   readonly summary: {
     readonly requests24h: number;
     readonly tokens24h: number;
@@ -95,6 +102,47 @@ interface UsageOverviewResponse {
     readonly errors: readonly TrendPoint[];
   };
   readonly accounts: readonly UsageAccountSummary[];
+}
+
+interface AnalyticsCoverageResponse {
+  readonly requestedWindowStart: string;
+  readonly coverageStart: string | null;
+  readonly hasFullWindowCoverage: boolean;
+  readonly retainedEntryCount: number;
+  readonly maxRetainedEntries: number;
+}
+
+interface AnalyticsRowResponse {
+  readonly providerId?: string;
+  readonly model?: string;
+  readonly requestCount: number;
+  readonly errorCount: number;
+  readonly errorRate: number;
+  readonly totalTokens: number;
+  readonly promptTokens: number;
+  readonly completionTokens: number;
+  readonly cachedPromptTokens: number;
+  readonly cacheHitRate: number;
+  readonly avgTtftMs: number | null;
+  readonly avgTps: number | null;
+  readonly costUsd: number;
+  readonly energyJoules: number;
+  readonly waterEvaporatedMl: number;
+  readonly firstSeenAt: string | null;
+  readonly lastSeenAt: string | null;
+  readonly providerCoverageCount?: number;
+  readonly modelCoverageCount?: number;
+  readonly confidenceScore: number;
+  readonly suitabilityScore: number | null;
+}
+
+interface ProviderModelAnalyticsResponse {
+  readonly window: UsageWindow;
+  readonly generatedAt: string;
+  readonly coverage: AnalyticsCoverageResponse;
+  readonly models: readonly AnalyticsRowResponse[];
+  readonly providers: readonly AnalyticsRowResponse[];
+  readonly providerModels: readonly AnalyticsRowResponse[];
 }
 
 function toUsageWindow(value: unknown): UsageWindow {
@@ -232,7 +280,10 @@ async function buildUsageOverview(
   const bucketWindowStart = bucketStart(now - (bucketCount - 1) * bucketMs, bucketMs);
 
   const recentLogs = allLogs.filter((entry) => entry.timestamp >= bucketWindowStart);
-
+  const recentModelBuckets = requestLogStore.snapshotDailyModelBuckets(bucketWindowStart);
+  const recentAccountBuckets = window === "daily"
+    ? undefined
+    : requestLogStore.snapshotDailyAccountBuckets(bucketWindowStart);
   const modelTotals = new Map<string, number>();
   const providerTotals = new Map<string, number>();
 
@@ -286,18 +337,96 @@ async function buildUsageOverview(
   const shortWindowMs = 2 * 60 * 1000;
   const shortAgg = new Map<string, { ttftSum: number; ttftCount: number; tpsSum: number; tpsCount: number }>();
 
-  // Use pre-computed accumulators for account-level stats (resilient to entries
-  // that were recorded before the usage extraction fix — accumulators track
-  // deltas from update() correctly even when the original entry had null tokens).
-  for (const acc of requestLogStore.snapshotAccountAccumulators()) {
-    const mapKey = `${acc.providerId}\0${acc.accountId}`;
-    accountAgg.set(mapKey, { ...acc });
+  if (window === "daily") {
+    for (const entry of recentLogs) {
+      const mapKey = `${entry.providerId}\0${entry.accountId}`;
+      const existing = accountAgg.get(mapKey) ?? {
+        accountId: entry.accountId,
+        providerId: entry.providerId,
+        authType: entry.authType,
+        requestCount: 0,
+        totalTokens: 0,
+        promptTokens: 0,
+        completionTokens: 0,
+        cachedPromptTokens: 0,
+        imageCount: 0,
+        imageCostUsd: 0,
+        costUsd: 0,
+        energyJoules: 0,
+        waterEvaporatedMl: 0,
+        cacheHitCount: 0,
+        cacheKeyUseCount: 0,
+        ttftSum: 0,
+        ttftCount: 0,
+        tpsSum: 0,
+        tpsCount: 0,
+        lastUsedAtMs: 0,
+      };
+
+      existing.requestCount += 1;
+      existing.totalTokens += usageCount(entry.totalTokens);
+      existing.promptTokens += usageCount(entry.promptTokens);
+      existing.completionTokens += usageCount(entry.completionTokens);
+      existing.cachedPromptTokens += usageCount(entry.cachedPromptTokens);
+      existing.imageCount += usageCount(entry.imageCount);
+      existing.imageCostUsd += usageCount(entry.imageCostUsd);
+      existing.costUsd += usageCount(entry.costUsd);
+      existing.energyJoules += usageCount(entry.energyJoules);
+      existing.waterEvaporatedMl += usageCount(entry.waterEvaporatedMl);
+      if (entry.cacheHit) existing.cacheHitCount += 1;
+      if (entry.promptCacheKeyUsed) existing.cacheKeyUseCount += 1;
+      if (typeof entry.ttftMs === "number" && Number.isFinite(entry.ttftMs)) {
+        existing.ttftSum += entry.ttftMs;
+        existing.ttftCount += 1;
+      }
+      if (typeof entry.tps === "number" && Number.isFinite(entry.tps)) {
+        existing.tpsSum += entry.tps;
+        existing.tpsCount += 1;
+      }
+      existing.lastUsedAtMs = Math.max(existing.lastUsedAtMs, entry.timestamp);
+      accountAgg.set(mapKey, existing);
+    }
+  } else {
+    for (const acc of recentAccountBuckets ?? []) {
+      const mapKey = `${acc.providerId}\0${acc.accountId}`;
+      accountAgg.set(mapKey, {
+        accountId: acc.accountId,
+        providerId: acc.providerId,
+        authType: acc.authType,
+        requestCount: acc.requestCount,
+        totalTokens: acc.totalTokens,
+        promptTokens: acc.promptTokens,
+        completionTokens: acc.completionTokens,
+        cachedPromptTokens: acc.cachedPromptTokens,
+        imageCount: acc.imageCount,
+        imageCostUsd: acc.imageCostUsd,
+        costUsd: acc.costUsd,
+        energyJoules: acc.energyJoules,
+        waterEvaporatedMl: acc.waterEvaporatedMl,
+        cacheHitCount: acc.cacheHitCount,
+        cacheKeyUseCount: acc.cacheKeyUseCount,
+        ttftSum: acc.ttftSum,
+        ttftCount: acc.ttftCount,
+        tpsSum: acc.tpsSum,
+        tpsCount: acc.tpsCount,
+        lastUsedAtMs: acc.lastUsedAtMs,
+      });
+    }
+  }
+
+  if (window === "daily") {
+    for (const entry of recentLogs) {
+      modelTotals.set(entry.model, (modelTotals.get(entry.model) ?? 0) + usageCount(entry.totalTokens));
+      providerTotals.set(entry.providerId, (providerTotals.get(entry.providerId) ?? 0) + usageCount(entry.totalTokens));
+    }
+  } else {
+    for (const bucket of recentModelBuckets) {
+      modelTotals.set(bucket.model, (modelTotals.get(bucket.model) ?? 0) + bucket.totalTokens);
+      providerTotals.set(bucket.providerId, (providerTotals.get(bucket.providerId) ?? 0) + bucket.totalTokens);
+    }
   }
 
   for (const entry of recentLogs) {
-    modelTotals.set(entry.model, (modelTotals.get(entry.model) ?? 0) + usageCount(entry.totalTokens));
-    providerTotals.set(entry.providerId, (providerTotals.get(entry.providerId) ?? 0) + usageCount(entry.totalTokens));
-
     if (entry.timestamp >= now - shortWindowMs) {
       const mapKey = `${entry.providerId}\0${entry.accountId}`;
       const short = shortAgg.get(mapKey) ?? { ttftSum: 0, ttftCount: 0, tpsSum: 0, tpsCount: 0 };
@@ -424,12 +553,31 @@ async function buildUsageOverview(
   const topModel = [...modelTotals.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
   const topProvider = [...providerTotals.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
   const activeAccounts = [...accountStats.values()].filter((account) => account.requestCount > 0).length;
+  const coverage = requestLogStore.getCoverage();
+  const relevantCoverageStarts = window === "daily"
+    ? [coverage.earliestHourlyBucketAtMs, coverage.earliestEntryAtMs]
+    : [coverage.earliestDailyBucketAtMs, coverage.earliestModelBreakdownAtMs, coverage.earliestAccountBreakdownAtMs];
+  const coverageStartMs = relevantCoverageStarts.reduce<number | null>((current, value) => {
+    if (value === null) {
+      return current;
+    }
+
+    return current === null ? value : Math.max(current, value);
+  }, null);
+  const hasFullWindowCoverage = coverageStartMs !== null && coverageStartMs <= bucketWindowStart;
 
   const cacheHitRate24h = cacheKeyUses > 0 ? percentage(cacheHits, cacheKeyUses) : 0;
 
   return {
     window,
     generatedAt: new Date(now).toISOString(),
+    coverage: {
+      requestedWindowStart: new Date(bucketWindowStart).toISOString(),
+      coverageStart: coverageStartMs !== null ? new Date(coverageStartMs).toISOString() : null,
+      hasFullWindowCoverage,
+      retainedEntryCount: coverage.retainedEntryCount,
+      maxRetainedEntries: coverage.maxEntries,
+    },
     summary: {
       requests24h: totalRequests,
       tokens24h: totalTokens,
@@ -494,6 +642,361 @@ async function buildUsageOverview(
         }
       }
     }),
+  };
+}
+
+type MutableAnalyticsAgg = {
+  providerId?: string;
+  model?: string;
+  requestCount: number;
+  errorCount: number;
+  totalTokens: number;
+  promptTokens: number;
+  completionTokens: number;
+  cachedPromptTokens: number;
+  cacheHitCount: number;
+  cacheKeyUseCount: number;
+  ttftSum: number;
+  ttftCount: number;
+  tpsSum: number;
+  tpsCount: number;
+  costUsd: number;
+  energyJoules: number;
+  waterEvaporatedMl: number;
+  firstSeenAtMs: number | null;
+  lastSeenAtMs: number | null;
+};
+
+function clamp01Analytics(value: number): number {
+  return Math.max(0, Math.min(1, value));
+}
+
+function confidenceScoreForRequests(requestCount: number): number {
+  return clamp01Analytics(Math.log10(1 + requestCount) / 3);
+}
+
+function suitabilityScoreForAgg(agg: MutableAnalyticsAgg): number | null {
+  if (agg.requestCount <= 0) {
+    return null;
+  }
+
+  const avgTtftMs = agg.ttftCount > 0 ? agg.ttftSum / agg.ttftCount : null;
+  const avgTps = agg.tpsCount > 0 ? agg.tpsSum / agg.tpsCount : null;
+  const errorRate = agg.requestCount > 0 ? agg.errorCount / agg.requestCount : 0;
+  const cacheHitRate = agg.cacheKeyUseCount > 0 ? agg.cacheHitCount / agg.cacheKeyUseCount : 0;
+  const ttftScore = avgTtftMs !== null ? 1 / (1 + avgTtftMs / 1000) : 0.5;
+  const tpsScore = avgTps !== null ? clamp01Analytics(avgTps / 80) : 0.5;
+  const successScore = 1 - clamp01Analytics(errorRate);
+  const confidenceScore = confidenceScoreForRequests(agg.requestCount);
+  const cacheScore = clamp01Analytics(cacheHitRate);
+
+  return clamp01Analytics((0.40 * ttftScore + 0.25 * tpsScore + 0.20 * successScore + 0.15 * cacheScore) * (0.5 + 0.5 * confidenceScore));
+}
+
+function toAnalyticsRow(
+  agg: MutableAnalyticsAgg,
+  extras: {
+    readonly providerCoverageCount?: number;
+    readonly modelCoverageCount?: number;
+  } = {},
+): AnalyticsRowResponse {
+  const avgTtftMs = agg.ttftCount > 0 ? agg.ttftSum / agg.ttftCount : null;
+  const avgTps = agg.tpsCount > 0 ? agg.tpsSum / agg.tpsCount : null;
+  const errorRate = agg.requestCount > 0 ? percentage(agg.errorCount, agg.requestCount) : 0;
+  const cacheHitRate = agg.cacheKeyUseCount > 0 ? percentage(agg.cacheHitCount, agg.cacheKeyUseCount) : 0;
+
+  return {
+    providerId: agg.providerId,
+    model: agg.model,
+    requestCount: agg.requestCount,
+    errorCount: agg.errorCount,
+    errorRate,
+    totalTokens: agg.totalTokens,
+    promptTokens: agg.promptTokens,
+    completionTokens: agg.completionTokens,
+    cachedPromptTokens: agg.cachedPromptTokens,
+    cacheHitRate,
+    avgTtftMs,
+    avgTps,
+    costUsd: agg.costUsd,
+    energyJoules: agg.energyJoules,
+    waterEvaporatedMl: agg.waterEvaporatedMl,
+    firstSeenAt: isoFromTimestamp(agg.firstSeenAtMs ?? undefined),
+    lastSeenAt: isoFromTimestamp(agg.lastSeenAtMs ?? undefined),
+    providerCoverageCount: extras.providerCoverageCount,
+    modelCoverageCount: extras.modelCoverageCount,
+    confidenceScore: confidenceScoreForRequests(agg.requestCount),
+    suitabilityScore: suitabilityScoreForAgg(agg),
+  };
+}
+
+function sortAnalyticsRows(rows: readonly AnalyticsRowResponse[], sort: string | undefined): AnalyticsRowResponse[] {
+  const sortKey = typeof sort === "string" ? sort.trim().toLowerCase() : "suitability";
+  const nextRows = [...rows];
+
+  nextRows.sort((left, right) => {
+    const fallback = () => {
+      const labelLeft = left.model ?? left.providerId ?? "";
+      const labelRight = right.model ?? right.providerId ?? "";
+      return labelLeft.localeCompare(labelRight);
+    };
+
+    switch (sortKey) {
+      case "requests":
+        return right.requestCount - left.requestCount || right.totalTokens - left.totalTokens || fallback();
+      case "tokens":
+        return right.totalTokens - left.totalTokens || right.requestCount - left.requestCount || fallback();
+      case "ttft": {
+        const leftValue = left.avgTtftMs ?? Number.POSITIVE_INFINITY;
+        const rightValue = right.avgTtftMs ?? Number.POSITIVE_INFINITY;
+        return leftValue - rightValue || right.totalTokens - left.totalTokens || fallback();
+      }
+      case "tps": {
+        const leftValue = left.avgTps ?? Number.NEGATIVE_INFINITY;
+        const rightValue = right.avgTps ?? Number.NEGATIVE_INFINITY;
+        return rightValue - leftValue || right.totalTokens - left.totalTokens || fallback();
+      }
+      case "errors":
+      case "error-rate":
+        return left.errorRate - right.errorRate || right.totalTokens - left.totalTokens || fallback();
+      case "cost":
+        return left.costUsd - right.costUsd || right.totalTokens - left.totalTokens || fallback();
+      case "suitability":
+      default: {
+        const leftValue = left.suitabilityScore ?? -1;
+        const rightValue = right.suitabilityScore ?? -1;
+        return rightValue - leftValue || right.totalTokens - left.totalTokens || fallback();
+      }
+    }
+  });
+
+  return nextRows;
+}
+
+async function buildProviderModelAnalytics(
+  requestLogStore: RequestLogStore,
+  window: UsageWindow = "weekly",
+  sort?: string,
+): Promise<ProviderModelAnalyticsResponse> {
+  const now = Date.now();
+  const bucketMs = window === "daily" ? 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
+  const bucketCount = window === "monthly" ? 30 : window === "weekly" ? 7 : 24;
+  const bucketWindowStart = bucketStart(now - (bucketCount - 1) * bucketMs, bucketMs);
+  const pairAgg = new Map<string, MutableAnalyticsAgg>();
+
+  const upsertPair = (providerId: string, model: string): MutableAnalyticsAgg => {
+    const key = `${providerId}\0${model}`;
+    const existing = pairAgg.get(key);
+    if (existing) {
+      return existing;
+    }
+
+    const created: MutableAnalyticsAgg = {
+      providerId,
+      model,
+      requestCount: 0,
+      errorCount: 0,
+      totalTokens: 0,
+      promptTokens: 0,
+      completionTokens: 0,
+      cachedPromptTokens: 0,
+      cacheHitCount: 0,
+      cacheKeyUseCount: 0,
+      ttftSum: 0,
+      ttftCount: 0,
+      tpsSum: 0,
+      tpsCount: 0,
+      costUsd: 0,
+      energyJoules: 0,
+      waterEvaporatedMl: 0,
+      firstSeenAtMs: null,
+      lastSeenAtMs: null,
+    };
+
+    pairAgg.set(key, created);
+    return created;
+  };
+
+  if (window === "daily") {
+    for (const entry of requestLogStore.snapshot().filter((item) => item.timestamp >= bucketWindowStart)) {
+      const agg = upsertPair(entry.providerId, entry.model);
+      agg.requestCount += 1;
+      if (entry.status >= 400 || typeof entry.error === "string") {
+        agg.errorCount += 1;
+      }
+      agg.totalTokens += usageCount(entry.totalTokens);
+      agg.promptTokens += usageCount(entry.promptTokens);
+      agg.completionTokens += usageCount(entry.completionTokens);
+      agg.cachedPromptTokens += usageCount(entry.cachedPromptTokens);
+      if (entry.cacheHit) {
+        agg.cacheHitCount += 1;
+      }
+      if (entry.promptCacheKeyUsed) {
+        agg.cacheKeyUseCount += 1;
+      }
+      if (typeof entry.ttftMs === "number" && Number.isFinite(entry.ttftMs)) {
+        agg.ttftSum += entry.ttftMs;
+        agg.ttftCount += 1;
+      }
+      if (typeof entry.tps === "number" && Number.isFinite(entry.tps)) {
+        agg.tpsSum += entry.tps;
+        agg.tpsCount += 1;
+      }
+      agg.costUsd += usageCount(entry.costUsd);
+      agg.energyJoules += usageCount(entry.energyJoules);
+      agg.waterEvaporatedMl += usageCount(entry.waterEvaporatedMl);
+      agg.firstSeenAtMs = agg.firstSeenAtMs === null ? entry.timestamp : Math.min(agg.firstSeenAtMs, entry.timestamp);
+      agg.lastSeenAtMs = agg.lastSeenAtMs === null ? entry.timestamp : Math.max(agg.lastSeenAtMs, entry.timestamp);
+    }
+  } else {
+    for (const bucket of requestLogStore.snapshotDailyModelBuckets(bucketWindowStart)) {
+      const agg = upsertPair(bucket.providerId, bucket.model);
+      agg.requestCount += bucket.requestCount;
+      agg.errorCount += bucket.errorCount;
+      agg.totalTokens += bucket.totalTokens;
+      agg.promptTokens += bucket.promptTokens;
+      agg.completionTokens += bucket.completionTokens;
+      agg.cachedPromptTokens += bucket.cachedPromptTokens;
+      agg.cacheHitCount += bucket.cacheHitCount;
+      agg.cacheKeyUseCount += bucket.cacheKeyUseCount;
+      agg.ttftSum += bucket.ttftSum;
+      agg.ttftCount += bucket.ttftCount;
+      agg.tpsSum += bucket.tpsSum;
+      agg.tpsCount += bucket.tpsCount;
+      agg.costUsd += bucket.costUsd;
+      agg.energyJoules += bucket.energyJoules;
+      agg.waterEvaporatedMl += bucket.waterEvaporatedMl;
+      agg.firstSeenAtMs = agg.firstSeenAtMs === null ? bucket.startMs : Math.min(agg.firstSeenAtMs, bucket.startMs);
+      agg.lastSeenAtMs = agg.lastSeenAtMs === null ? bucket.lastUsedAtMs : Math.max(agg.lastSeenAtMs, bucket.lastUsedAtMs);
+    }
+  }
+
+  const pairRows = [...pairAgg.values()];
+  const modelAgg = new Map<string, MutableAnalyticsAgg>();
+  const modelProviderCoverage = new Map<string, Set<string>>();
+  const providerAgg = new Map<string, MutableAnalyticsAgg>();
+  const providerModelCoverage = new Map<string, Set<string>>();
+
+  for (const pair of pairRows) {
+    const modelId = pair.model ?? "unknown";
+    const providerId = pair.providerId ?? "unknown";
+
+    const modelRow = modelAgg.get(modelId) ?? {
+      model: modelId,
+      requestCount: 0,
+      errorCount: 0,
+      totalTokens: 0,
+      promptTokens: 0,
+      completionTokens: 0,
+      cachedPromptTokens: 0,
+      cacheHitCount: 0,
+      cacheKeyUseCount: 0,
+      ttftSum: 0,
+      ttftCount: 0,
+      tpsSum: 0,
+      tpsCount: 0,
+      costUsd: 0,
+      energyJoules: 0,
+      waterEvaporatedMl: 0,
+      firstSeenAtMs: null,
+      lastSeenAtMs: null,
+    } as MutableAnalyticsAgg;
+    modelRow.requestCount += pair.requestCount;
+    modelRow.errorCount += pair.errorCount;
+    modelRow.totalTokens += pair.totalTokens;
+    modelRow.promptTokens += pair.promptTokens;
+    modelRow.completionTokens += pair.completionTokens;
+    modelRow.cachedPromptTokens += pair.cachedPromptTokens;
+    modelRow.cacheHitCount += pair.cacheHitCount;
+    modelRow.cacheKeyUseCount += pair.cacheKeyUseCount;
+    modelRow.ttftSum += pair.ttftSum;
+    modelRow.ttftCount += pair.ttftCount;
+    modelRow.tpsSum += pair.tpsSum;
+    modelRow.tpsCount += pair.tpsCount;
+    modelRow.costUsd += pair.costUsd;
+    modelRow.energyJoules += pair.energyJoules;
+    modelRow.waterEvaporatedMl += pair.waterEvaporatedMl;
+    modelRow.firstSeenAtMs = modelRow.firstSeenAtMs === null ? pair.firstSeenAtMs : Math.min(modelRow.firstSeenAtMs, pair.firstSeenAtMs ?? modelRow.firstSeenAtMs);
+    modelRow.lastSeenAtMs = modelRow.lastSeenAtMs === null ? pair.lastSeenAtMs : Math.max(modelRow.lastSeenAtMs, pair.lastSeenAtMs ?? modelRow.lastSeenAtMs);
+    modelAgg.set(modelId, modelRow);
+    const providerSet = modelProviderCoverage.get(modelId) ?? new Set<string>();
+    providerSet.add(providerId);
+    modelProviderCoverage.set(modelId, providerSet);
+
+    const providerRow = providerAgg.get(providerId) ?? {
+      providerId,
+      requestCount: 0,
+      errorCount: 0,
+      totalTokens: 0,
+      promptTokens: 0,
+      completionTokens: 0,
+      cachedPromptTokens: 0,
+      cacheHitCount: 0,
+      cacheKeyUseCount: 0,
+      ttftSum: 0,
+      ttftCount: 0,
+      tpsSum: 0,
+      tpsCount: 0,
+      costUsd: 0,
+      energyJoules: 0,
+      waterEvaporatedMl: 0,
+      firstSeenAtMs: null,
+      lastSeenAtMs: null,
+    } as MutableAnalyticsAgg;
+    providerRow.requestCount += pair.requestCount;
+    providerRow.errorCount += pair.errorCount;
+    providerRow.totalTokens += pair.totalTokens;
+    providerRow.promptTokens += pair.promptTokens;
+    providerRow.completionTokens += pair.completionTokens;
+    providerRow.cachedPromptTokens += pair.cachedPromptTokens;
+    providerRow.cacheHitCount += pair.cacheHitCount;
+    providerRow.cacheKeyUseCount += pair.cacheKeyUseCount;
+    providerRow.ttftSum += pair.ttftSum;
+    providerRow.ttftCount += pair.ttftCount;
+    providerRow.tpsSum += pair.tpsSum;
+    providerRow.tpsCount += pair.tpsCount;
+    providerRow.costUsd += pair.costUsd;
+    providerRow.energyJoules += pair.energyJoules;
+    providerRow.waterEvaporatedMl += pair.waterEvaporatedMl;
+    providerRow.firstSeenAtMs = providerRow.firstSeenAtMs === null ? pair.firstSeenAtMs : Math.min(providerRow.firstSeenAtMs, pair.firstSeenAtMs ?? providerRow.firstSeenAtMs);
+    providerRow.lastSeenAtMs = providerRow.lastSeenAtMs === null ? pair.lastSeenAtMs : Math.max(providerRow.lastSeenAtMs, pair.lastSeenAtMs ?? providerRow.lastSeenAtMs);
+    providerAgg.set(providerId, providerRow);
+    const modelSet = providerModelCoverage.get(providerId) ?? new Set<string>();
+    modelSet.add(modelId);
+    providerModelCoverage.set(providerId, modelSet);
+  }
+
+  const coverage = requestLogStore.getCoverage();
+  const relevantCoverageStarts = window === "daily"
+    ? [coverage.earliestEntryAtMs]
+    : [coverage.earliestDailyBucketAtMs, coverage.earliestModelBreakdownAtMs];
+  const coverageStartMs = relevantCoverageStarts.reduce<number | null>((current, value) => {
+    if (value === null) {
+      return current;
+    }
+
+    return current === null ? value : Math.max(current, value);
+  }, null);
+
+  return {
+    window,
+    generatedAt: new Date(now).toISOString(),
+    coverage: {
+      requestedWindowStart: new Date(bucketWindowStart).toISOString(),
+      coverageStart: coverageStartMs !== null ? new Date(coverageStartMs).toISOString() : null,
+      hasFullWindowCoverage: coverageStartMs !== null && coverageStartMs <= bucketWindowStart,
+      retainedEntryCount: coverage.retainedEntryCount,
+      maxRetainedEntries: coverage.maxEntries,
+    },
+    models: sortAnalyticsRows(
+      [...modelAgg.entries()].map(([modelId, agg]) => toAnalyticsRow(agg, { providerCoverageCount: modelProviderCoverage.get(modelId)?.size ?? 0 })),
+      sort,
+    ),
+    providers: sortAnalyticsRows(
+      [...providerAgg.entries()].map(([providerId, agg]) => toAnalyticsRow(agg, { modelCoverageCount: providerModelCoverage.get(providerId)?.size ?? 0 })),
+      sort,
+    ),
+    providerModels: sortAnalyticsRows(pairRows.map((agg) => toAnalyticsRow(agg)), sort),
   };
 }
 
@@ -779,6 +1282,13 @@ export async function registerUiRoutes(app: FastifyInstance, deps: UiRouteDepend
     const window = toUsageWindow(request.query.window);
     const overview = await buildUsageOverview(deps.requestLogStore, deps.keyPool, credentialStore, sort, window);
     reply.send(overview);
+  });
+
+  app.get<{ Querystring: { readonly sort?: string; readonly window?: string } }>("/api/ui/analytics/provider-model", async (request, reply) => {
+    const sort = typeof request.query.sort === "string" ? request.query.sort : undefined;
+    const window = toUsageWindow(request.query.window);
+    const analytics = await buildProviderModelAnalytics(deps.requestLogStore, window, sort);
+    reply.send(analytics);
   });
 
   app.get<{

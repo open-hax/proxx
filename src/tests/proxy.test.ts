@@ -39,6 +39,7 @@ async function withProxyApp(
   options: {
     readonly keys: readonly string[];
     readonly keysPayload?: unknown;
+    readonly requestLogsPayload?: unknown;
     readonly models?: readonly string[];
     readonly proxyAuthToken?: string;
     readonly allowUnauthenticated?: boolean;
@@ -56,6 +57,9 @@ async function withProxyApp(
 
   const keysPayload = options.keysPayload ?? { keys: options.keys };
   await writeFile(keysPath, JSON.stringify(keysPayload, null, 2), "utf8");
+  if (options.requestLogsPayload !== undefined) {
+    await writeFile(requestLogsPath, JSON.stringify(options.requestLogsPayload, null, 2), "utf8");
+  }
   if (options.models) {
     await writeFile(modelsPath, JSON.stringify({ models: options.models }, null, 2), "utf8");
   }
@@ -123,6 +127,7 @@ async function withProxyApp(
     keysFilePath: keysPath,
     modelsFilePath: modelsPath,
     requestLogsFilePath: requestLogsPath,
+    requestLogsMaxEntries: 100000,
     promptAffinityFilePath: promptAffinityPath,
     settingsFilePath: settingsPath,
     keyReloadMs: 50,
@@ -3423,6 +3428,367 @@ test("request-level service tier overrides global fast mode", async () => {
       assert.equal(overviewPayload.summary.serviceTierRequests24h.priority, 0);
       assert.equal(overviewPayload.summary.serviceTierRequests24h.standard, 1);
     }
+  );
+});
+
+test("weekly dashboard uses persisted daily model/account aggregates and reports incomplete coverage", async () => {
+  const requestLogsPayload = {
+    entries: [
+      {
+        id: "recent-entry",
+        timestamp: Date.now() - 60_000,
+        providerId: "openai",
+        accountId: "acct-openai",
+        authType: "oauth_bearer",
+        model: "gpt-5.4",
+        upstreamMode: "responses",
+        upstreamPath: "/v1/responses",
+        status: 200,
+        latencyMs: 120,
+        promptTokens: 20,
+        completionTokens: 10,
+        totalTokens: 30,
+        costUsd: 0.001,
+        energyJoules: 10,
+        waterEvaporatedMl: 0.005,
+      },
+    ],
+    hourlyBuckets: [],
+    dailyBuckets: [
+      {
+        startMs: Date.UTC(2026, 2, 17, 0, 0, 0),
+        requestCount: 5,
+        errorCount: 0,
+        totalTokens: 1500,
+        promptTokens: 1000,
+        completionTokens: 500,
+        cachedPromptTokens: 0,
+        imageCount: 0,
+        imageCostUsd: 0,
+        cacheHitCount: 0,
+        cacheKeyUseCount: 0,
+        fastModeRequestCount: 0,
+        priorityRequestCount: 0,
+        standardRequestCount: 5,
+        costUsd: 1.5,
+        energyJoules: 150,
+        waterEvaporatedMl: 0.075,
+      },
+      {
+        startMs: Date.UTC(2026, 2, 18, 0, 0, 0),
+        requestCount: 4,
+        errorCount: 1,
+        totalTokens: 900,
+        promptTokens: 600,
+        completionTokens: 300,
+        cachedPromptTokens: 0,
+        imageCount: 0,
+        imageCostUsd: 0,
+        cacheHitCount: 0,
+        cacheKeyUseCount: 0,
+        fastModeRequestCount: 0,
+        priorityRequestCount: 0,
+        standardRequestCount: 4,
+        costUsd: 0.9,
+        energyJoules: 90,
+        waterEvaporatedMl: 0.045,
+      },
+    ],
+    dailyModelBuckets: [
+      {
+        startMs: Date.UTC(2026, 2, 17, 0, 0, 0),
+        providerId: "openai",
+        model: "gpt-5.4",
+        requestCount: 5,
+        errorCount: 0,
+        totalTokens: 1500,
+        promptTokens: 1000,
+        completionTokens: 500,
+        cachedPromptTokens: 0,
+        imageCount: 0,
+        imageCostUsd: 0,
+        cacheHitCount: 0,
+        cacheKeyUseCount: 0,
+        fastModeRequestCount: 0,
+        priorityRequestCount: 0,
+        standardRequestCount: 5,
+        costUsd: 1.5,
+        energyJoules: 150,
+        waterEvaporatedMl: 0.075,
+      },
+      {
+        startMs: Date.UTC(2026, 2, 18, 0, 0, 0),
+        providerId: "factory",
+        model: "claude-sonnet-4-5",
+        requestCount: 4,
+        errorCount: 1,
+        totalTokens: 900,
+        promptTokens: 600,
+        completionTokens: 300,
+        cachedPromptTokens: 0,
+        imageCount: 0,
+        imageCostUsd: 0,
+        cacheHitCount: 0,
+        cacheKeyUseCount: 0,
+        fastModeRequestCount: 0,
+        priorityRequestCount: 0,
+        standardRequestCount: 4,
+        costUsd: 0.9,
+        energyJoules: 90,
+        waterEvaporatedMl: 0.045,
+      },
+    ],
+    dailyAccountBuckets: [
+      {
+        startMs: Date.UTC(2026, 2, 17, 0, 0, 0),
+        providerId: "openai",
+        accountId: "acct-openai",
+        authType: "oauth_bearer",
+        requestCount: 5,
+        errorCount: 0,
+        totalTokens: 1500,
+        promptTokens: 1000,
+        completionTokens: 500,
+        cachedPromptTokens: 0,
+        imageCount: 0,
+        imageCostUsd: 0,
+        cacheHitCount: 0,
+        cacheKeyUseCount: 0,
+        fastModeRequestCount: 0,
+        priorityRequestCount: 0,
+        standardRequestCount: 5,
+        ttftSum: 500,
+        ttftCount: 5,
+        tpsSum: 50,
+        tpsCount: 5,
+        lastUsedAtMs: Date.UTC(2026, 2, 17, 12, 0, 0),
+        costUsd: 1.5,
+        energyJoules: 150,
+        waterEvaporatedMl: 0.075,
+      },
+      {
+        startMs: Date.UTC(2026, 2, 18, 0, 0, 0),
+        providerId: "factory",
+        accountId: "acct-factory",
+        authType: "oauth_bearer",
+        requestCount: 4,
+        errorCount: 1,
+        totalTokens: 900,
+        promptTokens: 600,
+        completionTokens: 300,
+        cachedPromptTokens: 0,
+        imageCount: 0,
+        imageCostUsd: 0,
+        cacheHitCount: 0,
+        cacheKeyUseCount: 0,
+        fastModeRequestCount: 0,
+        priorityRequestCount: 0,
+        standardRequestCount: 4,
+        ttftSum: 400,
+        ttftCount: 4,
+        tpsSum: 40,
+        tpsCount: 4,
+        lastUsedAtMs: Date.UTC(2026, 2, 18, 12, 0, 0),
+        costUsd: 0.9,
+        energyJoules: 90,
+        waterEvaporatedMl: 0.045,
+      },
+    ],
+    accountAccumulators: [],
+  };
+
+  await withProxyApp(
+    {
+      keys: [],
+      keysPayload: {
+        providers: {
+          openai: {
+            auth: "oauth_bearer",
+            accounts: [
+              {
+                account_id: "acct-openai",
+                access_token: makeJwt({
+                  "https://api.openai.com/auth": {
+                    chatgpt_account_id: "acct-openai",
+                    chatgpt_plan_type: "plus",
+                  },
+                  "https://api.openai.com/profile": {
+                    email: "acct-openai@example.com",
+                  },
+                  sub: "acct-openai-user",
+                }),
+              },
+            ],
+          },
+          factory: {
+            auth: "oauth_bearer",
+            accounts: [
+              {
+                account_id: "acct-factory",
+                access_token: "factory-token-b",
+                plan_type: "pro",
+              },
+            ],
+          },
+        },
+      },
+      requestLogsPayload,
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ok: true }),
+      }),
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "GET",
+        url: "/api/ui/dashboard/overview?window=weekly&sort=tokens",
+      });
+
+      assert.equal(response.statusCode, 200);
+      const payload: any = response.json();
+      assert.equal(payload.window, "weekly");
+      assert.equal(payload.summary.tokens24h, 2400);
+      assert.equal(payload.summary.costUsd24h, 2.4);
+      assert.equal(payload.summary.topModel, "gpt-5.4");
+      assert.equal(payload.summary.topProvider, "openai");
+      assert.equal(payload.coverage.hasFullWindowCoverage, false);
+      assert.equal(payload.accounts[0].providerId, "openai");
+      assert.equal(payload.accounts[0].totalTokens, 1500);
+      assert.equal(payload.accounts[1].providerId, "factory");
+      assert.equal(payload.accounts[1].totalTokens, 900);
+    },
+  );
+});
+
+test("provider-model analytics summarizes global models, providers, and provider-model pairs", async () => {
+  const requestLogsPayload = {
+    entries: [],
+    hourlyBuckets: [],
+    dailyBuckets: [],
+    dailyModelBuckets: [
+      {
+        startMs: Date.UTC(2026, 2, 17, 0, 0, 0),
+        providerId: "openai",
+        model: "gpt-5.4",
+        requestCount: 6,
+        errorCount: 0,
+        totalTokens: 1800,
+        promptTokens: 1200,
+        completionTokens: 600,
+        cachedPromptTokens: 100,
+        imageCount: 0,
+        imageCostUsd: 0,
+        cacheHitCount: 2,
+        cacheKeyUseCount: 4,
+        fastModeRequestCount: 0,
+        priorityRequestCount: 0,
+        standardRequestCount: 6,
+        ttftSum: 600,
+        ttftCount: 6,
+        tpsSum: 72,
+        tpsCount: 6,
+        lastUsedAtMs: Date.UTC(2026, 2, 17, 12, 0, 0),
+        costUsd: 1.8,
+        energyJoules: 180,
+        waterEvaporatedMl: 0.09,
+      },
+      {
+        startMs: Date.UTC(2026, 2, 18, 0, 0, 0),
+        providerId: "factory",
+        model: "gpt-5.4",
+        requestCount: 4,
+        errorCount: 1,
+        totalTokens: 1000,
+        promptTokens: 700,
+        completionTokens: 300,
+        cachedPromptTokens: 40,
+        imageCount: 0,
+        imageCostUsd: 0,
+        cacheHitCount: 1,
+        cacheKeyUseCount: 2,
+        fastModeRequestCount: 0,
+        priorityRequestCount: 0,
+        standardRequestCount: 4,
+        ttftSum: 500,
+        ttftCount: 4,
+        tpsSum: 44,
+        tpsCount: 4,
+        lastUsedAtMs: Date.UTC(2026, 2, 18, 12, 0, 0),
+        costUsd: 1.0,
+        energyJoules: 100,
+        waterEvaporatedMl: 0.05,
+      },
+      {
+        startMs: Date.UTC(2026, 2, 18, 0, 0, 0),
+        providerId: "factory",
+        model: "claude-sonnet-4-5",
+        requestCount: 3,
+        errorCount: 0,
+        totalTokens: 900,
+        promptTokens: 600,
+        completionTokens: 300,
+        cachedPromptTokens: 0,
+        imageCount: 0,
+        imageCostUsd: 0,
+        cacheHitCount: 0,
+        cacheKeyUseCount: 0,
+        fastModeRequestCount: 0,
+        priorityRequestCount: 0,
+        standardRequestCount: 3,
+        ttftSum: 420,
+        ttftCount: 3,
+        tpsSum: 24,
+        tpsCount: 3,
+        lastUsedAtMs: Date.UTC(2026, 2, 18, 15, 0, 0),
+        costUsd: 0.9,
+        energyJoules: 90,
+        waterEvaporatedMl: 0.045,
+      },
+    ],
+    dailyAccountBuckets: [],
+    accountAccumulators: [],
+  };
+
+  await withProxyApp(
+    {
+      keys: [],
+      requestLogsPayload,
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ok: true }),
+      }),
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "GET",
+        url: "/api/ui/analytics/provider-model?window=weekly&sort=tokens",
+      });
+
+      assert.equal(response.statusCode, 200);
+      const payload: any = response.json();
+      assert.equal(payload.window, "weekly");
+      assert.equal(payload.coverage.hasFullWindowCoverage, false);
+      assert.equal(payload.models[0].model, "gpt-5.4");
+      assert.equal(payload.models[0].providerCoverageCount, 2);
+      assert.equal(payload.models[0].requestCount, 10);
+      assert.equal(payload.models[0].totalTokens, 2800);
+      assert.equal(Math.round(payload.models[0].avgTtftMs), 110);
+      assert.equal(Math.round(payload.models[0].avgTps * 10) / 10, 11.6);
+
+      assert.equal(payload.providers[0].providerId, "factory");
+      assert.equal(payload.providers[0].modelCoverageCount, 2);
+      assert.equal(payload.providers[0].requestCount, 7);
+      assert.equal(payload.providers[0].totalTokens, 1900);
+
+      const openAiPair = payload.providerModels.find((row: any) => row.providerId === "openai" && row.model === "gpt-5.4");
+      assert.ok(openAiPair);
+      assert.equal(openAiPair.requestCount, 6);
+      assert.equal(Math.round(openAiPair.avgTtftMs), 100);
+      assert.equal(Math.round(openAiPair.avgTps), 12);
+      assert.ok(typeof openAiPair.suitabilityScore === "number");
+    },
   );
 });
 

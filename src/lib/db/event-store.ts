@@ -397,5 +397,25 @@ function sanitizePayload(payload: Record<string, unknown>): Record<string, unkno
       _inputCount: Array.isArray(payload["input"]) ? payload["input"].length : undefined,
     };
   }
-  return payload;
+  return stripInvalidJsonChars(payload) as Record<string, unknown>;
+}
+
+function stripInvalidJsonChars(obj: unknown): unknown {
+  if (obj === null || obj === undefined) return obj;
+  if (typeof obj === "string") {
+    return obj.replace(new RegExp("\\x00", "g"), "").replace(new RegExp("[\\x01-\\x1F]", "g"), (c) =>
+      c === "\x1F" ? "\u241F" : c
+    );
+  }
+  if (Array.isArray(obj)) {
+    return obj.map(stripInvalidJsonChars);
+  }
+  if (typeof obj === "object") {
+    const result: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
+      result[key] = stripInvalidJsonChars(value);
+    }
+    return result;
+  }
+  return obj;
 }

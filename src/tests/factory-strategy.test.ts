@@ -132,6 +132,7 @@ async function withProxyApp(
     keysFilePath: keysPath,
     modelsFilePath: modelsPath,
     requestLogsFilePath: requestLogsPath,
+    requestLogsMaxEntries: 100000,
     promptAffinityFilePath: promptAffinityPath,
     settingsFilePath: settingsPath,
     keyReloadMs: 50,

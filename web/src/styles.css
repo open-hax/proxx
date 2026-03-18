@@ -886,6 +886,130 @@ button:disabled {
   gap: 14px;
 }
 
+.analytics-layout {
+  display: grid;
+  gap: 14px;
+}
+
+.analytics-panel {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(12, 25, 35, 0.84);
+  backdrop-filter: blur(8px);
+  box-shadow: var(--shadow-strong);
+  padding: 14px;
+  display: grid;
+  gap: 12px;
+}
+
+.analytics-hero {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 14px;
+  align-items: center;
+}
+
+.analytics-hero h2,
+.analytics-panel h3 {
+  margin: 0;
+}
+
+.analytics-hero p,
+.analytics-panel p,
+.analytics-hero-meta {
+  color: var(--text-dim);
+}
+
+.analytics-hero-meta {
+  display: grid;
+  gap: 4px;
+  font-size: 0.82rem;
+  justify-items: end;
+}
+
+.analytics-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.analytics-stat-card {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(12, 25, 35, 0.84);
+  backdrop-filter: blur(8px);
+  box-shadow: var(--shadow-strong);
+  padding: 12px;
+  display: grid;
+  gap: 6px;
+}
+
+.analytics-stat-card span,
+.analytics-stat-card small {
+  color: var(--text-dim);
+}
+
+.analytics-stat-card strong {
+  font-size: 1.15rem;
+}
+
+.analytics-panel-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.analytics-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.analytics-toolbar label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+}
+
+.analytics-table-wrap {
+  overflow: auto;
+}
+
+.analytics-table {
+  width: 100%;
+  min-width: 980px;
+  border-collapse: collapse;
+}
+
+.analytics-table-wide {
+  min-width: 1320px;
+}
+
+.analytics-table th,
+.analytics-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(131, 185, 208, 0.16);
+  text-align: left;
+  font-size: 0.84rem;
+  vertical-align: top;
+}
+
+.analytics-table th {
+  position: sticky;
+  top: 0;
+  background: rgba(9, 21, 30, 0.95);
+  color: var(--text-muted);
+  z-index: 1;
+}
+
+.analytics-table tbody tr:hover {
+  background: rgba(22, 53, 71, 0.24);
+}
+
 .credentials-panel,
 .tools-panel {
   padding: 14px;

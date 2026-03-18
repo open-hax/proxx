@@ -344,6 +344,13 @@ export function DashboardPage(): JSX.Element {
 
       {error && <p className="error-text">{error}</p>}
 
+      {overview?.coverage && !overview.coverage.hasFullWindowCoverage ? (
+        <p className="error-text">
+          Selected {windowLabel} window is not fully covered yet. Coverage starts {formatDate(overview.coverage.coverageStart)};
+          requested window starts {formatDate(overview.coverage.requestedWindowStart)}. Cost/water/top-model stats may be partial.
+        </p>
+      ) : null}
+
       <section className="dashboard-metrics-grid">
         <article className={`dashboard-metric-card ${metricTone(overview?.summary.requests24h ?? 0)}`}>
           <span>Requests / {windowLabel}</span>

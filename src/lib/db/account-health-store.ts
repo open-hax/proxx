@@ -368,7 +368,7 @@ INSERT INTO account_health (provider_id, account_id, success_count, last_success
 SELECT
   input.provider_id,
   input.account_id,
-  input.success_count,
+  input.success_count::bigint,
   input.last_success_at,
   input.last_status,
   input.updated_at
@@ -417,7 +417,7 @@ INSERT INTO account_health (provider_id, account_id, failure_count, last_failure
 SELECT
   input.provider_id,
   input.account_id,
-  input.failure_count,
+  input.failure_count::bigint,
   input.last_failure_at,
   input.last_error,
   input.last_status,

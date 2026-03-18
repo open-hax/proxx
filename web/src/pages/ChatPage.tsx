@@ -50,6 +50,10 @@ function firstTextContent(content: unknown): string {
       }
 
       if (typeof part === "object" && part !== null && "text" in part && typeof part.text === "string") {
+        const type = typeof (part as Record<string, unknown>).type === "string" ? (part as Record<string, unknown>).type : "";
+        if (type === "reasoning" || type === "thinking" || type === "reasoning_content" || type === "reasoning_details") {
+          return "";
+        }
         return part.text;
       }
 
@@ -85,11 +89,11 @@ function firstReasoningContent(message: unknown): string {
       }
 
       const type = typeof part.type === "string" ? part.type : "";
-      if (type !== "reasoning" && type !== "thinking" && type !== "summary_text") {
-        return "";
+      if (type === "reasoning" || type === "thinking" || type === "summary_text" || type === "reasoning_content" || type === "reasoning_details") {
+        return typeof part.text === "string" ? part.text : "";
       }
 
-      return typeof part.text === "string" ? part.text : "";
+      return "";
     })
     .join("");
 }
