@@ -76,6 +76,7 @@ export interface ProxyConfig {
   readonly upstreamTransientRetryCount: number;
   readonly upstreamTransientRetryBackoffMs: number;
   readonly proxyAuthToken?: string;
+  readonly proxyTokenPepper: string;
   readonly allowUnauthenticated: boolean;
   readonly policyConfigPath?: string;
   readonly databaseUrl?: string;
@@ -409,6 +410,11 @@ export function loadConfig(cwd: string = process.cwd()): ProxyConfig {
     ? sessionSecretRaw
     : proxyAuthToken ?? "default-session-secret-change-in-production";
 
+  const proxyTokenPepperRaw = process.env.PROXY_TOKEN_PEPPER?.trim();
+  const proxyTokenPepper = proxyTokenPepperRaw && proxyTokenPepperRaw.length > 0
+    ? proxyTokenPepperRaw
+    : sessionSecret;
+
   const imagesGenerationsPath = process.env.UPSTREAM_IMAGES_GENERATIONS_PATH ?? "/v1/images/generations";
   const openaiImagesGenerationsPaths = csvFromEnv("OPENAI_IMAGES_GENERATIONS_PATHS", [
     imagesGenerationsPath,
@@ -490,6 +496,7 @@ export function loadConfig(cwd: string = process.cwd()): ProxyConfig {
     upstreamTransientRetryCount: nonNegativeNumberFromEnvAliases(["UPSTREAM_TRANSIENT_RETRY_COUNT"], 2),
     upstreamTransientRetryBackoffMs: numberFromEnvAliases(["UPSTREAM_TRANSIENT_RETRY_BACKOFF_MS"], 350),
     proxyAuthToken,
+    proxyTokenPepper,
     allowUnauthenticated,
     policyConfigPath: process.env.PROXY_POLICY_CONFIG_FILE ?? undefined,
     databaseUrl,

@@ -77,6 +77,7 @@ import { seedFromJsonFile, seedFromJsonValue, seedFactoryAuthFromFiles, seedMode
 import { registerOAuthRoutes } from "./lib/oauth-routes.js";
 import { RuntimeCredentialStore } from "./lib/runtime-credential-store.js";
 import { TokenRefreshManager } from "./lib/token-refresh-manager.js";
+import { DEFAULT_TENANT_ID } from "./lib/tenant-api-key.js";
 
 interface ChatCompletionRequest {
   readonly model?: string;
@@ -357,7 +358,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       sql = createSqlConnection({ connectionString: config.databaseUrl });
       app.log.info("connecting to database");
 
-      sqlCredentialStore = new SqlCredentialStore(sql);
+      sqlCredentialStore = new SqlCredentialStore(sql, { defaultTenantId: DEFAULT_TENANT_ID });
       await sqlCredentialStore.init();
       app.log.info("credential store initialized");
 

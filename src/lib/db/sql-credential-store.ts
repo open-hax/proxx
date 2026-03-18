@@ -1,8 +1,16 @@
 import type { Sql } from "./index.js";
 import type { ProviderCredential, ProviderAuthType } from "../key-pool.js";
 import { normalizeEpochMilliseconds } from "../epoch.js";
+import { DEFAULT_TENANT_ID, normalizeTenantId } from "../tenant-api-key.js";
+import { hashTenantApiKey } from "../tenant-api-key.js";
 import type { CredentialAccountView, CredentialProviderView } from "../credential-store.js";
 import {
+  CREATE_TENANTS_TABLE,
+  CREATE_USERS_TABLE,
+  CREATE_TENANT_MEMBERSHIPS_TABLE,
+  CREATE_TENANT_API_KEYS_TABLE,
+  CREATE_TENANT_API_KEYS_TENANT_INDEX,
+  CREATE_TENANT_API_KEYS_HASH_INDEX,
   CREATE_PROVIDERS_TABLE,
   CREATE_ACCOUNTS_TABLE,
   CREATE_ACCOUNTS_INDEX,
@@ -15,7 +23,10 @@ import {
   INSERT_VERSION,
   CHECK_VERSION_EXISTS,
   UPSERT_PROVIDER,
+  UPSERT_TENANT,
   INSERT_ACCOUNT,
+  SELECT_ACTIVE_TENANT_API_KEY_BY_HASH,
+  SELECT_ALL_TENANTS,
   SELECT_ALL_PROVIDERS,
   SELECT_ACCOUNTS_BY_PROVIDER,
   SELECT_ALL_ACCOUNTS,
@@ -29,6 +40,21 @@ import {
 interface ProviderRow {
   id: string;
   auth_type: string;
+}
+
+interface TenantRow {
+  id: string;
+  name: string;
+  status: string;
+}
+
+interface TenantApiKeyRow {
+  id: string;
+  tenant_id: string;
+  label: string;
+  prefix: string;
+  scopes: string[] | string | null;
+  revoked_at: string | null;
 }
 
 interface AccountRow {
@@ -76,15 +102,52 @@ function maskSecret(secret: string): string {
 
 export interface SqlCredentialStoreStatus {
   initialized: boolean;
+  tenantCount: number;
   providerCount: number;
   totalAccountCount: number;
+}
+
+export interface TenantView {
+  id: string;
+  name: string;
+  status: string;
+}
+
+export interface TenantApiKeyMatch {
+  id: string;
+  tenantId: string;
+  label: string;
+  prefix: string;
+  scopes: readonly string[];
+}
+
+function parseScopes(value: string[] | string | null): string[] {
+  if (Array.isArray(value)) {
+    return value.filter((item): item is string => typeof item === "string");
+  }
+
+  if (typeof value === "string") {
+    try {
+      const parsed: unknown = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
+    } catch {
+      return [];
+    }
+  }
+
+  return [];
 }
 
 export class SqlCredentialStore {
   private initialized = false;
   private readonly cooldowns = new Map<string, number>();
 
-  public constructor(private readonly sql: Sql) {}
+  public constructor(
+    private readonly sql: Sql,
+    private readonly options: {
+      readonly defaultTenantId?: string;
+    } = {},
+  ) {}
 
   public async init(): Promise<void> {
     await this.runMigrations();
@@ -92,6 +155,12 @@ export class SqlCredentialStore {
   }
 
   private async runMigrations(): Promise<void> {
+    await this.sql.unsafe(CREATE_TENANTS_TABLE);
+    await this.sql.unsafe(CREATE_USERS_TABLE);
+    await this.sql.unsafe(CREATE_TENANT_MEMBERSHIPS_TABLE);
+    await this.sql.unsafe(CREATE_TENANT_API_KEYS_TABLE);
+    await this.sql.unsafe(CREATE_TENANT_API_KEYS_TENANT_INDEX);
+    await this.sql.unsafe(CREATE_TENANT_API_KEYS_HASH_INDEX);
     await this.sql.unsafe(CREATE_PROVIDERS_TABLE);
     await this.sql.unsafe(CREATE_ACCOUNTS_TABLE);
     await this.sql.unsafe(CREATE_ACCOUNTS_INDEX);
@@ -109,16 +178,51 @@ export class SqlCredentialStore {
     if (versionExists.length === 0) {
       await this.sql.unsafe(INSERT_VERSION, [SCHEMA_VERSION]);
     }
+
+    await this.ensureDefaultTenant();
+  }
+
+  private async ensureDefaultTenant(): Promise<void> {
+    const tenantId = normalizeTenantId(this.options.defaultTenantId ?? DEFAULT_TENANT_ID);
+    await this.sql.unsafe(UPSERT_TENANT, [tenantId, tenantId, "active"]);
   }
 
   public async getStatus(): Promise<SqlCredentialStoreStatus> {
+    const tenants = await this.sql.unsafe<TenantRow[]>(SELECT_ALL_TENANTS);
     const providers = await this.sql.unsafe<ProviderRow[]>(SELECT_ALL_PROVIDERS);
     const accounts = await this.sql.unsafe<AccountRow[]>(SELECT_ALL_ACCOUNTS);
 
     return {
       initialized: this.initialized,
+      tenantCount: tenants.length,
       providerCount: providers.length,
       totalAccountCount: accounts.length,
+    };
+  }
+
+  public async listTenants(): Promise<TenantView[]> {
+    const rows = await this.sql.unsafe<TenantRow[]>(SELECT_ALL_TENANTS);
+    return rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      status: row.status,
+    }));
+  }
+
+  public async resolveTenantApiKey(token: string, pepper: string): Promise<TenantApiKeyMatch | undefined> {
+    const tokenHash = hashTenantApiKey(token, pepper);
+    const rows = await this.sql.unsafe<TenantApiKeyRow[]>(SELECT_ACTIVE_TENANT_API_KEY_BY_HASH, [tokenHash]);
+    const row = rows[0];
+    if (!row) {
+      return undefined;
+    }
+
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      label: row.label,
+      prefix: row.prefix,
+      scopes: parseScopes(row.scopes),
     };
   }
 
