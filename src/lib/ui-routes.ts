@@ -14,6 +14,7 @@ import { ChromaSessionIndex } from "./chroma-session-index.js";
 import { SessionStore, type ChatRole } from "./session-store.js";
 import { getToolSeedForModel, loadMcpSeeds } from "./tool-mcp-seed.js";
 import type { ProxySettingsStore } from "./proxy-settings-store.js";
+import type { EventStore } from "./db/event-store.js";
 
 interface UiRouteDependencies {
   readonly config: ProxyConfig;
@@ -21,6 +22,12 @@ interface UiRouteDependencies {
   readonly requestLogStore: RequestLogStore;
   readonly credentialStore: CredentialStoreLike;
   readonly proxySettingsStore: ProxySettingsStore;
+  readonly eventStore?: EventStore;
+  readonly refreshOpenAiOauthAccounts?: (accountId?: string) => Promise<{
+    readonly totalAccounts: number;
+    readonly refreshedCount: number;
+    readonly failedCount: number;
+  }>;
 }
 
 interface UsageAccountSummary {
@@ -37,6 +44,9 @@ interface UsageAccountSummary {
   readonly cachedPromptTokens: number;
   readonly imageCount: number;
   readonly imageCostUsd: number;
+  readonly costUsd: number;
+  readonly energyJoules: number;
+  readonly waterEvaporatedMl: number;
   readonly cacheHitCount: number;
   readonly cacheKeyUseCount: number;
   readonly avgTtftMs: number | null;
@@ -61,6 +71,9 @@ interface UsageOverviewResponse {
     readonly cachedPromptTokens24h: number;
     readonly imageCount24h: number;
     readonly imageCostUsd24h: number;
+    readonly costUsd24h: number;
+    readonly energyJoules24h: number;
+    readonly waterEvaporatedMl24h: number;
     readonly cacheKeyUses24h: number;
     readonly cacheHitRate24h: number;
     readonly errorRate24h: number;
@@ -206,6 +219,9 @@ async function buildUsageOverview(
   const cachedPromptTokens = recentBuckets.reduce((sum, bucket) => sum + bucket.cachedPromptTokens, 0);
   const imageCount = recentBuckets.reduce((sum, bucket) => sum + bucket.imageCount, 0);
   const imageCostUsd = recentBuckets.reduce((sum, bucket) => sum + bucket.imageCostUsd, 0);
+  const costUsd = recentBuckets.reduce((sum, bucket) => sum + bucket.costUsd, 0);
+  const energyJoules = recentBuckets.reduce((sum, bucket) => sum + bucket.energyJoules, 0);
+  const waterEvaporatedMl = recentBuckets.reduce((sum, bucket) => sum + bucket.waterEvaporatedMl, 0);
   const cacheKeyUses = recentBuckets.reduce((sum, bucket) => sum + bucket.cacheKeyUseCount, 0);
   const cacheHits = recentBuckets.reduce((sum, bucket) => sum + bucket.cacheHitCount, 0);
   const totalErrors = recentBuckets.reduce((sum, bucket) => sum + bucket.errorCount, 0);
@@ -225,6 +241,9 @@ async function buildUsageOverview(
     cachedPromptTokens: number;
     imageCount: number;
     imageCostUsd: number;
+    costUsd: number;
+    energyJoules: number;
+    waterEvaporatedMl: number;
     cacheHitCount: number;
     cacheKeyUseCount: number;
     ttftSum: number;
@@ -312,6 +331,9 @@ async function buildUsageOverview(
         cachedPromptTokens: 0,
         imageCount: 0,
         imageCostUsd: 0,
+        costUsd: 0,
+        energyJoules: 0,
+        waterEvaporatedMl: 0,
         cacheHitCount: 0,
         cacheKeyUseCount: 0,
         ttftSum: 0,
@@ -345,6 +367,9 @@ async function buildUsageOverview(
         cachedPromptTokens: agg.cachedPromptTokens,
         imageCount: agg.imageCount,
         imageCostUsd: agg.imageCostUsd,
+        costUsd: agg.costUsd,
+        energyJoules: agg.energyJoules,
+        waterEvaporatedMl: agg.waterEvaporatedMl,
         cacheHitCount: agg.cacheHitCount,
         cacheKeyUseCount: agg.cacheKeyUseCount,
         avgTtftMs: health.avgTtftMs,
@@ -385,6 +410,9 @@ async function buildUsageOverview(
       cachedPromptTokens24h: cachedPromptTokens,
       imageCount24h: imageCount,
       imageCostUsd24h: imageCostUsd,
+      costUsd24h: costUsd,
+      energyJoules24h: energyJoules,
+      waterEvaporatedMl24h: waterEvaporatedMl,
       cacheKeyUses24h: cacheKeyUses,
       cacheHitRate24h,
       errorRate24h: percentage(totalErrors, totalRequests),
@@ -739,6 +767,22 @@ export async function registerUiRoutes(app: FastifyInstance, deps: UiRouteDepend
   });
 
   app.post<{
+    Body: { readonly accountId?: string };
+  }>("/api/ui/credentials/openai/oauth/refresh", async (request, reply) => {
+    if (!deps.refreshOpenAiOauthAccounts) {
+      reply.code(501).send({ error: "oauth_refresh_not_supported" });
+      return;
+    }
+
+    const accountId = typeof request.body?.accountId === "string" && request.body.accountId.trim().length > 0
+      ? request.body.accountId.trim()
+      : undefined;
+
+    const result = await deps.refreshOpenAiOauthAccounts(accountId);
+    reply.send(result);
+  });
+
+  app.post<{
     Body: { readonly providerId?: string; readonly accountId?: string; readonly credentialValue?: string; readonly apiKey?: string };
   }>("/api/ui/credentials/api-key", async (request, reply) => {
     const providerId = typeof request.body?.providerId === "string"
@@ -1078,4 +1122,98 @@ export async function registerUiRoutes(app: FastifyInstance, deps: UiRouteDepend
       await sendUiIndex(reply);
     });
   }
+
+  // Event store query API
+  app.get<{
+    Querystring: {
+      kind?: string;
+      entry_id?: string;
+      provider_id?: string;
+      model?: string;
+      status?: string;
+      status_gte?: string;
+      status_lt?: string;
+      tag?: string;
+      since?: string;
+      until?: string;
+      limit?: string;
+      offset?: string;
+    };
+  }>("/api/ui/events", async (request, reply) => {
+    if (!deps.eventStore) {
+      reply.code(503).send({ error: "Event store not available (no database connection)" });
+      return;
+    }
+
+    const q = request.query;
+    const events = await deps.eventStore.query({
+      kind: q.kind as "request" | "response" | "error" | "label" | "metric" | undefined,
+      entryId: q.entry_id,
+      providerId: q.provider_id,
+      model: q.model,
+      status: q.status ? parseInt(q.status, 10) : undefined,
+      statusGte: q.status_gte ? parseInt(q.status_gte, 10) : undefined,
+      statusLt: q.status_lt ? parseInt(q.status_lt, 10) : undefined,
+      tag: q.tag,
+      since: q.since ? new Date(q.since) : undefined,
+      until: q.until ? new Date(q.until) : undefined,
+      limit: q.limit ? parseInt(q.limit, 10) : 50,
+      offset: q.offset ? parseInt(q.offset, 10) : undefined,
+    });
+
+    reply.send({ events, count: events.length });
+  });
+
+  app.get("/api/ui/events/tags", async (_request, reply) => {
+    if (!deps.eventStore) {
+      reply.code(503).send({ error: "Event store not available" });
+      return;
+    }
+
+    const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000); // last 7 days
+    const tags = await deps.eventStore.countByTag(since);
+    reply.send({ tags, since: since.toISOString() });
+  });
+
+  app.post<{
+    Params: { id: string };
+    Body: { tag: string };
+  }>("/api/ui/events/:id/tag", async (request, reply) => {
+    if (!deps.eventStore) {
+      reply.code(503).send({ error: "Event store not available" });
+      return;
+    }
+
+    const tag = typeof request.body === "object" && request.body !== null && "tag" in request.body
+      ? String((request.body as Record<string, unknown>).tag)
+      : undefined;
+    if (!tag) {
+      reply.code(400).send({ error: "Missing tag field" });
+      return;
+    }
+
+    await deps.eventStore.addTag(request.params.id, tag);
+    reply.send({ ok: true });
+  });
+
+  app.delete<{
+    Params: { id: string };
+    Body: { tag: string };
+  }>("/api/ui/events/:id/tag", async (request, reply) => {
+    if (!deps.eventStore) {
+      reply.code(503).send({ error: "Event store not available" });
+      return;
+    }
+
+    const tag = typeof request.body === "object" && request.body !== null && "tag" in request.body
+      ? String((request.body as Record<string, unknown>).tag)
+      : undefined;
+    if (!tag) {
+      reply.code(400).send({ error: "Missing tag field" });
+      return;
+    }
+
+    await deps.eventStore.removeTag(request.params.id, tag);
+    reply.send({ ok: true });
+  });
 }

@@ -475,7 +475,11 @@ async function readProvidersFromSources(
   const inlineJsonProviders = readProvidersFromJsonEnv(defaultProviderId);
   let fileProviders: Map<string, ProviderState> | null = null;
   let accountStoreProviders: Map<string, ProviderState> | null = null;
-  const factoryOAuthProviders = await readFactoryOAuthProviders();
+  // Only load factory auth from files when no DB account store is available;
+  // when a DB is present, factory credentials should already be seeded there.
+  const factoryOAuthProviders = accountStore
+    ? new Map<string, ProviderState>()
+    : await readFactoryOAuthProviders();
 
   if (accountStore) {
     accountStoreProviders = await readProvidersFromAccountStore(accountStore);

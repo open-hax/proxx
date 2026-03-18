@@ -19,7 +19,7 @@ CREATE INDEX IF NOT EXISTS idx_account_health_score ON account_health(
 );
 `;
 
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 export const CREATE_PROVIDERS_TABLE = `
 CREATE TABLE IF NOT EXISTS providers (
@@ -133,6 +133,21 @@ export const CHECK_VERSION_EXISTS = `
 SELECT 1 FROM schema_version WHERE version = $1;
 `;
 
+export const CREATE_MODELS_TABLE = `
+CREATE TABLE IF NOT EXISTS models (
+  id TEXT PRIMARY KEY,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+`;
+
+export const CREATE_CONFIG_TABLE = `
+CREATE TABLE IF NOT EXISTS config (
+  key TEXT PRIMARY KEY,
+  value JSONB NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+`;
+
 export const ALL_MIGRATIONS = [
   { version: 1, sql: CREATE_PROVIDERS_TABLE },
   { version: 1, sql: CREATE_ACCOUNTS_TABLE },
@@ -146,6 +161,8 @@ export const ALL_MIGRATIONS = [
   { version: 1, sql: CREATE_VERSION_TABLE },
   { version: 2, sql: CREATE_ACCOUNT_HEALTH_TABLE },
   { version: 2, sql: CREATE_ACCOUNT_HEALTH_INDEX },
+  { version: 3, sql: CREATE_MODELS_TABLE },
+  { version: 3, sql: CREATE_CONFIG_TABLE },
 ];
 
 export const UPSERT_PROVIDER = `

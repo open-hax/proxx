@@ -136,6 +136,9 @@ export interface UsageAccountSummary {
   readonly cachedPromptTokens: number;
   readonly imageCount: number;
   readonly imageCostUsd: number;
+  readonly costUsd: number;
+  readonly energyJoules: number;
+  readonly waterEvaporatedMl: number;
   readonly cacheHitCount: number;
   readonly cacheKeyUseCount: number;
   readonly avgTtftMs: number | null;
@@ -155,6 +158,9 @@ export interface UsageOverview {
     readonly cachedPromptTokens24h: number;
     readonly imageCount24h: number;
     readonly imageCostUsd24h: number;
+    readonly costUsd24h: number;
+    readonly energyJoules24h: number;
+    readonly waterEvaporatedMl24h: number;
     readonly cacheKeyUses24h: number;
     readonly cacheHitRate24h: number;
     readonly errorRate24h: number;

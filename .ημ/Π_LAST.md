@@ -1,33 +1,33 @@
-# Π Snapshot — 2026-03-17T15:52:30Z
+# Π Snapshot — 2026-03-18T04:55:50Z
 
 - Repo: `open-hax-openai-proxy`
 - Branch: `main`
 - Remote: `origin/main`
-- Base HEAD at capture start: `b6c18a0`
-- Previous Π commit: `b6c18a0`
+- Base HEAD at capture start: `457a620`
 - Working tree at capture start: dirty
 
 ## What changed
-- Persist upstream error summary fields and sanitized Factory 4xx diagnostics in request logs.
-- Record hashed/prompt-shape Factory diagnostics so prompt rejections are debuggable without storing raw prompt text.
-- Add regression coverage for Factory diagnostics persistence and request-log reload behavior.
-- Track the work in specs/drafts/factory-4xx-diagnostics.md and receipts.log.
+- Refactor provider strategy and policy logic into modular `provider-strategy/*` and `policy/*` packages.
+- Add event-store plumbing, refreshed UI/API routes, and dashboard/provider health improvements.
+- Capture ongoing credentials refresh controls, GPT routing hardening, and request-log persistence updates in specs/drafts and receipts.
 
 ## Files to inspect
-- `receipts.log`
+- `src/app.ts`
+- `src/lib/ui-routes.ts`
 - `src/lib/provider-strategy.ts`
-- `src/lib/request-log-store.ts`
-- `src/tests/factory-strategy.test.ts`
-- `src/tests/request-log-store.test.ts`
-- `specs/drafts/factory-4xx-diagnostics.md`
+- `src/lib/provider-strategy/`
+- `src/lib/policy/`
+- `src/lib/db/event-store.ts`
+- `web/src/pages/DashboardPage.tsx`
+- `specs/drafts/credentials-refresh-and-gpt-concurrency.md`
+- `specs/drafts/dashboard-account-health-provider-filter.md`
+- `specs/drafts/gpt-routing-excludes-ollama-cloud.md`
 
 ## Verification
-- pass: pnpm run build
-- pass: pnpm test (253/253)
-
-## Open questions
-- Should the sanitized Factory diagnostic shape later be generalized beyond Factory 4xx responses?
+- pass: `pnpm run build`
+- pass: `pnpm run web:build`
+- pass: `pnpm run typecheck`
+- pass: `pnpm test` (258/258)
 
 ## Notes
 - Artifacts capture the pre-snapshot base head; the final Π commit/tag are created after artifact assembly.
-- Push is attempted after the snapshot commit is created; final push status is reported via git/assistant output.

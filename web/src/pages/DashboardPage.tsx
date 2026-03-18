@@ -11,6 +11,8 @@ import {
 } from "../lib/api";
 import { formatAuthType } from "../lib/format";
 
+const ALL_PROVIDERS_FILTER = "__all_providers__";
+
 function formatCompactNumber(value: number): string {
   return new Intl.NumberFormat("en-US", {
     notation: value >= 1000 ? "compact" : "standard",
@@ -29,6 +31,13 @@ function formatUsd(value: number): string {
     minimumFractionDigits: value >= 1 ? 2 : 4,
     maximumFractionDigits: value >= 1 ? 2 : 4,
   }).format(value);
+}
+
+function formatWater(ml: number): string {
+  if (ml >= 1000) return `${(ml / 1000).toFixed(2)} L`;
+  if (ml >= 1) return `${ml.toFixed(1)} mL`;
+  if (ml >= 0.001) return `${(ml * 1000).toFixed(1)} uL`;
+  return `${ml.toFixed(4)} mL`;
 }
 
 function formatDate(value: string | null): string {
@@ -157,6 +166,7 @@ export function DashboardPage(): JSX.Element {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [accountSort, setAccountSort] = useState("health");
+  const [accountProviderFilter, setAccountProviderFilter] = useState(ALL_PROVIDERS_FILTER);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const logSentinelRef = useRef<HTMLDivElement | null>(null);
@@ -173,8 +183,24 @@ export function DashboardPage(): JSX.Element {
       .slice(0, 6),
     [overview]);
   const allAccounts = useMemo(() => overview?.accounts ?? [], [overview]);
-  const visibleAccounts = useMemo(() => allAccounts.slice(0, healthVisible), [allAccounts, healthVisible]);
+  const accountProviderOptions = useMemo(() =>
+    [...new Set(allAccounts.map((account) => account.providerId))].sort((left, right) => left.localeCompare(right)),
+    [allAccounts]);
+  const filteredAccounts = useMemo(() => {
+    if (accountProviderFilter === ALL_PROVIDERS_FILTER) {
+      return allAccounts;
+    }
+
+    return allAccounts.filter((account) => account.providerId === accountProviderFilter);
+  }, [allAccounts, accountProviderFilter]);
+  const visibleAccounts = useMemo(() => filteredAccounts.slice(0, healthVisible), [filteredAccounts, healthVisible]);
   const providerStatuses = useMemo(() => Object.values(keyPoolStatuses).sort((a, b) => a.providerId.localeCompare(b.providerId)), [keyPoolStatuses]);
+
+  useEffect(() => {
+    if (accountProviderFilter !== ALL_PROVIDERS_FILTER && !accountProviderOptions.includes(accountProviderFilter)) {
+      setAccountProviderFilter(ALL_PROVIDERS_FILTER);
+    }
+  }, [accountProviderFilter, accountProviderOptions]);
 
   useEffect(() => {
     let cancelled = false;
@@ -245,8 +271,8 @@ export function DashboardPage(): JSX.Element {
   }, [loadMoreLogs]);
 
   const loadMoreHealth = useCallback(() => {
-    setHealthVisible((prev) => Math.min(prev + 50, allAccounts.length));
-  }, [allAccounts.length]);
+    setHealthVisible((prev) => Math.min(prev + 50, filteredAccounts.length));
+  }, [filteredAccounts.length]);
 
   useEffect(() => {
     const sentinel = healthSentinelRef.current;
@@ -260,7 +286,7 @@ export function DashboardPage(): JSX.Element {
     return () => observer.disconnect();
   }, [loadMoreHealth]);
 
-  useEffect(() => { setHealthVisible(50); }, [overview]);
+  useEffect(() => { setHealthVisible(50); }, [overview, accountProviderFilter]);
 
   return (
     <div className="dashboard-layout">
@@ -314,6 +340,20 @@ export function DashboardPage(): JSX.Element {
           <strong>{loading ? "..." : formatCompactNumber(overview?.summary.activeAccounts ?? 0)}</strong>
           <small>
             Top model {overview?.summary.topModel ?? "-"} · Top provider {overview?.summary.topProvider ?? "-"}
+          </small>
+        </article>
+        <article className={`dashboard-metric-card ${metricTone(overview?.summary.costUsd24h ?? 0)}`}>
+          <span>Est. Cost / 24h</span>
+          <strong>{loading ? "..." : formatUsd(overview?.summary.costUsd24h ?? 0)}</strong>
+          <small>
+            {formatCompactNumber((overview?.summary.energyJoules24h ?? 0) / 1000)} kJ energy
+          </small>
+        </article>
+        <article className={`dashboard-metric-card ${metricTone(overview?.summary.waterEvaporatedMl24h ?? 0)}`}>
+          <span>Water Evaporated / 24h</span>
+          <strong>{loading ? "..." : formatWater(overview?.summary.waterEvaporatedMl24h ?? 0)}</strong>
+          <small>
+            ~1.8 L/kWh DC cooling avg
           </small>
         </article>
       </section>
@@ -448,7 +488,7 @@ export function DashboardPage(): JSX.Element {
         <header className="dashboard-panel-header">
           <div>
             <h3>Account Health</h3>
-            <p>Ordered by health by default; you can also sort by tokens/requests/TTFT/TPS.</p>
+            <p>Ordered by health by default; filter to a provider or sort by tokens/requests/TTFT/TPS.</p>
           </div>
           <div className="dashboard-panel-controls">
             <label>
@@ -459,6 +499,15 @@ export function DashboardPage(): JSX.Element {
                 <option value="tps">TPS</option>
                 <option value="tokens">Tokens</option>
                 <option value="requests">Requests</option>
+              </select>
+            </label>
+            <label>
+              Provider&nbsp;
+              <select value={accountProviderFilter} onChange={(event) => setAccountProviderFilter(event.target.value)}>
+                <option value={ALL_PROVIDERS_FILTER}>All providers</option>
+                {accountProviderOptions.map((providerId) => (
+                  <option key={providerId} value={providerId}>{providerId}</option>
+                ))}
               </select>
             </label>
           </div>
@@ -477,7 +526,11 @@ export function DashboardPage(): JSX.Element {
               <span>Last Seen</span>
             </div>
             {visibleAccounts.length === 0 ? (
-              <div className="dashboard-account-empty">No request log activity yet.</div>
+              <div className="dashboard-account-empty">
+                {allAccounts.length === 0
+                  ? "No request log activity yet."
+                  : `No accounts found for provider ${accountProviderFilter}.`}
+              </div>
             ) : (
               visibleAccounts.map((account) => (
                 <div key={`${account.providerId}-${account.accountId}`} className="dashboard-account-row">
@@ -507,12 +560,12 @@ export function DashboardPage(): JSX.Element {
                 </div>
               ))
             )}
-            {healthVisible < allAccounts.length && (
+            {healthVisible < filteredAccounts.length && (
               <div ref={healthSentinelRef} className="dashboard-log-sentinel">
                 <span className="dashboard-log-loading">Loading more…</span>
               </div>
             )}
-            {healthVisible >= allAccounts.length && allAccounts.length > 0 && (
+            {healthVisible >= filteredAccounts.length && filteredAccounts.length > 0 && (
               <div ref={healthSentinelRef} className="dashboard-log-sentinel" />
             )}
           </div>

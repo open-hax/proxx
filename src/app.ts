@@ -69,9 +69,11 @@ import { requestHasExplicitNumCtx } from "./lib/ollama-compat.js";
 import { createSqlConnection, closeConnection, type Sql } from "./lib/db/index.js";
 import { SqlCredentialStore } from "./lib/db/sql-credential-store.js";
 import { AccountHealthStore } from "./lib/db/account-health-store.js";
+import { EventStore } from "./lib/db/event-store.js";
+import { createDefaultLabelers } from "./lib/db/event-labelers.js";
 import { SqlAuthPersistence } from "./lib/auth/sql-persistence.js";
 import { SqlGitHubAllowlist } from "./lib/auth/github-allowlist.js";
-import { seedFromJsonFile, seedFromJsonValue } from "./lib/db/json-seeder.js";
+import { seedFromJsonFile, seedFromJsonValue, seedFactoryAuthFromFiles, seedModelsFromFile, loadModelsFromDb, getConfig, setConfig } from "./lib/db/json-seeder.js";
 import { registerOAuthRoutes } from "./lib/oauth-routes.js";
 import { RuntimeCredentialStore } from "./lib/runtime-credential-store.js";
 import { TokenRefreshManager } from "./lib/token-refresh-manager.js";
@@ -348,6 +350,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
   let sqlAuthPersistence: SqlAuthPersistence | undefined;
   let sqlGitHubAllowlist: SqlGitHubAllowlist | undefined;
   let accountHealthStore: AccountHealthStore | undefined;
+  let eventStore: EventStore | undefined;
 
   if (config.databaseUrl) {
     try {
@@ -361,6 +364,13 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       accountHealthStore = new AccountHealthStore(sql);
       await accountHealthStore.init();
       app.log.info("account health store initialized");
+
+      eventStore = new EventStore(sql);
+      await eventStore.init();
+      for (const labeler of createDefaultLabelers()) {
+        eventStore.registerLabeler(labeler);
+      }
+      app.log.info("event store initialized");
 
       sqlAuthPersistence = new SqlAuthPersistence(sql);
       await sqlAuthPersistence.init();
@@ -393,6 +403,29 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
         }
       }
 
+      // Seed Factory OAuth credentials from encrypted auth.v2 files into the DB.
+      // Only imports on first boot when no factory accounts exist in the DB yet.
+      try {
+        const factorySeed = await seedFactoryAuthFromFiles(sql);
+        if (factorySeed.seeded) {
+          app.log.info("seeded Factory OAuth credentials from auth.v2 files into database");
+        }
+      } catch (error) {
+        app.log.warn({ error: toErrorMessage(error) }, "failed to seed Factory OAuth credentials from auth.v2 files");
+      }
+
+      // Seed models from models.json into the DB (first boot only).
+      if (config.modelsFilePath) {
+        try {
+          const modelSeed = await seedModelsFromFile(sql, config.modelsFilePath, DEFAULT_MODELS);
+          if (modelSeed.seeded) {
+            app.log.info({ count: modelSeed.count }, "seeded models from file into database");
+          }
+        } catch (error) {
+          app.log.warn({ error: toErrorMessage(error) }, "failed to seed models from file");
+        }
+      }
+
       app.log.info("database connection established");
     } catch (error) {
       app.log.error({ error: toErrorMessage(error) }, "failed to initialize database connection");
@@ -417,7 +450,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
   await requestLogStore.warmup();
   const promptAffinityStore = new PromptAffinityStore(config.promptAffinityFilePath);
   await promptAffinityStore.warmup();
-  const proxySettingsStore = new ProxySettingsStore(config.settingsFilePath);
+  const proxySettingsStore = new ProxySettingsStore(config.settingsFilePath, sql);
   await proxySettingsStore.warmup();
 
   let policyEngine: PolicyEngine;
@@ -473,6 +506,9 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
         newCredential.refreshToken,
         newCredential.expiresAt,
         newCredential.chatgptAccountId,
+        newTokens.email,
+        newTokens.subject,
+        newTokens.planType,
       );
 
       app.log.info({
@@ -485,10 +521,10 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     },
     app.log,
     {
-      maxConcurrency: 5,
-      backgroundIntervalMs: 60_000,
+      maxConcurrency: config.oauthRefreshMaxConcurrency,
+      backgroundIntervalMs: config.oauthRefreshBackgroundIntervalMs,
       expiryBufferMs: 60_000,
-      proactiveRefreshWindowMs: 5 * 60_000,
+      proactiveRefreshWindowMs: config.oauthRefreshProactiveWindowMs,
       maxConsecutiveFailures: 3,
     },
   );
@@ -529,8 +565,13 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
         newCredential.expiresAt,
       );
 
-      // Also persist to the encrypted auth.v2 file so credentials survive restarts
-      await persistFactoryAuthV2(refreshed.accessToken, refreshed.refreshToken);
+      // Best-effort: persist to the encrypted auth.v2 file for non-DB deployments.
+      // This is no longer critical since the DB is the source of truth.
+      try {
+        await persistFactoryAuthV2(refreshed.accessToken, refreshed.refreshToken);
+      } catch {
+        // Expected to fail on read-only container filesystems; DB has the data.
+      }
 
       app.log.info({
         accountId: newCredential.accountId,
@@ -567,8 +608,44 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     }
   }
 
+  async function refreshOpenAiOauthAccounts(accountId?: string): Promise<{
+    readonly totalAccounts: number;
+    readonly refreshedCount: number;
+    readonly failedCount: number;
+  }> {
+    const allOpenAiAccounts = await keyPool.getAllAccounts(config.openaiProviderId).catch(() => [] as ProviderCredential[]);
+    const normalizedAccountId = typeof accountId === "string" && accountId.trim().length > 0
+      ? accountId.trim()
+      : undefined;
+
+    const candidates = allOpenAiAccounts.filter((account) => {
+      if (account.authType !== "oauth_bearer") {
+        return false;
+      }
+
+      if (typeof account.refreshToken !== "string" || account.refreshToken.trim().length === 0) {
+        return false;
+      }
+
+      return normalizedAccountId === undefined || account.accountId === normalizedAccountId;
+    });
+
+    for (const account of candidates) {
+      tokenRefreshManager.clearFailures(account);
+    }
+
+    const results = await tokenRefreshManager.refreshBatch(candidates);
+    const refreshedCount = results.filter((result): result is ProviderCredential => result !== null).length;
+
+    return {
+      totalAccounts: candidates.length,
+      refreshedCount,
+      failedCount: candidates.length - refreshedCount,
+    };
+  }
+
   tokenRefreshManager.startBackgroundRefresh(() => {
-    const expiring = keyPool.getExpiringAccounts(5 * 60_000);
+    const expiring = keyPool.getExpiringAccounts(config.oauthRefreshProactiveWindowMs);
     const expired = keyPool.getAllExpiredWithRefreshTokens();
     return [...expired, ...expiring];
   });
@@ -639,7 +716,9 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       return cachedModelCatalog.value;
     }
 
-    const configuredModels = await loadModels(config.modelsFilePath, DEFAULT_MODELS);
+    // Load models from DB first; fall back to file-based loading
+    const dbModels = sql ? await loadModelsFromDb(sql).catch(() => null) : null;
+    const configuredModels = dbModels ?? await loadModels(config.modelsFilePath, DEFAULT_MODELS);
     const dynamicOllamaModels: string[] = [];
 
     for (const route of ollamaCatalogRoutes) {
@@ -1104,6 +1183,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       refreshExpiredOAuthAccount,
       policyEngine,
       accountHealthStore,
+      eventStore,
     );
 
     if (execution.handled) {
@@ -1279,6 +1359,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       refreshExpiredOAuthAccount,
       policyEngine,
       accountHealthStore,
+      eventStore,
     );
 
     if (execution.handled) {
@@ -1421,6 +1502,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       refreshExpiredOAuthAccount,
       policyEngine,
       accountHealthStore,
+      eventStore,
     );
 
     if (execution.handled) {
@@ -1658,7 +1740,9 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     keyPool,
     requestLogStore,
     credentialStore: runtimeCredentialStore,
-    proxySettingsStore
+    proxySettingsStore,
+    eventStore,
+    refreshOpenAiOauthAccounts,
   });
 
   if (sql && sqlAuthPersistence && sqlGitHubAllowlist && sqlCredentialStore) {
@@ -1683,6 +1767,9 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
 
     if (accountHealthStore) {
       await accountHealthStore.close();
+    }
+    if (eventStore) {
+      await eventStore.close();
     }
 
     await requestLogStore.close();

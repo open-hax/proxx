@@ -143,6 +143,9 @@ async function withProxyApp(
     openaiOauthClientId: "app_EMoamEEZ73f0CkXaXp7hrann",
     openaiOauthIssuer: "https://auth.openai.com",
     ...options.configOverrides,
+    oauthRefreshMaxConcurrency: options.configOverrides?.oauthRefreshMaxConcurrency ?? 32,
+    oauthRefreshBackgroundIntervalMs: options.configOverrides?.oauthRefreshBackgroundIntervalMs ?? 15_000,
+    oauthRefreshProactiveWindowMs: options.configOverrides?.oauthRefreshProactiveWindowMs ?? 30 * 60_000,
   };
 
   const app = await createApp(config);
@@ -419,7 +422,7 @@ test("routes /v1/responses through requesty when REQUESTY_API_KEY is configured"
 
             assert.equal(request.url, "/v1/responses");
             const parsed = JSON.parse(body) as Record<string, unknown>;
-            assert.equal(parsed.model, "gpt-image-1");
+            assert.equal(parsed.model, "openai/gpt-image-1");
 
             return {
               status: 200,
@@ -483,7 +486,7 @@ test("routes /v1/images/generations through requesty", { concurrency: false }, a
 
             assert.equal(request.url, "/v1/images/generations");
             const parsed = JSON.parse(body) as Record<string, unknown>;
-            assert.equal(parsed.model, "gpt-image-1");
+            assert.equal(parsed.model, "openai/gpt-image-1");
 
             return {
               status: 200,
@@ -2269,7 +2272,7 @@ test("falls back from ollama-cloud to vivgrid for shared models when primary pro
   );
 });
 
-test("falls back from ollama-cloud to vivgrid when gpt model is missing on ollama", async () => {
+test("skips ollama-cloud entirely when routing gpt models", async () => {
   const observedAuth: string[] = [];
 
   await withProxyApp(
@@ -2287,7 +2290,7 @@ test("falls back from ollama-cloud to vivgrid when gpt model is missing on ollam
       },
       upstreamHandler: async (request, body) => {
         const auth = request.headers.authorization;
-        if (typeof auth === "string") {
+        if (typeof auth === "string" && request.method === "POST") {
           observedAuth.push(auth.replace(/^Bearer\s+/i, ""));
         }
 
@@ -2352,8 +2355,7 @@ test("falls back from ollama-cloud to vivgrid when gpt model is missing on ollam
 
       assert.equal(response.statusCode, 200);
       assert.equal(response.headers["x-open-hax-upstream-provider"], "vivgrid");
-      assert.ok(observedAuth.length >= 2);
-      assert.deepEqual(observedAuth.slice(-2), ["ollama-cloud-missing-model-key", "vivgrid-gpt-key"]);
+      assert.deepEqual(observedAuth, ["vivgrid-gpt-key"]);
 
       const payload: unknown = response.json();
       assert.ok(isRecord(payload));
@@ -2361,6 +2363,113 @@ test("falls back from ollama-cloud to vivgrid when gpt model is missing on ollam
       assert.ok(isRecord(payload.choices[0]));
       assert.ok(isRecord(payload.choices[0].message));
       assert.equal(payload.choices[0].message.content, "gpt-fallback-ok");
+    }
+  );
+});
+
+test("skips ollama-cloud entirely when routing gpt-5.2 models", async () => {
+  const observedAuth: string[] = [];
+
+  await withProxyApp(
+    {
+      keys: [],
+      keysPayload: {
+        providers: {
+          "ollama-cloud": ["ollama-cloud-should-not-run"],
+          vivgrid: ["vivgrid-gpt52-key"]
+        }
+      },
+      configOverrides: {
+        upstreamProviderId: "ollama-cloud",
+        upstreamFallbackProviderIds: ["vivgrid"]
+      },
+      upstreamHandler: async (request, body) => {
+        if (request.method !== "POST") {
+          return {
+            status: 404,
+            headers: {
+              "content-type": "application/json"
+            },
+            body: JSON.stringify({ error: { message: "not found" } })
+          };
+        }
+
+        const auth = request.headers.authorization;
+        if (typeof auth === "string" && request.method === "POST") {
+          observedAuth.push(auth.replace(/^Bearer\s+/i, ""));
+        }
+
+        if (auth === "Bearer ollama-cloud-should-not-run") {
+          return {
+            status: 404,
+            headers: {
+              "content-type": "application/json"
+            },
+            body: JSON.stringify({
+              error: {
+                message: "model \"gpt-5.2\" not found"
+              }
+            })
+          };
+        }
+
+        const parsedBody = JSON.parse(body);
+        assert.ok(isRecord(parsedBody));
+        assert.equal(parsedBody.model, "gpt-5.2");
+
+        return {
+          status: 200,
+          headers: {
+            "content-type": "application/json"
+          },
+          body: JSON.stringify({
+            id: "resp-gpt52-fallback-ok",
+            object: "response",
+            created_at: 1772516816,
+            model: "gpt-5.2",
+            output: [
+              {
+                id: "msg-gpt52-fallback-ok",
+                type: "message",
+                role: "assistant",
+                content: [
+                  {
+                    type: "output_text",
+                    text: "gpt-5.2-fallback-ok"
+                  }
+                ]
+              }
+            ]
+          })
+        };
+      },
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json"
+        },
+        payload: {
+          model: "gpt-5.2",
+          messages: [{ role: "user", content: "hello" }],
+          stream: false
+        }
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 25));
+
+      assert.equal(response.statusCode, 200);
+      assert.equal(response.headers["x-open-hax-upstream-provider"], "vivgrid");
+      assert.deepEqual(observedAuth, ["vivgrid-gpt52-key"]);
+
+      const payload: unknown = response.json();
+      assert.ok(isRecord(payload));
+      assert.ok(Array.isArray(payload.choices));
+      assert.ok(isRecord(payload.choices[0]));
+      assert.ok(isRecord(payload.choices[0].message));
+      assert.equal(payload.choices[0].message.content, "gpt-5.2-fallback-ok");
     }
   );
 });

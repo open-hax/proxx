@@ -57,6 +57,9 @@ export interface RequestLogEntry {
   readonly upstreamErrorType?: string;
   readonly upstreamErrorMessage?: string;
   readonly factoryDiagnostics?: Factory4xxDiagnostics;
+  readonly costUsd?: number;
+  readonly energyJoules?: number;
+  readonly waterEvaporatedMl?: number;
 }
 
 export interface RequestLogFilters {
@@ -92,6 +95,9 @@ export interface RequestLogRecordInput {
   readonly upstreamErrorType?: string;
   readonly upstreamErrorMessage?: string;
   readonly factoryDiagnostics?: Factory4xxDiagnostics;
+  readonly costUsd?: number;
+  readonly energyJoules?: number;
+  readonly waterEvaporatedMl?: number;
   readonly timestamp?: number;
 }
 
@@ -110,6 +116,9 @@ export interface RequestLogHourlyBucket {
   readonly fastModeRequestCount: number;
   readonly priorityRequestCount: number;
   readonly standardRequestCount: number;
+  readonly costUsd: number;
+  readonly energyJoules: number;
+  readonly waterEvaporatedMl: number;
 }
 
 export interface AccountUsageAccumulator {
@@ -130,6 +139,9 @@ export interface AccountUsageAccumulator {
   readonly tpsSum: number;
   readonly tpsCount: number;
   readonly lastUsedAtMs: number;
+  readonly costUsd: number;
+  readonly energyJoules: number;
+  readonly waterEvaporatedMl: number;
 }
 
 export interface RequestLogPerfSummary {
@@ -164,6 +176,9 @@ type HourlyBucket = {
   fastModeRequestCount: number;
   priorityRequestCount: number;
   standardRequestCount: number;
+  costUsd: number;
+  energyJoules: number;
+  waterEvaporatedMl: number;
 };
 
 type PerfIndexEntry = {
@@ -362,6 +377,9 @@ function hydrateEntry(raw: unknown): RequestLogEntry | null {
     upstreamErrorType: sanitizeOptionalShortString(raw.upstreamErrorType, 80),
     upstreamErrorMessage: sanitizeOptionalShortString(raw.upstreamErrorMessage),
     factoryDiagnostics: hydrateFactoryDiagnostics(raw.factoryDiagnostics),
+    costUsd: sanitizeOptionalCost(asNumber(raw.costUsd)),
+    energyJoules: sanitizeOptionalCost(asNumber(raw.energyJoules)),
+    waterEvaporatedMl: sanitizeOptionalCost(asNumber(raw.waterEvaporatedMl)),
   };
 }
 
@@ -390,6 +408,9 @@ function hydrateHourlyBucket(raw: unknown): RequestLogHourlyBucket | null {
     fastModeRequestCount: asNumber(raw.fastModeRequestCount) ?? 0,
     priorityRequestCount: asNumber(raw.priorityRequestCount) ?? 0,
     standardRequestCount: asNumber(raw.standardRequestCount) ?? 0,
+    costUsd: asNumber(raw.costUsd) ?? 0,
+    energyJoules: asNumber(raw.energyJoules) ?? 0,
+    waterEvaporatedMl: asNumber(raw.waterEvaporatedMl) ?? 0,
   };
 }
 
@@ -467,6 +488,9 @@ type MutableAccountAccumulator = {
   tpsSum: number;
   tpsCount: number;
   lastUsedAtMs: number;
+  costUsd: number;
+  energyJoules: number;
+  waterEvaporatedMl: number;
 };
 
 function accountAccumulatorKey(providerId: string, accountId: string): string {
@@ -530,6 +554,9 @@ export class RequestLogStore {
     upstreamErrorType: sanitizeOptionalShortString(input.upstreamErrorType, 80),
     upstreamErrorMessage: sanitizeOptionalShortString(input.upstreamErrorMessage),
     factoryDiagnostics: hydrateFactoryDiagnostics(input.factoryDiagnostics),
+    costUsd: sanitizeOptionalCost(input.costUsd),
+    energyJoules: sanitizeOptionalCost(input.energyJoules),
+    waterEvaporatedMl: sanitizeOptionalCost(input.waterEvaporatedMl),
   };
 
     this.entries.push(entry);
@@ -564,6 +591,9 @@ export class RequestLogStore {
       readonly upstreamErrorType?: string;
       readonly upstreamErrorMessage?: string;
       readonly factoryDiagnostics?: Factory4xxDiagnostics;
+      readonly costUsd?: number;
+      readonly energyJoules?: number;
+      readonly waterEvaporatedMl?: number;
     },
   ): RequestLogEntry | undefined {
     if (this.closed) {
@@ -597,6 +627,9 @@ export class RequestLogStore {
       upstreamErrorType: sanitizeOptionalShortString(patch.upstreamErrorType, 80) ?? current.upstreamErrorType,
       upstreamErrorMessage: sanitizeOptionalShortString(patch.upstreamErrorMessage) ?? current.upstreamErrorMessage,
       factoryDiagnostics: hydrateFactoryDiagnostics(patch.factoryDiagnostics) ?? current.factoryDiagnostics,
+      costUsd: sanitizeOptionalCost(patch.costUsd) ?? current.costUsd,
+      energyJoules: sanitizeOptionalCost(patch.energyJoules) ?? current.energyJoules,
+      waterEvaporatedMl: sanitizeOptionalCost(patch.waterEvaporatedMl) ?? current.waterEvaporatedMl,
     };
 
     this.entries.splice(entryIndex, 1, next);
@@ -632,6 +665,9 @@ export class RequestLogStore {
         fastModeRequestCount: bucket.fastModeRequestCount,
         priorityRequestCount: bucket.priorityRequestCount,
         standardRequestCount: bucket.standardRequestCount,
+        costUsd: bucket.costUsd,
+        energyJoules: bucket.energyJoules,
+        waterEvaporatedMl: bucket.waterEvaporatedMl,
       }));
   }
 
@@ -720,6 +756,9 @@ export class RequestLogStore {
       fastModeRequestCount: 0,
       priorityRequestCount: 0,
       standardRequestCount: 0,
+      costUsd: 0,
+      energyJoules: 0,
+      waterEvaporatedMl: 0,
     };
 
     this.hourlyBuckets.set(startMs, created);
@@ -745,6 +784,7 @@ export class RequestLogStore {
       requestCount: 0, totalTokens: 0, promptTokens: 0, completionTokens: 0,
       cachedPromptTokens: 0, imageCount: 0, imageCostUsd: 0, cacheHitCount: 0, cacheKeyUseCount: 0,
       ttftSum: 0, ttftCount: 0, tpsSum: 0, tpsCount: 0, lastUsedAtMs: 0,
+      costUsd: 0, energyJoules: 0, waterEvaporatedMl: 0,
     };
     acc.requestCount += 1;
     acc.totalTokens += sanitizeOptionalCount(entry.totalTokens) ?? 0;
@@ -753,6 +793,9 @@ export class RequestLogStore {
     acc.cachedPromptTokens += sanitizeOptionalCount(entry.cachedPromptTokens) ?? 0;
     acc.imageCount += sanitizeOptionalCount(entry.imageCount) ?? 0;
     acc.imageCostUsd += sanitizeOptionalCost(entry.imageCostUsd) ?? 0;
+    acc.costUsd += sanitizeOptionalCost(entry.costUsd) ?? 0;
+    acc.energyJoules += sanitizeOptionalCost(entry.energyJoules) ?? 0;
+    acc.waterEvaporatedMl += sanitizeOptionalCost(entry.waterEvaporatedMl) ?? 0;
     if (entry.cacheHit) acc.cacheHitCount += 1;
     if (entry.promptCacheKeyUsed) acc.cacheKeyUseCount += 1;
     if (typeof entry.ttftMs === "number" && Number.isFinite(entry.ttftMs)) { acc.ttftSum += entry.ttftMs; acc.ttftCount += 1; }
@@ -771,6 +814,9 @@ export class RequestLogStore {
     acc.cachedPromptTokens += (sanitizeOptionalCount(next.cachedPromptTokens) ?? 0) - (sanitizeOptionalCount(prev.cachedPromptTokens) ?? 0);
     acc.imageCount += (sanitizeOptionalCount(next.imageCount) ?? 0) - (sanitizeOptionalCount(prev.imageCount) ?? 0);
     acc.imageCostUsd += (sanitizeOptionalCost(next.imageCostUsd) ?? 0) - (sanitizeOptionalCost(prev.imageCostUsd) ?? 0);
+    acc.costUsd += (sanitizeOptionalCost(next.costUsd) ?? 0) - (sanitizeOptionalCost(prev.costUsd) ?? 0);
+    acc.energyJoules += (sanitizeOptionalCost(next.energyJoules) ?? 0) - (sanitizeOptionalCost(prev.energyJoules) ?? 0);
+    acc.waterEvaporatedMl += (sanitizeOptionalCost(next.waterEvaporatedMl) ?? 0) - (sanitizeOptionalCost(prev.waterEvaporatedMl) ?? 0);
     if (next.cacheHit && !prev.cacheHit) acc.cacheHitCount += 1;
     if (next.promptCacheKeyUsed && !prev.promptCacheKeyUsed) acc.cacheKeyUseCount += 1;
     if (typeof next.ttftMs === "number" && Number.isFinite(next.ttftMs) && (prev.ttftMs === undefined || prev.ttftMs === null)) {
@@ -810,6 +856,9 @@ export class RequestLogStore {
     bucket.cachedPromptTokens += sumCount(entry.cachedPromptTokens);
     bucket.imageCount += sumCount(entry.imageCount);
     bucket.imageCostUsd += sumCount(entry.imageCostUsd);
+    bucket.costUsd += sumCount(entry.costUsd);
+    bucket.energyJoules += sumCount(entry.energyJoules);
+    bucket.waterEvaporatedMl += sumCount(entry.waterEvaporatedMl);
 
     if (entry.promptCacheKeyUsed) {
       bucket.cacheKeyUseCount += 1;
@@ -832,6 +881,9 @@ export class RequestLogStore {
     bucket.cachedPromptTokens += sumCount(entry.cachedPromptTokens) - sumCount(previous.cachedPromptTokens);
     bucket.imageCount += sumCount(entry.imageCount) - sumCount(previous.imageCount);
     bucket.imageCostUsd += sumCount(entry.imageCostUsd) - sumCount(previous.imageCostUsd);
+    bucket.costUsd += sumCount(entry.costUsd) - sumCount(previous.costUsd);
+    bucket.energyJoules += sumCount(entry.energyJoules) - sumCount(previous.energyJoules);
+    bucket.waterEvaporatedMl += sumCount(entry.waterEvaporatedMl) - sumCount(previous.waterEvaporatedMl);
 
     // promptCacheKeyUsed / cacheHit are only ever expected to flip false->true.
     if (entry.promptCacheKeyUsed && !previous.promptCacheKeyUsed) {
@@ -987,6 +1039,9 @@ export class RequestLogStore {
         fastModeRequestCount: bucket.fastModeRequestCount,
         priorityRequestCount: bucket.priorityRequestCount,
         standardRequestCount: bucket.standardRequestCount,
+        costUsd: bucket.costUsd,
+        energyJoules: bucket.energyJoules,
+        waterEvaporatedMl: bucket.waterEvaporatedMl,
       });
     }
 
@@ -1015,6 +1070,9 @@ export class RequestLogStore {
             tpsSum: asNumber(acc.tpsSum) ?? 0,
             tpsCount: asNumber(acc.tpsCount) ?? 0,
             lastUsedAtMs: asNumber(acc.lastUsedAtMs) ?? 0,
+            costUsd: asNumber(acc.costUsd) ?? 0,
+            energyJoules: asNumber(acc.energyJoules) ?? 0,
+            waterEvaporatedMl: asNumber(acc.waterEvaporatedMl) ?? 0,
           });
         }
       }

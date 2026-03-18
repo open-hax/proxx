@@ -9,6 +9,8 @@ import {
   CREATE_ACCOUNT_HEALTH_TABLE,
   CREATE_ACCOUNT_HEALTH_INDEX,
   CREATE_COOLDOWN_TABLE,
+  CREATE_MODELS_TABLE,
+  CREATE_CONFIG_TABLE,
   CREATE_VERSION_TABLE,
   INSERT_VERSION,
   CHECK_VERSION_EXISTS,
@@ -96,6 +98,8 @@ export class SqlCredentialStore {
     await this.sql.unsafe(CREATE_COOLDOWN_TABLE);
     await this.sql.unsafe(CREATE_ACCOUNT_HEALTH_TABLE);
     await this.sql.unsafe(CREATE_ACCOUNT_HEALTH_INDEX);
+    await this.sql.unsafe(CREATE_MODELS_TABLE);
+    await this.sql.unsafe(CREATE_CONFIG_TABLE);
     await this.sql.unsafe(CREATE_VERSION_TABLE);
 
     const versionExists = await this.sql.unsafe<Array<{ "?column?": number }>>(

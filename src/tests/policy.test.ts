@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { createPolicyEngine, DEFAULT_POLICY_CONFIG, type ModelInfo } from "../lib/policy/index.js";
+import { orderProviderRoutesByPolicy } from "../lib/provider-policy.js";
 
 function createModelInfo(routedModel: string): ModelInfo {
   return {
@@ -22,8 +23,7 @@ test("de-prioritizes vivgrid and excludes ollama-cloud for gpt model provider or
     createModelInfo("gpt-5.4"),
   );
 
-  // ollama-cloud has no GPT models (except gpt-oss), so it sorts after all preferred providers
-  assert.deepEqual(ordered, ["openai", "vivgrid", "ollama-cloud"]);
+  assert.deepEqual(ordered, ["openai", "vivgrid"]);
 });
 
 test("gpt-5.4 provider ordering includes factory", () => {
@@ -46,4 +46,40 @@ test("preserves provider order for non-gpt models", () => {
   );
 
   assert.deepEqual(ordered, ["vivgrid", "ollama-cloud", "openai"]);
+});
+
+test("keeps ollama-cloud available for gpt-oss provider ordering", () => {
+  const policy = createPolicyEngine(DEFAULT_POLICY_CONFIG);
+
+  const ordered = policy.orderProviders(
+    ["vivgrid", "ollama-cloud", "openai"],
+    createModelInfo("gpt-oss-120b"),
+  );
+
+  assert.deepEqual(ordered, ["openai", "ollama-cloud", "vivgrid"]);
+});
+
+test("filters excluded provider routes for gpt models", () => {
+  const policy = createPolicyEngine(DEFAULT_POLICY_CONFIG);
+
+  const orderedRoutes = orderProviderRoutesByPolicy(
+    policy,
+    [
+      { providerId: "ollama-cloud", baseUrl: "https://ollama.invalid" },
+      { providerId: "vivgrid", baseUrl: "https://vivgrid.invalid" },
+      { providerId: "openai", baseUrl: "https://openai.invalid" },
+    ],
+    "gpt-5.2",
+    "gpt-5.2",
+    {
+      openAiPrefixed: false,
+      localOllama: false,
+      explicitOllama: false,
+    },
+  );
+
+  assert.deepEqual(
+    orderedRoutes.map((route) => route.providerId),
+    ["openai", "vivgrid"],
+  );
 });

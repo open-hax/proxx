@@ -95,6 +95,15 @@ export interface ProxyConfig {
 
   /** OAuth client secret used for OpenAI token exchange/refresh (optional). */
   readonly openaiOauthClientSecret?: string;
+
+  /** Max concurrent OAuth refreshes allowed during background/manual refresh work. */
+  readonly oauthRefreshMaxConcurrency: number;
+
+  /** Background interval for proactive OAuth refresh scans. */
+  readonly oauthRefreshBackgroundIntervalMs: number;
+
+  /** Window used when proactively refreshing soon-expiring OAuth accounts. */
+  readonly oauthRefreshProactiveWindowMs: number;
 }
 
 export const DEFAULT_MODELS: readonly string[] = [
@@ -428,6 +437,10 @@ export function loadConfig(cwd: string = process.cwd()): ProxyConfig {
     ? openaiOauthClientSecretRaw
     : undefined;
 
+  const oauthRefreshMaxConcurrency = numberFromEnvAliases(["OAUTH_REFRESH_MAX_CONCURRENCY"], 32);
+  const oauthRefreshBackgroundIntervalMs = numberFromEnvAliases(["OAUTH_REFRESH_BACKGROUND_INTERVAL_MS"], 15_000);
+  const oauthRefreshProactiveWindowMs = numberFromEnvAliases(["OAUTH_REFRESH_PROACTIVE_WINDOW_MS"], 30 * 60_000);
+
   return {
     host: process.env.PROXY_HOST ?? process.env.HOST ?? "127.0.0.1",
     port: numberFromEnvAliases(["PROXY_PORT", "PORT"], 8789),
@@ -488,5 +501,8 @@ export function loadConfig(cwd: string = process.cwd()): ProxyConfig {
     openaiOauthClientId,
     openaiOauthIssuer,
     openaiOauthClientSecret,
+    oauthRefreshMaxConcurrency,
+    oauthRefreshBackgroundIntervalMs,
+    oauthRefreshProactiveWindowMs,
   };
 }

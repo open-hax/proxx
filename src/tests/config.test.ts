@@ -40,3 +40,29 @@ test("loadConfig falls back to PORT when PROXY_PORT is unset", async () => {
     },
   );
 });
+
+test("loadConfig defaults OPENAI_RESPONSES_PATH to /codex/responses", async () => {
+  await withEnv(
+    {
+      PROXY_AUTH_TOKEN: "test-token",
+      OPENAI_RESPONSES_PATH: undefined,
+    },
+    () => {
+      const config = loadConfig("/tmp/open-hax-openai-proxy-config-test");
+      assert.equal(config.openaiResponsesPath, "/codex/responses");
+    },
+  );
+});
+
+test("loadConfig preserves OPENAI_RESPONSES_PATH override", async () => {
+  await withEnv(
+    {
+      PROXY_AUTH_TOKEN: "test-token",
+      OPENAI_RESPONSES_PATH: "/v1/responses",
+    },
+    () => {
+      const config = loadConfig("/tmp/open-hax-openai-proxy-config-test");
+      assert.equal(config.openaiResponsesPath, "/v1/responses");
+    },
+  );
+});
