@@ -69,9 +69,10 @@ pnpm docker:stack ps open-hax-openai-proxy
 pnpm docker:stack logs open-hax-openai-proxy -- -f
 ```
 
-From `services/open-hax-openai-proxy`, the local compose workflow is still available:
+From `services/proxx`, the local compose workflow is now the preferred container/devops path:
 
 ```bash
+cd /home/err/devel/services/proxx
 docker compose up --build -d
 docker compose ps
 docker compose logs -f

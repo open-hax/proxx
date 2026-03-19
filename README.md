@@ -100,12 +100,21 @@ pnpm web:preview
 
 ## Docker Compose
 
-From this repository root:
+Container/runtime workflows now live in the workspace devops home:
 
 ```bash
+cd /home/err/devel/services/proxx
 docker compose up --build -d
 docker compose ps
 docker compose logs -f
+```
+
+Or from the workspace root:
+
+```bash
+pnpm docker:stack status open-hax-openai-proxy
+pnpm docker:stack use-container open-hax-openai-proxy -- --build
+pnpm docker:stack logs open-hax-openai-proxy -- -f
 ```
 
 Notes:
@@ -120,6 +129,7 @@ Notes:
 - The compose stack now defaults `OLLAMA_BASE_URL` to `http://ollama:11434` when attached to the shared `ai-infra` network; `CHROMA_URL` still defaults to `host.docker.internal` unless you also containerize Chroma on a shared network.
 - The web companion is exposed on `${PROXY_WEB_PORT:-5174}`.
 - The checked-in host PM2 source now includes both the API and web companion in `ecosystem.container.config.cjs`.
+- Source code remains here in `orgs/open-hax/proxx`; service-local env/config/data now lives under `services/proxx`.
 - OTEL export can be enabled with standard `OTEL_EXPORTER_OTLP_*`, `OTEL_SERVICE_NAME`, and `OTEL_RESOURCE_ATTRIBUTES` environment variables.
 
 ## Environment Variables
