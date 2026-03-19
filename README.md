@@ -2,7 +2,7 @@
 
 OpenAI-compatible proxy server with provider-scoped account rotation.
 
-For workspace-specific development notes and the original internal guide, see `DEVEL.md`.
+DEVEL instructions live in `DEVEL.md`.
 
 ## Features
 
@@ -117,6 +117,7 @@ Notes:
 - The local compose stack now starts Postgres by default and sets `DATABASE_URL` so local runtime behavior matches Render more closely
 - `keys.json` is still required for startup.
 - `data/` stays bind-mounted for request logs and session history.
+- If you want to mount Factory CLI auth files, include `docker-compose.factory-auth.override.yml` explicitly.
 - The compose stack now defaults `OLLAMA_BASE_URL` to `http://ollama:11434` when attached to the shared `ai-infra` network; `CHROMA_URL` still defaults to `host.docker.internal` unless you also containerize Chroma on a shared network.
 - The web companion is exposed on `${PROXY_WEB_PORT:-5174}`.
 - The checked-in host PM2 source now includes both the API and web companion in `ecosystem.container.config.cjs`.

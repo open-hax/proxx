@@ -114,6 +114,7 @@ export const DEFAULT_MODELS: readonly string[] = [
   "gpt-5.1-codex",
   "gpt-5.1-codex-max",
   "claude-opus-4-5",
+  "claude-opus-4-6",
   "gpt-5.3-codex",
   "gemini-3-flash-preview",
   "gpt-5.2",

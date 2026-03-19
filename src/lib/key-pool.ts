@@ -472,7 +472,9 @@ async function readProvidersFromSources(
   preferAccountStoreProviders = false,
 ): Promise<Map<string, ProviderState>> {
   const envProviders = readProvidersFromEnv();
-  const inlineJsonProviders = readProvidersFromJsonEnv(defaultProviderId);
+  const inlineJsonProviders = accountStore
+    ? new Map<string, ProviderState>()
+    : readProvidersFromJsonEnv(defaultProviderId);
   let fileProviders: Map<string, ProviderState> | null = null;
   let accountStoreProviders: Map<string, ProviderState> | null = null;
   // Only load factory auth from files when no DB account store is available;
@@ -485,11 +487,13 @@ async function readProvidersFromSources(
     accountStoreProviders = await readProvidersFromAccountStore(accountStore);
   }
 
-  try {
-    fileProviders = await readProvidersFile(path, defaultProviderId);
-  } catch (error) {
-    if (envProviders.size === 0 && inlineJsonProviders.size === 0 && (accountStoreProviders?.size ?? 0) === 0 && factoryOAuthProviders.size === 0) {
-      throw error;
+  if (!accountStore) {
+    try {
+      fileProviders = await readProvidersFile(path, defaultProviderId);
+    } catch (error) {
+      if (envProviders.size === 0 && inlineJsonProviders.size === 0 && (accountStoreProviders?.size ?? 0) === 0 && factoryOAuthProviders.size === 0) {
+        throw error;
+      }
     }
   }
 

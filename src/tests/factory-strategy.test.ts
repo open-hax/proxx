@@ -489,6 +489,128 @@ test("factory/claude-* routes to /api/llm/a/v1/messages", { concurrency: false }
   );
 });
 
+test("factory/claude-* injects default max_tokens when absent", { concurrency: false }, async () => {
+  let capturedBody = "";
+
+  await withEnv(
+    {
+      FACTORY_API_KEY: "fk-test-key", // pragma: allowlist secret
+      FACTORY_AUTH_V2_FILE: "/tmp/nonexistent-auth-v2-file",
+      FACTORY_AUTH_V2_KEY: "/tmp/nonexistent-auth-v2-key",
+    },
+    async () => {
+      await withProxyApp(
+        {
+          keys: [],
+          keysPayload: { providers: {} },
+          upstreamHandler: async (_request, body) => {
+            capturedBody = body;
+            return {
+              status: 200,
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                id: "msg_factory_default_tokens",
+                type: "message",
+                role: "assistant",
+                content: [{ type: "text", text: "ok" }],
+                model: "claude-opus-4-6",
+                usage: { input_tokens: 10, output_tokens: 5 },
+              }),
+            };
+          },
+        },
+        async ({ app }) => {
+          const response = await app.inject({
+            method: "POST",
+            url: "/v1/chat/completions",
+            payload: {
+              model: "factory/claude-opus-4-6",
+              messages: [{ role: "user", content: "hello" }],
+            },
+          });
+
+          assert.equal(response.statusCode, 200);
+          const parsedBody = JSON.parse(capturedBody) as Record<string, unknown>;
+          assert.equal(parsedBody["max_tokens"], 4096);
+        },
+      );
+    },
+  );
+});
+
+test("claude-opus-4-6 automatically routes to Factory first", { concurrency: false }, async () => {
+  let capturedUrl = "";
+  let capturedHeaders: Record<string, string> = {};
+
+  await withEnv(
+    {
+      FACTORY_API_KEY: "fk-test-key", // pragma: allowlist secret
+      FACTORY_AUTH_V2_FILE: "/tmp/nonexistent-auth-v2-file",
+      FACTORY_AUTH_V2_KEY: "/tmp/nonexistent-auth-v2-key",
+    },
+    async () => {
+      await withProxyApp(
+        {
+          keys: [],
+          keysPayload: {
+            providers: {
+              openai: {
+                auth: "oauth_bearer",
+                accounts: [{ id: "openai-1", access_token: "openai-token" }],
+              },
+              requesty: {
+                auth: "api_key",
+                accounts: [{ id: "requesty-1", api_key: "requesty-token" }],
+              },
+            },
+          },
+          configOverrides: {
+            upstreamProviderId: "openai",
+            upstreamFallbackProviderIds: ["requesty"],
+          },
+          upstreamHandler: async (request, _body) => {
+            capturedUrl = request.url ?? "";
+            capturedHeaders = {};
+            for (const [name, value] of Object.entries(request.headers)) {
+              if (typeof value === "string") {
+                capturedHeaders[name] = value;
+              }
+            }
+
+            return {
+              status: 200,
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                id: "msg_factory_auto",
+                type: "message",
+                role: "assistant",
+                content: [{ type: "text", text: "Factory auto route OK" }],
+                model: "claude-opus-4-6",
+                usage: { input_tokens: 10, output_tokens: 5 },
+              }),
+            };
+          },
+        },
+        async ({ app }) => {
+          const response = await app.inject({
+            method: "POST",
+            url: "/v1/chat/completions",
+            payload: {
+              model: "claude-opus-4-6",
+              messages: [{ role: "user", content: "hello" }],
+            },
+          });
+
+          assert.equal(response.statusCode, 200);
+          assert.equal(capturedUrl, "/api/llm/a/v1/messages");
+          assert.equal(capturedHeaders["x-api-provider"], "anthropic");
+          assert.equal(response.headers["x-open-hax-upstream-provider"], "factory");
+        },
+      );
+    },
+  );
+});
+
 // VAL-ROUTE-002: GPT models route to Factory OpenAI Responses endpoint
 
 test("factory/gpt-* routes to /api/llm/o/v1/responses", { concurrency: false }, async () => {

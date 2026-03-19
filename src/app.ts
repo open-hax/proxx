@@ -566,12 +566,12 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
         newCredential.expiresAt,
       );
 
-      // Best-effort: persist to the encrypted auth.v2 file for non-DB deployments.
-      // This is no longer critical since the DB is the source of truth.
-      try {
-        await persistFactoryAuthV2(refreshed.accessToken, refreshed.refreshToken);
-      } catch {
-        // Expected to fail on read-only container filesystems; DB has the data.
+      if (!sqlCredentialStore) {
+        try {
+          await persistFactoryAuthV2(refreshed.accessToken, refreshed.refreshToken);
+        } catch {
+          // Expected to fail on read-only container filesystems; DB has the data.
+        }
       }
 
       app.log.info({
@@ -717,9 +717,9 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       return cachedModelCatalog.value;
     }
 
-    // Load models from DB first; fall back to file-based loading
-    const dbModels = sql ? await loadModelsFromDb(sql).catch(() => null) : null;
-    const configuredModels = dbModels ?? await loadModels(config.modelsFilePath, DEFAULT_MODELS);
+    const configuredModels = sql
+      ? await loadModelsFromDb(sql).catch(() => null) ?? [...DEFAULT_MODELS]
+      : await loadModels(config.modelsFilePath, DEFAULT_MODELS);
     const dynamicOllamaModels: string[] = [];
 
     for (const route of ollamaCatalogRoutes) {

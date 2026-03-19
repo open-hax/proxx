@@ -24,7 +24,6 @@ export class ProxySettingsStore {
   ) {}
 
   public async warmup(): Promise<void> {
-    // Try DB first
     if (this.sql) {
       try {
         const rows = await this.sql<Array<{ value: ProxySettings }>>`
@@ -32,31 +31,40 @@ export class ProxySettingsStore {
         `;
         if (rows.length > 0 && isRecord(rows[0]!.value)) {
           const val = rows[0]!.value;
-          this.settings = { fastMode: typeof val.fastMode === "boolean" ? val.fastMode : false };
-          return;
-        }
+            this.settings = { fastMode: typeof val.fastMode === "boolean" ? val.fastMode : false };
+            return;
+          }
       } catch {
-        // DB not ready or table missing; fall through to file
-      }
-    }
-
-    // Fall back to file
-    try {
-      const raw = await readFile(this.filePath, "utf8");
-      const parsed: unknown = JSON.parse(raw);
-      if (isRecord(parsed) && typeof parsed.fastMode === "boolean") {
-        this.settings = { fastMode: parsed.fastMode };
+        return;
       }
 
-      // Seed DB from file if available
-      if (this.sql) {
+      try {
+        const raw = await readFile(this.filePath, "utf8");
+        const parsed: unknown = JSON.parse(raw);
+        if (isRecord(parsed) && typeof parsed.fastMode === "boolean") {
+          this.settings = { fastMode: parsed.fastMode };
+        }
+
         try {
           await this.sql`
             INSERT INTO config (key, value, updated_at)
             VALUES (${CONFIG_KEY}, ${JSON.stringify(this.settings)}::jsonb, NOW())
             ON CONFLICT (key) DO NOTHING
           `;
-        } catch { /* ignore seed failure */ }
+        } catch {
+          // ignore seed failure
+        }
+      } catch {
+        // Start from defaults when the file is missing or invalid.
+      }
+      return;
+    }
+
+    try {
+      const raw = await readFile(this.filePath, "utf8");
+      const parsed: unknown = JSON.parse(raw);
+      if (isRecord(parsed) && typeof parsed.fastMode === "boolean") {
+        this.settings = { fastMode: parsed.fastMode };
       }
     } catch {
       // Start from defaults when the file is missing or invalid.
@@ -73,7 +81,6 @@ export class ProxySettingsStore {
       ...next,
     };
 
-    // Persist to DB if available
     if (this.sql) {
       try {
         await this.sql`
@@ -85,11 +92,10 @@ export class ProxySettingsStore {
         `;
         return this.get();
       } catch {
-        // Fall through to file
+        return this.get();
       }
     }
 
-    // Fall back to file
     try {
       await mkdir(dirname(this.filePath), { recursive: true });
       await writeFile(this.filePath, JSON.stringify(this.settings, null, 2), "utf8");
