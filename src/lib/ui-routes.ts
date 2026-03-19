@@ -546,7 +546,11 @@ export async function registerUiRoutes(app: FastifyInstance, deps: UiRouteDepend
     embeddingModel: process.env.CHROMA_EMBED_MODEL ?? "nomic-embed-text:latest",
   });
   const credentialStore = deps.credentialStore;
-  const oauthManager = new OpenAiOAuthManager();
+  const oauthManager = new OpenAiOAuthManager({
+    oauthScopes: deps.config.openaiOauthScopes,
+    clientId: deps.config.openaiOauthClientId,
+    issuer: deps.config.openaiOauthIssuer,
+  });
   const factoryOAuthManager = new FactoryOAuthManager();
   const ecosystemsDir = await firstExistingPath([
     resolve(process.cwd(), "../../ecosystems"),

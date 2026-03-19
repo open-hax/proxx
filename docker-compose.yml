@@ -27,6 +27,24 @@ services:
       UPSTREAM_PROVIDER_BASE_URLS: "${UPSTREAM_PROVIDER_BASE_URLS:-ollama-cloud=https://ollama.com,openai=https://chatgpt.com/backend-api,vivgrid=https://api.vivgrid.com}"
       OPENAI_PROVIDER_ID: "${OPENAI_PROVIDER_ID:-openai}"
       OPENAI_BASE_URL: "${OPENAI_BASE_URL:-https://chatgpt.com/backend-api}"
+      # Use the official OpenAI Platform API base URL for image generation (recommended).
+      OPENAI_API_BASE_URL: "${OPENAI_API_BASE_URL:-https://api.openai.com}"
+
+      # Where to send OpenAI image generation requests:
+      # - platform: api.openai.com (Images API; requires Platform scopes for OAuth)
+      # - chatgpt: chatgpt.com/backend-api (ChatGPT/Codex subscription surface)
+      # - auto: try platform, then fall back to chatgpt paths
+      OPENAI_IMAGES_UPSTREAM_MODE: "${OPENAI_IMAGES_UPSTREAM_MODE:-auto}"
+
+      # OpenAI OAuth configuration (browser/device flows)
+      OPENAI_OAUTH_CLIENT_ID: "${OPENAI_OAUTH_CLIENT_ID:-app_EMoamEEZ73f0CkXaXp7hrann}"
+      # Optional: only needed for confidential clients.
+      OPENAI_OAUTH_CLIENT_SECRET: "${OPENAI_OAUTH_CLIENT_SECRET:-}"
+      OPENAI_OAUTH_ISSUER: "${OPENAI_OAUTH_ISSUER:-https://auth.openai.com}"
+      OPENAI_OAUTH_SCOPES: "${OPENAI_OAUTH_SCOPES:-openid profile email offline_access}"
+
+      # If still using ChatGPT backend APIs, these are alternate paths sometimes used for image generations.
+      OPENAI_IMAGES_GENERATIONS_PATHS: "${OPENAI_IMAGES_GENERATIONS_PATHS:-}"
       OLLAMA_BASE_URL: "${OLLAMA_BASE_URL:-http://ollama:11434}"
       UPSTREAM_CHAT_COMPLETIONS_PATH: "${UPSTREAM_CHAT_COMPLETIONS_PATH:-/v1/chat/completions}"
       OPENAI_CHAT_COMPLETIONS_PATH: "${OPENAI_CHAT_COMPLETIONS_PATH:-/codex/responses/compact}"

@@ -33,7 +33,7 @@ cd proxx
 pnpm install
 cp .env.example .env
 cp keys.example.json keys.json
-cp models.example.json models.json
+cp models.example.json models.json # optional preferences; discovery is canonical
 ```
 
 Required setup:
@@ -212,6 +212,29 @@ Backward compatibility is preserved for legacy single-provider formats:
 - `["legacy-key-1", "legacy-key-2"]`
 
 Those legacy formats map to `UPSTREAM_PROVIDER_ID`.
+
+## `models.json` Preferences
+
+`models.json` is now **preference metadata**, not the source of truth. The proxy discovers models dynamically via provider `/v1/models` (and provider-specific catalog endpoints) and uses `models.json` to:
+
+- **prioritize** models in listings and routing
+- **disable** models (exclude from listing + routing)
+- **alias** model names (rewrite to a discovered model ID)
+
+Example:
+
+```json
+{
+  "preferred": ["gpt-5.3-codex", "gemini-3.1-pro-preview"],
+  "disabled": ["gemini-1.0-pro"],
+  "aliases": { "qwen3.5": "qwen3.5:397b" }
+}
+```
+
+Notes:
+- Preferred models only **reorder** discovered models (they do **not** add undiscovered models).
+- Disabled models are excluded even if a provider advertises them.
+- Aliases only apply when the **target** model exists in the discovered catalog.
 
 ## OpenAI OAuth Routing Through Chat-Completions
 

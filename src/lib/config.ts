@@ -10,6 +10,23 @@ export interface ProxyConfig {
   readonly upstreamBaseUrl: string;
   readonly openaiProviderId: string;
   readonly openaiBaseUrl: string;
+  /** OpenAI Platform API base URL (e.g. https://api.openai.com). */
+  readonly openaiApiBaseUrl: string;
+
+  /**
+   * Determines where OpenAI image generation requests are sent when routing to the OpenAI provider.
+   *
+   * - `platform`: Use the OpenAI Platform Images API (`OPENAI_API_BASE_URL`, default https://api.openai.com).
+   *   - Works with API keys.
+   *   - For OAuth bearer tokens, requires Platform API scopes (e.g. model/images scopes).
+   *
+   * - `chatgpt`: Use the ChatGPT/Codex backend API (`OPENAI_BASE_URL`, default https://chatgpt.com/backend-api).
+   *   - Intended for ChatGPT-subscription-backed OAuth tokens.
+   *   - Endpoint paths are not guaranteed stable; configure `OPENAI_IMAGES_GENERATIONS_PATHS` as needed.
+   *
+   * - `auto`: Try `platform` first, then fall back to `chatgpt`.
+   */
+  readonly openaiImagesUpstreamMode: "platform" | "chatgpt" | "auto";
   readonly ollamaBaseUrl: string;
   readonly localOllamaEnabled: boolean;
   readonly localOllamaModelPatterns: readonly string[];
@@ -20,6 +37,14 @@ export interface ProxyConfig {
   readonly messagesInterleavedThinkingBeta?: string;
   readonly responsesPath: string;
   readonly openaiResponsesPath: string;
+  /**
+   * Upstream paths to try for OpenAI OAuth-backed image generation.
+   *
+   * The proxy's OpenAI OAuth accounts commonly target ChatGPT's backend API
+   * (`OPENAI_BASE_URL=https://chatgpt.com/backend-api`), which does not
+   * necessarily expose the same Images endpoint paths as api.openai.com.
+   */
+  readonly openaiImagesGenerationsPaths: readonly string[];
   readonly imagesGenerationsPath: string;
   readonly responsesModelPrefixes: readonly string[];
   readonly ollamaChatPath: string;
@@ -47,6 +72,15 @@ export interface ProxyConfig {
   readonly githubOAuthCallbackPath: string;
   readonly githubAllowedUsers: readonly string[];
   readonly sessionSecret: string;
+
+  /** OAuth scopes requested during OpenAI browser authorization. */
+  readonly openaiOauthScopes: string;
+
+  /** OAuth client id used for OpenAI browser/device auth flows. */
+  readonly openaiOauthClientId: string;
+
+  /** OAuth issuer base URL used for OpenAI browser/device auth flows. */
+  readonly openaiOauthIssuer: string;
 }
 
 export const DEFAULT_MODELS: readonly string[] = [
@@ -170,6 +204,14 @@ function csvFromEnv(name: string, fallback: readonly string[]): string[] {
   return items;
 }
 
+function openaiImagesUpstreamModeFromEnv(raw: string | undefined): "platform" | "chatgpt" | "auto" {
+  const normalized = (raw ?? "auto").trim().toLowerCase();
+  if (normalized === "auto") return "auto";
+  if (normalized === "platform" || normalized === "api" || normalized === "api.openai.com") return "platform";
+  if (normalized === "chatgpt" || normalized === "backend-api" || normalized === "backend") return "chatgpt";
+  throw new Error(`Invalid OPENAI_IMAGES_UPSTREAM_MODE: ${raw ?? ""} (expected: platform|chatgpt|auto)`);
+}
+
 function normalizeProviderList(values: readonly string[]): string[] {
   return [...new Set(
     values
@@ -255,6 +297,8 @@ export function loadConfig(cwd: string = process.cwd()): ProxyConfig {
   upstreamProviderBaseUrls[upstreamProviderId] = upstreamBaseUrl;
   const openaiProviderId = (process.env.OPENAI_PROVIDER_ID ?? "openai").trim();
   const openaiBaseUrl = (process.env.OPENAI_BASE_URL ?? "https://chatgpt.com/backend-api").replace(/\/+$/, "");
+  const openaiApiBaseUrl = (process.env.OPENAI_API_BASE_URL ?? "https://api.openai.com").replace(/\/+$/, "");
+  const openaiImagesUpstreamMode = openaiImagesUpstreamModeFromEnv(process.env.OPENAI_IMAGES_UPSTREAM_MODE);
   const ollamaBaseUrl = (process.env.OLLAMA_BASE_URL ?? "http://ollama:11434").replace(/\/+$/, "");
   const rawMessagesInterleavedThinkingBeta = process.env.UPSTREAM_MESSAGES_INTERLEAVED_THINKING_BETA;
   const messagesInterleavedThinkingBeta = rawMessagesInterleavedThinkingBeta === undefined
@@ -310,6 +354,28 @@ export function loadConfig(cwd: string = process.cwd()): ProxyConfig {
     ? sessionSecretRaw
     : proxyAuthToken ?? "default-session-secret-change-in-production";
 
+  const imagesGenerationsPath = process.env.UPSTREAM_IMAGES_GENERATIONS_PATH ?? "/v1/images/generations";
+  const openaiImagesGenerationsPaths = csvFromEnv("OPENAI_IMAGES_GENERATIONS_PATHS", [
+    imagesGenerationsPath,
+    "/images/generations",
+    "/codex/images/generations",
+  ]);
+
+  const openaiOauthScopesRaw = (process.env.OPENAI_OAUTH_SCOPES ?? "openid profile email offline_access").trim();
+  const openaiOauthScopes = openaiOauthScopesRaw.length > 0
+    ? openaiOauthScopesRaw
+    : "openid profile email offline_access";
+
+  const openaiOauthClientIdRaw = (process.env.OPENAI_OAUTH_CLIENT_ID ?? "app_EMoamEEZ73f0CkXaXp7hrann").trim();
+  const openaiOauthClientId = openaiOauthClientIdRaw.length > 0
+    ? openaiOauthClientIdRaw
+    : "app_EMoamEEZ73f0CkXaXp7hrann";
+
+  const openaiOauthIssuerRaw = (process.env.OPENAI_OAUTH_ISSUER ?? "https://auth.openai.com").trim();
+  const openaiOauthIssuer = (openaiOauthIssuerRaw.length > 0
+    ? openaiOauthIssuerRaw
+    : "https://auth.openai.com").replace(/\/+$/, "");
+
   return {
     host: process.env.PROXY_HOST ?? process.env.HOST ?? "127.0.0.1",
     port: numberFromEnvAliases(["PROXY_PORT", "PORT"], 8789),
@@ -320,6 +386,8 @@ export function loadConfig(cwd: string = process.cwd()): ProxyConfig {
     upstreamBaseUrl,
     openaiProviderId,
     openaiBaseUrl,
+    openaiApiBaseUrl,
+    openaiImagesUpstreamMode,
     ollamaBaseUrl,
     localOllamaEnabled,
     localOllamaModelPatterns,
@@ -332,7 +400,8 @@ export function loadConfig(cwd: string = process.cwd()): ProxyConfig {
       : undefined,
     responsesPath: process.env.UPSTREAM_RESPONSES_PATH ?? "/v1/responses",
     openaiResponsesPath: process.env.OPENAI_RESPONSES_PATH ?? "/codex/responses",
-    imagesGenerationsPath: process.env.UPSTREAM_IMAGES_GENERATIONS_PATH ?? "/v1/images/generations",
+    openaiImagesGenerationsPaths,
+    imagesGenerationsPath,
     responsesModelPrefixes: csvFromEnv("UPSTREAM_RESPONSES_MODEL_PREFIXES", ["gpt-"]),
     ollamaChatPath: process.env.OLLAMA_CHAT_PATH ?? "/api/chat",
     ollamaV1ChatPath: process.env.OLLAMA_V1_CHAT_PATH ?? "/v1/chat/completions",
@@ -360,5 +429,9 @@ export function loadConfig(cwd: string = process.cwd()): ProxyConfig {
     githubOAuthCallbackPath,
     githubAllowedUsers,
     sessionSecret,
+
+    openaiOauthScopes,
+    openaiOauthClientId,
+    openaiOauthIssuer,
   };
 }

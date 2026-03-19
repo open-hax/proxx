@@ -1,5 +1,5 @@
 {
-  "models": [
+  "preferred": [
     "gpt-5.2-codex",
     "gpt-5.1-codex",
     "gpt-5.1-codex-max",
@@ -35,5 +35,7 @@
     "factory/claude-opus-4-5-20251101",
     "factory/claude-opus-4-6",
     "factory/claude-opus-4-6-fast"
-  ]
+  ],
+  "disabled": [],
+  "aliases": {}
 }

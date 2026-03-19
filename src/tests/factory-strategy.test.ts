@@ -48,7 +48,8 @@ async function withProxyApp(
   options: {
     readonly keys: readonly string[];
     readonly keysPayload?: unknown;
-    readonly models?: readonly string[];
+    readonly models?: unknown;
+    readonly handleModelCatalog?: boolean;
     readonly configOverrides?: Partial<ProxyConfig>;
     readonly upstreamHandler: (
       request: IncomingMessage,
@@ -67,19 +68,36 @@ async function withProxyApp(
   const keysPayload = options.keysPayload ?? { keys: options.keys };
   await writeFile(keysPath, JSON.stringify(keysPayload, null, 2), "utf8");
   if (options.models) {
-    await writeFile(modelsPath, JSON.stringify({ models: options.models }, null, 2), "utf8");
+    await writeFile(modelsPath, JSON.stringify(options.models, null, 2), "utf8");
   }
 
   const upstream = createServer(async (request, response) => {
     const body = await readRequestBody(request);
-    const result = await options.upstreamHandler(request, body);
-    response.statusCode = result.status;
-    if (result.headers) {
-      for (const [name, value] of Object.entries(result.headers)) {
-        response.setHeader(name, value);
-      }
+    const shouldBypassHandler =
+      (request.method === "GET" && request.url === "/v1/models")
+      || (request.method === "GET" && request.url === "/api/tags");
+
+    if (shouldBypassHandler && !options.handleModelCatalog) {
+      response.statusCode = 404;
+      response.setHeader("content-type", "application/json");
+      response.end(JSON.stringify({ error: { message: "catalog not configured" } }));
+      return;
     }
-    response.end(result.body);
+
+    try {
+      const result = await options.upstreamHandler(request, body);
+      response.statusCode = result.status;
+      if (result.headers) {
+        for (const [name, value] of Object.entries(result.headers)) {
+          response.setHeader(name, value);
+        }
+      }
+      response.end(result.body);
+    } catch (error) {
+      response.statusCode = 500;
+      response.setHeader("content-type", "application/json");
+      response.end(JSON.stringify({ error: { message: String(error) } }));
+    }
   });
 
   upstream.listen(0, "127.0.0.1");
@@ -107,6 +125,8 @@ async function withProxyApp(
     upstreamBaseUrl: `http://127.0.0.1:${address.port}`,
     openaiProviderId: "openai",
     openaiBaseUrl: `http://127.0.0.1:${address.port}`,
+    openaiApiBaseUrl: `http://127.0.0.1:${address.port}`,
+    openaiImagesUpstreamMode: "auto",
     ollamaBaseUrl: `http://127.0.0.1:${address.port}`,
     localOllamaEnabled: false,
     localOllamaModelPatterns: [],
@@ -117,6 +137,7 @@ async function withProxyApp(
     messagesInterleavedThinkingBeta: "interleaved-thinking-2025-05-14",
     responsesPath: "/v1/responses",
     openaiResponsesPath: "/v1/responses",
+    openaiImagesGenerationsPaths: ["/v1/images/generations", "/images/generations", "/codex/images/generations"],
     imagesGenerationsPath: "/v1/images/generations",
     responsesModelPrefixes: ["gpt-"],
     ollamaChatPath: "/api/chat",
@@ -142,6 +163,9 @@ async function withProxyApp(
     githubOAuthCallbackPath: "/auth/github/callback",
     githubAllowedUsers: [],
     sessionSecret: "test-session-token", // pragma: allowlist secret
+    openaiOauthScopes: "openid profile email offline_access",
+    openaiOauthClientId: "app_EMoamEEZ73f0CkXaXp7hrann",
+    openaiOauthIssuer: "https://auth.openai.com",
     ...options.configOverrides,
   };
 

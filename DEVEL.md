@@ -25,7 +25,7 @@ OpenAI-compatible proxy server with provider-scoped account rotation.
 ## Setup
 
 1. Provide credentials through `keys.json`, `PROXY_KEYS_JSON` / `UPSTREAM_KEYS_JSON`, or SQL via `DATABASE_URL`.
-2. Optionally create `models.json` from `models.example.json`.
+2. Optionally create `models.json` from `models.example.json` (preferences only; discovery is canonical).
 3. Set `PROXY_AUTH_TOKEN` (required by default).
 4. Start the server.
 

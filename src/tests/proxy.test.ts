@@ -39,7 +39,8 @@ async function withProxyApp(
   options: {
     readonly keys: readonly string[];
     readonly keysPayload?: unknown;
-    readonly models?: readonly string[];
+    readonly models?: unknown;
+    readonly handleModelCatalog?: boolean;
     readonly proxyAuthToken?: string;
     readonly allowUnauthenticated?: boolean;
     readonly configOverrides?: Partial<ProxyConfig>;
@@ -57,21 +58,38 @@ async function withProxyApp(
   const keysPayload = options.keysPayload ?? { keys: options.keys };
   await writeFile(keysPath, JSON.stringify(keysPayload, null, 2), "utf8");
   if (options.models) {
-    await writeFile(modelsPath, JSON.stringify({ models: options.models }, null, 2), "utf8");
+    await writeFile(modelsPath, JSON.stringify(options.models, null, 2), "utf8");
   }
 
   const upstream = createServer(async (request, response) => {
     const body = await readRequestBody(request);
-    const result = await options.upstreamHandler(request, body);
-    response.statusCode = result.status;
+    const shouldBypassHandler =
+      (request.method === "GET" && request.url === "/v1/models")
+      || (request.method === "GET" && request.url === "/api/tags");
 
-    if (result.headers) {
-      for (const [name, value] of Object.entries(result.headers)) {
-        response.setHeader(name, value);
-      }
+    if (shouldBypassHandler && !options.handleModelCatalog) {
+      response.statusCode = 404;
+      response.setHeader("content-type", "application/json");
+      response.end(JSON.stringify({ error: { message: "catalog not configured" } }));
+      return;
     }
 
-    response.end(result.body);
+    try {
+      const result = await options.upstreamHandler(request, body);
+      response.statusCode = result.status;
+
+      if (result.headers) {
+        for (const [name, value] of Object.entries(result.headers)) {
+          response.setHeader(name, value);
+        }
+      }
+
+      response.end(result.body);
+    } catch (error) {
+      response.statusCode = 500;
+      response.setHeader("content-type", "application/json");
+      response.end(JSON.stringify({ error: { message: String(error) } }));
+    }
   });
 
   upstream.listen(0, "127.0.0.1");
@@ -98,6 +116,8 @@ async function withProxyApp(
     upstreamBaseUrl: `http://127.0.0.1:${address.port}`,
     openaiProviderId: "openai",
     openaiBaseUrl: `http://127.0.0.1:${address.port}`,
+    openaiApiBaseUrl: `http://127.0.0.1:${address.port}`,
+    openaiImagesUpstreamMode: "auto",
     ollamaBaseUrl: `http://127.0.0.1:${address.port}`,
     localOllamaEnabled: true,
     localOllamaModelPatterns: [":2b", ":3b", ":4b", ":7b", ":8b", "mini", "small"],
@@ -108,6 +128,7 @@ async function withProxyApp(
     messagesInterleavedThinkingBeta: "interleaved-thinking-2025-05-14",
     responsesPath: "/v1/responses",
     openaiResponsesPath: "/v1/responses",
+    openaiImagesGenerationsPaths: ["/v1/images/generations", "/images/generations", "/codex/images/generations"],
     imagesGenerationsPath: "/v1/images/generations",
     responsesModelPrefixes: ["gpt-"],
     ollamaChatPath: "/api/chat",
@@ -134,6 +155,9 @@ async function withProxyApp(
     githubOAuthCallbackPath: "/auth/github/callback",
     githubAllowedUsers: [],
     sessionSecret: "test-session-token", // pragma: allowlist secret
+    openaiOauthScopes: "openid profile email offline_access",
+    openaiOauthClientId: "app_EMoamEEZ73f0CkXaXp7hrann",
+    openaiOauthIssuer: "https://auth.openai.com",
     ...options.configOverrides,
   };
 
@@ -3929,7 +3953,21 @@ test("serves native /api/tags from the local model catalog without an upstream r
   await withProxyApp(
     {
       keys: [],
-      models: ["qwen3.5:4b-q8_0", "qwen3.5:2b-bf16"],
+      handleModelCatalog: true,
+      models: {
+        preferred: ["qwen3.5:4b-q8_0", "qwen3.5:2b-bf16"],
+        disabled: [],
+        aliases: {},
+      },
+      keysPayload: {
+        providers: {
+          "ollama-cloud": ["ollama-local-key"]
+        }
+      },
+      configOverrides: {
+        upstreamProviderId: "ollama-cloud",
+        upstreamFallbackProviderIds: []
+      },
       upstreamHandler: async (request) => {
         observedPath = request.url ?? "";
         return {
@@ -5753,17 +5791,39 @@ test("allows unauthenticated access to health when proxy auth is enabled", async
   );
 });
 
-test("serves model catalog from models JSON file", async () => {
+test("serves preferred model ordering from models JSON file", async () => {
   await withProxyApp(
     {
       keys: ["key-a"],
-      models: ["gpt-5.3-codex", "gemini-3.1-pro-preview"],
-      upstreamHandler: async () => ({
+      handleModelCatalog: true,
+      models: {
+        preferred: ["gpt-5.3-codex", "gemini-3.1-pro-preview"],
+        disabled: [],
+        aliases: {},
+      },
+      keysPayload: {
+        providers: {
+          vivgrid: ["key-a"],
+        },
+      },
+      configOverrides: {
+        upstreamProviderId: "vivgrid",
+        upstreamFallbackProviderIds: [],
+      },
+      upstreamHandler: async (request) => ({
         status: 200,
         headers: {
           "content-type": "application/json"
         },
-        body: JSON.stringify({ ok: true })
+        body: request.method === "GET" && request.url === "/v1/models"
+          ? JSON.stringify({
+              object: "list",
+              data: [
+                { id: "gpt-5.3-codex" },
+                { id: "gemini-3.1-pro-preview" }
+              ]
+            })
+          : JSON.stringify({ ok: true })
       })
     },
     async ({ app }) => {
@@ -5775,12 +5835,75 @@ test("serves model catalog from models JSON file", async () => {
       assert.equal(listPayload.object, "list");
       assert.ok(Array.isArray(listPayload.data));
       assert.equal(listPayload.data.length, 2);
+      assert.ok(isRecord(listPayload.data[0]));
+      assert.equal(listPayload.data[0].id, "gpt-5.3-codex");
+      assert.ok(isRecord(listPayload.data[1]));
+      assert.equal(listPayload.data[1].id, "gemini-3.1-pro-preview");
 
       const modelResponse = await app.inject({ method: "GET", url: "/v1/models/gpt-5.3-codex" });
       assert.equal(modelResponse.statusCode, 200);
       const modelPayload: unknown = modelResponse.json();
       assert.ok(isRecord(modelPayload));
       assert.equal(modelPayload.id, "gpt-5.3-codex");
+    }
+  );
+});
+
+test("returns 403 when requested model is disabled", async () => {
+  await withProxyApp(
+    {
+      keys: ["key-a"],
+      handleModelCatalog: true,
+      models: {
+        preferred: ["gpt-5.3-codex", "gemini-3.1-pro-preview"],
+        disabled: ["gemini-3.1-pro-preview"],
+        aliases: {},
+      },
+      keysPayload: {
+        providers: {
+          vivgrid: ["key-a"],
+        },
+      },
+      configOverrides: {
+        upstreamProviderId: "vivgrid",
+        upstreamFallbackProviderIds: [],
+      },
+      upstreamHandler: async (request) => ({
+        status: 200,
+        headers: {
+          "content-type": "application/json"
+        },
+        body: request.method === "GET" && request.url === "/v1/models"
+          ? JSON.stringify({
+              object: "list",
+              data: [
+                { id: "gpt-5.3-codex" },
+                { id: "gemini-3.1-pro-preview" }
+              ]
+            })
+          : JSON.stringify({ ok: true })
+      })
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json"
+        },
+        payload: {
+          model: "gemini-3.1-pro-preview",
+          messages: [{ role: "user", content: "hello" }],
+          stream: false
+        }
+      });
+
+      assert.equal(response.statusCode, 403);
+      assert.equal(response.headers["x-open-hax-error-code"], "model_disabled");
+      const payload: unknown = response.json();
+      assert.ok(isRecord(payload));
+      assert.ok(isRecord(payload.error));
+      assert.equal(payload.error.code, "model_disabled");
     }
   );
 });
@@ -5844,12 +5967,17 @@ test("includes ollama provider catalog models and largest-size aliases in /v1/mo
   await withProxyApp(
     {
       keys: [],
+      handleModelCatalog: true,
       keysPayload: {
         providers: {
           "ollama-cloud": ["ollama-catalog-key"]
         }
       },
-      models: ["gpt-5.3-codex"],
+      models: {
+        preferred: ["gpt-5.3-codex"],
+        disabled: [],
+        aliases: {},
+      },
       configOverrides: {
         upstreamProviderId: "ollama-cloud",
         upstreamFallbackProviderIds: []
@@ -5898,13 +6026,71 @@ test("includes ollama provider catalog models and largest-size aliases in /v1/mo
         .map((entry) => (typeof entry.id === "string" ? entry.id : undefined))
         .filter((entry): entry is string => typeof entry === "string");
 
-      assert.ok(ids.includes("gpt-5.3-codex"));
       assert.ok(ids.includes("qwen3.5:397b"));
       assert.ok(ids.includes("qwen3-coder:480b"));
       assert.ok(ids.includes("qwen3-vl:235b"));
       assert.ok(ids.includes("qwen3.5"));
       assert.ok(ids.includes("qwen3-coder"));
       assert.ok(ids.includes("qwen3-vl"));
+      assert.ok(!ids.includes("gpt-5.3-codex"));
+    }
+  );
+});
+
+test("returns 404 when requested model is not in provider catalogs", async () => {
+  await withProxyApp(
+    {
+      keys: ["key-a"],
+      handleModelCatalog: true,
+      models: {
+        preferred: ["gpt-5.3-codex"],
+        disabled: [],
+        aliases: {},
+      },
+      keysPayload: {
+        providers: {
+          vivgrid: ["key-a"],
+        },
+      },
+      configOverrides: {
+        upstreamProviderId: "vivgrid",
+        upstreamFallbackProviderIds: [],
+      },
+      upstreamHandler: async (request) => ({
+        status: 200,
+        headers: {
+          "content-type": "application/json"
+        },
+        body: request.method === "GET" && request.url === "/v1/models"
+          ? JSON.stringify({
+              object: "list",
+              data: [
+                { id: "gpt-5.3-codex" }
+              ]
+            })
+          : JSON.stringify({ ok: true })
+      })
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json"
+        },
+        payload: {
+          model: "gemini-3.1-pro-preview",
+          messages: [{ role: "user", content: "hello" }],
+          stream: false
+        }
+      });
+
+      assert.equal(response.statusCode, 404);
+      assert.equal(response.headers["x-open-hax-error-code"], "model_not_found");
+      const payload: unknown = response.json();
+      assert.ok(isRecord(payload));
+      assert.ok(isRecord(payload.error));
+      assert.equal(payload.error.code, "model_not_found");
     }
   );
 });
@@ -5915,6 +6101,7 @@ test("rewrites largest-model alias requests for ollama catalog models", async ()
   await withProxyApp(
     {
       keys: [],
+      handleModelCatalog: true,
       keysPayload: {
         providers: {
           "ollama-cloud": ["ollama-alias-key"]

@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 
 import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
 
-import { DEFAULT_MODELS, type ProxyConfig } from "./lib/config.js";
+import { type ProxyConfig } from "./lib/config.js";
 import { KeyPool, type ProviderCredential } from "./lib/key-pool.js";
 import { CredentialStore } from "./lib/credential-store.js";
 import { OpenAiOAuthManager } from "./lib/openai-oauth.js";
@@ -12,19 +12,17 @@ import {
   persistFactoryAuthV2,
   refreshFactoryOAuthToken,
 } from "./lib/factory-auth.js";
-import { loadModels, toOpenAiModel } from "./lib/models.js";
+import { toOpenAiModel } from "./lib/models.js";
+import { ProviderCatalogStore } from "./lib/provider-catalog.js";
 import { buildForwardHeaders } from "./lib/proxy.js";
 import { initializePolicyEngine, createPolicyEngine, type PolicyEngine } from "./lib/policy/index.js";
 import { DEFAULT_POLICY_CONFIG } from "./lib/policy/index.js";
 import {
-  buildLargestModelAliases,
   buildOllamaCatalogRoutes,
   buildProviderRoutes,
-  dedupeModelIds,
   filterResponsesApiRoutes,
   filterImagesApiRoutes,
   minMsUntilAnyProviderKeyReady,
-  parseModelIdsFromCatalogPayload,
   resolveProviderRoutesForModel,
   type ProviderRoute,
   type ResolvedModelCatalog,
@@ -81,6 +79,14 @@ interface ChatCompletionRequest {
   readonly messages?: unknown;
   readonly stream?: boolean;
   readonly [key: string]: unknown;
+}
+
+interface WebSearchToolRequest {
+  readonly query?: unknown;
+  readonly numResults?: unknown;
+  readonly searchContextSize?: unknown;
+  readonly allowedDomains?: unknown;
+  readonly model?: unknown;
 }
 
 const PROXY_AUTH_COOKIE_NAME = "open_hax_proxy_auth_token";
@@ -233,6 +239,75 @@ function parseJsonIfPossible(body: string): unknown {
   }
 }
 
+function extractResponseTextAndUrlCitations(payload: unknown): {
+  readonly text: string;
+  readonly citations: Array<{ readonly url: string; readonly title?: string }>;
+  readonly responseId?: string;
+} {
+  if (!isRecord(payload)) {
+    return { text: "", citations: [] };
+  }
+
+  const responseId = typeof payload.id === "string" ? payload.id : undefined;
+  const output = Array.isArray(payload.output) ? payload.output : [];
+  const texts: string[] = [];
+  const citations = new Map<string, { url: string; title?: string }>();
+
+  for (const item of output) {
+    if (!isRecord(item) || item.type !== "message") {
+      continue;
+    }
+    if (typeof item.role === "string" && item.role !== "assistant") {
+      continue;
+    }
+    const content = Array.isArray(item.content) ? item.content : [];
+    for (const part of content) {
+      if (!isRecord(part) || part.type !== "output_text") {
+        continue;
+      }
+
+      const text = typeof part.text === "string" ? part.text : "";
+      if (text.length > 0) {
+        texts.push(text);
+      }
+
+      const annotations = Array.isArray(part.annotations) ? part.annotations : [];
+      for (const ann of annotations) {
+        if (!isRecord(ann)) {
+          continue;
+        }
+        if (ann.type !== "url_citation") {
+          continue;
+        }
+        const url = typeof ann.url === "string" ? ann.url : "";
+        if (!url) {
+          continue;
+        }
+        if (!citations.has(url)) {
+          const title = typeof ann.title === "string" && ann.title.trim().length > 0 ? ann.title.trim() : undefined;
+          citations.set(url, { url, ...(title ? { title } : {}) });
+        }
+      }
+    }
+  }
+
+  const combined = texts.join("\n\n").trim();
+  return { text: combined, citations: Array.from(citations.values()), responseId };
+}
+
+function extractMarkdownLinks(text: string): Array<{ readonly url: string; readonly title?: string }> {
+  const citations = new Map<string, { url: string; title?: string }>();
+  const regex = /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g;
+  for (const match of text.matchAll(regex)) {
+    const title = (match[1] ?? "").trim();
+    const url = (match[2] ?? "").trim();
+    if (!url) continue;
+    if (citations.has(url)) continue;
+    citations.set(url, { url, ...(title ? { title } : {}) });
+  }
+  return Array.from(citations.values());
+}
+
 function copyInjectedResponseHeaders(reply: FastifyReply, headers: Record<string, string | string[] | undefined>): void {
   for (const [name, value] of Object.entries(headers)) {
     if (typeof value === "undefined" || name.toLowerCase() === "content-length") {
@@ -354,7 +429,11 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
 
   const credentialStore = new CredentialStore(config.keysFilePath, config.upstreamProviderId);
   const runtimeCredentialStore = new RuntimeCredentialStore(credentialStore, sqlCredentialStore);
-  const oauthManager = new OpenAiOAuthManager();
+  const oauthManager = new OpenAiOAuthManager({
+    oauthScopes: config.openaiOauthScopes,
+    clientId: config.openaiOauthClientId,
+    issuer: config.openaiOauthIssuer,
+  });
 
   const tokenRefreshManager = new TokenRefreshManager(
     async (credential) => {
@@ -492,100 +571,18 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
   });
 
   const ollamaCatalogRoutes = buildOllamaCatalogRoutes(config);
-  const modelCatalogTtlMs = 30_000;
-  let cachedModelCatalog: { readonly expiresAt: number; readonly value: ResolvedModelCatalog } | null = null;
-
-  async function fetchProviderModelCatalog(route: ProviderRoute): Promise<string[]> {
-    let accounts: ProviderCredential[];
-    try {
-      accounts = await keyPool.getRequestOrder(route.providerId);
-    } catch {
-      return [];
-    }
-
-    if (accounts.length === 0) {
-      return [];
-    }
-
-    const candidatePaths = ["/v1/models", "/api/tags"];
-
-    for (const account of accounts) {
-      for (const candidatePath of candidatePaths) {
-        const url = joinUrl(route.baseUrl, candidatePath);
-        let response: Response;
-        try {
-            response = await fetchWithResponseTimeout(url, {
-              method: "GET",
-              headers: {
-                authorization: `Bearer ${account.token}`,
-                accept: "application/json"
-              }
-            }, Math.min(config.requestTimeoutMs, 45_000));
-        } catch {
-          continue;
-        }
-
-        if (!response.ok) {
-          try {
-            await response.arrayBuffer();
-          } catch {
-            // ignore body read failures while probing model catalogs
-          }
-          continue;
-        }
-
-        let payload: unknown;
-        try {
-          payload = await response.json();
-        } catch {
-          continue;
-        }
-
-        const modelIds = parseModelIdsFromCatalogPayload(payload);
-        if (modelIds.length > 0) {
-          return modelIds;
-        }
-      }
-    }
-
-    return [];
-  }
+  const providerCatalogRoutes = buildProviderRoutes(config, false, true)
+    .filter((route) => route.providerId !== "factory" || !config.disabledProviderIds.includes("factory"));
+  const providerCatalogStore = new ProviderCatalogStore(
+    config,
+    keyPool,
+    providerCatalogRoutes,
+    ollamaCatalogRoutes,
+  );
 
   async function getResolvedModelCatalog(forceRefresh = false): Promise<ResolvedModelCatalog> {
-    const now = Date.now();
-    if (!forceRefresh && cachedModelCatalog && cachedModelCatalog.expiresAt > now) {
-      return cachedModelCatalog.value;
-    }
-
-    const configuredModels = await loadModels(config.modelsFilePath, DEFAULT_MODELS);
-    const dynamicOllamaModels: string[] = [];
-
-    for (const route of ollamaCatalogRoutes) {
-      const providerModels = await fetchProviderModelCatalog(route);
-      if (providerModels.length > 0) {
-        dynamicOllamaModels.push(...providerModels);
-      }
-    }
-
-    const aliasTargets = buildLargestModelAliases(dynamicOllamaModels);
-    const aliasIds = Object.keys(aliasTargets);
-
-    const resolvedCatalog: ResolvedModelCatalog = {
-      modelIds: dedupeModelIds([
-        ...configuredModels,
-        ...dynamicOllamaModels,
-        ...aliasIds
-      ]),
-      aliasTargets,
-      dynamicOllamaModelIds: dedupeModelIds(dynamicOllamaModels)
-    };
-
-    cachedModelCatalog = {
-      expiresAt: now + modelCatalogTtlMs,
-      value: resolvedCatalog
-    };
-
-    return resolvedCatalog;
+    const resolved = await providerCatalogStore.getCatalog(forceRefresh);
+    return resolved.catalog;
   }
 
   async function injectNativeBridge(
@@ -783,6 +780,134 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     reply.send(modelIdsToNativeTags(catalog.modelIds));
   });
 
+  app.post<{ Body: WebSearchToolRequest }>("/api/tools/websearch", async (request, reply) => {
+    if (!isRecord(request.body)) {
+      reply.code(400).send({ error: "invalid_body" });
+      return;
+    }
+
+    const query = typeof request.body.query === "string" ? request.body.query.trim() : "";
+    if (query.length === 0) {
+      reply.code(400).send({ error: "query_required" });
+      return;
+    }
+
+    const rawNumResults = typeof request.body.numResults === "number" ? request.body.numResults : Number.NaN;
+    const numResults = Number.isFinite(rawNumResults)
+      ? Math.max(1, Math.min(20, Math.trunc(rawNumResults)))
+      : 8;
+
+    const searchContextSize = typeof request.body.searchContextSize === "string"
+      ? request.body.searchContextSize.trim().toLowerCase()
+      : "";
+    const contextSize = (searchContextSize === "low" || searchContextSize === "medium" || searchContextSize === "high")
+      ? searchContextSize
+      : undefined;
+
+    const allowedDomains = Array.isArray(request.body.allowedDomains)
+      ? request.body.allowedDomains
+        .filter((entry): entry is string => typeof entry === "string")
+        .map((entry) => entry.trim())
+        .filter((entry) => entry.length > 0)
+        .slice(0, 50)
+      : [];
+
+    const requestedModel = typeof request.body.model === "string" ? request.body.model.trim() : "";
+
+    const fallbackModel = process.env.OPEN_HAX_WEBSEARCH_FALLBACK_MODEL?.trim() || "gpt-5.2";
+    const candidateModels = [requestedModel, fallbackModel]
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0);
+    const uniqueModels: string[] = [];
+    for (const entry of candidateModels) {
+      if (!uniqueModels.includes(entry)) {
+        uniqueModels.push(entry);
+      }
+    }
+
+    const authHeaders: Record<string, string> = {
+      "content-type": "application/json",
+      ...(config.proxyAuthToken ? { authorization: `Bearer ${config.proxyAuthToken}` } : {}),
+    };
+
+    const baseTool: Record<string, unknown> = {
+      type: "web_search",
+      external_web_access: true,
+      ...(contextSize ? { search_context_size: contextSize } : {}),
+    };
+
+    const buildUserText = (withDomainsHint: boolean) => {
+      const domainHint = withDomainsHint && allowedDomains.length > 0
+        ? `\n\nRestrict sources to these domains when possible:\n${allowedDomains.map((d) => `- ${d}`).join("\n")}`
+        : "";
+      return [
+        `Query: ${query}`,
+        `Return up to ${numResults} results as a Markdown list. Each bullet must include a Markdown link and a 1-2 sentence snippet.`,
+        `Do not fabricate URLs; every link must be backed by web_search citations.`,
+        domainHint,
+      ].join("\n");
+    };
+
+    const attemptPayload = async (model: string, includeDomainsInTool: boolean) => {
+      const tool = includeDomainsInTool && allowedDomains.length > 0
+        ? { ...baseTool, allowed_domains: allowedDomains }
+        : baseTool;
+
+      return app.inject({
+        method: "POST",
+        url: "/v1/responses",
+        headers: authHeaders,
+        payload: {
+          model,
+          instructions: "You are a web search helper. Use the web_search tool to gather sources and answer with citations.",
+          input: [
+            {
+              role: "user",
+              content: [{ type: "input_text", text: buildUserText(!includeDomainsInTool) }],
+            },
+          ],
+          tools: [tool],
+          tool_choice: "auto",
+          store: false,
+          stream: false,
+        },
+      });
+    };
+
+    let lastErrorPayload: unknown;
+
+    for (const model of uniqueModels) {
+      for (const includeDomainsInTool of [true, false]) {
+        const injected = await attemptPayload(model, includeDomainsInTool);
+        if (injected.statusCode !== 200) {
+          lastErrorPayload = parseJsonIfPossible(injected.body) ?? injected.body;
+          continue;
+        }
+
+        const json = parseJsonIfPossible(injected.body);
+        const extracted = extractResponseTextAndUrlCitations(json);
+
+        const output = extracted.text;
+        const sources = extracted.citations.length > 0
+          ? extracted.citations
+          : extractMarkdownLinks(output);
+
+        reply.send({
+          output,
+          sources: sources.slice(0, numResults),
+          responseId: extracted.responseId,
+          model,
+        });
+        return;
+      }
+    }
+
+    reply.code(502).send({
+      error: "websearch_failed",
+      details: lastErrorPayload,
+    });
+  });
+
   app.post<{ Body: ChatCompletionRequest }>("/v1/chat/completions", async (request, reply) => {
     if (!isRecord(request.body)) {
       sendOpenAiError(reply, 400, "Request body must be a JSON object", "invalid_request_error", "invalid_body");
@@ -808,8 +933,14 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     let routingModelInput = requestedModelInput;
     let resolvedModelCatalog: ResolvedModelCatalog | null = null;
     try {
-      const catalog = await getResolvedModelCatalog();
+      const catalogBundle = await providerCatalogStore.getCatalog();
+      const catalog = catalogBundle.catalog;
       resolvedModelCatalog = catalog;
+      const disabledModelSet = new Set(catalogBundle.preferences.disabled);
+      if (disabledModelSet.has(requestedModelInput) || disabledModelSet.has(catalog.aliasTargets[requestedModelInput] ?? "")) {
+        sendOpenAiError(reply, 403, `Model is disabled: ${requestedModelInput}`, "invalid_request_error", "model_disabled");
+        return;
+      }
       const aliasTarget = catalog.aliasTargets[requestedModelInput];
       if (typeof aliasTarget === "string" && aliasTarget.length > 0) {
         routingModelInput = aliasTarget;
@@ -821,6 +952,30 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
 
     const { strategy, context } = selectProviderStrategy(config, request.headers, requestBody, requestedModelInput, routingModelInput);
     reply.header("x-open-hax-upstream-mode", strategy.mode);
+
+    try {
+      const catalogBundle = await providerCatalogStore.getCatalog();
+      const disabledSet = new Set(catalogBundle.preferences.disabled);
+      if (disabledSet.has(context.routedModel)) {
+        sendOpenAiError(reply, 403, `Model is disabled: ${context.routedModel}`, "invalid_request_error", "model_disabled");
+        return;
+      }
+
+      const hasCatalog = catalogBundle.catalog.modelIds.length > 0;
+      if (hasCatalog && context.factoryPrefixed) {
+        const available = await providerCatalogStore.isModelAvailable("factory", context.routedModel);
+        if (!available) {
+          sendOpenAiError(reply, 404, `Model not found on factory: ${context.routedModel}`, "invalid_request_error", "model_not_found");
+          return;
+        }
+      }
+      if (hasCatalog && resolvedModelCatalog && !resolvedModelCatalog.modelIds.includes(context.routedModel)) {
+        sendOpenAiError(reply, 404, `Model not found: ${context.routedModel}`, "invalid_request_error", "model_not_found");
+        return;
+      }
+    } catch (error) {
+      request.log.warn({ error: toErrorMessage(error) }, "failed to verify provider model catalog; continuing without gating");
+    }
 
     let payload: ReturnType<typeof strategy.buildPayload>;
     try {
@@ -1006,7 +1161,13 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
 
     let routingModelInput = requestedModelInput;
     try {
-      const catalog = await getResolvedModelCatalog();
+      const catalogBundle = await providerCatalogStore.getCatalog();
+      const catalog = catalogBundle.catalog;
+      const disabledModelSet = new Set(catalogBundle.preferences.disabled);
+      if (disabledModelSet.has(requestedModelInput) || disabledModelSet.has(catalog.aliasTargets[requestedModelInput] ?? "")) {
+        sendOpenAiError(reply, 403, `Model is disabled: ${requestedModelInput}`, "invalid_request_error", "model_disabled");
+        return;
+      }
       const aliasTarget = catalog.aliasTargets[requestedModelInput];
       if (typeof aliasTarget === "string" && aliasTarget.length > 0) {
         routingModelInput = aliasTarget;
@@ -1024,6 +1185,30 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       routingModelInput,
     );
     reply.header("x-open-hax-upstream-mode", strategy.mode);
+
+    try {
+      const catalogBundle = await providerCatalogStore.getCatalog();
+      const disabledSet = new Set(catalogBundle.preferences.disabled);
+      if (disabledSet.has(context.routedModel)) {
+        sendOpenAiError(reply, 403, `Model is disabled: ${context.routedModel}`, "invalid_request_error", "model_disabled");
+        return;
+      }
+
+      const hasCatalog = catalogBundle.catalog.modelIds.length > 0;
+      if (hasCatalog && context.factoryPrefixed) {
+        const available = await providerCatalogStore.isModelAvailable("factory", context.routedModel);
+        if (!available) {
+          sendOpenAiError(reply, 404, `Model not found on factory: ${context.routedModel}`, "invalid_request_error", "model_not_found");
+          return;
+        }
+      }
+      if (hasCatalog && !catalogBundle.catalog.modelIds.includes(context.routedModel)) {
+        sendOpenAiError(reply, 404, `Model not found: ${context.routedModel}`, "invalid_request_error", "model_not_found");
+        return;
+      }
+    } catch (error) {
+      request.log.warn({ error: toErrorMessage(error) }, "failed to verify provider model catalog for /v1/responses; continuing without gating");
+    }
 
     let payload: ReturnType<typeof strategy.buildPayload>;
     try {
@@ -1284,6 +1469,17 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
         `Model not found across available upstream providers: ${context.routedModel}`,
         "invalid_request_error",
         "model_not_found",
+      );
+      return;
+    }
+
+    if (summary.lastUpstreamAuthError) {
+      sendOpenAiError(
+        reply,
+        summary.lastUpstreamAuthError.status,
+        summary.lastUpstreamAuthError.message ?? "Upstream rejected the request due to authentication/authorization.",
+        "invalid_request_error",
+        "upstream_auth_error",
       );
       return;
     }

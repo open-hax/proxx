@@ -80,6 +80,23 @@ function joinUrl(baseUrl: string, path: string): string {
   return `${normalizedBase}${normalizedPath}`;
 }
 
+function dedupePaths(values: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const raw of values) {
+    const trimmed = raw.trim();
+    if (trimmed.length === 0) {
+      continue;
+    }
+    if (seen.has(trimmed)) {
+      continue;
+    }
+    seen.add(trimmed);
+    result.push(trimmed);
+  }
+  return result;
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
@@ -181,6 +198,10 @@ interface ProviderAttemptOutcomeContinue {
   readonly upstreamInvalidRequest?: boolean;
   readonly modelNotFound?: boolean;
   readonly modelNotSupportedForAccount?: boolean;
+  readonly upstreamAuthError?: {
+    readonly status: number;
+    readonly message?: string;
+  };
 }
 
 type ProviderAttemptOutcome = ProviderAttemptOutcomeHandled | ProviderAttemptOutcomeContinue;
@@ -193,6 +214,10 @@ interface FallbackAccumulator {
   sawModelNotFound: boolean;
   sawModelNotSupportedForAccount: boolean;
   attempts: number;
+  lastUpstreamAuthError?: {
+    readonly status: number;
+    readonly message?: string;
+  };
 }
 
 export interface ProviderFallbackExecutionResult {
@@ -1046,6 +1071,24 @@ abstract class BaseProviderStrategy implements ProviderStrategy {
         kind: "continue",
         modelNotSupportedForAccount: true,
         requestError: true
+      };
+    }
+
+    if (upstreamResponse.status === 401 || upstreamResponse.status === 403) {
+      const authSummary = await summarizeUpstreamError(upstreamResponse);
+      try {
+        await upstreamResponse.arrayBuffer();
+      } catch {
+        // Ignore body read failures while failing over.
+      }
+
+      return {
+        kind: "continue",
+        requestError: true,
+        upstreamAuthError: {
+          status: upstreamResponse.status,
+          message: authSummary.upstreamErrorMessage,
+        },
       };
     }
 
@@ -2608,16 +2651,21 @@ export async function executeProviderFallback(
 
     for (let retryIndex = 0; retryIndex <= context.config.upstreamTransientRetryCount; retryIndex += 1) {
       accumulator.attempts += 1;
+
+      const effectiveBaseUrl = (candidate.providerId === context.config.openaiProviderId && candidateStrategy.mode === "images")
+        ? context.config.openaiApiBaseUrl
+        : candidate.baseUrl;
+
       const providerContext: ProviderAttemptContext = {
         ...context,
         providerId: candidate.providerId,
-        baseUrl: candidate.baseUrl,
+        baseUrl: effectiveBaseUrl,
         account: candidate.account,
         hasMoreCandidates,
         attempt: accumulator.attempts,
       };
       const upstreamPath = candidateStrategy.getUpstreamPath(providerContext);
-      const upstreamUrl = joinUrl(candidate.baseUrl, upstreamPath);
+      const upstreamUrl = joinUrl(effectiveBaseUrl, upstreamPath);
       const upstreamHeaders = buildUpstreamHeadersForCredential(context.clientHeaders, candidate.account);
       candidateStrategy.applyRequestHeaders(upstreamHeaders, providerContext, candidatePayload.upstreamPayload);
       const attemptStartedAt = Date.now();
@@ -2631,7 +2679,7 @@ export async function executeProviderFallback(
         "proxy.upstream_path": upstreamPath,
         "proxy.model": context.routedModel,
         "proxy.requested_model": context.requestedModelInput,
-        "proxy.base_url": candidate.baseUrl,
+        "proxy.base_url": effectiveBaseUrl,
         "proxy.fallback_attempt": accumulator.attempts,
       });
       upstreamSpan.setAttributes({
@@ -2801,6 +2849,9 @@ export async function executeProviderFallback(
       accumulator.sawUpstreamInvalidRequest ||= outcome.upstreamInvalidRequest === true;
       accumulator.sawModelNotFound ||= outcome.modelNotFound === true;
       accumulator.sawModelNotSupportedForAccount ||= outcome.modelNotSupportedForAccount === true;
+      if (outcome.upstreamAuthError) {
+        accumulator.lastUpstreamAuthError = outcome.upstreamAuthError;
+      }
 
       if (!upstreamResponse.ok && outcome.requestError === true && upstreamResponse.status === 401 && candidate.account.authType === "oauth_bearer" && candidate.account.refreshToken && refreshExpiredToken) {
         const refreshedCredential = await refreshExpiredToken(candidate.account);
@@ -2882,6 +2933,9 @@ export async function executeProviderFallback(
             accumulator.sawUpstreamInvalidRequest ||= refreshedOutcome.upstreamInvalidRequest === true;
             accumulator.sawModelNotFound ||= refreshedOutcome.modelNotFound === true;
             accumulator.sawModelNotSupportedForAccount ||= refreshedOutcome.modelNotSupportedForAccount === true;
+            if (refreshedOutcome.upstreamAuthError) {
+              accumulator.lastUpstreamAuthError = refreshedOutcome.upstreamAuthError;
+            }
             if (!refreshedResponse.ok && refreshedOutcome.requestError === true && (refreshedResponse.status === 401 || refreshedResponse.status === 403)) {
               if (shouldCooldownCredentialOnAuthFailure(candidate.providerId, refreshedResponse.status)) {
                 keyPool.markRateLimited(refreshedCredential, Math.min(context.config.keyCooldownMs, 10_000));
