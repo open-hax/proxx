@@ -369,9 +369,9 @@ SELECT
   input.provider_id,
   input.account_id,
   input.success_count::bigint,
-  input.last_success_at,
-  input.last_status,
-  input.updated_at
+  input.last_success_at::bigint,
+  input.last_status::integer,
+  input.updated_at::bigint
 FROM input
 WHERE EXISTS (
   SELECT 1 FROM accounts
@@ -418,10 +418,10 @@ SELECT
   input.provider_id,
   input.account_id,
   input.failure_count::bigint,
-  input.last_failure_at,
+  input.last_failure_at::bigint,
   input.last_error,
-  input.last_status,
-  input.updated_at
+  input.last_status::integer,
+  input.updated_at::bigint
 FROM input
 WHERE EXISTS (
   SELECT 1 FROM accounts

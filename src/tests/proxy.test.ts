@@ -3662,6 +3662,36 @@ test("weekly dashboard uses persisted daily model/account aggregates and reports
   );
 });
 
+test("/api/ui/me exposes resolved auth context for legacy admin token", async () => {
+  await withProxyApp(
+    {
+      keys: ["key-a"],
+      proxyAuthToken: "ui-token",
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ok: true }),
+      }),
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "GET",
+        url: "/api/ui/me",
+        headers: {
+          authorization: "Bearer ui-token",
+        },
+      });
+
+      assert.equal(response.statusCode, 200);
+      const payload: any = response.json();
+      assert.equal(payload.auth.kind, "legacy_admin");
+      assert.equal(payload.auth.tenantId, "default");
+      assert.equal(payload.activeTenantId, "default");
+      assert.ok(Array.isArray(payload.tenants));
+    },
+  );
+});
+
 test("provider-model analytics summarizes global models, providers, and provider-model pairs", async () => {
   const requestLogsPayload = {
     entries: [],

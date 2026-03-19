@@ -52,6 +52,26 @@ test("resolveRequestAuth accepts tenant api key bearer token", async () => {
   assert.deepEqual(resolved.scopes, ["proxy:use"]);
 });
 
+test("resolveRequestAuth accepts tenant api key bearer token when no legacy proxy token is configured", async () => {
+  const resolved = await resolveRequestAuth({
+    allowUnauthenticated: false,
+    authorization: "Bearer tenant-secret",
+    resolveTenantApiKey: async (token) => token === "tenant-secret"
+      ? {
+          id: "key-2",
+          tenantId: "beta",
+          label: "automation",
+          prefix: "ohpk_beta",
+          scopes: ["proxy:use"],
+        }
+      : undefined,
+  });
+
+  assert.ok(resolved);
+  assert.equal(resolved.kind, "tenant_api_key");
+  assert.equal(resolved.tenantId, "beta");
+});
+
 test("resolveRequestAuth allows explicit unauthenticated mode", async () => {
   const resolved = await resolveRequestAuth({
     allowUnauthenticated: true,

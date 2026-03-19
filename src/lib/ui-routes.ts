@@ -1172,6 +1172,137 @@ export async function registerUiRoutes(app: FastifyInstance, deps: UiRouteDepend
     reply.send(deps.proxySettingsStore.get());
   });
 
+  app.get("/api/ui/me", async (request, reply) => {
+    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
+    if (!auth) {
+      reply.code(401).send({ error: "unauthorized" });
+      return;
+    }
+
+    const tenants = deps.sqlCredentialStore
+      ? auth.kind === "legacy_admin"
+        ? await deps.sqlCredentialStore.listTenants()
+        : auth.tenantId
+          ? (await deps.sqlCredentialStore.listTenants()).filter((tenant) => tenant.id === auth.tenantId)
+          : []
+      : [];
+
+    reply.send({
+      auth,
+      activeTenantId: auth.tenantId ?? null,
+      tenants,
+    });
+  });
+
+  app.get("/api/ui/tenants", async (request, reply) => {
+    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
+    if (!auth) {
+      reply.code(401).send({ error: "unauthorized" });
+      return;
+    }
+
+    if (!deps.sqlCredentialStore) {
+      reply.code(501).send({ error: "tenant_store_not_supported" });
+      return;
+    }
+
+    const tenants = await deps.sqlCredentialStore.listTenants();
+    const visibleTenants = auth.kind === "legacy_admin"
+      ? tenants
+      : auth.tenantId
+        ? tenants.filter((tenant) => tenant.id === auth.tenantId)
+        : [];
+
+    reply.send({ tenants: visibleTenants });
+  });
+
+  app.get<{ Params: { readonly tenantId: string } }>("/api/ui/tenants/:tenantId/api-keys", async (request, reply) => {
+    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
+    if (!auth) {
+      reply.code(401).send({ error: "unauthorized" });
+      return;
+    }
+
+    if (!deps.sqlCredentialStore) {
+      reply.code(501).send({ error: "tenant_store_not_supported" });
+      return;
+    }
+
+    if (!authCanManageTenantKeys(auth, request.params.tenantId)) {
+      reply.code(403).send({ error: "forbidden" });
+      return;
+    }
+
+    const keys = await deps.sqlCredentialStore.listTenantApiKeys(request.params.tenantId);
+    reply.send({ tenantId: request.params.tenantId, keys });
+  });
+
+  app.post<{
+    Params: { readonly tenantId: string };
+    Body: { readonly label?: string; readonly scopes?: readonly string[] };
+  }>("/api/ui/tenants/:tenantId/api-keys", async (request, reply) => {
+    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
+    if (!auth) {
+      reply.code(401).send({ error: "unauthorized" });
+      return;
+    }
+
+    if (!deps.sqlCredentialStore) {
+      reply.code(501).send({ error: "tenant_store_not_supported" });
+      return;
+    }
+
+    if (!authCanManageTenantKeys(auth, request.params.tenantId)) {
+      reply.code(403).send({ error: "forbidden" });
+      return;
+    }
+
+    const label = typeof request.body?.label === "string" ? request.body.label.trim() : "";
+    if (label.length === 0) {
+      reply.code(400).send({ error: "label_required" });
+      return;
+    }
+
+    const scopes = Array.isArray(request.body?.scopes)
+      ? request.body.scopes.filter((scope): scope is string => typeof scope === "string")
+      : ["proxy:use"];
+
+    const created = await deps.sqlCredentialStore.createTenantApiKey(
+      request.params.tenantId,
+      label,
+      scopes,
+      deps.config.proxyTokenPepper,
+    );
+
+    reply.code(201).send(created);
+  });
+
+  app.delete<{ Params: { readonly tenantId: string; readonly keyId: string } }>("/api/ui/tenants/:tenantId/api-keys/:keyId", async (request, reply) => {
+    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
+    if (!auth) {
+      reply.code(401).send({ error: "unauthorized" });
+      return;
+    }
+
+    if (!deps.sqlCredentialStore) {
+      reply.code(501).send({ error: "tenant_store_not_supported" });
+      return;
+    }
+
+    if (!authCanManageTenantKeys(auth, request.params.tenantId)) {
+      reply.code(403).send({ error: "forbidden" });
+      return;
+    }
+
+    const revoked = await deps.sqlCredentialStore.revokeTenantApiKey(request.params.tenantId, request.params.keyId);
+    if (!revoked) {
+      reply.code(404).send({ error: "tenant_api_key_not_found" });
+      return;
+    }
+
+    reply.send({ ok: true, tenantId: request.params.tenantId, keyId: request.params.keyId });
+  });
+
   app.post<{ Body: { readonly fastMode?: unknown } }>("/api/ui/settings", async (request, reply) => {
     const nextSettings = await deps.proxySettingsStore.set({
       fastMode: parseBoolean(request.body?.fastMode),

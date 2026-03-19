@@ -253,6 +253,13 @@ This avoids future churn when fast mode and similar settings become tenant-speci
 3. Should tenant API keys support roles directly, or only scopes? Proposed v1: scopes only, tenant ownership remains membership-based for UI.
 4. Do we scope settings in Phase 1 or Phase 1.5? Proposed: Phase 1, because `proxy_settings` is already obviously global.
 
+## Implementation status
+- ✅ Phase A landed: schema v4 tenant tables and default-tenant bootstrap are in place.
+- ✅ Phase B landed: request auth now resolves legacy default-tenant admin access and tenant API key bearer tokens.
+- 🚧 Phase C is partially landed: `/api/ui/me` and `/api/ui/tenants` expose resolved auth plus visible tenant context, but tenant selection persistence is still pending.
+- 🚧 Phase D is partially landed: list/create/revoke tenant API key routes now exist with tenant-scoped authorization checks.
+- ⏳ Phase E is still pending: proxy settings remain globally scoped for now.
+
 ## Definition of done
 - `default` tenant exists and preserves current single-operator behavior.
 - Legacy `PROXY_AUTH_TOKEN` resolves to tenant `default` with bootstrap admin semantics.
