@@ -1,17 +1,16 @@
 # Π handoff
 
-- time: 2026-03-20T15:25:48Z
+- time: 2026-03-20T15:49:01Z
 - branch: main
-- pre-Π HEAD: bd023f0
+- pre-Π HEAD: a398d5b
 - Π HEAD: pending at capture time; resolved by the final git commit created after artifact assembly
 
 ## Summary
-- Complete Phase 1 multitenancy UI-session memberships by wiring GitHub UI logins to local users, default-tenant bootstrap membership, active-tenant persistence, and tenant selection routes.
-- Complete tenant-scoped proxy settings + active-tenant fast-mode resolution while preserving default single-tenant file fallbacks and request-time behavior.
-- Carry the current deploy/SSL planning draft, updated auth/settings stores, UI plumbing, tests, receipts, and handoff artifacts into a clean snapshot.
+- Amend the recursive Π snapshot to include tenantId/issuer/keyId metadata in request-log entries, filters, daily account buckets, and account-usage accumulators.
+- Keep account-bucket partitioning aligned with tenant-aware auth so per-tenant/per-key analytics do not collapse distinct credentials into one bucket.
+- Refresh receipts and .ημ artifacts so the pushed main branch reflects the full Phase 1 multitenancy working tree instead of the earlier partial snapshot.
 
 ## Verification
 - pass: pnpm run typecheck
 - pass: pnpm test (313/313)
 - pass: pnpm run build
-- pass: pnpm run web:build

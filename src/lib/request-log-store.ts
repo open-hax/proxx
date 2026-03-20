@@ -36,6 +36,9 @@ export interface Factory4xxDiagnostics {
 export interface RequestLogEntry {
   readonly id: string;
   readonly timestamp: number;
+  readonly tenantId?: string;
+  readonly issuer?: string;
+  readonly keyId?: string;
   readonly providerId: string;
   readonly accountId: string;
   readonly authType: RequestAuthType;
@@ -69,11 +72,17 @@ export interface RequestLogEntry {
 export interface RequestLogFilters {
   readonly providerId?: string;
   readonly accountId?: string;
+  readonly tenantId?: string;
+  readonly issuer?: string;
+  readonly keyId?: string;
   readonly limit?: number;
   readonly before?: string;
 }
 
 export interface RequestLogRecordInput {
+  readonly tenantId?: string;
+  readonly issuer?: string;
+  readonly keyId?: string;
   readonly providerId: string;
   readonly accountId: string;
   readonly authType: RequestAuthType;
@@ -174,6 +183,9 @@ export interface RequestLogDailyModelBucket {
 
 export interface RequestLogDailyAccountBucket {
   readonly startMs: number;
+  readonly tenantId?: string;
+  readonly issuer?: string;
+  readonly keyId?: string;
   readonly providerId: string;
   readonly accountId: string;
   readonly authType: RequestAuthType;
@@ -211,6 +223,9 @@ export interface RequestLogCoverage {
 }
 
 export interface AccountUsageAccumulator {
+  readonly tenantId?: string;
+  readonly issuer?: string;
+  readonly keyId?: string;
   readonly providerId: string;
   readonly accountId: string;
   readonly authType: RequestAuthType;
@@ -322,6 +337,9 @@ type DailyModelBucket = {
 
 type DailyAccountBucket = {
   startMs: number;
+  tenantId?: string;
+  issuer?: string;
+  keyId?: string;
   providerId: string;
   accountId: string;
   authType: RequestAuthType;
@@ -547,6 +565,9 @@ function hydrateEntry(raw: unknown): RequestLogEntry | null {
   return {
     id: asString(raw.id) ?? crypto.randomUUID(),
     timestamp: asNumber(raw.timestamp) ?? Date.now(),
+    tenantId: sanitizeOptionalShortString(raw.tenantId, 120),
+    issuer: sanitizeOptionalShortString(raw.issuer, 240),
+    keyId: sanitizeOptionalShortString(raw.keyId, 160),
     providerId,
     accountId,
     authType: normalizedAuthType,
@@ -702,6 +723,9 @@ function hydrateDailyAccountBucket(raw: unknown): RequestLogDailyAccountBucket |
 
   return {
     startMs,
+    tenantId: sanitizeOptionalShortString(raw.tenantId, 120),
+    issuer: sanitizeOptionalShortString(raw.issuer, 240),
+    keyId: sanitizeOptionalShortString(raw.keyId, 160),
     providerId,
     accountId,
     authType: normalizedAuthType,
@@ -815,6 +839,9 @@ function sumCount(value: number | undefined): number {
 }
 
 type MutableAccountAccumulator = {
+  tenantId?: string;
+  issuer?: string;
+  keyId?: string;
   providerId: string;
   accountId: string;
   authType: RequestAuthType;
@@ -837,16 +864,16 @@ type MutableAccountAccumulator = {
   waterEvaporatedMl: number;
 };
 
-function accountAccumulatorKey(providerId: string, accountId: string): string {
-  return `${providerId}\0${accountId}`;
+function accountAccumulatorKey(providerId: string, accountId: string, tenantId?: string, issuer?: string, keyId?: string): string {
+  return `${providerId}\0${accountId}\0${tenantId ?? ""}\0${issuer ?? ""}\0${keyId ?? ""}`;
 }
 
 function dailyModelBucketKey(startMs: number, providerId: string, model: string): string {
   return `${startMs}\0${providerId}\0${model}`;
 }
 
-function dailyAccountBucketKey(startMs: number, providerId: string, accountId: string): string {
-  return `${startMs}\0${providerId}\0${accountId}`;
+function dailyAccountBucketKey(startMs: number, providerId: string, accountId: string, tenantId?: string, issuer?: string, keyId?: string): string {
+  return `${startMs}\0${providerId}\0${accountId}\0${tenantId ?? ""}\0${issuer ?? ""}\0${keyId ?? ""}`;
 }
 
 export class RequestLogStore {
@@ -890,6 +917,9 @@ export class RequestLogStore {
     const entry: RequestLogEntry = {
       id: crypto.randomUUID(),
       timestamp: input.timestamp ?? Date.now(),
+      tenantId: sanitizeOptionalShortString(input.tenantId, 120),
+      issuer: sanitizeOptionalShortString(input.issuer, 240),
+      keyId: sanitizeOptionalShortString(input.keyId, 160),
       providerId: input.providerId,
       accountId: input.accountId,
       authType: input.authType,
@@ -1082,7 +1112,11 @@ export class RequestLogStore {
 
     return [...this.dailyAccountBuckets.values()]
       .filter((bucket) => bucket.startMs >= since)
-      .sort((left, right) => left.startMs - right.startMs || left.providerId.localeCompare(right.providerId) || left.accountId.localeCompare(right.accountId))
+      .sort((left, right) => left.startMs - right.startMs
+        || left.providerId.localeCompare(right.providerId)
+        || left.accountId.localeCompare(right.accountId)
+        || (left.tenantId ?? "").localeCompare(right.tenantId ?? "")
+        || (left.keyId ?? "").localeCompare(right.keyId ?? ""))
       .map((bucket) => ({ ...bucket }));
   }
 
@@ -1144,6 +1178,18 @@ export class RequestLogStore {
       }
 
       if (filters.accountId && entry.accountId !== filters.accountId) {
+        return false;
+      }
+
+      if (filters.tenantId && entry.tenantId !== filters.tenantId) {
+        return false;
+      }
+
+      if (filters.issuer && entry.issuer !== filters.issuer) {
+        return false;
+      }
+
+      if (filters.keyId && entry.keyId !== filters.keyId) {
         return false;
       }
 
@@ -1271,8 +1317,16 @@ export class RequestLogStore {
     return created;
   }
 
-  private getOrCreateDailyAccountBucket(startMs: number, providerId: string, accountId: string, authType: RequestAuthType): DailyAccountBucket {
-    const key = dailyAccountBucketKey(startMs, providerId, accountId);
+  private getOrCreateDailyAccountBucket(
+    startMs: number,
+    providerId: string,
+    accountId: string,
+    authType: RequestAuthType,
+    tenantId?: string,
+    issuer?: string,
+    keyId?: string,
+  ): DailyAccountBucket {
+    const key = dailyAccountBucketKey(startMs, providerId, accountId, tenantId, issuer, keyId);
     const existing = this.dailyAccountBuckets.get(key);
     if (existing) {
       return existing;
@@ -1280,6 +1334,9 @@ export class RequestLogStore {
 
     const created: DailyAccountBucket = {
       startMs,
+      tenantId,
+      issuer,
+      keyId,
       providerId,
       accountId,
       authType,
@@ -1349,8 +1406,11 @@ export class RequestLogStore {
   }
 
   private applyEntryToAccountAccumulator(entry: RequestLogEntry): void {
-    const key = accountAccumulatorKey(entry.providerId, entry.accountId);
+    const key = accountAccumulatorKey(entry.providerId, entry.accountId, entry.tenantId, entry.issuer, entry.keyId);
     const acc = this.accountAccumulators.get(key) ?? {
+      tenantId: entry.tenantId,
+      issuer: entry.issuer,
+      keyId: entry.keyId,
       providerId: entry.providerId,
       accountId: entry.accountId,
       authType: entry.authType,
@@ -1378,7 +1438,7 @@ export class RequestLogStore {
   }
 
   private applyEntryDeltaToAccountAccumulator(next: RequestLogEntry, prev: RequestLogEntry): void {
-    const key = accountAccumulatorKey(next.providerId, next.accountId);
+    const key = accountAccumulatorKey(next.providerId, next.accountId, next.tenantId, next.issuer, next.keyId);
     const acc = this.accountAccumulators.get(key);
     if (!acc) return;
     acc.totalTokens += (sanitizeOptionalCount(next.totalTokens) ?? 0) - (sanitizeOptionalCount(prev.totalTokens) ?? 0);
@@ -1538,7 +1598,15 @@ export class RequestLogStore {
 
   private applyEntryToDailyAccountBuckets(entry: RequestLogEntry): void {
     const bucketStart = dayBucketStartMs(entry.timestamp);
-    const bucket = this.getOrCreateDailyAccountBucket(bucketStart, entry.providerId, entry.accountId, entry.authType);
+    const bucket = this.getOrCreateDailyAccountBucket(
+      bucketStart,
+      entry.providerId,
+      entry.accountId,
+      entry.authType,
+      entry.tenantId,
+      entry.issuer,
+      entry.keyId,
+    );
 
     bucket.requestCount += 1;
 
@@ -1678,7 +1746,15 @@ export class RequestLogStore {
 
   private applyEntryDeltaToDailyAccountBuckets(entry: RequestLogEntry, previous: RequestLogEntry): void {
     const bucketStart = dayBucketStartMs(entry.timestamp);
-    const bucket = this.getOrCreateDailyAccountBucket(bucketStart, entry.providerId, entry.accountId, entry.authType);
+    const bucket = this.getOrCreateDailyAccountBucket(
+      bucketStart,
+      entry.providerId,
+      entry.accountId,
+      entry.authType,
+      entry.tenantId,
+      entry.issuer,
+      entry.keyId,
+    );
 
     bucket.totalTokens += sumCount(entry.totalTokens) - sumCount(previous.totalTokens);
     bucket.promptTokens += sumCount(entry.promptTokens) - sumCount(previous.promptTokens);
