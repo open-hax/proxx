@@ -2,6 +2,7 @@ import { dirname } from "node:path";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 
 import type { Sql } from "./db/index.js";
+import { DEFAULT_TENANT_ID, normalizeTenantId } from "./tenant-api-key.js";
 
 export interface ProxySettings {
   readonly fastMode: boolean;
@@ -13,10 +14,30 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 const CONFIG_KEY = "proxy_settings";
 
+function normalizeSettings(value: unknown): ProxySettings {
+  if (isRecord(value) && typeof value.fastMode === "boolean") {
+    return { fastMode: value.fastMode };
+  }
+
+  return { fastMode: false };
+}
+
+function normalizeSettingsTenantId(tenantId?: string): string {
+  if (typeof tenantId !== "string" || tenantId.trim().length === 0) {
+    return DEFAULT_TENANT_ID;
+  }
+
+  return normalizeTenantId(tenantId);
+}
+
+function configKeyForTenant(tenantId: string): string {
+  return tenantId === DEFAULT_TENANT_ID ? CONFIG_KEY : `${CONFIG_KEY}:${tenantId}`;
+}
+
 export class ProxySettingsStore {
-  private settings: ProxySettings = {
-    fastMode: false,
-  };
+  private readonly settingsByTenant = new Map<string, ProxySettings>([
+    [DEFAULT_TENANT_ID, { fastMode: false }],
+  ]);
 
   public constructor(
     private readonly filePath: string,
@@ -24,84 +45,121 @@ export class ProxySettingsStore {
   ) {}
 
   public async warmup(): Promise<void> {
+    const defaultSettings = await this.loadDefaultSettings();
+    this.settingsByTenant.set(DEFAULT_TENANT_ID, defaultSettings);
+  }
+
+  private async loadDefaultSettings(): Promise<ProxySettings> {
     if (this.sql) {
       try {
         const rows = await this.sql<Array<{ value: ProxySettings }>>`
-          SELECT value FROM config WHERE key = ${CONFIG_KEY}
+          SELECT value FROM config WHERE key = ${configKeyForTenant(DEFAULT_TENANT_ID)}
         `;
-        if (rows.length > 0 && isRecord(rows[0]!.value)) {
-          const val = rows[0]!.value;
-            this.settings = { fastMode: typeof val.fastMode === "boolean" ? val.fastMode : false };
-            return;
-          }
+        if (rows.length > 0) {
+          return normalizeSettings(rows[0]!.value);
+        }
       } catch {
-        return;
+        return { fastMode: false };
       }
 
       try {
         const raw = await readFile(this.filePath, "utf8");
         const parsed: unknown = JSON.parse(raw);
-        if (isRecord(parsed) && typeof parsed.fastMode === "boolean") {
-          this.settings = { fastMode: parsed.fastMode };
-        }
+        const settings = normalizeSettings(parsed);
 
         try {
           await this.sql`
             INSERT INTO config (key, value, updated_at)
-            VALUES (${CONFIG_KEY}, ${JSON.stringify(this.settings)}::jsonb, NOW())
+            VALUES (${configKeyForTenant(DEFAULT_TENANT_ID)}, ${JSON.stringify(settings)}::jsonb, NOW())
             ON CONFLICT (key) DO NOTHING
           `;
         } catch {
           // ignore seed failure
         }
+
+        return settings;
       } catch {
-        // Start from defaults when the file is missing or invalid.
+        return { fastMode: false };
       }
-      return;
     }
 
     try {
       const raw = await readFile(this.filePath, "utf8");
-      const parsed: unknown = JSON.parse(raw);
-      if (isRecord(parsed) && typeof parsed.fastMode === "boolean") {
-        this.settings = { fastMode: parsed.fastMode };
-      }
+      return normalizeSettings(JSON.parse(raw) as unknown);
     } catch {
-      // Start from defaults when the file is missing or invalid.
+      return { fastMode: false };
     }
   }
 
   public get(): ProxySettings {
-    return { ...this.settings };
+    return { ...(this.settingsByTenant.get(DEFAULT_TENANT_ID) ?? { fastMode: false }) };
+  }
+
+  public async getForTenant(tenantId?: string): Promise<ProxySettings> {
+    const normalizedTenantId = normalizeSettingsTenantId(tenantId);
+    const cached = this.settingsByTenant.get(normalizedTenantId);
+    if (cached) {
+      return { ...cached };
+    }
+
+    if (this.sql) {
+      try {
+        const rows = await this.sql<Array<{ value: ProxySettings }>>`
+          SELECT value FROM config WHERE key = ${configKeyForTenant(normalizedTenantId)}
+        `;
+        const row = rows[0];
+        if (row) {
+          const loaded = normalizeSettings(row.value);
+          this.settingsByTenant.set(normalizedTenantId, loaded);
+          return { ...loaded };
+        }
+      } catch {
+        // Fall back to defaults when tenant lookup fails.
+      }
+    }
+
+    const fallback = this.settingsByTenant.get(DEFAULT_TENANT_ID) ?? { fastMode: false };
+    this.settingsByTenant.set(normalizedTenantId, fallback);
+    return { ...fallback };
   }
 
   public async set(next: Partial<ProxySettings>): Promise<ProxySettings> {
-    this.settings = {
-      ...this.settings,
+    return this.setForTenant(next, DEFAULT_TENANT_ID);
+  }
+
+  public async setForTenant(next: Partial<ProxySettings>, tenantId?: string): Promise<ProxySettings> {
+    const normalizedTenantId = normalizeSettingsTenantId(tenantId);
+    const currentSettings = await this.getForTenant(normalizedTenantId);
+    const mergedSettings: ProxySettings = {
+      ...currentSettings,
       ...next,
     };
+    this.settingsByTenant.set(normalizedTenantId, mergedSettings);
 
     if (this.sql) {
       try {
         await this.sql`
           INSERT INTO config (key, value, updated_at)
-          VALUES (${CONFIG_KEY}, ${JSON.stringify(this.settings)}::jsonb, NOW())
+          VALUES (${configKeyForTenant(normalizedTenantId)}, ${JSON.stringify(mergedSettings)}::jsonb, NOW())
           ON CONFLICT (key) DO UPDATE SET
             value = EXCLUDED.value,
             updated_at = NOW()
         `;
-        return this.get();
+        return { ...mergedSettings };
       } catch {
-        return this.get();
+        return { ...mergedSettings };
       }
     }
 
     try {
       await mkdir(dirname(this.filePath), { recursive: true });
-      await writeFile(this.filePath, JSON.stringify(this.settings, null, 2), "utf8");
+      if (normalizedTenantId === DEFAULT_TENANT_ID) {
+        await writeFile(this.filePath, JSON.stringify(mergedSettings, null, 2), "utf8");
+      }
     } catch {
       // Read-only filesystem; settings are still in memory
     }
-    return this.get();
+
+    return { ...mergedSettings };
   }
 }

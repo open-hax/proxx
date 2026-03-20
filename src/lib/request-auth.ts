@@ -8,14 +8,33 @@ export interface TenantApiKeyAuthMatch {
   readonly scopes: readonly string[];
 }
 
+export type RequestAuthRole = "owner" | "admin" | "member" | "viewer";
+
+export interface RequestAuthMembership {
+  readonly tenantId: string;
+  readonly tenantName?: string;
+  readonly tenantStatus?: string;
+  readonly role: RequestAuthRole;
+}
+
+export interface UiSessionAuthMatch {
+  readonly userId: string;
+  readonly subject: string;
+  readonly activeTenantId: string;
+  readonly role: RequestAuthRole;
+  readonly memberships: readonly RequestAuthMembership[];
+}
+
 export interface ResolvedRequestAuth {
-  readonly kind: "legacy_admin" | "tenant_api_key" | "unauthenticated";
+  readonly kind: "legacy_admin" | "tenant_api_key" | "ui_session" | "unauthenticated";
   readonly tenantId?: string;
-  readonly role?: "owner" | "admin" | "member" | "viewer";
+  readonly role?: RequestAuthRole;
   readonly source: "bearer" | "cookie" | "none";
+  readonly userId?: string;
   readonly subject?: string;
   readonly keyId?: string;
   readonly scopes?: readonly string[];
+  readonly memberships?: readonly RequestAuthMembership[];
 }
 
 function extractBearerToken(authorization: string | undefined): string | undefined {
@@ -37,11 +56,16 @@ export async function resolveRequestAuth(input: {
   readonly proxyAuthToken?: string;
   readonly authorization?: string;
   readonly cookieToken?: string;
+  readonly oauthAccessToken?: string;
   readonly resolveTenantApiKey?: (token: string) => Promise<TenantApiKeyAuthMatch | undefined>;
+  readonly resolveUiSession?: (token: string) => Promise<UiSessionAuthMatch | undefined>;
 }): Promise<ResolvedRequestAuth | undefined> {
   const bearerToken = extractBearerToken(input.authorization);
   const cookieToken = typeof input.cookieToken === "string" && input.cookieToken.trim().length > 0
     ? input.cookieToken.trim()
+    : undefined;
+  const oauthAccessToken = typeof input.oauthAccessToken === "string" && input.oauthAccessToken.trim().length > 0
+    ? input.oauthAccessToken.trim()
     : undefined;
 
   if (input.proxyAuthToken) {
@@ -78,6 +102,38 @@ export async function resolveRequestAuth(input: {
         keyId: match.id,
         scopes: match.scopes,
       };
+    }
+  }
+
+  if (input.resolveUiSession) {
+    if (bearerToken) {
+      const match = await input.resolveUiSession(bearerToken);
+      if (match) {
+        return {
+          kind: "ui_session",
+          tenantId: match.activeTenantId,
+          role: match.role,
+          source: "bearer",
+          userId: match.userId,
+          subject: match.subject,
+          memberships: match.memberships,
+        };
+      }
+    }
+
+    if (oauthAccessToken && oauthAccessToken !== bearerToken) {
+      const match = await input.resolveUiSession(oauthAccessToken);
+      if (match) {
+        return {
+          kind: "ui_session",
+          tenantId: match.activeTenantId,
+          role: match.role,
+          source: "cookie",
+          userId: match.userId,
+          subject: match.subject,
+          memberships: match.memberships,
+        };
+      }
     }
   }
 

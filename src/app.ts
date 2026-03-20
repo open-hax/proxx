@@ -768,7 +768,10 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
 
     const rawPath = (request.raw.url ?? request.url).split("?", 1)[0] ?? request.url;
     const allowUnauthenticatedRoute = rawPath === "/health" || rawPath === "/api/ui/credentials/openai/oauth/browser/callback"
-      || rawPath === "/auth/callback" || rawPath === "/auth/factory/callback";
+      || rawPath === "/auth/callback" || rawPath === "/auth/factory/callback"
+      || rawPath === config.githubOAuthCallbackPath || rawPath === "/auth/login"
+      || rawPath === "/auth/refresh" || rawPath === "/auth/logout";
+    const allowUiSessionAuth = rawPath.startsWith("/api/ui/") || rawPath.startsWith("/auth/");
 
     if (allowUnauthenticatedRoute) {
       return;
@@ -779,8 +782,22 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       proxyAuthToken: config.proxyAuthToken,
       authorization: request.headers.authorization,
       cookieToken: readCookieToken(request.headers.cookie, PROXY_AUTH_COOKIE_NAME),
+      oauthAccessToken: allowUiSessionAuth ? readCookieToken(request.headers.cookie, "proxy_auth") : undefined,
       resolveTenantApiKey: sqlCredentialStore
         ? async (token) => sqlCredentialStore!.resolveTenantApiKey(token, config.proxyTokenPepper)
+        : undefined,
+      resolveUiSession: allowUiSessionAuth && sqlCredentialStore && sqlAuthPersistence
+        ? async (token) => {
+          const accessToken = await sqlAuthPersistence.getAccessToken(token);
+          if (!accessToken) {
+            return undefined;
+          }
+
+          const activeTenantId = typeof accessToken.extra?.activeTenantId === "string"
+            ? accessToken.extra.activeTenantId
+            : undefined;
+          return sqlCredentialStore.resolveUiSession(accessToken.subject, activeTenantId);
+        }
         : undefined,
     });
 
@@ -1074,7 +1091,9 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       return;
     }
 
-    const proxySettings = proxySettingsStore.get();
+    const proxySettings = await proxySettingsStore.getForTenant(
+      ((request as { readonly openHaxAuth?: { readonly tenantId?: string } }).openHaxAuth?.tenantId) ?? DEFAULT_TENANT_ID,
+    );
     const requestBody = proxySettings.fastMode
       ? {
         open_hax: {
@@ -1780,6 +1799,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     requestLogStore,
     credentialStore: runtimeCredentialStore,
     sqlCredentialStore,
+    authPersistence: sqlAuthPersistence,
     proxySettingsStore,
     eventStore,
     refreshOpenAiOauthAccounts,

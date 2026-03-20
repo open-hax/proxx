@@ -6,12 +6,14 @@ import { SqlAuthPersistence } from "./auth/sql-persistence.js";
 import { SqlGitHubAllowlist } from "./auth/github-allowlist.js";
 import { seedFromJsonFile } from "./db/json-seeder.js";
 import { SqlCredentialStore } from "./db/sql-credential-store.js";
+import { DEFAULT_TENANT_ID } from "./tenant-api-key.js";
 
 interface GitHubUser {
   id: number;
   login: string;
   email: string | null;
   name: string | null;
+  avatar_url?: string | null;
 }
 
 interface PendingAuth {
@@ -200,6 +202,22 @@ export async function registerOAuthRoutes(
       return;
     }
 
+    const subject = user.login.trim().toLowerCase();
+    const persistedUser = await deps.credentialStore.upsertUser({
+      provider: "github",
+      subject,
+      login: subject,
+      email: user.email,
+      name: user.name,
+      avatarUrl: user.avatar_url ?? null,
+    });
+    await deps.credentialStore.ensureDefaultTenantBootstrapMembership(persistedUser.id);
+
+    const resolvedSession = await deps.credentialStore.resolveUiSession(subject, DEFAULT_TENANT_ID);
+    const tokenExtra = resolvedSession
+      ? { activeTenantId: resolvedSession.activeTenantId }
+      : undefined;
+
     const accessToken = generateToken();
     const refreshToken = generateToken();
     const now = Math.floor(Date.now() / 1000);
@@ -207,16 +225,18 @@ export async function registerOAuthRoutes(
     await deps.authPersistence.setAccessToken({
       token: accessToken,
       clientId: "github-oauth",
-      subject: user.login,
+      subject,
       scopes: ["read", "write"],
+      extra: tokenExtra,
       expiresAt: now + ACCESS_TOKEN_TTL_SECONDS,
     });
 
     await deps.authPersistence.setRefreshToken({
       token: refreshToken,
       clientId: "github-oauth",
-      subject: user.login,
+      subject,
       scopes: ["read", "write"],
+      extra: tokenExtra,
       expiresAt: now + REFRESH_TOKEN_TTL_SECONDS,
     });
 

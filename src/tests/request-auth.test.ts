@@ -72,6 +72,52 @@ test("resolveRequestAuth accepts tenant api key bearer token when no legacy prox
   assert.equal(resolved.tenantId, "beta");
 });
 
+test("resolveRequestAuth accepts ui session bearer token", async () => {
+  const resolved = await resolveRequestAuth({
+    allowUnauthenticated: false,
+    authorization: "Bearer ui-access-token",
+    resolveUiSession: async (token) => token === "ui-access-token"
+      ? {
+          userId: "user-1",
+          subject: "octocat",
+          activeTenantId: "default",
+          role: "owner",
+          memberships: [{ tenantId: "default", tenantName: "default", tenantStatus: "active", role: "owner" }],
+        }
+      : undefined,
+  });
+
+  assert.ok(resolved);
+  assert.equal(resolved.kind, "ui_session");
+  assert.equal(resolved.source, "bearer");
+  assert.equal(resolved.userId, "user-1");
+  assert.equal(resolved.tenantId, "default");
+  assert.equal(resolved.role, "owner");
+  assert.equal(resolved.memberships?.length, 1);
+});
+
+test("resolveRequestAuth accepts ui session cookie token", async () => {
+  const resolved = await resolveRequestAuth({
+    allowUnauthenticated: false,
+    oauthAccessToken: "cookie-ui-token",
+    resolveUiSession: async (token) => token === "cookie-ui-token"
+      ? {
+          userId: "user-2",
+          subject: "hubot",
+          activeTenantId: "acme",
+          role: "admin",
+          memberships: [{ tenantId: "acme", tenantName: "Acme", tenantStatus: "active", role: "admin" }],
+        }
+      : undefined,
+  });
+
+  assert.ok(resolved);
+  assert.equal(resolved.kind, "ui_session");
+  assert.equal(resolved.source, "cookie");
+  assert.equal(resolved.subject, "hubot");
+  assert.equal(resolved.tenantId, "acme");
+});
+
 test("resolveRequestAuth allows explicit unauthenticated mode", async () => {
   const resolved = await resolveRequestAuth({
     allowUnauthenticated: true,

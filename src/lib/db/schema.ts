@@ -244,6 +244,48 @@ FROM tenants
 ORDER BY id;
 `;
 
+export const UPSERT_USER = `
+INSERT INTO users (id, provider, subject, login, email, name, avatar_url, last_login_at, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
+ON CONFLICT (subject) DO UPDATE SET
+  provider = EXCLUDED.provider,
+  login = EXCLUDED.login,
+  email = EXCLUDED.email,
+  name = EXCLUDED.name,
+  avatar_url = EXCLUDED.avatar_url,
+  last_login_at = NOW(),
+  updated_at = NOW()
+RETURNING id, provider, subject, login, email, name, avatar_url;
+`;
+
+export const SELECT_USER_BY_SUBJECT = `
+SELECT id, provider, subject, login, email, name, avatar_url
+FROM users
+WHERE subject = $1
+LIMIT 1;
+`;
+
+export const UPSERT_TENANT_MEMBERSHIP = `
+INSERT INTO tenant_memberships (tenant_id, user_id, role)
+VALUES ($1, $2, $3)
+ON CONFLICT (tenant_id, user_id) DO UPDATE SET
+  role = EXCLUDED.role;
+`;
+
+export const SELECT_TENANT_MEMBERSHIPS_BY_USER = `
+SELECT tm.tenant_id, tm.role, t.name AS tenant_name, t.status AS tenant_status
+FROM tenant_memberships tm
+JOIN tenants t ON t.id = tm.tenant_id
+WHERE tm.user_id = $1
+ORDER BY tm.tenant_id ASC;
+`;
+
+export const COUNT_TENANT_MEMBERSHIPS_FOR_TENANT = `
+SELECT COUNT(*)::BIGINT AS count
+FROM tenant_memberships
+WHERE tenant_id = $1;
+`;
+
 export const SELECT_ACTIVE_TENANT_API_KEY_BY_HASH = `
 SELECT id, tenant_id, label, prefix, scopes, revoked_at
 FROM tenant_api_keys

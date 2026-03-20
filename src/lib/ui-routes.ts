@@ -17,6 +17,8 @@ import { getToolSeedForModel, loadMcpSeeds } from "./tool-mcp-seed.js";
 import type { ProxySettingsStore } from "./proxy-settings-store.js";
 import type { EventStore } from "./db/event-store.js";
 import type { SqlCredentialStore } from "./db/sql-credential-store.js";
+import type { SqlAuthPersistence } from "./auth/sql-persistence.js";
+import { DEFAULT_TENANT_ID, normalizeTenantId } from "./tenant-api-key.js";
 
 interface UiRouteDependencies {
   readonly config: ProxyConfig;
@@ -24,6 +26,7 @@ interface UiRouteDependencies {
   readonly requestLogStore: RequestLogStore;
   readonly credentialStore: CredentialStoreLike;
   readonly sqlCredentialStore?: SqlCredentialStore;
+  readonly authPersistence?: SqlAuthPersistence;
   readonly proxySettingsStore: ProxySettingsStore;
   readonly eventStore?: EventStore;
   readonly refreshOpenAiOauthAccounts?: (accountId?: string) => Promise<{
@@ -223,6 +226,49 @@ function getResolvedAuth(request: { readonly openHaxAuth?: unknown }): ResolvedR
   return typeof auth === "object" && auth !== null ? auth as ResolvedRequestAuth : undefined;
 }
 
+function readCookieValue(cookieHeader: string | undefined, name: string): string | undefined {
+  if (!cookieHeader) {
+    return undefined;
+  }
+
+  for (const part of cookieHeader.split(";")) {
+    const trimmed = part.trim();
+    if (!trimmed.startsWith(`${name}=`)) {
+      continue;
+    }
+
+    const rawValue = trimmed.slice(name.length + 1);
+    try {
+      return decodeURIComponent(rawValue);
+    } catch {
+      return rawValue;
+    }
+  }
+
+  return undefined;
+}
+
+function toVisibleTenants(auth: ResolvedRequestAuth, fallbackTenants: readonly { id: string; name: string; status: string }[] = []): readonly { id: string; name: string; status: string }[] {
+  if (auth.kind === "legacy_admin") {
+    return fallbackTenants;
+  }
+
+  return (auth.memberships ?? []).map((membership) => ({
+    id: membership.tenantId,
+    name: membership.tenantName ?? membership.tenantId,
+    status: membership.tenantStatus ?? "active",
+  }));
+}
+
+function getMembershipForTenant(auth: ResolvedRequestAuth | undefined, tenantId: string) {
+  if (!auth) {
+    return undefined;
+  }
+
+  const normalizedTenantId = normalizeTenantId(tenantId);
+  return auth.memberships?.find((membership) => membership.tenantId === normalizedTenantId);
+}
+
 function authCanViewTenant(auth: ResolvedRequestAuth | undefined, tenantId: string): boolean {
   if (!auth) {
     return false;
@@ -232,7 +278,7 @@ function authCanViewTenant(auth: ResolvedRequestAuth | undefined, tenantId: stri
     return true;
   }
 
-  return auth.tenantId === tenantId;
+  return Boolean(getMembershipForTenant(auth, tenantId) ?? (auth.tenantId === normalizeTenantId(tenantId)));
 }
 
 function authCanManageTenantKeys(auth: ResolvedRequestAuth | undefined, tenantId: string): boolean {
@@ -244,7 +290,8 @@ function authCanManageTenantKeys(auth: ResolvedRequestAuth | undefined, tenantId
     return true;
   }
 
-  return (auth.role === "owner" || auth.role === "admin") && auth.tenantId === tenantId;
+  const membership = getMembershipForTenant(auth, tenantId);
+  return membership?.role === "owner" || membership?.role === "admin";
 }
 
 function toChatRole(value: unknown): ChatRole {
@@ -1168,8 +1215,15 @@ export async function registerUiRoutes(app: FastifyInstance, deps: UiRouteDepend
     return seeds;
   };
 
-  app.get("/api/ui/settings", async (_request, reply) => {
-    reply.send(deps.proxySettingsStore.get());
+  app.get("/api/ui/settings", async (request, reply) => {
+    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
+    if (!auth) {
+      reply.code(401).send({ error: "unauthorized" });
+      return;
+    }
+
+    const settings = await deps.proxySettingsStore.getForTenant(auth.tenantId ?? DEFAULT_TENANT_ID);
+    reply.send(settings);
   });
 
   app.get("/api/ui/me", async (request, reply) => {
@@ -1180,16 +1234,18 @@ export async function registerUiRoutes(app: FastifyInstance, deps: UiRouteDepend
     }
 
     const tenants = deps.sqlCredentialStore
-      ? auth.kind === "legacy_admin"
-        ? await deps.sqlCredentialStore.listTenants()
-        : auth.tenantId
-          ? (await deps.sqlCredentialStore.listTenants()).filter((tenant) => tenant.id === auth.tenantId)
-          : []
+      ? toVisibleTenants(
+        auth,
+        auth.kind === "legacy_admin"
+          ? await deps.sqlCredentialStore.listTenants()
+          : [],
+      )
       : [];
 
     reply.send({
       auth,
       activeTenantId: auth.tenantId ?? null,
+      memberships: auth.memberships ?? [],
       tenants,
     });
   });
@@ -1206,14 +1262,70 @@ export async function registerUiRoutes(app: FastifyInstance, deps: UiRouteDepend
       return;
     }
 
-    const tenants = await deps.sqlCredentialStore.listTenants();
-    const visibleTenants = auth.kind === "legacy_admin"
-      ? tenants
-      : auth.tenantId
-        ? tenants.filter((tenant) => tenant.id === auth.tenantId)
-        : [];
+    const visibleTenants = toVisibleTenants(
+      auth,
+      auth.kind === "legacy_admin"
+        ? await deps.sqlCredentialStore.listTenants()
+        : [],
+    );
 
     reply.send({ tenants: visibleTenants });
+  });
+
+  app.post<{ Params: { readonly tenantId: string } }>("/api/ui/tenants/:tenantId/select", async (request, reply) => {
+    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
+    if (!auth) {
+      reply.code(401).send({ error: "unauthorized" });
+      return;
+    }
+
+    if (!deps.authPersistence) {
+      reply.code(501).send({ error: "auth_persistence_not_supported" });
+      return;
+    }
+
+    if (auth.kind !== "ui_session") {
+      reply.code(400).send({ error: "ui_session_required" });
+      return;
+    }
+
+    const tenantId = normalizeTenantId(request.params.tenantId);
+    if (!authCanViewTenant(auth, tenantId)) {
+      reply.code(403).send({ error: "forbidden" });
+      return;
+    }
+
+    const accessToken = readCookieValue(request.headers.cookie, "proxy_auth");
+    if (!accessToken) {
+      reply.code(401).send({ error: "session_cookie_missing" });
+      return;
+    }
+
+    const storedAccessToken = await deps.authPersistence.getAccessToken(accessToken);
+    if (!storedAccessToken || storedAccessToken.subject !== auth.subject) {
+      reply.code(401).send({ error: "invalid_session" });
+      return;
+    }
+
+    const nextAccessExtra = {
+      ...(storedAccessToken.extra ?? {}),
+      activeTenantId: tenantId,
+    };
+    await deps.authPersistence.updateAccessTokenExtra(accessToken, nextAccessExtra);
+
+    const refreshToken = readCookieValue(request.headers.cookie, "proxy_refresh");
+    if (refreshToken) {
+      const storedRefreshToken = await deps.authPersistence.getRefreshToken(refreshToken);
+      if (storedRefreshToken && storedRefreshToken.subject === auth.subject) {
+        const nextRefreshExtra = {
+          ...(storedRefreshToken.extra ?? {}),
+          activeTenantId: tenantId,
+        };
+        await deps.authPersistence.updateRefreshTokenExtra(refreshToken, nextRefreshExtra);
+      }
+    }
+
+    reply.send({ ok: true, activeTenantId: tenantId });
   });
 
   app.get<{ Params: { readonly tenantId: string } }>("/api/ui/tenants/:tenantId/api-keys", async (request, reply) => {
@@ -1304,11 +1416,28 @@ export async function registerUiRoutes(app: FastifyInstance, deps: UiRouteDepend
   });
 
   app.post<{ Body: { readonly fastMode?: unknown } }>("/api/ui/settings", async (request, reply) => {
-    const nextSettings = await deps.proxySettingsStore.set({
-      fastMode: parseBoolean(request.body?.fastMode),
-    });
+    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
+    if (!auth) {
+      reply.code(401).send({ error: "unauthorized" });
+      return;
+    }
 
-    app.log.info({ fastMode: nextSettings.fastMode }, "updated proxy UI settings");
+    if (auth.kind === "tenant_api_key") {
+      reply.code(403).send({ error: "forbidden" });
+      return;
+    }
+
+    if (auth.kind === "ui_session" && auth.role !== "owner" && auth.role !== "admin") {
+      reply.code(403).send({ error: "forbidden" });
+      return;
+    }
+
+    const tenantId = auth.tenantId ?? DEFAULT_TENANT_ID;
+    const nextSettings = await deps.proxySettingsStore.setForTenant({
+      fastMode: parseBoolean(request.body?.fastMode),
+    }, tenantId);
+
+    app.log.info({ fastMode: nextSettings.fastMode, tenantId }, "updated proxy UI settings");
     reply.send(nextSettings);
   });
 

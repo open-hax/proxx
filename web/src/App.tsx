@@ -47,7 +47,7 @@ export function App(): JSX.Element {
     try {
       const saved = await saveProxyUiSettings({ fastMode: nextValue });
       setFastMode(saved.fastMode);
-      setFastModeMessage(saved.fastMode ? "Global fast mode enabled." : "Global fast mode disabled.");
+      setFastModeMessage(saved.fastMode ? "Fast mode enabled for the current tenant." : "Fast mode disabled for the current tenant.");
     } catch (error) {
       setFastMode(!nextValue);
       setFastModeMessage(error instanceof Error ? error.message : String(error));
@@ -104,10 +104,10 @@ export function App(): JSX.Element {
                   void handleFastModeToggle(event.currentTarget.checked);
                 }}
               />
-              Global fast mode (priority tier)
+              Fast mode for current tenant (priority tier)
             </label>
             <small>
-              Applies `service_tier: \"priority\"` to proxied Responses requests unless a request already sets its own tier.
+              Applies `service_tier: \"priority\"` to proxied Responses requests for the active tenant unless a request already sets its own tier.
             </small>
             {fastModeMessage && <small>{fastModeMessage}</small>}
           </div>

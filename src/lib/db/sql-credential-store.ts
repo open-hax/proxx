@@ -25,6 +25,11 @@ import {
   CHECK_VERSION_EXISTS,
   UPSERT_PROVIDER,
   UPSERT_TENANT,
+  UPSERT_USER,
+  SELECT_USER_BY_SUBJECT,
+  UPSERT_TENANT_MEMBERSHIP,
+  SELECT_TENANT_MEMBERSHIPS_BY_USER,
+  COUNT_TENANT_MEMBERSHIPS_FOR_TENANT,
   INSERT_ACCOUNT,
   INSERT_TENANT_API_KEY,
   SELECT_ACTIVE_TENANT_API_KEY_BY_HASH,
@@ -50,6 +55,23 @@ interface TenantRow {
   id: string;
   name: string;
   status: string;
+}
+
+interface UserRow {
+  id: string;
+  provider: string;
+  subject: string;
+  login: string | null;
+  email: string | null;
+  name: string | null;
+  avatar_url: string | null;
+}
+
+interface TenantMembershipRow {
+  tenant_id: string;
+  role: string;
+  tenant_name: string;
+  tenant_status: string;
 }
 
 interface TenantApiKeyRow {
@@ -165,6 +187,33 @@ export interface TenantView {
   status: string;
 }
 
+export type TenantMembershipRole = "owner" | "admin" | "member" | "viewer";
+
+export interface UserView {
+  id: string;
+  provider: string;
+  subject: string;
+  login: string | null;
+  email: string | null;
+  name: string | null;
+  avatarUrl: string | null;
+}
+
+export interface TenantMembershipView {
+  tenantId: string;
+  tenantName: string;
+  tenantStatus: string;
+  role: TenantMembershipRole;
+}
+
+export interface ResolvedUiSession {
+  userId: string;
+  subject: string;
+  activeTenantId: string;
+  role: TenantMembershipRole;
+  memberships: readonly TenantMembershipView[];
+}
+
 export interface TenantApiKeyMatch {
   id: string;
   tenantId: string;
@@ -208,6 +257,36 @@ function parseScopes(value: string[] | string | null): string[] {
   }
 
   return [];
+}
+
+function normalizeMembershipRole(value: string): TenantMembershipRole {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "owner" || normalized === "admin" || normalized === "member" || normalized === "viewer") {
+    return normalized;
+  }
+
+  return "viewer";
+}
+
+function toUserView(row: UserRow): UserView {
+  return {
+    id: row.id,
+    provider: row.provider,
+    subject: row.subject,
+    login: row.login,
+    email: row.email,
+    name: row.name,
+    avatarUrl: row.avatar_url,
+  };
+}
+
+function toTenantMembershipView(row: TenantMembershipRow): TenantMembershipView {
+  return {
+    tenantId: row.tenant_id,
+    tenantName: row.tenant_name,
+    tenantStatus: row.tenant_status,
+    role: normalizeMembershipRole(row.role),
+  };
 }
 
 export class SqlCredentialStore {
@@ -279,6 +358,100 @@ export class SqlCredentialStore {
       name: row.name,
       status: row.status,
     }));
+  }
+
+  public async upsertUser(input: {
+    provider: string;
+    subject: string;
+    login?: string | null;
+    email?: string | null;
+    name?: string | null;
+    avatarUrl?: string | null;
+  }): Promise<UserView> {
+    const subject = input.subject.trim().toLowerCase();
+    if (subject.length === 0) {
+      throw new Error("user subject must not be empty");
+    }
+
+    const rows = await this.sql.unsafe<UserRow[]>(UPSERT_USER, [
+      crypto.randomUUID(),
+      input.provider.trim().toLowerCase(),
+      subject,
+      input.login?.trim() || null,
+      input.email?.trim() || null,
+      input.name?.trim() || null,
+      input.avatarUrl?.trim() || null,
+    ]);
+    const row = rows[0];
+    if (!row) {
+      throw new Error("failed to upsert user");
+    }
+
+    return toUserView(row);
+  }
+
+  public async getUserBySubject(subject: string): Promise<UserView | undefined> {
+    const normalizedSubject = subject.trim().toLowerCase();
+    if (normalizedSubject.length === 0) {
+      return undefined;
+    }
+
+    const rows = await this.sql.unsafe<UserRow[]>(SELECT_USER_BY_SUBJECT, [normalizedSubject]);
+    const row = rows[0];
+    return row ? toUserView(row) : undefined;
+  }
+
+  public async listUserMemberships(userId: string): Promise<TenantMembershipView[]> {
+    const rows = await this.sql.unsafe<TenantMembershipRow[]>(SELECT_TENANT_MEMBERSHIPS_BY_USER, [userId]);
+    return rows.map(toTenantMembershipView);
+  }
+
+  public async ensureTenantMembership(userId: string, tenantId: string, role: TenantMembershipRole): Promise<void> {
+    const normalizedTenantId = normalizeTenantId(tenantId);
+    await this.sql.unsafe(UPSERT_TENANT_MEMBERSHIP, [normalizedTenantId, userId, role]);
+  }
+
+  public async ensureDefaultTenantBootstrapMembership(userId: string): Promise<TenantMembershipRole> {
+    const existingMemberships = await this.listUserMemberships(userId);
+    const existingDefaultMembership = existingMemberships.find((membership) => membership.tenantId === DEFAULT_TENANT_ID);
+    if (existingDefaultMembership) {
+      return existingDefaultMembership.role;
+    }
+
+    const rows = await this.sql.unsafe<Array<{ count: string | number }>>(COUNT_TENANT_MEMBERSHIPS_FOR_TENANT, [DEFAULT_TENANT_ID]);
+    const count = Number(rows[0]?.count ?? 0);
+    const role: TenantMembershipRole = count === 0 ? "owner" : "admin";
+    await this.ensureTenantMembership(userId, DEFAULT_TENANT_ID, role);
+    return role;
+  }
+
+  public async resolveUiSession(subject: string, activeTenantId?: string): Promise<ResolvedUiSession | undefined> {
+    const user = await this.getUserBySubject(subject);
+    if (!user) {
+      return undefined;
+    }
+
+    const memberships = await this.listUserMemberships(user.id);
+    if (memberships.length === 0) {
+      return undefined;
+    }
+
+    const normalizedActiveTenantId = typeof activeTenantId === "string" && activeTenantId.trim().length > 0
+      ? normalizeTenantId(activeTenantId)
+      : undefined;
+    const activeMembership = (normalizedActiveTenantId
+      ? memberships.find((membership) => membership.tenantId === normalizedActiveTenantId)
+      : undefined)
+      ?? memberships.find((membership) => membership.tenantId === DEFAULT_TENANT_ID)
+      ?? memberships[0];
+
+    return {
+      userId: user.id,
+      subject: user.subject,
+      activeTenantId: activeMembership.tenantId,
+      role: activeMembership.role,
+      memberships,
+    };
   }
 
   public async resolveTenantApiKey(token: string, pepper: string): Promise<TenantApiKeyMatch | undefined> {

@@ -120,6 +120,7 @@ export interface UsageTrendPoint {
 
 export interface ProxyUiSettings {
   readonly fastMode: boolean;
+  readonly tenantId?: string;
 }
 
 export interface UsageAccountSummary {
