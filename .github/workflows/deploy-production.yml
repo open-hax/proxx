@@ -31,7 +31,7 @@ jobs:
       - run: go install github.com/rhysd/actionlint/cmd/actionlint@latest
       - run: chmod +x scripts/*.sh
       - run: ./scripts/ci-lint.sh
-      - run: "$(go env GOPATH)/bin/actionlint"
+      - run: ${HOME}/go/bin/actionlint
       - run: pnpm dlx markdownlint-cli2 README.md DEVEL.md 'specs/**/*.md' '.github/workflows/*.yml'
       - run: pnpm install --frozen-lockfile
       - run: pnpm run typecheck
@@ -67,6 +67,7 @@ jobs:
       - name: production deploy failure logs
         if: failure()
         run: |
+          # shellcheck disable=SC2029,SC2086
           ssh error@${PRODUCTION_HOST} "cd '${PRODUCTION_PATH}' && docker compose -f docker-compose.yml -f deploy/docker-compose.ssl.yml ps && docker compose -f docker-compose.yml -f deploy/docker-compose.ssl.yml logs --tail=200"
         env:
           PRODUCTION_HOST: ${{ vars.PRODUCTION_SSH_HOST || 'ussy.promethean.rest' }}
@@ -81,7 +82,8 @@ jobs:
     environment: production
     steps:
       - run: |
-          for i in $(seq 1 30); do
+          for attempt in $(seq 1 30); do
+            echo "health-check attempt ${attempt}" >/dev/null
             if curl -fsS -H "Authorization: Bearer ${PRODUCTION_AUTH_TOKEN}" "${PRODUCTION_BASE_URL}/health" >/dev/null; then
               exit 0
             fi
