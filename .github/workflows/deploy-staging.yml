@@ -25,16 +25,11 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: sudo apt-get update && sudo apt-get install -y shellcheck
+      - run: go install github.com/rhysd/actionlint/cmd/actionlint@latest
       - run: chmod +x scripts/*.sh
       - run: ./scripts/ci-lint.sh
-      - uses: rhysd/actionlint@v1
-      - uses: DavidAnson/markdownlint-cli2-action@v19
-        with:
-          globs: |
-            README.md
-            DEVEL.md
-            specs/**/*.md
-            .github/workflows/*.yml
+      - run: "$(go env GOPATH)/bin/actionlint"
+      - run: pnpm dlx markdownlint-cli2 README.md DEVEL.md 'specs/**/*.md' '.github/workflows/*.yml'
       - run: pnpm install --frozen-lockfile
       - run: pnpm run typecheck
       - run: pnpm test
