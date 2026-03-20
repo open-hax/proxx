@@ -308,3 +308,62 @@ test("warmup backfills missing derived cost/env estimates from token counts and 
     await store.close();
   });
 });
+
+test("request log store tracks tenant usage attribution separately", async () => {
+  await withTempDir(async (tempDir) => {
+    const filePath = path.join(tempDir, "request-logs.jsonl");
+    const store = new RequestLogStore(filePath, 100);
+    await store.warmup();
+
+    store.record({
+      tenantId: "acme",
+      issuer: "local",
+      keyId: "key-acme",
+      providerId: "openai",
+      accountId: "acct-1",
+      authType: "oauth_bearer",
+      model: "gpt-5.4",
+      upstreamMode: "responses",
+      upstreamPath: "/v1/responses",
+      status: 200,
+      latencyMs: 100,
+      totalTokens: 50,
+    });
+
+    store.record({
+      tenantId: "beta",
+      issuer: "local",
+      keyId: "key-beta",
+      providerId: "openai",
+      accountId: "acct-1",
+      authType: "oauth_bearer",
+      model: "gpt-5.4",
+      upstreamMode: "responses",
+      upstreamPath: "/v1/responses",
+      status: 200,
+      latencyMs: 120,
+      totalTokens: 70,
+    });
+
+    const acmeEntries = store.list({ tenantId: "acme" });
+    assert.equal(acmeEntries.length, 1);
+    assert.equal(acmeEntries[0]?.keyId, "key-acme");
+
+    const dailyAccountBuckets = store.snapshotDailyAccountBuckets();
+    assert.equal(dailyAccountBuckets.length, 2);
+    assert.ok(dailyAccountBuckets.some((bucket) => bucket.tenantId === "acme" && bucket.keyId === "key-acme" && bucket.totalTokens === 50));
+    assert.ok(dailyAccountBuckets.some((bucket) => bucket.tenantId === "beta" && bucket.keyId === "key-beta" && bucket.totalTokens === 70));
+
+    const accumulators = store.snapshotAccountAccumulators();
+    assert.equal(accumulators.length, 2);
+    assert.ok(accumulators.some((acc) => acc.tenantId === "acme" && acc.keyId === "key-acme" && acc.totalTokens === 50));
+    assert.ok(accumulators.some((acc) => acc.tenantId === "beta" && acc.keyId === "key-beta" && acc.totalTokens === 70));
+
+    await store.close();
+
+    const persistedEntries = parseJsonlEntries(await readFile(filePath, "utf8")) as Array<Record<string, unknown>>;
+    assert.equal(persistedEntries.length, 2);
+    assert.equal(persistedEntries[0]?.tenantId, "acme");
+    assert.equal(persistedEntries[1]?.tenantId, "beta");
+  });
+});

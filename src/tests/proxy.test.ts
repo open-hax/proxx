@@ -4245,6 +4245,218 @@ test("provider-model analytics summarizes global models, providers, and provider
   );
 });
 
+test("dashboard overview scopes usage to the requested tenant", async () => {
+  const requestLogsPayload = {
+    entries: [
+      {
+        id: "entry-acme-openai",
+        timestamp: Date.UTC(2026, 2, 18, 12, 0, 0),
+        tenantId: "acme",
+        issuer: "local",
+        keyId: "key-acme-1",
+        providerId: "openai",
+        accountId: "acct-1",
+        authType: "oauth_bearer",
+        model: "gpt-5.4",
+        upstreamMode: "responses",
+        upstreamPath: "/v1/responses",
+        status: 200,
+        latencyMs: 120,
+        promptTokens: 700,
+        completionTokens: 300,
+        totalTokens: 1000,
+        costUsd: 1.0,
+        energyJoules: 100,
+        waterEvaporatedMl: 0.05,
+      },
+      {
+        id: "entry-acme-factory",
+        timestamp: Date.UTC(2026, 2, 18, 13, 0, 0),
+        tenantId: "acme",
+        issuer: "local",
+        keyId: "key-acme-2",
+        providerId: "factory",
+        accountId: "acct-2",
+        authType: "oauth_bearer",
+        model: "claude-sonnet-4-5",
+        upstreamMode: "messages",
+        upstreamPath: "/v1/messages",
+        status: 500,
+        latencyMs: 240,
+        promptTokens: 300,
+        completionTokens: 200,
+        totalTokens: 500,
+        error: "upstream failed",
+        costUsd: 0.5,
+        energyJoules: 50,
+        waterEvaporatedMl: 0.025,
+      },
+      {
+        id: "entry-beta-openai",
+        timestamp: Date.UTC(2026, 2, 18, 14, 0, 0),
+        tenantId: "beta",
+        issuer: "local",
+        keyId: "key-beta-1",
+        providerId: "openai",
+        accountId: "acct-1",
+        authType: "oauth_bearer",
+        model: "gpt-5.4",
+        upstreamMode: "responses",
+        upstreamPath: "/v1/responses",
+        status: 200,
+        latencyMs: 110,
+        promptTokens: 600,
+        completionTokens: 300,
+        totalTokens: 900,
+        costUsd: 0.9,
+        energyJoules: 90,
+        waterEvaporatedMl: 0.045,
+      },
+    ],
+    hourlyBuckets: [],
+    dailyBuckets: [],
+    dailyModelBuckets: [],
+    dailyAccountBuckets: [],
+    accountAccumulators: [],
+  };
+
+  await withProxyApp(
+    {
+      keys: [],
+      requestLogsPayload,
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ok: true }),
+      }),
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "GET",
+        url: "/api/ui/dashboard/overview?window=weekly&tenantId=acme",
+      });
+
+      assert.equal(response.statusCode, 200);
+      const payload: any = response.json();
+      assert.equal(payload.summary.tokens24h, 1500);
+      assert.equal(payload.summary.costUsd24h, 1.5);
+      assert.equal(payload.summary.topProvider, "openai");
+      assert.equal(payload.summary.topModel, "gpt-5.4");
+      assert.equal(payload.accounts.length, 2);
+      assert.equal(payload.accounts[0].providerId, "openai");
+      assert.equal(payload.accounts[0].totalTokens, 1000);
+      assert.equal(payload.accounts[1].providerId, "factory");
+      assert.equal(payload.accounts[1].totalTokens, 500);
+    },
+  );
+});
+
+test("provider-model analytics scopes rollups to the requested tenant", async () => {
+  const requestLogsPayload = {
+    entries: [
+      {
+        id: "entry-acme-openai",
+        timestamp: Date.UTC(2026, 2, 18, 12, 0, 0),
+        tenantId: "acme",
+        issuer: "local",
+        keyId: "key-acme-1",
+        providerId: "openai",
+        accountId: "acct-1",
+        authType: "oauth_bearer",
+        model: "gpt-5.4",
+        upstreamMode: "responses",
+        upstreamPath: "/v1/responses",
+        status: 200,
+        latencyMs: 100,
+        promptTokens: 700,
+        completionTokens: 300,
+        totalTokens: 1000,
+        costUsd: 1.0,
+        energyJoules: 100,
+        waterEvaporatedMl: 0.05,
+      },
+      {
+        id: "entry-acme-factory",
+        timestamp: Date.UTC(2026, 2, 18, 13, 0, 0),
+        tenantId: "acme",
+        issuer: "local",
+        keyId: "key-acme-2",
+        providerId: "factory",
+        accountId: "acct-2",
+        authType: "oauth_bearer",
+        model: "claude-sonnet-4-5",
+        upstreamMode: "messages",
+        upstreamPath: "/v1/messages",
+        status: 500,
+        latencyMs: 240,
+        promptTokens: 300,
+        completionTokens: 200,
+        totalTokens: 500,
+        error: "upstream failed",
+        costUsd: 0.5,
+        energyJoules: 50,
+        waterEvaporatedMl: 0.025,
+      },
+      {
+        id: "entry-beta-openai",
+        timestamp: Date.UTC(2026, 2, 18, 14, 0, 0),
+        tenantId: "beta",
+        issuer: "local",
+        keyId: "key-beta-1",
+        providerId: "openai",
+        accountId: "acct-1",
+        authType: "oauth_bearer",
+        model: "gpt-5.4",
+        upstreamMode: "responses",
+        upstreamPath: "/v1/responses",
+        status: 200,
+        latencyMs: 90,
+        promptTokens: 600,
+        completionTokens: 300,
+        totalTokens: 900,
+        costUsd: 0.9,
+        energyJoules: 90,
+        waterEvaporatedMl: 0.045,
+      },
+    ],
+    hourlyBuckets: [],
+    dailyBuckets: [],
+    dailyModelBuckets: [],
+    dailyAccountBuckets: [],
+    accountAccumulators: [],
+  };
+
+  await withProxyApp(
+    {
+      keys: [],
+      requestLogsPayload,
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ok: true }),
+      }),
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "GET",
+        url: "/api/ui/analytics/provider-model?window=weekly&tenantId=acme",
+      });
+
+      assert.equal(response.statusCode, 200);
+      const payload: any = response.json();
+      assert.equal(payload.models.length, 2);
+      assert.equal(payload.models[0].totalTokens, 1000);
+      assert.equal(payload.providers.length, 2);
+      assert.equal(payload.providers[0].providerId, "openai");
+      assert.equal(payload.providers[0].totalTokens, 1000);
+      assert.equal(payload.providers[1].providerId, "factory");
+      assert.equal(payload.providers[1].totalTokens, 500);
+      assert.equal(payload.providerModels.length, 2);
+      assert.ok(!payload.providerModels.some((row: any) => row.totalTokens === 900));
+    },
+  );
+});
+
 test("does not tag non-responses requests with a service tier", async () => {
   let observedBody: unknown;
 

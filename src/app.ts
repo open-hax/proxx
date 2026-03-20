@@ -1129,7 +1129,14 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       request.log.warn({ error: toErrorMessage(error) }, "failed to resolve dynamic model aliases; using requested model as-is");
     }
 
-    const { strategy, context } = selectProviderStrategy(config, request.headers, requestBody, requestedModelInput, routingModelInput);
+    const { strategy, context } = selectProviderStrategy(
+      config,
+      request.headers,
+      requestBody,
+      requestedModelInput,
+      routingModelInput,
+      (request as { readonly openHaxAuth?: { readonly kind: "legacy_admin" | "tenant_api_key" | "ui_session" | "unauthenticated"; readonly tenantId?: string; readonly keyId?: string; readonly subject?: string } }).openHaxAuth,
+    );
     reply.header("x-open-hax-upstream-mode", strategy.mode);
 
     let providerRoutes: ProviderRoute[];
@@ -1355,6 +1362,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       requestBody,
       requestedModelInput,
       routingModelInput,
+      (request as { readonly openHaxAuth?: { readonly kind: "legacy_admin" | "tenant_api_key" | "ui_session" | "unauthenticated"; readonly tenantId?: string; readonly keyId?: string; readonly subject?: string } }).openHaxAuth,
     );
     reply.header("x-open-hax-upstream-mode", strategy.mode);
 
@@ -1521,7 +1529,13 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       return;
     }
 
-    const { strategy, context } = buildImagesPassthroughContext(config, request.headers, requestBody, model);
+    const { strategy, context } = buildImagesPassthroughContext(
+      config,
+      request.headers,
+      requestBody,
+      model,
+      (request as { readonly openHaxAuth?: { readonly kind: "legacy_admin" | "tenant_api_key" | "ui_session" | "unauthenticated"; readonly tenantId?: string; readonly keyId?: string; readonly subject?: string } }).openHaxAuth,
+    );
     reply.header("x-open-hax-upstream-mode", strategy.mode);
 
     let payload: ReturnType<typeof strategy.buildPayload>;
@@ -1664,11 +1678,18 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     }
 
     const model = typeof request.body.model === "string" ? request.body.model : "";
-    const routingState = selectProviderStrategy(config, request.headers, {
+    const routingState = selectProviderStrategy(
+      config,
+      request.headers,
+      {
+        model,
+        messages: [{ role: "user", content: "embed" }],
+        stream: false,
+      },
       model,
-      messages: [{ role: "user", content: "embed" }],
-      stream: false,
-    }, model, model).context;
+      model,
+      (request as { readonly openHaxAuth?: { readonly kind: "legacy_admin" | "tenant_api_key" | "ui_session" | "unauthenticated"; readonly tenantId?: string; readonly keyId?: string; readonly subject?: string } }).openHaxAuth,
+    ).context;
 
     const routedModel = routingState.routedModel;
     const upstreamUrl = joinUrl(config.ollamaBaseUrl, "/api/embed");

@@ -427,6 +427,11 @@ Change:
 ### Phase 2 — Tenant-aware usage & quotas
 - Add `{tenant_id, issuer, key_id}` to request logs + usage snapshots.
 - Add quota checks in request pipeline (per-tenant max requests/minute etc.).
+- Partial implementation status:
+  - request logs now persist `{tenant_id, issuer, key_id}`
+  - account-usage accumulators and daily account snapshots are keyed by that attribution tuple
+  - `/api/ui/request-logs` now enforces tenant visibility and supports tenant/key filtering
+  - quota enforcement is still pending
 
 ### Phase 3 — Tenant-scoped provider credentials (optional)
 - Either:

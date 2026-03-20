@@ -4,6 +4,7 @@ import type { ProxyConfig } from "../config.js";
 import { requestWantsReasoningTrace } from "../provider-utils.js";
 import { resolveRequestRoutingState } from "../provider-routing.js";
 import { PROVIDER_STRATEGIES } from "./registry.js";
+import type { ResolvedRequestAuth } from "../request-auth.js";
 import type { ProviderStrategy, StrategyRequestContext } from "./shared.js";
 
 function selectMatchingStrategy(context: StrategyRequestContext): ProviderStrategy {
@@ -17,6 +18,7 @@ export function selectProviderStrategy(
   requestBody: Record<string, unknown>,
   requestedModelInput: string,
   routingModelInput: string,
+  requestAuth?: Pick<ResolvedRequestAuth, "kind" | "tenantId" | "keyId" | "subject">,
 ): {
   readonly strategy: ProviderStrategy;
   readonly context: StrategyRequestContext;
@@ -32,6 +34,7 @@ export function selectProviderStrategy(
     config,
     clientHeaders,
     requestBody,
+    requestAuth,
     requestedModelInput,
     routingModelInput,
     routedModel: routingState.routedModel,
@@ -53,6 +56,7 @@ export function buildResponsesPassthroughContext(
   requestBody: Record<string, unknown>,
   requestedModelInput: string,
   routingModelInput: string,
+  requestAuth?: Pick<ResolvedRequestAuth, "kind" | "tenantId" | "keyId" | "subject">,
 ): {
   readonly strategy: ProviderStrategy;
   readonly context: StrategyRequestContext;
@@ -67,6 +71,7 @@ export function buildResponsesPassthroughContext(
     config,
     clientHeaders,
     requestBody,
+    requestAuth,
     requestedModelInput,
     routingModelInput,
     routedModel: routingState.routedModel,
@@ -89,6 +94,7 @@ export function buildImagesPassthroughContext(
   clientHeaders: IncomingHttpHeaders,
   requestBody: Record<string, unknown>,
   model: string,
+  requestAuth?: Pick<ResolvedRequestAuth, "kind" | "tenantId" | "keyId" | "subject">,
 ): {
   readonly strategy: ProviderStrategy;
   readonly context: StrategyRequestContext;
@@ -99,6 +105,7 @@ export function buildImagesPassthroughContext(
     config,
     clientHeaders,
     requestBody,
+    requestAuth,
     requestedModelInput: model,
     routingModelInput: model,
     routedModel: routingState.routedModel,

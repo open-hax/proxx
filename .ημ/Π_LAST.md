@@ -1,16 +1,17 @@
 # Π handoff
 
-- time: 2026-03-20T15:55:07Z
+- time: 2026-03-20T16:29:46Z
 - branch: main
-- pre-Π HEAD: 793586c
+- pre-Π HEAD: bcaa1af
 - Π HEAD: pending at capture time; resolved by the final git commit created after artifact assembly
 
 ## Summary
-- Finalize the recursive Π snapshot by carrying the remaining request-log-store hydration paths for tenantId/issuer/keyId into the committed main branch.
-- Keep tenant-aware daily account bucket and account accumulator restoration aligned with the already-verified request-log/account-bucket partitioning change set.
-- Refresh receipts and .ημ artifacts so the root superproject can point at a fully clean proxx snapshot.
+- Carry the Phase 2 multitenancy dashboard/analytics scope by resolving dashboard overview and provider-model analytics from the active auth context rather than global aggregates.
+- Thread tenant-aware auth scope through app/provider-strategy/ui route plumbing so request-log visibility and aggregate metrics respect tenant/issuer/key boundaries.
+- Refresh the multitenancy user-model draft, tests, receipts, and .ημ artifacts so the root workspace can point at a clean post-analytics snapshot.
 
 ## Verification
-- pass: pnpm run typecheck (from 2026-03-20T15:49:01Z verification)
-- pass: pnpm test (313/313 from 2026-03-20T15:49:01Z verification)
-- pass: pnpm run build (from 2026-03-20T15:49:01Z verification)
+- pass: pnpm run typecheck
+- pass: pnpm test (316/316)
+- pass: pnpm run build
+- pass: pnpm run web:build

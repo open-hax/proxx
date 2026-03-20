@@ -7,6 +7,7 @@ import type { FastifyReply } from "fastify";
 import type { ProxyConfig } from "../config.js";
 import type { ProviderCredential } from "../key-pool.js";
 import type { Factory4xxDiagnostics, RequestLogStore } from "../request-log-store.js";
+import type { ResolvedRequestAuth } from "../request-auth.js";
 import { estimateRequestCost } from "../model-pricing.js";
 import type { PromptAffinityStore } from "../prompt-affinity-store.js";
 import type { PolicyEngine } from "../policy/index.js";
@@ -180,6 +181,7 @@ interface StrategyRequestContext {
   readonly config: ProxyConfig;
   readonly clientHeaders: IncomingHttpHeaders;
   readonly requestBody: Record<string, unknown>;
+  readonly requestAuth?: Pick<ResolvedRequestAuth, "kind" | "tenantId" | "keyId" | "subject">;
   readonly requestedModelInput: string;
   readonly routingModelInput: string;
   readonly routedModel: string;
@@ -937,6 +939,25 @@ function applyRequestedServiceTier(upstreamPayload: Record<string, unknown>, con
   }
 }
 
+function resolveUsageAttribution(context: ProviderAttemptContext | LocalAttemptContext): {
+  readonly tenantId?: string;
+  readonly issuer?: string;
+  readonly keyId?: string;
+} {
+  const auth = context.requestAuth;
+  if (!auth) {
+    return {};
+  }
+
+  return {
+    tenantId: auth.tenantId,
+    issuer: auth.kind === "legacy_admin" || auth.kind === "tenant_api_key" || auth.kind === "ui_session"
+      ? "local"
+      : auth.subject,
+    keyId: auth.keyId,
+  };
+}
+
 function recordAttempt(
   requestLogStore: RequestLogStore,
   context: ProviderAttemptContext | LocalAttemptContext,
@@ -966,7 +987,12 @@ function recordAttempt(
     values.completionTokens ?? 0,
   );
 
+  const attribution = resolveUsageAttribution(context);
+
   const entry = requestLogStore.record({
+    tenantId: attribution.tenantId,
+    issuer: attribution.issuer,
+    keyId: attribution.keyId,
     providerId: values.providerId,
     accountId: values.accountId,
     authType: values.authType,

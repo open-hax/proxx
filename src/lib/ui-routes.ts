@@ -151,6 +151,12 @@ interface ProviderModelAnalyticsResponse {
   readonly providerModels: readonly AnalyticsRowResponse[];
 }
 
+interface UsageScope {
+  readonly tenantId?: string;
+  readonly issuer?: string;
+  readonly keyId?: string;
+}
+
 function toUsageWindow(value: unknown): UsageWindow {
   if (value === "weekly" || value === "monthly" || value === "daily") {
     return value;
@@ -339,13 +345,462 @@ function bucketStart(timestamp: number, bucketMs: number): number {
   return Math.floor(timestamp / bucketMs) * bucketMs;
 }
 
+function hasUsageScope(scope: UsageScope | undefined): boolean {
+  return Boolean(scope?.tenantId || scope?.issuer || scope?.keyId);
+}
+
+function entryMatchesUsageScope(entry: {
+  readonly tenantId?: string;
+  readonly issuer?: string;
+  readonly keyId?: string;
+}, scope: UsageScope | undefined): boolean {
+  if (!scope) {
+    return true;
+  }
+
+  if (scope.tenantId && entry.tenantId !== scope.tenantId) {
+    return false;
+  }
+
+  if (scope.issuer && entry.issuer !== scope.issuer) {
+    return false;
+  }
+
+  if (scope.keyId && entry.keyId !== scope.keyId) {
+    return false;
+  }
+
+  return true;
+}
+
+async function resolveUsageScopeFromAuth(input: {
+  readonly auth: ResolvedRequestAuth;
+  readonly tenantId?: string;
+  readonly issuer?: string;
+  readonly keyId?: string;
+}): Promise<UsageScope | { readonly error: string; readonly statusCode: number }> {
+  const requestedTenantId = typeof input.tenantId === "string" && input.tenantId.trim().length > 0
+    ? normalizeTenantId(input.tenantId)
+    : undefined;
+  const requestedIssuer = typeof input.issuer === "string" && input.issuer.trim().length > 0
+    ? input.issuer.trim()
+    : undefined;
+  const requestedKeyId = typeof input.keyId === "string" && input.keyId.trim().length > 0
+    ? input.keyId.trim()
+    : undefined;
+
+  if (input.auth.kind === "legacy_admin" || input.auth.kind === "unauthenticated") {
+    return {
+      tenantId: requestedTenantId,
+      issuer: requestedIssuer,
+      keyId: requestedKeyId,
+    };
+  }
+
+  const tenantId = requestedTenantId ?? input.auth.tenantId;
+  if (tenantId && !authCanViewTenant(input.auth, tenantId)) {
+    return { error: "forbidden", statusCode: 403 };
+  }
+
+  if (input.auth.kind === "tenant_api_key") {
+    if (requestedKeyId && input.auth.keyId && requestedKeyId !== input.auth.keyId) {
+      return { error: "forbidden", statusCode: 403 };
+    }
+
+    return {
+      tenantId,
+      issuer: requestedIssuer,
+      keyId: input.auth.keyId,
+    };
+  }
+
+  return {
+    tenantId,
+    issuer: requestedIssuer,
+    keyId: requestedKeyId,
+  };
+}
+
 async function buildUsageOverview(
   requestLogStore: RequestLogStore,
   keyPool: KeyPool,
   credentialStore: CredentialStoreLike,
   sort?: string,
   window: UsageWindow = "daily",
+  scope?: UsageScope,
 ): Promise<UsageOverviewResponse> {
+  if (hasUsageScope(scope)) {
+    const allLogs = requestLogStore.snapshot().filter((entry) => entryMatchesUsageScope(entry, scope));
+    const allAccountStatuses: Record<string, readonly KeyPoolAccountStatus[]> = await keyPool.getAllAccountStatuses().catch(() => ({}));
+    const credentialProviders = await credentialStore.listProviders(false).catch(() => []);
+    const providerById = new Map(credentialProviders.map((provider) => [provider.id, provider]));
+    const now = Date.now();
+    const bucketMs = window === "daily" ? 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
+    const bucketCount = window === "monthly" ? 30 : window === "weekly" ? 7 : 24;
+    const bucketWindowStart = bucketStart(now - (bucketCount - 1) * bucketMs, bucketMs);
+    const recentLogs = allLogs.filter((entry) => entry.timestamp >= bucketWindowStart);
+
+    const bucketAgg = new Map<number, {
+      requests: number;
+      tokens: number;
+      promptTokens: number;
+      completionTokens: number;
+      cachedPromptTokens: number;
+      imageCount: number;
+      imageCostUsd: number;
+      costUsd: number;
+      energyJoules: number;
+      waterEvaporatedMl: number;
+      cacheHits: number;
+      cacheKeyUses: number;
+      errors: number;
+      fastMode: number;
+      priority: number;
+      standard: number;
+    }>();
+    const modelTotals = new Map<string, number>();
+    const providerTotals = new Map<string, number>();
+    const accountAgg = new Map<string, {
+      accountId: string;
+      providerId: string;
+      authType: "api_key" | "oauth_bearer" | "local" | "none";
+      requestCount: number;
+      totalTokens: number;
+      promptTokens: number;
+      completionTokens: number;
+      cachedPromptTokens: number;
+      imageCount: number;
+      imageCostUsd: number;
+      costUsd: number;
+      energyJoules: number;
+      waterEvaporatedMl: number;
+      cacheHitCount: number;
+      cacheKeyUseCount: number;
+      ttftSum: number;
+      ttftCount: number;
+      tpsSum: number;
+      tpsCount: number;
+      lastUsedAtMs: number;
+    }>();
+    const shortAgg = new Map<string, { ttftSum: number; ttftCount: number; tpsSum: number; tpsCount: number }>();
+    const shortWindowMs = 2 * 60 * 1000;
+
+    for (const entry of recentLogs) {
+      const seriesBucket = bucketAgg.get(bucketStart(entry.timestamp, bucketMs)) ?? {
+        requests: 0,
+        tokens: 0,
+        promptTokens: 0,
+        completionTokens: 0,
+        cachedPromptTokens: 0,
+        imageCount: 0,
+        imageCostUsd: 0,
+        costUsd: 0,
+        energyJoules: 0,
+        waterEvaporatedMl: 0,
+        cacheHits: 0,
+        cacheKeyUses: 0,
+        errors: 0,
+        fastMode: 0,
+        priority: 0,
+        standard: 0,
+      };
+      seriesBucket.requests += 1;
+      seriesBucket.tokens += usageCount(entry.totalTokens);
+      seriesBucket.promptTokens += usageCount(entry.promptTokens);
+      seriesBucket.completionTokens += usageCount(entry.completionTokens);
+      seriesBucket.cachedPromptTokens += usageCount(entry.cachedPromptTokens);
+      seriesBucket.imageCount += usageCount(entry.imageCount);
+      seriesBucket.imageCostUsd += usageCount(entry.imageCostUsd);
+      seriesBucket.costUsd += usageCount(entry.costUsd);
+      seriesBucket.energyJoules += usageCount(entry.energyJoules);
+      seriesBucket.waterEvaporatedMl += usageCount(entry.waterEvaporatedMl);
+      if (entry.cacheHit) {
+        seriesBucket.cacheHits += 1;
+      }
+      if (entry.promptCacheKeyUsed) {
+        seriesBucket.cacheKeyUses += 1;
+      }
+      if (entry.status >= 400 || typeof entry.error === "string") {
+        seriesBucket.errors += 1;
+      }
+      if (entry.serviceTierSource === "fast_mode") {
+        seriesBucket.fastMode += 1;
+      } else if (entry.serviceTier === "priority") {
+        seriesBucket.priority += 1;
+      } else {
+        seriesBucket.standard += 1;
+      }
+      bucketAgg.set(bucketStart(entry.timestamp, bucketMs), seriesBucket);
+
+      modelTotals.set(entry.model, (modelTotals.get(entry.model) ?? 0) + usageCount(entry.totalTokens));
+      providerTotals.set(entry.providerId, (providerTotals.get(entry.providerId) ?? 0) + usageCount(entry.totalTokens));
+
+      const accountKey = `${entry.providerId}\0${entry.accountId}`;
+      const account = accountAgg.get(accountKey) ?? {
+        accountId: entry.accountId,
+        providerId: entry.providerId,
+        authType: entry.authType,
+        requestCount: 0,
+        totalTokens: 0,
+        promptTokens: 0,
+        completionTokens: 0,
+        cachedPromptTokens: 0,
+        imageCount: 0,
+        imageCostUsd: 0,
+        costUsd: 0,
+        energyJoules: 0,
+        waterEvaporatedMl: 0,
+        cacheHitCount: 0,
+        cacheKeyUseCount: 0,
+        ttftSum: 0,
+        ttftCount: 0,
+        tpsSum: 0,
+        tpsCount: 0,
+        lastUsedAtMs: 0,
+      };
+      account.requestCount += 1;
+      account.totalTokens += usageCount(entry.totalTokens);
+      account.promptTokens += usageCount(entry.promptTokens);
+      account.completionTokens += usageCount(entry.completionTokens);
+      account.cachedPromptTokens += usageCount(entry.cachedPromptTokens);
+      account.imageCount += usageCount(entry.imageCount);
+      account.imageCostUsd += usageCount(entry.imageCostUsd);
+      account.costUsd += usageCount(entry.costUsd);
+      account.energyJoules += usageCount(entry.energyJoules);
+      account.waterEvaporatedMl += usageCount(entry.waterEvaporatedMl);
+      if (entry.cacheHit) {
+        account.cacheHitCount += 1;
+      }
+      if (entry.promptCacheKeyUsed) {
+        account.cacheKeyUseCount += 1;
+      }
+      if (typeof entry.ttftMs === "number" && Number.isFinite(entry.ttftMs)) {
+        account.ttftSum += entry.ttftMs;
+        account.ttftCount += 1;
+      }
+      if (typeof entry.tps === "number" && Number.isFinite(entry.tps)) {
+        account.tpsSum += entry.tps;
+        account.tpsCount += 1;
+      }
+      account.lastUsedAtMs = Math.max(account.lastUsedAtMs, entry.timestamp);
+      accountAgg.set(accountKey, account);
+
+      if (entry.timestamp >= now - shortWindowMs) {
+        const short = shortAgg.get(accountKey) ?? { ttftSum: 0, ttftCount: 0, tpsSum: 0, tpsCount: 0 };
+        if (typeof entry.ttftMs === "number" && Number.isFinite(entry.ttftMs)) {
+          short.ttftSum += entry.ttftMs;
+          short.ttftCount += 1;
+        }
+        if (typeof entry.tps === "number" && Number.isFinite(entry.tps)) {
+          short.tpsSum += entry.tps;
+          short.tpsCount += 1;
+        }
+        shortAgg.set(accountKey, short);
+      }
+    }
+
+    const clamp01 = (value: number): number => Math.max(0, Math.min(1, value));
+    const healthScoreFor = (account: {
+      providerId: string;
+      accountId: string;
+      requestCount: number;
+      totalTokens: number;
+      ttftSum: number;
+      ttftCount: number;
+      tpsSum: number;
+      tpsCount: number;
+    }, status: "healthy" | "cooldown" | "idle") => {
+      if (status === "cooldown") {
+        return { score: 0, debuff: 1, avgTtftMs: null, avgTps: null };
+      }
+
+      const avgTtftMs = account.ttftCount > 0 ? account.ttftSum / account.ttftCount : null;
+      const avgTps = account.tpsCount > 0 ? account.tpsSum / account.tpsCount : null;
+      const recent = shortAgg.get(`${account.providerId}\0${account.accountId}`);
+      const recentTtft = recent && recent.ttftCount > 0 ? recent.ttftSum / recent.ttftCount : null;
+      const recentTps = recent && recent.tpsCount > 0 ? recent.tpsSum / recent.tpsCount : null;
+
+      let debuff = 0;
+      if (avgTtftMs !== null && recentTtft !== null && recentTtft > avgTtftMs * 1.3) {
+        debuff = Math.max(debuff, clamp01((recentTtft / avgTtftMs - 1) * 0.6));
+      }
+      if (avgTps !== null && recentTps !== null && recentTps < avgTps * 0.7) {
+        debuff = Math.max(debuff, clamp01((avgTps / Math.max(1e-9, recentTps) - 1) * 0.25));
+      }
+
+      const ttftScore = avgTtftMs !== null ? 1 / (1 + avgTtftMs / 800) : 0.5;
+      const tpsScore = avgTps !== null ? clamp01(avgTps / 50) : 0.5;
+      const usageScore = clamp01(Math.log10(1 + account.totalTokens) / 6);
+      return {
+        score: clamp01(0.65 * ttftScore + 0.25 * tpsScore + 0.10 * usageScore - debuff * 0.35),
+        debuff,
+        avgTtftMs,
+        avgTps,
+      };
+    };
+
+    const accountStats = [...accountAgg.values()].map((account) => {
+      const provider = providerById.get(account.providerId);
+      const providerAccount = provider?.accounts.find((candidate) => candidate.id === account.accountId);
+      const accountStatus = (allAccountStatuses[account.providerId] ?? []).find((candidate) => candidate.accountId === account.accountId);
+      const status = accountStatus && !accountStatus.available
+        ? "cooldown"
+        : account.requestCount > 0
+          ? "healthy"
+          : "idle";
+      const health = healthScoreFor(account, status);
+
+      return {
+        accountId: account.accountId,
+        displayName: `${account.providerId}/${account.accountId}`,
+        providerId: account.providerId,
+        authType: providerAccount?.authType ?? account.authType,
+        planType: providerAccount?.planType,
+        status,
+        requestCount: account.requestCount,
+        totalTokens: account.totalTokens,
+        promptTokens: account.promptTokens,
+        completionTokens: account.completionTokens,
+        cachedPromptTokens: account.cachedPromptTokens,
+        imageCount: account.imageCount,
+        imageCostUsd: account.imageCostUsd,
+        costUsd: account.costUsd,
+        energyJoules: account.energyJoules,
+        waterEvaporatedMl: account.waterEvaporatedMl,
+        cacheHitCount: account.cacheHitCount,
+        cacheKeyUseCount: account.cacheKeyUseCount,
+        avgTtftMs: health.avgTtftMs,
+        avgTps: health.avgTps,
+        healthScore: health.score,
+        transientDebuff: health.debuff,
+        lastUsedAt: isoFromTimestamp(account.lastUsedAtMs),
+      } satisfies UsageAccountSummary;
+    });
+
+    const bucketSeries = Array.from({ length: bucketCount }, (_, index) => {
+      const timestamp = bucketStart(now - (bucketCount - index - 1) * bucketMs, bucketMs);
+      const bucket = bucketAgg.get(timestamp);
+      return {
+        t: new Date(timestamp).toISOString(),
+        requests: bucket?.requests ?? 0,
+        tokens: bucket?.tokens ?? 0,
+        errors: bucket?.errors ?? 0,
+      };
+    });
+
+    const totals = [...bucketAgg.values()].reduce((acc, bucket) => ({
+      requests: acc.requests + bucket.requests,
+      tokens: acc.tokens + bucket.tokens,
+      promptTokens: acc.promptTokens + bucket.promptTokens,
+      completionTokens: acc.completionTokens + bucket.completionTokens,
+      cachedPromptTokens: acc.cachedPromptTokens + bucket.cachedPromptTokens,
+      imageCount: acc.imageCount + bucket.imageCount,
+      imageCostUsd: acc.imageCostUsd + bucket.imageCostUsd,
+      costUsd: acc.costUsd + bucket.costUsd,
+      energyJoules: acc.energyJoules + bucket.energyJoules,
+      waterEvaporatedMl: acc.waterEvaporatedMl + bucket.waterEvaporatedMl,
+      cacheHits: acc.cacheHits + bucket.cacheHits,
+      cacheKeyUses: acc.cacheKeyUses + bucket.cacheKeyUses,
+      errors: acc.errors + bucket.errors,
+      fastMode: acc.fastMode + bucket.fastMode,
+      priority: acc.priority + bucket.priority,
+      standard: acc.standard + bucket.standard,
+    }), {
+      requests: 0,
+      tokens: 0,
+      promptTokens: 0,
+      completionTokens: 0,
+      cachedPromptTokens: 0,
+      imageCount: 0,
+      imageCostUsd: 0,
+      costUsd: 0,
+      energyJoules: 0,
+      waterEvaporatedMl: 0,
+      cacheHits: 0,
+      cacheKeyUses: 0,
+      errors: 0,
+      fastMode: 0,
+      priority: 0,
+      standard: 0,
+    });
+
+    const earliestEntryAtMs = allLogs.reduce<number | null>((current, entry) => current === null ? entry.timestamp : Math.min(current, entry.timestamp), null);
+    return {
+      window,
+      generatedAt: new Date(now).toISOString(),
+      coverage: {
+        requestedWindowStart: new Date(bucketWindowStart).toISOString(),
+        coverageStart: earliestEntryAtMs !== null ? new Date(earliestEntryAtMs).toISOString() : null,
+        hasFullWindowCoverage: earliestEntryAtMs !== null && earliestEntryAtMs <= bucketWindowStart,
+        retainedEntryCount: allLogs.length,
+        maxRetainedEntries: requestLogStore.getCoverage().maxEntries,
+      },
+      summary: {
+        requests24h: totals.requests,
+        tokens24h: totals.tokens,
+        promptTokens24h: totals.promptTokens,
+        completionTokens24h: totals.completionTokens,
+        cachedPromptTokens24h: totals.cachedPromptTokens,
+        imageCount24h: totals.imageCount,
+        imageCostUsd24h: totals.imageCostUsd,
+        costUsd24h: totals.costUsd,
+        energyJoules24h: totals.energyJoules,
+        waterEvaporatedMl24h: totals.waterEvaporatedMl,
+        cacheKeyUses24h: totals.cacheKeyUses,
+        cacheHitRate24h: totals.cacheKeyUses > 0 ? percentage(totals.cacheHits, totals.cacheKeyUses) : 0,
+        errorRate24h: percentage(totals.errors, totals.requests),
+        topModel: [...modelTotals.entries()].sort((left, right) => right[1] - left[1])[0]?.[0] ?? null,
+        topProvider: [...providerTotals.entries()].sort((left, right) => right[1] - left[1])[0]?.[0] ?? null,
+        activeAccounts: accountStats.filter((account) => account.requestCount > 0).length,
+        serviceTierRequests24h: {
+          fastMode: totals.fastMode,
+          priority: totals.priority,
+          standard: totals.standard,
+        },
+      },
+      trends: {
+        requests: bucketSeries.map((point) => ({ t: point.t, v: point.requests })),
+        tokens: bucketSeries.map((point) => ({ t: point.t, v: point.tokens })),
+        errors: bucketSeries.map((point) => ({ t: point.t, v: point.errors })),
+      },
+      accounts: [...accountStats].sort((a, b) => {
+        const sortKey = (sort ?? "health").trim().toLowerCase();
+        const byTokens = (): number => {
+          if (b.totalTokens !== a.totalTokens) return b.totalTokens - a.totalTokens;
+          if (b.requestCount !== a.requestCount) return b.requestCount - a.requestCount;
+          return a.displayName.localeCompare(b.displayName);
+        };
+
+        switch (sortKey) {
+          case "tokens":
+            return byTokens();
+          case "requests":
+            if (b.requestCount !== a.requestCount) return b.requestCount - a.requestCount;
+            return byTokens();
+          case "ttft": {
+            const leftValue = a.avgTtftMs ?? Number.POSITIVE_INFINITY;
+            const rightValue = b.avgTtftMs ?? Number.POSITIVE_INFINITY;
+            if (leftValue !== rightValue) return leftValue - rightValue;
+            return byTokens();
+          }
+          case "tps": {
+            const leftValue = a.avgTps ?? Number.NEGATIVE_INFINITY;
+            const rightValue = b.avgTps ?? Number.NEGATIVE_INFINITY;
+            if (leftValue !== rightValue) return rightValue - leftValue;
+            return byTokens();
+          }
+          case "health":
+          default: {
+            const leftValue = a.healthScore ?? -1;
+            const rightValue = b.healthScore ?? -1;
+            if (leftValue !== rightValue) return rightValue - leftValue;
+            return byTokens();
+          }
+        }
+      }),
+    };
+  }
+
   const allLogs = requestLogStore.snapshot();
   const allStatuses: Record<string, Awaited<ReturnType<KeyPool["getStatus"]>>> = await keyPool.getAllStatuses().catch(() => ({}));
   const allAccountStatuses: Record<string, readonly KeyPoolAccountStatus[]> = await keyPool.getAllAccountStatuses().catch(() => ({}));
@@ -856,7 +1311,199 @@ async function buildProviderModelAnalytics(
   requestLogStore: RequestLogStore,
   window: UsageWindow = "weekly",
   sort?: string,
+  scope?: UsageScope,
 ): Promise<ProviderModelAnalyticsResponse> {
+  if (hasUsageScope(scope)) {
+    const now = Date.now();
+    const bucketMs = window === "daily" ? 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
+    const bucketCount = window === "monthly" ? 30 : window === "weekly" ? 7 : 24;
+    const bucketWindowStart = bucketStart(now - (bucketCount - 1) * bucketMs, bucketMs);
+    const relevantEntries = requestLogStore.snapshot()
+      .filter((entry) => entry.timestamp >= bucketWindowStart)
+      .filter((entry) => entryMatchesUsageScope(entry, scope));
+    const pairAgg = new Map<string, MutableAnalyticsAgg>();
+
+    const upsertPair = (providerId: string, model: string): MutableAnalyticsAgg => {
+      const key = `${providerId}\0${model}`;
+      const existing = pairAgg.get(key);
+      if (existing) {
+        return existing;
+      }
+
+      const created: MutableAnalyticsAgg = {
+        providerId,
+        model,
+        requestCount: 0,
+        errorCount: 0,
+        totalTokens: 0,
+        promptTokens: 0,
+        completionTokens: 0,
+        cachedPromptTokens: 0,
+        cacheHitCount: 0,
+        cacheKeyUseCount: 0,
+        ttftSum: 0,
+        ttftCount: 0,
+        tpsSum: 0,
+        tpsCount: 0,
+        costUsd: 0,
+        energyJoules: 0,
+        waterEvaporatedMl: 0,
+        firstSeenAtMs: null,
+        lastSeenAtMs: null,
+      };
+      pairAgg.set(key, created);
+      return created;
+    };
+
+    for (const entry of relevantEntries) {
+      const agg = upsertPair(entry.providerId, entry.model);
+      agg.requestCount += 1;
+      if (entry.status >= 400 || typeof entry.error === "string") {
+        agg.errorCount += 1;
+      }
+      agg.totalTokens += usageCount(entry.totalTokens);
+      agg.promptTokens += usageCount(entry.promptTokens);
+      agg.completionTokens += usageCount(entry.completionTokens);
+      agg.cachedPromptTokens += usageCount(entry.cachedPromptTokens);
+      if (entry.cacheHit) {
+        agg.cacheHitCount += 1;
+      }
+      if (entry.promptCacheKeyUsed) {
+        agg.cacheKeyUseCount += 1;
+      }
+      if (typeof entry.ttftMs === "number" && Number.isFinite(entry.ttftMs)) {
+        agg.ttftSum += entry.ttftMs;
+        agg.ttftCount += 1;
+      }
+      if (typeof entry.tps === "number" && Number.isFinite(entry.tps)) {
+        agg.tpsSum += entry.tps;
+        agg.tpsCount += 1;
+      }
+      agg.costUsd += usageCount(entry.costUsd);
+      agg.energyJoules += usageCount(entry.energyJoules);
+      agg.waterEvaporatedMl += usageCount(entry.waterEvaporatedMl);
+      agg.firstSeenAtMs = agg.firstSeenAtMs === null ? entry.timestamp : Math.min(agg.firstSeenAtMs, entry.timestamp);
+      agg.lastSeenAtMs = agg.lastSeenAtMs === null ? entry.timestamp : Math.max(agg.lastSeenAtMs, entry.timestamp);
+    }
+
+    const pairRows = [...pairAgg.values()];
+    const modelAgg = new Map<string, MutableAnalyticsAgg>();
+    const modelProviderCoverage = new Map<string, Set<string>>();
+    const providerAgg = new Map<string, MutableAnalyticsAgg>();
+    const providerModelCoverage = new Map<string, Set<string>>();
+
+    for (const pair of pairRows) {
+      const modelId = pair.model ?? "unknown";
+      const providerId = pair.providerId ?? "unknown";
+
+      const modelRow = modelAgg.get(modelId) ?? {
+        model: modelId,
+        requestCount: 0,
+        errorCount: 0,
+        totalTokens: 0,
+        promptTokens: 0,
+        completionTokens: 0,
+        cachedPromptTokens: 0,
+        cacheHitCount: 0,
+        cacheKeyUseCount: 0,
+        ttftSum: 0,
+        ttftCount: 0,
+        tpsSum: 0,
+        tpsCount: 0,
+        costUsd: 0,
+        energyJoules: 0,
+        waterEvaporatedMl: 0,
+        firstSeenAtMs: null,
+        lastSeenAtMs: null,
+      } as MutableAnalyticsAgg;
+      modelRow.requestCount += pair.requestCount;
+      modelRow.errorCount += pair.errorCount;
+      modelRow.totalTokens += pair.totalTokens;
+      modelRow.promptTokens += pair.promptTokens;
+      modelRow.completionTokens += pair.completionTokens;
+      modelRow.cachedPromptTokens += pair.cachedPromptTokens;
+      modelRow.cacheHitCount += pair.cacheHitCount;
+      modelRow.cacheKeyUseCount += pair.cacheKeyUseCount;
+      modelRow.ttftSum += pair.ttftSum;
+      modelRow.ttftCount += pair.ttftCount;
+      modelRow.tpsSum += pair.tpsSum;
+      modelRow.tpsCount += pair.tpsCount;
+      modelRow.costUsd += pair.costUsd;
+      modelRow.energyJoules += pair.energyJoules;
+      modelRow.waterEvaporatedMl += pair.waterEvaporatedMl;
+      modelRow.firstSeenAtMs = modelRow.firstSeenAtMs === null ? pair.firstSeenAtMs : Math.min(modelRow.firstSeenAtMs, pair.firstSeenAtMs ?? modelRow.firstSeenAtMs);
+      modelRow.lastSeenAtMs = modelRow.lastSeenAtMs === null ? pair.lastSeenAtMs : Math.max(modelRow.lastSeenAtMs, pair.lastSeenAtMs ?? modelRow.lastSeenAtMs);
+      modelAgg.set(modelId, modelRow);
+      const providerSet = modelProviderCoverage.get(modelId) ?? new Set<string>();
+      providerSet.add(providerId);
+      modelProviderCoverage.set(modelId, providerSet);
+
+      const providerRow = providerAgg.get(providerId) ?? {
+        providerId,
+        requestCount: 0,
+        errorCount: 0,
+        totalTokens: 0,
+        promptTokens: 0,
+        completionTokens: 0,
+        cachedPromptTokens: 0,
+        cacheHitCount: 0,
+        cacheKeyUseCount: 0,
+        ttftSum: 0,
+        ttftCount: 0,
+        tpsSum: 0,
+        tpsCount: 0,
+        costUsd: 0,
+        energyJoules: 0,
+        waterEvaporatedMl: 0,
+        firstSeenAtMs: null,
+        lastSeenAtMs: null,
+      } as MutableAnalyticsAgg;
+      providerRow.requestCount += pair.requestCount;
+      providerRow.errorCount += pair.errorCount;
+      providerRow.totalTokens += pair.totalTokens;
+      providerRow.promptTokens += pair.promptTokens;
+      providerRow.completionTokens += pair.completionTokens;
+      providerRow.cachedPromptTokens += pair.cachedPromptTokens;
+      providerRow.cacheHitCount += pair.cacheHitCount;
+      providerRow.cacheKeyUseCount += pair.cacheKeyUseCount;
+      providerRow.ttftSum += pair.ttftSum;
+      providerRow.ttftCount += pair.ttftCount;
+      providerRow.tpsSum += pair.tpsSum;
+      providerRow.tpsCount += pair.tpsCount;
+      providerRow.costUsd += pair.costUsd;
+      providerRow.energyJoules += pair.energyJoules;
+      providerRow.waterEvaporatedMl += pair.waterEvaporatedMl;
+      providerRow.firstSeenAtMs = providerRow.firstSeenAtMs === null ? pair.firstSeenAtMs : Math.min(providerRow.firstSeenAtMs, pair.firstSeenAtMs ?? providerRow.firstSeenAtMs);
+      providerRow.lastSeenAtMs = providerRow.lastSeenAtMs === null ? pair.lastSeenAtMs : Math.max(providerRow.lastSeenAtMs, pair.lastSeenAtMs ?? providerRow.lastSeenAtMs);
+      providerAgg.set(providerId, providerRow);
+      const modelSet = providerModelCoverage.get(providerId) ?? new Set<string>();
+      modelSet.add(modelId);
+      providerModelCoverage.set(providerId, modelSet);
+    }
+
+    const earliestEntryAtMs = relevantEntries.reduce<number | null>((current, entry) => current === null ? entry.timestamp : Math.min(current, entry.timestamp), null);
+    return {
+      window,
+      generatedAt: new Date(now).toISOString(),
+      coverage: {
+        requestedWindowStart: new Date(bucketWindowStart).toISOString(),
+        coverageStart: earliestEntryAtMs !== null ? new Date(earliestEntryAtMs).toISOString() : null,
+        hasFullWindowCoverage: earliestEntryAtMs !== null && earliestEntryAtMs <= bucketWindowStart,
+        retainedEntryCount: relevantEntries.length,
+        maxRetainedEntries: requestLogStore.getCoverage().maxEntries,
+      },
+      models: sortAnalyticsRows(
+        [...modelAgg.entries()].map(([modelId, agg]) => toAnalyticsRow(agg, { providerCoverageCount: modelProviderCoverage.get(modelId)?.size ?? 0 })),
+        sort,
+      ),
+      providers: sortAnalyticsRows(
+        [...providerAgg.entries()].map(([providerId, agg]) => toAnalyticsRow(agg, { modelCoverageCount: providerModelCoverage.get(providerId)?.size ?? 0 })),
+        sort,
+      ),
+      providerModels: sortAnalyticsRows(pairRows.map((agg) => toAnalyticsRow(agg)), sort),
+    };
+  }
+
   const now = Date.now();
   const bucketMs = window === "daily" ? 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
   const bucketCount = window === "monthly" ? 30 : window === "weekly" ? 7 : 24;
@@ -1569,17 +2216,55 @@ export async function registerUiRoutes(app: FastifyInstance, deps: UiRouteDepend
     });
   });
 
-  app.get<{ Querystring: { readonly sort?: string; readonly window?: string } }>("/api/ui/dashboard/overview", async (request, reply) => {
+  app.get<{
+    Querystring: { readonly sort?: string; readonly window?: string; readonly tenantId?: string; readonly issuer?: string; readonly keyId?: string };
+  }>("/api/ui/dashboard/overview", async (request, reply) => {
+    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
+    if (!auth) {
+      reply.code(401).send({ error: "unauthorized" });
+      return;
+    }
+
+    const scope = await resolveUsageScopeFromAuth({
+      auth,
+      tenantId: request.query.tenantId,
+      issuer: request.query.issuer,
+      keyId: request.query.keyId,
+    });
+    if ("error" in scope) {
+      reply.code(scope.statusCode).send({ error: scope.error });
+      return;
+    }
+
     const sort = typeof request.query.sort === "string" ? request.query.sort : undefined;
     const window = toUsageWindow(request.query.window);
-    const overview = await buildUsageOverview(deps.requestLogStore, deps.keyPool, credentialStore, sort, window);
+    const overview = await buildUsageOverview(deps.requestLogStore, deps.keyPool, credentialStore, sort, window, scope);
     reply.send(overview);
   });
 
-  app.get<{ Querystring: { readonly sort?: string; readonly window?: string } }>("/api/ui/analytics/provider-model", async (request, reply) => {
+  app.get<{
+    Querystring: { readonly sort?: string; readonly window?: string; readonly tenantId?: string; readonly issuer?: string; readonly keyId?: string };
+  }>("/api/ui/analytics/provider-model", async (request, reply) => {
+    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
+    if (!auth) {
+      reply.code(401).send({ error: "unauthorized" });
+      return;
+    }
+
+    const scope = await resolveUsageScopeFromAuth({
+      auth,
+      tenantId: request.query.tenantId,
+      issuer: request.query.issuer,
+      keyId: request.query.keyId,
+    });
+    if ("error" in scope) {
+      reply.code(scope.statusCode).send({ error: scope.error });
+      return;
+    }
+
     const sort = typeof request.query.sort === "string" ? request.query.sort : undefined;
     const window = toUsageWindow(request.query.window);
-    const analytics = await buildProviderModelAnalytics(deps.requestLogStore, window, sort);
+    const analytics = await buildProviderModelAnalytics(deps.requestLogStore, window, sort, scope);
     reply.send(analytics);
   });
 
@@ -1885,11 +2570,56 @@ export async function registerUiRoutes(app: FastifyInstance, deps: UiRouteDepend
   });
 
   app.get<{
-    Querystring: { readonly providerId?: string; readonly accountId?: string; readonly limit?: string; readonly before?: string };
+    Querystring: {
+      readonly providerId?: string;
+      readonly accountId?: string;
+      readonly tenantId?: string;
+      readonly issuer?: string;
+      readonly keyId?: string;
+      readonly limit?: string;
+      readonly before?: string;
+    };
   }>("/api/ui/request-logs", async (request, reply) => {
+    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
+    if (!auth) {
+      reply.code(401).send({ error: "unauthorized" });
+      return;
+    }
+
+    let tenantId = typeof request.query.tenantId === "string" && request.query.tenantId.trim().length > 0
+      ? normalizeTenantId(request.query.tenantId)
+      : undefined;
+    let keyId = typeof request.query.keyId === "string" && request.query.keyId.trim().length > 0
+      ? request.query.keyId.trim()
+      : undefined;
+
+    if (auth.kind !== "legacy_admin" && auth.kind !== "unauthenticated") {
+      if (tenantId) {
+        if (!authCanViewTenant(auth, tenantId)) {
+          reply.code(403).send({ error: "forbidden" });
+          return;
+        }
+      } else if (auth.tenantId) {
+        tenantId = auth.tenantId;
+      }
+
+      if (auth.kind === "tenant_api_key") {
+        if (keyId && auth.keyId && keyId !== auth.keyId) {
+          reply.code(403).send({ error: "forbidden" });
+          return;
+        }
+        keyId = auth.keyId;
+      }
+    }
+
     const entries = deps.requestLogStore.list({
       providerId: request.query.providerId,
       accountId: request.query.accountId,
+      tenantId,
+      issuer: typeof request.query.issuer === "string" && request.query.issuer.trim().length > 0
+        ? request.query.issuer.trim()
+        : undefined,
+      keyId,
       limit: toSafeLimit(request.query.limit, 200, 2000),
       before: typeof request.query.before === "string" && request.query.before.length > 0
         ? request.query.before
