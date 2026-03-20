@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -59,15 +60,22 @@ jobs:
         env:
           PRODUCTION_HOST: ${{ vars.PRODUCTION_SSH_HOST || 'ussy.promethean.rest' }}
       - run: chmod +x scripts/*.sh
-      - run: ./scripts/deploy-remote.sh
+      - name: deploy production runtime
+        run: ./scripts/deploy-remote.sh
         env:
           DEPLOY_HOST: ${{ vars.PRODUCTION_SSH_HOST || 'ussy.promethean.rest' }}
           DEPLOY_USER: ${{ vars.PRODUCTION_SSH_USER || 'error' }}
           DEPLOY_PATH: ${{ vars.PRODUCTION_DEPLOY_PATH || '~/devel/services/proxx' }}
-          DEPLOY_ENABLE_TLS: 'false'
-          DEPLOY_ENV_FILE: ${{ secrets.PRODUCTION_ENV_FILE }}
-          DEPLOY_KEYS_JSON: ${{ secrets.PRODUCTION_KEYS_JSON }}
-          DEPLOY_MODELS_JSON: ${{ secrets.PRODUCTION_MODELS_JSON }}
+          DEPLOY_PUBLIC_HOST: ${{ vars.PRODUCTION_PUBLIC_HOST || 'ussy.promethean.rest' }}
+          DEPLOY_ENABLE_TLS: 'true'
+          DEPLOY_HEALTH_TIMEOUT_SECONDS: '240'
+      - name: production deploy failure logs
+        if: failure()
+        run: |
+          ssh error@${PRODUCTION_HOST} "cd '${PRODUCTION_PATH}' && docker compose -f docker-compose.yml -f deploy/docker-compose.ssl.yml ps && docker compose -f docker-compose.yml -f deploy/docker-compose.ssl.yml logs --tail=200"
+        env:
+          PRODUCTION_HOST: ${{ vars.PRODUCTION_SSH_HOST || 'ussy.promethean.rest' }}
+          PRODUCTION_PATH: ${{ vars.PRODUCTION_DEPLOY_PATH || '~/devel/services/proxx' }}
 
   verify-production:
     name: verify-production

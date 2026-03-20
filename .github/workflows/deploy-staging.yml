@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - staging
+  workflow_dispatch:
 
 concurrency:
   group: proxx-staging
@@ -54,18 +55,31 @@ jobs:
           ssh-private-key: ${{ secrets.STAGING_SSH_PRIVATE_KEY }}
       - run: mkdir -p ~/.ssh && ssh-keyscan -H "${STAGING_HOST}" >> ~/.ssh/known_hosts
         env:
-          STAGING_HOST: ${{ vars.STAGING_SSH_HOST || 'ussy2.promethean.rest' }}
+          STAGING_HOST: ${{ vars.STAGING_SSH_HOST || 'ussy3.promethean.rest' }}
       - run: chmod +x scripts/*.sh
-      - run: ./scripts/deploy-remote.sh
+      - name: deploy staging runtime
+        run: ./scripts/deploy-remote.sh
         env:
-          DEPLOY_HOST: ${{ vars.STAGING_SSH_HOST || 'ussy2.promethean.rest' }}
+          DEPLOY_HOST: ${{ vars.STAGING_SSH_HOST || 'ussy3.promethean.rest' }}
           DEPLOY_USER: ${{ vars.STAGING_SSH_USER || 'error' }}
           DEPLOY_PATH: ${{ vars.STAGING_DEPLOY_PATH || '~/devel/services/proxx-staging' }}
-          DEPLOY_PUBLIC_HOST: ${{ vars.STAGING_PUBLIC_HOST || 'ussy2.promethean.rest' }}
+          DEPLOY_PUBLIC_HOST: ${{ vars.STAGING_PUBLIC_HOST || 'ussy3.promethean.rest' }}
           DEPLOY_ENABLE_TLS: 'true'
+          DEPLOY_HEALTH_TIMEOUT_SECONDS: '240'
+          DEPLOY_SYNC_RUNTIME_FROM_SOURCE: 'true'
+          DEPLOY_SYNC_DB_FROM_SOURCE: 'true'
+          DEPLOY_SOURCE_HOST: ${{ vars.STAGING_SOURCE_SSH_HOST || 'ussy.promethean.rest' }}
+          DEPLOY_SOURCE_USER: ${{ vars.STAGING_SOURCE_SSH_USER || 'error' }}
+          DEPLOY_SOURCE_PATH: ${{ vars.STAGING_SOURCE_DEPLOY_PATH || '~/devel/services/proxx' }}
           DEPLOY_ENV_FILE: ${{ secrets.STAGING_ENV_FILE }}
-          DEPLOY_KEYS_JSON: ${{ secrets.STAGING_KEYS_JSON }}
           DEPLOY_MODELS_JSON: ${{ secrets.STAGING_MODELS_JSON }}
+      - name: staging deploy failure logs
+        if: failure()
+        run: |
+          ssh error@${STAGING_HOST} "cd '${STAGING_PATH}' && docker compose -f docker-compose.yml -f deploy/docker-compose.ssl.yml ps && docker compose -f docker-compose.yml -f deploy/docker-compose.ssl.yml logs --tail=200"
+        env:
+          STAGING_HOST: ${{ vars.STAGING_SSH_HOST || 'ussy3.promethean.rest' }}
+          STAGING_PATH: ${{ vars.STAGING_DEPLOY_PATH || '~/devel/services/proxx-staging' }}
 
   staging-live-e2e:
     name: staging-live-e2e
@@ -92,14 +106,21 @@ jobs:
           done
           exit 1
         env:
-          DEV_PROXY_URL: ${{ vars.STAGING_BASE_URL || 'https://ussy2.promethean.rest' }}
+          DEV_PROXY_URL: ${{ vars.STAGING_BASE_URL || 'https://ussy3.promethean.rest' }}
           DEV_PROXY_AUTH_TOKEN: ${{ secrets.STAGING_PROXY_AUTH_TOKEN }}
       - run: pnpm install --frozen-lockfile
       - run: ./scripts/e2e-test.sh
         env:
-          DEV_PROXY_URL: ${{ vars.STAGING_BASE_URL || 'https://ussy2.promethean.rest' }}
+          DEV_PROXY_URL: ${{ vars.STAGING_BASE_URL || 'https://ussy3.promethean.rest' }}
           DEV_PROXY_AUTH_TOKEN: ${{ secrets.STAGING_PROXY_AUTH_TOKEN }}
       - run: ./scripts/e2e-multitenancy-smoke.sh
         env:
-          DEV_PROXY_URL: ${{ vars.STAGING_BASE_URL || 'https://ussy2.promethean.rest' }}
+          DEV_PROXY_URL: ${{ vars.STAGING_BASE_URL || 'https://ussy3.promethean.rest' }}
           DEV_PROXY_AUTH_TOKEN: ${{ secrets.STAGING_PROXY_AUTH_TOKEN }}
+      - name: staging live e2e failure logs
+        if: failure()
+        run: |
+          ssh error@${STAGING_HOST} "cd '${STAGING_PATH}' && docker compose -f docker-compose.yml -f deploy/docker-compose.ssl.yml ps && docker compose -f docker-compose.yml -f deploy/docker-compose.ssl.yml logs --tail=200"
+        env:
+          STAGING_HOST: ${{ vars.STAGING_SSH_HOST || 'ussy3.promethean.rest' }}
+          STAGING_PATH: ${{ vars.STAGING_DEPLOY_PATH || '~/devel/services/proxx-staging' }}

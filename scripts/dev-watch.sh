@@ -5,7 +5,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 ECOSYSTEM="ecosystem.dev.config.cjs"
-WATCH_DIRS="src web"
+WATCH_DIRS=(src web)
 DEBOUNCE_SEC=2
 
 log() { printf "\033[1;36m[dev-watch]\033[0m %s\n" "$*"; }
@@ -58,22 +58,22 @@ if ! initial_build; then
 fi
 
 pm2 start "$ECOSYSTEM"
-log "Dev proxy ready on http://127.0.0.1:8790"
+log "Dev proxy ready on http://127.0.0.1:8795"
 log "Dev web UI ready on http://127.0.0.1:5175"
 
 # --- Watch loop ---
-log "Watching ${WATCH_DIRS} for changes (debounce=${DEBOUNCE_SEC}s)..."
+log "Watching ${WATCH_DIRS[*]} for changes (debounce=${DEBOUNCE_SEC}s)..."
 
 while true; do
   inotifywait -r -q -e modify,create,delete,move \
     --exclude '(node_modules|dist|\.git|logs|data)' \
-    $WATCH_DIRS
+    "${WATCH_DIRS[@]}"
 
   # Debounce: drain rapid-fire events
   sleep "$DEBOUNCE_SEC"
   while inotifywait -r -q -t 0 -e modify,create,delete,move \
     --exclude '(node_modules|dist|\.git|logs|data)' \
-    $WATCH_DIRS 2>/dev/null; do
+    "${WATCH_DIRS[@]}" 2>/dev/null; do
     sleep 0.5
   done
 
