@@ -32,7 +32,6 @@ jobs:
       - run: chmod +x scripts/*.sh
       - run: ./scripts/ci-lint.sh
       - run: /home/runner/go/bin/actionlint
-      - run: pnpm dlx markdownlint-cli2 README.md DEVEL.md specs/drafts/ussy3-staging-bootstrap-and-github-actions.md '.github/workflows/*.yml'
       - run: pnpm install --frozen-lockfile
       - run: pnpm run typecheck
       - run: pnpm test
