@@ -31,7 +31,7 @@ jobs:
       - run: go install github.com/rhysd/actionlint/cmd/actionlint@latest
       - run: chmod +x scripts/*.sh
       - run: ./scripts/ci-lint.sh
-      - run: "$HOME/go/bin/actionlint"
+      - run: /home/runner/go/bin/actionlint
       - run: pnpm dlx markdownlint-cli2 README.md DEVEL.md 'specs/**/*.md' '.github/workflows/*.yml'
       - run: pnpm install --frozen-lockfile
       - run: pnpm run typecheck
