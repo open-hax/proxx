@@ -10,8 +10,35 @@ import {
   type UsageOverview,
 } from "../lib/api";
 import { formatAuthType } from "../lib/format";
+import { useStoredState } from "../lib/use-stored-state";
 
 const ALL_PROVIDERS_FILTER = "__all_providers__";
+const DEFAULT_USAGE_WINDOW: "daily" | "weekly" | "monthly" = "weekly";
+
+const LS_DASHBOARD_WINDOW = "open-hax-proxy.ui.dashboard.window";
+const LS_DASHBOARD_ACCOUNT_SORT = "open-hax-proxy.ui.dashboard.accountSort";
+const LS_DASHBOARD_ACCOUNT_PROVIDER = "open-hax-proxy.ui.dashboard.accountProvider";
+
+function validateUsageWindow(value: unknown): "daily" | "weekly" | "monthly" | undefined {
+  return value === "daily" || value === "weekly" || value === "monthly" ? value : undefined;
+}
+
+function validateNonEmptyString(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+function validateAccountSort(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "health" || normalized === "ttft" || normalized === "tps" || normalized === "tokens" || normalized === "requests") {
+    return normalized;
+  }
+
+  return undefined;
+}
 
 function formatCompactNumber(value: number): string {
   return new Intl.NumberFormat("en-US", {
@@ -127,6 +154,10 @@ function donutSegments(accounts: readonly UsageAccountSummary[]): JSX.Element {
   );
 }
 
+function usageWindowLabel(windowValue: "daily" | "weekly" | "monthly"): string {
+  return windowValue === "monthly" ? "30d" : windowValue === "weekly" ? "7d" : "24h";
+}
+
 function serviceTierShareBars(summary: UsageOverview["summary"]): JSX.Element {
   const tiers = [
     { label: "Fast mode", value: summary.serviceTierRequests24h.fastMode, className: "dashboard-tier-fast_mode" },
@@ -165,8 +196,13 @@ export function DashboardPage(): JSX.Element {
   const [requestLogs, setRequestLogs] = useState<RequestLogEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [accountSort, setAccountSort] = useState("health");
-  const [accountProviderFilter, setAccountProviderFilter] = useState(ALL_PROVIDERS_FILTER);
+  const [accountSort, setAccountSort] = useStoredState(LS_DASHBOARD_ACCOUNT_SORT, "health", validateAccountSort);
+  const [accountProviderFilter, setAccountProviderFilter] = useStoredState(LS_DASHBOARD_ACCOUNT_PROVIDER, ALL_PROVIDERS_FILTER, validateNonEmptyString);
+  const [usageWindow, setUsageWindow] = useStoredState<"daily" | "weekly" | "monthly">(
+    LS_DASHBOARD_WINDOW,
+    DEFAULT_USAGE_WINDOW,
+    validateUsageWindow,
+  );
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const logSentinelRef = useRef<HTMLDivElement | null>(null);
@@ -196,6 +232,8 @@ export function DashboardPage(): JSX.Element {
   const visibleAccounts = useMemo(() => filteredAccounts.slice(0, healthVisible), [filteredAccounts, healthVisible]);
   const providerStatuses = useMemo(() => Object.values(keyPoolStatuses).sort((a, b) => a.providerId.localeCompare(b.providerId)), [keyPoolStatuses]);
 
+  const windowLabel = usageWindowLabel(usageWindow);
+
   useEffect(() => {
     if (accountProviderFilter !== ALL_PROVIDERS_FILTER && !accountProviderOptions.includes(accountProviderFilter)) {
       setAccountProviderFilter(ALL_PROVIDERS_FILTER);
@@ -210,7 +248,7 @@ export function DashboardPage(): JSX.Element {
       setError(null);
       try {
         const [nextOverview, credentials, nextLogs] = await Promise.all([
-          getUsageOverview(accountSort),
+          getUsageOverview(accountSort, usageWindow),
           listCredentials(false),
           listRequestLogs({ limit: LOG_PAGE_SIZE }),
         ]);
@@ -240,7 +278,7 @@ export function DashboardPage(): JSX.Element {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [accountSort]);
+  }, [accountSort, usageWindow]);
 
   const loadMoreLogs = useCallback(async () => {
     if (loadingMore || !hasMore || requestLogs.length === 0) return;
@@ -306,14 +344,21 @@ export function DashboardPage(): JSX.Element {
 
       {error && <p className="error-text">{error}</p>}
 
+      {overview?.coverage && !overview.coverage.hasFullWindowCoverage ? (
+        <p className="error-text">
+          Selected {windowLabel} window is not fully covered yet. Coverage starts {formatDate(overview.coverage.coverageStart)};
+          requested window starts {formatDate(overview.coverage.requestedWindowStart)}. Cost/water/top-model stats may be partial.
+        </p>
+      ) : null}
+
       <section className="dashboard-metrics-grid">
         <article className={`dashboard-metric-card ${metricTone(overview?.summary.requests24h ?? 0)}`}>
-          <span>Requests / 24h</span>
+          <span>Requests / {windowLabel}</span>
           <strong>{loading ? "..." : formatCompactNumber(overview?.summary.requests24h ?? 0)}</strong>
           {overview ? miniBars(overview.trends.requests) : <div className="dashboard-sparkbars dashboard-sparkbars-placeholder" />}
         </article>
         <article className={`dashboard-metric-card ${metricTone(overview?.summary.tokens24h ?? 0)}`}>
-          <span>Tokens / 24h</span>
+          <span>Tokens / {windowLabel}</span>
           <strong>{loading ? "..." : formatCompactNumber(overview?.summary.tokens24h ?? 0)}</strong>
           <small>
             In {formatCompactNumber(overview?.summary.promptTokens24h ?? 0)} / Out {formatCompactNumber(overview?.summary.completionTokens24h ?? 0)}
@@ -324,7 +369,7 @@ export function DashboardPage(): JSX.Element {
           </small>
         </article>
         <article className={`dashboard-metric-card ${metricTone(overview?.summary.imageCount24h ?? 0)}`}>
-          <span>Images / 24h</span>
+          <span>Images / {windowLabel}</span>
           <strong>{loading ? "..." : formatCompactNumber(overview?.summary.imageCount24h ?? 0)}</strong>
           <small>
             Cost {formatUsd(overview?.summary.imageCostUsd24h ?? 0)}
@@ -343,14 +388,14 @@ export function DashboardPage(): JSX.Element {
           </small>
         </article>
         <article className={`dashboard-metric-card ${metricTone(overview?.summary.costUsd24h ?? 0)}`}>
-          <span>Est. Cost / 24h</span>
+          <span>Est. Cost / {windowLabel}</span>
           <strong>{loading ? "..." : formatUsd(overview?.summary.costUsd24h ?? 0)}</strong>
           <small>
             {formatCompactNumber((overview?.summary.energyJoules24h ?? 0) / 1000)} kJ energy
           </small>
         </article>
         <article className={`dashboard-metric-card ${metricTone(overview?.summary.waterEvaporatedMl24h ?? 0)}`}>
-          <span>Water Evaporated / 24h</span>
+          <span>Water Evaporated / {windowLabel}</span>
           <strong>{loading ? "..." : formatWater(overview?.summary.waterEvaporatedMl24h ?? 0)}</strong>
           <small>
             ~1.8 L/kWh DC cooling avg
@@ -399,6 +444,16 @@ export function DashboardPage(): JSX.Element {
           <header className="dashboard-panel-header">
             <div>
               <h3>Traffic Trend</h3>
+            </div>
+            <div className="dashboard-panel-controls">
+              <label>
+                Window&nbsp;
+                <select value={usageWindow} onChange={(event) => setUsageWindow(event.target.value as typeof usageWindow)}>
+                  <option value="daily">Daily (24h)</option>
+                  <option value="weekly">Weekly (7d)</option>
+                  <option value="monthly">Monthly (30d)</option>
+                </select>
+              </label>
             </div>
           </header>
           <div className="dashboard-panel-scroll">
@@ -473,7 +528,7 @@ export function DashboardPage(): JSX.Element {
                 <span className={`dashboard-status-pill dashboard-tier-pill dashboard-tier-${entry.serviceTierSource}`}>
                   {formatServiceTier(entry)}
                 </span>
-                <span className={`dashboard-status-pill dashboard-status-${entry.status >= 400 ? "cooldown" : "healthy"}`}>{entry.status}</span>
+                <span className={`dashboard-status-pill dashboard-status-${entry.status === 0 || entry.status >= 400 ? "cooldown" : "healthy"}`}>{entry.status === 0 ? "ERR" : entry.status}</span>
                 <span>{Math.round(entry.latencyMs)} ms</span>
               </div>
             ))}

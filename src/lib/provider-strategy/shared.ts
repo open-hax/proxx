@@ -960,7 +960,8 @@ function recordAttempt(
   mode: UpstreamMode
 ): string {
   const cost = estimateRequestCost(
-    context.requestedModelInput,
+    values.providerId,
+    context.routedModel,
     values.promptTokens ?? 0,
     values.completionTokens ?? 0,
   );
@@ -1461,6 +1462,7 @@ async function updateUsageCountsFromResponse(
       : undefined;
 
   const updatedCost = estimateRequestCost(
+    providerId,
     routedModel,
     usageCounts.promptTokens ?? 0,
     usageCounts.completionTokens ?? 0,

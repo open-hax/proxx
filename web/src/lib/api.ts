@@ -149,7 +149,15 @@ export interface UsageAccountSummary {
 }
 
 export interface UsageOverview {
+  readonly window?: "daily" | "weekly" | "monthly";
   readonly generatedAt: string;
+  readonly coverage?: {
+    readonly requestedWindowStart: string;
+    readonly coverageStart: string | null;
+    readonly hasFullWindowCoverage: boolean;
+    readonly retainedEntryCount: number;
+    readonly maxRetainedEntries: number;
+  };
   readonly summary: {
     readonly requests24h: number;
     readonly tokens24h: number;
@@ -179,6 +187,47 @@ export interface UsageOverview {
     readonly errors: readonly UsageTrendPoint[];
   };
   readonly accounts: readonly UsageAccountSummary[];
+}
+
+export interface AnalyticsCoverage {
+  readonly requestedWindowStart: string;
+  readonly coverageStart: string | null;
+  readonly hasFullWindowCoverage: boolean;
+  readonly retainedEntryCount: number;
+  readonly maxRetainedEntries: number;
+}
+
+export interface AnalyticsRow {
+  readonly providerId?: string;
+  readonly model?: string;
+  readonly requestCount: number;
+  readonly errorCount: number;
+  readonly errorRate: number;
+  readonly totalTokens: number;
+  readonly promptTokens: number;
+  readonly completionTokens: number;
+  readonly cachedPromptTokens: number;
+  readonly cacheHitRate: number;
+  readonly avgTtftMs: number | null;
+  readonly avgTps: number | null;
+  readonly costUsd: number;
+  readonly energyJoules: number;
+  readonly waterEvaporatedMl: number;
+  readonly firstSeenAt: string | null;
+  readonly lastSeenAt: string | null;
+  readonly providerCoverageCount?: number;
+  readonly modelCoverageCount?: number;
+  readonly confidenceScore: number;
+  readonly suitabilityScore: number | null;
+}
+
+export interface ProviderModelAnalytics {
+  readonly window: "daily" | "weekly" | "monthly";
+  readonly generatedAt: string;
+  readonly coverage: AnalyticsCoverage;
+  readonly models: readonly AnalyticsRow[];
+  readonly providers: readonly AnalyticsRow[];
+  readonly providerModels: readonly AnalyticsRow[];
 }
 
 export interface CredentialQuotaWindow {
@@ -453,11 +502,28 @@ export async function listModels(): Promise<string[]> {
     .sort((a, b) => a.localeCompare(b));
 }
 
-export async function getUsageOverview(sort?: string): Promise<UsageOverview> {
-  const query = typeof sort === "string" && sort.trim().length > 0
-    ? `?sort=${encodeURIComponent(sort.trim())}`
-    : "";
-  return requestJson<UsageOverview>(`/api/ui/dashboard/overview${query}`);
+export async function getUsageOverview(sort?: string, window?: "daily" | "weekly" | "monthly"): Promise<UsageOverview> {
+  const query = new URLSearchParams();
+  if (typeof sort === "string" && sort.trim().length > 0) {
+    query.set("sort", sort.trim());
+  }
+  if (typeof window === "string" && window.trim().length > 0) {
+    query.set("window", window.trim());
+  }
+  const suffix = query.size > 0 ? `?${query.toString()}` : "";
+  return requestJson<UsageOverview>(`/api/ui/dashboard/overview${suffix}`);
+}
+
+export async function getProviderModelAnalytics(sort?: string, window?: "daily" | "weekly" | "monthly"): Promise<ProviderModelAnalytics> {
+  const query = new URLSearchParams();
+  if (typeof sort === "string" && sort.trim().length > 0) {
+    query.set("sort", sort.trim());
+  }
+  if (typeof window === "string" && window.trim().length > 0) {
+    query.set("window", window.trim());
+  }
+  const suffix = query.size > 0 ? `?${query.toString()}` : "";
+  return requestJson<ProviderModelAnalytics>(`/api/ui/analytics/provider-model${suffix}`);
 }
 
 export async function getProxyUiSettings(): Promise<ProxyUiSettings> {

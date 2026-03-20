@@ -17,8 +17,14 @@ export const GPT_OSS_PROVIDER_ORDER: readonly ProviderId[] = [
   "vivgrid",
 ];
 
+export const CLAUDE_OPUS_46_PROVIDER_ORDER: readonly ProviderId[] = [
+  "factory",
+  "openrouter",
+  "requesty",
+  "vivgrid",
+];
+
 export const GPT_FREE_BLOCKED_MODELS: readonly ModelId[] = [
-  "gpt-5.4",
   "gpt-5.3-codex",
   "gpt-5-mini",
 ];
@@ -58,6 +64,12 @@ export function buildFreeBlockedConstraints(
 
 export function createGptModelRoutingRules(): readonly ModelRoutingRule[] {
   return [
+    {
+      modelPattern: /^claude-opus-4-6(?:-fast)?$/,
+      preferredProviders: CLAUDE_OPUS_46_PROVIDER_ORDER,
+      excludedProviders: ["openai", "ollama-cloud"],
+      accountOrdering: { kind: "prefer_free" },
+    },
     {
       modelPattern: /^gpt-oss/,
       preferredProviders: GPT_OSS_PROVIDER_ORDER,

@@ -66,3 +66,31 @@ test("loadConfig preserves OPENAI_RESPONSES_PATH override", async () => {
     },
   );
 });
+
+test("loadConfig falls back to session secret for proxy token pepper", async () => {
+  await withEnv(
+    {
+      PROXY_AUTH_TOKEN: "test-token",
+      SESSION_SECRET: "session-secret-a",
+      PROXY_TOKEN_PEPPER: undefined,
+    },
+    () => {
+      const config = loadConfig("/tmp/open-hax-openai-proxy-config-test");
+      assert.equal(config.proxyTokenPepper, "session-secret-a");
+    },
+  );
+});
+
+test("loadConfig preserves explicit PROXY_TOKEN_PEPPER", async () => {
+  await withEnv(
+    {
+      PROXY_AUTH_TOKEN: "test-token",
+      SESSION_SECRET: "session-secret-a",
+      PROXY_TOKEN_PEPPER: "pepper-b",
+    },
+    () => {
+      const config = loadConfig("/tmp/open-hax-openai-proxy-config-test");
+      assert.equal(config.proxyTokenPepper, "pepper-b");
+    },
+  );
+});

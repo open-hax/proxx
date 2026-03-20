@@ -273,6 +273,52 @@ test("loads env-backed gemini provider via GEMINI_API_KEY", { concurrency: false
   );
 });
 
+test("loads env-backed zai and mistral providers", { concurrency: false }, async () => {
+  await withEnv(
+    {
+      ZAI_API_KEY: "zai-key-1", // pragma: allowlist secret
+      MISTRAL_API_KEY: "mistral-key-1", // pragma: allowlist secret
+      ZAI_PROVIDER_ID: undefined,
+      MISTRAL_PROVIDER_ID: undefined,
+      GEMINI_API_KEY: undefined,
+      OPENROUTER_API_KEY: undefined,
+      REQUESTY_API_TOKEN: undefined,
+      REQUESTY_API_KEY: undefined,
+    },
+    async () => {
+      await withKeysFile(
+        {
+          providers: {
+            "ollama-cloud": {
+              accounts: ["oc-key-1"],
+            },
+          },
+        },
+        async (keysFilePath) => {
+          const keyPool = new KeyPool({
+            keysFilePath,
+            reloadIntervalMs: 10,
+            defaultCooldownMs: 1000,
+            defaultProviderId: "ollama-cloud",
+          });
+
+          await keyPool.warmup();
+          const zaiAccounts = await keyPool.getRequestOrder("zai");
+          const mistralAccounts = await keyPool.getRequestOrder("mistral");
+
+          assert.equal(zaiAccounts.length, 1);
+          assert.equal(zaiAccounts[0]?.providerId, "zai");
+          assert.equal(zaiAccounts[0]?.token, "zai-key-1");
+
+          assert.equal(mistralAccounts.length, 1);
+          assert.equal(mistralAccounts[0]?.providerId, "mistral");
+          assert.equal(mistralAccounts[0]?.token, "mistral-key-1");
+        },
+      );
+    },
+  );
+});
+
 test("treats epoch-second OAuth expirations as future timestamps", async () => {
   const expiresAtSeconds = Math.floor(Date.now() / 1000) + 3600;
 

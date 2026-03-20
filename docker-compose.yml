@@ -19,7 +19,10 @@ services:
       PROXY_AUTH_TOKEN: "${PROXY_AUTH_TOKEN:-change-me-open-hax-proxy-token}"
       PROXY_KEYS_FILE: /workspace/service-config/keys.json
       PROXY_MODELS_FILE: /workspace/service-config/models.json
-      PROXY_REQUEST_LOGS_FILE: /app/data/request-logs.json
+      PROXY_REQUEST_LOGS_FILE: /app/data/request-logs.jsonl
+      PROXY_REQUEST_LOGS_MAX_ENTRIES: "${PROXY_REQUEST_LOGS_MAX_ENTRIES:-100000}"
+      PROXY_REQUEST_LOGS_FLUSH_MS: "${PROXY_REQUEST_LOGS_FLUSH_MS:-1000}"
+      PROXY_PROMPT_AFFINITY_FLUSH_MS: "${PROXY_PROMPT_AFFINITY_FLUSH_MS:-250}"
       UPSTREAM_PROVIDER_ID: "${UPSTREAM_PROVIDER_ID:-openai}"
       UPSTREAM_FALLBACK_PROVIDER_IDS: "${UPSTREAM_FALLBACK_PROVIDER_IDS:-ollama-cloud,requesty}"
       DISABLED_PROVIDER_IDS: "${DISABLED_PROVIDER_IDS:-}"

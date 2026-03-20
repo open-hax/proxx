@@ -15,12 +15,20 @@ import {
   type SessionMessage,
   type SessionRecord,
 } from "../lib/api";
+import { useStoredState } from "../lib/use-stored-state";
 
 const DEFAULT_MODELS = [
   "gpt-5.3-codex",
   "openai/gpt-5.3-codex",
   "ollama/qwen3-vl:2b",
 ];
+
+const LS_CHAT_MODEL = "open-hax-proxy.ui.chat.model";
+const LS_CHAT_ACTIVE_SESSION = "open-hax-proxy.ui.chat.activeSessionId";
+
+function validateString(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -42,6 +50,10 @@ function firstTextContent(content: unknown): string {
       }
 
       if (typeof part === "object" && part !== null && "text" in part && typeof part.text === "string") {
+        const type = typeof (part as Record<string, unknown>).type === "string" ? (part as Record<string, unknown>).type : "";
+        if (type === "reasoning" || type === "thinking" || type === "reasoning_content" || type === "reasoning_details") {
+          return "";
+        }
         return part.text;
       }
 
@@ -77,11 +89,11 @@ function firstReasoningContent(message: unknown): string {
       }
 
       const type = typeof part.type === "string" ? part.type : "";
-      if (type !== "reasoning" && type !== "thinking" && type !== "summary_text") {
-        return "";
+      if (type === "reasoning" || type === "thinking" || type === "summary_text" || type === "reasoning_content" || type === "reasoning_details") {
+        return typeof part.text === "string" ? part.text : "";
       }
 
-      return typeof part.text === "string" ? part.text : "";
+      return "";
     })
     .join("");
 }
@@ -99,7 +111,7 @@ export function ChatPage(): JSX.Element {
   const [sessions, setSessions] = useState<SessionListItem[]>([]);
   const [activeSession, setActiveSession] = useState<SessionRecord | null>(null);
   const [draft, setDraft] = useState("");
-  const [model, setModel] = useState("ollama/qwen3-vl:2b");
+  const [model, setModel] = useStoredState(LS_CHAT_MODEL, "ollama/qwen3-vl:2b", validateString);
   const [modelOptions, setModelOptions] = useState<string[]>(DEFAULT_MODELS);
   const [sending, setSending] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -107,6 +119,7 @@ export function ChatPage(): JSX.Element {
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
+  const [storedActiveSessionId, setStoredActiveSessionId] = useStoredState(LS_CHAT_ACTIVE_SESSION, "", validateString);
   const threadRef = useRef<HTMLDivElement | null>(null);
   const copyResetTimerRef = useRef<number | null>(null);
 
@@ -114,10 +127,17 @@ export function ChatPage(): JSX.Element {
     const next = await listSessions();
     setSessions(next);
     if (!activeSession && next.length > 0) {
-      const loaded = await getSession(next[0].id);
-      setActiveSession(loaded);
+      const preferred = storedActiveSessionId.trim();
+      const desired = preferred.length > 0 && next.some((session) => session.id === preferred)
+        ? preferred
+        : next[0]?.id;
+      if (desired) {
+        const loaded = await getSession(desired);
+        setActiveSession(loaded);
+        setStoredActiveSessionId(loaded.id);
+      }
     }
-  }, [activeSession]);
+  }, [activeSession, setStoredActiveSessionId, storedActiveSessionId]);
 
   const refreshModelOptions = useCallback(async () => {
     const next = await listModels();
@@ -127,15 +147,12 @@ export function ChatPage(): JSX.Element {
     }
 
     setModelOptions(next);
-    setModel((current) => {
-      const normalized = current.trim();
-      if (normalized.length > 0) {
-        return normalized;
-      }
-
-      return next[0] ?? "gpt-5.3-codex";
-    });
-  }, []);
+    // Preserve stored/model selection if possible; otherwise fall back to the first option.
+    const normalized = model.trim();
+    if (normalized.length === 0) {
+      setModel(next[0] ?? "gpt-5.3-codex");
+    }
+  }, [model, setModel]);
 
   useEffect(() => {
     void refreshSessions().catch((nextError) => {
@@ -161,11 +178,13 @@ export function ChatPage(): JSX.Element {
   const loadSession = async (sessionId: string) => {
     const session = await getSession(sessionId);
     setActiveSession(session);
+    setStoredActiveSessionId(session.id);
   };
 
   const createNewSession = async () => {
     const session = await createSession("New chat");
     setActiveSession(session);
+    setStoredActiveSessionId(session.id);
     await refreshSessions();
   };
 
@@ -197,6 +216,7 @@ export function ChatPage(): JSX.Element {
       let session = activeSession;
       if (!session) {
         session = await createSession("New chat");
+        setStoredActiveSessionId(session.id);
       }
 
       await addSessionMessage(session.id, {
@@ -238,6 +258,7 @@ export function ChatPage(): JSX.Element {
 
       const updated = await getSession(session.id);
       setActiveSession(updated);
+      setStoredActiveSessionId(updated.id);
       setDraft("");
       await refreshSessions();
     } catch (sendError) {
@@ -275,6 +296,7 @@ export function ChatPage(): JSX.Element {
 
     const forked = await forkSession(activeSession.id, messageId);
     setActiveSession(forked);
+    setStoredActiveSessionId(forked.id);
     await refreshSessions();
   };
 

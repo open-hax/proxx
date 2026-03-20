@@ -498,16 +498,10 @@ export function chatRequestToResponsesRequest(requestBody: Record<string, unknow
 
   if (requestBody["reasoning"] !== undefined) {
     payload["reasoning"] = requestBody["reasoning"];
-    // Normalize xhigh in an already-provided reasoning object
-    if (isRecord(payload["reasoning"]) && (payload["reasoning"] as Record<string, unknown>)["effort"] === "xhigh") {
-      payload["reasoning"] = { ...(payload["reasoning"] as Record<string, unknown>), effort: "high" };
-    }
   }
 
   const rawReasoningEffort = asString(requestBody["reasoningEffort"]) ?? asString(requestBody["reasoning_effort"]);
-  // "xhigh" is a Codex-only effort level; standard Responses API only accepts
-  // low/medium/high so we normalize here (passthrough strategies bypass this).
-  const reasoningEffort = rawReasoningEffort === "xhigh" ? "high" : rawReasoningEffort;
+  const reasoningEffort = rawReasoningEffort;
   const reasoningSummary = asString(requestBody["reasoningSummary"]) ?? asString(requestBody["reasoning_summary"]);
   if (reasoningEffort || reasoningSummary) {
     const reasoning = isRecord(payload["reasoning"]) ? { ...payload["reasoning"] } : {};

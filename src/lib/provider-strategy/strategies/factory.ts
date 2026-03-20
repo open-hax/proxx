@@ -6,6 +6,7 @@ import { copyUpstreamHeaders } from "../../proxy.js";
 import {
   chatRequestToMessagesRequest,
   messagesToChatCompletion,
+  normalizeMessagesThinkingBudget,
 } from "../../messages-compat.js";
 import {
   chatRequestToResponsesRequest,
@@ -127,6 +128,8 @@ export class FactoryMessagesProviderStrategy extends TransformedJsonProviderStra
 
   public readonly isLocal = false;
 
+  private static readonly defaultMaxTokens = 4096;
+
   public matches(context: StrategyRequestContext): boolean {
     return context.factoryPrefixed
       && getFactoryModelType(context.routedModel) === "anthropic";
@@ -146,9 +149,16 @@ export class FactoryMessagesProviderStrategy extends TransformedJsonProviderStra
           ...messagesPayload,
           system: sanitizedSystem,
         };
+    const payloadWithMaxTokens = sanitizedPayload["max_tokens"] === undefined
+      ? {
+          ...sanitizedPayload,
+          max_tokens: FactoryMessagesProviderStrategy.defaultMaxTokens,
+        }
+      : sanitizedPayload;
+    const normalizedThinkingPayload = normalizeMessagesThinkingBudget(payloadWithMaxTokens);
     // Inline system content into first user message to avoid Factory 403 with fk- keys.
     // We always inline for Factory to keep behavior consistent across credential types.
-    const inlinedPayload = inlineSystemPrompt(sanitizedPayload);
+    const inlinedPayload = inlineSystemPrompt(normalizedThinkingPayload);
     return buildPayloadResult(inlinedPayload, context);
   }
 

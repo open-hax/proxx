@@ -16,6 +16,8 @@ const HEADLESS = process.env.HEADLESS === "true";
 const START_INDEX = Number(process.env.START_INDEX ?? "0");
 const MAX_ACCOUNTS = Number(process.env.MAX_ACCOUNTS ?? "9999");
 const DEBUG_DIR = process.env.DEBUG_DIR ?? "/tmp/oauth-debug";
+const CALLBACK_MODE = process.env.OAUTH_CALLBACK_MODE === "capture" ? "capture" : "proxy";
+const MAX_LOGIN_ATTEMPTS = Number(process.env.MAX_LOGIN_ATTEMPTS ?? "3");
 
 // Gmail IMAP config -- checks IMAP_USER/IMAP_PASS, then GMAIL_APP_EMAIL/GMAIL_APP_PASSWORD
 const IMAP_HOST = process.env.IMAP_HOST ?? "imap.gmail.com";
@@ -76,6 +78,31 @@ function sanitize(s: string): string {
   return s.replace(/[^a-zA-Z0-9._@-]/g, "_");
 }
 
+class RetryableLoginError extends Error {
+  public constructor(message: string) {
+    super(message);
+    this.name = "RetryableLoginError";
+  }
+}
+
+async function readBodyText(page: Page): Promise<string> {
+  return (await page.locator("body").textContent().catch(() => null)) ?? "";
+}
+
+function toCompactText(text: string, maxLength: number = 200): string {
+  return text.replace(/\s+/g, " ").trim().slice(0, maxLength);
+}
+
+function retryablePageError(bodyText: string): RetryableLoginError | undefined {
+  if (bodyText.includes("Oops, an error occurred") || bodyText.includes("Operation timed out")) {
+    return new RetryableLoginError(`OpenAI login page timed out: ${toCompactText(bodyText)}`);
+  }
+  if (bodyText.includes("Authentication Error") && bodyText.includes("unknown_error")) {
+    return new RetryableLoginError(`OpenAI authentication error page: ${toCompactText(bodyText)}`);
+  }
+  return undefined;
+}
+
 async function screenshot(page: Page, label: string): Promise<void> {
   await page.screenshot({ path: `${DEBUG_DIR}/${sanitize(label)}.png` }).catch(() => {});
 }
@@ -123,7 +150,7 @@ async function fetchVerificationCode(
 
   const lock = await client.getMailboxLock("INBOX");
   try {
-    const existingUids = await client.search({ subject: "ChatGPT code" });
+    const existingUids = (await client.search({ subject: "ChatGPT code" })) || [];
 
     // Set our UID baseline to the newest message that is strictly before sinceDate.
     // This avoids skipping a verification email that arrives during the initial snapshot.
@@ -156,7 +183,7 @@ async function fetchVerificationCode(
 
       const lock = await client.getMailboxLock("INBOX");
       try {
-        const uids = await client.search({ subject: "ChatGPT code" });
+        const uids = (await client.search({ subject: "ChatGPT code" })) || [];
 
         const candidateUids = uids.filter((uid) => !checkedUids.has(uid));
 
@@ -179,8 +206,9 @@ async function fetchVerificationCode(
           checkedUids.add(uid);
 
           const msg = await client.fetchOne(uid, { source: true });
-          if (!msg?.source) continue;
-          const body = msg.source.toString("utf8");
+          const source = msg && typeof msg === "object" && "source" in msg ? msg.source : undefined;
+          if (!source) continue;
+          const body = source.toString("utf8");
 
           // verify this email relates to our target account
           if (!body.toLowerCase().includes(recipientEmail.toLowerCase())) {
@@ -263,6 +291,10 @@ interface CallbackCapture {
   state: string;
 }
 
+type CallbackResult =
+  | { kind: "capture"; code: string; state: string }
+  | { kind: "proxy" };
+
 async function startCallbackServer(
   port: number,
 ): Promise<{ server: Server; getCapture: () => CallbackCapture; reset: () => void }> {
@@ -315,8 +347,8 @@ async function automateOpenAiLogin(
   email: string,
   password: string,
   label: string,
-  getCapture: () => CallbackCapture,
-): Promise<{ code: string; state: string }> {
+  getCapture: (() => CallbackCapture) | null,
+): Promise<CallbackResult> {
 
   // timestamp for IMAP search (only look for emails sent after this point)
   const loginStartTime = new Date();
@@ -341,7 +373,17 @@ async function automateOpenAiLogin(
   console.log(`  email submitted`);
 
   await page.waitForTimeout(3000);
-  if (getCapture().code) return getCapture();
+  {
+    const bodyText = await readBodyText(page);
+    const retryableError = retryablePageError(bodyText);
+    if (retryableError) {
+      throw retryableError;
+    }
+  }
+  if (getCapture?.().code) {
+    const capture = getCapture();
+    return { kind: "capture", code: capture.code, state: capture.state };
+  }
 
   // handle Cloudflare after email
   const t2 = await page.title().catch(() => "");
@@ -358,13 +400,26 @@ async function automateOpenAiLogin(
       await pwInput.fill(password);
       pwFilled = true;
     } else {
-      if (getCapture().code) return getCapture();
+      const bodyText = await readBodyText(page);
+      const retryableError = retryablePageError(bodyText);
+      if (retryableError) {
+        throw retryableError;
+      }
+      if (getCapture?.().code) {
+        const capture = getCapture();
+        return { kind: "capture", code: capture.code, state: capture.state };
+      }
       await page.waitForTimeout(2000);
     }
   }
   if (!pwFilled) {
     await screenshot(page, `${label}-no-pw`);
-    throw new Error(`No password field. URL: ${page.url()}`);
+    const bodyText = await readBodyText(page);
+    const retryableError = retryablePageError(bodyText);
+    if (retryableError) {
+      throw retryableError;
+    }
+    throw new Error(`No password field. URL: ${page.url()} Body: ${toCompactText(bodyText)}`);
   }
 
   await page.locator('button[type="submit"], button:has-text("Continue")').first().click();
@@ -372,11 +427,14 @@ async function automateOpenAiLogin(
   await page.waitForTimeout(3000);
   await screenshot(page, `${label}-after-pw`);
 
-  if (getCapture().code) return getCapture();
+  if (getCapture?.().code) {
+    const capture = getCapture();
+    return { kind: "capture", code: capture.code, state: capture.state };
+  }
 
   // ── Step 3: Check for errors or email verification ──
   const curUrl = page.url();
-  const bodyText = (await page.locator("body").textContent().catch(() => null)) ?? "";
+  const bodyText = await readBodyText(page);
 
   if (bodyText.includes("Incorrect email address or password")) {
     throw new Error("Wrong password");
@@ -425,7 +483,10 @@ async function automateOpenAiLogin(
       throw new Error("Account deleted or deactivated");
     }
 
-    if (getCapture().code) return getCapture();
+    if (getCapture?.().code) {
+      const capture = getCapture();
+      return { kind: "capture", code: capture.code, state: capture.state };
+    }
 
     // handle consent page that appears right after verification
     const verifyUrl = page.url();
@@ -442,8 +503,8 @@ async function automateOpenAiLogin(
 
   // ── Step 5: Wait for OAuth callback ──
   const deadline = Date.now() + 30000;
-  while (!getCapture().code && Date.now() < deadline) {
-    const bText = (await page.locator("body").textContent().catch(() => null)) ?? "";
+  while (Date.now() < deadline) {
+    const bText = await readBodyText(page);
     if (bText.includes("Incorrect") || bText.includes("invalid code") || bText.includes("expired")) {
       throw new Error(`Verification failed: ${bText.slice(0, 100)}`);
     }
@@ -453,6 +514,15 @@ async function automateOpenAiLogin(
     if (bText.includes("Oops, an error occurred")) {
       const detail = bText.slice(0, 200).replace(/\s+/g, " ").trim();
       throw new Error(`OpenAI error page: ${detail}`);
+    }
+    if (bText.includes("Authentication Error")) {
+      const detail = bText.slice(0, 240).replace(/\s+/g, " ").trim();
+      throw new Error(`OpenAI authentication error: ${detail}`);
+    }
+
+    if (getCapture?.().code) {
+      const capture = getCapture();
+      return { kind: "capture", code: capture.code, state: capture.state };
     }
 
     // handle authorize/consent page (Codex consent says "Continue")
@@ -473,9 +543,15 @@ async function automateOpenAiLogin(
       || curPageUrl.includes(`127.0.0.1:${CALLBACK_PORT}`)
       || curPageUrl.includes("chrome-error")
     ) {
+      if (CALLBACK_MODE === "proxy" && bText.includes("Successful")) {
+        return { kind: "proxy" };
+      }
       // callback server should have captured it, give it a moment
       await page.waitForTimeout(1000);
-      if (getCapture().code) return getCapture();
+      if (getCapture?.().code) {
+        const capture = getCapture();
+        return { kind: "capture", code: capture.code, state: capture.state };
+      }
     }
 
     const t = await page.title().catch(() => "");
@@ -486,12 +562,12 @@ async function automateOpenAiLogin(
     await page.waitForTimeout(1000);
   }
 
-  if (!getCapture().code) {
-    await screenshot(page, `${label}-timeout`);
-    throw new Error(`Timed out. URL: ${page.url()}, title: ${await page.title()}`);
+  await screenshot(page, `${label}-timeout`);
+  const timeoutBody = await readBodyText(page);
+  if (page.url().includes("email-verification") || timeoutBody.includes("Check your inbox")) {
+    throw new RetryableLoginError(`Timed out on email verification page for ${email}`);
   }
-
-  return getCapture();
+  throw new Error(`Timed out. URL: ${page.url()}, title: ${await page.title()}`);
 }
 
 // ── Main ──
@@ -509,12 +585,14 @@ async function main(): Promise<void> {
   console.log(`Proxy: ${PROXY_BASE}`);
   console.log(`IMAP: ${IMAP_USER ? `${IMAP_USER} @ ${IMAP_HOST}` : "NOT SET (email verification will fail)"}`);
   console.log(`Headless: ${HEADLESS}`);
+  console.log(`Callback mode: ${CALLBACK_MODE}`);
+  console.log(`Max login attempts: ${MAX_LOGIN_ATTEMPTS}`);
   console.log(`Debug: ${DEBUG_DIR}\n`);
 
   const allRows = parseCsv(CSV_PATH);
 
-  // Auto-extract Gmail IMAP credentials from the same CSV if not provided via env.
-  if (!IMAP_USER || !IMAP_PASS) {
+  // Auto-extract Gmail IMAP credentials from the same CSV if an account was specified.
+  if ((!IMAP_USER || !IMAP_PASS) && IMAP_GMAIL_ACCOUNT.length > 0) {
     const gmailCreds = extractGmailCredsFromCsv(allRows, IMAP_GMAIL_ACCOUNT);
     if (!gmailCreds) {
       throw new Error(
@@ -526,6 +604,8 @@ async function main(): Promise<void> {
     IMAP_USER = gmailCreds.user;
     IMAP_PASS = gmailCreds.pass;
     console.log(`IMAP credentials extracted from CSV for ${IMAP_USER}`);
+  } else if (!IMAP_USER || !IMAP_PASS) {
+    console.log("IMAP credentials not configured; email verification challenges will fail.");
   }
 
   const openAiRows = allRows.filter((r) => r.url.includes("openai.com") || r.url.includes("chatgpt.com"));
@@ -555,9 +635,14 @@ async function main(): Promise<void> {
     console.log("IMAP connection OK\n");
   }
 
-  // start local callback server to capture OAuth redirects
-  console.log(`Starting callback server on :${CALLBACK_PORT}...`);
-  const { server: callbackServer, getCapture, reset: resetCapture } = await startCallbackServer(CALLBACK_PORT);
+  const callbackServer = CALLBACK_MODE === "capture"
+    ? await startCallbackServer(CALLBACK_PORT)
+    : null;
+  if (callbackServer) {
+    console.log(`Starting callback server on :${CALLBACK_PORT}...`);
+  } else {
+    console.log(`Using direct proxy callback mode on :${CALLBACK_PORT}...`);
+  }
 
   const browser = await chromium.launch({
     headless: HEADLESS,
@@ -571,34 +656,66 @@ async function main(): Promise<void> {
     const label = `${i + 1}of${unique.length}-${sanitize(row.username)}`;
     console.log(`[${i + 1}/${unique.length}] ${row.username}`);
 
-    resetCapture();
-    const context = await browser.newContext({
-      userAgent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-      viewport: { width: 1280, height: 800 },
-      locale: "en-US",
-    });
-    const page = await context.newPage();
+    let lastError = "unknown";
+    let success = false;
+    for (let attempt = 1; attempt <= MAX_LOGIN_ATTEMPTS && !success; attempt++) {
+      if (attempt > 1) {
+        console.log(`  retrying login attempt ${attempt}/${MAX_LOGIN_ATTEMPTS}...`);
+      }
 
-    try {
-      const { authorizeUrl } = await proxyStartBrowserOAuth();
-      const { code, state } = await automateOpenAiLogin(page, authorizeUrl, row.username, row.password, label, getCapture);
-      console.log(`  completing via proxy...`);
-      await proxyCompleteCallback(code, state);
-      console.log(`  SUCCESS\n`);
-      results.push({ email: row.username, status: "ok" });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.error(`  FAILED: ${msg}\n`);
-      results.push({ email: row.username, status: `error: ${msg.slice(0, 120)}` });
-    } finally {
-      await context.close();
+      callbackServer?.reset();
+      const context = await browser.newContext({
+        userAgent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        viewport: { width: 1280, height: 800 },
+        locale: "en-US",
+      });
+      const page = await context.newPage();
+
+      try {
+        const { authorizeUrl } = await proxyStartBrowserOAuth();
+        const callbackResult = await automateOpenAiLogin(
+          page,
+          authorizeUrl,
+          row.username,
+          row.password,
+          label,
+          callbackServer?.getCapture ?? null,
+        );
+        if (callbackResult.kind === "capture") {
+          console.log(`  completing via proxy...`);
+          await proxyCompleteCallback(callbackResult.code, callbackResult.state);
+        }
+        console.log(`  SUCCESS\n`);
+        results.push({ email: row.username, status: "ok" });
+        success = true;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        lastError = msg;
+        if (err instanceof RetryableLoginError && attempt < MAX_LOGIN_ATTEMPTS) {
+          console.error(`  RETRYABLE: ${msg}`);
+        } else {
+          console.error(`  FAILED: ${msg}\n`);
+          results.push({ email: row.username, status: `error: ${msg.slice(0, 120)}` });
+        }
+      } finally {
+        await context.close();
+      }
+
+      if (!success && attempt < MAX_LOGIN_ATTEMPTS) {
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+      }
+    }
+
+    if (!success && results.at(-1)?.email !== row.username) {
+      console.error(`  FAILED: ${lastError}\n`);
+      results.push({ email: row.username, status: `error: ${lastError.slice(0, 120)}` });
     }
 
     if (i < unique.length - 1) await new Promise((r) => setTimeout(r, DELAY_MS));
   }
 
   await browser.close();
-  callbackServer.close();
+  callbackServer?.server.close();
 
   console.log("=== RESULTS ===");
   const ok = results.filter((r) => r.status === "ok").length;

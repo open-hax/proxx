@@ -2,7 +2,7 @@
 
 OpenAI-compatible proxy server with provider-scoped account rotation.
 
-For workspace-specific development notes and the original internal guide, see `DEVEL.md`.
+DEVEL instructions live in `DEVEL.md`.
 
 ## Features
 
@@ -11,7 +11,7 @@ For workspace-specific development notes and the original internal guide, see `D
 - Model-aware upstream routing for Claude models: `claude-*` can be sent to upstream `POST /v1/messages` and converted back into chat-completions format.
 - Model-aware upstream routing: `gpt-*` models are sent to upstream `POST /v1/responses` and converted back into chat-completions format.
 - Preserves reasoning traces when translating Responses/Messages payloads by mapping them to OpenAI-compatible `reasoning_content` in non-stream and synthetic stream responses.
-- Maps OpenAI-style reasoning controls (`reasoning_effort` / `reasoning.effort`) into Claude `thinking` payloads and adds the interleaved-thinking beta header when enabled.
+- Maps OpenAI-style reasoning controls (`reasoning_effort` / `reasoning.effort`) into Claude `thinking` payloads: `none` disables thinking, `low|medium|high|xhigh` map to safe Claude budgets, and auto-routed plain `claude-*` traffic gets the same protection.
 - Model-aware routing to OpenAI provider: models prefixed with `openai/` or `openai:` route to configured OpenAI endpoints.
 - Global fast-mode toggle for Responses traffic: the proxy can inject `service_tier: "priority"` for GPT/Responses requests, with per-request overrides still respected.
 - Model-aware routing to Ollama base API: models prefixed with `ollama/` or `ollama:` are sent to Ollama `POST /api/chat`.
@@ -117,6 +117,7 @@ Notes:
 - The local compose stack now starts Postgres by default and sets `DATABASE_URL` so local runtime behavior matches Render more closely
 - `keys.json` is still required for startup.
 - `data/` stays bind-mounted for request logs and session history.
+- If you want to mount Factory CLI auth files, include `docker-compose.factory-auth.override.yml` explicitly.
 - The compose stack now defaults `OLLAMA_BASE_URL` to `http://ollama:11434` when attached to the shared `ai-infra` network; `CHROMA_URL` still defaults to `host.docker.internal` unless you also containerize Chroma on a shared network.
 - The web companion is exposed on `${PROXY_WEB_PORT:-5174}`.
 - The checked-in host PM2 source now includes both the API and web companion in `ecosystem.container.config.cjs`.
@@ -150,7 +151,8 @@ Notes:
 - `OLLAMA_MODEL_PREFIXES` (default: `ollama/,ollama:`; comma-separated prefixes)
 - `PROXY_KEYS_FILE` (default: `./keys.json`, fallback: `VIVGRID_KEYS_FILE`)
 - `PROXY_MODELS_FILE` (default: `./models.json`, fallback: `VIVGRID_MODELS_FILE`)
-- `PROXY_REQUEST_LOGS_FILE` (default: `./data/request-logs.json`)
+- `PROXY_REQUEST_LOGS_FILE` (default: `./data/request-logs.jsonl`)
+- `PROXY_REQUEST_LOGS_MAX_ENTRIES` (default: `100000`; retained raw request-log entries used for backfill/debug/recent views)
 - `PROXY_SETTINGS_FILE` (default: `./data/proxy-settings.json`)
 - `PROXY_KEY_RELOAD_MS` (default: `5000`, fallback: `VIVGRID_KEY_RELOAD_MS`)
 - `PROXY_KEY_COOLDOWN_MS` (default: `30000`, fallback: `VIVGRID_KEY_COOLDOWN_MS`)

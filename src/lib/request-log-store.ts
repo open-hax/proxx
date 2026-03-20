@@ -1,5 +1,9 @@
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import { access, appendFile, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
+import { createInterface } from "node:readline";
+
+import { estimateRequestCost } from "./model-pricing.js";
 
 export type RequestAuthType = "api_key" | "oauth_bearer" | "local" | "none";
 export type RequestServiceTierSource = "fast_mode" | "explicit" | "none";
@@ -121,6 +125,91 @@ export interface RequestLogHourlyBucket {
   readonly waterEvaporatedMl: number;
 }
 
+export interface RequestLogDailyBucket {
+  readonly startMs: number;
+  readonly requestCount: number;
+  readonly errorCount: number;
+  readonly totalTokens: number;
+  readonly promptTokens: number;
+  readonly completionTokens: number;
+  readonly cachedPromptTokens: number;
+  readonly imageCount: number;
+  readonly imageCostUsd: number;
+  readonly cacheHitCount: number;
+  readonly cacheKeyUseCount: number;
+  readonly fastModeRequestCount: number;
+  readonly priorityRequestCount: number;
+  readonly standardRequestCount: number;
+  readonly costUsd: number;
+  readonly energyJoules: number;
+  readonly waterEvaporatedMl: number;
+}
+
+export interface RequestLogDailyModelBucket {
+  readonly startMs: number;
+  readonly providerId: string;
+  readonly model: string;
+  readonly requestCount: number;
+  readonly errorCount: number;
+  readonly totalTokens: number;
+  readonly promptTokens: number;
+  readonly completionTokens: number;
+  readonly cachedPromptTokens: number;
+  readonly imageCount: number;
+  readonly imageCostUsd: number;
+  readonly cacheHitCount: number;
+  readonly cacheKeyUseCount: number;
+  readonly fastModeRequestCount: number;
+  readonly priorityRequestCount: number;
+  readonly standardRequestCount: number;
+  readonly ttftSum: number;
+  readonly ttftCount: number;
+  readonly tpsSum: number;
+  readonly tpsCount: number;
+  readonly lastUsedAtMs: number;
+  readonly costUsd: number;
+  readonly energyJoules: number;
+  readonly waterEvaporatedMl: number;
+}
+
+export interface RequestLogDailyAccountBucket {
+  readonly startMs: number;
+  readonly providerId: string;
+  readonly accountId: string;
+  readonly authType: RequestAuthType;
+  readonly requestCount: number;
+  readonly errorCount: number;
+  readonly totalTokens: number;
+  readonly promptTokens: number;
+  readonly completionTokens: number;
+  readonly cachedPromptTokens: number;
+  readonly imageCount: number;
+  readonly imageCostUsd: number;
+  readonly cacheHitCount: number;
+  readonly cacheKeyUseCount: number;
+  readonly fastModeRequestCount: number;
+  readonly priorityRequestCount: number;
+  readonly standardRequestCount: number;
+  readonly ttftSum: number;
+  readonly ttftCount: number;
+  readonly tpsSum: number;
+  readonly tpsCount: number;
+  readonly lastUsedAtMs: number;
+  readonly costUsd: number;
+  readonly energyJoules: number;
+  readonly waterEvaporatedMl: number;
+}
+
+export interface RequestLogCoverage {
+  readonly earliestEntryAtMs: number | null;
+  readonly earliestHourlyBucketAtMs: number | null;
+  readonly earliestDailyBucketAtMs: number | null;
+  readonly earliestModelBreakdownAtMs: number | null;
+  readonly earliestAccountBreakdownAtMs: number | null;
+  readonly retainedEntryCount: number;
+  readonly maxEntries: number;
+}
+
 export interface AccountUsageAccumulator {
   readonly providerId: string;
   readonly accountId: string;
@@ -158,6 +247,9 @@ export interface RequestLogPerfSummary {
 interface RequestLogDb {
   readonly entries: RequestLogEntry[];
   readonly hourlyBuckets?: readonly RequestLogHourlyBucket[];
+  readonly dailyBuckets?: readonly RequestLogDailyBucket[];
+  readonly dailyModelBuckets?: readonly RequestLogDailyModelBucket[];
+  readonly dailyAccountBuckets?: readonly RequestLogDailyAccountBucket[];
   readonly accountAccumulators?: readonly AccountUsageAccumulator[];
 }
 
@@ -176,6 +268,81 @@ type HourlyBucket = {
   fastModeRequestCount: number;
   priorityRequestCount: number;
   standardRequestCount: number;
+  costUsd: number;
+  energyJoules: number;
+  waterEvaporatedMl: number;
+};
+
+type DailyBucket = {
+  startMs: number;
+  requestCount: number;
+  errorCount: number;
+  totalTokens: number;
+  promptTokens: number;
+  completionTokens: number;
+  cachedPromptTokens: number;
+  imageCount: number;
+  imageCostUsd: number;
+  cacheHitCount: number;
+  cacheKeyUseCount: number;
+  fastModeRequestCount: number;
+  priorityRequestCount: number;
+  standardRequestCount: number;
+  costUsd: number;
+  energyJoules: number;
+  waterEvaporatedMl: number;
+};
+
+type DailyModelBucket = {
+  startMs: number;
+  providerId: string;
+  model: string;
+  requestCount: number;
+  errorCount: number;
+  totalTokens: number;
+  promptTokens: number;
+  completionTokens: number;
+  cachedPromptTokens: number;
+  imageCount: number;
+  imageCostUsd: number;
+  cacheHitCount: number;
+  cacheKeyUseCount: number;
+  fastModeRequestCount: number;
+  priorityRequestCount: number;
+  standardRequestCount: number;
+  ttftSum: number;
+  ttftCount: number;
+  tpsSum: number;
+  tpsCount: number;
+  lastUsedAtMs: number;
+  costUsd: number;
+  energyJoules: number;
+  waterEvaporatedMl: number;
+};
+
+type DailyAccountBucket = {
+  startMs: number;
+  providerId: string;
+  accountId: string;
+  authType: RequestAuthType;
+  requestCount: number;
+  errorCount: number;
+  totalTokens: number;
+  promptTokens: number;
+  completionTokens: number;
+  cachedPromptTokens: number;
+  imageCount: number;
+  imageCostUsd: number;
+  cacheHitCount: number;
+  cacheKeyUseCount: number;
+  fastModeRequestCount: number;
+  priorityRequestCount: number;
+  standardRequestCount: number;
+  ttftSum: number;
+  ttftCount: number;
+  tpsSum: number;
+  tpsCount: number;
+  lastUsedAtMs: number;
   costUsd: number;
   energyJoules: number;
   waterEvaporatedMl: number;
@@ -306,6 +473,10 @@ function emptyDb(): RequestLogDb {
   return {
     entries: [],
     hourlyBuckets: [],
+    dailyBuckets: [],
+    dailyModelBuckets: [],
+    dailyAccountBuckets: [],
+    accountAccumulators: [],
   };
 }
 
@@ -315,6 +486,30 @@ function buildTempFilePath(filePath: string): string {
 
 function buildCorruptFilePath(filePath: string): string {
   return join(dirname(filePath), `${basename(filePath)}.corrupt-${Date.now()}-${process.pid}-${crypto.randomUUID()}`);
+}
+
+function buildMigratedFilePath(filePath: string): string {
+  return join(dirname(filePath), `${basename(filePath)}.migrated-${Date.now()}-${process.pid}-${crypto.randomUUID()}`);
+}
+
+function buildLegacyFilePath(filePath: string): string | null {
+  return filePath.endsWith(".jsonl") ? filePath.slice(0, -1) : null;
+}
+
+function buildMetadataFilePath(filePath: string): string {
+  if (filePath.endsWith(".jsonl")) {
+    return `${filePath.slice(0, -".jsonl".length)}.meta.json`;
+  }
+
+  if (filePath.endsWith(".json")) {
+    return `${filePath.slice(0, -".json".length)}.meta.json`;
+  }
+
+  return `${filePath}.meta.json`;
+}
+
+function serializeEntry(entry: RequestLogEntry): string {
+  return `${JSON.stringify(entry)}\n`;
 }
 
 function hydrateEntry(raw: unknown): RequestLogEntry | null {
@@ -414,6 +609,126 @@ function hydrateHourlyBucket(raw: unknown): RequestLogHourlyBucket | null {
   };
 }
 
+function hydrateDailyBucket(raw: unknown): RequestLogDailyBucket | null {
+  if (!isRecord(raw)) {
+    return null;
+  }
+
+  const startMs = asNumber(raw.startMs);
+  if (startMs === undefined) {
+    return null;
+  }
+
+  return {
+    startMs,
+    requestCount: asNumber(raw.requestCount) ?? 0,
+    errorCount: asNumber(raw.errorCount) ?? 0,
+    totalTokens: asNumber(raw.totalTokens) ?? 0,
+    promptTokens: asNumber(raw.promptTokens) ?? 0,
+    completionTokens: asNumber(raw.completionTokens) ?? 0,
+    cachedPromptTokens: asNumber(raw.cachedPromptTokens) ?? 0,
+    imageCount: asNumber(raw.imageCount) ?? 0,
+    imageCostUsd: asNumber(raw.imageCostUsd) ?? 0,
+    cacheHitCount: asNumber(raw.cacheHitCount) ?? 0,
+    cacheKeyUseCount: asNumber(raw.cacheKeyUseCount) ?? 0,
+    fastModeRequestCount: asNumber(raw.fastModeRequestCount) ?? 0,
+    priorityRequestCount: asNumber(raw.priorityRequestCount) ?? 0,
+    standardRequestCount: asNumber(raw.standardRequestCount) ?? 0,
+    costUsd: asNumber(raw.costUsd) ?? 0,
+    energyJoules: asNumber(raw.energyJoules) ?? 0,
+    waterEvaporatedMl: asNumber(raw.waterEvaporatedMl) ?? 0,
+  };
+}
+
+function hydrateDailyModelBucket(raw: unknown): RequestLogDailyModelBucket | null {
+  if (!isRecord(raw)) {
+    return null;
+  }
+
+  const startMs = asNumber(raw.startMs);
+  const providerId = asString(raw.providerId)?.trim();
+  const model = asString(raw.model)?.trim();
+
+  if (startMs === undefined || !providerId || !model) {
+    return null;
+  }
+
+  return {
+    startMs,
+    providerId,
+    model,
+    requestCount: asNumber(raw.requestCount) ?? 0,
+    errorCount: asNumber(raw.errorCount) ?? 0,
+    totalTokens: asNumber(raw.totalTokens) ?? 0,
+    promptTokens: asNumber(raw.promptTokens) ?? 0,
+    completionTokens: asNumber(raw.completionTokens) ?? 0,
+    cachedPromptTokens: asNumber(raw.cachedPromptTokens) ?? 0,
+    imageCount: asNumber(raw.imageCount) ?? 0,
+    imageCostUsd: asNumber(raw.imageCostUsd) ?? 0,
+    cacheHitCount: asNumber(raw.cacheHitCount) ?? 0,
+    cacheKeyUseCount: asNumber(raw.cacheKeyUseCount) ?? 0,
+    fastModeRequestCount: asNumber(raw.fastModeRequestCount) ?? 0,
+    priorityRequestCount: asNumber(raw.priorityRequestCount) ?? 0,
+    standardRequestCount: asNumber(raw.standardRequestCount) ?? 0,
+    ttftSum: asNumber(raw.ttftSum) ?? 0,
+    ttftCount: asNumber(raw.ttftCount) ?? 0,
+    tpsSum: asNumber(raw.tpsSum) ?? 0,
+    tpsCount: asNumber(raw.tpsCount) ?? 0,
+    lastUsedAtMs: asNumber(raw.lastUsedAtMs) ?? 0,
+    costUsd: asNumber(raw.costUsd) ?? 0,
+    energyJoules: asNumber(raw.energyJoules) ?? 0,
+    waterEvaporatedMl: asNumber(raw.waterEvaporatedMl) ?? 0,
+  };
+}
+
+function hydrateDailyAccountBucket(raw: unknown): RequestLogDailyAccountBucket | null {
+  if (!isRecord(raw)) {
+    return null;
+  }
+
+  const startMs = asNumber(raw.startMs);
+  const providerId = asString(raw.providerId)?.trim();
+  const accountId = asString(raw.accountId)?.trim();
+  const authType = raw.authType;
+
+  if (startMs === undefined || !providerId || !accountId) {
+    return null;
+  }
+
+  const normalizedAuthType: RequestAuthType =
+    authType === "api_key" || authType === "oauth_bearer" || authType === "local" || authType === "none"
+      ? authType
+      : "none";
+
+  return {
+    startMs,
+    providerId,
+    accountId,
+    authType: normalizedAuthType,
+    requestCount: asNumber(raw.requestCount) ?? 0,
+    errorCount: asNumber(raw.errorCount) ?? 0,
+    totalTokens: asNumber(raw.totalTokens) ?? 0,
+    promptTokens: asNumber(raw.promptTokens) ?? 0,
+    completionTokens: asNumber(raw.completionTokens) ?? 0,
+    cachedPromptTokens: asNumber(raw.cachedPromptTokens) ?? 0,
+    imageCount: asNumber(raw.imageCount) ?? 0,
+    imageCostUsd: asNumber(raw.imageCostUsd) ?? 0,
+    cacheHitCount: asNumber(raw.cacheHitCount) ?? 0,
+    cacheKeyUseCount: asNumber(raw.cacheKeyUseCount) ?? 0,
+    fastModeRequestCount: asNumber(raw.fastModeRequestCount) ?? 0,
+    priorityRequestCount: asNumber(raw.priorityRequestCount) ?? 0,
+    standardRequestCount: asNumber(raw.standardRequestCount) ?? 0,
+    ttftSum: asNumber(raw.ttftSum) ?? 0,
+    ttftCount: asNumber(raw.ttftCount) ?? 0,
+    tpsSum: asNumber(raw.tpsSum) ?? 0,
+    tpsCount: asNumber(raw.tpsCount) ?? 0,
+    lastUsedAtMs: asNumber(raw.lastUsedAtMs) ?? 0,
+    costUsd: asNumber(raw.costUsd) ?? 0,
+    energyJoules: asNumber(raw.energyJoules) ?? 0,
+    waterEvaporatedMl: asNumber(raw.waterEvaporatedMl) ?? 0,
+  };
+}
+
 function hydrateDb(raw: unknown, maxEntries: number): RequestLogDb {
   if (Array.isArray(raw)) {
     return {
@@ -422,6 +737,10 @@ function hydrateDb(raw: unknown, maxEntries: number): RequestLogDb {
         .filter((entry): entry is RequestLogEntry => entry !== null)
         .slice(-maxEntries),
       hourlyBuckets: [],
+      dailyBuckets: [],
+      dailyModelBuckets: [],
+      dailyAccountBuckets: [],
+      accountAccumulators: [],
     };
   }
 
@@ -435,6 +754,24 @@ function hydrateDb(raw: unknown, maxEntries: number): RequestLogDb {
         .filter((bucket): bucket is RequestLogHourlyBucket => bucket !== null)
     : [];
 
+  const dailyBuckets = Array.isArray(raw.dailyBuckets)
+    ? raw.dailyBuckets
+        .map((bucket) => hydrateDailyBucket(bucket))
+        .filter((bucket): bucket is RequestLogDailyBucket => bucket !== null)
+    : [];
+
+  const dailyModelBuckets = Array.isArray(raw.dailyModelBuckets)
+    ? raw.dailyModelBuckets
+        .map((bucket) => hydrateDailyModelBucket(bucket))
+        .filter((bucket): bucket is RequestLogDailyModelBucket => bucket !== null)
+    : [];
+
+  const dailyAccountBuckets = Array.isArray(raw.dailyAccountBuckets)
+    ? raw.dailyAccountBuckets
+        .map((bucket) => hydrateDailyAccountBucket(bucket))
+        .filter((bucket): bucket is RequestLogDailyAccountBucket => bucket !== null)
+    : [];
+
   const accountAccumulators = Array.isArray(raw.accountAccumulators)
     ? raw.accountAccumulators as AccountUsageAccumulator[]
     : undefined;
@@ -445,6 +782,9 @@ function hydrateDb(raw: unknown, maxEntries: number): RequestLogDb {
       .filter((entry): entry is RequestLogEntry => entry !== null)
       .slice(-maxEntries),
     hourlyBuckets,
+    dailyBuckets,
+    dailyModelBuckets,
+    dailyAccountBuckets,
     accountAccumulators,
   };
 }
@@ -464,6 +804,10 @@ function sanitizeLimit(limit: number | undefined, fallback: number): number {
 
 function hourBucketStartMs(timestampMs: number): number {
   return Math.floor(timestampMs / (60 * 60 * 1000)) * (60 * 60 * 1000);
+}
+
+function dayBucketStartMs(timestampMs: number): number {
+  return Math.floor(timestampMs / (24 * 60 * 60 * 1000)) * (24 * 60 * 60 * 1000);
 }
 
 function sumCount(value: number | undefined): number {
@@ -497,18 +841,35 @@ function accountAccumulatorKey(providerId: string, accountId: string): string {
   return `${providerId}\0${accountId}`;
 }
 
+function dailyModelBucketKey(startMs: number, providerId: string, model: string): string {
+  return `${startMs}\0${providerId}\0${model}`;
+}
+
+function dailyAccountBucketKey(startMs: number, providerId: string, accountId: string): string {
+  return `${startMs}\0${providerId}\0${accountId}`;
+}
+
 export class RequestLogStore {
   private readonly entries: RequestLogEntry[] = [];
   private readonly hourlyBuckets = new Map<number, HourlyBucket>();
+  private readonly dailyBuckets = new Map<number, DailyBucket>();
+  private readonly dailyModelBuckets = new Map<string, DailyModelBucket>();
+  private readonly dailyAccountBuckets = new Map<string, DailyAccountBucket>();
   private readonly perfIndex = new Map<string, PerfIndexEntry>();
   private readonly accountAccumulators = new Map<string, MutableAccountAccumulator>();
+  private pendingJournalEntries: RequestLogEntry[] = [];
   private warmupPromise: Promise<void> | null = null;
   private persistChain: Promise<void> = Promise.resolve();
+  private persistTimer: ReturnType<typeof setTimeout> | null = null;
+  private persistPending = false;
+  private journalLineCount = 0;
+  private needsCompaction = false;
   private closed = false;
 
   public constructor(
     private readonly filePath: string,
     private readonly maxEntries: number = 1000,
+    private readonly persistIntervalMs: number = 1000,
   ) {}
 
   public async warmup(): Promise<void> {
@@ -563,11 +924,16 @@ export class RequestLogStore {
     const overflow = this.entries.length - this.maxEntries;
     if (overflow > 0) {
       this.entries.splice(0, overflow);
+      this.needsCompaction = true;
     }
 
     this.applyEntryToHourlyBuckets(entry);
+    this.applyEntryToDailyBuckets(entry);
+    this.applyEntryToDailyModelBuckets(entry);
+    this.applyEntryToDailyAccountBuckets(entry);
     this.applyEntryToAccountAccumulator(entry);
     this.updatePerfIndexFromEntry(entry);
+    this.pendingJournalEntries.push(entry);
     this.schedulePersist();
 
     return entry;
@@ -634,8 +1000,12 @@ export class RequestLogStore {
 
     this.entries.splice(entryIndex, 1, next);
     this.applyEntryDeltaToHourlyBuckets(next, current);
+    this.applyEntryDeltaToDailyBuckets(next, current);
+    this.applyEntryDeltaToDailyModelBuckets(next, current);
+    this.applyEntryDeltaToDailyAccountBuckets(next, current);
     this.applyEntryDeltaToAccountAccumulator(next, current);
     this.updatePerfIndexFromEntry(next);
+    this.pendingJournalEntries.push(next);
     this.schedulePersist();
     return next;
   }
@@ -671,6 +1041,69 @@ export class RequestLogStore {
       }));
   }
 
+  public snapshotDailyBuckets(sinceMs?: number): RequestLogDailyBucket[] {
+    const since = typeof sinceMs === "number" && Number.isFinite(sinceMs) ? sinceMs : 0;
+
+    return [...this.dailyBuckets.values()]
+      .filter((bucket) => bucket.startMs >= since)
+      .sort((a, b) => a.startMs - b.startMs)
+      .map((bucket) => ({
+        startMs: bucket.startMs,
+        requestCount: bucket.requestCount,
+        errorCount: bucket.errorCount,
+        totalTokens: bucket.totalTokens,
+        promptTokens: bucket.promptTokens,
+        completionTokens: bucket.completionTokens,
+        cachedPromptTokens: bucket.cachedPromptTokens,
+        imageCount: bucket.imageCount,
+        imageCostUsd: bucket.imageCostUsd,
+        cacheHitCount: bucket.cacheHitCount,
+        cacheKeyUseCount: bucket.cacheKeyUseCount,
+        fastModeRequestCount: bucket.fastModeRequestCount,
+        priorityRequestCount: bucket.priorityRequestCount,
+        standardRequestCount: bucket.standardRequestCount,
+        costUsd: bucket.costUsd,
+        energyJoules: bucket.energyJoules,
+        waterEvaporatedMl: bucket.waterEvaporatedMl,
+      }));
+  }
+
+  public snapshotDailyModelBuckets(sinceMs?: number): RequestLogDailyModelBucket[] {
+    const since = typeof sinceMs === "number" && Number.isFinite(sinceMs) ? sinceMs : 0;
+
+    return [...this.dailyModelBuckets.values()]
+      .filter((bucket) => bucket.startMs >= since)
+      .sort((left, right) => left.startMs - right.startMs || left.providerId.localeCompare(right.providerId) || left.model.localeCompare(right.model))
+      .map((bucket) => ({ ...bucket }));
+  }
+
+  public snapshotDailyAccountBuckets(sinceMs?: number): RequestLogDailyAccountBucket[] {
+    const since = typeof sinceMs === "number" && Number.isFinite(sinceMs) ? sinceMs : 0;
+
+    return [...this.dailyAccountBuckets.values()]
+      .filter((bucket) => bucket.startMs >= since)
+      .sort((left, right) => left.startMs - right.startMs || left.providerId.localeCompare(right.providerId) || left.accountId.localeCompare(right.accountId))
+      .map((bucket) => ({ ...bucket }));
+  }
+
+  public getCoverage(): RequestLogCoverage {
+    const earliestEntryAtMs = this.entries[0]?.timestamp ?? null;
+    const earliestHourlyBucketAtMs = [...this.hourlyBuckets.keys()].reduce<number | null>((min, startMs) => min === null ? startMs : Math.min(min, startMs), null);
+    const earliestDailyBucketAtMs = [...this.dailyBuckets.keys()].reduce<number | null>((min, startMs) => min === null ? startMs : Math.min(min, startMs), null);
+    const earliestModelBreakdownAtMs = [...this.dailyModelBuckets.values()].reduce<number | null>((min, bucket) => min === null ? bucket.startMs : Math.min(min, bucket.startMs), null);
+    const earliestAccountBreakdownAtMs = [...this.dailyAccountBuckets.values()].reduce<number | null>((min, bucket) => min === null ? bucket.startMs : Math.min(min, bucket.startMs), null);
+
+    return {
+      earliestEntryAtMs,
+      earliestHourlyBucketAtMs,
+      earliestDailyBucketAtMs,
+      earliestModelBreakdownAtMs,
+      earliestAccountBreakdownAtMs,
+      retainedEntryCount: this.entries.length,
+      maxEntries: this.maxEntries,
+    };
+  }
+
   public getPerfSummary(
     providerId: string,
     accountId: string,
@@ -684,6 +1117,11 @@ export class RequestLogStore {
 
   public async close(): Promise<void> {
     this.closed = true;
+    if (this.persistTimer) {
+      clearTimeout(this.persistTimer);
+      this.persistTimer = null;
+    }
+    await this.queuePersist(true);
     await this.persistChain.catch(() => undefined);
   }
 
@@ -765,12 +1203,147 @@ export class RequestLogStore {
     return created;
   }
 
+  private getOrCreateDailyBucket(startMs: number): DailyBucket {
+    const existing = this.dailyBuckets.get(startMs);
+    if (existing) {
+      return existing;
+    }
+
+    const created: DailyBucket = {
+      startMs,
+      requestCount: 0,
+      errorCount: 0,
+      totalTokens: 0,
+      promptTokens: 0,
+      completionTokens: 0,
+      cachedPromptTokens: 0,
+      imageCount: 0,
+      imageCostUsd: 0,
+      cacheHitCount: 0,
+      cacheKeyUseCount: 0,
+      fastModeRequestCount: 0,
+      priorityRequestCount: 0,
+      standardRequestCount: 0,
+      costUsd: 0,
+      energyJoules: 0,
+      waterEvaporatedMl: 0,
+    };
+
+    this.dailyBuckets.set(startMs, created);
+    return created;
+  }
+
+  private getOrCreateDailyModelBucket(startMs: number, providerId: string, model: string): DailyModelBucket {
+    const key = dailyModelBucketKey(startMs, providerId, model);
+    const existing = this.dailyModelBuckets.get(key);
+    if (existing) {
+      return existing;
+    }
+
+    const created: DailyModelBucket = {
+      startMs,
+      providerId,
+      model,
+      requestCount: 0,
+      errorCount: 0,
+      totalTokens: 0,
+      promptTokens: 0,
+      completionTokens: 0,
+      cachedPromptTokens: 0,
+      imageCount: 0,
+      imageCostUsd: 0,
+      cacheHitCount: 0,
+      cacheKeyUseCount: 0,
+      fastModeRequestCount: 0,
+      priorityRequestCount: 0,
+      standardRequestCount: 0,
+      ttftSum: 0,
+      ttftCount: 0,
+      tpsSum: 0,
+      tpsCount: 0,
+      lastUsedAtMs: 0,
+      costUsd: 0,
+      energyJoules: 0,
+      waterEvaporatedMl: 0,
+    };
+
+    this.dailyModelBuckets.set(key, created);
+    return created;
+  }
+
+  private getOrCreateDailyAccountBucket(startMs: number, providerId: string, accountId: string, authType: RequestAuthType): DailyAccountBucket {
+    const key = dailyAccountBucketKey(startMs, providerId, accountId);
+    const existing = this.dailyAccountBuckets.get(key);
+    if (existing) {
+      return existing;
+    }
+
+    const created: DailyAccountBucket = {
+      startMs,
+      providerId,
+      accountId,
+      authType,
+      requestCount: 0,
+      errorCount: 0,
+      totalTokens: 0,
+      promptTokens: 0,
+      completionTokens: 0,
+      cachedPromptTokens: 0,
+      imageCount: 0,
+      imageCostUsd: 0,
+      cacheHitCount: 0,
+      cacheKeyUseCount: 0,
+      fastModeRequestCount: 0,
+      priorityRequestCount: 0,
+      standardRequestCount: 0,
+      ttftSum: 0,
+      ttftCount: 0,
+      tpsSum: 0,
+      tpsCount: 0,
+      lastUsedAtMs: 0,
+      costUsd: 0,
+      energyJoules: 0,
+      waterEvaporatedMl: 0,
+    };
+
+    this.dailyAccountBuckets.set(key, created);
+    return created;
+  }
+
   private pruneHourlyBuckets(now: number = Date.now()): void {
     // Keep ~8 days of buckets (safety margin).
     const cutoff = hourBucketStartMs(now - 8 * 24 * 60 * 60 * 1000);
     for (const startMs of this.hourlyBuckets.keys()) {
       if (startMs < cutoff) {
         this.hourlyBuckets.delete(startMs);
+      }
+    }
+  }
+
+  private pruneDailyBuckets(now: number = Date.now()): void {
+    // Keep ~45 days of buckets (safety margin for monthly + some).
+    const cutoff = dayBucketStartMs(now - 45 * 24 * 60 * 60 * 1000);
+    for (const startMs of this.dailyBuckets.keys()) {
+      if (startMs < cutoff) {
+        this.dailyBuckets.delete(startMs);
+      }
+    }
+  }
+
+  private pruneDailyModelBuckets(now: number = Date.now()): void {
+    const cutoff = dayBucketStartMs(now - 45 * 24 * 60 * 60 * 1000);
+    for (const [key, bucket] of this.dailyModelBuckets.entries()) {
+      if (bucket.startMs < cutoff) {
+        this.dailyModelBuckets.delete(key);
+      }
+    }
+  }
+
+  private pruneDailyAccountBuckets(now: number = Date.now()): void {
+    const cutoff = dayBucketStartMs(now - 45 * 24 * 60 * 60 * 1000);
+    for (const [key, bucket] of this.dailyAccountBuckets.entries()) {
+      if (bucket.startMs < cutoff) {
+        this.dailyAccountBuckets.delete(key);
       }
     }
   }
@@ -871,6 +1444,149 @@ export class RequestLogStore {
     this.pruneHourlyBuckets(entry.timestamp);
   }
 
+  private applyEntryToDailyBuckets(entry: RequestLogEntry): void {
+    const bucketStart = dayBucketStartMs(entry.timestamp);
+    const bucket = this.getOrCreateDailyBucket(bucketStart);
+
+    bucket.requestCount += 1;
+
+    const isError = entry.status >= 400 || typeof entry.error === "string";
+    if (isError) {
+      bucket.errorCount += 1;
+    }
+
+    if (entry.serviceTierSource === "fast_mode") {
+      bucket.fastModeRequestCount += 1;
+    } else if (entry.serviceTier === "priority") {
+      bucket.priorityRequestCount += 1;
+    } else {
+      bucket.standardRequestCount += 1;
+    }
+
+    bucket.totalTokens += sumCount(entry.totalTokens);
+    bucket.promptTokens += sumCount(entry.promptTokens);
+    bucket.completionTokens += sumCount(entry.completionTokens);
+    bucket.cachedPromptTokens += sumCount(entry.cachedPromptTokens);
+    bucket.imageCount += sumCount(entry.imageCount);
+    bucket.imageCostUsd += sumCount(entry.imageCostUsd);
+    bucket.costUsd += sumCount(entry.costUsd);
+    bucket.energyJoules += sumCount(entry.energyJoules);
+    bucket.waterEvaporatedMl += sumCount(entry.waterEvaporatedMl);
+
+    if (entry.promptCacheKeyUsed) {
+      bucket.cacheKeyUseCount += 1;
+    }
+
+    if (entry.cacheHit) {
+      bucket.cacheHitCount += 1;
+    }
+
+    this.pruneDailyBuckets(entry.timestamp);
+  }
+
+  private applyEntryToDailyModelBuckets(entry: RequestLogEntry): void {
+    const bucketStart = dayBucketStartMs(entry.timestamp);
+    const bucket = this.getOrCreateDailyModelBucket(bucketStart, entry.providerId, entry.model);
+
+    bucket.requestCount += 1;
+
+    const isError = entry.status >= 400 || typeof entry.error === "string";
+    if (isError) {
+      bucket.errorCount += 1;
+    }
+
+    if (entry.serviceTierSource === "fast_mode") {
+      bucket.fastModeRequestCount += 1;
+    } else if (entry.serviceTier === "priority") {
+      bucket.priorityRequestCount += 1;
+    } else {
+      bucket.standardRequestCount += 1;
+    }
+
+    bucket.totalTokens += sumCount(entry.totalTokens);
+    bucket.promptTokens += sumCount(entry.promptTokens);
+    bucket.completionTokens += sumCount(entry.completionTokens);
+    bucket.cachedPromptTokens += sumCount(entry.cachedPromptTokens);
+    bucket.imageCount += sumCount(entry.imageCount);
+    bucket.imageCostUsd += sumCount(entry.imageCostUsd);
+    bucket.costUsd += sumCount(entry.costUsd);
+    bucket.energyJoules += sumCount(entry.energyJoules);
+    bucket.waterEvaporatedMl += sumCount(entry.waterEvaporatedMl);
+
+    if (entry.promptCacheKeyUsed) {
+      bucket.cacheKeyUseCount += 1;
+    }
+
+    if (entry.cacheHit) {
+      bucket.cacheHitCount += 1;
+    }
+
+    if (typeof entry.ttftMs === "number" && Number.isFinite(entry.ttftMs)) {
+      bucket.ttftSum += entry.ttftMs;
+      bucket.ttftCount += 1;
+    }
+
+    if (typeof entry.tps === "number" && Number.isFinite(entry.tps)) {
+      bucket.tpsSum += entry.tps;
+      bucket.tpsCount += 1;
+    }
+
+    bucket.lastUsedAtMs = Math.max(bucket.lastUsedAtMs, entry.timestamp);
+
+    this.pruneDailyModelBuckets(entry.timestamp);
+  }
+
+  private applyEntryToDailyAccountBuckets(entry: RequestLogEntry): void {
+    const bucketStart = dayBucketStartMs(entry.timestamp);
+    const bucket = this.getOrCreateDailyAccountBucket(bucketStart, entry.providerId, entry.accountId, entry.authType);
+
+    bucket.requestCount += 1;
+
+    const isError = entry.status >= 400 || typeof entry.error === "string";
+    if (isError) {
+      bucket.errorCount += 1;
+    }
+
+    if (entry.serviceTierSource === "fast_mode") {
+      bucket.fastModeRequestCount += 1;
+    } else if (entry.serviceTier === "priority") {
+      bucket.priorityRequestCount += 1;
+    } else {
+      bucket.standardRequestCount += 1;
+    }
+
+    bucket.totalTokens += sumCount(entry.totalTokens);
+    bucket.promptTokens += sumCount(entry.promptTokens);
+    bucket.completionTokens += sumCount(entry.completionTokens);
+    bucket.cachedPromptTokens += sumCount(entry.cachedPromptTokens);
+    bucket.imageCount += sumCount(entry.imageCount);
+    bucket.imageCostUsd += sumCount(entry.imageCostUsd);
+    bucket.costUsd += sumCount(entry.costUsd);
+    bucket.energyJoules += sumCount(entry.energyJoules);
+    bucket.waterEvaporatedMl += sumCount(entry.waterEvaporatedMl);
+
+    if (entry.promptCacheKeyUsed) {
+      bucket.cacheKeyUseCount += 1;
+    }
+
+    if (entry.cacheHit) {
+      bucket.cacheHitCount += 1;
+    }
+
+    if (typeof entry.ttftMs === "number" && Number.isFinite(entry.ttftMs)) {
+      bucket.ttftSum += entry.ttftMs;
+      bucket.ttftCount += 1;
+    }
+
+    if (typeof entry.tps === "number" && Number.isFinite(entry.tps)) {
+      bucket.tpsSum += entry.tps;
+      bucket.tpsCount += 1;
+    }
+
+    bucket.lastUsedAtMs = Math.max(bucket.lastUsedAtMs, entry.timestamp);
+    this.pruneDailyAccountBuckets(entry.timestamp);
+  }
+
   private applyEntryDeltaToHourlyBuckets(entry: RequestLogEntry, previous: RequestLogEntry): void {
     const bucketStart = hourBucketStartMs(entry.timestamp);
     const bucket = this.getOrCreateHourlyBucket(bucketStart);
@@ -895,6 +1611,105 @@ export class RequestLogStore {
     }
 
     this.pruneHourlyBuckets(entry.timestamp);
+  }
+
+  private applyEntryDeltaToDailyBuckets(entry: RequestLogEntry, previous: RequestLogEntry): void {
+    const bucketStart = dayBucketStartMs(entry.timestamp);
+    const bucket = this.getOrCreateDailyBucket(bucketStart);
+
+    bucket.totalTokens += sumCount(entry.totalTokens) - sumCount(previous.totalTokens);
+    bucket.promptTokens += sumCount(entry.promptTokens) - sumCount(previous.promptTokens);
+    bucket.completionTokens += sumCount(entry.completionTokens) - sumCount(previous.completionTokens);
+    bucket.cachedPromptTokens += sumCount(entry.cachedPromptTokens) - sumCount(previous.cachedPromptTokens);
+    bucket.imageCount += sumCount(entry.imageCount) - sumCount(previous.imageCount);
+    bucket.imageCostUsd += sumCount(entry.imageCostUsd) - sumCount(previous.imageCostUsd);
+    bucket.costUsd += sumCount(entry.costUsd) - sumCount(previous.costUsd);
+    bucket.energyJoules += sumCount(entry.energyJoules) - sumCount(previous.energyJoules);
+    bucket.waterEvaporatedMl += sumCount(entry.waterEvaporatedMl) - sumCount(previous.waterEvaporatedMl);
+
+    // promptCacheKeyUsed / cacheHit are only ever expected to flip false->true.
+    if (entry.promptCacheKeyUsed && !previous.promptCacheKeyUsed) {
+      bucket.cacheKeyUseCount += 1;
+    }
+
+    if (entry.cacheHit && !previous.cacheHit) {
+      bucket.cacheHitCount += 1;
+    }
+
+    this.pruneDailyBuckets(entry.timestamp);
+  }
+
+  private applyEntryDeltaToDailyModelBuckets(entry: RequestLogEntry, previous: RequestLogEntry): void {
+    const bucketStart = dayBucketStartMs(entry.timestamp);
+    const bucket = this.getOrCreateDailyModelBucket(bucketStart, entry.providerId, entry.model);
+
+    bucket.totalTokens += sumCount(entry.totalTokens) - sumCount(previous.totalTokens);
+    bucket.promptTokens += sumCount(entry.promptTokens) - sumCount(previous.promptTokens);
+    bucket.completionTokens += sumCount(entry.completionTokens) - sumCount(previous.completionTokens);
+    bucket.cachedPromptTokens += sumCount(entry.cachedPromptTokens) - sumCount(previous.cachedPromptTokens);
+    bucket.imageCount += sumCount(entry.imageCount) - sumCount(previous.imageCount);
+    bucket.imageCostUsd += sumCount(entry.imageCostUsd) - sumCount(previous.imageCostUsd);
+    bucket.costUsd += sumCount(entry.costUsd) - sumCount(previous.costUsd);
+    bucket.energyJoules += sumCount(entry.energyJoules) - sumCount(previous.energyJoules);
+    bucket.waterEvaporatedMl += sumCount(entry.waterEvaporatedMl) - sumCount(previous.waterEvaporatedMl);
+
+    if (entry.promptCacheKeyUsed && !previous.promptCacheKeyUsed) {
+      bucket.cacheKeyUseCount += 1;
+    }
+
+    if (entry.cacheHit && !previous.cacheHit) {
+      bucket.cacheHitCount += 1;
+    }
+
+    if (typeof entry.ttftMs === "number" && Number.isFinite(entry.ttftMs) && (previous.ttftMs === undefined || previous.ttftMs === null)) {
+      bucket.ttftSum += entry.ttftMs;
+      bucket.ttftCount += 1;
+    }
+
+    if (typeof entry.tps === "number" && Number.isFinite(entry.tps) && (previous.tps === undefined || previous.tps === null)) {
+      bucket.tpsSum += entry.tps;
+      bucket.tpsCount += 1;
+    }
+
+    bucket.lastUsedAtMs = Math.max(bucket.lastUsedAtMs, entry.timestamp);
+
+    this.pruneDailyModelBuckets(entry.timestamp);
+  }
+
+  private applyEntryDeltaToDailyAccountBuckets(entry: RequestLogEntry, previous: RequestLogEntry): void {
+    const bucketStart = dayBucketStartMs(entry.timestamp);
+    const bucket = this.getOrCreateDailyAccountBucket(bucketStart, entry.providerId, entry.accountId, entry.authType);
+
+    bucket.totalTokens += sumCount(entry.totalTokens) - sumCount(previous.totalTokens);
+    bucket.promptTokens += sumCount(entry.promptTokens) - sumCount(previous.promptTokens);
+    bucket.completionTokens += sumCount(entry.completionTokens) - sumCount(previous.completionTokens);
+    bucket.cachedPromptTokens += sumCount(entry.cachedPromptTokens) - sumCount(previous.cachedPromptTokens);
+    bucket.imageCount += sumCount(entry.imageCount) - sumCount(previous.imageCount);
+    bucket.imageCostUsd += sumCount(entry.imageCostUsd) - sumCount(previous.imageCostUsd);
+    bucket.costUsd += sumCount(entry.costUsd) - sumCount(previous.costUsd);
+    bucket.energyJoules += sumCount(entry.energyJoules) - sumCount(previous.energyJoules);
+    bucket.waterEvaporatedMl += sumCount(entry.waterEvaporatedMl) - sumCount(previous.waterEvaporatedMl);
+
+    if (entry.promptCacheKeyUsed && !previous.promptCacheKeyUsed) {
+      bucket.cacheKeyUseCount += 1;
+    }
+
+    if (entry.cacheHit && !previous.cacheHit) {
+      bucket.cacheHitCount += 1;
+    }
+
+    if (typeof entry.ttftMs === "number" && Number.isFinite(entry.ttftMs) && (previous.ttftMs === undefined || previous.ttftMs === null)) {
+      bucket.ttftSum += entry.ttftMs;
+      bucket.ttftCount += 1;
+    }
+
+    if (typeof entry.tps === "number" && Number.isFinite(entry.tps) && (previous.tps === undefined || previous.tps === null)) {
+      bucket.tpsSum += entry.tps;
+      bucket.tpsCount += 1;
+    }
+
+    bucket.lastUsedAtMs = Math.max(bucket.lastUsedAtMs, entry.timestamp);
+    this.pruneDailyAccountBuckets(entry.timestamp);
   }
 
   private updatePerfIndexFromEntry(entry: RequestLogEntry): void {
@@ -957,70 +1772,31 @@ export class RequestLogStore {
   private resetState(): void {
     this.entries.splice(0, this.entries.length);
     this.hourlyBuckets.clear();
+    this.dailyBuckets.clear();
+    this.dailyModelBuckets.clear();
+    this.dailyAccountBuckets.clear();
     this.perfIndex.clear();
     this.accountAccumulators.clear();
+    this.pendingJournalEntries = [];
+    this.journalLineCount = 0;
+    this.needsCompaction = false;
   }
 
   private snapshotDb(): RequestLogDb {
     return {
       entries: this.entries,
       hourlyBuckets: this.snapshotHourlyBuckets(),
+      dailyBuckets: this.snapshotDailyBuckets(),
+      dailyModelBuckets: this.snapshotDailyModelBuckets(),
+      dailyAccountBuckets: this.snapshotDailyAccountBuckets(),
       accountAccumulators: this.snapshotAccountAccumulators(),
     };
   }
 
-  private async quarantineCorruptFile(error: SyntaxError): Promise<void> {
-    const corruptFilePath = buildCorruptFilePath(this.filePath);
-
-    try {
-      await rename(this.filePath, corruptFilePath);
-      console.warn(
-        `[request-log-store] Failed to parse request logs from ${this.filePath}; moved corrupt file to ${corruptFilePath}: ${error.message}`,
-      );
-    } catch (renameError) {
-      const code = (renameError as NodeJS.ErrnoException | undefined)?.code;
-      if (code !== "ENOENT") {
-        throw renameError;
-      }
-
-      console.warn(
-        `[request-log-store] Failed to parse request logs from ${this.filePath}; file disappeared before quarantine: ${error.message}`,
-      );
-    }
-
+  private applyLoadedDb(db: RequestLogDb): void {
     this.resetState();
-    await this.persistNow();
-  }
-
-  private async loadFromDisk(): Promise<void> {
-    let contents: string;
-
-    try {
-      contents = await readFile(this.filePath, "utf8");
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException | undefined)?.code !== "ENOENT") {
-        throw error;
-      }
-
-      await mkdir(dirname(this.filePath), { recursive: true });
-      await this.persistNow();
-      return;
-    }
-
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(contents);
-    } catch (error) {
-      if (!(error instanceof SyntaxError)) {
-        throw error;
-      }
-
-      await this.quarantineCorruptFile(error);
-      return;
-    }
-
-    const db = hydrateDb(parsed, this.maxEntries);
     this.entries.splice(0, this.entries.length, ...db.entries);
+    this.repairDerivedEstimates();
 
     this.hourlyBuckets.clear();
     for (const bucket of db.hourlyBuckets ?? []) {
@@ -1043,6 +1819,57 @@ export class RequestLogStore {
         energyJoules: bucket.energyJoules,
         waterEvaporatedMl: bucket.waterEvaporatedMl,
       });
+    }
+
+    if ((db.hourlyBuckets?.length ?? 0) === 0 && this.entries.length > 0) {
+      this.rebuildHourlyBucketsFromEntries();
+    }
+
+    this.dailyBuckets.clear();
+    for (const bucket of db.dailyBuckets ?? []) {
+      this.dailyBuckets.set(bucket.startMs, {
+        startMs: bucket.startMs,
+        requestCount: bucket.requestCount,
+        errorCount: bucket.errorCount,
+        totalTokens: bucket.totalTokens,
+        promptTokens: bucket.promptTokens,
+        completionTokens: bucket.completionTokens,
+        cachedPromptTokens: bucket.cachedPromptTokens,
+        imageCount: bucket.imageCount,
+        imageCostUsd: bucket.imageCostUsd,
+        cacheHitCount: bucket.cacheHitCount,
+        cacheKeyUseCount: bucket.cacheKeyUseCount,
+        fastModeRequestCount: bucket.fastModeRequestCount,
+        priorityRequestCount: bucket.priorityRequestCount,
+        standardRequestCount: bucket.standardRequestCount,
+        costUsd: bucket.costUsd,
+        energyJoules: bucket.energyJoules,
+        waterEvaporatedMl: bucket.waterEvaporatedMl,
+      });
+    }
+
+    if ((db.dailyBuckets?.length ?? 0) === 0 && this.entries.length > 0) {
+      this.rebuildDailyBucketsFromEntries();
+    }
+
+    this.dailyModelBuckets.clear();
+    for (const bucket of db.dailyModelBuckets ?? []) {
+      const key = dailyModelBucketKey(bucket.startMs, bucket.providerId, bucket.model);
+      this.dailyModelBuckets.set(key, { ...bucket });
+    }
+
+    if ((db.dailyModelBuckets?.length ?? 0) === 0 && this.entries.length > 0) {
+      this.rebuildDailyModelBucketsFromEntries();
+    }
+
+    this.dailyAccountBuckets.clear();
+    for (const bucket of db.dailyAccountBuckets ?? []) {
+      const key = dailyAccountBucketKey(bucket.startMs, bucket.providerId, bucket.accountId);
+      this.dailyAccountBuckets.set(key, { ...bucket });
+    }
+
+    if ((db.dailyAccountBuckets?.length ?? 0) === 0 && this.entries.length > 0) {
+      this.rebuildDailyAccountBucketsFromEntries();
     }
 
     this.rebuildPerfIndex();
@@ -1081,27 +1908,451 @@ export class RequestLogStore {
     }
   }
 
+  private rebuildHourlyBucketsFromEntries(): void {
+    this.hourlyBuckets.clear();
+    for (const entry of this.entries) {
+      this.applyEntryToHourlyBuckets(entry);
+    }
+  }
+
+  private rebuildDailyBucketsFromEntries(): void {
+    this.dailyBuckets.clear();
+    for (const entry of this.entries) {
+      this.applyEntryToDailyBuckets(entry);
+    }
+  }
+
+  private rebuildDailyModelBucketsFromEntries(): void {
+    this.dailyModelBuckets.clear();
+    for (const entry of this.entries) {
+      this.applyEntryToDailyModelBuckets(entry);
+    }
+  }
+
+  private rebuildDailyAccountBucketsFromEntries(): void {
+    this.dailyAccountBuckets.clear();
+    for (const entry of this.entries) {
+      this.applyEntryToDailyAccountBuckets(entry);
+    }
+  }
+
+  private async quarantineCorruptFile(sourcePath: string, error: SyntaxError): Promise<void> {
+    const corruptFilePath = buildCorruptFilePath(sourcePath);
+
+    try {
+      await rename(sourcePath, corruptFilePath);
+      console.warn(
+        `[request-log-store] Failed to parse request logs from ${sourcePath}; moved corrupt file to ${corruptFilePath}: ${error.message}`,
+      );
+    } catch (renameError) {
+      const code = (renameError as NodeJS.ErrnoException | undefined)?.code;
+      if (code !== "ENOENT") {
+        throw renameError;
+      }
+
+      console.warn(
+        `[request-log-store] Failed to parse request logs from ${sourcePath}; file disappeared before quarantine: ${error.message}`,
+      );
+    }
+
+    this.resetState();
+    await this.persistNow(true);
+  }
+
+  private async quarantineCorruptLines(sourcePath: string, lines: readonly string[]): Promise<void> {
+    if (lines.length === 0) {
+      return;
+    }
+
+    const corruptFilePath = buildCorruptFilePath(sourcePath);
+    await writeFile(corruptFilePath, `${lines.join("\n")}\n`, "utf8");
+    console.warn(
+      `[request-log-store] Ignored ${lines.length} malformed JSONL request log lines from ${sourcePath}; wrote them to ${corruptFilePath}`,
+    );
+  }
+
+  private async quarantineCorruptMetadataFile(error: SyntaxError): Promise<void> {
+    const metadataFilePath = buildMetadataFilePath(this.filePath);
+    const corruptFilePath = buildCorruptFilePath(metadataFilePath);
+
+    try {
+      await rename(metadataFilePath, corruptFilePath);
+      console.warn(
+        `[request-log-store] Failed to parse request log metadata from ${metadataFilePath}; moved corrupt file to ${corruptFilePath}: ${error.message}`,
+      );
+    } catch (renameError) {
+      const code = (renameError as NodeJS.ErrnoException | undefined)?.code;
+      if (code !== "ENOENT") {
+        throw renameError;
+      }
+
+      console.warn(
+        `[request-log-store] Failed to parse request log metadata from ${metadataFilePath}; file disappeared before quarantine: ${error.message}`,
+      );
+    }
+  }
+
+  private async archiveMigratedLegacyFile(sourcePath: string): Promise<void> {
+    if (sourcePath === this.filePath) {
+      return;
+    }
+
+    const migratedFilePath = buildMigratedFilePath(sourcePath);
+    try {
+      await rename(sourcePath, migratedFilePath);
+      console.info(
+        `[request-log-store] Migrated legacy request logs from ${sourcePath} to ${this.filePath}; archived original file at ${migratedFilePath}`,
+      );
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException | undefined)?.code;
+      if (code === "ENOENT") {
+        return;
+      }
+
+      throw error;
+    }
+  }
+
+  private async resolveSourcePath(): Promise<string | null> {
+    try {
+      await access(this.filePath);
+      return this.filePath;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException | undefined)?.code !== "ENOENT") {
+        throw error;
+      }
+    }
+
+    const legacyFilePath = buildLegacyFilePath(this.filePath);
+    if (!legacyFilePath) {
+      return null;
+    }
+
+    try {
+      await access(legacyFilePath);
+      return legacyFilePath;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException | undefined)?.code !== "ENOENT") {
+        throw error;
+      }
+    }
+
+    return null;
+  }
+
+  private async loadMetadataFromDisk(): Promise<Omit<RequestLogDb, "entries">> {
+    const metadataFilePath = buildMetadataFilePath(this.filePath);
+    let contents: string;
+
+    try {
+      contents = await readFile(metadataFilePath, "utf8");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") {
+        return {
+          hourlyBuckets: [],
+          dailyBuckets: [],
+          dailyModelBuckets: [],
+          dailyAccountBuckets: [],
+          accountAccumulators: [],
+        };
+      }
+
+      throw error;
+    }
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(contents);
+    } catch (error) {
+      if (!(error instanceof SyntaxError)) {
+        throw error;
+      }
+
+      await this.quarantineCorruptMetadataFile(error);
+      return {
+        hourlyBuckets: [],
+        dailyBuckets: [],
+        dailyModelBuckets: [],
+        dailyAccountBuckets: [],
+        accountAccumulators: [],
+      };
+    }
+
+    const db = hydrateDb({ ...(isRecord(parsed) ? parsed : {}), entries: [] }, this.maxEntries);
+    return {
+      hourlyBuckets: db.hourlyBuckets,
+      dailyBuckets: db.dailyBuckets,
+      dailyModelBuckets: db.dailyModelBuckets,
+      dailyAccountBuckets: db.dailyAccountBuckets,
+      accountAccumulators: db.accountAccumulators,
+    };
+  }
+
+  private snapshotMetadata(): Omit<RequestLogDb, "entries"> {
+    const snapshot = this.snapshotDb();
+    return {
+      hourlyBuckets: snapshot.hourlyBuckets,
+      dailyBuckets: snapshot.dailyBuckets,
+      dailyModelBuckets: snapshot.dailyModelBuckets,
+      dailyAccountBuckets: snapshot.dailyAccountBuckets,
+      accountAccumulators: snapshot.accountAccumulators,
+    };
+  }
+
+  private async persistMetadataNow(): Promise<void> {
+    const metadataFilePath = buildMetadataFilePath(this.filePath);
+    const tempFilePath = buildTempFilePath(metadataFilePath);
+
+    try {
+      await writeFile(tempFilePath, JSON.stringify(this.snapshotMetadata(), null, 2), "utf8");
+      await rename(tempFilePath, metadataFilePath);
+    } catch (error) {
+      await rm(tempFilePath, { force: true }).catch(() => undefined);
+      throw error;
+    }
+  }
+
+  private async loadEntriesFromJsonl(sourcePath: string): Promise<{
+    readonly entries: readonly RequestLogEntry[];
+    readonly malformedLines: readonly string[];
+    readonly lineCount: number;
+  }> {
+    const entriesById = new Map<string, RequestLogEntry>();
+    const malformedLines: string[] = [];
+    let lineCount = 0;
+
+    const input = createReadStream(sourcePath, { encoding: "utf8" });
+    const reader = createInterface({ input, crlfDelay: Infinity });
+
+    try {
+      for await (const rawLine of reader) {
+        const line = rawLine.trim();
+        if (line.length === 0) {
+          continue;
+        }
+
+        lineCount += 1;
+
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(line);
+        } catch {
+          malformedLines.push(rawLine);
+          continue;
+        }
+
+        const entry = hydrateEntry(parsed);
+        if (!entry) {
+          malformedLines.push(rawLine);
+          continue;
+        }
+
+        const hadEntry = entriesById.has(entry.id);
+        entriesById.set(entry.id, entry);
+        if (!hadEntry && entriesById.size > this.maxEntries) {
+          const oldestEntryId = entriesById.keys().next().value;
+          if (typeof oldestEntryId === "string") {
+            entriesById.delete(oldestEntryId);
+          }
+        }
+      }
+    } finally {
+      reader.close();
+      input.close();
+    }
+
+    return {
+      entries: [...entriesById.values()],
+      malformedLines,
+      lineCount,
+    };
+  }
+
+  private async loadLegacyDb(sourcePath: string): Promise<boolean> {
+    const contents = await readFile(sourcePath, "utf8");
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(contents);
+    } catch (error) {
+      if (!(error instanceof SyntaxError)) {
+        throw error;
+      }
+
+      await this.quarantineCorruptFile(sourcePath, error);
+      return false;
+    }
+
+    const isLegacyPayload = Array.isArray(parsed) || (isRecord(parsed) && Array.isArray(parsed.entries));
+    if (!isLegacyPayload) {
+      await this.quarantineCorruptFile(sourcePath, new SyntaxError("Request log payload is not a valid legacy JSON request log database"));
+      return false;
+    }
+
+    const db = hydrateDb(parsed, this.maxEntries);
+    this.applyLoadedDb(db);
+    this.journalLineCount = this.entries.length;
+    return true;
+  }
+
+  private shouldCompactJournal(forceCompact: boolean): boolean {
+    if (forceCompact) {
+      return true;
+    }
+
+    const projectedLineCount = this.journalLineCount + this.pendingJournalEntries.length;
+    const staleLineCount = Math.max(0, projectedLineCount - this.entries.length);
+    return this.needsCompaction
+      || projectedLineCount > Math.max(this.maxEntries * 2, this.entries.length + 2000)
+      || staleLineCount > Math.max(1000, Math.floor(this.maxEntries / 2));
+  }
+
+  private async loadFromDisk(): Promise<void> {
+    const sourcePath = await this.resolveSourcePath();
+    if (!sourcePath) {
+      await mkdir(dirname(this.filePath), { recursive: true });
+      await writeFile(this.filePath, "", "utf8");
+      await this.persistMetadataNow();
+      return;
+    }
+
+    const jsonlLoad = await this.loadEntriesFromJsonl(sourcePath);
+    const looksLikeLegacyJson = jsonlLoad.entries.length === 0 && jsonlLoad.malformedLines.length > 0;
+
+    if (looksLikeLegacyJson) {
+      const loadedLegacyDb = await this.loadLegacyDb(sourcePath);
+      if (!loadedLegacyDb) {
+        return;
+      }
+
+      await this.persistNow(true);
+      await this.archiveMigratedLegacyFile(sourcePath);
+      return;
+    }
+
+    const metadata = await this.loadMetadataFromDisk();
+    const db = hydrateDb({
+      entries: jsonlLoad.entries,
+      hourlyBuckets: metadata.hourlyBuckets,
+      dailyBuckets: metadata.dailyBuckets,
+      dailyModelBuckets: metadata.dailyModelBuckets,
+      dailyAccountBuckets: metadata.dailyAccountBuckets,
+      accountAccumulators: metadata.accountAccumulators,
+    }, this.maxEntries);
+    this.applyLoadedDb(db);
+    this.journalLineCount = jsonlLoad.lineCount;
+
+    if (jsonlLoad.malformedLines.length > 0) {
+      await this.quarantineCorruptLines(sourcePath, jsonlLoad.malformedLines);
+      await this.persistNow(true);
+      return;
+    }
+
+    if (sourcePath !== this.filePath) {
+      await this.persistNow(true);
+    }
+  }
+
+  private repairDerivedEstimates(): void {
+    for (let index = 0; index < this.entries.length; index += 1) {
+      const entry = this.entries[index];
+      if (!entry) {
+        continue;
+      }
+
+      const promptTokens = sanitizeOptionalCount(entry.promptTokens) ?? 0;
+      const completionTokens = sanitizeOptionalCount(entry.completionTokens) ?? 0;
+      const hasTokenUsage = promptTokens > 0 || completionTokens > 0;
+      const missingDerivedEstimates = sumCount(entry.costUsd) === 0
+        && sumCount(entry.energyJoules) === 0
+        && sumCount(entry.waterEvaporatedMl) === 0;
+
+      if (!hasTokenUsage || !missingDerivedEstimates) {
+        continue;
+      }
+
+      const repaired = estimateRequestCost(entry.providerId, entry.model, promptTokens, completionTokens);
+      this.entries[index] = {
+        ...entry,
+        costUsd: repaired.costUsd,
+        energyJoules: repaired.energyJoules,
+        waterEvaporatedMl: repaired.waterEvaporatedMl,
+      };
+    }
+  }
+
   private schedulePersist(): void {
     if (this.closed) {
       return;
     }
 
+    this.persistPending = true;
+    if (this.persistTimer) {
+      return;
+    }
+
+    if (this.persistIntervalMs === 0) {
+      void this.queuePersist();
+      return;
+    }
+
+    this.persistTimer = setTimeout(() => {
+      this.persistTimer = null;
+      void this.queuePersist();
+    }, this.persistIntervalMs);
+    this.persistTimer.unref?.();
+  }
+
+  private async queuePersist(force = false): Promise<void> {
     this.persistChain = this.persistChain
       .catch(() => undefined)
       .then(async () => {
-        await this.persistNow();
+        if (!force && !this.persistPending) {
+          return;
+        }
+
+        this.persistPending = false;
+        await this.persistNow(force);
       });
+    await this.persistChain;
   }
 
-  private async persistNow(): Promise<void> {
+  private async persistNow(forceCompact = false): Promise<void> {
     await mkdir(dirname(this.filePath), { recursive: true });
-    const tempFilePath = buildTempFilePath(this.filePath);
+    if (this.shouldCompactJournal(forceCompact)) {
+      const tempFilePath = buildTempFilePath(this.filePath);
+      const snapshot = this.snapshot();
+      const pendingBeforeRewrite = this.pendingJournalEntries;
+      this.pendingJournalEntries = [];
+
+      try {
+        await writeFile(tempFilePath, snapshot.map((entry) => serializeEntry(entry)).join(""), "utf8");
+        await rename(tempFilePath, this.filePath);
+        this.journalLineCount = snapshot.length;
+        this.needsCompaction = false;
+        await this.persistMetadataNow();
+        return;
+      } catch (error) {
+        this.pendingJournalEntries = [...pendingBeforeRewrite, ...this.pendingJournalEntries];
+        await rm(tempFilePath, { force: true }).catch(() => undefined);
+        throw error;
+      }
+    }
+
+    if (this.pendingJournalEntries.length === 0) {
+      await this.persistMetadataNow();
+      return;
+    }
+
+    const pendingEntries = this.pendingJournalEntries;
+    this.pendingJournalEntries = [];
 
     try {
-      await writeFile(tempFilePath, JSON.stringify(this.snapshotDb(), null, 2), "utf8");
-      await rename(tempFilePath, this.filePath);
+      await appendFile(this.filePath, pendingEntries.map((entry) => serializeEntry(entry)).join(""), "utf8");
+      this.journalLineCount += pendingEntries.length;
+      await this.persistMetadataNow();
     } catch (error) {
-      await rm(tempFilePath, { force: true }).catch(() => undefined);
+      this.pendingJournalEntries = [...pendingEntries, ...this.pendingJournalEntries];
       throw error;
     }
   }

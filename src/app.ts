@@ -5,7 +5,7 @@ import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
 import { DEFAULT_MODELS, type ProxyConfig } from "./lib/config.js";
 import { KeyPool, type ProviderCredential } from "./lib/key-pool.js";
 import { CredentialStore } from "./lib/credential-store.js";
-import { OpenAiOAuthManager } from "./lib/openai-oauth.js";
+import { OpenAiOAuthManager, isTerminalOpenAiRefreshError, type OAuthTokens } from "./lib/openai-oauth.js";
 import {
   factoryCredentialNeedsRefresh,
   parseJwtExpiry,
@@ -40,7 +40,6 @@ import {
 import { orderProviderRoutesByPolicy } from "./lib/provider-policy.js";
 import {
   fetchWithResponseTimeout,
-  hasBearerToken,
   isRecord,
   sendOpenAiError,
   toErrorMessage,
@@ -77,6 +76,8 @@ import { seedFromJsonFile, seedFromJsonValue, seedFactoryAuthFromFiles, seedMode
 import { registerOAuthRoutes } from "./lib/oauth-routes.js";
 import { RuntimeCredentialStore } from "./lib/runtime-credential-store.js";
 import { TokenRefreshManager } from "./lib/token-refresh-manager.js";
+import { DEFAULT_TENANT_ID } from "./lib/tenant-api-key.js";
+import { resolveRequestAuth } from "./lib/request-auth.js";
 
 interface ChatCompletionRequest {
   readonly model?: string;
@@ -357,7 +358,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       sql = createSqlConnection({ connectionString: config.databaseUrl });
       app.log.info("connecting to database");
 
-      sqlCredentialStore = new SqlCredentialStore(sql);
+      sqlCredentialStore = new SqlCredentialStore(sql, { defaultTenantId: DEFAULT_TENANT_ID });
       await sqlCredentialStore.init();
       app.log.info("credential store initialized");
 
@@ -426,6 +427,11 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
         }
       }
 
+      const removedLegacyOpenAiAccounts = await sqlCredentialStore.cleanupLegacyOpenAiDuplicates();
+      if (removedLegacyOpenAiAccounts > 0) {
+        app.log.warn({ count: removedLegacyOpenAiAccounts }, "removed legacy duplicate OpenAI account rows after seeding");
+      }
+
       app.log.info("database connection established");
     } catch (error) {
       app.log.error({ error: toErrorMessage(error) }, "failed to initialize database connection");
@@ -446,9 +452,16 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
   } catch (error) {
     app.log.warn({ error: toErrorMessage(error) }, "failed to warm up provider accounts; non-keyed routes may still work");
   }
-  const requestLogStore = new RequestLogStore(config.requestLogsFilePath, 5000);
+  const requestLogStore = new RequestLogStore(
+    config.requestLogsFilePath,
+    config.requestLogsMaxEntries,
+    config.requestLogsFlushMs,
+  );
   await requestLogStore.warmup();
-  const promptAffinityStore = new PromptAffinityStore(config.promptAffinityFilePath);
+  const promptAffinityStore = new PromptAffinityStore(
+    config.promptAffinityFilePath,
+    config.promptAffinityFlushMs,
+  );
   await promptAffinityStore.warmup();
   const proxySettingsStore = new ProxySettingsStore(config.settingsFilePath, sql);
   await proxySettingsStore.warmup();
@@ -484,7 +497,43 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
 
       app.log.info({ accountId: credential.accountId, providerId: credential.providerId }, "refreshing expired OAuth token");
 
-      const newTokens = await oauthManager.refreshToken(credential.refreshToken);
+      let newTokens: OAuthTokens;
+      try {
+        newTokens = await oauthManager.refreshToken(credential.refreshToken);
+      } catch (error) {
+        if (isTerminalOpenAiRefreshError(error)) {
+          const disabledCredential: ProviderCredential = {
+            ...credential,
+            refreshToken: undefined,
+          };
+
+          keyPool.updateAccountCredential(credential.providerId, credential, disabledCredential);
+          if (typeof credential.expiresAt === "number" && credential.expiresAt <= Date.now()) {
+            keyPool.markRateLimited(disabledCredential, 24 * 60 * 60 * 1000);
+          }
+
+          await runtimeCredentialStore.upsertOAuthAccount(
+            credential.providerId,
+            disabledCredential.accountId,
+            disabledCredential.token,
+            undefined,
+            disabledCredential.expiresAt,
+            disabledCredential.chatgptAccountId,
+            undefined,
+            undefined,
+            disabledCredential.planType,
+          );
+
+          app.log.warn({
+            accountId: credential.accountId,
+            providerId: credential.providerId,
+            code: error.code,
+            status: error.status,
+          }, "disabled terminally invalid OpenAI refresh token; full reauth required");
+        }
+
+        throw error;
+      }
 
       const newCredential: ProviderCredential = {
         providerId: credential.providerId,
@@ -565,12 +614,12 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
         newCredential.expiresAt,
       );
 
-      // Best-effort: persist to the encrypted auth.v2 file for non-DB deployments.
-      // This is no longer critical since the DB is the source of truth.
-      try {
-        await persistFactoryAuthV2(refreshed.accessToken, refreshed.refreshToken);
-      } catch {
-        // Expected to fail on read-only container filesystems; DB has the data.
+      if (!sqlCredentialStore) {
+        try {
+          await persistFactoryAuthV2(refreshed.accessToken, refreshed.refreshToken);
+        } catch {
+          // Expected to fail on read-only container filesystems; DB has the data.
+        }
       }
 
       app.log.info({
@@ -716,9 +765,9 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       return cachedModelCatalog.value;
     }
 
-    // Load models from DB first; fall back to file-based loading
-    const dbModels = sql ? await loadModelsFromDb(sql).catch(() => null) : null;
-    const configuredModels = dbModels ?? await loadModels(config.modelsFilePath, DEFAULT_MODELS);
+    const configuredModels = sql
+      ? await loadModelsFromDb(sql).catch(() => null) ?? [...DEFAULT_MODELS]
+      : await loadModels(config.modelsFilePath, DEFAULT_MODELS);
     const dynamicOllamaModels: string[] = [];
 
     for (const route of ollamaCatalogRoutes) {
@@ -768,6 +817,8 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     app.log.warn("proxy auth disabled via PROXY_ALLOW_UNAUTHENTICATED=true");
   }
 
+  app.decorateRequest("openHaxAuth", null);
+
   app.addHook("onRequest", async (request, reply) => {
     const origin = request.headers.origin;
     reply.header("Access-Control-Allow-Origin", origin ?? "*");
@@ -775,26 +826,34 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     reply.header("Access-Control-Allow-Headers", "Authorization, Content-Type, Accept, X-Requested-With, Cookie");
     reply.header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
 
-    if (config.proxyAuthToken) {
-      if (request.method === "OPTIONS") {
-        return;
-      }
-
-      const rawPath = (request.raw.url ?? request.url).split("?", 1)[0] ?? request.url;
-      const allowUnauthenticatedRoute = rawPath === "/health" || rawPath === "/api/ui/credentials/openai/oauth/browser/callback"
-        || rawPath === "/auth/callback" || rawPath === "/auth/factory/callback";
-
-      if (allowUnauthenticatedRoute) {
-        return;
-      }
-
-      const authorization = request.headers.authorization;
-      const cookieToken = readCookieToken(request.headers.cookie, PROXY_AUTH_COOKIE_NAME);
-      const ok = hasBearerToken(authorization, config.proxyAuthToken) || cookieToken === config.proxyAuthToken;
-      if (!ok) {
-        sendOpenAiError(reply, 401, "Unauthorized", "invalid_request_error", "unauthorized");
-      }
+    if (request.method === "OPTIONS") {
+      return;
     }
+
+    const rawPath = (request.raw.url ?? request.url).split("?", 1)[0] ?? request.url;
+    const allowUnauthenticatedRoute = rawPath === "/health" || rawPath === "/api/ui/credentials/openai/oauth/browser/callback"
+      || rawPath === "/auth/callback" || rawPath === "/auth/factory/callback";
+
+    if (allowUnauthenticatedRoute) {
+      return;
+    }
+
+    const resolvedAuth = await resolveRequestAuth({
+      allowUnauthenticated: config.allowUnauthenticated,
+      proxyAuthToken: config.proxyAuthToken,
+      authorization: request.headers.authorization,
+      cookieToken: readCookieToken(request.headers.cookie, PROXY_AUTH_COOKIE_NAME),
+      resolveTenantApiKey: sqlCredentialStore
+        ? async (token) => sqlCredentialStore!.resolveTenantApiKey(token, config.proxyTokenPepper)
+        : undefined,
+    });
+
+    if (!resolvedAuth) {
+      sendOpenAiError(reply, 401, "Unauthorized", "invalid_request_error", "unauthorized");
+      return;
+    }
+
+    (request as any).openHaxAuth = resolvedAuth;
   });
 
   // Attach a telemetry span to each request
@@ -1740,6 +1799,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     keyPool,
     requestLogStore,
     credentialStore: runtimeCredentialStore,
+    sqlCredentialStore,
     proxySettingsStore,
     eventStore,
     refreshOpenAiOauthAccounts,
@@ -1772,6 +1832,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       await eventStore.close();
     }
 
+    await promptAffinityStore.close();
     await requestLogStore.close();
     await credentialStore.close();
     if (sql) {

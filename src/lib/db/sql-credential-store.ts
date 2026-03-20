@@ -1,8 +1,17 @@
+import crypto from "node:crypto";
+
 import type { Sql } from "./index.js";
 import type { ProviderCredential, ProviderAuthType } from "../key-pool.js";
 import { normalizeEpochMilliseconds } from "../epoch.js";
+import { DEFAULT_TENANT_ID, buildTenantApiKeyPrefix, generateTenantApiKey, hashTenantApiKey, normalizeTenantId } from "../tenant-api-key.js";
 import type { CredentialAccountView, CredentialProviderView } from "../credential-store.js";
 import {
+  CREATE_TENANTS_TABLE,
+  CREATE_USERS_TABLE,
+  CREATE_TENANT_MEMBERSHIPS_TABLE,
+  CREATE_TENANT_API_KEYS_TABLE,
+  CREATE_TENANT_API_KEYS_TENANT_INDEX,
+  CREATE_TENANT_API_KEYS_HASH_INDEX,
   CREATE_PROVIDERS_TABLE,
   CREATE_ACCOUNTS_TABLE,
   CREATE_ACCOUNTS_INDEX,
@@ -15,11 +24,17 @@ import {
   INSERT_VERSION,
   CHECK_VERSION_EXISTS,
   UPSERT_PROVIDER,
+  UPSERT_TENANT,
   INSERT_ACCOUNT,
+  INSERT_TENANT_API_KEY,
+  SELECT_ACTIVE_TENANT_API_KEY_BY_HASH,
+  SELECT_ALL_TENANTS,
+  SELECT_TENANT_API_KEYS_BY_TENANT,
   SELECT_ALL_PROVIDERS,
   SELECT_ACCOUNTS_BY_PROVIDER,
   SELECT_ALL_ACCOUNTS,
   DELETE_ACCOUNT,
+  REVOKE_TENANT_API_KEY,
   SET_COOLDOWN,
   GET_COOLDOWN,
   CLEAR_EXPIRED_COOLDOWNS,
@@ -31,6 +46,23 @@ interface ProviderRow {
   auth_type: string;
 }
 
+interface TenantRow {
+  id: string;
+  name: string;
+  status: string;
+}
+
+interface TenantApiKeyRow {
+  id: string;
+  tenant_id: string;
+  label: string;
+  prefix: string;
+  scopes: string[] | string | null;
+  created_at?: string | null;
+  last_used_at?: string | null;
+  revoked_at: string | null;
+}
+
 interface AccountRow {
   id: string;
   provider_id: string;
@@ -39,6 +71,12 @@ interface AccountRow {
   expires_at: number | null;
   chatgpt_account_id: string | null;
   plan_type: string | null;
+}
+
+export interface SqlOpenAiAccountIdentityRow {
+  readonly id: string;
+  readonly provider_id: string;
+  readonly chatgpt_account_id: string | null;
 }
 
 interface CooldownRow {
@@ -66,6 +104,46 @@ function toProviderCredential(row: AccountRow, authType: ProviderAuthType): Prov
   };
 }
 
+function escapeRegexLiteral(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function isLegacyOpenAiAccountId(accountId: string, chatgptAccountId: string): boolean {
+  return new RegExp(`^${escapeRegexLiteral(chatgptAccountId)}_[0-9a-f]{8}$`).test(accountId);
+}
+
+function isCurrentOpenAiAccountId(accountId: string, chatgptAccountId: string): boolean {
+  return new RegExp(`^${escapeRegexLiteral(chatgptAccountId)}-[0-9a-f]{12}$`).test(accountId);
+}
+
+export function selectLegacyOpenAiDuplicateIds(rows: readonly SqlOpenAiAccountIdentityRow[]): string[] {
+  const grouped = new Map<string, SqlOpenAiAccountIdentityRow[]>();
+
+  for (const row of rows) {
+    if (row.provider_id !== "openai" || !row.chatgpt_account_id) {
+      continue;
+    }
+    const accounts = grouped.get(row.chatgpt_account_id) ?? [];
+    accounts.push(row);
+    grouped.set(row.chatgpt_account_id, accounts);
+  }
+
+  const idsToDelete: string[] = [];
+  for (const [chatgptAccountId, accounts] of grouped.entries()) {
+    const hasCurrentSibling = accounts.some((account) => isCurrentOpenAiAccountId(account.id, chatgptAccountId));
+    if (!hasCurrentSibling) {
+      continue;
+    }
+    for (const account of accounts) {
+      if (isLegacyOpenAiAccountId(account.id, chatgptAccountId)) {
+        idsToDelete.push(account.id);
+      }
+    }
+  }
+
+  return idsToDelete;
+}
+
 function maskSecret(secret: string): string {
   if (secret.length <= 8) {
     return `${secret.slice(0, 2)}***${secret.slice(-2)}`;
@@ -76,15 +154,72 @@ function maskSecret(secret: string): string {
 
 export interface SqlCredentialStoreStatus {
   initialized: boolean;
+  tenantCount: number;
   providerCount: number;
   totalAccountCount: number;
+}
+
+export interface TenantView {
+  id: string;
+  name: string;
+  status: string;
+}
+
+export interface TenantApiKeyMatch {
+  id: string;
+  tenantId: string;
+  label: string;
+  prefix: string;
+  scopes: readonly string[];
+}
+
+export interface TenantApiKeyView {
+  id: string;
+  tenantId: string;
+  label: string;
+  prefix: string;
+  scopes: readonly string[];
+  createdAt: string | null;
+  lastUsedAt: string | null;
+  revokedAt: string | null;
+}
+
+export interface CreatedTenantApiKey {
+  id: string;
+  tenantId: string;
+  label: string;
+  prefix: string;
+  token: string;
+  scopes: readonly string[];
+}
+
+function parseScopes(value: string[] | string | null): string[] {
+  if (Array.isArray(value)) {
+    return value.filter((item): item is string => typeof item === "string");
+  }
+
+  if (typeof value === "string") {
+    try {
+      const parsed: unknown = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
+    } catch {
+      return [];
+    }
+  }
+
+  return [];
 }
 
 export class SqlCredentialStore {
   private initialized = false;
   private readonly cooldowns = new Map<string, number>();
 
-  public constructor(private readonly sql: Sql) {}
+  public constructor(
+    private readonly sql: Sql,
+    private readonly options: {
+      readonly defaultTenantId?: string;
+    } = {},
+  ) {}
 
   public async init(): Promise<void> {
     await this.runMigrations();
@@ -92,6 +227,12 @@ export class SqlCredentialStore {
   }
 
   private async runMigrations(): Promise<void> {
+    await this.sql.unsafe(CREATE_TENANTS_TABLE);
+    await this.sql.unsafe(CREATE_USERS_TABLE);
+    await this.sql.unsafe(CREATE_TENANT_MEMBERSHIPS_TABLE);
+    await this.sql.unsafe(CREATE_TENANT_API_KEYS_TABLE);
+    await this.sql.unsafe(CREATE_TENANT_API_KEYS_TENANT_INDEX);
+    await this.sql.unsafe(CREATE_TENANT_API_KEYS_HASH_INDEX);
     await this.sql.unsafe(CREATE_PROVIDERS_TABLE);
     await this.sql.unsafe(CREATE_ACCOUNTS_TABLE);
     await this.sql.unsafe(CREATE_ACCOUNTS_INDEX);
@@ -109,17 +250,108 @@ export class SqlCredentialStore {
     if (versionExists.length === 0) {
       await this.sql.unsafe(INSERT_VERSION, [SCHEMA_VERSION]);
     }
+
+    await this.ensureDefaultTenant();
+  }
+
+  private async ensureDefaultTenant(): Promise<void> {
+    const tenantId = normalizeTenantId(this.options.defaultTenantId ?? DEFAULT_TENANT_ID);
+    await this.sql.unsafe(UPSERT_TENANT, [tenantId, tenantId, "active"]);
   }
 
   public async getStatus(): Promise<SqlCredentialStoreStatus> {
+    const tenants = await this.sql.unsafe<TenantRow[]>(SELECT_ALL_TENANTS);
     const providers = await this.sql.unsafe<ProviderRow[]>(SELECT_ALL_PROVIDERS);
     const accounts = await this.sql.unsafe<AccountRow[]>(SELECT_ALL_ACCOUNTS);
 
     return {
       initialized: this.initialized,
+      tenantCount: tenants.length,
       providerCount: providers.length,
       totalAccountCount: accounts.length,
     };
+  }
+
+  public async listTenants(): Promise<TenantView[]> {
+    const rows = await this.sql.unsafe<TenantRow[]>(SELECT_ALL_TENANTS);
+    return rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      status: row.status,
+    }));
+  }
+
+  public async resolveTenantApiKey(token: string, pepper: string): Promise<TenantApiKeyMatch | undefined> {
+    const tokenHash = hashTenantApiKey(token, pepper);
+    const rows = await this.sql.unsafe<TenantApiKeyRow[]>(SELECT_ACTIVE_TENANT_API_KEY_BY_HASH, [tokenHash]);
+    const row = rows[0];
+    if (!row) {
+      return undefined;
+    }
+
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      label: row.label,
+      prefix: row.prefix,
+      scopes: parseScopes(row.scopes),
+    };
+  }
+
+  public async listTenantApiKeys(tenantId: string): Promise<TenantApiKeyView[]> {
+    const normalizedTenantId = normalizeTenantId(tenantId);
+    const rows = await this.sql.unsafe<TenantApiKeyRow[]>(SELECT_TENANT_API_KEYS_BY_TENANT, [normalizedTenantId]);
+    return rows.map((row) => ({
+      id: row.id,
+      tenantId: row.tenant_id,
+      label: row.label,
+      prefix: row.prefix,
+      scopes: parseScopes(row.scopes),
+      createdAt: row.created_at ?? null,
+      lastUsedAt: row.last_used_at ?? null,
+      revokedAt: row.revoked_at ?? null,
+    }));
+  }
+
+  public async createTenantApiKey(tenantId: string, label: string, scopes: readonly string[], pepper: string): Promise<CreatedTenantApiKey> {
+    const normalizedTenantId = normalizeTenantId(tenantId);
+    const normalizedLabel = label.trim();
+    if (normalizedLabel.length === 0) {
+      throw new Error("tenant api key label must not be empty");
+    }
+
+    const token = generateTenantApiKey();
+    const id = crypto.randomUUID();
+    const prefix = buildTenantApiKeyPrefix(token);
+    const tokenHash = hashTenantApiKey(token, pepper);
+    const normalizedScopes = scopes.filter((scope): scope is string => typeof scope === "string" && scope.trim().length > 0);
+
+    await this.sql.unsafe(INSERT_TENANT_API_KEY, [
+      id,
+      normalizedTenantId,
+      normalizedLabel,
+      prefix,
+      tokenHash,
+      JSON.stringify(normalizedScopes.length > 0 ? normalizedScopes : ["proxy:use"]),
+    ]);
+
+    return {
+      id,
+      tenantId: normalizedTenantId,
+      label: normalizedLabel,
+      prefix,
+      token,
+      scopes: normalizedScopes.length > 0 ? normalizedScopes : ["proxy:use"],
+    };
+  }
+
+  public async revokeTenantApiKey(tenantId: string, keyId: string): Promise<boolean> {
+    const normalizedTenantId = normalizeTenantId(tenantId);
+    const result = await this.sql.unsafe<Array<{ id: string }>>(
+      `${REVOKE_TENANT_API_KEY} RETURNING id`,
+      [normalizedTenantId, keyId],
+    );
+    return result.length > 0;
   }
 
   public async listProviders(revealSecrets: boolean): Promise<CredentialProviderView[]> {
@@ -196,6 +428,37 @@ export class SqlCredentialStore {
     return result;
   }
 
+  public async cleanupLegacyOpenAiDuplicates(chatgptAccountId?: string): Promise<number> {
+    const rows = chatgptAccountId
+      ? await this.sql.unsafe<AccountRow[]>(
+        `${SELECT_ACCOUNTS_BY_PROVIDER.replace("ORDER BY id;", "AND chatgpt_account_id = $2 ORDER BY id;")}`,
+        ["openai", chatgptAccountId],
+      )
+      : await this.sql.unsafe<AccountRow[]>(SELECT_ACCOUNTS_BY_PROVIDER, ["openai"]);
+    const idsToDelete = selectLegacyOpenAiDuplicateIds(rows);
+
+    if (idsToDelete.length === 0) {
+      return 0;
+    }
+
+    await this.sql.begin(async (tx) => {
+      await tx.unsafe(
+        "DELETE FROM account_cooldown WHERE provider_id = 'openai' AND account_id = ANY($1::text[])",
+        [idsToDelete],
+      );
+      await tx.unsafe(
+        "DELETE FROM account_health WHERE provider_id = 'openai' AND account_id = ANY($1::text[])",
+        [idsToDelete],
+      );
+      await tx.unsafe(
+        "DELETE FROM accounts WHERE provider_id = 'openai' AND id = ANY($1::text[])",
+        [idsToDelete],
+      );
+    });
+
+    return idsToDelete.length;
+  }
+
   public async upsertProvider(providerId: string, authType: ProviderAuthType): Promise<void> {
     await this.sql.unsafe(UPSERT_PROVIDER, [providerId, authType]);
   }
@@ -243,6 +506,10 @@ export class SqlCredentialStore {
       chatgptAccountId,
       planType,
     });
+
+    if (providerId === "openai" && chatgptAccountId) {
+      await this.cleanupLegacyOpenAiDuplicates(chatgptAccountId);
+    }
   }
 
   public async upsertAccounts(accounts: readonly ProviderCredential[]): Promise<void> {

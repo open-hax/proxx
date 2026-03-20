@@ -66,7 +66,10 @@ export interface ProxyConfig {
   readonly keysFilePath: string;
   readonly modelsFilePath: string;
   readonly requestLogsFilePath: string;
+  readonly requestLogsMaxEntries: number;
+  readonly requestLogsFlushMs: number;
   readonly promptAffinityFilePath: string;
+  readonly promptAffinityFlushMs: number;
   readonly settingsFilePath: string;
   readonly keyReloadMs: number;
   readonly keyCooldownMs: number;
@@ -75,6 +78,7 @@ export interface ProxyConfig {
   readonly upstreamTransientRetryCount: number;
   readonly upstreamTransientRetryBackoffMs: number;
   readonly proxyAuthToken?: string;
+  readonly proxyTokenPepper: string;
   readonly allowUnauthenticated: boolean;
   readonly policyConfigPath?: string;
   readonly databaseUrl?: string;
@@ -112,6 +116,7 @@ export const DEFAULT_MODELS: readonly string[] = [
   "gpt-5.1-codex",
   "gpt-5.1-codex-max",
   "claude-opus-4-5",
+  "claude-opus-4-6",
   "gpt-5.3-codex",
   "gemini-3-flash-preview",
   "gpt-5.2",
@@ -312,6 +317,10 @@ function defaultProviderBaseUrl(providerId: string): string {
       return (process.env.REQUESTY_BASE_URL ?? "https://router.requesty.ai/v1").replace(/\/+$/, "");
     case "gemini":
       return (process.env.GEMINI_BASE_URL ?? "https://generativelanguage.googleapis.com/v1beta").replace(/\/+$/, "");
+    case "zai":
+      return (process.env.ZAI_BASE_URL ?? process.env.ZHIPU_BASE_URL ?? "https://api.z.ai/api/paas/v4").replace(/\/+$/, "");
+    case "mistral":
+      return (process.env.MISTRAL_BASE_URL ?? "https://api.mistral.ai/v1").replace(/\/+$/, "");
     case "ollama-cloud":
       return "https://ollama.com";
     case "vivgrid":
@@ -346,6 +355,8 @@ export function loadConfig(cwd: string = process.cwd()): ProxyConfig {
     openrouter: defaultProviderBaseUrl("openrouter"),
     requesty: defaultProviderBaseUrl("requesty"),
     gemini: defaultProviderBaseUrl("gemini"),
+    zai: defaultProviderBaseUrl("zai"),
+    mistral: defaultProviderBaseUrl("mistral"),
     factory: defaultProviderBaseUrl("factory"),
   });
   upstreamProviderBaseUrls[upstreamProviderId] = upstreamBaseUrl;
@@ -407,6 +418,11 @@ export function loadConfig(cwd: string = process.cwd()): ProxyConfig {
   const sessionSecret = sessionSecretRaw && sessionSecretRaw.length > 0
     ? sessionSecretRaw
     : proxyAuthToken ?? "default-session-secret-change-in-production";
+
+  const proxyTokenPepperRaw = process.env.PROXY_TOKEN_PEPPER?.trim();
+  const proxyTokenPepper = proxyTokenPepperRaw && proxyTokenPepperRaw.length > 0
+    ? proxyTokenPepperRaw
+    : sessionSecret;
 
   const imagesGenerationsPath = process.env.UPSTREAM_IMAGES_GENERATIONS_PATH ?? "/v1/images/generations";
   const openaiImagesGenerationsPaths = csvFromEnv("OPENAI_IMAGES_GENERATIONS_PATHS", [
@@ -478,8 +494,11 @@ export function loadConfig(cwd: string = process.cwd()): ProxyConfig {
     keysFilePath: optionalFilePathFromEnvAliases(["PROXY_KEYS_FILE", "VIVGRID_KEYS_FILE"], cwd)
       ?? filePathFromEnvAliases(["PROXY_KEYS_FILE", "VIVGRID_KEYS_FILE"], "./keys.json", cwd),
     modelsFilePath: filePathFromEnvAliases(["PROXY_MODELS_FILE", "VIVGRID_MODELS_FILE"], "./models.json", cwd),
-    requestLogsFilePath: filePathFromEnvAliases(["PROXY_REQUEST_LOGS_FILE"], "./data/request-logs.json", cwd),
+    requestLogsFilePath: filePathFromEnvAliases(["PROXY_REQUEST_LOGS_FILE"], "./data/request-logs.jsonl", cwd),
+    requestLogsMaxEntries: numberFromEnvAliases(["PROXY_REQUEST_LOGS_MAX_ENTRIES"], 100000),
+    requestLogsFlushMs: nonNegativeNumberFromEnvAliases(["PROXY_REQUEST_LOGS_FLUSH_MS"], 1000),
     promptAffinityFilePath: filePathFromEnvAliases(["PROXY_PROMPT_AFFINITY_FILE"], "./data/prompt-affinity.json", cwd),
+    promptAffinityFlushMs: nonNegativeNumberFromEnvAliases(["PROXY_PROMPT_AFFINITY_FLUSH_MS"], 250),
     settingsFilePath: filePathFromEnvAliases(["PROXY_SETTINGS_FILE"], "./data/proxy-settings.json", cwd),
     keyReloadMs: numberFromEnvAliases(["PROXY_KEY_RELOAD_MS", "VIVGRID_KEY_RELOAD_MS"], 5000),
     keyCooldownMs: numberFromEnvAliases(["PROXY_KEY_COOLDOWN_MS", "VIVGRID_KEY_RELOAD_MS"], 30000),
@@ -488,6 +507,7 @@ export function loadConfig(cwd: string = process.cwd()): ProxyConfig {
     upstreamTransientRetryCount: nonNegativeNumberFromEnvAliases(["UPSTREAM_TRANSIENT_RETRY_COUNT"], 2),
     upstreamTransientRetryBackoffMs: numberFromEnvAliases(["UPSTREAM_TRANSIENT_RETRY_BACKOFF_MS"], 350),
     proxyAuthToken,
+    proxyTokenPepper,
     allowUnauthenticated,
     policyConfigPath: process.env.PROXY_POLICY_CONFIG_FILE ?? undefined,
     databaseUrl,

@@ -180,6 +180,12 @@ export class ChatCompletionsProviderStrategy extends BaseProviderStrategy {
   }
 }
 
+export class ZaiChatCompletionsProviderStrategy extends ChatCompletionsProviderStrategy {
+  public override getUpstreamPath(_context: StrategyRequestContext): string {
+    return "/chat/completions";
+  }
+}
+
 export class ImagesGenerationsPassthroughStrategy extends BaseProviderStrategy {
   public readonly mode = "images" as const;
 
@@ -276,4 +282,3 @@ export class ResponsesPassthroughStrategy extends BaseProviderStrategy {
     return { kind: "handled" };
   }
 }
-

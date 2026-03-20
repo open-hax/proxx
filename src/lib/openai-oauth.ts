@@ -93,6 +93,62 @@ export interface OAuthTokens {
   readonly planType?: string;
 }
 
+interface OpenAiOAuthErrorBody {
+  readonly error?: {
+    readonly message?: string;
+    readonly type?: string;
+    readonly code?: string;
+  };
+}
+
+export class OpenAiOAuthRefreshError extends Error {
+  public readonly status: number;
+
+  public readonly code?: string;
+
+  public readonly type?: string;
+
+  public readonly responseBody?: string;
+
+  public constructor(
+    status: number,
+    message: string,
+    options?: {
+      readonly code?: string;
+      readonly type?: string;
+      readonly responseBody?: string;
+    },
+  ) {
+    super(message);
+    this.name = "OpenAiOAuthRefreshError";
+    this.status = status;
+    this.code = options?.code;
+    this.type = options?.type;
+    this.responseBody = options?.responseBody;
+  }
+}
+
+export function isTerminalOpenAiRefreshError(error: unknown): error is OpenAiOAuthRefreshError {
+  if (!(error instanceof OpenAiOAuthRefreshError)) {
+    return false;
+  }
+
+  if (error.code === "refresh_token_reused") {
+    return true;
+  }
+
+  if (error.status !== 400 && error.status !== 401) {
+    return false;
+  }
+
+  const haystack = `${error.code ?? ""} ${error.type ?? ""} ${error.message} ${error.responseBody ?? ""}`.toLowerCase();
+  return haystack.includes("invalid_grant")
+    || haystack.includes("refresh token expired")
+    || haystack.includes("refresh_token_expired")
+    || haystack.includes("refresh token has already been used")
+    || haystack.includes("signing in again");
+}
+
 export type DevicePollResult =
   | { readonly state: "pending" }
   | { readonly state: "authorized"; readonly tokens: OAuthTokens }
@@ -568,7 +624,26 @@ export class OpenAiOAuthManager {
     });
 
     if (!response.ok) {
-      throw new Error(`OpenAI token refresh failed with status ${response.status}`);
+      const responseText = await response.text();
+      let parsedBody: OpenAiOAuthErrorBody | undefined;
+      try {
+        parsedBody = JSON.parse(responseText) as OpenAiOAuthErrorBody;
+      } catch {
+        parsedBody = undefined;
+      }
+
+      const errorMessage = parsedBody?.error?.message?.trim();
+      throw new OpenAiOAuthRefreshError(
+        response.status,
+        errorMessage && errorMessage.length > 0
+          ? `OpenAI token refresh failed with status ${response.status}: ${errorMessage}`
+          : `OpenAI token refresh failed with status ${response.status}`,
+        {
+          code: parsedBody?.error?.code,
+          type: parsedBody?.error?.type,
+          responseBody: responseText,
+        },
+      );
     }
 
     const tokens = (await response.json()) as TokenResponse;

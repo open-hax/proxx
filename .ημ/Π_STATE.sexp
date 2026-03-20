@@ -1,19 +1,23 @@
-(pi-state
-  (timestamp "2026-03-18T04:55:50Z")
-  (repo "open-hax-openai-proxy")
-  (branch "main")
-  (remote "origin/main")
-  (base-head "457a620")
-  (previous-pi-head "457a620")
-  (dirty-before true)
-  (intent-clean-after true)
-  (status-digest "8916-acd1-d4d2-bbe2")
-  (summary
-    "Refactor provider strategy and policy logic into modular provider-strategy/* and policy/* packages."
-    "Add event-store plumbing, refreshed UI/API routes, and dashboard/provider health improvements."
-    "Capture ongoing credentials refresh controls, GPT routing hardening, and request-log persistence updates in specs/drafts and receipts.")
-  (verification
-    (check (status "pass") (command "pnpm run build"))
-    (check (status "pass") (command "pnpm run web:build"))
-    (check (status "pass") (command "pnpm run typecheck"))
-    (check (status "pass") (command "pnpm test (258/258)"))))
+(Π_STATE
+  (time "2026-03-19T00:23:13Z")
+  (branch "hotfix/gpt-5.4-free-access")
+  (pre_head "51ac946")
+  (dirty true)
+  (checks
+    (check (status passed) (command "pnpm run typecheck"))
+    (check (status passed) (command "pnpm test") (note "275/275"))
+    (check (status passed) (command "pnpm run build"))
+    (check (status passed) (command "pnpm run web:build"))
+  )
+  (repo_notes
+    (upstream "origin/hotfix/gpt-5.4-free-access")
+    (status_digest "64bf-a081-3903-1361")
+    (changed_file "receipts.log")
+    (changed_file "specs/drafts/multitenancy-phase1-default-tenant-auth-schema.md")
+    (changed_file "src/app.ts")
+    (changed_file "src/lib/db/account-health-store.ts")
+    (changed_file "src/lib/ui-routes.ts")
+    (changed_file "src/tests/proxy.test.ts")
+    (changed_file "src/tests/request-auth.test.ts")
+  )
+)

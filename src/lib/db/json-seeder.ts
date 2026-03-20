@@ -169,24 +169,48 @@ export async function seedFromJsonValue(
   const providers = parseJsonCredentials(parsed, defaultProviderId);
   const skipExistingProviders = options?.skipExistingProviders === true;
 
+  let providerCount = 0;
   let accountCount = 0;
   for (const [providerId, { authType, accounts }] of providers) {
     if (skipExistingProviders) {
-      await sql`
+      const insertedProviders = await sql<Array<{ id: string }>>`
         INSERT INTO providers (id, auth_type)
         VALUES (${providerId}, ${authType})
         ON CONFLICT (id) DO NOTHING
+        RETURNING id
       `;
+      providerCount += insertedProviders.length;
     } else {
-      await sql`
+      const upsertedProviders = await sql<Array<{ id: string }>>`
         INSERT INTO providers (id, auth_type)
         VALUES (${providerId}, ${authType})
         ON CONFLICT (id) DO UPDATE SET auth_type = EXCLUDED.auth_type
+        RETURNING id
       `;
+      providerCount += upsertedProviders.length;
     }
 
     for (const account of accounts) {
-      await sql`
+      if (skipExistingProviders) {
+        const insertedAccounts = await sql<Array<{ id: string }>>`
+          INSERT INTO accounts (id, provider_id, token, refresh_token, expires_at, chatgpt_account_id, plan_type)
+          VALUES (
+            ${account.accountId},
+            ${account.providerId},
+            ${account.token},
+            ${account.refreshToken ?? null},
+            ${account.expiresAt ?? null},
+            ${account.chatgptAccountId ?? null},
+            ${account.planType ?? null}
+          )
+          ON CONFLICT (id, provider_id) DO NOTHING
+          RETURNING id
+        `;
+        accountCount += insertedAccounts.length;
+        continue;
+      }
+
+      const upsertedAccounts = await sql<Array<{ id: string }>>`
         INSERT INTO accounts (id, provider_id, token, refresh_token, expires_at, chatgpt_account_id, plan_type)
         VALUES (
           ${account.accountId},
@@ -203,12 +227,13 @@ export async function seedFromJsonValue(
           expires_at = EXCLUDED.expires_at,
           chatgpt_account_id = EXCLUDED.chatgpt_account_id,
           plan_type = EXCLUDED.plan_type
+        RETURNING id
       `;
-      accountCount += 1;
+      accountCount += upsertedAccounts.length;
     }
   }
 
-  return { providers: providers.size, accounts: accountCount };
+  return { providers: providerCount, accounts: accountCount };
 }
 
 /**
@@ -267,22 +292,18 @@ export async function seedModelsFromFile(
   modelsFilePath: string,
   fallbackModels: readonly string[],
 ): Promise<{ seeded: boolean; count: number }> {
-  const existing = await sql<Array<{ id: string }>>`
-    SELECT id FROM models LIMIT 1
-  `;
-  if (existing.length > 0) {
-    return { seeded: false, count: 0 };
-  }
-
   const models = await loadModels(modelsFilePath, fallbackModels);
+  let insertedCount = 0;
   for (const modelId of models) {
-    await sql`
+    const inserted = await sql<Array<{ id: string }>>`
       INSERT INTO models (id) VALUES (${modelId})
       ON CONFLICT (id) DO NOTHING
+      RETURNING id
     `;
+    insertedCount += inserted.length;
   }
 
-  return { seeded: true, count: models.length };
+  return { seeded: insertedCount > 0, count: insertedCount };
 }
 
 /**

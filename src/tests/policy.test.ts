@@ -37,6 +37,17 @@ test("gpt-5.4 provider ordering includes factory", () => {
   assert.deepEqual(ordered, ["openai", "factory", "vivgrid"]);
 });
 
+test("claude-opus-4-6 provider ordering prefers factory and excludes openai", () => {
+  const policy = createPolicyEngine(DEFAULT_POLICY_CONFIG);
+
+  const ordered = policy.orderProviders(
+    ["requesty", "factory", "openai", "vivgrid"],
+    createModelInfo("claude-opus-4-6"),
+  );
+
+  assert.deepEqual(ordered, ["factory", "requesty", "vivgrid"]);
+});
+
 test("preserves provider order for non-gpt models", () => {
   const policy = createPolicyEngine(DEFAULT_POLICY_CONFIG);
 

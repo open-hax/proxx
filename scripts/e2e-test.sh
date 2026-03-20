@@ -6,6 +6,8 @@
 # Usage:
 #   ./scripts/e2e-test.sh              # defaults to http://127.0.0.1:8790
 #   DEV_PROXY_URL=http://host:port ./scripts/e2e-test.sh
+#   DEV_PROXY_AUTH_TOKEN=token ./scripts/e2e-test.sh
+#   LOAD_TEST_CONCURRENCY=16 LOAD_TEST_REQUESTS=16 ./scripts/e2e-test.sh
 #
 set -euo pipefail
 
@@ -13,6 +15,11 @@ BASE="${DEV_PROXY_URL:-http://127.0.0.1:8795}"
 PASS=0
 FAIL=0
 SKIP=0
+AUTH_ARGS=()
+
+if [[ -n "${DEV_PROXY_AUTH_TOKEN:-}" ]]; then
+  AUTH_ARGS=(-H "Authorization: Bearer ${DEV_PROXY_AUTH_TOKEN}")
+fi
 
 green()  { printf "\033[32m%s\033[0m\n" "$*"; }
 red()    { printf "\033[31m%s\033[0m\n" "$*"; }
@@ -26,11 +33,11 @@ skip() { SKIP=$((SKIP + 1)); yellow "  SKIP: $1 — $2"; }
 # ── helpers ──────────────────────────────────────────────────────────
 
 curl_json() {
-  curl -sf --max-time 30 -H "Content-Type: application/json" "$@"
+  curl -sf --max-time 30 -H "Content-Type: application/json" "${AUTH_ARGS[@]}" "$@"
 }
 
 curl_status() {
-  curl -so /dev/null -w "%{http_code}" --max-time 30 "$@"
+  curl -so /dev/null -w "%{http_code}" --max-time 30 "${AUTH_ARGS[@]}" "$@"
 }
 
 assert_status() {
@@ -82,7 +89,7 @@ chat_completion() {
 
 chat_completion_stream() {
   local model="$1" content="${2:-Say exactly: OK}"
-  curl -sf --max-time 60 -H "Content-Type: application/json" \
+  curl -sf --max-time 60 -H "Content-Type: application/json" "${AUTH_ARGS[@]}" \
     -X POST "${BASE}/v1/chat/completions" -d "{
     \"model\": \"$model\",
     \"messages\": [{\"role\": \"user\", \"content\": \"$content\"}],
@@ -249,6 +256,28 @@ if [[ -n "$RESPONSE" ]]; then
   pass "factory/ prefix routing round-trip"
 else
   skip "factory/ prefix routing" "factory provider may not be configured"
+fi
+
+# ── 10. Concurrent load smoke test ──
+
+bold ""
+bold "── 10. Concurrent Load Smoke Test ──"
+
+LOAD_CONCURRENCY="${LOAD_TEST_CONCURRENCY:-8}"
+LOAD_REQUESTS="${LOAD_TEST_REQUESTS:-8}"
+
+LOAD_OUT=$(DEV_PROXY_URL="$BASE" \
+  LOAD_TEST_CONCURRENCY="$LOAD_CONCURRENCY" \
+  LOAD_TEST_REQUESTS="$LOAD_REQUESTS" \
+  LOAD_TEST_MODEL="${LOAD_TEST_MODEL:-gpt-5.4}" \
+  DEV_PROXY_AUTH_TOKEN="${DEV_PROXY_AUTH_TOKEN:-}" \
+  node ./scripts/load-test.mjs 2>&1) || LOAD_STATUS=$?
+LOAD_STATUS=${LOAD_STATUS:-0}
+if [[ "$LOAD_STATUS" -eq 0 ]]; then
+  pass "concurrent load smoke test (${LOAD_CONCURRENCY} concurrent, ${LOAD_REQUESTS} total)"
+  printf '%s\n' "$LOAD_OUT"
+else
+  fail "concurrent load smoke test" "$LOAD_OUT"
 fi
 
 # ── Summary ──────────────────────────────────────────────────────────

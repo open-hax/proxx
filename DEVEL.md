@@ -69,10 +69,11 @@ pnpm docker:stack ps open-hax-openai-proxy
 pnpm docker:stack logs open-hax-openai-proxy -- -f
 ```
 
-From `services/open-hax-openai-proxy`, the local compose workflow is still available:
+From `services/proxx`, the local compose workflow is now:
 
 ```bash
-docker compose up --build -d
+cd /home/err/devel/services/proxx
+docker compose -f docker-compose.yml -f docker-compose.factory-auth.override.yml up --build -d
 docker compose ps
 docker compose logs -f
 ```
@@ -80,12 +81,13 @@ docker compose logs -f
 Notes:
 
 - upstream credentials are still required for proxying, but they can come from SQL, inline JSON env, or `keys.json`.
-- `data/` stays bind-mounted for request logs and session history.
+- `data/` under `services/proxx` stays bind-mounted for request logs and session history.
 - The compose stack now defaults `OLLAMA_BASE_URL` to `http://ollama:11434` when attached to the shared `ai-infra` network; `CHROMA_URL` still defaults to `host.docker.internal` unless you also containerize Chroma on a shared network.
 - The web companion is exposed on `${PROXY_WEB_PORT:-5174}`.
 - The checked-in host PM2 source now includes both the API and web companion in `ecosystems/services_open_hax_proxy.cljs`.
 - The root stack registry now knows the related host PM2 apps, so plain container `up` is blocked while the host PM2 side is online.
 - Use `use-container` and `use-host` to switch ownership cleanly between the host PM2 pair and the containerized pair.
+- Omit `docker-compose.factory-auth.override.yml` when you do not need the Factory auth file mounts.
 
 ## Environment Variables
 
@@ -111,7 +113,7 @@ Notes:
 - `OLLAMA_MODEL_PREFIXES` (default: `ollama/,ollama:`; comma-separated prefixes)
 - `PROXY_KEYS_FILE` (default: `./keys.json`, fallback: `VIVGRID_KEYS_FILE`)
 - `PROXY_MODELS_FILE` (default: `./models.json`, fallback: `VIVGRID_MODELS_FILE`)
-- `PROXY_REQUEST_LOGS_FILE` (default: `./data/request-logs.json`)
+- `PROXY_REQUEST_LOGS_FILE` (default: `./data/request-logs.jsonl`)
 - `PROXY_KEY_RELOAD_MS` (default: `5000`, fallback: `VIVGRID_KEY_RELOAD_MS`)
 - `PROXY_KEY_COOLDOWN_MS` (default: `30000`, fallback: `VIVGRID_KEY_COOLDOWN_MS`)
 - `UPSTREAM_REQUEST_TIMEOUT_MS` (default: `180000`)

@@ -459,7 +459,17 @@ export function shouldUseMessagesUpstream(model: unknown, prefixes: readonly str
   return prefixes.some((prefix) => lower.startsWith(prefix.toLowerCase()));
 }
 
-type ThinkingEffort = "disabled" | "low" | "medium" | "high" | "xhigh";
+const MIN_THINKING_BUDGET_TOKENS = 1024;
+const DEFAULT_THINKING_BUDGET_TOKENS = 12288;
+const THINKING_BUDGET_TOKENS_BY_EFFORT = {
+  minimal: 1024,
+  low: 4096,
+  medium: 12288,
+  high: 24576,
+  xhigh: 32768,
+} as const;
+
+type ThinkingEffort = "disabled" | keyof typeof THINKING_BUDGET_TOKENS_BY_EFFORT;
 
 function normalizeThinkingEffort(value: unknown): ThinkingEffort | undefined {
   const raw = asString(value);
@@ -474,6 +484,7 @@ function normalizeThinkingEffort(value: unknown): ThinkingEffort | undefined {
     case "off":
       return "disabled";
     case "minimal":
+      return "minimal";
     case "low":
       return "low";
     case "medium":
@@ -491,20 +502,75 @@ function normalizeThinkingEffort(value: unknown): ThinkingEffort | undefined {
   }
 }
 
+function requestedMaxTokens(body: Record<string, unknown>): number | undefined {
+  return asNumber(body["max_completion_tokens"]) ?? asNumber(body["max_tokens"]);
+}
+
+function normalizeThinkingBudgetTokens(targetBudgetTokens: number, maxTokens: number | undefined): number | undefined {
+  const normalizedTargetBudgetTokens = Math.max(MIN_THINKING_BUDGET_TOKENS, Math.floor(targetBudgetTokens));
+  if (maxTokens === undefined) {
+    return normalizedTargetBudgetTokens;
+  }
+
+  const normalizedMaxTokens = Math.floor(maxTokens);
+  if (!Number.isFinite(normalizedMaxTokens) || normalizedMaxTokens <= 0) {
+    return normalizedTargetBudgetTokens;
+  }
+
+  if (normalizedMaxTokens <= MIN_THINKING_BUDGET_TOKENS) {
+    return undefined;
+  }
+
+  return Math.max(
+    MIN_THINKING_BUDGET_TOKENS,
+    Math.min(normalizedTargetBudgetTokens, normalizedMaxTokens - 1),
+  );
+}
+
+function buildEnabledThinkingRequest(targetBudgetTokens: number, maxTokens: number | undefined): Record<string, unknown> {
+  const budgetTokens = normalizeThinkingBudgetTokens(targetBudgetTokens, maxTokens);
+  if (budgetTokens === undefined) {
+    throw new Error(`Extended thinking requires max_tokens greater than ${MIN_THINKING_BUDGET_TOKENS} for messages-compatible models`);
+  }
+
+  return {
+    type: "enabled",
+    budget_tokens: budgetTokens,
+  };
+}
+
 function thinkingBudgetTokensForEffort(effort: Exclude<ThinkingEffort, "disabled">): number {
-  if (effort === "low") {
-    return 4096;
+  return THINKING_BUDGET_TOKENS_BY_EFFORT[effort];
+}
+
+export function normalizeMessagesThinkingBudget(payload: Record<string, unknown>): Record<string, unknown> {
+  const thinking = isRecord(payload["thinking"]) ? payload["thinking"] : null;
+  if (!thinking || asString(thinking["type"]) !== "enabled") {
+    return payload;
   }
 
-  if (effort === "high") {
-    return 24576;
+  const budgetTokens = asNumber(thinking["budget_tokens"]);
+  const normalizedBudgetTokens = normalizeThinkingBudgetTokens(
+    budgetTokens && budgetTokens > 0
+      ? budgetTokens
+      : DEFAULT_THINKING_BUDGET_TOKENS,
+    asNumber(payload["max_tokens"]),
+  );
+  if (normalizedBudgetTokens === undefined) {
+    throw new Error(`Extended thinking requires max_tokens greater than ${MIN_THINKING_BUDGET_TOKENS} for messages-compatible models`);
   }
 
-  if (effort === "xhigh") {
-    return 32768;
+  if (normalizedBudgetTokens === budgetTokens) {
+    return payload;
   }
 
-  return 12288;
+  return {
+    ...payload,
+    thinking: {
+      ...thinking,
+      budget_tokens: normalizedBudgetTokens,
+    },
+  };
 }
 
 function requestIncludesReasoningTrace(body: Record<string, unknown>): boolean {
@@ -517,6 +583,7 @@ function requestIncludesReasoningTrace(body: Record<string, unknown>): boolean {
 }
 
 function normalizeThinkingRequest(body: Record<string, unknown>): Record<string, unknown> | undefined {
+  const maxTokens = requestedMaxTokens(body);
   const explicitThinking = isRecord(body["thinking"]) ? body["thinking"] : null;
   if (explicitThinking) {
     const type = asString(explicitThinking["type"]);
@@ -528,15 +595,12 @@ function normalizeThinkingRequest(body: Record<string, unknown>): Record<string,
 
     if (type === "enabled") {
       const budgetTokens = asNumber(explicitThinking["budget_tokens"]);
-      return budgetTokens && budgetTokens > 0
-        ? {
-          type: "enabled",
-          budget_tokens: budgetTokens
-        }
-        : {
-          type: "enabled",
-          budget_tokens: 12288
-        };
+      return buildEnabledThinkingRequest(
+        budgetTokens && budgetTokens > 0
+          ? budgetTokens
+          : DEFAULT_THINKING_BUDGET_TOKENS,
+        maxTokens,
+      );
     }
   }
 
@@ -554,17 +618,11 @@ function normalizeThinkingRequest(body: Record<string, unknown>): Record<string,
   }
 
   if (effort) {
-    return {
-      type: "enabled",
-      budget_tokens: thinkingBudgetTokensForEffort(effort)
-    };
+    return buildEnabledThinkingRequest(thinkingBudgetTokensForEffort(effort), maxTokens);
   }
 
   if (requestIncludesReasoningTrace(body)) {
-    return {
-      type: "enabled",
-      budget_tokens: 12288
-    };
+    return buildEnabledThinkingRequest(DEFAULT_THINKING_BUDGET_TOKENS, maxTokens);
   }
 
   return undefined;
@@ -641,7 +699,7 @@ export function chatRequestToMessagesRequest(body: Record<string, unknown>): Rec
     payload["system"] = system;
   }
 
-  const maxTokens = asNumber(body["max_completion_tokens"]) ?? asNumber(body["max_tokens"]);
+  const maxTokens = requestedMaxTokens(body);
   if (maxTokens !== undefined) {
     payload["max_tokens"] = maxTokens;
   }
@@ -669,7 +727,7 @@ export function chatRequestToMessagesRequest(body: Record<string, unknown>): Rec
     payload["tool_choice"] = normalizeToolChoice(body["tool_choice"]);
   }
 
-  return payload;
+  return normalizeMessagesThinkingBudget(payload);
 }
 
 function extractTextContent(content: unknown): string {

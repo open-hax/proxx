@@ -1,33 +1,17 @@
-# Π Snapshot — 2026-03-18T04:55:50Z
+# Π handoff
 
-- Repo: `open-hax-openai-proxy`
-- Branch: `main`
-- Remote: `origin/main`
-- Base HEAD at capture start: `457a620`
-- Working tree at capture start: dirty
+- time: 2026-03-19T00:23:13Z
+- branch: hotfix/gpt-5.4-free-access
+- pre-Π HEAD: 51ac946
+- Π HEAD: pending at capture time; resolved by the final git commit created after artifact assembly
 
-## What changed
-- Refactor provider strategy and policy logic into modular `provider-strategy/*` and `policy/*` packages.
-- Add event-store plumbing, refreshed UI/API routes, and dashboard/provider health improvements.
-- Capture ongoing credentials refresh controls, GPT routing hardening, and request-log persistence updates in specs/drafts and receipts.
-
-## Files to inspect
-- `src/app.ts`
-- `src/lib/ui-routes.ts`
-- `src/lib/provider-strategy.ts`
-- `src/lib/provider-strategy/`
-- `src/lib/policy/`
-- `src/lib/db/event-store.ts`
-- `web/src/pages/DashboardPage.tsx`
-- `specs/drafts/credentials-refresh-and-gpt-concurrency.md`
-- `specs/drafts/dashboard-account-health-provider-filter.md`
-- `specs/drafts/gpt-routing-excludes-ollama-cloud.md`
+## Summary
+- Harden Phase 1 multitenancy auth so tenant API key bearer auth works even when no legacy `PROXY_AUTH_TOKEN` is configured, while preserving OPTIONS/health/callback bypasses.
+- Add minimal tenant-aware UI/admin routes: `/api/ui/me`, `/api/ui/tenants`, and tenant API key list/create/revoke endpoints with tenant-scoped authorization checks.
+- Fix account-health SQL type coercions, extend auth/UI route regression coverage, and update the Phase 1 draft with current implementation status.
 
 ## Verification
+- pass: `pnpm run typecheck`
+- pass: `pnpm test` (275/275)
 - pass: `pnpm run build`
 - pass: `pnpm run web:build`
-- pass: `pnpm run typecheck`
-- pass: `pnpm test` (258/258)
-
-## Notes
-- Artifacts capture the pre-snapshot base head; the final Π commit/tag are created after artifact assembly.

@@ -61,8 +61,15 @@ function hydrateDb(raw: unknown): PromptAffinityDb {
 export class PromptAffinityStore {
   private dbCache: PromptAffinityDb | null = null;
   private mutationChain: Promise<void> = Promise.resolve();
+  private persistChain: Promise<void> = Promise.resolve();
+  private persistTimer: ReturnType<typeof setTimeout> | null = null;
+  private persistPending = false;
+  private closed = false;
 
-  public constructor(private readonly filePath: string) {}
+  public constructor(
+    private readonly filePath: string,
+    private readonly persistIntervalMs: number = 250,
+  ) {}
 
   public async warmup(): Promise<void> {
     await this.readDb();
@@ -114,6 +121,19 @@ export class PromptAffinityStore {
     });
   }
 
+  public async close(): Promise<void> {
+    this.closed = true;
+    if (this.persistTimer) {
+      clearTimeout(this.persistTimer);
+      this.persistTimer = null;
+    }
+    await this.mutationChain;
+    if (this.persistPending) {
+      await this.queuePersist(true);
+    }
+    await this.persistChain;
+  }
+
   private async readDb(): Promise<PromptAffinityDb> {
     if (this.dbCache) {
       return this.dbCache;
@@ -138,9 +158,46 @@ export class PromptAffinityStore {
     this.mutationChain = this.mutationChain.then(async () => {
       const db = await this.readDb();
       mutator(db);
-      await mkdir(dirname(this.filePath), { recursive: true });
-      await writeFile(this.filePath, JSON.stringify(db, null, 2) + "\n", "utf8");
+      this.schedulePersist();
     });
     await this.mutationChain;
+  }
+
+  private schedulePersist(): void {
+    if (this.closed) {
+      return;
+    }
+
+    this.persistPending = true;
+    if (this.persistTimer) {
+      return;
+    }
+
+    if (this.persistIntervalMs === 0) {
+      void this.queuePersist();
+      return;
+    }
+
+    this.persistTimer = setTimeout(() => {
+      this.persistTimer = null;
+      void this.queuePersist();
+    }, this.persistIntervalMs);
+    this.persistTimer.unref?.();
+  }
+
+  private async queuePersist(force = false): Promise<void> {
+    this.persistChain = this.persistChain
+      .catch(() => undefined)
+      .then(async () => {
+        if (!force && !this.persistPending) {
+          return;
+        }
+
+        const db = await this.readDb();
+        this.persistPending = false;
+        await mkdir(dirname(this.filePath), { recursive: true });
+        await writeFile(this.filePath, JSON.stringify(db, null, 2) + "\n", "utf8");
+      });
+    await this.persistChain;
   }
 }

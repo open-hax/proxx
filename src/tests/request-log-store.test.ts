@@ -6,8 +6,11 @@ import test from "node:test";
 
 import { RequestLogStore } from "../lib/request-log-store.js";
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
+function parseJsonlEntries(contents: string): unknown[] {
+  return contents
+    .split(/\r?\n/u)
+    .filter((line) => line.trim().length > 0)
+    .map((line) => JSON.parse(line));
 }
 
 async function withTempDir(fn: (tempDir: string) => Promise<void>): Promise<void> {
@@ -20,9 +23,9 @@ async function withTempDir(fn: (tempDir: string) => Promise<void>): Promise<void
   }
 }
 
-test("warmup quarantines a corrupted request log file and starts empty", async () => {
+test("warmup quarantines a corrupted legacy request log file and starts empty", async () => {
   await withTempDir(async (tempDir) => {
-    const filePath = path.join(tempDir, "request-logs.json");
+    const filePath = path.join(tempDir, "request-logs.jsonl");
     const corruptJson = `{
   "entries": [
     {
@@ -46,14 +49,10 @@ test("warmup quarantines a corrupted request log file and starts empty", async (
     assert.deepEqual(store.snapshot(), []);
 
     const rewrittenContents = await readFile(filePath, "utf8");
-    const rewrittenDb: unknown = JSON.parse(rewrittenContents);
-    assert.ok(isRecord(rewrittenDb));
-    assert.deepEqual(rewrittenDb.entries, []);
-    assert.deepEqual(rewrittenDb.hourlyBuckets, []);
-    assert.deepEqual(rewrittenDb.accountAccumulators, []);
+    assert.equal(rewrittenContents, "");
 
     const files = await readdir(tempDir);
-    const corruptFileName = files.find((file) => file.startsWith("request-logs.json.corrupt-"));
+    const corruptFileName = files.find((file) => file.startsWith("request-logs.jsonl.corrupt-"));
     assert.ok(corruptFileName);
     assert.equal(await readFile(path.join(tempDir, corruptFileName), "utf8"), corruptJson);
 
@@ -61,9 +60,57 @@ test("warmup quarantines a corrupted request log file and starts empty", async (
   });
 });
 
+test("warmup migrates a legacy request-logs.json file into request-logs.jsonl", async () => {
+  await withTempDir(async (tempDir) => {
+    const filePath = path.join(tempDir, "request-logs.jsonl");
+    const legacyFilePath = path.join(tempDir, "request-logs.json");
+    const legacyPayload = {
+      entries: [
+        {
+          id: "entry-1",
+          timestamp: 1773701127508,
+          providerId: "openai",
+          accountId: "acct-1",
+          authType: "api_key",
+          model: "gpt-5.4",
+          upstreamMode: "responses",
+          upstreamPath: "/v1/responses",
+          status: 200,
+          latencyMs: 125,
+          totalTokens: 20,
+        },
+      ],
+      hourlyBuckets: [],
+      dailyBuckets: [],
+      dailyModelBuckets: [],
+      dailyAccountBuckets: [],
+      accountAccumulators: [],
+    };
+
+    await writeFile(legacyFilePath, JSON.stringify(legacyPayload, null, 2), "utf8");
+
+    const store = new RequestLogStore(filePath, 100);
+    await store.warmup();
+
+    const entries = store.snapshot();
+    assert.equal(entries.length, 1);
+    assert.equal(entries[0]?.providerId, "openai");
+
+    const migratedEntries = parseJsonlEntries(await readFile(filePath, "utf8")) as Array<Record<string, unknown>>;
+    assert.equal(migratedEntries.length, 1);
+    assert.equal(migratedEntries[0].providerId, "openai");
+
+    const files = await readdir(tempDir);
+    assert.equal(files.includes("request-logs.json"), false);
+    assert.ok(files.some((file) => file.startsWith("request-logs.json.migrated-")));
+
+    await store.close();
+  });
+});
+
 test("request log persistence reloads cleanly without leaving temp files behind", async () => {
   await withTempDir(async (tempDir) => {
-    const filePath = path.join(tempDir, "request-logs.json");
+    const filePath = path.join(tempDir, "request-logs.jsonl");
     const store = new RequestLogStore(filePath, 100);
     await store.warmup();
 
@@ -100,9 +147,45 @@ test("request log persistence reloads cleanly without leaving temp files behind"
   });
 });
 
+test("request log close flushes batched writes", async () => {
+  await withTempDir(async (tempDir) => {
+    const filePath = path.join(tempDir, "request-logs.jsonl");
+    const store = new RequestLogStore(filePath, 100, 60_000);
+    await store.warmup();
+
+    store.record({
+      providerId: "factory",
+      accountId: "acct-1",
+      authType: "oauth_bearer",
+      model: "claude-opus-4-6",
+      upstreamMode: "messages",
+      upstreamPath: "/api/llm/a/v1/messages",
+      status: 200,
+      latencyMs: 220,
+    });
+    store.record({
+      providerId: "openai",
+      accountId: "acct-2",
+      authType: "oauth_bearer",
+      model: "gpt-5.4",
+      upstreamMode: "responses",
+      upstreamPath: "/v1/responses",
+      status: 200,
+      latencyMs: 180,
+    });
+
+    await store.close();
+
+    const persisted = parseJsonlEntries(await readFile(filePath, "utf8")) as Array<{ providerId: string; model: string }>;
+    assert.equal(persisted.length, 2);
+    assert.equal(persisted[0]?.providerId, "factory");
+    assert.equal(persisted[1]?.model, "gpt-5.4");
+  });
+});
+
 test("request log persistence preserves upstream error summaries and factory diagnostics", async () => {
   await withTempDir(async (tempDir) => {
-    const filePath = path.join(tempDir, "request-logs.json");
+    const filePath = path.join(tempDir, "request-logs.jsonl");
     const store = new RequestLogStore(filePath, 100);
     await store.warmup();
 
@@ -159,5 +242,69 @@ test("request log persistence preserves upstream error summaries and factory dia
     assert.equal(entry.factoryDiagnostics.textFingerprint, "sha256:abcdef123456");
 
     await reloaded.close();
+  });
+});
+
+test("warmup backfills missing derived cost/env estimates from token counts and persists daily model/account buckets", async () => {
+  await withTempDir(async (tempDir) => {
+    const filePath = path.join(tempDir, "request-logs.jsonl");
+    const payload = {
+      entries: [
+        {
+          id: "entry-1",
+          timestamp: Date.UTC(2026, 2, 16, 23, 15, 0),
+          providerId: "openai",
+          accountId: "acct-1",
+          authType: "oauth_bearer",
+          model: "gpt-5.4",
+          upstreamMode: "responses",
+          upstreamPath: "/v1/responses",
+          status: 200,
+          latencyMs: 250,
+          promptTokens: 1000,
+          completionTokens: 200,
+          totalTokens: 1200,
+          costUsd: 0,
+          energyJoules: 0,
+          waterEvaporatedMl: 0,
+        },
+      ],
+      hourlyBuckets: [],
+      dailyBuckets: [],
+      dailyModelBuckets: [],
+      dailyAccountBuckets: [],
+      accountAccumulators: [],
+    };
+
+    await writeFile(filePath, JSON.stringify(payload, null, 2), "utf8");
+
+    const store = new RequestLogStore(filePath, 100);
+    await store.warmup();
+
+    const entries = store.snapshot();
+    assert.equal(entries.length, 1);
+    assert.ok((entries[0]?.costUsd ?? 0) > 0);
+    assert.ok((entries[0]?.energyJoules ?? 0) > 0);
+    assert.ok((entries[0]?.waterEvaporatedMl ?? 0) > 0);
+
+    const dailyModelBuckets = store.snapshotDailyModelBuckets();
+    assert.equal(dailyModelBuckets.length, 1);
+    assert.equal(dailyModelBuckets[0]?.providerId, "openai");
+    assert.equal(dailyModelBuckets[0]?.model, "gpt-5.4");
+    assert.equal(dailyModelBuckets[0]?.totalTokens, 1200);
+    assert.ok((dailyModelBuckets[0]?.costUsd ?? 0) > 0);
+
+    const dailyAccountBuckets = store.snapshotDailyAccountBuckets();
+    assert.equal(dailyAccountBuckets.length, 1);
+    assert.equal(dailyAccountBuckets[0]?.providerId, "openai");
+    assert.equal(dailyAccountBuckets[0]?.accountId, "acct-1");
+    assert.equal(dailyAccountBuckets[0]?.totalTokens, 1200);
+    assert.ok((dailyAccountBuckets[0]?.costUsd ?? 0) > 0);
+
+    const coverage = store.getCoverage();
+    assert.equal(coverage.earliestModelBreakdownAtMs, Date.UTC(2026, 2, 16, 0, 0, 0));
+    assert.equal(coverage.earliestAccountBreakdownAtMs, Date.UTC(2026, 2, 16, 0, 0, 0));
+
+    await store.close();
   });
 });
