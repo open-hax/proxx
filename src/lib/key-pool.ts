@@ -362,6 +362,22 @@ function readProvidersFromEnv(): Map<string, ProviderState> {
     );
   }
 
+  const zaiKey = (process.env.ZAI_API_KEY ?? process.env.ZHIPU_API_KEY ?? "").trim();
+  if (zaiKey) {
+    providers.set(
+      normalizeProviderId(process.env.ZAI_PROVIDER_ID ?? process.env.ZHIPU_PROVIDER_ID ?? "zai"),
+      createEnvProviderState(process.env.ZAI_PROVIDER_ID ?? process.env.ZHIPU_PROVIDER_ID ?? "zai", zaiKey),
+    );
+  }
+
+  const mistralKey = (process.env.MISTRAL_API_KEY ?? "").trim();
+  if (mistralKey) {
+    providers.set(
+      normalizeProviderId(process.env.MISTRAL_PROVIDER_ID ?? "mistral"),
+      createEnvProviderState(process.env.MISTRAL_PROVIDER_ID ?? "mistral", mistralKey),
+    );
+  }
+
   const openrouterKey = process.env.OPENROUTER_API_KEY?.trim();
   if (openrouterKey) {
     providers.set(
@@ -472,20 +488,28 @@ async function readProvidersFromSources(
   preferAccountStoreProviders = false,
 ): Promise<Map<string, ProviderState>> {
   const envProviders = readProvidersFromEnv();
-  const inlineJsonProviders = readProvidersFromJsonEnv(defaultProviderId);
+  const inlineJsonProviders = accountStore
+    ? new Map<string, ProviderState>()
+    : readProvidersFromJsonEnv(defaultProviderId);
   let fileProviders: Map<string, ProviderState> | null = null;
   let accountStoreProviders: Map<string, ProviderState> | null = null;
-  const factoryOAuthProviders = await readFactoryOAuthProviders();
+  // Only load factory auth from files when no DB account store is available;
+  // when a DB is present, factory credentials should already be seeded there.
+  const factoryOAuthProviders = accountStore
+    ? new Map<string, ProviderState>()
+    : await readFactoryOAuthProviders();
 
   if (accountStore) {
     accountStoreProviders = await readProvidersFromAccountStore(accountStore);
   }
 
-  try {
-    fileProviders = await readProvidersFile(path, defaultProviderId);
-  } catch (error) {
-    if (envProviders.size === 0 && inlineJsonProviders.size === 0 && (accountStoreProviders?.size ?? 0) === 0 && factoryOAuthProviders.size === 0) {
-      throw error;
+  if (!accountStore) {
+    try {
+      fileProviders = await readProvidersFile(path, defaultProviderId);
+    } catch (error) {
+      if (envProviders.size === 0 && inlineJsonProviders.size === 0 && (accountStoreProviders?.size ?? 0) === 0 && factoryOAuthProviders.size === 0) {
+        throw error;
+      }
     }
   }
 

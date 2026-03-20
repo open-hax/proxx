@@ -2,10 +2,10 @@ import { createHash } from "node:crypto";
 
 import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
 
-import { type ProxyConfig } from "./lib/config.js";
+import { DEFAULT_MODELS, type ProxyConfig } from "./lib/config.js";
 import { KeyPool, type ProviderCredential } from "./lib/key-pool.js";
 import { CredentialStore } from "./lib/credential-store.js";
-import { OpenAiOAuthManager } from "./lib/openai-oauth.js";
+import { OpenAiOAuthManager, isTerminalOpenAiRefreshError, type OAuthTokens } from "./lib/openai-oauth.js";
 import {
   factoryCredentialNeedsRefresh,
   parseJwtExpiry,
@@ -13,7 +13,7 @@ import {
   refreshFactoryOAuthToken,
 } from "./lib/factory-auth.js";
 import { toOpenAiModel } from "./lib/models.js";
-import { ProviderCatalogStore } from "./lib/provider-catalog.js";
+import { ProviderCatalogStore, type ResolvedCatalogWithPreferences } from "./lib/provider-catalog.js";
 import { buildForwardHeaders } from "./lib/proxy.js";
 import { initializePolicyEngine, createPolicyEngine, type PolicyEngine } from "./lib/policy/index.js";
 import { DEFAULT_POLICY_CONFIG } from "./lib/policy/index.js";
@@ -38,7 +38,6 @@ import {
 import { orderProviderRoutesByPolicy } from "./lib/provider-policy.js";
 import {
   fetchWithResponseTimeout,
-  hasBearerToken,
   isRecord,
   sendOpenAiError,
   toErrorMessage,
@@ -67,12 +66,16 @@ import { requestHasExplicitNumCtx } from "./lib/ollama-compat.js";
 import { createSqlConnection, closeConnection, type Sql } from "./lib/db/index.js";
 import { SqlCredentialStore } from "./lib/db/sql-credential-store.js";
 import { AccountHealthStore } from "./lib/db/account-health-store.js";
+import { EventStore } from "./lib/db/event-store.js";
+import { createDefaultLabelers } from "./lib/db/event-labelers.js";
 import { SqlAuthPersistence } from "./lib/auth/sql-persistence.js";
 import { SqlGitHubAllowlist } from "./lib/auth/github-allowlist.js";
-import { seedFromJsonFile, seedFromJsonValue } from "./lib/db/json-seeder.js";
+import { seedFromJsonFile, seedFromJsonValue, seedFactoryAuthFromFiles, seedModelsFromFile, loadModelsFromDb, getConfig, setConfig } from "./lib/db/json-seeder.js";
 import { registerOAuthRoutes } from "./lib/oauth-routes.js";
 import { RuntimeCredentialStore } from "./lib/runtime-credential-store.js";
 import { TokenRefreshManager } from "./lib/token-refresh-manager.js";
+import { DEFAULT_TENANT_ID } from "./lib/tenant-api-key.js";
+import { resolveRequestAuth } from "./lib/request-auth.js";
 
 interface ChatCompletionRequest {
   readonly model?: string;
@@ -346,19 +349,27 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
   let sqlAuthPersistence: SqlAuthPersistence | undefined;
   let sqlGitHubAllowlist: SqlGitHubAllowlist | undefined;
   let accountHealthStore: AccountHealthStore | undefined;
+  let eventStore: EventStore | undefined;
 
   if (config.databaseUrl) {
     try {
       sql = createSqlConnection({ connectionString: config.databaseUrl });
       app.log.info("connecting to database");
 
-      sqlCredentialStore = new SqlCredentialStore(sql);
+      sqlCredentialStore = new SqlCredentialStore(sql, { defaultTenantId: DEFAULT_TENANT_ID });
       await sqlCredentialStore.init();
       app.log.info("credential store initialized");
 
       accountHealthStore = new AccountHealthStore(sql);
       await accountHealthStore.init();
       app.log.info("account health store initialized");
+
+      eventStore = new EventStore(sql);
+      await eventStore.init();
+      for (const labeler of createDefaultLabelers()) {
+        eventStore.registerLabeler(labeler);
+      }
+      app.log.info("event store initialized");
 
       sqlAuthPersistence = new SqlAuthPersistence(sql);
       await sqlAuthPersistence.init();
@@ -391,6 +402,34 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
         }
       }
 
+      // Seed Factory OAuth credentials from encrypted auth.v2 files into the DB.
+      // Only imports on first boot when no factory accounts exist in the DB yet.
+      try {
+        const factorySeed = await seedFactoryAuthFromFiles(sql);
+        if (factorySeed.seeded) {
+          app.log.info("seeded Factory OAuth credentials from auth.v2 files into database");
+        }
+      } catch (error) {
+        app.log.warn({ error: toErrorMessage(error) }, "failed to seed Factory OAuth credentials from auth.v2 files");
+      }
+
+      // Seed models from models.json into the DB (first boot only).
+      if (config.modelsFilePath) {
+        try {
+          const modelSeed = await seedModelsFromFile(sql, config.modelsFilePath, DEFAULT_MODELS);
+          if (modelSeed.seeded) {
+            app.log.info({ count: modelSeed.count }, "seeded models from file into database");
+          }
+        } catch (error) {
+          app.log.warn({ error: toErrorMessage(error) }, "failed to seed models from file");
+        }
+      }
+
+      const removedLegacyOpenAiAccounts = await sqlCredentialStore.cleanupLegacyOpenAiDuplicates();
+      if (removedLegacyOpenAiAccounts > 0) {
+        app.log.warn({ count: removedLegacyOpenAiAccounts }, "removed legacy duplicate OpenAI account rows after seeding");
+      }
+
       app.log.info("database connection established");
     } catch (error) {
       app.log.error({ error: toErrorMessage(error) }, "failed to initialize database connection");
@@ -411,11 +450,18 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
   } catch (error) {
     app.log.warn({ error: toErrorMessage(error) }, "failed to warm up provider accounts; non-keyed routes may still work");
   }
-  const requestLogStore = new RequestLogStore(config.requestLogsFilePath, 5000);
+  const requestLogStore = new RequestLogStore(
+    config.requestLogsFilePath,
+    config.requestLogsMaxEntries,
+    config.requestLogsFlushMs,
+  );
   await requestLogStore.warmup();
-  const promptAffinityStore = new PromptAffinityStore(config.promptAffinityFilePath);
+  const promptAffinityStore = new PromptAffinityStore(
+    config.promptAffinityFilePath,
+    config.promptAffinityFlushMs,
+  );
   await promptAffinityStore.warmup();
-  const proxySettingsStore = new ProxySettingsStore(config.settingsFilePath);
+  const proxySettingsStore = new ProxySettingsStore(config.settingsFilePath, sql);
   await proxySettingsStore.warmup();
 
   let policyEngine: PolicyEngine;
@@ -433,6 +479,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     oauthScopes: config.openaiOauthScopes,
     clientId: config.openaiOauthClientId,
     issuer: config.openaiOauthIssuer,
+    clientSecret: config.openaiOauthClientSecret,
   });
 
   const tokenRefreshManager = new TokenRefreshManager(
@@ -448,7 +495,43 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
 
       app.log.info({ accountId: credential.accountId, providerId: credential.providerId }, "refreshing expired OAuth token");
 
-      const newTokens = await oauthManager.refreshToken(credential.refreshToken);
+      let newTokens: OAuthTokens;
+      try {
+        newTokens = await oauthManager.refreshToken(credential.refreshToken);
+      } catch (error) {
+        if (isTerminalOpenAiRefreshError(error)) {
+          const disabledCredential: ProviderCredential = {
+            ...credential,
+            refreshToken: undefined,
+          };
+
+          keyPool.updateAccountCredential(credential.providerId, credential, disabledCredential);
+          if (typeof credential.expiresAt === "number" && credential.expiresAt <= Date.now()) {
+            keyPool.markRateLimited(disabledCredential, 24 * 60 * 60 * 1000);
+          }
+
+          await runtimeCredentialStore.upsertOAuthAccount(
+            credential.providerId,
+            disabledCredential.accountId,
+            disabledCredential.token,
+            undefined,
+            disabledCredential.expiresAt,
+            disabledCredential.chatgptAccountId,
+            undefined,
+            undefined,
+            disabledCredential.planType,
+          );
+
+          app.log.warn({
+            accountId: credential.accountId,
+            providerId: credential.providerId,
+            code: error.code,
+            status: error.status,
+          }, "disabled terminally invalid OpenAI refresh token; full reauth required");
+        }
+
+        throw error;
+      }
 
       const newCredential: ProviderCredential = {
         providerId: credential.providerId,
@@ -470,6 +553,9 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
         newCredential.refreshToken,
         newCredential.expiresAt,
         newCredential.chatgptAccountId,
+        newTokens.email,
+        newTokens.subject,
+        newTokens.planType,
       );
 
       app.log.info({
@@ -482,10 +568,10 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     },
     app.log,
     {
-      maxConcurrency: 5,
-      backgroundIntervalMs: 60_000,
+      maxConcurrency: config.oauthRefreshMaxConcurrency,
+      backgroundIntervalMs: config.oauthRefreshBackgroundIntervalMs,
       expiryBufferMs: 60_000,
-      proactiveRefreshWindowMs: 5 * 60_000,
+      proactiveRefreshWindowMs: config.oauthRefreshProactiveWindowMs,
       maxConsecutiveFailures: 3,
     },
   );
@@ -526,8 +612,13 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
         newCredential.expiresAt,
       );
 
-      // Also persist to the encrypted auth.v2 file so credentials survive restarts
-      await persistFactoryAuthV2(refreshed.accessToken, refreshed.refreshToken);
+      if (!sqlCredentialStore) {
+        try {
+          await persistFactoryAuthV2(refreshed.accessToken, refreshed.refreshToken);
+        } catch {
+          // Expected to fail on read-only container filesystems; DB has the data.
+        }
+      }
 
       app.log.info({
         accountId: newCredential.accountId,
@@ -564,8 +655,44 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     }
   }
 
+  async function refreshOpenAiOauthAccounts(accountId?: string): Promise<{
+    readonly totalAccounts: number;
+    readonly refreshedCount: number;
+    readonly failedCount: number;
+  }> {
+    const allOpenAiAccounts = await keyPool.getAllAccounts(config.openaiProviderId).catch(() => [] as ProviderCredential[]);
+    const normalizedAccountId = typeof accountId === "string" && accountId.trim().length > 0
+      ? accountId.trim()
+      : undefined;
+
+    const candidates = allOpenAiAccounts.filter((account) => {
+      if (account.authType !== "oauth_bearer") {
+        return false;
+      }
+
+      if (typeof account.refreshToken !== "string" || account.refreshToken.trim().length === 0) {
+        return false;
+      }
+
+      return normalizedAccountId === undefined || account.accountId === normalizedAccountId;
+    });
+
+    for (const account of candidates) {
+      tokenRefreshManager.clearFailures(account);
+    }
+
+    const results = await tokenRefreshManager.refreshBatch(candidates);
+    const refreshedCount = results.filter((result): result is ProviderCredential => result !== null).length;
+
+    return {
+      totalAccounts: candidates.length,
+      refreshedCount,
+      failedCount: candidates.length - refreshedCount,
+    };
+  }
+
   tokenRefreshManager.startBackgroundRefresh(() => {
-    const expiring = keyPool.getExpiringAccounts(5 * 60_000);
+    const expiring = keyPool.getExpiringAccounts(config.oauthRefreshProactiveWindowMs);
     const expired = keyPool.getAllExpiredWithRefreshTokens();
     return [...expired, ...expiring];
   });
@@ -583,6 +710,28 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
   async function getResolvedModelCatalog(forceRefresh = false): Promise<ResolvedModelCatalog> {
     const resolved = await providerCatalogStore.getCatalog(forceRefresh);
     return resolved.catalog;
+  }
+
+  function shouldRejectModelFromProviderCatalog(
+    providerRoutes: readonly ProviderRoute[],
+    routedModel: string,
+    catalogBundle: ResolvedCatalogWithPreferences,
+  ): boolean {
+    let sawCatalogForCandidate = false;
+
+    for (const route of providerRoutes) {
+      const entry = catalogBundle.providerCatalogs[route.providerId];
+      if (!entry) {
+        return false;
+      }
+
+      sawCatalogForCandidate = true;
+      if (entry.modelIds.includes(routedModel)) {
+        return false;
+      }
+    }
+
+    return sawCatalogForCandidate;
   }
 
   async function injectNativeBridge(
@@ -604,6 +753,8 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     app.log.warn("proxy auth disabled via PROXY_ALLOW_UNAUTHENTICATED=true");
   }
 
+  app.decorateRequest("openHaxAuth", null);
+
   app.addHook("onRequest", async (request, reply) => {
     const origin = request.headers.origin;
     reply.header("Access-Control-Allow-Origin", origin ?? "*");
@@ -611,26 +762,34 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     reply.header("Access-Control-Allow-Headers", "Authorization, Content-Type, Accept, X-Requested-With, Cookie");
     reply.header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
 
-    if (config.proxyAuthToken) {
-      if (request.method === "OPTIONS") {
-        return;
-      }
-
-      const rawPath = (request.raw.url ?? request.url).split("?", 1)[0] ?? request.url;
-      const allowUnauthenticatedRoute = rawPath === "/health" || rawPath === "/api/ui/credentials/openai/oauth/browser/callback"
-        || rawPath === "/auth/callback" || rawPath === "/auth/factory/callback";
-
-      if (allowUnauthenticatedRoute) {
-        return;
-      }
-
-      const authorization = request.headers.authorization;
-      const cookieToken = readCookieToken(request.headers.cookie, PROXY_AUTH_COOKIE_NAME);
-      const ok = hasBearerToken(authorization, config.proxyAuthToken) || cookieToken === config.proxyAuthToken;
-      if (!ok) {
-        sendOpenAiError(reply, 401, "Unauthorized", "invalid_request_error", "unauthorized");
-      }
+    if (request.method === "OPTIONS") {
+      return;
     }
+
+    const rawPath = (request.raw.url ?? request.url).split("?", 1)[0] ?? request.url;
+    const allowUnauthenticatedRoute = rawPath === "/health" || rawPath === "/api/ui/credentials/openai/oauth/browser/callback"
+      || rawPath === "/auth/callback" || rawPath === "/auth/factory/callback";
+
+    if (allowUnauthenticatedRoute) {
+      return;
+    }
+
+    const resolvedAuth = await resolveRequestAuth({
+      allowUnauthenticated: config.allowUnauthenticated,
+      proxyAuthToken: config.proxyAuthToken,
+      authorization: request.headers.authorization,
+      cookieToken: readCookieToken(request.headers.cookie, PROXY_AUTH_COOKIE_NAME),
+      resolveTenantApiKey: sqlCredentialStore
+        ? async (token) => sqlCredentialStore!.resolveTenantApiKey(token, config.proxyTokenPepper)
+        : undefined,
+    });
+
+    if (!resolvedAuth) {
+      sendOpenAiError(reply, 401, "Unauthorized", "invalid_request_error", "unauthorized");
+      return;
+    }
+
+    (request as any).openHaxAuth = resolvedAuth;
   });
 
   // Attach a telemetry span to each request
@@ -877,6 +1036,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     let lastErrorPayload: unknown;
 
     for (const model of uniqueModels) {
+      // Try the most structured tool payload first; fall back to hint-only if upstream rejects unknown fields.
       for (const includeDomainsInTool of [true, false]) {
         const injected = await attemptPayload(model, includeDomainsInTool);
         if (injected.statusCode !== 200) {
@@ -953,6 +1113,28 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     const { strategy, context } = selectProviderStrategy(config, request.headers, requestBody, requestedModelInput, routingModelInput);
     reply.header("x-open-hax-upstream-mode", strategy.mode);
 
+    let providerRoutes: ProviderRoute[];
+    if (context.factoryPrefixed) {
+      const factoryBaseUrl = config.upstreamProviderBaseUrls["factory"] ?? "https://api.factory.ai";
+      providerRoutes = config.disabledProviderIds.includes("factory")
+        ? []
+        : [{ providerId: "factory", baseUrl: factoryBaseUrl }];
+    } else {
+      providerRoutes = buildProviderRoutes(
+        config,
+        context.openAiPrefixed,
+        !context.openAiPrefixed && strategy.mode === "responses"
+      );
+      if (!context.openAiPrefixed && resolvedModelCatalog) {
+        providerRoutes = resolveProviderRoutesForModel(providerRoutes, context.routedModel, resolvedModelCatalog);
+      }
+    }
+    providerRoutes = orderProviderRoutesByPolicy(policyEngine, providerRoutes, context.requestedModelInput, context.routedModel, {
+      openAiPrefixed: context.openAiPrefixed,
+      localOllama: context.localOllama,
+      explicitOllama: context.explicitOllama,
+    });
+
     try {
       const catalogBundle = await providerCatalogStore.getCatalog();
       const disabledSet = new Set(catalogBundle.preferences.disabled);
@@ -961,15 +1143,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
         return;
       }
 
-      const hasCatalog = catalogBundle.catalog.modelIds.length > 0;
-      if (hasCatalog && context.factoryPrefixed) {
-        const available = await providerCatalogStore.isModelAvailable("factory", context.routedModel);
-        if (!available) {
-          sendOpenAiError(reply, 404, `Model not found on factory: ${context.routedModel}`, "invalid_request_error", "model_not_found");
-          return;
-        }
-      }
-      if (hasCatalog && resolvedModelCatalog && !resolvedModelCatalog.modelIds.includes(context.routedModel)) {
+      if (shouldRejectModelFromProviderCatalog(providerRoutes, context.routedModel, catalogBundle)) {
         sendOpenAiError(reply, 404, `Model not found: ${context.routedModel}`, "invalid_request_error", "model_not_found");
         return;
       }
@@ -1007,28 +1181,6 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       return;
     }
 
-    let providerRoutes: ProviderRoute[];
-    if (context.factoryPrefixed) {
-      const factoryBaseUrl = config.upstreamProviderBaseUrls["factory"] ?? "https://api.factory.ai";
-      providerRoutes = config.disabledProviderIds.includes("factory")
-        ? []
-        : [{ providerId: "factory", baseUrl: factoryBaseUrl }];
-    } else {
-      providerRoutes = buildProviderRoutes(
-        config,
-        context.openAiPrefixed,
-        !context.openAiPrefixed && strategy.mode === "responses"
-      );
-      if (!context.openAiPrefixed && resolvedModelCatalog) {
-        providerRoutes = resolveProviderRoutesForModel(providerRoutes, context.routedModel, resolvedModelCatalog);
-      }
-    }
-    providerRoutes = orderProviderRoutesByPolicy(policyEngine, providerRoutes, context.requestedModelInput, context.routedModel, {
-      openAiPrefixed: context.openAiPrefixed,
-      localOllama: context.localOllama,
-      explicitOllama: context.explicitOllama,
-    });
-
     for (const providerId of new Set(providerRoutes.map((route) => route.providerId))) {
       await ensureFreshAccounts(providerId);
     }
@@ -1048,6 +1200,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       refreshExpiredOAuthAccount,
       policyEngine,
       accountHealthStore,
+      eventStore,
     );
 
     if (execution.handled) {
@@ -1186,38 +1339,6 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     );
     reply.header("x-open-hax-upstream-mode", strategy.mode);
 
-    try {
-      const catalogBundle = await providerCatalogStore.getCatalog();
-      const disabledSet = new Set(catalogBundle.preferences.disabled);
-      if (disabledSet.has(context.routedModel)) {
-        sendOpenAiError(reply, 403, `Model is disabled: ${context.routedModel}`, "invalid_request_error", "model_disabled");
-        return;
-      }
-
-      const hasCatalog = catalogBundle.catalog.modelIds.length > 0;
-      if (hasCatalog && context.factoryPrefixed) {
-        const available = await providerCatalogStore.isModelAvailable("factory", context.routedModel);
-        if (!available) {
-          sendOpenAiError(reply, 404, `Model not found on factory: ${context.routedModel}`, "invalid_request_error", "model_not_found");
-          return;
-        }
-      }
-      if (hasCatalog && !catalogBundle.catalog.modelIds.includes(context.routedModel)) {
-        sendOpenAiError(reply, 404, `Model not found: ${context.routedModel}`, "invalid_request_error", "model_not_found");
-        return;
-      }
-    } catch (error) {
-      request.log.warn({ error: toErrorMessage(error) }, "failed to verify provider model catalog for /v1/responses; continuing without gating");
-    }
-
-    let payload: ReturnType<typeof strategy.buildPayload>;
-    try {
-      payload = strategy.buildPayload(context);
-    } catch (error) {
-      sendOpenAiError(reply, 400, toErrorMessage(error), "invalid_request_error", "invalid_provider_options");
-      return;
-    }
-
     let providerRoutes: ProviderRoute[];
     if (context.factoryPrefixed) {
       const factoryBaseUrl = config.upstreamProviderBaseUrls["factory"] ?? "https://api.factory.ai";
@@ -1234,6 +1355,30 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       localOllama: false,
       explicitOllama: false,
     });
+
+    try {
+      const catalogBundle = await providerCatalogStore.getCatalog();
+      const disabledSet = new Set(catalogBundle.preferences.disabled);
+      if (disabledSet.has(context.routedModel)) {
+        sendOpenAiError(reply, 403, `Model is disabled: ${context.routedModel}`, "invalid_request_error", "model_disabled");
+        return;
+      }
+
+      if (shouldRejectModelFromProviderCatalog(providerRoutes, context.routedModel, catalogBundle)) {
+        sendOpenAiError(reply, 404, `Model not found: ${context.routedModel}`, "invalid_request_error", "model_not_found");
+        return;
+      }
+    } catch (error) {
+      request.log.warn({ error: toErrorMessage(error) }, "failed to verify provider model catalog for /v1/responses; continuing without gating");
+    }
+
+    let payload: ReturnType<typeof strategy.buildPayload>;
+    try {
+      payload = strategy.buildPayload(context);
+    } catch (error) {
+      sendOpenAiError(reply, 400, toErrorMessage(error), "invalid_request_error", "invalid_provider_options");
+      return;
+    }
 
     for (const providerId of new Set(providerRoutes.map((route) => route.providerId))) {
       await ensureFreshAccounts(providerId);
@@ -1253,6 +1398,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       refreshExpiredOAuthAccount,
       policyEngine,
       accountHealthStore,
+      eventStore,
     );
 
     if (execution.handled) {
@@ -1395,6 +1541,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       refreshExpiredOAuthAccount,
       policyEngine,
       accountHealthStore,
+      eventStore,
     );
 
     if (execution.handled) {
@@ -1632,7 +1779,10 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     keyPool,
     requestLogStore,
     credentialStore: runtimeCredentialStore,
-    proxySettingsStore
+    sqlCredentialStore,
+    proxySettingsStore,
+    eventStore,
+    refreshOpenAiOauthAccounts,
   });
 
   if (sql && sqlAuthPersistence && sqlGitHubAllowlist && sqlCredentialStore) {
@@ -1658,7 +1808,11 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     if (accountHealthStore) {
       await accountHealthStore.close();
     }
+    if (eventStore) {
+      await eventStore.close();
+    }
 
+    await promptAffinityStore.close();
     await requestLogStore.close();
     await credentialStore.close();
     if (sql) {

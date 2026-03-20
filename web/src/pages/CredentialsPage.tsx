@@ -23,6 +23,7 @@ import {
   startOpenAiDeviceOAuth,
 } from "../lib/api";
 import { formatAuthType } from "../lib/format";
+import { useStoredState } from "../lib/use-stored-state";
 
 interface DeviceAuthState {
   readonly provider: "openai" | "factory";
@@ -30,6 +31,39 @@ interface DeviceAuthState {
   readonly userCode: string;
   readonly deviceAuthId: string;
   readonly intervalMs: number;
+}
+
+const LS_CREDENTIALS_REVEAL_SECRETS = "open-hax-proxy.ui.credentials.revealSecrets";
+const LS_CREDENTIALS_GROUPING = "open-hax-proxy.ui.credentials.grouping";
+const LS_CREDENTIALS_ACCOUNT_SEARCH = "open-hax-proxy.ui.credentials.accountSearch";
+const LS_CREDENTIALS_LOG_PROVIDER = "open-hax-proxy.ui.credentials.logProvider";
+const LS_CREDENTIALS_LOG_ACCOUNT = "open-hax-proxy.ui.credentials.logAccount";
+
+function validateBoolean(value: unknown): boolean | undefined {
+  if (typeof value === "boolean") {
+    return value;
+  }
+
+  // Backwards compat: older versions might store as strings.
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "true" || normalized === "1" || normalized === "yes" || normalized === "on") {
+      return true;
+    }
+    if (normalized === "false" || normalized === "0" || normalized === "no" || normalized === "off") {
+      return false;
+    }
+  }
+
+  return undefined;
+}
+
+function validateString(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+function validateAccountGrouping(value: unknown): AccountGrouping | undefined {
+  return value === "provider" || value === "plan" || value === "domain" ? value : undefined;
 }
 
 type AccountGrouping = "provider" | "plan" | "domain";
@@ -184,20 +218,22 @@ function accountSearchBlob(entry: AccountEntry): string {
 }
 
 export function CredentialsPage(): JSX.Element {
-  const [revealSecrets, setRevealSecrets] = useState(false);
+  // NOTE: Persisting revealSecrets can be risky on shared machines; you asked
+  // for persistence so we do it, but it will auto-load on refresh.
+  const [revealSecrets, setRevealSecrets] = useStoredState(LS_CREDENTIALS_REVEAL_SECRETS, false, validateBoolean);
   const [providers, setProviders] = useState<CredentialProvider[]>([]);
   const [keyPoolStatuses, setKeyPoolStatuses] = useState<Record<string, KeyPoolStatus>>({});
   const [requestLogSummary, setRequestLogSummary] = useState<Record<string, ProviderRequestLogSummary>>({});
   const [logs, setLogs] = useState<RequestLogEntry[]>([]);
-  const [selectedProvider, setSelectedProvider] = useState<string>("");
-  const [selectedAccount, setSelectedAccount] = useState<string>("");
+  const [selectedProvider, setSelectedProvider] = useStoredState(LS_CREDENTIALS_LOG_PROVIDER, "", validateString);
+  const [selectedAccount, setSelectedAccount] = useStoredState(LS_CREDENTIALS_LOG_ACCOUNT, "", validateString);
   const [apiKeyProvider, setApiKeyProvider] = useState("vivgrid");
   const [apiKeyAccount, setApiKeyAccount] = useState("");
   const [apiKeyValue, setApiKeyValue] = useState("");
   const [deviceAuth, setDeviceAuth] = useState<DeviceAuthState | null>(null);
   const [devicePolling, setDevicePolling] = useState(false);
-  const [accountSearch, setAccountSearch] = useState("");
-  const [accountGrouping, setAccountGrouping] = useState<AccountGrouping>("provider");
+  const [accountSearch, setAccountSearch] = useStoredState(LS_CREDENTIALS_ACCOUNT_SEARCH, "", validateString);
+  const [accountGrouping, setAccountGrouping] = useStoredState<AccountGrouping>(LS_CREDENTIALS_GROUPING, "provider", validateAccountGrouping);
   const [quotaOverview, setQuotaOverview] = useState<CredentialQuotaOverview | null>(null);
   const [quotaLoading, setQuotaLoading] = useState(false);
   const [quotaError, setQuotaError] = useState<string | null>(null);

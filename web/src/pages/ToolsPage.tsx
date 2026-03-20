@@ -1,9 +1,16 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
 
 import { listMcpSeeds, listToolSeeds, type McpServerSeed, type ToolSeed } from "../lib/api";
+import { useStoredState } from "../lib/use-stored-state";
+
+const LS_TOOLS_MODEL = "open-hax-proxy.ui.tools.model";
+
+function validateString(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
 
 export function ToolsPage(): JSX.Element {
-  const [model, setModel] = useState("gpt-5.3-codex");
+  const [model, setModel] = useStoredState(LS_TOOLS_MODEL, "gpt-5.3-codex", validateString);
   const [tools, setTools] = useState<ToolSeed[]>([]);
   const [servers, setServers] = useState<McpServerSeed[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -18,10 +25,10 @@ export function ToolsPage(): JSX.Element {
   }, []);
 
   useEffect(() => {
-    void refreshData("gpt-5.3-codex").catch((loadError) => {
+    void refreshData(model.trim().length > 0 ? model.trim() : "gpt-5.3-codex").catch((loadError) => {
       setError(loadError instanceof Error ? loadError.message : String(loadError));
     });
-  }, [refreshData]);
+  }, [model, refreshData]);
 
   const handleModelSubmit = async (event: FormEvent) => {
     event.preventDefault();

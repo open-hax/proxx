@@ -431,6 +431,12 @@ export async function responseIndicatesQuotaError(response: Response): Promise<b
     return false;
   }
 
+  // Skip body inspection for responses with no content-type (likely SSE from Codex backends).
+  // Cloning such responses creates unnecessary tee chains that can interfere with downstream readers.
+  if ((response.headers.get("content-type") ?? "").length === 0) {
+    return false;
+  }
+
   let payload: unknown;
   try {
     payload = await response.clone().json();

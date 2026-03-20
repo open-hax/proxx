@@ -19,16 +19,21 @@ services:
       PROXY_AUTH_TOKEN: "${PROXY_AUTH_TOKEN:-change-me-open-hax-proxy-token}"
       PROXY_KEYS_FILE: /workspace/service-config/keys.json
       PROXY_MODELS_FILE: /workspace/service-config/models.json
-      PROXY_REQUEST_LOGS_FILE: /app/data/request-logs.json
+      PROXY_REQUEST_LOGS_FILE: /app/data/request-logs.jsonl
+      PROXY_REQUEST_LOGS_MAX_ENTRIES: "${PROXY_REQUEST_LOGS_MAX_ENTRIES:-100000}"
+      PROXY_REQUEST_LOGS_FLUSH_MS: "${PROXY_REQUEST_LOGS_FLUSH_MS:-1000}"
+      PROXY_PROMPT_AFFINITY_FLUSH_MS: "${PROXY_PROMPT_AFFINITY_FLUSH_MS:-250}"
       UPSTREAM_PROVIDER_ID: "${UPSTREAM_PROVIDER_ID:-openai}"
-      UPSTREAM_FALLBACK_PROVIDER_IDS: "${UPSTREAM_FALLBACK_PROVIDER_IDS:-ollama-cloud,vivgrid}"
+      UPSTREAM_FALLBACK_PROVIDER_IDS: "${UPSTREAM_FALLBACK_PROVIDER_IDS:-ollama-cloud,requesty}"
       DISABLED_PROVIDER_IDS: "${DISABLED_PROVIDER_IDS:-}"
       UPSTREAM_BASE_URL: "${UPSTREAM_BASE_URL:-https://chatgpt.com/backend-api}"
-      UPSTREAM_PROVIDER_BASE_URLS: "${UPSTREAM_PROVIDER_BASE_URLS:-ollama-cloud=https://ollama.com,openai=https://chatgpt.com/backend-api,vivgrid=https://api.vivgrid.com}"
+      UPSTREAM_PROVIDER_BASE_URLS: "${UPSTREAM_PROVIDER_BASE_URLS:-ollama-cloud=https://ollama.com,openai=https://chatgpt.com/backend-api,vivgrid=https://api.vivgrid.com,requesty=https://router.requesty.ai/v1}"
+      REQUESTY_API_TOKEN: "${REQUESTY_API_TOKEN:-}"
       OPENAI_PROVIDER_ID: "${OPENAI_PROVIDER_ID:-openai}"
       OPENAI_BASE_URL: "${OPENAI_BASE_URL:-https://chatgpt.com/backend-api}"
       # Use the official OpenAI Platform API base URL for image generation (recommended).
       OPENAI_API_BASE_URL: "${OPENAI_API_BASE_URL:-https://api.openai.com}"
+      GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
 
       # Where to send OpenAI image generation requests:
       # - platform: api.openai.com (Images API; requires Platform scopes for OAuth)
@@ -45,6 +50,8 @@ services:
 
       # If still using ChatGPT backend APIs, these are alternate paths sometimes used for image generations.
       OPENAI_IMAGES_GENERATIONS_PATHS: "${OPENAI_IMAGES_GENERATIONS_PATHS:-}"
+      IMAGE_COST_USD_DEFAULT: "${IMAGE_COST_USD_DEFAULT:-0}"
+      IMAGE_COST_USD_BY_PROVIDER: "${IMAGE_COST_USD_BY_PROVIDER:-}"
       OLLAMA_BASE_URL: "${OLLAMA_BASE_URL:-http://ollama:11434}"
       UPSTREAM_CHAT_COMPLETIONS_PATH: "${UPSTREAM_CHAT_COMPLETIONS_PATH:-/v1/chat/completions}"
       OPENAI_CHAT_COMPLETIONS_PATH: "${OPENAI_CHAT_COMPLETIONS_PATH:-/codex/responses/compact}"

@@ -1,6 +1,14 @@
 import { FormEvent, useState } from "react";
 
 import { runImageGeneration } from "../lib/api";
+import { useStoredState } from "../lib/use-stored-state";
+
+const LS_IMAGES_MODEL = "open-hax-proxy.ui.images.model";
+const LS_IMAGES_PROMPT = "open-hax-proxy.ui.images.prompt";
+
+function validateString(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -35,8 +43,12 @@ function extractImages(payload: unknown): string[] {
 }
 
 export function ImagesPage(): JSX.Element {
-  const [model, setModel] = useState("gpt-image-1");
-  const [prompt, setPrompt] = useState("A studio photo of a cat astronaut, 35mm, ultra-detailed.");
+  const [model, setModel] = useStoredState(LS_IMAGES_MODEL, "gpt-image-1", validateString);
+  const [prompt, setPrompt] = useStoredState(
+    LS_IMAGES_PROMPT,
+    "A studio photo of a cat astronaut, 35mm, ultra-detailed.",
+    validateString,
+  );
   const [imageUrls, setImageUrls] = useState<string[]>([]);
   const [rawResponse, setRawResponse] = useState<string>("");
   const [sending, setSending] = useState(false);
