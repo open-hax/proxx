@@ -98,6 +98,33 @@ Preview the built UI:
 pnpm web:preview
 ```
 
+## Host fleet dashboard
+
+The console now includes a **Hosts** page for the ussy fleet.
+
+What it shows:
+- per-host container inventory
+- routed subdomains parsed from the runtime Caddyfile
+- partial/unreachable host cards instead of failing the whole page when one host is broken
+
+How it works:
+- the local proxx container reads Docker state through a mounted Docker socket
+- the local proxx container reads runtime files from a read-only runtime bind mount
+- remote hosts are queried over HTTPS through each host's own `/api/ui/hosts/self` endpoint
+
+Minimal env shape:
+
+```bash
+HOST_DASHBOARD_SELF_ID=ussy
+HOST_DASHBOARD_TARGETS_JSON=[{"id":"ussy","label":"ussy.promethean.rest","baseUrl":"https://ussy.promethean.rest"},{"id":"ussy3","label":"ussy3.promethean.rest","baseUrl":"https://ussy3.promethean.rest","authTokenEnv":"HOST_DASHBOARD_USSY3_TOKEN"}]
+HOST_DASHBOARD_USSY3_TOKEN=...
+```
+
+Notes:
+- if a remote target omits `authTokenEnv`, the dashboard falls back to `PROXY_AUTH_TOKEN`
+- if a remote host is unreachable, misconfigured, or missing auth, it still renders as an error card so you can keep future hosts in the inventory before access is fixed
+- compose now mounts both `.:/workspace/runtime-repo:ro` and `/var/run/docker.sock:/var/run/docker.sock` for this page
+
 ## Docker Compose
 
 From this repository root:

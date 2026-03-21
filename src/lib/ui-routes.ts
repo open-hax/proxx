@@ -5,6 +5,13 @@ import type { FastifyInstance } from "fastify";
 
 import type { ProxyConfig } from "./config.js";
 import { CredentialStore, type CredentialStoreLike } from "./credential-store.js";
+import {
+  collectLocalHostDashboardSnapshot,
+  fetchRemoteHostDashboardSnapshot,
+  inferSelfHostDashboardTargetId,
+  loadHostDashboardTargetsFromEnv,
+  resolveHostDashboardTargetToken,
+} from "./host-dashboard.js";
 import type { ResolvedRequestAuth } from "./request-auth.js";
 import type { KeyPool, KeyPoolAccountStatus } from "./key-pool.js";
 import { OpenAiOAuthManager } from "./openai-oauth.js";
@@ -349,6 +356,22 @@ function authCanManageTenantKeys(auth: ResolvedRequestAuth | undefined, tenantId
 
   const membership = getMembershipForTenant(auth, tenantId);
   return membership?.role === "owner" || membership?.role === "admin";
+}
+
+function authCanAccessHostDashboard(auth: ResolvedRequestAuth | undefined): boolean {
+  if (!auth) {
+    return false;
+  }
+
+  if (auth.kind === "legacy_admin") {
+    return true;
+  }
+
+  if (auth.kind === "ui_session") {
+    return auth.role === "owner" || auth.role === "admin";
+  }
+
+  return false;
 }
 
 function toChatRole(value: unknown): ChatRole {
@@ -1894,6 +1917,10 @@ export async function registerUiRoutes(app: FastifyInstance, deps: UiRouteDepend
   };
 
   let mcpSeedCache: { readonly loadedAt: number; readonly seeds: Awaited<ReturnType<typeof loadMcpSeeds>> } | undefined;
+  const hostDashboardTargets = loadHostDashboardTargetsFromEnv(process.env);
+  const hostDashboardDockerSocketPath = process.env.HOST_DASHBOARD_DOCKER_SOCKET_PATH?.trim() || "/var/run/docker.sock";
+  const hostDashboardRuntimeRoot = process.env.HOST_DASHBOARD_RUNTIME_ROOT?.trim() || "/workspace/runtime-repo";
+  const hostDashboardRequestTimeoutMs = toSafeLimit(process.env.HOST_DASHBOARD_REQUEST_TIMEOUT_MS, 5000, 60_000);
 
   const loadCachedMcpSeeds = async () => {
     const now = Date.now();
@@ -2292,6 +2319,72 @@ export async function registerUiRoutes(app: FastifyInstance, deps: UiRouteDepend
       providers,
       keyPoolStatuses,
       requestLogSummary,
+    });
+  });
+
+  app.get("/api/ui/hosts/self", async (request, reply) => {
+    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
+    if (!authCanAccessHostDashboard(auth)) {
+      reply.code(auth ? 403 : 401).send({ error: auth ? "forbidden" : "unauthorized" });
+      return;
+    }
+
+    const requestBaseUrl = inferBaseUrl(request);
+    const selfTargetId = inferSelfHostDashboardTargetId({
+      targets: hostDashboardTargets,
+      explicitSelfId: process.env.HOST_DASHBOARD_SELF_ID,
+      requestBaseUrl,
+      requestHost: typeof request.headers.host === "string" ? request.headers.host : undefined,
+    });
+    const selfTarget = hostDashboardTargets.find((target) => target.id === selfTargetId) ?? hostDashboardTargets[0];
+    if (!selfTarget) {
+      reply.code(500).send({ error: "host_dashboard_targets_not_configured" });
+      return;
+    }
+
+    const snapshot = await collectLocalHostDashboardSnapshot({
+      target: selfTarget,
+      dockerSocketPath: hostDashboardDockerSocketPath,
+      runtimeRoot: hostDashboardRuntimeRoot,
+    });
+    reply.send(snapshot);
+  });
+
+  app.get("/api/ui/hosts/overview", async (request, reply) => {
+    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
+    if (!authCanAccessHostDashboard(auth)) {
+      reply.code(auth ? 403 : 401).send({ error: auth ? "forbidden" : "unauthorized" });
+      return;
+    }
+
+    const requestBaseUrl = inferBaseUrl(request);
+    const selfTargetId = inferSelfHostDashboardTargetId({
+      targets: hostDashboardTargets,
+      explicitSelfId: process.env.HOST_DASHBOARD_SELF_ID,
+      requestBaseUrl,
+      requestHost: typeof request.headers.host === "string" ? request.headers.host : undefined,
+    });
+
+    const hosts = await Promise.all(hostDashboardTargets.map(async (target) => {
+      if (selfTargetId && target.id === selfTargetId) {
+        return collectLocalHostDashboardSnapshot({
+          target,
+          dockerSocketPath: hostDashboardDockerSocketPath,
+          runtimeRoot: hostDashboardRuntimeRoot,
+        });
+      }
+
+      return fetchRemoteHostDashboardSnapshot({
+        target,
+        authToken: resolveHostDashboardTargetToken(target, process.env),
+        timeoutMs: hostDashboardRequestTimeoutMs,
+      });
+    }));
+
+    reply.send({
+      generatedAt: new Date().toISOString(),
+      selfTargetId: selfTargetId ?? null,
+      hosts,
     });
   });
 
