@@ -22,7 +22,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: pnpm
       - run: sudo apt-get update && sudo apt-get install -y shellcheck
       - run: go install github.com/rhysd/actionlint/cmd/actionlint@latest
       - run: chmod +x scripts/*.sh
