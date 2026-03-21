@@ -49,5 +49,20 @@ High — user explicitly wants z.ai support and wants the newly added API keys v
 
 ## Progress
 - [x] Investigation started.
-- [ ] Implementation
-- [ ] Verification
+- [x] Implementation
+- [x] Verification
+
+## Results
+- Local runtime compose now passes `ZAI_API_KEY`/`ZHIPU_API_KEY` and z.ai base/provider settings through to the running proxy container.
+- Found and fixed a compose/env pitfall where empty-string `ZAI_PROVIDER_ID` / `ZAI_BASE_URL` overrides could produce an unintended `default` provider id or blank z.ai base URL at runtime.
+- Fixed provider catalog discovery for z.ai so model listing uses `/api/paas/v4/models` (`/models` relative to the z.ai base URL) instead of the generic `/v1/models` path.
+- Updated source + runtime `.env.example` files and READMEs to document `ZAI_API_KEY` / `ZHIPU_API_KEY` and `ZAI_BASE_URL`.
+- Verification:
+  - `pnpm test` passes locally (`325/325`).
+  - The rebuilt local compose stack on `:8789` now reports `zai` in `/health` provider status.
+  - Direct live upstream validation against z.ai succeeds for both `/models` and `/chat/completions` using the local runtime key from `services/proxx/.env`.
+  - A temporary local proxy instance launched from the same runtime env on `http://127.0.0.1:8795` with `UPSTREAM_PROVIDER_ID=zai` returned `200` and `x-open-hax-upstream-provider: zai` for a live `glm-5` request.
+
+## Notes
+- The default local compose stack still prefers its configured upstream ordering. To make general local traffic prefer z.ai for normal requests, set `UPSTREAM_PROVIDER_ID=zai` or include `zai` in `UPSTREAM_FALLBACK_PROVIDER_IDS` for that runtime.
+- The minimal live `glm-5` probe returned a successful `200` with an empty assistant `content` string; direct upstream and proxied behavior matched, so the routing/credential validation is still considered successful.
