@@ -16,11 +16,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v4
         with:
           version: 9
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: pnpm
@@ -43,13 +43,19 @@ jobs:
       - staging-preflight
     environment: staging
     steps:
-      - uses: actions/checkout@v4
-      - uses: webfactory/ssh-agent@v0.9.0
-        with:
-          ssh-private-key: ${{ secrets.STAGING_SSH_PRIVATE_KEY }}
-      - run: mkdir -p ~/.ssh && ssh-keyscan -H "${STAGING_HOST}" >> ~/.ssh/known_hosts
+      - uses: actions/checkout@v5
+      - name: configure staging ssh
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "${STAGING_SSH_PRIVATE_KEY}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf 'Host *\n  IdentityFile ~/.ssh/deploy_key\n  IdentitiesOnly yes\n' > ~/.ssh/config
+          chmod 600 ~/.ssh/config
+          touch ~/.ssh/known_hosts
+          ssh-keyscan -H "${STAGING_HOST}" >> ~/.ssh/known_hosts
         env:
           STAGING_HOST: ${{ vars.STAGING_SSH_HOST || 'ussy3.promethean.rest' }}
+          STAGING_SSH_PRIVATE_KEY: ${{ secrets.STAGING_SSH_PRIVATE_KEY }}
       - run: chmod +x scripts/*.sh
       - name: deploy staging runtime
         run: ./scripts/deploy-remote.sh
@@ -86,11 +92,11 @@ jobs:
       - deploy-staging
     environment: staging
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v4
         with:
           version: 9
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: pnpm

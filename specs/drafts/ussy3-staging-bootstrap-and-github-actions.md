@@ -36,6 +36,7 @@ Bootstrap a staging deployment for `orgs/open-hax/proxx` on `error@ussy3.prometh
   - `ssh error@ussy.promethean.rest` works
   - `ssh error@ussy3.promethean.rest` now works and was used to bootstrap the staging host
 - `ussy3.promethean.rest` now serves the staging proxy over HTTPS and the API health endpoint is live.
+- Remaining CI hardening includes removing Node 20-based GitHub Action runtimes before GitHub's June 2026 Node 24 cutoff affects `checkout`, `setup-node`, and the SSH bootstrap path.
 - Production automation also has to account for the existing hand-built `ussy.promethean.rest` compose project name (`open-hax-openai-proxy`) and intermittent GitHub-runner DNS failures for that hostname.
 
 ## Goals
@@ -54,6 +55,7 @@ Bootstrap a staging deployment for `orgs/open-hax/proxx` on `error@ussy3.prometh
 - The broad live e2e suite is provider/environment sensitive; gating on it requires either a stable staging runtime or a more deterministic suite.
 - GitHub-hosted runners need deploy secrets and SSH keys that are not currently stored in the repo.
 - Staging/prod drift is likely if runtime files remain hand-managed outside the repo.
+- GitHub runner deprecation windows can break otherwise healthy workflows if core JavaScript actions are left on Node 20-era major versions.
 - Production verification can fail even after a healthy deploy if a GitHub-hosted runner cannot resolve `ussy.promethean.rest`; workflow verification should support an explicit IP resolve override while still validating the public hostname and TLS endpoint.
 
 ## Open questions
