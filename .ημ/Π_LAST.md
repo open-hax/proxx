@@ -1,17 +1,18 @@
 # Π handoff
 
-- time: 2026-03-20T16:31:18Z
-- branch: main
-- pre-Π HEAD: 427fb7c
-- Π HEAD: pending at capture time; resolved by the final git commit created after artifact assembly
+- time: 2026-03-21T21:46:39Z
+- branch: staging
+- pre-Π HEAD: adc1b5d
+- Π HEAD: pending at capture time; resolved by the final commit after artifact assembly
 
 ## Summary
-- Finalize the Phase 2 dashboard/analytics snapshot by recording the new tenant-scoped dashboard/provider analytics rollup behavior in the multitenancy user-model draft.
-- Reuse the immediately preceding green typecheck/test/build/web-build verification because this amend is documentation-only on top of that verified code state.
-- Refresh receipts and .ημ artifacts so the root superproject can reference a clean post-doc snapshot.
+- Capture the new z.ai live-env validation receipt so the repo records the missing provider investigation start in git rather than only in the working tree.
+- Refresh receipts and .ημ handoff artifacts for a receipt-only snapshot on the current staging line.
+
+## Notes
+- push branch: pi/fork-tax/2026-03-21-211345
+- origin remains https://github.com/open-hax/proxx.git; snapshot published on a dedicated Π branch plus tag while local staging stays available for ongoing work.
 
 ## Verification
-- pass: pnpm run typecheck (from 2026-03-20T16:29:46Z verification)
-- pass: pnpm test (316/316 from 2026-03-20T16:29:46Z verification)
-- pass: pnpm run build (from 2026-03-20T16:29:46Z verification)
-- pass: pnpm run web:build (from 2026-03-20T16:29:46Z verification)
+- pass: pnpm test and pnpm web:build from 2026-03-20T23:01:02Z receipt (hosts page changes already verified)
+- skipped: no additional executable target for receipt-only follow-up snapshot
