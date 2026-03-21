@@ -60,6 +60,7 @@ jobs:
           DEPLOY_HOST: ${{ vars.PRODUCTION_SSH_HOST || 'ussy.promethean.rest' }}
           DEPLOY_USER: ${{ vars.PRODUCTION_SSH_USER || 'error' }}
           DEPLOY_PATH: ${{ vars.PRODUCTION_DEPLOY_PATH || '~/devel/services/proxx' }}
+          DEPLOY_COMPOSE_PROJECT_NAME: ${{ vars.PRODUCTION_COMPOSE_PROJECT_NAME || 'open-hax-openai-proxy' }}
           DEPLOY_PUBLIC_HOST: ${{ vars.PRODUCTION_PUBLIC_HOST || 'ussy.promethean.rest' }}
           DEPLOY_ENABLE_TLS: 'true'
           DEPLOY_HEALTH_TIMEOUT_SECONDS: '240'
@@ -81,9 +82,13 @@ jobs:
     environment: production
     steps:
       - run: |
+          curl_args=()
+          if [[ -n "${PRODUCTION_RESOLVE_ADDRESS}" ]]; then
+            curl_args+=(--resolve "${PRODUCTION_PUBLIC_HOST}:443:${PRODUCTION_RESOLVE_ADDRESS}")
+          fi
           for attempt in $(seq 1 30); do
             echo "health-check attempt ${attempt}" >/dev/null
-            if curl -fsS -H "Authorization: Bearer ${PRODUCTION_AUTH_TOKEN}" "${PRODUCTION_BASE_URL}/health" >/dev/null; then
+            if curl -fsS "${curl_args[@]}" -H "Authorization: Bearer ${PRODUCTION_AUTH_TOKEN}" "${PRODUCTION_BASE_URL}/health" >/dev/null; then
               exit 0
             fi
             sleep 10
@@ -92,6 +97,15 @@ jobs:
         env:
           PRODUCTION_BASE_URL: ${{ vars.PRODUCTION_BASE_URL || 'https://ussy.promethean.rest' }}
           PRODUCTION_AUTH_TOKEN: ${{ secrets.PRODUCTION_PROXY_AUTH_TOKEN }}
-      - run: curl -fsS "${PRODUCTION_BASE_URL}" >/dev/null
+          PRODUCTION_PUBLIC_HOST: ${{ vars.PRODUCTION_PUBLIC_HOST || 'ussy.promethean.rest' }}
+          PRODUCTION_RESOLVE_ADDRESS: ${{ vars.PRODUCTION_VERIFY_RESOLVE_ADDRESS || '' }}
+      - run: |
+          curl_args=()
+          if [[ -n "${PRODUCTION_RESOLVE_ADDRESS}" ]]; then
+            curl_args+=(--resolve "${PRODUCTION_PUBLIC_HOST}:443:${PRODUCTION_RESOLVE_ADDRESS}")
+          fi
+          curl -fsS "${curl_args[@]}" "${PRODUCTION_BASE_URL}" >/dev/null
         env:
           PRODUCTION_BASE_URL: ${{ vars.PRODUCTION_BASE_URL || 'https://ussy.promethean.rest' }}
+          PRODUCTION_PUBLIC_HOST: ${{ vars.PRODUCTION_PUBLIC_HOST || 'ussy.promethean.rest' }}
+          PRODUCTION_RESOLVE_ADDRESS: ${{ vars.PRODUCTION_VERIFY_RESOLVE_ADDRESS || '' }}

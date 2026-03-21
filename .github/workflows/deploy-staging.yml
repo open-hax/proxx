@@ -65,6 +65,7 @@ jobs:
           DEPLOY_SOURCE_HOST: ${{ vars.STAGING_SOURCE_SSH_HOST || 'ussy.promethean.rest' }}
           DEPLOY_SOURCE_USER: ${{ vars.STAGING_SOURCE_SSH_USER || 'error' }}
           DEPLOY_SOURCE_PATH: ${{ vars.STAGING_SOURCE_DEPLOY_PATH || '~/devel/services/proxx' }}
+          DEPLOY_SOURCE_COMPOSE_PROJECT_NAME: ${{ vars.STAGING_SOURCE_COMPOSE_PROJECT_NAME || 'open-hax-openai-proxy' }}
           DEPLOY_ENV_FILE: ${{ secrets.STAGING_ENV_FILE }}
           DEPLOY_MODELS_JSON: ${{ secrets.STAGING_MODELS_JSON }}
       - name: staging deploy failure logs
