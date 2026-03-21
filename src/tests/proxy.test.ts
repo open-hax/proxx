@@ -1041,6 +1041,58 @@ test("routes glm chat requests through z.ai custom chat-completions path when ZA
   );
 });
 
+test("lists z.ai models through the custom models path when ZAI_API_KEY is configured", { concurrency: false }, async () => {
+  await withEnv(
+    {
+      ZAI_API_KEY: "zai-key-1", // pragma: allowlist secret
+      ZAI_PROVIDER_ID: undefined,
+      GEMINI_API_KEY: undefined,
+      OPENROUTER_API_KEY: undefined,
+      REQUESTY_API_TOKEN: undefined,
+      REQUESTY_API_KEY: undefined,
+    },
+    async () => {
+      await withProxyApp(
+        {
+          keys: [],
+          keysPayload: { providers: {} },
+          configOverrides: {
+            upstreamProviderId: "zai",
+            upstreamFallbackProviderIds: [],
+            localOllamaEnabled: false,
+          },
+          upstreamHandler: async (request) => {
+            assert.equal(request.url, "/api/paas/v4/models");
+
+            return {
+              status: 200,
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                object: "list",
+                data: [
+                  { id: "glm-5" },
+                  { id: "glm-4.7-flash" },
+                ],
+              }),
+            };
+          },
+        },
+        async ({ app }) => {
+          const response = await app.inject({ method: "GET", url: "/v1/models" });
+
+          assert.equal(response.statusCode, 200);
+          const payload: unknown = response.json();
+          assert.ok(isRecord(payload));
+          assert.equal(payload.object, "list");
+          assert.ok(Array.isArray(payload.data));
+          assert.ok(payload.data.some((entry: unknown) => isRecord(entry) && entry.id === "glm-5"));
+          assert.ok(payload.data.some((entry: unknown) => isRecord(entry) && entry.id === "glm-4.7-flash"));
+        },
+      );
+    },
+  );
+});
+
 test("routes mistral chat requests through env-backed Mistral provider", { concurrency: false }, async () => {
   await withEnv(
     {
