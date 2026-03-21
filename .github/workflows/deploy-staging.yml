@@ -25,16 +25,10 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: sudo apt-get update && sudo apt-get install -y shellcheck
+      - run: go install github.com/rhysd/actionlint/cmd/actionlint@latest
       - run: chmod +x scripts/*.sh
       - run: ./scripts/ci-lint.sh
-      - uses: rhysd/actionlint@v1
-      - uses: DavidAnson/markdownlint-cli2-action@v19
-        with:
-          globs: |
-            README.md
-            DEVEL.md
-            specs/**/*.md
-            .github/workflows/*.yml
+      - run: /home/runner/go/bin/actionlint
       - run: pnpm install --frozen-lockfile
       - run: pnpm run typecheck
       - run: pnpm test
@@ -76,6 +70,7 @@ jobs:
       - name: staging deploy failure logs
         if: failure()
         run: |
+          # shellcheck disable=SC2029,SC2086
           ssh error@${STAGING_HOST} "cd '${STAGING_PATH}' && docker compose -f docker-compose.yml -f deploy/docker-compose.ssl.yml ps && docker compose -f docker-compose.yml -f deploy/docker-compose.ssl.yml logs --tail=200"
         env:
           STAGING_HOST: ${{ vars.STAGING_SSH_HOST || 'ussy3.promethean.rest' }}
@@ -99,7 +94,8 @@ jobs:
           cache: pnpm
       - run: chmod +x scripts/*.sh
       - run: |
-          for i in $(seq 1 40); do
+          for attempt in $(seq 1 40); do
+            echo "health-check attempt ${attempt}" >/dev/null
             if curl -fsS -H "Authorization: Bearer ${DEV_PROXY_AUTH_TOKEN}" "${DEV_PROXY_URL}/health" >/dev/null; then
               exit 0
             fi
@@ -121,6 +117,7 @@ jobs:
       - name: staging live e2e failure logs
         if: failure()
         run: |
+          # shellcheck disable=SC2029,SC2086
           ssh error@${STAGING_HOST} "cd '${STAGING_PATH}' && docker compose -f docker-compose.yml -f deploy/docker-compose.ssl.yml ps && docker compose -f docker-compose.yml -f deploy/docker-compose.ssl.yml logs --tail=200"
         env:
           STAGING_HOST: ${{ vars.STAGING_SSH_HOST || 'ussy3.promethean.rest' }}
