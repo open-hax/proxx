@@ -72,12 +72,14 @@ const DEFAULT_HOST_DASHBOARD_TARGETS: readonly HostDashboardTarget[] = [
     label: "ussy.promethean.rest",
     baseUrl: "https://ussy.promethean.rest",
     publicHost: "ussy.promethean.rest",
+    authTokenEnv: "HOST_DASHBOARD_USSY_TOKEN",
   },
   {
     id: "ussy3",
     label: "ussy3.promethean.rest",
     baseUrl: "https://ussy3.promethean.rest",
     publicHost: "ussy3.promethean.rest",
+    authTokenEnv: "HOST_DASHBOARD_USSY3_TOKEN",
   },
 ];
 
@@ -229,8 +231,7 @@ export function resolveHostDashboardTargetToken(target: HostDashboardTarget, env
     }
   }
 
-  const defaultToken = env.PROXY_AUTH_TOKEN?.trim();
-  return defaultToken && defaultToken.length > 0 ? defaultToken : undefined;
+  return undefined;
 }
 
 export function inferSelfHostDashboardTargetId(input: {
@@ -299,6 +300,10 @@ export function parseCaddyRoutes(source: string): readonly HostDashboardRouteSum
         matchers.set(parts[0], parts.slice(2));
       }
     } else if (line.startsWith("reverse_proxy")) {
+      if (line.includes("{")) {
+        continue;
+      }
+
       const parts = line.split(/\s+/).slice(1);
       const matcher = parts[0]?.startsWith("@") ? parts[0] : undefined;
       const upstreams = matcher ? parts.slice(1) : parts;
@@ -421,17 +426,21 @@ async function loadLocalCaddyRoutes(runtimeRoot: string | undefined): Promise<re
 
 export async function collectLocalHostDashboardSnapshot(input: {
   readonly target: HostDashboardTarget;
-  readonly dockerSocketPath: string;
+  readonly dockerSocketPath?: string;
   readonly runtimeRoot?: string;
 }): Promise<HostDashboardSnapshot> {
   const errors: string[] = [];
   let containers: readonly HostDashboardContainerSummary[] = [];
   let routes: readonly HostDashboardRouteSummary[] = [];
 
-  try {
-    containers = await listDockerContainers(input.dockerSocketPath);
-  } catch (error) {
-    errors.push(error instanceof Error ? error.message : String(error));
+  if (input.dockerSocketPath) {
+    try {
+      containers = await listDockerContainers(input.dockerSocketPath);
+    } catch (error) {
+      errors.push(error instanceof Error ? error.message : String(error));
+    }
+  } else {
+    errors.push("docker socket not configured");
   }
 
   try {

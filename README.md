@@ -64,7 +64,7 @@ That means:
 - usage analytics aggregate across the fleet instead of fragmenting per instance
 
 Current boundary:
-- shared in v1: operator/admin state, OAuth credentials, analytics
+- shared in v1: operator/admin state, tenant API keys and proxy settings, provider credentials including OAuth accounts, analytics
 - still local for now: chat sessions, prompt affinity, and other convenience file state
 
 Env-backed providers:
@@ -132,22 +132,23 @@ What it shows:
 - partial/unreachable host cards instead of failing the whole page when one host is broken
 
 How it works:
-- the local proxx container reads Docker state through a mounted Docker socket
-- the local proxx container reads runtime files from a read-only runtime bind mount
+- the local proxx container can read Docker state through an opt-in mounted Docker socket
+- the local proxx container can read runtime files from an opt-in read-only runtime bind mount
 - remote hosts are queried over HTTPS through each host's own `/api/ui/hosts/self` endpoint
 
 Minimal env shape:
 
 ```bash
 HOST_DASHBOARD_SELF_ID=ussy
-HOST_DASHBOARD_TARGETS_JSON=[{"id":"ussy","label":"ussy.promethean.rest","baseUrl":"https://ussy.promethean.rest"},{"id":"ussy3","label":"ussy3.promethean.rest","baseUrl":"https://ussy3.promethean.rest","authTokenEnv":"HOST_DASHBOARD_USSY3_TOKEN"}]
+HOST_DASHBOARD_TARGETS_JSON=[{"id":"ussy","label":"ussy.promethean.rest","baseUrl":"https://ussy.promethean.rest","authTokenEnv":"HOST_DASHBOARD_USSY_TOKEN"},{"id":"ussy3","label":"ussy3.promethean.rest","baseUrl":"https://ussy3.promethean.rest","authTokenEnv":"HOST_DASHBOARD_USSY3_TOKEN"}]
+HOST_DASHBOARD_USSY_TOKEN=...
 HOST_DASHBOARD_USSY3_TOKEN=...
 ```
 
 Notes:
-- if a remote target omits `authTokenEnv`, the dashboard falls back to `PROXY_AUTH_TOKEN`
+- remote targets need an explicit `authToken` or `authTokenEnv`; the dashboard does not forward `PROXY_AUTH_TOKEN` implicitly
 - if a remote host is unreachable, misconfigured, or missing auth, it still renders as an error card so you can keep future hosts in the inventory before access is fixed
-- compose now mounts both `.:/workspace/runtime-repo:ro` and `/var/run/docker.sock:/var/run/docker.sock` for this page
+- local Docker/runtime introspection is opt-in via `docker-compose.host-dashboard.override.yml`
 
 ## Docker Compose
 
@@ -177,6 +178,7 @@ Notes:
 - The local compose stack now starts Postgres by default and sets `DATABASE_URL` so local runtime behavior matches Render more closely
 - `keys.json` is still required for startup.
 - `data/` stays bind-mounted for request logs and session history.
+- include `docker-compose.host-dashboard.override.yml` only when you want local host-dashboard Docker/runtime introspection
 - If you want to mount Factory CLI auth files, include `docker-compose.factory-auth.override.yml` explicitly.
 - The compose stack now defaults `OLLAMA_BASE_URL` to `http://ollama:11434` when attached to the shared `ai-infra` network; `CHROMA_URL` still defaults to `host.docker.internal` unless you also containerize Chroma on a shared network.
 - The web companion is exposed on `${PROXY_WEB_PORT:-5174}`.
@@ -201,6 +203,9 @@ Notes:
 - `OPENAI_BASE_URL` (default: `https://chatgpt.com/backend-api`)
 - `OLLAMA_BASE_URL` (default: `http://127.0.0.1:11434`)
 - `ZAI_BASE_URL` (optional; default: `https://api.z.ai/api/paas/v4`; alias: `ZHIPU_BASE_URL`)
+- `ZHIPU_BASE_URL` (optional alias of `ZAI_BASE_URL`)
+- `ZAI_PROVIDER_ID` (optional; default: `zai`; alias: `ZHIPU_PROVIDER_ID`)
+- `ZHIPU_PROVIDER_ID` (optional alias of `ZAI_PROVIDER_ID`)
 - `UPSTREAM_CHAT_COMPLETIONS_PATH` (default: `/v1/chat/completions`)
 - `OPENAI_CHAT_COMPLETIONS_PATH` (default: `/v1/chat/completions`)
 - `UPSTREAM_MESSAGES_PATH` (default: `/v1/messages`)

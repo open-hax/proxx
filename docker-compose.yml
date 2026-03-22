@@ -81,8 +81,8 @@ services:
       CHROMA_EMBED_MODEL: "${CHROMA_EMBED_MODEL:-nomic-embed-text:latest}"
       HOST_DASHBOARD_SELF_ID: "${HOST_DASHBOARD_SELF_ID:-}"
       HOST_DASHBOARD_TARGETS_JSON: "${HOST_DASHBOARD_TARGETS_JSON:-}"
-      HOST_DASHBOARD_DOCKER_SOCKET_PATH: "${HOST_DASHBOARD_DOCKER_SOCKET_PATH:-/var/run/docker.sock}"
-      HOST_DASHBOARD_RUNTIME_ROOT: "${HOST_DASHBOARD_RUNTIME_ROOT:-/workspace/runtime-repo}"
+      HOST_DASHBOARD_DOCKER_SOCKET_PATH: "${HOST_DASHBOARD_DOCKER_SOCKET_PATH:-}"
+      HOST_DASHBOARD_RUNTIME_ROOT: "${HOST_DASHBOARD_RUNTIME_ROOT:-}"
       HOST_DASHBOARD_REQUEST_TIMEOUT_MS: "${HOST_DASHBOARD_REQUEST_TIMEOUT_MS:-5000}"
       OTEL_EXPORTER_OTLP_ENDPOINT: "${OTEL_EXPORTER_OTLP_ENDPOINT:-}"
       OTEL_EXPORTER_OTLP_HEADERS: "${OTEL_EXPORTER_OTLP_HEADERS:-}"
@@ -92,8 +92,6 @@ services:
       - ./keys.json:/workspace/service-config/keys.json
       - ./models.json:/workspace/service-config/models.json:ro
       - ./data:/app/data
-      - ./:/workspace/runtime-repo:ro
-      - /var/run/docker.sock:/var/run/docker.sock
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:

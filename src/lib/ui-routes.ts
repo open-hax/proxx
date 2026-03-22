@@ -1990,8 +1990,8 @@ export async function registerUiRoutes(app: FastifyInstance, deps: UiRouteDepend
 
   let mcpSeedCache: { readonly loadedAt: number; readonly seeds: Awaited<ReturnType<typeof loadMcpSeeds>> } | undefined;
   const hostDashboardTargets = loadHostDashboardTargetsFromEnv(process.env);
-  const hostDashboardDockerSocketPath = process.env.HOST_DASHBOARD_DOCKER_SOCKET_PATH?.trim() || "/var/run/docker.sock";
-  const hostDashboardRuntimeRoot = process.env.HOST_DASHBOARD_RUNTIME_ROOT?.trim() || "/workspace/runtime-repo";
+  const hostDashboardDockerSocketPath = process.env.HOST_DASHBOARD_DOCKER_SOCKET_PATH?.trim() || undefined;
+  const hostDashboardRuntimeRoot = process.env.HOST_DASHBOARD_RUNTIME_ROOT?.trim() || undefined;
   const hostDashboardRequestTimeoutMs = toSafeLimit(process.env.HOST_DASHBOARD_REQUEST_TIMEOUT_MS, 5000, 60_000);
 
   const loadCachedMcpSeeds = async () => {
@@ -2926,7 +2926,7 @@ export async function registerUiRoutes(app: FastifyInstance, deps: UiRouteDepend
     reply.send(html);
   };
 
-  for (const path of ["/", "/chat", "/images", "/credentials", "/tools"] as const) {
+  for (const path of ["/", "/chat", "/images", "/credentials", "/tools", "/hosts"] as const) {
     app.get(path, async (_request, reply) => {
       await sendUiIndex(reply);
     });

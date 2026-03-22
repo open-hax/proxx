@@ -203,6 +203,8 @@ const ENTRY_COLUMNS = [
   "water_evaporated_ml",
 ].join(", ");
 
+const MAX_PAGE_SIZE = 1000;
+
 function sanitizeLimit(limit: number | undefined, fallback: number): number {
   if (typeof limit !== "number" || !Number.isFinite(limit)) {
     return fallback;
@@ -213,7 +215,7 @@ function sanitizeLimit(limit: number | undefined, fallback: number): number {
     return fallback;
   }
 
-  return normalized;
+  return Math.min(normalized, MAX_PAGE_SIZE);
 }
 
 export class SqlRequestUsageStore implements RequestLogMirror {
@@ -260,6 +262,7 @@ export class SqlRequestUsageStore implements RequestLogMirror {
 
     await this.sql.unsafe("CREATE INDEX IF NOT EXISTS idx_request_usage_entries_ts ON request_usage_entries(timestamp_ms DESC, id DESC);");
     await this.sql.unsafe("CREATE INDEX IF NOT EXISTS idx_request_usage_entries_tenant_ts ON request_usage_entries(tenant_id, timestamp_ms DESC, id DESC);");
+    await this.sql.unsafe("CREATE INDEX IF NOT EXISTS idx_request_usage_entries_account_ts ON request_usage_entries(account_id, timestamp_ms DESC, id DESC);");
     await this.sql.unsafe("CREATE INDEX IF NOT EXISTS idx_request_usage_entries_provider_ts ON request_usage_entries(provider_id, timestamp_ms DESC, id DESC);");
     await this.sql.unsafe("CREATE INDEX IF NOT EXISTS idx_request_usage_entries_provider_model_ts ON request_usage_entries(provider_id, model, timestamp_ms DESC, id DESC);");
   }
