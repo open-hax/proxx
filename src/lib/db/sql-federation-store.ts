@@ -50,6 +50,16 @@ export interface FederationProjectedAccountRecord {
   readonly updatedAt: string;
 }
 
+export interface FederationPeerSyncStateRecord {
+  readonly peerId: string;
+  readonly lastPulledSeq: number;
+  readonly lastPushedSeq: number;
+  readonly lastPullAt?: string;
+  readonly lastPushAt?: string;
+  readonly lastError?: string;
+  readonly updatedAt: string;
+}
+
 interface FederationPeerRow {
   id: string;
   owner_subject: string;
@@ -91,6 +101,16 @@ interface FederationProjectedAccountRow {
   imported_at: string | null;
   metadata: string | Record<string, unknown> | null;
   created_at: string;
+  updated_at: string;
+}
+
+interface FederationPeerSyncStateRow {
+  peer_id: string;
+  last_pulled_seq: string | number;
+  last_pushed_seq: string | number;
+  last_pull_at: string | null;
+  last_push_at: string | null;
+  last_error: string | null;
   updated_at: string;
 }
 
@@ -252,6 +272,18 @@ function toProjectedAccountRecord(row: FederationProjectedAccountRow): Federatio
   };
 }
 
+function toPeerSyncStateRecord(row: FederationPeerSyncStateRow): FederationPeerSyncStateRecord {
+  return {
+    peerId: row.peer_id,
+    lastPulledSeq: Number(row.last_pulled_seq),
+    lastPushedSeq: Number(row.last_pushed_seq),
+    lastPullAt: row.last_pull_at ?? undefined,
+    lastPushAt: row.last_push_at ?? undefined,
+    lastError: row.last_error ?? undefined,
+    updatedAt: row.updated_at,
+  };
+}
+
 function sanitizeLimit(limit: number | undefined, fallback: number): number {
   if (typeof limit !== "number" || !Number.isFinite(limit)) {
     return fallback;
@@ -352,6 +384,15 @@ export class SqlFederationStore {
         );
 
     return rows.map(toPeerRecord);
+  }
+
+  public async getPeer(id: string): Promise<FederationPeerRecord | undefined> {
+    const rows = await this.sql.unsafe<FederationPeerRow[]>(
+      "SELECT * FROM federation_peers WHERE id = $1 LIMIT 1",
+      [id.trim()],
+    );
+
+    return rows[0] ? toPeerRecord(rows[0]) : undefined;
   }
 
   public async appendDiffEvent(input: {
@@ -513,5 +554,48 @@ export class SqlFederationStore {
         );
 
     return rows.map(toProjectedAccountRecord);
+  }
+
+  public async getSyncState(peerId: string): Promise<FederationPeerSyncStateRecord | undefined> {
+    const rows = await this.sql.unsafe<FederationPeerSyncStateRow[]>(
+      `SELECT * FROM federation_peer_sync_state WHERE peer_id = $1 LIMIT 1`,
+      [peerId.trim()],
+    );
+
+    return rows[0] ? toPeerSyncStateRecord(rows[0]) : undefined;
+  }
+
+  public async upsertSyncState(input: {
+    readonly peerId: string;
+    readonly lastPulledSeq?: number;
+    readonly lastPushedSeq?: number;
+    readonly lastPullAt?: boolean;
+    readonly lastPushAt?: boolean;
+    readonly lastError?: string | null;
+  }): Promise<FederationPeerSyncStateRecord> {
+    const current = await this.getSyncState(input.peerId);
+    const rows = await this.sql.unsafe<FederationPeerSyncStateRow[]>(
+      `INSERT INTO federation_peer_sync_state (
+         peer_id, last_pulled_seq, last_pushed_seq, last_pull_at, last_push_at, last_error, updated_at
+       ) VALUES ($1, $2, $3, $4, $5, $6, NOW())
+       ON CONFLICT (peer_id) DO UPDATE SET
+         last_pulled_seq = EXCLUDED.last_pulled_seq,
+         last_pushed_seq = EXCLUDED.last_pushed_seq,
+         last_pull_at = EXCLUDED.last_pull_at,
+         last_push_at = EXCLUDED.last_push_at,
+         last_error = EXCLUDED.last_error,
+         updated_at = NOW()
+       RETURNING *`,
+      [
+        input.peerId.trim(),
+        input.lastPulledSeq ?? current?.lastPulledSeq ?? 0,
+        input.lastPushedSeq ?? current?.lastPushedSeq ?? 0,
+        input.lastPullAt ? new Date().toISOString() : current?.lastPullAt ?? null,
+        input.lastPushAt ? new Date().toISOString() : current?.lastPushAt ?? null,
+        input.lastError === undefined ? current?.lastError ?? null : input.lastError,
+      ],
+    );
+
+    return toPeerSyncStateRecord(rows[0]!);
   }
 }
