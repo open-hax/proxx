@@ -168,11 +168,21 @@ if [[ -n "${DEV_PROXY_AUTH_TOKEN:-}" ]]; then
     TENANT_KEY_TOKEN=$(echo "$TENANT_KEY_PAYLOAD" | python3 -c 'import sys, json; print(json.load(sys.stdin)["token"])' 2>/dev/null || true)
 
     if [[ -n "$TENANT_KEY_ID" && -n "$TENANT_KEY_TOKEN" ]]; then
-      RESPONSE=$(chat_completion_with_token "$TENANT_KEY_TOKEN" "openai/gpt-5.2-codex" "Reply with exactly one word: OK" 2>/dev/null) || RESPONSE=""
+      # Retry once on first tenant key request to handle cold-start connection delays
+      RESPONSE=""
+      for attempt in 1 2; do
+        RESPONSE=$(chat_completion_with_token "$TENANT_KEY_TOKEN" "openai/gpt-5.2-codex" "Reply with exactly one word: OK" 2>/dev/null) || RESPONSE=""
+        if [[ -n "$RESPONSE" ]]; then
+          break
+        fi
+        if [[ "$attempt" -eq 1 ]]; then
+          sleep 2
+        fi
+      done
       if [[ -n "$RESPONSE" ]]; then
         pass "tenant API key can access /v1/chat/completions"
       else
-        fail "tenant API key chat completion" "no response"
+        fail "tenant API key chat completion" "no response after retry"
       fi
 
       TENANT_KEYS=$(curl_json "${BASE}/api/ui/tenants/default/api-keys" 2>/dev/null) || TENANT_KEYS=""
