@@ -370,7 +370,7 @@ function providerAccountsForRequestWithPolicy(
 
 function providerUsesOpenAiChatCompletions(providerId: string): boolean {
   const normalized = providerId.trim().toLowerCase();
-  return normalized === "openrouter" || normalized === "requesty";
+  return normalized === "ob1" || normalized === "openrouter" || normalized === "requesty";
 }
 
 function planCostTier(planType: string | undefined): number {
