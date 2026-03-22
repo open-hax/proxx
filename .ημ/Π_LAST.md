@@ -1,17 +1,18 @@
 # Π handoff
 
-- time: 2026-03-20T16:31:18Z
-- branch: main
-- pre-Π HEAD: 427fb7c
-- Π HEAD: pending at capture time; resolved by the final git commit created after artifact assembly
+- time: 2026-03-21T22:17:42Z
+- branch: staging
+- pre-Π HEAD: 100df62
+- Π HEAD: pending at capture time; resolved by the final commit after artifact assembly
 
 ## Summary
-- Finalize the Phase 2 dashboard/analytics snapshot by recording the new tenant-scoped dashboard/provider analytics rollup behavior in the multitenancy user-model draft.
-- Reuse the immediately preceding green typecheck/test/build/web-build verification because this amend is documentation-only on top of that verified code state.
-- Refresh receipts and .ημ artifacts so the root superproject can reference a clean post-doc snapshot.
+- Capture the z.ai live-env validation spec/results plus receipts after verifying compose pass-through, direct upstream probes, and the temporary local zai-pinned proxy.
+- Keep the latest z.ai catalog-path code snapshot aligned with its supporting docs on the current staging line.
+
+## Notes
+- push branch: pi/fork-tax/2026-03-21-211345
+- origin remains https://github.com/open-hax/proxx.git; snapshot published on a dedicated Π branch plus tag while local staging stays available for ongoing work.
 
 ## Verification
-- pass: pnpm run typecheck (from 2026-03-20T16:29:46Z verification)
-- pass: pnpm test (316/316 from 2026-03-20T16:29:46Z verification)
-- pass: pnpm run build (from 2026-03-20T16:29:46Z verification)
-- pass: pnpm run web:build (from 2026-03-20T16:29:46Z verification)
+- pass: pnpm test (325/325) from 2026-03-21T22:13:55Z receipt
+- pass: docker compose up -d --build open-hax-openai-proxy + curl /health + direct z.ai /models/chat/completions + temporary local zai proxy probe from 2026-03-21T22:13:55Z receipt

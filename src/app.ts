@@ -69,6 +69,7 @@ import { SqlCredentialStore } from "./lib/db/sql-credential-store.js";
 import { AccountHealthStore } from "./lib/db/account-health-store.js";
 import { EventStore } from "./lib/db/event-store.js";
 import { createDefaultLabelers } from "./lib/db/event-labelers.js";
+import { SqlRequestUsageStore } from "./lib/db/sql-request-usage-store.js";
 import { SqlAuthPersistence } from "./lib/auth/sql-persistence.js";
 import { SqlGitHubAllowlist } from "./lib/auth/github-allowlist.js";
 import { seedFromJsonFile, seedFromJsonValue, seedFactoryAuthFromFiles, seedModelsFromFile, loadModelsFromDb, getConfig, setConfig } from "./lib/db/json-seeder.js";
@@ -351,6 +352,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
   let sqlGitHubAllowlist: SqlGitHubAllowlist | undefined;
   let accountHealthStore: AccountHealthStore | undefined;
   let eventStore: EventStore | undefined;
+  let sqlRequestUsageStore: SqlRequestUsageStore | undefined;
 
   if (config.databaseUrl) {
     try {
@@ -371,6 +373,10 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
         eventStore.registerLabeler(labeler);
       }
       app.log.info("event store initialized");
+
+      sqlRequestUsageStore = new SqlRequestUsageStore(sql);
+      await sqlRequestUsageStore.init();
+      app.log.info("request usage store initialized");
 
       sqlAuthPersistence = new SqlAuthPersistence(sql);
       await sqlAuthPersistence.init();
@@ -455,6 +461,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     config.requestLogsFilePath,
     config.requestLogsMaxEntries,
     config.requestLogsFlushMs,
+    sqlRequestUsageStore,
   );
   await requestLogStore.warmup();
   const promptAffinityStore = new PromptAffinityStore(
@@ -1954,6 +1961,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     requestLogStore,
     credentialStore: runtimeCredentialStore,
     sqlCredentialStore,
+    sqlRequestUsageStore,
     authPersistence: sqlAuthPersistence,
     proxySettingsStore,
     eventStore,

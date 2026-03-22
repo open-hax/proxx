@@ -1041,6 +1041,139 @@ test("routes glm chat requests through z.ai custom chat-completions path when ZA
   );
 });
 
+test("lists z.ai models through the custom models path when ZAI_API_KEY is configured", { concurrency: false }, async () => {
+  await withEnv(
+    {
+      ZAI_API_KEY: "zai-key-1", // pragma: allowlist secret
+      ZAI_PROVIDER_ID: undefined,
+      GEMINI_API_KEY: undefined,
+      OPENROUTER_API_KEY: undefined,
+      REQUESTY_API_TOKEN: undefined,
+      REQUESTY_API_KEY: undefined,
+    },
+    async () => {
+      await withProxyApp(
+        {
+          keys: [],
+          keysPayload: { providers: {} },
+          configOverrides: {
+            upstreamProviderId: "zai",
+            upstreamFallbackProviderIds: [],
+            localOllamaEnabled: false,
+          },
+          upstreamHandler: async (request) => {
+            assert.equal(request.url, "/api/paas/v4/models");
+
+            return {
+              status: 200,
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                object: "list",
+                data: [
+                  { id: "glm-5" },
+                  { id: "glm-4.7-flash" },
+                ],
+              }),
+            };
+          },
+        },
+        async ({ app }) => {
+          const response = await app.inject({ method: "GET", url: "/v1/models" });
+
+          assert.equal(response.statusCode, 200);
+          const payload: unknown = response.json();
+          assert.ok(isRecord(payload));
+          assert.equal(payload.object, "list");
+          assert.ok(Array.isArray(payload.data));
+          assert.ok(payload.data.some((entry: unknown) => isRecord(entry) && entry.id === "glm-5"));
+          assert.ok(payload.data.some((entry: unknown) => isRecord(entry) && entry.id === "glm-4.7-flash"));
+        },
+      );
+    },
+  );
+});
+
+test("records z.ai chat-completions usage in request logs", { concurrency: false }, async () => {
+  await withEnv(
+    {
+      ZAI_API_KEY: "zai-key-1", // pragma: allowlist secret
+      ZAI_PROVIDER_ID: undefined,
+      GEMINI_API_KEY: undefined,
+      OPENROUTER_API_KEY: undefined,
+      REQUESTY_API_TOKEN: undefined,
+      REQUESTY_API_KEY: undefined,
+    },
+    async () => {
+      await withProxyApp(
+        {
+          keys: [],
+          keysPayload: { providers: {} },
+          configOverrides: {
+            upstreamProviderId: "zai",
+            upstreamFallbackProviderIds: [],
+            localOllamaEnabled: false,
+          },
+          upstreamHandler: async () => ({
+            status: 200,
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              id: "chatcmpl_zai_usage",
+              object: "chat.completion",
+              created: 1772516801,
+              model: "glm-5-turbo",
+              choices: [{
+                index: 0,
+                message: { role: "assistant", content: "zai-usage-ok" },
+                finish_reason: "stop",
+              }],
+              usage: {
+                prompt_tokens: 11,
+                completion_tokens: 7,
+                total_tokens: 18,
+                prompt_tokens_details: { cached_tokens: 3 },
+                completion_tokens_details: { reasoning_tokens: 5 },
+              },
+            }),
+          }),
+        },
+        async ({ app }) => {
+          const response = await app.inject({
+            method: "POST",
+            url: "/v1/chat/completions",
+            headers: {
+              "content-type": "application/json"
+            },
+            payload: {
+              model: "glm-5-turbo",
+              messages: [{ role: "user", content: "hello" }],
+              stream: false,
+            }
+          });
+
+          assert.equal(response.statusCode, 200);
+
+          const logsResponse = await app.inject({
+            method: "GET",
+            url: "/api/ui/request-logs?providerId=zai&limit=1"
+          });
+          assert.equal(logsResponse.statusCode, 200);
+
+          const payload: unknown = logsResponse.json();
+          assert.ok(isRecord(payload));
+          assert.ok(Array.isArray(payload.entries));
+          assert.ok(isRecord(payload.entries[0]));
+          assert.equal(payload.entries[0].providerId, "zai");
+          assert.equal(payload.entries[0].promptTokens, 11);
+          assert.equal(payload.entries[0].completionTokens, 7);
+          assert.equal(payload.entries[0].totalTokens, 18);
+          assert.equal(payload.entries[0].cachedPromptTokens, 3);
+          assert.equal(payload.entries[0].cacheHit, true);
+        },
+      );
+    },
+  );
+});
+
 test("routes mistral chat requests through env-backed Mistral provider", { concurrency: false }, async () => {
   await withEnv(
     {
@@ -1511,7 +1644,7 @@ test("does not misclassify gemini models as local ollama because they contain mi
   );
 });
 
-test("falls back from vivgrid to ollama-cloud for shared models when primary provider auth fails", async () => {
+test("prefers ollama-cloud over vivgrid for glm shared models when both are available", async () => {
   const observedAuth: string[] = [];
 
   await withProxyApp(
@@ -1582,8 +1715,7 @@ test("falls back from vivgrid to ollama-cloud for shared models when primary pro
 
       assert.equal(response.statusCode, 200);
       assert.equal(response.headers["x-open-hax-upstream-provider"], "ollama-cloud");
-      assert.ok(observedAuth.length >= 2);
-      assert.deepEqual(observedAuth.slice(-2), ["vivgrid-failing-key", "ollama-cloud-working-key"]);
+      assert.deepEqual(observedAuth, ["ollama-cloud-working-key"]);
 
       const payload: unknown = response.json();
       assert.ok(isRecord(payload));
@@ -1741,7 +1873,7 @@ test("tries all candidate keys until one succeeds", async () => {
   );
 });
 
-test("tries all primary provider accounts before fallback provider accounts", async () => {
+test("glm provider ordering uses ollama-cloud before vivgrid candidate keys", async () => {
   const observedAuth: string[] = [];
 
   await withProxyApp(
@@ -1808,7 +1940,7 @@ test("tries all primary provider accounts before fallback provider accounts", as
 
       assert.equal(response.statusCode, 200);
       assert.equal(response.headers["x-open-hax-upstream-provider"], "ollama-cloud");
-      assert.deepEqual(observedAuth, ["vivgrid-bad-a", "vivgrid-bad-b", "vivgrid-bad-c", "ollama-good"]);
+      assert.deepEqual(observedAuth, ["ollama-good"]);
     }
   );
 });

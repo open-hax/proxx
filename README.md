@@ -49,13 +49,32 @@ Alternative credential sources:
 - When `DATABASE_URL` is configured, SQL-backed credentials are also loaded and become the runtime source of truth for the proxy UI and request routing
 - `DISABLED_PROVIDER_IDS` can remove providers such as `vivgrid` from live routing without deleting their stored credentials
 
+## Shared-state federation v1
+
+If you want several `proxx` instances to behave like one mirrored operator surface, point them at the same `DATABASE_URL`.
+
+In this mode the shared SQL database becomes the control plane for:
+- GitHub/UI operator login state and tenant membership
+- tenant API keys and proxy settings
+- provider credentials, including OpenAI OAuth accounts added through the UI
+- dashboard / analytics usage data
+
+That means:
+- add an OpenAI OAuth account on one instance -> the other instances can pick it up from the same DB-backed credential store
+- usage analytics aggregate across the fleet instead of fragmenting per instance
+
+Current boundary:
+- shared in v1: operator/admin state, OAuth credentials, analytics
+- still local for now: chat sessions, prompt affinity, and other convenience file state
+
 Env-backed providers:
 
 - `OPENROUTER_API_KEY` automatically exposes an `openrouter` provider route.
 - `REQUESTY_API_TOKEN` (or `REQUESTY_API_KEY`) automatically exposes a `requesty` provider route.
 - `GEMINI_API_KEY` automatically exposes a `gemini` provider route (native Gemini REST via `generateContent`).
+- `ZAI_API_KEY` (or `ZHIPU_API_KEY`) automatically exposes a `zai` provider route (z.ai GLM chat via `https://api.z.ai/api/paas/v4`).
 - `openrouter` and `requesty` default to OpenAI-compatible `/v1/chat/completions` routing.
-- You can target them by setting `UPSTREAM_PROVIDER_ID=openrouter|requesty|gemini`, or by listing them in `UPSTREAM_FALLBACK_PROVIDER_IDS`.
+- You can target them by setting `UPSTREAM_PROVIDER_ID=openrouter|requesty|gemini|zai`, or by listing them in `UPSTREAM_FALLBACK_PROVIDER_IDS`.
 
 ## Run
 
@@ -98,6 +117,33 @@ Preview the built UI:
 pnpm web:preview
 ```
 
+## Host fleet dashboard
+
+The console now includes a **Hosts** page for the ussy fleet.
+
+What it shows:
+- per-host container inventory
+- routed subdomains parsed from the runtime Caddyfile
+- partial/unreachable host cards instead of failing the whole page when one host is broken
+
+How it works:
+- the local proxx container reads Docker state through a mounted Docker socket
+- the local proxx container reads runtime files from a read-only runtime bind mount
+- remote hosts are queried over HTTPS through each host's own `/api/ui/hosts/self` endpoint
+
+Minimal env shape:
+
+```bash
+HOST_DASHBOARD_SELF_ID=ussy
+HOST_DASHBOARD_TARGETS_JSON=[{"id":"ussy","label":"ussy.promethean.rest","baseUrl":"https://ussy.promethean.rest"},{"id":"ussy3","label":"ussy3.promethean.rest","baseUrl":"https://ussy3.promethean.rest","authTokenEnv":"HOST_DASHBOARD_USSY3_TOKEN"}]
+HOST_DASHBOARD_USSY3_TOKEN=...
+```
+
+Notes:
+- if a remote target omits `authTokenEnv`, the dashboard falls back to `PROXY_AUTH_TOKEN`
+- if a remote host is unreachable, misconfigured, or missing auth, it still renders as an error card so you can keep future hosts in the inventory before access is fixed
+- compose now mounts both `.:/workspace/runtime-repo:ro` and `/var/run/docker.sock:/var/run/docker.sock` for this page
+
 ## Docker Compose
 
 From this repository root:
@@ -111,7 +157,7 @@ docker compose logs -f
 Notes:
 
 - credentials are required for upstream proxying, but they can come from `keys.json`, inline JSON env, provider-specific env vars, or SQL when `DATABASE_URL` is configured
-- `data/` stores request logs and session history
+- `data/` still stores local fallback request logs and session history; with `DATABASE_URL` configured, shared fleet analytics are also mirrored into SQL
 - The API defaults to `127.0.0.1:8789`
 - The web companion is exposed on `${PROXY_WEB_PORT:-5174}`
 - The local compose stack now starts Postgres by default and sets `DATABASE_URL` so local runtime behavior matches Render more closely
@@ -133,10 +179,11 @@ Notes:
 - `UPSTREAM_PROVIDER_ID` (default: `vivgrid`; provider key in `keys.json`)
 - `UPSTREAM_FALLBACK_PROVIDER_IDS` (default: auto `ollama-cloud` when primary is `vivgrid`, or `vivgrid` when primary is `ollama-cloud`; comma-separated)
 - `UPSTREAM_BASE_URL` (default: `https://api.vivgrid.com`)
-- `UPSTREAM_PROVIDER_BASE_URLS` (optional mapping: `provider=url,provider=url`; defaults include `vivgrid=https://api.vivgrid.com` and `ollama-cloud=https://ollama.com`)
+- `UPSTREAM_PROVIDER_BASE_URLS` (optional mapping: `provider=url,provider=url`; defaults include `vivgrid=https://api.vivgrid.com`, `ollama-cloud=https://ollama.com`, `zai=https://api.z.ai/api/paas/v4`, `openrouter=https://openrouter.ai/api/v1`, `requesty=https://router.requesty.ai/v1`, `gemini=https://generativelanguage.googleapis.com/v1beta`, and `factory=https://api.factory.ai`)
 - `OPENAI_PROVIDER_ID` (default: `openai`; provider key in `keys.json`)
 - `OPENAI_BASE_URL` (default: `https://chatgpt.com/backend-api`)
 - `OLLAMA_BASE_URL` (default: `http://127.0.0.1:11434`)
+- `ZAI_BASE_URL` (optional; default: `https://api.z.ai/api/paas/v4`; alias: `ZHIPU_BASE_URL`)
 - `UPSTREAM_CHAT_COMPLETIONS_PATH` (default: `/v1/chat/completions`)
 - `OPENAI_CHAT_COMPLETIONS_PATH` (default: `/v1/chat/completions`)
 - `UPSTREAM_MESSAGES_PATH` (default: `/v1/messages`)

@@ -126,6 +126,50 @@ export interface ProxyUiSettings {
   readonly tenantId?: string;
 }
 
+export interface HostDashboardContainerSummary {
+  readonly id: string;
+  readonly name: string;
+  readonly image: string;
+  readonly state: string;
+  readonly status: string;
+  readonly ports: readonly string[];
+}
+
+export interface HostDashboardRouteSummary {
+  readonly host: string;
+  readonly matcher?: string;
+  readonly matchPaths: readonly string[];
+  readonly upstreams: readonly string[];
+}
+
+export interface HostDashboardSummary {
+  readonly containerCount: number;
+  readonly runningCount: number;
+  readonly healthyCount: number;
+  readonly routeCount: number;
+}
+
+export interface HostDashboardSnapshot {
+  readonly id: string;
+  readonly label: string;
+  readonly source: "local" | "remote";
+  readonly fetchedAt: string;
+  readonly reachable: boolean;
+  readonly baseUrl?: string;
+  readonly publicHost?: string;
+  readonly notes?: string;
+  readonly errors: readonly string[];
+  readonly containers: readonly HostDashboardContainerSummary[];
+  readonly routes: readonly HostDashboardRouteSummary[];
+  readonly summary: HostDashboardSummary;
+}
+
+export interface HostsOverview {
+  readonly generatedAt: string;
+  readonly selfTargetId: string | null;
+  readonly hosts: readonly HostDashboardSnapshot[];
+}
+
 export interface UsageAccountSummary {
   readonly accountId: string;
   readonly displayName: string;
@@ -516,6 +560,10 @@ export async function getUsageOverview(sort?: string, window?: "daily" | "weekly
   }
   const suffix = query.size > 0 ? `?${query.toString()}` : "";
   return requestJson<UsageOverview>(`/api/ui/dashboard/overview${suffix}`);
+}
+
+export async function getHostsOverview(): Promise<HostsOverview> {
+  return requestJson<HostsOverview>("/api/ui/hosts/overview");
 }
 
 export async function getProviderModelAnalytics(sort?: string, window?: "daily" | "weekly" | "monthly"): Promise<ProviderModelAnalytics> {

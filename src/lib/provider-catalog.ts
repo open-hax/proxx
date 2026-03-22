@@ -24,6 +24,15 @@ interface CachedCatalog {
   readonly resolved: ResolvedCatalogWithPreferences;
 }
 
+function providerModelCatalogPaths(providerId: string): string[] {
+  const normalizedProviderId = providerId.trim().toLowerCase();
+  if (normalizedProviderId === "zai") {
+    return ["/models"];
+  }
+
+  return ["/v1/models"];
+}
+
 function uniqueOrdered(values: readonly string[]): string[] {
   const seen = new Set<string>();
   const result: string[] = [];
@@ -103,14 +112,15 @@ export class ProviderCatalogStore {
     const discoveredModels: string[] = [];
 
     for (const route of this.routes) {
-      const providerModels = await this.fetchProviderModelCatalog(route);
+      const sourceEndpoints = providerModelCatalogPaths(route.providerId);
+      const providerModels = await this.fetchProviderModelCatalog(route, sourceEndpoints);
       if (providerModels.length > 0) {
         providerCatalogs[route.providerId] = {
           providerId: route.providerId,
           modelIds: providerModels,
           fetchedAt: Date.now(),
           stale: false,
-          sourceEndpoints: ["/v1/models"],
+          sourceEndpoints,
         };
         discoveredModels.push(...providerModels);
       }
