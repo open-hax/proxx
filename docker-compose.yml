@@ -53,6 +53,12 @@ services:
       IMAGE_COST_USD_DEFAULT: "${IMAGE_COST_USD_DEFAULT:-0}"
       IMAGE_COST_USD_BY_PROVIDER: "${IMAGE_COST_USD_BY_PROVIDER:-}"
       OLLAMA_BASE_URL: "${OLLAMA_BASE_URL:-http://ollama:11434}"
+      ZAI_API_KEY: "${ZAI_API_KEY:-}"
+      ZHIPU_API_KEY: "${ZHIPU_API_KEY:-}"
+      ZAI_PROVIDER_ID: "${ZAI_PROVIDER_ID:-zai}"
+      ZHIPU_PROVIDER_ID: "${ZHIPU_PROVIDER_ID:-}"
+      ZAI_BASE_URL: "${ZAI_BASE_URL:-https://api.z.ai/api/paas/v4}"
+      ZHIPU_BASE_URL: "${ZHIPU_BASE_URL:-}"
       UPSTREAM_CHAT_COMPLETIONS_PATH: "${UPSTREAM_CHAT_COMPLETIONS_PATH:-/v1/chat/completions}"
       OPENAI_CHAT_COMPLETIONS_PATH: "${OPENAI_CHAT_COMPLETIONS_PATH:-/codex/responses/compact}"
       UPSTREAM_MESSAGES_PATH: "${UPSTREAM_MESSAGES_PATH:-/v1/messages}"
@@ -73,6 +79,11 @@ services:
       CHROMA_URL: "${CHROMA_URL:-http://host.docker.internal:8000}"
       CHROMA_COLLECTION: "${CHROMA_COLLECTION:-open_hax_proxy_sessions}"
       CHROMA_EMBED_MODEL: "${CHROMA_EMBED_MODEL:-nomic-embed-text:latest}"
+      HOST_DASHBOARD_SELF_ID: "${HOST_DASHBOARD_SELF_ID:-}"
+      HOST_DASHBOARD_TARGETS_JSON: "${HOST_DASHBOARD_TARGETS_JSON:-}"
+      HOST_DASHBOARD_DOCKER_SOCKET_PATH: "${HOST_DASHBOARD_DOCKER_SOCKET_PATH:-/var/run/docker.sock}"
+      HOST_DASHBOARD_RUNTIME_ROOT: "${HOST_DASHBOARD_RUNTIME_ROOT:-/workspace/runtime-repo}"
+      HOST_DASHBOARD_REQUEST_TIMEOUT_MS: "${HOST_DASHBOARD_REQUEST_TIMEOUT_MS:-5000}"
       OTEL_EXPORTER_OTLP_ENDPOINT: "${OTEL_EXPORTER_OTLP_ENDPOINT:-}"
       OTEL_EXPORTER_OTLP_HEADERS: "${OTEL_EXPORTER_OTLP_HEADERS:-}"
       OTEL_SERVICE_NAME: "${OTEL_SERVICE_NAME:-proxx}"
@@ -81,6 +92,8 @@ services:
       - ./keys.json:/workspace/service-config/keys.json
       - ./models.json:/workspace/service-config/models.json:ro
       - ./data:/app/data
+      - ./:/workspace/runtime-repo:ro
+      - /var/run/docker.sock:/var/run/docker.sock
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:

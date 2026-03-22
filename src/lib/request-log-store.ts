@@ -259,6 +259,11 @@ export interface RequestLogPerfSummary {
   readonly updatedAt: number;
 }
 
+export interface RequestLogMirror {
+  upsertEntry(entry: RequestLogEntry): Promise<void>;
+  close?(): Promise<void>;
+}
+
 interface RequestLogDb {
   readonly entries: RequestLogEntry[];
   readonly hourlyBuckets?: readonly RequestLogHourlyBucket[];
@@ -889,6 +894,7 @@ export class RequestLogStore {
   private persistChain: Promise<void> = Promise.resolve();
   private persistTimer: ReturnType<typeof setTimeout> | null = null;
   private persistPending = false;
+  private mirrorChain: Promise<void> = Promise.resolve();
   private journalLineCount = 0;
   private needsCompaction = false;
   private closed = false;
@@ -897,6 +903,7 @@ export class RequestLogStore {
     private readonly filePath: string,
     private readonly maxEntries: number = 1000,
     private readonly persistIntervalMs: number = 1000,
+    private readonly mirror?: RequestLogMirror,
   ) {}
 
   public async warmup(): Promise<void> {
@@ -965,6 +972,7 @@ export class RequestLogStore {
     this.updatePerfIndexFromEntry(entry);
     this.pendingJournalEntries.push(entry);
     this.schedulePersist();
+    this.queueMirror(entry);
 
     return entry;
   }
@@ -1037,6 +1045,7 @@ export class RequestLogStore {
     this.updatePerfIndexFromEntry(next);
     this.pendingJournalEntries.push(next);
     this.schedulePersist();
+    this.queueMirror(next);
     return next;
   }
 
@@ -1157,6 +1166,22 @@ export class RequestLogStore {
     }
     await this.queuePersist(true);
     await this.persistChain.catch(() => undefined);
+    await this.mirrorChain.catch(() => undefined);
+    if (this.mirror?.close) {
+      await this.mirror.close().catch(() => undefined);
+    }
+  }
+
+  private queueMirror(entry: RequestLogEntry): void {
+    if (!this.mirror) {
+      return;
+    }
+
+    this.mirrorChain = this.mirrorChain
+      .then(async () => {
+        await this.mirror?.upsertEntry(entry);
+      })
+      .catch(() => undefined);
   }
 
   private matchesFilters(entry: RequestLogEntry, filters: RequestLogFilters = {}): boolean {

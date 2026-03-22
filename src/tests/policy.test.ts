@@ -48,15 +48,15 @@ test("claude-opus-4-6 provider ordering prefers factory and excludes openai", ()
   assert.deepEqual(ordered, ["factory", "requesty", "vivgrid"]);
 });
 
-test("preserves provider order for non-gpt models", () => {
+test("prefers ollama-cloud then zai for glm provider ordering", () => {
   const policy = createPolicyEngine(DEFAULT_POLICY_CONFIG);
 
   const ordered = policy.orderProviders(
-    ["vivgrid", "ollama-cloud", "openai"],
+    ["vivgrid", "requesty", "zai", "ollama-cloud", "openai"],
     createModelInfo("glm-5"),
   );
 
-  assert.deepEqual(ordered, ["vivgrid", "ollama-cloud", "openai"]);
+  assert.deepEqual(ordered, ["ollama-cloud", "zai", "requesty", "openai", "vivgrid"]);
 });
 
 test("keeps ollama-cloud available for gpt-oss provider ordering", () => {

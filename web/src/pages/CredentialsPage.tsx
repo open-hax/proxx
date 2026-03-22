@@ -472,7 +472,7 @@ export function CredentialsPage(): JSX.Element {
 
     try {
       const payload = await startOpenAiBrowserOAuth(getApiOrigin());
-      const popup = window.open(payload.authorizeUrl, "openai-oauth", "popup=yes,width=560,height=720");
+      const popup = window.open(payload.authorizeUrl, "openai-oauth");
 
       if (!popup) {
         throw new Error("Browser blocked popup. Allow popups and try again.");

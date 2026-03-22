@@ -5,6 +5,7 @@ import { getProxyUiSettings, getSavedAuthToken, saveAuthToken, saveProxyUiSettin
 import { ChatPage } from "./pages/ChatPage";
 import { CredentialsPage } from "./pages/CredentialsPage";
 import { DashboardPage } from "./pages/DashboardPage";
+import { HostsPage } from "./pages/HostsPage";
 import { ToolsPage } from "./pages/ToolsPage";
 import { ImagesPage } from "./pages/ImagesPage";
 import { AnalyticsPage } from "./pages/AnalyticsPage";
@@ -124,6 +125,9 @@ export function App(): JSX.Element {
         <NavLink to="/analytics" className={({ isActive }) => navClass(isActive)}>
           Analytics
         </NavLink>
+        <NavLink to="/hosts" className={({ isActive }) => navClass(isActive)}>
+          Hosts
+        </NavLink>
         <NavLink to="/images" className={({ isActive }) => navClass(isActive)}>
           Images
         </NavLink>
@@ -140,6 +144,7 @@ export function App(): JSX.Element {
           <Route path="/" element={<DashboardPage />} />
           <Route path="/chat" element={<ChatPage />} />
           <Route path="/analytics" element={<AnalyticsPage />} />
+          <Route path="/hosts" element={<HostsPage />} />
           <Route path="/images" element={<ImagesPage />} />
           <Route path="/credentials" element={<CredentialsPage />} />
           <Route path="/tools" element={<ToolsPage />} />
