@@ -154,7 +154,7 @@ Notes:
 Container/runtime workflows now live in the workspace devops home:
 
 ```bash
-cd /home/err/devel/services/proxx
+cd /path/to/workspace/services/proxx
 docker compose up --build -d
 docker compose ps
 docker compose logs -f
