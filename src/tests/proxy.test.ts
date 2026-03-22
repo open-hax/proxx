@@ -248,6 +248,37 @@ async function withPatchedFetch(
   }
 }
 
+async function withZaiProxyApp(
+  upstreamHandler: (request: IncomingMessage, body: string) => Promise<{ status: number; headers?: Record<string, string>; body: string }>,
+  fn: (ctx: TestContext) => Promise<void>,
+): Promise<void> {
+  await withEnv(
+    {
+      ZAI_API_KEY: "zai-key-1", // pragma: allowlist secret
+      ZAI_PROVIDER_ID: undefined,
+      GEMINI_API_KEY: undefined,
+      OPENROUTER_API_KEY: undefined,
+      REQUESTY_API_TOKEN: undefined,
+      REQUESTY_API_KEY: undefined,
+    },
+    async () => {
+      await withProxyApp(
+        {
+          keys: [],
+          keysPayload: { providers: {} },
+          configOverrides: {
+            upstreamProviderId: "zai",
+            upstreamFallbackProviderIds: [],
+            localOllamaEnabled: false,
+          },
+          upstreamHandler,
+        },
+        fn,
+      );
+    },
+  );
+}
+
 test("rotates API key when first key is rate-limited", async () => {
   const observedKeys: string[] = [];
 
@@ -1042,204 +1073,141 @@ test("maps Gemini 3.1 Pro reasoning effort to thinkingLevel", { concurrency: fal
 });
 
 test("routes glm chat requests through z.ai custom chat-completions path when ZAI_API_KEY is configured", { concurrency: false }, async () => {
-  await withEnv(
-    {
-      ZAI_API_KEY: "zai-key-1", // pragma: allowlist secret
-      ZAI_PROVIDER_ID: undefined,
-      GEMINI_API_KEY: undefined,
-      OPENROUTER_API_KEY: undefined,
-      REQUESTY_API_TOKEN: undefined,
-      REQUESTY_API_KEY: undefined,
+  await withZaiProxyApp(
+    async (request, body) => {
+      assert.equal(request.url, "/api/paas/v4/chat/completions");
+      assert.equal(request.headers.authorization, "Bearer zai-key-1");
+
+      const parsed = JSON.parse(body) as Record<string, unknown>;
+      assert.equal(parsed.model, "glm-5");
+      assert.ok(Array.isArray(parsed.messages));
+
+      return {
+        status: 200,
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          id: "chatcmpl_zai",
+          object: "chat.completion",
+          created: 1772516801,
+          model: "glm-5",
+          choices: [{
+            index: 0,
+            message: { role: "assistant", content: "zai-glm-ok" },
+            finish_reason: "stop",
+          }],
+        }),
+      };
     },
-    async () => {
-      await withProxyApp(
-        {
-          keys: [],
-          keysPayload: { providers: {} },
-          configOverrides: {
-            upstreamProviderId: "zai",
-            upstreamFallbackProviderIds: [],
-            localOllamaEnabled: false,
-          },
-          upstreamHandler: async (request, body) => {
-            assert.equal(request.url, "/api/paas/v4/chat/completions");
-            assert.equal(request.headers.authorization, "Bearer zai-key-1");
-
-            const parsed = JSON.parse(body) as Record<string, unknown>;
-            assert.equal(parsed.model, "glm-5");
-            assert.ok(Array.isArray(parsed.messages));
-
-            return {
-              status: 200,
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify({
-                id: "chatcmpl_zai",
-                object: "chat.completion",
-                created: 1772516801,
-                model: "glm-5",
-                choices: [{
-                  index: 0,
-                  message: { role: "assistant", content: "zai-glm-ok" },
-                  finish_reason: "stop",
-                }],
-              }),
-            };
-          },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json"
         },
-        async ({ app }) => {
-          const response = await app.inject({
-            method: "POST",
-            url: "/v1/chat/completions",
-            headers: {
-              "content-type": "application/json"
-            },
-            payload: {
-              model: "glm-5",
-              messages: [{ role: "user", content: "hello" }],
-              stream: false,
-            }
-          });
+        payload: {
+          model: "glm-5",
+          messages: [{ role: "user", content: "hello" }],
+          stream: false,
+        }
+      });
 
-          assert.equal(response.statusCode, 200);
-          assert.equal(response.headers["x-open-hax-upstream-provider"], "zai");
-          const payload: unknown = response.json();
-          assert.ok(isRecord(payload));
-          assert.equal((payload.choices as any)[0].message.content, "zai-glm-ok");
-        },
-      );
+      assert.equal(response.statusCode, 200);
+      assert.equal(response.headers["x-open-hax-upstream-provider"], "zai");
+      const payload: unknown = response.json();
+      assert.ok(isRecord(payload));
+      assert.equal((payload.choices as any)[0].message.content, "zai-glm-ok");
     },
   );
 });
 
 test("lists z.ai models through the custom models path when ZAI_API_KEY is configured", { concurrency: false }, async () => {
-  await withEnv(
-    {
-      ZAI_API_KEY: "zai-key-1", // pragma: allowlist secret
-      ZAI_PROVIDER_ID: undefined,
-      GEMINI_API_KEY: undefined,
-      OPENROUTER_API_KEY: undefined,
-      REQUESTY_API_TOKEN: undefined,
-      REQUESTY_API_KEY: undefined,
+  await withZaiProxyApp(
+    async (request) => {
+      assert.equal(request.url, "/api/paas/v4/models");
+
+      return {
+        status: 200,
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          object: "list",
+          data: [
+            { id: "glm-5" },
+            { id: "glm-4.7-flash" },
+          ],
+        }),
+      };
     },
-    async () => {
-      await withProxyApp(
-        {
-          keys: [],
-          keysPayload: { providers: {} },
-          configOverrides: {
-            upstreamProviderId: "zai",
-            upstreamFallbackProviderIds: [],
-            localOllamaEnabled: false,
-          },
-          upstreamHandler: async (request) => {
-            assert.equal(request.url, "/api/paas/v4/models");
+    async ({ app }) => {
+      const response = await app.inject({ method: "GET", url: "/v1/models" });
 
-            return {
-              status: 200,
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify({
-                object: "list",
-                data: [
-                  { id: "glm-5" },
-                  { id: "glm-4.7-flash" },
-                ],
-              }),
-            };
-          },
-        },
-        async ({ app }) => {
-          const response = await app.inject({ method: "GET", url: "/v1/models" });
-
-          assert.equal(response.statusCode, 200);
-          const payload: unknown = response.json();
-          assert.ok(isRecord(payload));
-          assert.equal(payload.object, "list");
-          assert.ok(Array.isArray(payload.data));
-          assert.ok(payload.data.some((entry: unknown) => isRecord(entry) && entry.id === "glm-5"));
-          assert.ok(payload.data.some((entry: unknown) => isRecord(entry) && entry.id === "glm-4.7-flash"));
-        },
-      );
+      assert.equal(response.statusCode, 200);
+      const payload: unknown = response.json();
+      assert.ok(isRecord(payload));
+      assert.equal(payload.object, "list");
+      assert.ok(Array.isArray(payload.data));
+      assert.ok(payload.data.some((entry: unknown) => isRecord(entry) && entry.id === "glm-5"));
+      assert.ok(payload.data.some((entry: unknown) => isRecord(entry) && entry.id === "glm-4.7-flash"));
     },
   );
 });
 
 test("records z.ai chat-completions usage in request logs", { concurrency: false }, async () => {
-  await withEnv(
-    {
-      ZAI_API_KEY: "zai-key-1", // pragma: allowlist secret
-      ZAI_PROVIDER_ID: undefined,
-      GEMINI_API_KEY: undefined,
-      OPENROUTER_API_KEY: undefined,
-      REQUESTY_API_TOKEN: undefined,
-      REQUESTY_API_KEY: undefined,
-    },
-    async () => {
-      await withProxyApp(
-        {
-          keys: [],
-          keysPayload: { providers: {} },
-          configOverrides: {
-            upstreamProviderId: "zai",
-            upstreamFallbackProviderIds: [],
-            localOllamaEnabled: false,
-          },
-          upstreamHandler: async () => ({
-            status: 200,
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({
-              id: "chatcmpl_zai_usage",
-              object: "chat.completion",
-              created: 1772516801,
-              model: "glm-5-turbo",
-              choices: [{
-                index: 0,
-                message: { role: "assistant", content: "zai-usage-ok" },
-                finish_reason: "stop",
-              }],
-              usage: {
-                prompt_tokens: 11,
-                completion_tokens: 7,
-                total_tokens: 18,
-                prompt_tokens_details: { cached_tokens: 3 },
-                completion_tokens_details: { reasoning_tokens: 5 },
-              },
-            }),
-          }),
+  await withZaiProxyApp(
+    async () => ({
+      status: 200,
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        id: "chatcmpl_zai_usage",
+        object: "chat.completion",
+        created: 1772516801,
+        model: "glm-5-turbo",
+        choices: [{
+          index: 0,
+          message: { role: "assistant", content: "zai-usage-ok" },
+          finish_reason: "stop",
+        }],
+        usage: {
+          prompt_tokens: 11,
+          completion_tokens: 7,
+          total_tokens: 18,
+          prompt_tokens_details: { cached_tokens: 3 },
+          completion_tokens_details: { reasoning_tokens: 5 },
         },
-        async ({ app }) => {
-          const response = await app.inject({
-            method: "POST",
-            url: "/v1/chat/completions",
-            headers: {
-              "content-type": "application/json"
-            },
-            payload: {
-              model: "glm-5-turbo",
-              messages: [{ role: "user", content: "hello" }],
-              stream: false,
-            }
-          });
-
-          assert.equal(response.statusCode, 200);
-
-          const logsResponse = await app.inject({
-            method: "GET",
-            url: "/api/ui/request-logs?providerId=zai&limit=1"
-          });
-          assert.equal(logsResponse.statusCode, 200);
-
-          const payload: unknown = logsResponse.json();
-          assert.ok(isRecord(payload));
-          assert.ok(Array.isArray(payload.entries));
-          assert.ok(isRecord(payload.entries[0]));
-          assert.equal(payload.entries[0].providerId, "zai");
-          assert.equal(payload.entries[0].promptTokens, 11);
-          assert.equal(payload.entries[0].completionTokens, 7);
-          assert.equal(payload.entries[0].totalTokens, 18);
-          assert.equal(payload.entries[0].cachedPromptTokens, 3);
-          assert.equal(payload.entries[0].cacheHit, true);
+      }),
+    }),
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json"
         },
-      );
+        payload: {
+          model: "glm-5-turbo",
+          messages: [{ role: "user", content: "hello" }],
+          stream: false,
+        }
+      });
+
+      assert.equal(response.statusCode, 200);
+
+      const logsResponse = await app.inject({
+        method: "GET",
+        url: "/api/ui/request-logs?providerId=zai&limit=1"
+      });
+      assert.equal(logsResponse.statusCode, 200);
+
+      const payload: unknown = logsResponse.json();
+      assert.ok(isRecord(payload));
+      assert.ok(Array.isArray(payload.entries));
+      assert.ok(isRecord(payload.entries[0]));
+      assert.equal(payload.entries[0].providerId, "zai");
+      assert.equal(payload.entries[0].promptTokens, 11);
+      assert.equal(payload.entries[0].completionTokens, 7);
+      assert.equal(payload.entries[0].totalTokens, 18);
+      assert.equal(payload.entries[0].cachedPromptTokens, 3);
+      assert.equal(payload.entries[0].cacheHit, true);
     },
   );
 });

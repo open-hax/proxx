@@ -183,6 +183,47 @@ test("request log close flushes batched writes", async () => {
   });
 });
 
+test("request log store reports mirror failures during upsert and close", async () => {
+  await withTempDir(async (tempDir) => {
+    const filePath = path.join(tempDir, "request-logs.jsonl");
+    const warnings: string[] = [];
+    const originalWarn = console.warn;
+    console.warn = (...args: unknown[]) => {
+      warnings.push(args.map((value) => String(value)).join(" "));
+    };
+
+    try {
+      const store = new RequestLogStore(filePath, 100, 0, {
+        upsertEntry: async () => {
+          throw new Error("mirror-upsert-failed");
+        },
+        close: async () => {
+          throw new Error("mirror-close-failed");
+        },
+      });
+
+      await store.warmup();
+      store.record({
+        providerId: "openai",
+        accountId: "acct-1",
+        authType: "api_key",
+        model: "gpt-5.4",
+        upstreamMode: "responses",
+        upstreamPath: "/v1/responses",
+        status: 200,
+        latencyMs: 125,
+      });
+
+      await store.close();
+    } finally {
+      console.warn = originalWarn;
+    }
+
+    assert.ok(warnings.some((entry) => entry.includes("mirror upsert failed") && entry.includes("mirror-upsert-failed")));
+    assert.ok(warnings.some((entry) => entry.includes("mirror close failed") && entry.includes("mirror-close-failed")));
+  });
+});
+
 test("request log persistence preserves upstream error summaries and factory diagnostics", async () => {
   await withTempDir(async (tempDir) => {
     const filePath = path.join(tempDir, "request-logs.jsonl");

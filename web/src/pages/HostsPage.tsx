@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { getHostsOverview, type HostDashboardSnapshot, type HostsOverview } from "../lib/api";
 
@@ -51,24 +51,35 @@ export function HostsPage(): JSX.Element {
   const [overview, setOverview] = useState<HostsOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const isFetchingRef = useRef(false);
+  const requestIdRef = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
 
     const load = async () => {
+      if (isFetchingRef.current) {
+        return;
+      }
+
+      isFetchingRef.current = true;
+      const requestId = requestIdRef.current + 1;
+      requestIdRef.current = requestId;
+
       setLoading(true);
       setError(null);
       try {
         const nextOverview = await getHostsOverview();
-        if (!cancelled) {
+        if (!cancelled && requestId === requestIdRef.current) {
           setOverview(nextOverview);
         }
       } catch (loadError) {
-        if (!cancelled) {
+        if (!cancelled && requestId === requestIdRef.current) {
           setError(loadError instanceof Error ? loadError.message : String(loadError));
         }
       } finally {
-        if (!cancelled) {
+        isFetchingRef.current = false;
+        if (!cancelled && requestId === requestIdRef.current) {
           setLoading(false);
         }
       }

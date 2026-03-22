@@ -25,25 +25,25 @@ Add a single proxx-hosted dashboard view that shows container inventory and rout
    - aggregate remote host snapshots over HTTPS
 2. Add authenticated UI routes for `self` and aggregated host overview.
 3. Add a dedicated web console Hosts page.
-4. Mount runtime context (`docker.sock`, runtime repo dir) in compose.
+4. Make local runtime context (`docker.sock`, runtime repo dir) an explicit opt-in compose overlay.
 5. Document the required env shape for multi-host operation.
 
 ## Risks
-- Docker socket exposure is powerful; keep it read-only and restrict the page to admin-level auth.
+- Docker socket exposure is powerful; `docker.sock:ro` is not a real security boundary, so keep the mounts opt-in and restrict the page to admin-level auth.
 - Remote hosts may use different proxy auth tokens; config must allow per-host token env names.
 - Not every runtime will have a live `Caddyfile`; the dashboard must degrade gracefully.
 
 ## Affected files
-- `orgs/open-hax/proxx/src/lib/host-dashboard.ts`
-- `orgs/open-hax/proxx/src/lib/ui-routes.ts`
-- `orgs/open-hax/proxx/src/tests/host-dashboard.test.ts`
-- `orgs/open-hax/proxx/web/src/lib/api.ts`
-- `orgs/open-hax/proxx/web/src/pages/HostsPage.tsx`
-- `orgs/open-hax/proxx/web/src/App.tsx`
-- `orgs/open-hax/proxx/web/src/styles.css`
-- `orgs/open-hax/proxx/docker-compose.yml`
-- `orgs/open-hax/proxx/.env.example`
-- `orgs/open-hax/proxx/README.md`
+- `src/lib/host-dashboard.ts`
+- `src/lib/ui-routes.ts`
+- `src/tests/host-dashboard.test.ts`
+- `web/src/lib/api.ts`
+- `web/src/pages/HostsPage.tsx`
+- `web/src/App.tsx`
+- `web/src/styles.css`
+- `docker-compose.yml`
+- `.env.example`
+- `README.md`
 - `services/proxx/docker-compose.yml`
 - `services/proxx/.env.example`
 - `services/proxx/README.md`
@@ -59,9 +59,9 @@ Add a single proxx-hosted dashboard view that shows container inventory and rout
 - Added `src/lib/host-dashboard.ts` for target loading, Docker socket inspection, Caddyfile parsing, and remote host snapshot fetches.
 - Added authenticated `/api/ui/hosts/self` and `/api/ui/hosts/overview` routes in `ui-routes.ts`.
 - Added `web/src/pages/HostsPage.tsx` plus API/types/nav/styles for the new console page.
-- Updated both source and runtime compose files to mount `docker.sock` and the runtime directory read-only into the proxx container.
+- Updated the source/runtime compose setup so Docker/runtime inspection can be enabled explicitly when needed instead of being on by default.
 - Kept the host list config-driven via `HOST_DASHBOARD_TARGETS_JSON` so future blocked hosts can be present as error cards before access is fixed.
 
 ## Verification
-- `cd orgs/open-hax/proxx && pnpm test`
-- `cd orgs/open-hax/proxx && pnpm web:build`
+- `cd proxx && pnpm test`
+- `cd proxx && pnpm web:build`

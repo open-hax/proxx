@@ -264,6 +264,10 @@ export interface RequestLogMirror {
   close?(): Promise<void>;
 }
 
+function formatErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 interface RequestLogDb {
   readonly entries: RequestLogEntry[];
   readonly hourlyBuckets?: readonly RequestLogHourlyBucket[];
@@ -895,6 +899,8 @@ export class RequestLogStore {
   private persistTimer: ReturnType<typeof setTimeout> | null = null;
   private persistPending = false;
   private mirrorChain: Promise<void> = Promise.resolve();
+  private mirrorFailureCount = 0;
+  private lastMirrorWarningAt = 0;
   private journalLineCount = 0;
   private needsCompaction = false;
   private closed = false;
@@ -1166,9 +1172,17 @@ export class RequestLogStore {
     }
     await this.queuePersist(true);
     await this.persistChain.catch(() => undefined);
-    await this.mirrorChain.catch(() => undefined);
+    try {
+      await this.mirrorChain;
+    } catch (error) {
+      this.noteMirrorFailure("flush", error);
+    }
     if (this.mirror?.close) {
-      await this.mirror.close().catch(() => undefined);
+      try {
+        await this.mirror.close();
+      } catch (error) {
+        this.noteMirrorFailure("close", error);
+      }
     }
   }
 
@@ -1181,7 +1195,22 @@ export class RequestLogStore {
       .then(async () => {
         await this.mirror?.upsertEntry(entry);
       })
-      .catch(() => undefined);
+      .catch((error) => {
+        this.noteMirrorFailure("upsert", error);
+      });
+  }
+
+  private noteMirrorFailure(stage: "upsert" | "flush" | "close", error: unknown): void {
+    this.mirrorFailureCount += 1;
+    const now = Date.now();
+    const count = this.mirrorFailureCount;
+    const shouldWarn = count <= 3 || count === 5 || count === 10 || now - this.lastMirrorWarningAt >= 60_000;
+    if (!shouldWarn) {
+      return;
+    }
+
+    this.lastMirrorWarningAt = now;
+    console.warn(`[request-log-store] mirror ${stage} failed (#${count}): ${formatErrorMessage(error)}`);
   }
 
   private matchesFilters(entry: RequestLogEntry, filters: RequestLogFilters = {}): boolean {

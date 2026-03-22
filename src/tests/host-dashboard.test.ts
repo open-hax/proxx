@@ -41,12 +41,27 @@ battlebussy.ussy.promethean.rest {
   });
 });
 
+test("parseCaddyRoutes ignores block-form reverse_proxy directives", () => {
+  const routes = parseCaddyRoutes(`
+ussy.promethean.rest {
+  @api path /api*
+  reverse_proxy @api {
+    to host.docker.internal:8789
+  }
+}
+`);
+
+  assert.deepEqual(routes, []);
+});
+
 test("loadHostDashboardTargetsFromEnv falls back to default ussy targets", () => {
   const targets = loadHostDashboardTargetsFromEnv({});
 
   assert.equal(targets.length, 2);
   assert.equal(targets[0]?.id, "ussy");
   assert.equal(targets[1]?.id, "ussy3");
+  assert.equal(targets[0]?.authTokenEnv, "HOST_DASHBOARD_USSY_TOKEN");
+  assert.equal(targets[1]?.authTokenEnv, "HOST_DASHBOARD_USSY3_TOKEN");
 });
 
 test("loadHostDashboardTargetsFromEnv accepts configured JSON targets", () => {
@@ -63,7 +78,7 @@ test("loadHostDashboardTargetsFromEnv accepts configured JSON targets", () => {
   ]);
 });
 
-test("resolveHostDashboardTargetToken prefers target env token and falls back to proxy token", () => {
+test("resolveHostDashboardTargetToken prefers target env token and does not fall back to proxy token", () => {
   const token = resolveHostDashboardTargetToken(
     { id: "stage", label: "Stage", authTokenEnv: "HOST_TOKEN_STAGE" },
     { HOST_TOKEN_STAGE: "stage-secret", PROXY_AUTH_TOKEN: "proxy-secret" },
@@ -74,7 +89,16 @@ test("resolveHostDashboardTargetToken prefers target env token and falls back to
     { id: "stage", label: "Stage" },
     { PROXY_AUTH_TOKEN: "proxy-secret" },
   );
-  assert.equal(fallback, "proxy-secret");
+  assert.equal(fallback, undefined);
+});
+
+test("resolveHostDashboardTargetToken prioritizes inline authToken over env values", () => {
+  const token = resolveHostDashboardTargetToken(
+    { id: "stage", label: "Stage", authToken: "inline-secret", authTokenEnv: "HOST_TOKEN_STAGE" },
+    { HOST_TOKEN_STAGE: "env-secret", PROXY_AUTH_TOKEN: "proxy-secret" },
+  );
+
+  assert.equal(token, "inline-secret");
 });
 
 test("inferSelfHostDashboardTargetId matches request host to configured target", () => {
@@ -87,4 +111,13 @@ test("inferSelfHostDashboardTargetId matches request host to configured target",
   });
 
   assert.equal(targetId, "ussy3");
+});
+
+test("inferSelfHostDashboardTargetId returns undefined when no target matches", () => {
+  const targetId = inferSelfHostDashboardTargetId({
+    targets: [{ id: "ussy", label: "Prod", baseUrl: "https://ussy.promethean.rest" }],
+    requestBaseUrl: "https://unknown.promethean.rest",
+  });
+
+  assert.equal(targetId, undefined);
 });
