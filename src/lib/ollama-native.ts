@@ -12,6 +12,24 @@ function asNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
+function asBoolean(value: unknown): boolean | undefined {
+  if (typeof value === "boolean") {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "true") {
+      return true;
+    }
+    if (normalized === "false") {
+      return false;
+    }
+  }
+
+  return undefined;
+}
+
 function normalizePositiveNumber(value: unknown): number | undefined {
   if (value === undefined || value === null) {
     return undefined;
@@ -92,9 +110,13 @@ export function nativeChatToOpenAiRequest(body: Record<string, unknown>): Record
   }
 
   const options = buildOptions(body);
-  if (options) {
+  const think = asBoolean(body["think"]);
+  if (options || think !== undefined) {
     payload["open_hax"] = {
-      ollama: options,
+      ollama: {
+        ...(options ?? {}),
+        ...(think !== undefined ? { think } : {}),
+      },
     };
   }
 
@@ -130,6 +152,7 @@ export function chatCompletionToNativeChat(response: Record<string, unknown>): R
     message: {
       role: asString(message["role"]) ?? "assistant",
       content: asString(message["content"]) ?? "",
+      thinking: asString(message["reasoning_content"]) ?? asString(message["reasoning"]),
       tool_calls: Array.isArray(message["tool_calls"]) ? message["tool_calls"] : undefined,
     },
     done: true,
@@ -149,6 +172,7 @@ export function chatCompletionToNativeGenerate(response: Record<string, unknown>
     model: asString(response["model"]) ?? "",
     created_at: new Date().toISOString(),
     response: asString(message["content"]) ?? "",
+    thinking: asString(message["reasoning_content"]) ?? asString(message["reasoning"]),
     done: true,
     done_reason: asString(firstChoice?.["finish_reason"]) ?? "stop",
     context: [],

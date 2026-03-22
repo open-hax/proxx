@@ -89,6 +89,13 @@ function extractSseDataLines(payload: string): string[] {
     .filter((line) => line.length > 0);
 }
 
+export function stripSseCommentLines(payload: string): string {
+  return payload
+    .split(/\r?\n/)
+    .filter((line) => !line.startsWith(":"))
+    .join("\n");
+}
+
 export function streamPayloadHasReasoningTrace(payload: string): boolean {
   for (const data of extractSseDataLines(payload)) {
     if (data === "[DONE]") {
@@ -428,6 +435,12 @@ export async function responseIndicatesQuotaError(response: Response): Promise<b
   }
 
   if (responseIsEventStream(response)) {
+    return false;
+  }
+
+  // Skip body inspection for responses with no content-type (likely SSE from Codex backends).
+  // Cloning such responses creates unnecessary tee chains that can interfere with downstream readers.
+  if ((response.headers.get("content-type") ?? "").length === 0) {
     return false;
   }
 

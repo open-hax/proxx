@@ -61,7 +61,7 @@ async function withProxyApp(
   const tempDir = await mkdtemp(path.join(os.tmpdir(), "factory-strategy-test-"));
   const keysPath = path.join(tempDir, "keys.json");
   const modelsPath = path.join(tempDir, "models.json");
-  const requestLogsPath = path.join(tempDir, "request-logs.json");
+  const requestLogsPath = path.join(tempDir, "request-logs.jsonl");
   const promptAffinityPath = path.join(tempDir, "prompt-affinity.json");
   const settingsPath = path.join(tempDir, "proxy-settings.json");
 
@@ -138,6 +138,8 @@ async function withProxyApp(
     responsesPath: "/v1/responses",
     openaiResponsesPath: "/v1/responses",
     openaiImagesGenerationsPaths: ["/v1/images/generations", "/images/generations", "/codex/images/generations"],
+    imageCostUsdDefault: 0,
+    imageCostUsdByProvider: {},
     imagesGenerationsPath: "/v1/images/generations",
     responsesModelPrefixes: ["gpt-"],
     ollamaChatPath: "/api/chat",
@@ -148,7 +150,10 @@ async function withProxyApp(
     keysFilePath: keysPath,
     modelsFilePath: modelsPath,
     requestLogsFilePath: requestLogsPath,
+    requestLogsMaxEntries: 100000,
+    requestLogsFlushMs: 0,
     promptAffinityFilePath: promptAffinityPath,
+    promptAffinityFlushMs: 0,
     settingsFilePath: settingsPath,
     keyReloadMs: 50,
     keyCooldownMs: 10000,
@@ -167,6 +172,10 @@ async function withProxyApp(
     openaiOauthClientId: "app_EMoamEEZ73f0CkXaXp7hrann",
     openaiOauthIssuer: "https://auth.openai.com",
     ...options.configOverrides,
+    proxyTokenPepper: options.configOverrides?.proxyTokenPepper ?? "test-proxy-token-pepper",
+    oauthRefreshMaxConcurrency: options.configOverrides?.oauthRefreshMaxConcurrency ?? 32,
+    oauthRefreshBackgroundIntervalMs: options.configOverrides?.oauthRefreshBackgroundIntervalMs ?? 15_000,
+    oauthRefreshProactiveWindowMs: options.configOverrides?.oauthRefreshProactiveWindowMs ?? 30 * 60_000,
   };
 
   const app = await createApp(config);
@@ -500,6 +509,271 @@ test("factory/claude-* routes to /api/llm/a/v1/messages", { concurrency: false }
   );
 });
 
+test("factory/claude-* injects default max_tokens when absent", { concurrency: false }, async () => {
+  let capturedBody = "";
+
+  await withEnv(
+    {
+      FACTORY_API_KEY: "fk-test-key", // pragma: allowlist secret
+      FACTORY_AUTH_V2_FILE: "/tmp/nonexistent-auth-v2-file",
+      FACTORY_AUTH_V2_KEY: "/tmp/nonexistent-auth-v2-key",
+    },
+    async () => {
+      await withProxyApp(
+        {
+          keys: [],
+          keysPayload: { providers: {} },
+          upstreamHandler: async (_request, body) => {
+            capturedBody = body;
+            return {
+              status: 200,
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                id: "msg_factory_default_tokens",
+                type: "message",
+                role: "assistant",
+                content: [{ type: "text", text: "ok" }],
+                model: "claude-opus-4-6",
+                usage: { input_tokens: 10, output_tokens: 5 },
+              }),
+            };
+          },
+        },
+        async ({ app }) => {
+          const response = await app.inject({
+            method: "POST",
+            url: "/v1/chat/completions",
+            payload: {
+              model: "factory/claude-opus-4-6",
+              messages: [{ role: "user", content: "hello" }],
+            },
+          });
+
+          assert.equal(response.statusCode, 200);
+          const parsedBody = JSON.parse(capturedBody) as Record<string, unknown>;
+          assert.equal(parsedBody["max_tokens"], 4096);
+        },
+      );
+    },
+  );
+});
+
+test("factory/claude-* clamps thinking budget below injected default max_tokens", { concurrency: false }, async () => {
+  let capturedBody = "";
+
+  await withEnv(
+    {
+      FACTORY_API_KEY: "fk-test-key", // pragma: allowlist secret
+      FACTORY_AUTH_V2_FILE: "/tmp/nonexistent-auth-v2-file",
+      FACTORY_AUTH_V2_KEY: "/tmp/nonexistent-auth-v2-key",
+    },
+    async () => {
+      await withProxyApp(
+        {
+          keys: [],
+          keysPayload: { providers: {} },
+          upstreamHandler: async (_request, body) => {
+            capturedBody = body;
+            return {
+              status: 200,
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                id: "msg_factory_reasoning_budget",
+                type: "message",
+                role: "assistant",
+                content: [{ type: "text", text: "ok" }],
+                model: "claude-opus-4-6",
+                usage: { input_tokens: 10, output_tokens: 5 },
+              }),
+            };
+          },
+        },
+        async ({ app }) => {
+          const response = await app.inject({
+            method: "POST",
+            url: "/v1/chat/completions",
+            payload: {
+              model: "factory/claude-opus-4-6",
+              messages: [{ role: "user", content: "hello" }],
+              reasoning_effort: "high",
+            },
+          });
+
+          assert.equal(response.statusCode, 200);
+          const parsedBody = JSON.parse(capturedBody) as Record<string, unknown>;
+          assert.equal(parsedBody["max_tokens"], 4096);
+          assert.ok(isRecord(parsedBody["thinking"]));
+          assert.equal(parsedBody["thinking"]["budget_tokens"], 4095);
+        },
+      );
+    },
+  );
+});
+
+test("claude-opus-4-6 automatically routes to Factory first", { concurrency: false }, async () => {
+  let capturedUrl = "";
+  let capturedHeaders: Record<string, string> = {};
+
+  await withEnv(
+    {
+      FACTORY_API_KEY: "fk-test-key", // pragma: allowlist secret
+      FACTORY_AUTH_V2_FILE: "/tmp/nonexistent-auth-v2-file",
+      FACTORY_AUTH_V2_KEY: "/tmp/nonexistent-auth-v2-key",
+    },
+    async () => {
+      await withProxyApp(
+        {
+          keys: [],
+          keysPayload: {
+            providers: {
+              openai: {
+                auth: "oauth_bearer",
+                accounts: [{ id: "openai-1", access_token: "openai-token" }],
+              },
+              requesty: {
+                auth: "api_key",
+                accounts: [{ id: "requesty-1", api_key: "requesty-token" }],
+              },
+            },
+          },
+          configOverrides: {
+            upstreamProviderId: "openai",
+            upstreamFallbackProviderIds: ["requesty"],
+          },
+          upstreamHandler: async (request, _body) => {
+            capturedUrl = request.url ?? "";
+            capturedHeaders = {};
+            for (const [name, value] of Object.entries(request.headers)) {
+              if (typeof value === "string") {
+                capturedHeaders[name] = value;
+              }
+            }
+
+            return {
+              status: 200,
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                id: "msg_factory_auto",
+                type: "message",
+                role: "assistant",
+                content: [{ type: "text", text: "Factory auto route OK" }],
+                model: "claude-opus-4-6",
+                usage: { input_tokens: 10, output_tokens: 5 },
+              }),
+            };
+          },
+        },
+        async ({ app }) => {
+          const response = await app.inject({
+            method: "POST",
+            url: "/v1/chat/completions",
+            payload: {
+              model: "claude-opus-4-6",
+              messages: [{ role: "user", content: "hello" }],
+            },
+          });
+
+          assert.equal(response.statusCode, 200);
+          assert.equal(capturedUrl, "/api/llm/a/v1/messages");
+          assert.equal(capturedHeaders["x-api-provider"], "anthropic");
+          assert.equal(response.headers["x-open-hax-upstream-provider"], "factory");
+        },
+      );
+    },
+  );
+});
+
+test("claude-opus-4-6 auto routing applies safe xhigh thinking budget mapping", { concurrency: false }, async () => {
+  const capturedUrls: string[] = [];
+  let capturedBody = "";
+
+  await withEnv(
+    {
+      FACTORY_API_KEY: "fk-test-key", // pragma: allowlist secret
+      FACTORY_AUTH_V2_FILE: "/tmp/nonexistent-auth-v2-file",
+      FACTORY_AUTH_V2_KEY: "/tmp/nonexistent-auth-v2-key",
+    },
+    async () => {
+      await withProxyApp(
+        {
+          keys: [],
+          keysPayload: {
+            providers: {
+              openai: {
+                auth: "oauth_bearer",
+                accounts: [{ id: "openai-1", access_token: "openai-token" }],
+              },
+              requesty: {
+                auth: "api_key",
+                accounts: [{ id: "requesty-1", api_key: "requesty-token" }],
+              },
+            },
+          },
+          configOverrides: {
+            upstreamProviderId: "openai",
+            upstreamFallbackProviderIds: ["requesty"],
+          },
+          upstreamHandler: async (request, body) => {
+            capturedUrls.push(request.url ?? "");
+            capturedBody = body;
+
+            if (request.url === "/api/llm/a/v1/messages") {
+              return {
+                status: 200,
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({
+                  id: "msg_factory_auto_reasoning",
+                  type: "message",
+                  role: "assistant",
+                  content: [
+                    { type: "thinking", thinking: "auto-route-thinking" },
+                    { type: "text", text: "Factory auto route reasoning OK" },
+                  ],
+                  model: "claude-opus-4-6",
+                  usage: { input_tokens: 10, output_tokens: 5 },
+                }),
+              };
+            }
+
+            return {
+              status: 200,
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                id: "chatcmpl_factory_auto_reasoning_fallback",
+                object: "chat.completion",
+                created: 123,
+                model: "claude-opus-4-6",
+                choices: [{ index: 0, message: { role: "assistant", content: "fallback", reasoning_content: "fallback-thinking" }, finish_reason: "stop" }],
+                usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+              }),
+            };
+          },
+        },
+        async ({ app }) => {
+          const response = await app.inject({
+            method: "POST",
+            url: "/v1/chat/completions",
+            payload: {
+              model: "claude-opus-4-6",
+              messages: [{ role: "user", content: "hello" }],
+              reasoning_effort: "xhigh",
+            },
+          });
+
+          assert.equal(response.statusCode, 200);
+          assert.deepEqual(capturedUrls, ["/api/llm/a/v1/messages"]);
+          assert.equal(response.headers["x-open-hax-upstream-provider"], "factory");
+
+          const parsedBody = JSON.parse(capturedBody) as Record<string, unknown>;
+          assert.equal(parsedBody["max_tokens"], 4096);
+          assert.ok(isRecord(parsedBody["thinking"]));
+          assert.equal(parsedBody["thinking"]["budget_tokens"], 4095);
+        },
+      );
+    },
+  );
+});
+
 // VAL-ROUTE-002: GPT models route to Factory OpenAI Responses endpoint
 
 test("factory/gpt-* routes to /api/llm/o/v1/responses", { concurrency: false }, async () => {
@@ -563,6 +837,174 @@ test("factory/gpt-* routes to /api/llm/o/v1/responses", { concurrency: false }, 
           // Should NOT have Anthropic-specific headers
           assert.equal(capturedHeaders["anthropic-version"], undefined);
           assert.equal(capturedHeaders["x-api-key"], undefined);
+        },
+      );
+    },
+  );
+});
+
+test("/v1/responses routes gpt-* to Factory responses endpoint", { concurrency: false }, async () => {
+  let capturedUrl = "";
+  let capturedHeaders: Record<string, string> = {};
+  let capturedBody: Record<string, unknown> | null = null;
+
+  await withEnv(
+    {
+      FACTORY_API_KEY: "fk-test-key", // pragma: allowlist secret
+      FACTORY_AUTH_V2_FILE: "/tmp/nonexistent-auth-v2-file",
+      FACTORY_AUTH_V2_KEY: "/tmp/nonexistent-auth-v2-key",
+    },
+    async () => {
+      await withProxyApp(
+        {
+          keys: [],
+          keysPayload: { providers: {} },
+          configOverrides: {
+            upstreamProviderId: "factory",
+            upstreamFallbackProviderIds: [],
+          },
+          upstreamHandler: async (request, body) => {
+            capturedUrl = request.url ?? "";
+            capturedHeaders = {};
+            for (const [name, value] of Object.entries(request.headers)) {
+              if (typeof value === "string") {
+                capturedHeaders[name] = value;
+              }
+            }
+
+            capturedBody = JSON.parse(body) as Record<string, unknown>;
+
+            return {
+              status: 200,
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ id: "resp_factory", object: "response", output: [] }),
+            };
+          },
+        },
+        async ({ app }) => {
+          const response = await app.inject({
+            method: "POST",
+            url: "/v1/responses",
+            payload: {
+              model: "gpt-5.4",
+              input: "hello",
+              stream: false,
+            },
+          });
+
+          assert.equal(response.statusCode, 200);
+          assert.equal(capturedUrl, "/api/llm/o/v1/responses");
+          assert.equal(capturedHeaders["x-api-provider"], "openai");
+          assert.equal(capturedHeaders["x-factory-client"], "cli");
+          assert.equal(capturedHeaders["user-agent"], "factory-cli/0.74.0");
+
+          assert.ok(capturedBody);
+          assert.equal(capturedBody?.model, "gpt-5.4");
+          assert.equal(capturedBody?.input, "hello");
+          assert.equal(capturedBody?.stream, false);
+
+          const payload = response.json();
+          assert.ok(isRecord(payload));
+          assert.equal(payload["id"], "resp_factory");
+        },
+      );
+    },
+  );
+});
+
+test("Factory 4xx responses persist sanitized prompt-rejection diagnostics", { concurrency: false }, async () => {
+  await withEnv(
+    {
+      FACTORY_API_KEY: "fk-test-key", // pragma: allowlist secret
+      FACTORY_AUTH_V2_FILE: "/tmp/nonexistent-auth-v2-file",
+      FACTORY_AUTH_V2_KEY: "/tmp/nonexistent-auth-v2-key",
+    },
+    async () => {
+      await withProxyApp(
+        {
+          keys: [],
+          keysPayload: { providers: {} },
+          configOverrides: {
+            upstreamProviderId: "factory",
+            upstreamFallbackProviderIds: [],
+          },
+          upstreamHandler: async () => ({
+            status: 403,
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              error: {
+                type: "invalid_request_error",
+                code: "policy_violation",
+                message: "Prompt rejected by upstream policy",
+              },
+            }),
+          }),
+        },
+        async ({ app }) => {
+          const response = await app.inject({
+            method: "POST",
+            url: "/v1/responses",
+            headers: { "content-type": "application/json" },
+            payload: {
+              model: "gpt-5.4",
+              prompt_cache_key: "factory-diagnostic-key",
+              instructions: [
+                "You are OpenCode, the best coding agent on the planet.",
+                "```lisp",
+                "(prompt \"operation-mindfuck\")",
+                "```",
+              ].join("\n"),
+              input: [
+                {
+                  role: "user",
+                  content: [
+                    {
+                      type: "input_text",
+                      text: "<available_skills><skill>debug</skill></available_skills> Read AGENTS.md and CONTRACT.edn before responding.",
+                    },
+                  ],
+                },
+              ],
+              stream: false,
+            },
+          });
+
+          assert.ok(response.statusCode >= 400);
+
+          const logsResponse = await app.inject({
+            method: "GET",
+            url: "/api/ui/request-logs?limit=1",
+          });
+
+          assert.equal(logsResponse.statusCode, 200);
+          const logsPayload: unknown = logsResponse.json();
+          assert.ok(isRecord(logsPayload));
+          assert.ok(Array.isArray(logsPayload.entries));
+          assert.equal(logsPayload.entries.length, 1);
+
+          const entry = logsPayload.entries[0];
+          assert.ok(isRecord(entry));
+          assert.equal(entry.providerId, "factory");
+          assert.equal(entry.status, 403);
+          assert.equal(entry.error, "Prompt rejected by upstream policy");
+          assert.equal(entry.upstreamErrorCode, "policy_violation");
+          assert.equal(entry.upstreamErrorType, "invalid_request_error");
+          assert.equal(entry.upstreamErrorMessage, "Prompt rejected by upstream policy");
+          assert.ok(isRecord(entry.factoryDiagnostics));
+          assert.equal(entry.factoryDiagnostics.requestFormat, "responses");
+          assert.equal(entry.factoryDiagnostics.hasInstructions, true);
+          assert.equal(entry.factoryDiagnostics.hasOpencodeMarkers, true);
+          assert.equal(entry.factoryDiagnostics.hasAgentProtocolMarkers, true);
+          assert.equal(entry.factoryDiagnostics.hasCodeFence, true);
+          assert.equal(entry.factoryDiagnostics.hasXmlLikeTags, true);
+          assert.equal(entry.factoryDiagnostics.inputItemCount, 1);
+          assert.equal(entry.factoryDiagnostics.messageCount, 1);
+          assert.equal(entry.factoryDiagnostics.userMessageCount, 1);
+          assert.match(String(entry.factoryDiagnostics.promptCacheKeyHash), /^sha256:[0-9a-f]{12}$/);
+          assert.match(String(entry.factoryDiagnostics.textFingerprint), /^sha256:[0-9a-f]{12}$/);
+          assert.match(String(entry.factoryDiagnostics.instructionsFingerprint), /^sha256:[0-9a-f]{12}$/);
+          assert.ok(typeof entry.factoryDiagnostics.totalTextChars === "number" && entry.factoryDiagnostics.totalTextChars > 0);
+          assert.ok(typeof entry.factoryDiagnostics.maxTextBlockChars === "number" && entry.factoryDiagnostics.maxTextBlockChars > 0);
         },
       );
     },

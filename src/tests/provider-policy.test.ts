@@ -56,12 +56,12 @@ function orderedIds(
     .map((a) => a.accountId);
 }
 
-// ── Free-account availability last verified 2026-03-13 ──────────────
+// ── Free-account availability last verified 2026-03-18 ──────────────
 
-// BLOCKED on free: gpt-5.4, gpt-5.3-codex, gpt-5-mini
+// BLOCKED on free: gpt-5.3-codex, gpt-5-mini
 
-test("gpt-5.4 policy excludes free accounts", () => {
-  assert.deepEqual(orderedIds("gpt-5.4"), ["oa-plus"]);
+test("gpt-5.4 policy allows and prefers free accounts", () => {
+  assert.deepEqual(orderedIds("gpt-5.4", PLUS_FREE_ACCOUNTS), ["oa-free", "oa-plus"]);
 });
 
 test("gpt-5.3-codex policy excludes free accounts", () => {

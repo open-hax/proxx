@@ -19,7 +19,65 @@ CREATE INDEX IF NOT EXISTS idx_account_health_score ON account_health(
 );
 `;
 
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 4;
+
+export const CREATE_TENANTS_TABLE = `
+CREATE TABLE IF NOT EXISTS tenants (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'active',
+  settings JSONB,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+`;
+
+export const CREATE_USERS_TABLE = `
+CREATE TABLE IF NOT EXISTS users (
+  id TEXT PRIMARY KEY,
+  provider TEXT NOT NULL,
+  subject TEXT NOT NULL UNIQUE,
+  login TEXT,
+  email TEXT,
+  name TEXT,
+  avatar_url TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  last_login_at TIMESTAMPTZ
+);
+`;
+
+export const CREATE_TENANT_MEMBERSHIPS_TABLE = `
+CREATE TABLE IF NOT EXISTS tenant_memberships (
+  tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  role TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (tenant_id, user_id)
+);
+`;
+
+export const CREATE_TENANT_API_KEYS_TABLE = `
+CREATE TABLE IF NOT EXISTS tenant_api_keys (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  label TEXT NOT NULL,
+  prefix TEXT NOT NULL,
+  token_hash TEXT NOT NULL,
+  scopes JSONB NOT NULL DEFAULT '["proxy:use"]',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  last_used_at TIMESTAMPTZ,
+  revoked_at TIMESTAMPTZ
+);
+`;
+
+export const CREATE_TENANT_API_KEYS_TENANT_INDEX = `
+CREATE INDEX IF NOT EXISTS idx_tenant_api_keys_tenant ON tenant_api_keys(tenant_id);
+`;
+
+export const CREATE_TENANT_API_KEYS_HASH_INDEX = `
+CREATE INDEX IF NOT EXISTS idx_tenant_api_keys_hash ON tenant_api_keys(token_hash);
+`;
 
 export const CREATE_PROVIDERS_TABLE = `
 CREATE TABLE IF NOT EXISTS providers (
@@ -133,6 +191,21 @@ export const CHECK_VERSION_EXISTS = `
 SELECT 1 FROM schema_version WHERE version = $1;
 `;
 
+export const CREATE_MODELS_TABLE = `
+CREATE TABLE IF NOT EXISTS models (
+  id TEXT PRIMARY KEY,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+`;
+
+export const CREATE_CONFIG_TABLE = `
+CREATE TABLE IF NOT EXISTS config (
+  key TEXT PRIMARY KEY,
+  value JSONB NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+`;
+
 export const ALL_MIGRATIONS = [
   { version: 1, sql: CREATE_PROVIDERS_TABLE },
   { version: 1, sql: CREATE_ACCOUNTS_TABLE },
@@ -146,7 +219,103 @@ export const ALL_MIGRATIONS = [
   { version: 1, sql: CREATE_VERSION_TABLE },
   { version: 2, sql: CREATE_ACCOUNT_HEALTH_TABLE },
   { version: 2, sql: CREATE_ACCOUNT_HEALTH_INDEX },
+  { version: 3, sql: CREATE_MODELS_TABLE },
+  { version: 3, sql: CREATE_CONFIG_TABLE },
+  { version: 4, sql: CREATE_TENANTS_TABLE },
+  { version: 4, sql: CREATE_USERS_TABLE },
+  { version: 4, sql: CREATE_TENANT_MEMBERSHIPS_TABLE },
+  { version: 4, sql: CREATE_TENANT_API_KEYS_TABLE },
+  { version: 4, sql: CREATE_TENANT_API_KEYS_TENANT_INDEX },
+  { version: 4, sql: CREATE_TENANT_API_KEYS_HASH_INDEX },
 ];
+
+export const UPSERT_TENANT = `
+INSERT INTO tenants (id, name, status, updated_at)
+VALUES ($1, $2, $3, NOW())
+ON CONFLICT (id) DO UPDATE SET
+  name = EXCLUDED.name,
+  status = EXCLUDED.status,
+  updated_at = NOW();
+`;
+
+export const SELECT_ALL_TENANTS = `
+SELECT id, name, status
+FROM tenants
+ORDER BY id;
+`;
+
+export const UPSERT_USER = `
+INSERT INTO users (id, provider, subject, login, email, name, avatar_url, last_login_at, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
+ON CONFLICT (subject) DO UPDATE SET
+  provider = EXCLUDED.provider,
+  login = EXCLUDED.login,
+  email = EXCLUDED.email,
+  name = EXCLUDED.name,
+  avatar_url = EXCLUDED.avatar_url,
+  last_login_at = NOW(),
+  updated_at = NOW()
+RETURNING id, provider, subject, login, email, name, avatar_url;
+`;
+
+export const SELECT_USER_BY_SUBJECT = `
+SELECT id, provider, subject, login, email, name, avatar_url
+FROM users
+WHERE subject = $1
+LIMIT 1;
+`;
+
+export const UPSERT_TENANT_MEMBERSHIP = `
+INSERT INTO tenant_memberships (tenant_id, user_id, role)
+VALUES ($1, $2, $3)
+ON CONFLICT (tenant_id, user_id) DO UPDATE SET
+  role = EXCLUDED.role;
+`;
+
+export const SELECT_TENANT_MEMBERSHIPS_BY_USER = `
+SELECT tm.tenant_id, tm.role, t.name AS tenant_name, t.status AS tenant_status
+FROM tenant_memberships tm
+JOIN tenants t ON t.id = tm.tenant_id
+WHERE tm.user_id = $1
+ORDER BY tm.tenant_id ASC;
+`;
+
+export const COUNT_TENANT_MEMBERSHIPS_FOR_TENANT = `
+SELECT COUNT(*)::BIGINT AS count
+FROM tenant_memberships
+WHERE tenant_id = $1;
+`;
+
+export const SELECT_ACTIVE_TENANT_API_KEY_BY_HASH = `
+SELECT id, tenant_id, label, prefix, scopes, revoked_at
+FROM tenant_api_keys
+WHERE token_hash = $1 AND revoked_at IS NULL
+LIMIT 1;
+`;
+
+export const INSERT_TENANT_API_KEY = `
+INSERT INTO tenant_api_keys (id, tenant_id, label, prefix, token_hash, scopes)
+VALUES ($1, $2, $3, $4, $5, $6::jsonb);
+`;
+
+export const SELECT_TENANT_API_KEYS_BY_TENANT = `
+SELECT id, tenant_id, label, prefix, scopes, created_at, last_used_at, revoked_at
+FROM tenant_api_keys
+WHERE tenant_id = $1
+ORDER BY created_at DESC, id ASC;
+`;
+
+export const REVOKE_TENANT_API_KEY = `
+UPDATE tenant_api_keys
+SET revoked_at = NOW()
+WHERE tenant_id = $1 AND id = $2 AND revoked_at IS NULL
+`;
+
+export const TOUCH_TENANT_API_KEY_LAST_USED = `
+UPDATE tenant_api_keys
+SET last_used_at = NOW()
+WHERE tenant_id = $1 AND id = $2 AND revoked_at IS NULL;
+`;
 
 export const UPSERT_PROVIDER = `
 INSERT INTO providers (id, auth_type, updated_at)

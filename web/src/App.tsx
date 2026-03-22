@@ -5,8 +5,10 @@ import { getProxyUiSettings, getSavedAuthToken, saveAuthToken, saveProxyUiSettin
 import { ChatPage } from "./pages/ChatPage";
 import { CredentialsPage } from "./pages/CredentialsPage";
 import { DashboardPage } from "./pages/DashboardPage";
+import { HostsPage } from "./pages/HostsPage";
 import { ToolsPage } from "./pages/ToolsPage";
 import { ImagesPage } from "./pages/ImagesPage";
+import { AnalyticsPage } from "./pages/AnalyticsPage";
 
 function navClass(isActive: boolean): string {
   return isActive ? "nav-link nav-link-active" : "nav-link";
@@ -46,7 +48,7 @@ export function App(): JSX.Element {
     try {
       const saved = await saveProxyUiSettings({ fastMode: nextValue });
       setFastMode(saved.fastMode);
-      setFastModeMessage(saved.fastMode ? "Global fast mode enabled." : "Global fast mode disabled.");
+      setFastModeMessage(saved.fastMode ? "Fast mode enabled for the current tenant." : "Fast mode disabled for the current tenant.");
     } catch (error) {
       setFastMode(!nextValue);
       setFastModeMessage(error instanceof Error ? error.message : String(error));
@@ -103,10 +105,10 @@ export function App(): JSX.Element {
                   void handleFastModeToggle(event.currentTarget.checked);
                 }}
               />
-              Global fast mode (priority tier)
+              Fast mode for current tenant (priority tier)
             </label>
             <small>
-              Applies `service_tier: \"priority\"` to proxied Responses requests unless a request already sets its own tier.
+              Applies `service_tier: \"priority\"` to proxied Responses requests for the active tenant unless a request already sets its own tier.
             </small>
             {fastModeMessage && <small>{fastModeMessage}</small>}
           </div>
@@ -119,6 +121,12 @@ export function App(): JSX.Element {
         </NavLink>
         <NavLink to="/chat" className={({ isActive }) => navClass(isActive)}>
           Chat
+        </NavLink>
+        <NavLink to="/analytics" className={({ isActive }) => navClass(isActive)}>
+          Analytics
+        </NavLink>
+        <NavLink to="/hosts" className={({ isActive }) => navClass(isActive)}>
+          Hosts
         </NavLink>
         <NavLink to="/images" className={({ isActive }) => navClass(isActive)}>
           Images
@@ -135,6 +143,8 @@ export function App(): JSX.Element {
         <Routes>
           <Route path="/" element={<DashboardPage />} />
           <Route path="/chat" element={<ChatPage />} />
+          <Route path="/analytics" element={<AnalyticsPage />} />
+          <Route path="/hosts" element={<HostsPage />} />
           <Route path="/images" element={<ImagesPage />} />
           <Route path="/credentials" element={<CredentialsPage />} />
           <Route path="/tools" element={<ToolsPage />} />

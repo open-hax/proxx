@@ -258,7 +258,7 @@ export function buildProviderRoutes(
     const routes: ProviderRoute[] = [];
     const seen = new Set<string>();
 
-    for (const providerId of [config.openaiProviderId, config.upstreamProviderId, ...config.upstreamFallbackProviderIds]) {
+    for (const providerId of [config.openaiProviderId, config.upstreamProviderId, "factory", ...config.upstreamFallbackProviderIds]) {
       if (seen.has(providerId)) {
         continue;
       }
@@ -278,8 +278,8 @@ export function buildProviderRoutes(
   const routes: ProviderRoute[] = [];
   const seen = new Set<string>();
   const providerIds = includeOpenAiFallback
-    ? [config.upstreamProviderId, config.openaiProviderId, ...config.upstreamFallbackProviderIds]
-    : [config.upstreamProviderId, ...config.upstreamFallbackProviderIds];
+    ? [config.upstreamProviderId, config.openaiProviderId, "factory", ...config.upstreamFallbackProviderIds]
+    : [config.upstreamProviderId, "factory", ...config.upstreamFallbackProviderIds];
 
   for (const providerId of providerIds) {
     if (seen.has(providerId)) {

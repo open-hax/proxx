@@ -500,7 +500,8 @@ export function chatRequestToResponsesRequest(requestBody: Record<string, unknow
     payload["reasoning"] = requestBody["reasoning"];
   }
 
-  const reasoningEffort = asString(requestBody["reasoningEffort"]) ?? asString(requestBody["reasoning_effort"]);
+  const rawReasoningEffort = asString(requestBody["reasoningEffort"]) ?? asString(requestBody["reasoning_effort"]);
+  const reasoningEffort = rawReasoningEffort;
   const reasoningSummary = asString(requestBody["reasoningSummary"]) ?? asString(requestBody["reasoning_summary"]);
   if (reasoningEffort || reasoningSummary) {
     const reasoning = isRecord(payload["reasoning"]) ? { ...payload["reasoning"] } : {};
@@ -691,11 +692,23 @@ export function responsesToChatCompletion(responseBody: unknown, fallbackModel: 
     const totalTokens = asNumber(usage["total_tokens"]);
 
     if (promptTokens !== undefined && completionTokens !== undefined && totalTokens !== undefined) {
-      completion["usage"] = {
+      const mapped: Record<string, unknown> = {
         prompt_tokens: promptTokens,
         completion_tokens: completionTokens,
         total_tokens: totalTokens
       };
+
+      const inputDetails = isRecord(usage["input_tokens_details"]) ? usage["input_tokens_details"] : null;
+      if (inputDetails) {
+        mapped["prompt_tokens_details"] = { cached_tokens: asNumber(inputDetails["cached_tokens"]) ?? 0 };
+      }
+
+      const outputDetails = isRecord(usage["output_tokens_details"]) ? usage["output_tokens_details"] : null;
+      if (outputDetails) {
+        mapped["completion_tokens_details"] = { reasoning_tokens: asNumber(outputDetails["reasoning_tokens"]) ?? 0 };
+      }
+
+      completion["usage"] = mapped;
     }
   }
 
@@ -1178,4 +1191,324 @@ export async function writeInterleavedResponsesSse(
 
   emitChunk({}, hasToolCalls ? "tool_calls" : "stop");
   writeFn("data: [DONE]\n\n");
+}
+
+// ─── True Streaming: Responses SSE → Chat Completion Chunks ─────────────────
+
+export interface ResponsesStreamTranslatorOptions {
+  readonly fallbackModel: string;
+  readonly writeFn: (data: string) => void;
+}
+
+/**
+ * Incrementally translate a Responses API SSE stream into chat completion chunks.
+ *
+ * Unlike `responsesEventStreamToChatCompletion` which buffers the entire stream,
+ * this reads the upstream ReadableStream and emits chat.completion.chunk SSE events
+ * as text/reasoning/tool-call deltas arrive.
+ *
+ * Returns the terminal response object (if present) for usage extraction, or null.
+ */
+export async function streamResponsesSseToChatCompletionChunks(
+  body: ReadableStream<Uint8Array>,
+  options: ResponsesStreamTranslatorOptions,
+): Promise<{ terminalResponse: Record<string, unknown> | null; sawError: Record<string, unknown> | null }> {
+  const { fallbackModel, writeFn } = options;
+  const decoder = new TextDecoder();
+
+  let responseId = `chatcmpl_${Date.now()}`;
+  let createdAt = Math.floor(Date.now() / 1000);
+  let model = fallbackModel;
+  let isFirstChunk = true;
+  let hasToolCalls = false;
+  let terminalResponse: Record<string, unknown> | null = null;
+  let sawError: Record<string, unknown> | null = null;
+  let buffer = "";
+  let functionCallState: Map<number, { name: string; callId: string }> = new Map();
+  let toolCallIndex = 0;
+
+  function emitChunk(delta: Record<string, unknown>, finishReason: string | null): void {
+    const chunk = {
+      id: responseId,
+      object: "chat.completion.chunk",
+      created: createdAt,
+      model,
+      choices: [{ index: 0, delta, finish_reason: finishReason }],
+    };
+    writeFn(`data: ${JSON.stringify(chunk)}\n\n`);
+  }
+
+  function processEvent(payload: Record<string, unknown>): void {
+    const type = typeof payload["type"] === "string" ? payload["type"] : undefined;
+    if (!type) {
+      return;
+    }
+
+    // Extract response metadata from the first response event
+    if (type === "response.created" || type === "response.in_progress") {
+      const response = isRecord(payload["response"]) ? payload["response"] : null;
+      if (response) {
+        const rid = typeof response["id"] === "string" ? response["id"] : undefined;
+        if (rid) {
+          responseId = rid;
+        }
+        const rmodel = typeof response["model"] === "string" ? response["model"] : undefined;
+        if (rmodel) {
+          model = rmodel;
+        }
+        const rCreated = typeof response["created_at"] === "number" ? response["created_at"] : undefined;
+        if (rCreated) {
+          createdAt = rCreated;
+        }
+      }
+      return;
+    }
+
+    // Error events
+    if (type === "error") {
+      sawError = isRecord(payload["error"]) ? payload["error"] : payload;
+      return;
+    }
+    if (type === "response.failed") {
+      const response = isRecord(payload["response"]) ? payload["response"] : null;
+      if (response && isRecord(response["error"])) {
+        sawError = response["error"];
+      }
+      return;
+    }
+
+    // Text content deltas
+    if (type === "response.output_text.delta") {
+      const delta = typeof payload["delta"] === "string" ? payload["delta"] : undefined;
+      if (delta) {
+        const d: Record<string, unknown> = { content: delta };
+        if (isFirstChunk) {
+          d["role"] = "assistant";
+          isFirstChunk = false;
+        }
+        emitChunk(d, null);
+      }
+      return;
+    }
+
+    // Reasoning/summary text deltas
+    if (type === "response.reasoning_summary_text.delta"
+      || type === "response.reasoning.delta"
+      || type === "response.reasoning_summary_part.delta") {
+      const delta = typeof payload["delta"] === "string" ? payload["delta"] : undefined;
+      if (delta) {
+        const d: Record<string, unknown> = { reasoning_content: delta };
+        if (isFirstChunk) {
+          d["role"] = "assistant";
+          isFirstChunk = false;
+        }
+        emitChunk(d, null);
+      }
+      return;
+    }
+
+    // Pre-register function_call items from output_item.added so that
+    // subsequent argument deltas (which only carry item_id) can find the slot.
+    if (type === "response.output_item.added") {
+      const item = isRecord(payload["item"]) ? payload["item"] : null;
+      if (item && item["type"] === "function_call") {
+        const callId = typeof item["call_id"] === "string" ? item["call_id"] : undefined;
+        const itemIdVal = typeof item["id"] === "string" ? item["id"] : undefined;
+        const name = typeof item["name"] === "string" ? item["name"] : undefined;
+        if (callId) {
+          const slotIdx = toolCallIndex;
+          functionCallState.set(slotIdx, { name: name ?? "", callId });
+          // Also register by item id so delta lookups by item_id succeed
+          if (itemIdVal) {
+            functionCallState.set(slotIdx, { name: name ?? "", callId, itemId: itemIdVal } as any);
+          }
+          toolCallIndex++;
+          hasToolCalls = true;
+
+          const d: Record<string, unknown> = {
+            tool_calls: [{
+              index: slotIdx,
+              id: callId,
+              type: "function",
+              function: { name: name ?? "", arguments: "" },
+            }],
+          };
+          if (isFirstChunk) {
+            d["role"] = "assistant";
+            isFirstChunk = false;
+          }
+          emitChunk(d, null);
+        }
+      }
+      return;
+    }
+
+    // Function call argument deltas
+    if (type === "response.function_call_arguments.delta") {
+      const delta = typeof payload["delta"] === "string" ? payload["delta"] : undefined;
+      const callId = typeof payload["call_id"] === "string" ? payload["call_id"] : undefined;
+      const itemId = typeof payload["item_id"] === "string" ? payload["item_id"] : undefined;
+
+      // Find existing tool call slot by call_id or item_id
+      let slotIdx = -1;
+      for (const [idx, fc] of functionCallState.entries()) {
+        if ((callId && fc.callId === callId) || (itemId && ((fc as any).itemId === itemId || fc.callId === itemId))) {
+          slotIdx = idx;
+          break;
+        }
+      }
+
+      // Fallback: create slot from delta if no output_item.added was received
+      if (slotIdx < 0 && callId) {
+        const name = typeof payload["name"] === "string" ? payload["name"] : undefined;
+        slotIdx = toolCallIndex;
+        functionCallState.set(slotIdx, { name: name ?? "", callId });
+        toolCallIndex++;
+        hasToolCalls = true;
+
+        const d: Record<string, unknown> = {
+          tool_calls: [{
+            index: slotIdx,
+            id: callId,
+            type: "function",
+            function: { name: name ?? "", arguments: delta ?? "" },
+          }],
+        };
+        if (isFirstChunk) {
+          d["role"] = "assistant";
+          isFirstChunk = false;
+        }
+        emitChunk(d, null);
+        return;
+      }
+
+      if (delta && slotIdx >= 0) {
+        emitChunk({
+          tool_calls: [{
+            index: slotIdx,
+            function: { arguments: delta },
+          }],
+        }, null);
+      }
+      return;
+    }
+
+    // Terminal events — capture for usage
+    if (type === "response.completed" || type === "response.incomplete") {
+      const response = isRecord(payload["response"]) ? payload["response"] : null;
+      if (response) {
+        terminalResponse = response;
+        const rmodel = typeof response["model"] === "string" ? response["model"] : undefined;
+        if (rmodel) {
+          model = rmodel;
+        }
+      }
+      return;
+    }
+  }
+
+  const SSE_BLOCK_SEP = /\r?\n\r?\n/;
+
+  function drainBuffer(): void {
+    let match: RegExpMatchArray | null;
+    while ((match = SSE_BLOCK_SEP.exec(buffer)) !== null) {
+      const sepIdx = match.index ?? 0;
+      const block = buffer.slice(0, sepIdx);
+      buffer = buffer.slice(sepIdx + match[0].length);
+
+      const dataLines = block
+        .split(/\r?\n/)
+        .filter((line) => line.startsWith("data:"))
+        .map((line) => line.slice(5).trim());
+
+      if (dataLines.length === 0) {
+        continue;
+      }
+
+      const data = dataLines.join("\n").trim();
+      if (data.length === 0 || data === "[DONE]") {
+        continue;
+      }
+
+      try {
+        const parsed: unknown = JSON.parse(data);
+        if (isRecord(parsed)) {
+          processEvent(parsed);
+        }
+      } catch {
+        // Skip malformed events
+      }
+    }
+  }
+
+  const reader = body.getReader();
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+
+      buffer += decoder.decode(value, { stream: true });
+      drainBuffer();
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  // Flush remaining buffer
+  if (buffer.trim().length > 0) {
+    const dataLines = buffer
+      .split(/\r?\n/)
+      .filter((line) => line.startsWith("data:"))
+      .map((line) => line.slice(5).trim());
+    const data = dataLines.join("\n").trim();
+    if (data.length > 0 && data !== "[DONE]") {
+      try {
+        const parsed: unknown = JSON.parse(data);
+        if (isRecord(parsed)) {
+          processEvent(parsed);
+        }
+      } catch {
+        // Skip
+      }
+    }
+  }
+
+  // Emit role chunk if nothing was emitted
+  if (isFirstChunk) {
+    emitChunk({ role: "assistant", content: "" }, null);
+  }
+
+  // Build usage chunk from terminal response
+  if (terminalResponse) {
+    const usage = isRecord(terminalResponse["usage"]) ? terminalResponse["usage"] : null;
+    if (usage) {
+      const promptTokens = typeof usage["input_tokens"] === "number" ? usage["input_tokens"] : undefined;
+      const completionTokens = typeof usage["output_tokens"] === "number" ? usage["output_tokens"] : undefined;
+      const totalTokens = typeof usage["total_tokens"] === "number" ? usage["total_tokens"] : undefined;
+      if (promptTokens !== undefined && completionTokens !== undefined && totalTokens !== undefined) {
+        const usageChunk = {
+          id: responseId,
+          object: "chat.completion.chunk",
+          created: createdAt,
+          model,
+          choices: [{ index: 0, delta: {}, finish_reason: hasToolCalls ? "tool_calls" : "stop" }],
+          usage: {
+            prompt_tokens: promptTokens,
+            completion_tokens: completionTokens,
+            total_tokens: totalTokens,
+          },
+        };
+        writeFn(`data: ${JSON.stringify(usageChunk)}\n\n`);
+        writeFn("data: [DONE]\n\n");
+        return { terminalResponse, sawError };
+      }
+    }
+  }
+
+  // Final stop chunk
+  emitChunk({}, hasToolCalls ? "tool_calls" : "stop");
+  writeFn("data: [DONE]\n\n");
+  return { terminalResponse, sawError };
 }

@@ -1,3 +1,5 @@
+import { requestWantsReasoningTrace } from "./provider-utils.js";
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
@@ -8,6 +10,24 @@ function asString(value: unknown): string | undefined {
 
 function asNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function asBoolean(value: unknown): boolean | undefined {
+  if (typeof value === "boolean") {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "true") {
+      return true;
+    }
+    if (normalized === "false") {
+      return false;
+    }
+  }
+
+  return undefined;
 }
 
 function stringifyUnknown(value: unknown): string {
@@ -157,6 +177,31 @@ export function requestHasExplicitNumCtx(requestBody: Record<string, unknown>): 
   return extractNumCtx(requestBody) !== undefined;
 }
 
+function extractThinkPreference(requestBody: Record<string, unknown>): boolean | undefined {
+  const control = extractOllamaControlObject(requestBody);
+  const controlValue = control ? asBoolean(control["think"]) : undefined;
+  if (controlValue !== undefined) {
+    return controlValue;
+  }
+
+  const topLevelValue = asBoolean(requestBody["think"]);
+  if (topLevelValue !== undefined) {
+    return topLevelValue;
+  }
+
+  if (
+    requestBody["reasoning"] !== undefined
+    || requestBody["reasoning_effort"] !== undefined
+    || requestBody["reasoningEffort"] !== undefined
+    || requestBody["thinking"] !== undefined
+    || requestBody["include"] !== undefined
+  ) {
+    return requestWantsReasoningTrace(requestBody);
+  }
+
+  return undefined;
+}
+
 function normalizeStopSequences(stop: unknown): string[] | undefined {
   if (typeof stop === "string") {
     return stop.length > 0 ? [stop] : undefined;
@@ -219,6 +264,11 @@ export function chatRequestToOllamaRequest(
     stream: false,
     messages: chatMessagesToOllamaMessages(requestBody["messages"])
   };
+
+  const think = extractThinkPreference(requestBody);
+  if (think !== undefined) {
+    payload["think"] = think;
+  }
 
   if (Array.isArray(requestBody["tools"])) {
     payload["tools"] = requestBody["tools"];
@@ -328,12 +378,17 @@ export function ollamaToChatCompletion(responseBody: unknown, fallbackModel: str
   const message = isRecord(responseBody["message"]) ? responseBody["message"] : null;
   const toolCalls = mapOllamaToolCalls(message);
   const content = asString(message?.["content"]) ?? "";
+  const reasoning = asString(message?.["thinking"]) ?? asString(responseBody["thinking"]) ?? "";
   const finishReason = resolveFinishReason(responseBody["done_reason"], toolCalls.length > 0);
 
   const assistantMessage: Record<string, unknown> = {
     role: "assistant",
     content: toolCalls.length > 0 ? (content.length > 0 ? content : null) : content
   };
+
+  if (reasoning.length > 0) {
+    assistantMessage["reasoning_content"] = reasoning;
+  }
 
   if (toolCalls.length > 0) {
     assistantMessage["tool_calls"] = toolCalls;

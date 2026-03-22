@@ -179,6 +179,14 @@ export class SqlAuthPersistence {
     await this.sql`DELETE FROM access_tokens WHERE token = ${token}`;
   }
 
+  public async updateAccessTokenExtra(token: string, extra?: Record<string, unknown>): Promise<boolean> {
+    const rows = await this.sql.unsafe<Array<{ token: string }>>(
+      "UPDATE access_tokens SET extra = $2::jsonb WHERE token = $1 RETURNING token",
+      [token, extra ? JSON.stringify(extra) : null],
+    );
+    return rows.length > 0;
+  }
+
   public async getRefreshToken(token: string): Promise<RefreshToken | undefined> {
     const now = Math.floor(Date.now() / 1000);
     const rows = await this.sql<RefreshTokenRow[]>`
@@ -204,6 +212,14 @@ export class SqlAuthPersistence {
 
   public async deleteRefreshToken(token: string): Promise<void> {
     await this.sql`DELETE FROM refresh_tokens WHERE token = ${token}`;
+  }
+
+  public async updateRefreshTokenExtra(token: string, extra?: Record<string, unknown>): Promise<boolean> {
+    const rows = await this.sql.unsafe<Array<{ token: string }>>(
+      "UPDATE refresh_tokens SET extra = $2::jsonb WHERE token = $1 RETURNING token",
+      [token, extra ? JSON.stringify(extra) : null],
+    );
+    return rows.length > 0;
   }
 
   public async getClient(clientId: string): Promise<OAuthClient | undefined> {

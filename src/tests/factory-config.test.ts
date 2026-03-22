@@ -6,7 +6,7 @@ import path from "node:path";
 import test from "node:test";
 
 import { loadConfig } from "../lib/config.js";
-import { KeyPool } from "../lib/key-pool.js";
+import { KeyPool, type ProviderAccountStore } from "../lib/key-pool.js";
 import { decryptAuthV2, parseJwtExpiry } from "../lib/factory-auth.js";
 import {
   resolveRequestRoutingState,
@@ -85,6 +85,22 @@ test("FACTORY_BASE_URL env var overrides factory base URL", async () => {
     () => {
       const config = loadConfig("/tmp/factory-config-test");
       assert.equal(config.upstreamProviderBaseUrls["factory"], "https://custom.factory.example.com/api");
+    },
+  );
+});
+
+test("defaultProviderBaseUrl returns z.ai and mistral defaults", async () => {
+  await withEnv(
+    {
+      PROXY_AUTH_TOKEN: "test-token",
+      ZAI_BASE_URL: undefined,
+      ZHIPU_BASE_URL: undefined,
+      MISTRAL_BASE_URL: undefined,
+    },
+    () => {
+      const config = loadConfig("/tmp/provider-config-test");
+      assert.equal(config.upstreamProviderBaseUrls["zai"], "https://api.z.ai/api/paas/v4");
+      assert.equal(config.upstreamProviderBaseUrls["mistral"], "https://api.mistral.ai/v1");
     },
   );
 });
@@ -336,6 +352,74 @@ test("FACTORY_API_KEY and file-based factory keys coexist in KeyPool", { concurr
           const tokens = new Set(factoryAccounts.map((a) => a.token));
           assert.ok(tokens.has("fk-env-key"));
           assert.ok(tokens.has("fk-file-key"));
+        },
+      );
+    },
+  );
+});
+
+test("DB-backed KeyPool ignores keys.json and inline keys JSON at runtime", { concurrency: false }, async () => {
+  const accountStore: ProviderAccountStore = {
+    async getAllProviders() {
+      return new Map([
+        ["openai", { authType: "oauth_bearer" }],
+      ]);
+    },
+    async getAllAccounts() {
+      return new Map([
+        ["openai", [{
+          providerId: "openai",
+          accountId: "db-openai-1",
+          token: "db-openai-token",
+          authType: "oauth_bearer",
+        }]],
+      ]);
+    },
+  };
+
+  await withEnv(
+    {
+      PROXY_KEYS_JSON: JSON.stringify({
+        providers: {
+          vivgrid: { accounts: ["inline-vivgrid-token"] },
+        },
+      }),
+      FACTORY_API_KEY: undefined,
+      FACTORY_AUTH_V2_FILE: "/tmp/nonexistent-auth-v2-file",
+      FACTORY_AUTH_V2_KEY: "/tmp/nonexistent-auth-v2-key",
+      GEMINI_API_KEY: undefined,
+      OPENROUTER_API_KEY: undefined,
+      REQUESTY_API_KEY: undefined,
+      REQUESTY_API_TOKEN: undefined,
+    },
+    async () => {
+      await withKeysFile(
+        {
+          providers: {
+            requesty: { accounts: ["file-requesty-token"] },
+          },
+        },
+        async (keysFilePath) => {
+          const keyPool = new KeyPool({
+            keysFilePath,
+            reloadIntervalMs: 10,
+            defaultCooldownMs: 1000,
+            defaultProviderId: "openai",
+            accountStore,
+            preferAccountStoreProviders: true,
+          });
+
+          await keyPool.warmup();
+
+          const openAiAccounts = await keyPool.getAllAccounts("openai");
+          assert.equal(openAiAccounts.length, 1);
+          assert.equal(openAiAccounts[0]?.token, "db-openai-token");
+
+          const requestyAccounts = await keyPool.getAllAccounts("requesty");
+          const vivgridAccounts = await keyPool.getAllAccounts("vivgrid");
+
+          assert.equal(requestyAccounts.length, 0);
+          assert.equal(vivgridAccounts.length, 0);
         },
       );
     },

@@ -93,6 +93,62 @@ export interface OAuthTokens {
   readonly planType?: string;
 }
 
+interface OpenAiOAuthErrorBody {
+  readonly error?: {
+    readonly message?: string;
+    readonly type?: string;
+    readonly code?: string;
+  };
+}
+
+export class OpenAiOAuthRefreshError extends Error {
+  public readonly status: number;
+
+  public readonly code?: string;
+
+  public readonly type?: string;
+
+  public readonly responseBody?: string;
+
+  public constructor(
+    status: number,
+    message: string,
+    options?: {
+      readonly code?: string;
+      readonly type?: string;
+      readonly responseBody?: string;
+    },
+  ) {
+    super(message);
+    this.name = "OpenAiOAuthRefreshError";
+    this.status = status;
+    this.code = options?.code;
+    this.type = options?.type;
+    this.responseBody = options?.responseBody;
+  }
+}
+
+export function isTerminalOpenAiRefreshError(error: unknown): error is OpenAiOAuthRefreshError {
+  if (!(error instanceof OpenAiOAuthRefreshError)) {
+    return false;
+  }
+
+  if (error.code === "refresh_token_reused") {
+    return true;
+  }
+
+  if (error.status !== 400 && error.status !== 401) {
+    return false;
+  }
+
+  const haystack = `${error.code ?? ""} ${error.type ?? ""} ${error.message} ${error.responseBody ?? ""}`.toLowerCase();
+  return haystack.includes("invalid_grant")
+    || haystack.includes("refresh token expired")
+    || haystack.includes("refresh_token_expired")
+    || haystack.includes("refresh token has already been used")
+    || haystack.includes("signing in again");
+}
+
 export type DevicePollResult =
   | { readonly state: "pending" }
   | { readonly state: "authorized"; readonly tokens: OAuthTokens }
@@ -125,6 +181,9 @@ interface OpenAiOAuthManagerOptions {
   readonly clientId?: string;
   /** OAuth issuer base URL (defaults to https://auth.openai.com). */
   readonly issuer?: string;
+
+  /** OAuth client secret for token exchange/refresh (optional; PKCE public clients can omit). */
+  readonly clientSecret?: string;
 }
 
 const DEFAULT_BROWSER_STATE_TTL_MS = 5 * 60 * 1000;
@@ -300,6 +359,7 @@ async function exchangeAuthorizationCode(
   codeVerifier: string,
   issuer: string,
   clientId: string,
+  clientSecret: string | undefined,
   fetchFn: typeof fetch,
 ): Promise<TokenResponse> {
   const response = await fetchFn(`${issuer}/oauth/token`, {
@@ -312,6 +372,7 @@ async function exchangeAuthorizationCode(
       code,
       redirect_uri: redirectUri,
       client_id: clientId,
+      ...(clientSecret ? { client_secret: clientSecret } : {}),
       code_verifier: codeVerifier,
     }).toString(),
   });
@@ -356,6 +417,7 @@ export class OpenAiOAuthManager {
   private readonly oauthScopes: string;
   private readonly clientId: string;
   private readonly issuer: string;
+  private readonly clientSecret?: string;
 
   public constructor(options: OpenAiOAuthManagerOptions = {}) {
     this.fetchFn = options.fetchFn ?? fetch;
@@ -366,6 +428,7 @@ export class OpenAiOAuthManager {
     this.oauthScopes = (options.oauthScopes ?? "openid profile email offline_access").trim() || "openid profile email offline_access";
     this.clientId = (options.clientId ?? DEFAULT_OPENAI_CLIENT_ID).trim() || DEFAULT_OPENAI_CLIENT_ID;
     this.issuer = (options.issuer ?? DEFAULT_OPENAI_ISSUER).trim() || DEFAULT_OPENAI_ISSUER;
+    this.clientSecret = options.clientSecret?.trim() || undefined;
   }
 
   public async startBrowserFlow(redirectBaseUrl: string): Promise<BrowserAuthStartResponse> {
@@ -408,7 +471,7 @@ export class OpenAiOAuthManager {
     }
 
     this.browserPending.delete(state);
-    const completion = exchangeAuthorizationCode(code, pending.redirectUri, pending.pkce.verifier, this.issuer, this.clientId, this.fetchFn)
+    const completion = exchangeAuthorizationCode(code, pending.redirectUri, pending.pkce.verifier, this.issuer, this.clientId, this.clientSecret, this.fetchFn)
       .then((tokens) => {
         const oauthTokens = toOAuthTokens(tokens);
         this.browserCompletions.set(state, {
@@ -523,6 +586,7 @@ export class OpenAiOAuthManager {
         payload.code_verifier,
         this.issuer,
         this.clientId,
+        this.clientSecret,
         this.fetchFn,
       );
       const result: DevicePollResult = {
@@ -555,11 +619,31 @@ export class OpenAiOAuthManager {
         grant_type: "refresh_token",
         refresh_token: refreshToken,
         client_id: this.clientId,
+        ...(this.clientSecret ? { client_secret: this.clientSecret } : {}),
       }).toString(),
     });
 
     if (!response.ok) {
-      throw new Error(`OpenAI token refresh failed with status ${response.status}`);
+      const responseText = await response.text();
+      let parsedBody: OpenAiOAuthErrorBody | undefined;
+      try {
+        parsedBody = JSON.parse(responseText) as OpenAiOAuthErrorBody;
+      } catch {
+        parsedBody = undefined;
+      }
+
+      const errorMessage = parsedBody?.error?.message?.trim();
+      throw new OpenAiOAuthRefreshError(
+        response.status,
+        errorMessage && errorMessage.length > 0
+          ? `OpenAI token refresh failed with status ${response.status}: ${errorMessage}`
+          : `OpenAI token refresh failed with status ${response.status}`,
+        {
+          code: parsedBody?.error?.code,
+          type: parsedBody?.error?.type,
+          responseBody: responseText,
+        },
+      );
     }
 
     const tokens = (await response.json()) as TokenResponse;
