@@ -103,7 +103,7 @@ async function withProxyApp(
     throw new Error("Failed to resolve upstream server address");
   }
 
-  const config: ProxyConfig = {
+  const defaultConfig: ProxyConfig = {
     host: "127.0.0.1",
     port: 0,
     upstreamProviderId: "vivgrid",
@@ -112,6 +112,7 @@ async function withProxyApp(
     upstreamProviderBaseUrls: {
       vivgrid: `http://127.0.0.1:${address.port}`,
       "ollama-cloud": `http://127.0.0.1:${address.port}`,
+      ob1: `http://127.0.0.1:${address.port}`,
       openai: `http://127.0.0.1:${address.port}`,
       openrouter: `http://127.0.0.1:${address.port}`,
       requesty: `http://127.0.0.1:${address.port}`,
@@ -174,6 +175,15 @@ async function withProxyApp(
     oauthRefreshMaxConcurrency: options.configOverrides?.oauthRefreshMaxConcurrency ?? 32,
     oauthRefreshBackgroundIntervalMs: options.configOverrides?.oauthRefreshBackgroundIntervalMs ?? 15_000,
     oauthRefreshProactiveWindowMs: options.configOverrides?.oauthRefreshProactiveWindowMs ?? 30 * 60_000,
+  };
+
+  const config: ProxyConfig = {
+    ...defaultConfig,
+    ...options.configOverrides,
+    upstreamProviderBaseUrls: {
+      ...defaultConfig.upstreamProviderBaseUrls,
+      ...(options.configOverrides?.upstreamProviderBaseUrls ?? {}),
+    },
   };
 
   const app = await createApp(config);
@@ -415,6 +425,66 @@ test("routes claude models through chat completions for the requesty provider", 
           assert.equal(response.statusCode, 200);
         },
       );
+    },
+  );
+});
+
+test("routes claude models through chat completions for the ob1 provider", { concurrency: false }, async () => {
+  await withProxyApp(
+    {
+      keys: [],
+      keysPayload: {
+        providers: {
+          ob1: {
+            auth: "api_key",
+            accounts: ["ob1-key-1"],
+          },
+        },
+      },
+      configOverrides: {
+        upstreamProviderId: "ob1",
+        upstreamFallbackProviderIds: [],
+      },
+      upstreamHandler: async (request, body) => {
+        if (request.url === "/api/embed" || request.url === "/api/embeddings") {
+          return {
+            status: 200,
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ embeddings: [[0.1, 0.2, 0.3]] }),
+          };
+        }
+
+        assert.equal(request.url, "/v1/chat/completions");
+        assert.match(body, /claude-opus-4-5/);
+        assert.equal(request.headers.authorization, "Bearer ob1-key-1");
+
+        return {
+          status: 200,
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            id: "cmpl-ob1",
+            object: "chat.completion",
+            created: 1,
+            model: "claude-opus-4-5",
+            choices: [{ index: 0, message: { role: "assistant", content: "ok" }, finish_reason: "stop" }],
+          }),
+        };
+      },
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        payload: {
+          model: "claude-opus-4-5",
+          messages: [{ role: "user", content: "hello" }],
+        },
+        headers: {
+          authorization: "Bearer local-test",
+        },
+      });
+
+      assert.equal(response.statusCode, 200);
     },
   );
 });
