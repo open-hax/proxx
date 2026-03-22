@@ -370,7 +370,7 @@ function providerAccountsForRequestWithPolicy(
 
 function providerUsesOpenAiChatCompletions(providerId: string): boolean {
   const normalized = providerId.trim().toLowerCase();
-  return normalized === "openrouter" || normalized === "requesty";
+  return normalized === "ob1" || normalized === "openrouter" || normalized === "requesty";
 }
 
 function planCostTier(planType: string | undefined): number {
@@ -1119,6 +1119,16 @@ function usageCountsFromCompletion(completion: Record<string, unknown>): UsageCo
 function usageCountsFromUpstreamJson(upstreamJson: unknown, routedModel: string): UsageCounts {
   if (!isRecord(upstreamJson)) {
     return {};
+  }
+
+  const directCounts = usageCountsFromCompletion(upstreamJson);
+  if (
+    directCounts.promptTokens !== undefined
+    || directCounts.completionTokens !== undefined
+    || directCounts.totalTokens !== undefined
+    || directCounts.cachedPromptTokens !== undefined
+  ) {
+    return directCounts;
   }
 
   let counts: UsageCounts;

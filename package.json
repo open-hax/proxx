@@ -10,7 +10,7 @@
     "build": "rm -rf dist && tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "start": "node --env-file-if-exists=.env dist/main.js",
-    "test": "pnpm run build && node --test dist/tests/*.test.js",
+    "test": "pnpm run build && node --test --test-concurrency=1 dist/tests/*.test.js",
     "test:e2e": "./scripts/e2e-test.sh",
     "test:e2e:multitenancy": "./scripts/e2e-multitenancy-smoke.sh",
     "test:load": "node ./scripts/load-test.mjs",

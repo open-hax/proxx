@@ -36,6 +36,8 @@ Bootstrap a staging deployment for `orgs/open-hax/proxx` on `error@ussy3.prometh
   - `ssh error@ussy.promethean.rest` works
   - `ssh error@ussy3.promethean.rest` now works and was used to bootstrap the staging host
 - `ussy3.promethean.rest` now serves the staging proxy over HTTPS and the API health endpoint is live.
+- Remaining CI hardening includes removing Node 20-based GitHub Action runtimes before GitHub's June 2026 Node 24 cutoff affects `checkout`, `setup-node`, and the SSH bootstrap path.
+- Production automation also has to account for the existing hand-built `ussy.promethean.rest` compose project name (`open-hax-openai-proxy`) and intermittent GitHub-runner DNS failures for that hostname.
 
 ## Goals
 1. Get a staging instance running on `ussy3.promethean.rest`.
@@ -53,6 +55,8 @@ Bootstrap a staging deployment for `orgs/open-hax/proxx` on `error@ussy3.prometh
 - The broad live e2e suite is provider/environment sensitive; gating on it requires either a stable staging runtime or a more deterministic suite.
 - GitHub-hosted runners need deploy secrets and SSH keys that are not currently stored in the repo.
 - Staging/prod drift is likely if runtime files remain hand-managed outside the repo.
+- GitHub runner deprecation windows can break otherwise healthy workflows if core JavaScript actions are left on Node 20-era major versions.
+- Production verification can fail even after a healthy deploy if a GitHub-hosted runner cannot resolve `ussy.promethean.rest`; workflow verification should support an explicit IP resolve override while still validating the public hostname and TLS endpoint.
 
 ## Open questions
 1. What exact runtime path should staging use on the remote host? Proposed: `~/devel/services/proxx-staging`.
@@ -109,19 +113,23 @@ Evidence gathered:
 - `PRODUCTION_PROXY_AUTH_TOKEN`
 
 ### Recommended repo/environment vars
-- `STAGING_SSH_HOST` = `ussy3.promethean.rest`
+- `STAGING_SSH_HOST` = `104.130.31.144` for SSH transport to the staging box
 - `STAGING_SSH_USER` = `error`
 - `STAGING_DEPLOY_PATH` = `~/devel/services/proxx-staging`
+- `STAGING_COMPOSE_PROJECT_NAME` = `proxx-staging`
 - `STAGING_PUBLIC_HOST` = `ussy3.promethean.rest`
 - `STAGING_BASE_URL` = `https://ussy3.promethean.rest`
-- `STAGING_SOURCE_SSH_HOST` = `ussy.promethean.rest`
+- `STAGING_SOURCE_SSH_HOST` = `104.130.31.129`
 - `STAGING_SOURCE_SSH_USER` = `error`
 - `STAGING_SOURCE_DEPLOY_PATH` = `~/devel/services/proxx`
-- `PRODUCTION_SSH_HOST` = `ussy.promethean.rest`
+- `STAGING_SOURCE_COMPOSE_PROJECT_NAME` = `open-hax-openai-proxy`
+- `PRODUCTION_SSH_HOST` = `104.130.31.129`
 - `PRODUCTION_SSH_USER` = `error`
 - `PRODUCTION_DEPLOY_PATH` = `~/devel/services/proxx`
+- `PRODUCTION_COMPOSE_PROJECT_NAME` = `open-hax-openai-proxy`
 - `PRODUCTION_PUBLIC_HOST` = `ussy.promethean.rest`
 - `PRODUCTION_BASE_URL` = `https://ussy.promethean.rest`
+- `PRODUCTION_VERIFY_RESOLVE_ADDRESS` = `104.130.31.129` when GitHub-hosted runners cannot resolve `ussy.promethean.rest`
 
 ## Required branch-protection checks
 ### `staging`

@@ -89,6 +89,13 @@ function extractSseDataLines(payload: string): string[] {
     .filter((line) => line.length > 0);
 }
 
+export function stripSseCommentLines(payload: string): string {
+  return payload
+    .split(/\r?\n/)
+    .filter((line) => !line.startsWith(":"))
+    .join("\n");
+}
+
 export function streamPayloadHasReasoningTrace(payload: string): boolean {
   for (const data of extractSseDataLines(payload)) {
     if (data === "[DONE]") {

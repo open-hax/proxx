@@ -49,6 +49,24 @@ Alternative credential sources:
 - When `DATABASE_URL` is configured, SQL-backed credentials are also loaded and become the runtime source of truth for the proxy UI and request routing
 - `DISABLED_PROVIDER_IDS` can remove providers such as `vivgrid` from live routing without deleting their stored credentials
 
+## Shared-state federation v1
+
+If you want several `proxx` instances to behave like one mirrored operator surface, point them at the same `DATABASE_URL`.
+
+In this mode the shared SQL database becomes the control plane for:
+- GitHub/UI operator login state and tenant membership
+- tenant API keys and proxy settings
+- provider credentials, including OpenAI OAuth accounts added through the UI
+- dashboard / analytics usage data
+
+That means:
+- add an OpenAI OAuth account on one instance -> the other instances can pick it up from the same DB-backed credential store
+- usage analytics aggregate across the fleet instead of fragmenting per instance
+
+Current boundary:
+- shared in v1: operator/admin state, OAuth credentials, analytics
+- still local for now: chat sessions, prompt affinity, and other convenience file state
+
 Env-backed providers:
 
 - `OPENROUTER_API_KEY` automatically exposes an `openrouter` provider route.
@@ -57,6 +75,11 @@ Env-backed providers:
 - `ZAI_API_KEY` (or `ZHIPU_API_KEY`) automatically exposes a `zai` provider route (z.ai GLM chat via `https://api.z.ai/api/paas/v4`).
 - `openrouter` and `requesty` default to OpenAI-compatible `/v1/chat/completions` routing.
 - You can target them by setting `UPSTREAM_PROVIDER_ID=openrouter|requesty|gemini|zai`, or by listing them in `UPSTREAM_FALLBACK_PROVIDER_IDS`.
+
+Additional provider ids:
+
+- `ob1` is available as a standard provider id. Configure it in `keys.json` and target it with `UPSTREAM_PROVIDER_ID=ob1`.
+- The default base URL for `ob1` is `https://dashboard.openblocklabs.com/api`.
 
 ## Run
 
@@ -139,7 +162,7 @@ docker compose logs -f
 Notes:
 
 - credentials are required for upstream proxying, but they can come from `keys.json`, inline JSON env, provider-specific env vars, or SQL when `DATABASE_URL` is configured
-- `data/` stores request logs and session history
+- `data/` still stores local fallback request logs and session history; with `DATABASE_URL` configured, shared fleet analytics are also mirrored into SQL
 - The API defaults to `127.0.0.1:8789`
 - The web companion is exposed on `${PROXY_WEB_PORT:-5174}`
 - The local compose stack now starts Postgres by default and sets `DATABASE_URL` so local runtime behavior matches Render more closely
@@ -160,6 +183,8 @@ Notes:
 - `STREAM_CHUNK_DELAY_MS_MIN` / `STREAM_CHUNK_DELAY_MS_MAX` (optional; default: unset; random delay range between chunks)
 - `UPSTREAM_PROVIDER_ID` (default: `vivgrid`; provider key in `keys.json`)
 - `UPSTREAM_FALLBACK_PROVIDER_IDS` (default: auto `ollama-cloud` when primary is `vivgrid`, or `vivgrid` when primary is `ollama-cloud`; comma-separated)
+- `UPSTREAM_BASE_URL` (optional override; when unset or blank, the proxy derives it from `UPSTREAM_PROVIDER_ID` / `UPSTREAM_PROVIDER_BASE_URLS`)
+- `UPSTREAM_PROVIDER_BASE_URLS` (optional mapping: `provider=url,provider=url`; defaults include `vivgrid=https://api.vivgrid.com`, `ollama-cloud=https://ollama.com`, `ob1=https://dashboard.openblocklabs.com/api`, `openrouter=https://openrouter.ai/api/v1`, and `requesty=https://router.requesty.ai/v1`)
 - `UPSTREAM_BASE_URL` (default: `https://api.vivgrid.com`)
 - `UPSTREAM_PROVIDER_BASE_URLS` (optional mapping: `provider=url,provider=url`; defaults include `vivgrid=https://api.vivgrid.com`, `ollama-cloud=https://ollama.com`, `zai=https://api.z.ai/api/paas/v4`, `openrouter=https://openrouter.ai/api/v1`, `requesty=https://router.requesty.ai/v1`, `gemini=https://generativelanguage.googleapis.com/v1beta`, and `factory=https://api.factory.ai`)
 - `OPENAI_PROVIDER_ID` (default: `openai`; provider key in `keys.json`)

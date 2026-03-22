@@ -94,3 +94,18 @@ test("loadConfig preserves explicit PROXY_TOKEN_PEPPER", async () => {
     },
   );
 });
+
+test("loadConfig derives UPSTREAM_BASE_URL from provider id when env is blank", async () => {
+  await withEnv(
+    {
+      PROXY_AUTH_TOKEN: "test-token",
+      UPSTREAM_PROVIDER_ID: "ob1",
+      UPSTREAM_BASE_URL: "",
+    },
+    () => {
+      const config = loadConfig("/tmp/open-hax-openai-proxy-config-test");
+      assert.equal(config.upstreamBaseUrl, "https://dashboard.openblocklabs.com/api");
+      assert.equal(config.upstreamProviderBaseUrls.ob1, "https://dashboard.openblocklabs.com/api");
+    },
+  );
+});

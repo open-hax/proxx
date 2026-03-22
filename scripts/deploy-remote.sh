@@ -12,15 +12,20 @@ DEPLOY_ENABLE_TLS="${DEPLOY_ENABLE_TLS:-false}"
 DEPLOY_HEALTH_TIMEOUT_SECONDS="${DEPLOY_HEALTH_TIMEOUT_SECONDS:-180}"
 DEPLOY_SYNC_RUNTIME_FROM_SOURCE="${DEPLOY_SYNC_RUNTIME_FROM_SOURCE:-false}"
 DEPLOY_SYNC_DB_FROM_SOURCE="${DEPLOY_SYNC_DB_FROM_SOURCE:-false}"
+DEPLOY_COMPOSE_PROJECT_NAME="${DEPLOY_COMPOSE_PROJECT_NAME:-}"
 DEPLOY_SOURCE_HOST="${DEPLOY_SOURCE_HOST:-}"
 DEPLOY_SOURCE_USER="${DEPLOY_SOURCE_USER:-$DEPLOY_USER}"
 DEPLOY_SOURCE_PATH="${DEPLOY_SOURCE_PATH:-}"
+DEPLOY_SOURCE_COMPOSE_PROJECT_NAME="${DEPLOY_SOURCE_COMPOSE_PROJECT_NAME:-}"
 
 REMOTE="${DEPLOY_USER}@${DEPLOY_HOST}"
 SOURCE_REMOTE="${DEPLOY_SOURCE_USER}@${DEPLOY_SOURCE_HOST}"
 SSH_OPTS=(-o BatchMode=yes -o StrictHostKeyChecking=accept-new)
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
+EMPTY_COMPOSE_PROJECT_NAME="__EMPTY_COMPOSE_PROJECT_NAME__"
+REMOTE_COMPOSE_PROJECT_NAME="${DEPLOY_COMPOSE_PROJECT_NAME:-$EMPTY_COMPOSE_PROJECT_NAME}"
+SOURCE_COMPOSE_PROJECT_NAME="${DEPLOY_SOURCE_COMPOSE_PROJECT_NAME:-$EMPTY_COMPOSE_PROJECT_NAME}"
 
 fetch_remote_file() {
   local remote="$1" remote_path="$2" local_path="$3"
@@ -90,16 +95,24 @@ sync_repo_tree() {
 
 remote_compose_up() {
   # shellcheck disable=SC2029
-  ssh "${SSH_OPTS[@]}" "$REMOTE" bash -s -- "$DEPLOY_PATH" "$DEPLOY_ENABLE_TLS" <<'EOF'
+  ssh "${SSH_OPTS[@]}" "$REMOTE" bash -s -- "$DEPLOY_PATH" "$DEPLOY_ENABLE_TLS" "$REMOTE_COMPOSE_PROJECT_NAME" <<'EOF'
 set -euo pipefail
 DEPLOY_PATH="$1"
 DEPLOY_ENABLE_TLS="$2"
+DEPLOY_COMPOSE_PROJECT_NAME="$3"
+if [[ "$DEPLOY_COMPOSE_PROJECT_NAME" == "__EMPTY_COMPOSE_PROJECT_NAME__" ]]; then
+  DEPLOY_COMPOSE_PROJECT_NAME=""
+fi
 cd "$DEPLOY_PATH"
 docker network create ai-infra >/dev/null 2>&1 || true
+compose_args=()
+if [[ -n "$DEPLOY_COMPOSE_PROJECT_NAME" ]]; then
+  compose_args+=(--project-name "$DEPLOY_COMPOSE_PROJECT_NAME")
+fi
 if [[ "$DEPLOY_ENABLE_TLS" == "true" ]]; then
-  compose_args=(-f docker-compose.yml -f deploy/docker-compose.ssl.yml)
+  compose_args+=(-f docker-compose.yml -f deploy/docker-compose.ssl.yml)
 else
-  compose_args=(-f docker-compose.yml)
+  compose_args+=(-f docker-compose.yml)
 fi
 docker compose "${compose_args[@]}" up -d --build --remove-orphans
 EOF
@@ -110,11 +123,20 @@ sync_operational_db_from_source() {
   : "${DEPLOY_SOURCE_PATH:?DEPLOY_SOURCE_PATH is required when DEPLOY_SYNC_DB_FROM_SOURCE=true}"
   local dump_file="$TMP_DIR/operational.sql"
 
-  ssh "${SSH_OPTS[@]}" "$SOURCE_REMOTE" bash -s -- "$DEPLOY_SOURCE_PATH" > "$dump_file" <<'EOF'
+  ssh "${SSH_OPTS[@]}" "$SOURCE_REMOTE" bash -s -- "$DEPLOY_SOURCE_PATH" "$SOURCE_COMPOSE_PROJECT_NAME" > "$dump_file" <<'EOF'
 set -euo pipefail
 SOURCE_PATH="$1"
+DEPLOY_SOURCE_COMPOSE_PROJECT_NAME="$2"
+if [[ "$DEPLOY_SOURCE_COMPOSE_PROJECT_NAME" == "__EMPTY_COMPOSE_PROJECT_NAME__" ]]; then
+  DEPLOY_SOURCE_COMPOSE_PROJECT_NAME=""
+fi
 cd "$SOURCE_PATH"
-docker compose -f docker-compose.yml exec -T open-hax-openai-proxy-db \
+compose_args=()
+if [[ -n "$DEPLOY_SOURCE_COMPOSE_PROJECT_NAME" ]]; then
+  compose_args+=(--project-name "$DEPLOY_SOURCE_COMPOSE_PROJECT_NAME")
+fi
+compose_args+=(-f docker-compose.yml)
+docker compose "${compose_args[@]}" exec -T open-hax-openai-proxy-db \
   pg_dump -U openai_proxy -d openai_proxy --data-only --column-inserts \
   --table=providers \
   --table=accounts \
@@ -131,34 +153,60 @@ docker compose -f docker-compose.yml exec -T open-hax-openai-proxy-db \
   --table=sessions
 EOF
 
-  ssh "${SSH_OPTS[@]}" "$REMOTE" bash -s -- "$DEPLOY_PATH" <<'EOF'
+  ssh "${SSH_OPTS[@]}" "$REMOTE" bash -s -- "$DEPLOY_PATH" "$REMOTE_COMPOSE_PROJECT_NAME" <<'EOF'
 set -euo pipefail
 DEPLOY_PATH="$1"
+DEPLOY_COMPOSE_PROJECT_NAME="$2"
+if [[ "$DEPLOY_COMPOSE_PROJECT_NAME" == "__EMPTY_COMPOSE_PROJECT_NAME__" ]]; then
+  DEPLOY_COMPOSE_PROJECT_NAME=""
+fi
 cd "$DEPLOY_PATH"
-docker compose -f docker-compose.yml exec -T open-hax-openai-proxy-db \
+compose_args=()
+if [[ -n "$DEPLOY_COMPOSE_PROJECT_NAME" ]]; then
+  compose_args+=(--project-name "$DEPLOY_COMPOSE_PROJECT_NAME")
+fi
+compose_args+=(-f docker-compose.yml)
+docker compose "${compose_args[@]}" exec -T open-hax-openai-proxy-db \
   psql -U openai_proxy -d openai_proxy \
   -c "TRUNCATE TABLE sessions, refresh_tokens, access_tokens, tenant_api_keys, tenant_memberships, users, tenants, account_health, account_cooldown, accounts, providers, models, config CASCADE;" >/dev/null
 EOF
 
   rsync -az "$dump_file" "$REMOTE:$DEPLOY_PATH/db-backups/operational-sync.sql"
 
-  ssh "${SSH_OPTS[@]}" "$REMOTE" bash -s -- "$DEPLOY_PATH" <<'EOF'
+  ssh "${SSH_OPTS[@]}" "$REMOTE" bash -s -- "$DEPLOY_PATH" "$REMOTE_COMPOSE_PROJECT_NAME" <<'EOF'
 set -euo pipefail
 DEPLOY_PATH="$1"
+DEPLOY_COMPOSE_PROJECT_NAME="$2"
+if [[ "$DEPLOY_COMPOSE_PROJECT_NAME" == "__EMPTY_COMPOSE_PROJECT_NAME__" ]]; then
+  DEPLOY_COMPOSE_PROJECT_NAME=""
+fi
 cd "$DEPLOY_PATH"
-docker compose -f docker-compose.yml exec -T open-hax-openai-proxy-db psql -U openai_proxy -d openai_proxy < "$DEPLOY_PATH/db-backups/operational-sync.sql"
+compose_args=()
+if [[ -n "$DEPLOY_COMPOSE_PROJECT_NAME" ]]; then
+  compose_args+=(--project-name "$DEPLOY_COMPOSE_PROJECT_NAME")
+fi
+compose_args+=(-f docker-compose.yml)
+docker compose "${compose_args[@]}" exec -T open-hax-openai-proxy-db psql -U openai_proxy -d openai_proxy < "$DEPLOY_PATH/db-backups/operational-sync.sql"
 rm -f "$DEPLOY_PATH/db-backups/operational-sync.sql"
 EOF
 
-  ssh "${SSH_OPTS[@]}" "$REMOTE" bash -s -- "$DEPLOY_PATH" "$DEPLOY_ENABLE_TLS" <<'EOF'
+  ssh "${SSH_OPTS[@]}" "$REMOTE" bash -s -- "$DEPLOY_PATH" "$DEPLOY_ENABLE_TLS" "$REMOTE_COMPOSE_PROJECT_NAME" <<'EOF'
 set -euo pipefail
 DEPLOY_PATH="$1"
 DEPLOY_ENABLE_TLS="$2"
+DEPLOY_COMPOSE_PROJECT_NAME="$3"
+if [[ "$DEPLOY_COMPOSE_PROJECT_NAME" == "__EMPTY_COMPOSE_PROJECT_NAME__" ]]; then
+  DEPLOY_COMPOSE_PROJECT_NAME=""
+fi
 cd "$DEPLOY_PATH"
+compose_args=()
+if [[ -n "$DEPLOY_COMPOSE_PROJECT_NAME" ]]; then
+  compose_args+=(--project-name "$DEPLOY_COMPOSE_PROJECT_NAME")
+fi
 if [[ "$DEPLOY_ENABLE_TLS" == "true" ]]; then
-  compose_args=(-f docker-compose.yml -f deploy/docker-compose.ssl.yml)
+  compose_args+=(-f docker-compose.yml -f deploy/docker-compose.ssl.yml)
 else
-  compose_args=(-f docker-compose.yml)
+  compose_args+=(-f docker-compose.yml)
 fi
 docker compose "${compose_args[@]}" restart open-hax-openai-proxy
 EOF
@@ -166,16 +214,24 @@ EOF
 
 wait_for_remote_health() {
   # shellcheck disable=SC2029
-  ssh "${SSH_OPTS[@]}" "$REMOTE" bash -s -- "$DEPLOY_PATH" "$DEPLOY_ENABLE_TLS" "$DEPLOY_HEALTH_TIMEOUT_SECONDS" <<'EOF'
+  ssh "${SSH_OPTS[@]}" "$REMOTE" bash -s -- "$DEPLOY_PATH" "$DEPLOY_ENABLE_TLS" "$DEPLOY_HEALTH_TIMEOUT_SECONDS" "$REMOTE_COMPOSE_PROJECT_NAME" <<'EOF'
 set -euo pipefail
 DEPLOY_PATH="$1"
 DEPLOY_ENABLE_TLS="$2"
 DEPLOY_HEALTH_TIMEOUT_SECONDS="$3"
+DEPLOY_COMPOSE_PROJECT_NAME="$4"
+if [[ "$DEPLOY_COMPOSE_PROJECT_NAME" == "__EMPTY_COMPOSE_PROJECT_NAME__" ]]; then
+  DEPLOY_COMPOSE_PROJECT_NAME=""
+fi
 cd "$DEPLOY_PATH"
+compose_args=()
+if [[ -n "$DEPLOY_COMPOSE_PROJECT_NAME" ]]; then
+  compose_args+=(--project-name "$DEPLOY_COMPOSE_PROJECT_NAME")
+fi
 if [[ "$DEPLOY_ENABLE_TLS" == "true" ]]; then
-  compose_args=(-f docker-compose.yml -f deploy/docker-compose.ssl.yml)
+  compose_args+=(-f docker-compose.yml -f deploy/docker-compose.ssl.yml)
 else
-  compose_args=(-f docker-compose.yml)
+  compose_args+=(-f docker-compose.yml)
 fi
 deadline=$(( $(date +%s) + DEPLOY_HEALTH_TIMEOUT_SECONDS ))
 while true; do
