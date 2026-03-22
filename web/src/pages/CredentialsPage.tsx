@@ -472,10 +472,10 @@ export function CredentialsPage(): JSX.Element {
 
     try {
       const payload = await startOpenAiBrowserOAuth(getApiOrigin());
-      const popup = window.open(payload.authorizeUrl, "openai-oauth");
+      const authWindow = window.open(payload.authorizeUrl, "_blank");
 
-      if (!popup) {
-        throw new Error("Browser blocked popup. Allow popups and try again.");
+      if (!authWindow) {
+        throw new Error("Browser blocked the new tab. Allow popups and try again.");
       }
 
       if (browserOAuthWatchRef.current !== null) {
@@ -484,7 +484,7 @@ export function CredentialsPage(): JSX.Element {
       }
 
       browserOAuthWatchRef.current = window.setInterval(() => {
-        if (!popup.closed) {
+        if (!authWindow.closed) {
           return;
         }
 
@@ -498,7 +498,7 @@ export function CredentialsPage(): JSX.Element {
         setStatus("Browser OAuth flow finished. Credentials refreshed.");
       }, 750);
 
-      setStatus("Browser OAuth window opened. Finish sign-in to save credentials.");
+      setStatus("Browser OAuth tab opened. Finish sign-in to save credentials.");
     } catch (oauthError) {
       setError(oauthError instanceof Error ? oauthError.message : String(oauthError));
     }
@@ -572,10 +572,10 @@ export function CredentialsPage(): JSX.Element {
 
     try {
       const payload = await startFactoryBrowserOAuth(getApiOrigin());
-      const popup = window.open(payload.authorizeUrl, "factory-oauth", "popup=yes,width=560,height=720");
+      const authWindow = window.open(payload.authorizeUrl, "_blank");
 
-      if (!popup) {
-        throw new Error("Browser blocked popup. Allow popups and try again.");
+      if (!authWindow) {
+        throw new Error("Browser blocked the new tab. Allow popups and try again.");
       }
 
       if (browserOAuthWatchRef.current !== null) {
@@ -584,7 +584,7 @@ export function CredentialsPage(): JSX.Element {
       }
 
       browserOAuthWatchRef.current = window.setInterval(() => {
-        if (!popup.closed) {
+        if (!authWindow.closed) {
           return;
         }
 
@@ -597,7 +597,7 @@ export function CredentialsPage(): JSX.Element {
         setStatus("Factory.ai browser OAuth flow finished. Credentials refreshed.");
       }, 750);
 
-      setStatus("Factory.ai browser OAuth window opened. Finish sign-in to save credentials.");
+      setStatus("Factory.ai OAuth tab opened. Finish sign-in to save credentials.");
     } catch (oauthError) {
       setError(oauthError instanceof Error ? oauthError.message : String(oauthError));
     }

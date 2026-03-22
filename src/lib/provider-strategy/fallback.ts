@@ -7,7 +7,7 @@ import type { ProviderCredential } from "../key-pool.js";
 import type { PolicyEngine } from "../policy/index.js";
 import type { PromptAffinityStore } from "../prompt-affinity-store.js";
 import type { RequestLogStore } from "../request-log-store.js";
-import { buildUpstreamHeadersForCredential, isRateLimitResponse, parseRetryAfterMs } from "../proxy.js";
+import { buildUpstreamHeadersForCredential, extractRateLimitCooldownMs, isRateLimitResponse } from "../proxy.js";
 import {
   extractTerminalResponseFromEventStream,
   responsesEventStreamToErrorPayload,
@@ -454,7 +454,9 @@ export async function executeProviderFallback(
 
         if (isRateLimitResponse(upstreamResponse)) {
           accumulator.sawRateLimit = true;
-          keyPool.markRateLimited(candidate.account, parseRetryAfterMs(upstreamResponse.headers.get("retry-after")));
+          // Extract cooldown from both header and body
+          const cooldownMs = await extractRateLimitCooldownMs(upstreamResponse);
+          keyPool.markRateLimited(candidate.account, cooldownMs);
           if (
             preferredAffinity
             && candidate.providerId === preferredAffinity.providerId
@@ -689,7 +691,8 @@ export async function executeProviderFallback(
               await refreshedDiagnosticsPromise;
               if (isRateLimitResponse(refreshedResponse)) {
                 accumulator.sawRateLimit = true;
-                keyPool.markRateLimited(refreshedCredential, parseRetryAfterMs(refreshedResponse.headers.get("retry-after")));
+                const refreshedCooldownMs = await extractRateLimitCooldownMs(refreshedResponse);
+                keyPool.markRateLimited(refreshedCredential, refreshedCooldownMs);
                 try {
                   await refreshedResponse.arrayBuffer();
                 } catch {

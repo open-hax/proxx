@@ -104,6 +104,99 @@ export function isRateLimitResponse(response: Response): boolean {
   return response.status === 429;
 }
 
+/**
+ * Parse wait time from rate limit error messages.
+ * Handles OpenAI-style messages like:
+ * - "Please wait 23.5 seconds before making another request."
+ * - "Please try again in 2m30s."
+ * - "Rate limit reached. Please wait 1.37s."
+ */
+export function parseWaitTimeFromMessage(message: string): number | undefined {
+  if (typeof message !== "string") {
+    return undefined;
+  }
+
+  const lower = message.toLowerCase();
+
+  // Pattern: XmYs or Xm Ys (e.g., "2m30s", "2m 30s", "try again in 5m 0s")
+  // Must check this before single minutes pattern
+  const combinedMatch = lower.match(/(\d+)\s*m\s*(\d+)\s*s/i);
+  if (combinedMatch) {
+    const minutes = parseInt(combinedMatch[1]!, 10);
+    const seconds = parseInt(combinedMatch[2]!, 10);
+    if (minutes > 0 || seconds > 0) {
+      return (minutes * 60 + seconds) * 1000;
+    }
+  }
+
+  // Pattern: X.XX seconds or X.XXs (e.g., "23.5 seconds", "1.37s", "30s")
+  const secondsMatch = lower.match(/(\d+(?:\.\d+)?)\s*s(?:econds?)?\b/i);
+  if (secondsMatch) {
+    const seconds = parseFloat(secondsMatch[1]!);
+    if (Number.isFinite(seconds) && seconds > 0) {
+      return Math.ceil(seconds * 1000);
+    }
+  }
+
+  // Pattern: X minute(s) or X min
+  const minutesMatch = lower.match(/(\d+)\s*(?:minutes?|mins?)\b/i);
+  if (minutesMatch) {
+    const minutes = parseInt(minutesMatch[1]!, 10);
+    if (minutes > 0) {
+      return minutes * 60 * 1000;
+    }
+  }
+
+  // Pattern: X hour(s)
+  const hoursMatch = lower.match(/(\d+)\s*(?:hours?|hrs?)\b/i);
+  if (hoursMatch) {
+    const hours = parseInt(hoursMatch[1]!, 10);
+    if (hours > 0) {
+      return hours * 60 * 60 * 1000;
+    }
+  }
+
+  return undefined;
+}
+
+/**
+ * Extract cooldown duration from a 429 response.
+ * First checks the retry-after header, then parses the response body for wait times.
+ */
+export async function extractRateLimitCooldownMs(response: Response): Promise<number | undefined> {
+  // First, try the retry-after header (standard HTTP mechanism)
+  const headerRetryAfter = parseRetryAfterMs(response.headers.get("retry-after"));
+  if (headerRetryAfter !== undefined && headerRetryAfter > 0) {
+    return headerRetryAfter;
+  }
+
+  // Then, try to extract wait time from the response body
+  const contentType = response.headers.get("content-type") ?? "";
+  if (!contentType.includes("application/json") && !contentType.includes("text/")) {
+    return undefined;
+  }
+
+  try {
+    const cloned = response.clone();
+    const body: unknown = await cloned.json();
+
+    // OpenAI-style error: { error: { message: "..." } }
+    if (typeof body === "object" && body !== null) {
+      const error = (body as Record<string, unknown>)["error"];
+      if (typeof error === "object" && error !== null) {
+        const message = (error as Record<string, unknown>)["message"];
+        if (typeof message === "string") {
+          return parseWaitTimeFromMessage(message);
+        }
+      }
+    }
+  } catch {
+    // Ignore JSON parse errors
+  }
+
+  return undefined;
+}
+
 export function openAiError(
   message: string,
   type: string,
