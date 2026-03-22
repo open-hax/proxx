@@ -49,6 +49,24 @@ Alternative credential sources:
 - When `DATABASE_URL` is configured, SQL-backed credentials are also loaded and become the runtime source of truth for the proxy UI and request routing
 - `DISABLED_PROVIDER_IDS` can remove providers such as `vivgrid` from live routing without deleting their stored credentials
 
+## Shared-state federation v1
+
+If you want several `proxx` instances to behave like one mirrored operator surface, point them at the same `DATABASE_URL`.
+
+In this mode the shared SQL database becomes the control plane for:
+- GitHub/UI operator login state and tenant membership
+- tenant API keys and proxy settings
+- provider credentials, including OpenAI OAuth accounts added through the UI
+- dashboard / analytics usage data
+
+That means:
+- add an OpenAI OAuth account on one instance -> the other instances can pick it up from the same DB-backed credential store
+- usage analytics aggregate across the fleet instead of fragmenting per instance
+
+Current boundary:
+- shared in v1: operator/admin state, OAuth credentials, analytics
+- still local for now: chat sessions, prompt affinity, and other convenience file state
+
 Env-backed providers:
 
 - `OPENROUTER_API_KEY` automatically exposes an `openrouter` provider route.
@@ -139,7 +157,7 @@ docker compose logs -f
 Notes:
 
 - credentials are required for upstream proxying, but they can come from `keys.json`, inline JSON env, provider-specific env vars, or SQL when `DATABASE_URL` is configured
-- `data/` stores request logs and session history
+- `data/` still stores local fallback request logs and session history; with `DATABASE_URL` configured, shared fleet analytics are also mirrored into SQL
 - The API defaults to `127.0.0.1:8789`
 - The web companion is exposed on `${PROXY_WEB_PORT:-5174}`
 - The local compose stack now starts Postgres by default and sets `DATABASE_URL` so local runtime behavior matches Render more closely

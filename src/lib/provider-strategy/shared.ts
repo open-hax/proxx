@@ -1121,6 +1121,16 @@ function usageCountsFromUpstreamJson(upstreamJson: unknown, routedModel: string)
     return {};
   }
 
+  const directCounts = usageCountsFromCompletion(upstreamJson);
+  if (
+    directCounts.promptTokens !== undefined
+    || directCounts.completionTokens !== undefined
+    || directCounts.totalTokens !== undefined
+    || directCounts.cachedPromptTokens !== undefined
+  ) {
+    return directCounts;
+  }
+
   let counts: UsageCounts;
   try {
     counts = usageCountsFromCompletion(responsesToChatCompletion(upstreamJson, routedModel));

@@ -367,3 +367,42 @@ test("request log store tracks tenant usage attribution separately", async () =>
     assert.equal(persistedEntries[1]?.tenantId, "beta");
   });
 });
+
+test("request log store mirrors records and updates into the shared usage sink", async () => {
+  await withTempDir(async (tempDir) => {
+    const filePath = path.join(tempDir, "request-logs.jsonl");
+    const mirroredEntries: Array<Record<string, unknown>> = [];
+    const store = new RequestLogStore(filePath, 100, 60_000, {
+      upsertEntry: async (entry) => {
+        mirroredEntries.push({ ...entry });
+      },
+    });
+    await store.warmup();
+
+    const entry = store.record({
+      providerId: "openai",
+      accountId: "acct-shared",
+      authType: "oauth_bearer",
+      model: "gpt-5.4",
+      upstreamMode: "responses",
+      upstreamPath: "/v1/responses",
+      status: 200,
+      latencyMs: 150,
+    });
+
+    store.update(entry.id, {
+      promptTokens: 21,
+      completionTokens: 21,
+      totalTokens: 42,
+      cacheHit: true,
+    });
+
+    await store.close();
+
+    assert.equal(mirroredEntries.length, 2);
+    assert.equal(mirroredEntries[0]?.id, entry.id);
+    assert.equal(mirroredEntries[1]?.id, entry.id);
+    assert.equal(mirroredEntries[1]?.totalTokens, 42);
+    assert.equal(mirroredEntries[1]?.cacheHit, true);
+  });
+});
