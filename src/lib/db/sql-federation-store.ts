@@ -497,4 +497,21 @@ export class SqlFederationStore {
 
     return rows.map(toProjectedAccountRecord);
   }
+
+  public async listProjectedAccounts(ownerSubject?: string): Promise<FederationProjectedAccountRecord[]> {
+    const rows = ownerSubject && ownerSubject.trim().length > 0
+      ? await this.sql.unsafe<FederationProjectedAccountRow[]>(
+          `SELECT * FROM federation_projected_accounts
+           WHERE owner_subject = $1
+           ORDER BY owner_subject, provider_id, account_id`,
+          [ownerSubject.trim()],
+        )
+      : await this.sql.unsafe<FederationProjectedAccountRow[]>(
+          `SELECT * FROM federation_projected_accounts
+           ORDER BY owner_subject, provider_id, account_id`,
+          [],
+        );
+
+    return rows.map(toProjectedAccountRecord);
+  }
 }

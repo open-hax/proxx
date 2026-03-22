@@ -24,6 +24,7 @@ import { getToolSeedForModel, loadMcpSeeds } from "./tool-mcp-seed.js";
 import type { ProxySettingsStore } from "./proxy-settings-store.js";
 import type { EventStore } from "./db/event-store.js";
 import type { SqlCredentialStore } from "./db/sql-credential-store.js";
+import type { SqlFederationStore } from "./db/sql-federation-store.js";
 import type { SqlRequestUsageStore } from "./db/sql-request-usage-store.js";
 import type { SqlAuthPersistence } from "./auth/sql-persistence.js";
 import { DEFAULT_TENANT_ID, normalizeTenantId } from "./tenant-api-key.js";
@@ -34,6 +35,7 @@ interface UiRouteDependencies {
   readonly requestLogStore: RequestLogStore;
   readonly credentialStore: CredentialStoreLike;
   readonly sqlCredentialStore?: SqlCredentialStore;
+  readonly sqlFederationStore?: SqlFederationStore;
   readonly sqlRequestUsageStore?: SqlRequestUsageStore;
   readonly authPersistence?: SqlAuthPersistence;
   readonly proxySettingsStore: ProxySettingsStore;
@@ -374,6 +376,124 @@ function authCanAccessHostDashboard(auth: ResolvedRequestAuth | undefined): bool
   }
 
   return false;
+}
+
+function authCanManageFederation(auth: ResolvedRequestAuth | undefined): boolean {
+  if (!auth) {
+    return false;
+  }
+
+  if (auth.kind === "legacy_admin") {
+    return true;
+  }
+
+  return auth.kind === "ui_session" && (auth.role === "owner" || auth.role === "admin");
+}
+
+type FederationKnownAccountSummary = {
+  readonly providerId: string;
+  readonly accountId: string;
+  readonly displayName: string;
+  readonly authType?: "api_key" | "oauth_bearer";
+  readonly planType?: string;
+  readonly chatgptAccountId?: string;
+  readonly email?: string;
+  readonly subject?: string;
+  readonly ownerSubject?: string;
+  readonly sourcePeerId?: string;
+  readonly projectedState?: string;
+  readonly warmRequestCount?: number;
+  readonly hasCredentials: boolean;
+  readonly knowledgeSources: readonly string[];
+};
+
+function accountKnowledgeKey(providerId: string, accountId: string): string {
+  return `${providerId}\0${accountId}`;
+}
+
+async function buildFederationAccountKnowledge(
+  credentialStore: CredentialStoreLike,
+  projectedAccounts: ReadonlyArray<{
+    readonly sourcePeerId: string;
+    readonly ownerSubject: string;
+    readonly providerId: string;
+    readonly accountId: string;
+    readonly accountSubject?: string;
+    readonly chatgptAccountId?: string;
+    readonly email?: string;
+    readonly planType?: string;
+    readonly availabilityState: string;
+    readonly warmRequestCount: number;
+  }>,
+): Promise<{
+  readonly localAccounts: readonly FederationKnownAccountSummary[];
+  readonly knownAccounts: readonly FederationKnownAccountSummary[];
+}> {
+  const providers = await credentialStore.listProviders(false);
+  const localAccounts: FederationKnownAccountSummary[] = [];
+  const known = new Map<string, FederationKnownAccountSummary>();
+
+  for (const provider of providers) {
+    for (const account of provider.accounts) {
+      const summary: FederationKnownAccountSummary = {
+        providerId: provider.id,
+        accountId: account.id,
+        displayName: account.displayName,
+        authType: account.authType,
+        planType: account.planType,
+        chatgptAccountId: account.chatgptAccountId,
+        email: account.email,
+        subject: account.subject,
+        hasCredentials: true,
+        knowledgeSources: ["local_credential"],
+      };
+      localAccounts.push(summary);
+      known.set(accountKnowledgeKey(provider.id, account.id), summary);
+    }
+  }
+
+  for (const projected of projectedAccounts) {
+    const key = accountKnowledgeKey(projected.providerId, projected.accountId);
+    const existing = known.get(key);
+    const projectedSource = `projected:${projected.availabilityState}`;
+    if (existing) {
+      known.set(key, {
+        ...existing,
+        ownerSubject: existing.ownerSubject ?? projected.ownerSubject,
+        sourcePeerId: existing.sourcePeerId ?? projected.sourcePeerId,
+        projectedState: projected.availabilityState,
+        warmRequestCount: projected.warmRequestCount,
+        knowledgeSources: [...new Set([...existing.knowledgeSources, projectedSource])],
+      });
+      continue;
+    }
+
+    known.set(key, {
+      providerId: projected.providerId,
+      accountId: projected.accountId,
+      displayName: projected.email ?? projected.chatgptAccountId ?? projected.accountSubject ?? projected.accountId,
+      planType: projected.planType,
+      chatgptAccountId: projected.chatgptAccountId,
+      email: projected.email,
+      subject: projected.accountSubject,
+      ownerSubject: projected.ownerSubject,
+      sourcePeerId: projected.sourcePeerId,
+      projectedState: projected.availabilityState,
+      warmRequestCount: projected.warmRequestCount,
+      hasCredentials: false,
+      knowledgeSources: [projectedSource],
+    });
+  }
+
+  const sortAccounts = (left: FederationKnownAccountSummary, right: FederationKnownAccountSummary): number =>
+    left.providerId.localeCompare(right.providerId)
+      || left.accountId.localeCompare(right.accountId)
+      || left.displayName.localeCompare(right.displayName);
+
+  return {
+    localAccounts: [...localAccounts].sort(sortAccounts),
+    knownAccounts: [...known.values()].sort(sortAccounts),
+  };
 }
 
 function toChatRole(value: unknown): ChatRole {
@@ -2423,6 +2543,307 @@ export async function registerUiRoutes(app: FastifyInstance, deps: UiRouteDepend
       keyPoolStatuses,
       requestLogSummary,
     });
+  });
+
+  app.get<{
+    Querystring: { readonly ownerSubject?: string };
+  }>("/api/ui/federation/peers", async (request, reply) => {
+    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
+    if (!authCanManageFederation(auth)) {
+      reply.code(auth ? 403 : 401).send({ error: auth ? "forbidden" : "unauthorized" });
+      return;
+    }
+
+    if (!deps.sqlFederationStore) {
+      reply.code(503).send({ error: "federation_store_not_supported" });
+      return;
+    }
+
+    const ownerSubject = typeof request.query.ownerSubject === "string" && request.query.ownerSubject.trim().length > 0
+      ? request.query.ownerSubject.trim()
+      : undefined;
+    const peers = await deps.sqlFederationStore.listPeers(ownerSubject);
+    reply.send({ peers });
+  });
+
+  app.post<{
+    Body: {
+      readonly id?: string;
+      readonly ownerCredential?: string;
+      readonly peerDid?: string;
+      readonly label?: string;
+      readonly baseUrl?: string;
+      readonly controlBaseUrl?: string;
+      readonly auth?: Record<string, unknown>;
+      readonly capabilities?: Record<string, unknown>;
+      readonly status?: string;
+    };
+  }>("/api/ui/federation/peers", async (request, reply) => {
+    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
+    if (!authCanManageFederation(auth)) {
+      reply.code(auth ? 403 : 401).send({ error: auth ? "forbidden" : "unauthorized" });
+      return;
+    }
+
+    if (!deps.sqlFederationStore) {
+      reply.code(503).send({ error: "federation_store_not_supported" });
+      return;
+    }
+
+    const ownerCredential = typeof request.body?.ownerCredential === "string" ? request.body.ownerCredential.trim() : "";
+    const label = typeof request.body?.label === "string" ? request.body.label.trim() : "";
+    const baseUrl = typeof request.body?.baseUrl === "string" ? request.body.baseUrl.trim() : "";
+
+    if (!ownerCredential || !label || !baseUrl) {
+      reply.code(400).send({ error: "owner_credential_label_and_base_url_required" });
+      return;
+    }
+
+    const peer = await deps.sqlFederationStore.upsertPeer({
+      id: request.body?.id,
+      ownerCredential,
+      peerDid: request.body?.peerDid,
+      label,
+      baseUrl,
+      controlBaseUrl: request.body?.controlBaseUrl,
+      auth: request.body?.auth,
+      capabilities: request.body?.capabilities,
+      status: request.body?.status,
+    });
+    await deps.sqlFederationStore.appendDiffEvent({
+      ownerSubject: peer.ownerSubject,
+      entityType: "peer",
+      entityKey: peer.id,
+      op: "upsert",
+      payload: {
+        peerDid: peer.peerDid,
+        label: peer.label,
+        baseUrl: peer.baseUrl,
+        controlBaseUrl: peer.controlBaseUrl,
+        authMode: peer.authMode,
+        status: peer.status,
+      },
+    });
+
+    reply.code(201).send({ peer });
+  });
+
+  app.get<{
+    Querystring: { readonly ownerSubject?: string; readonly afterSeq?: string; readonly limit?: string };
+  }>("/api/ui/federation/diff-events", async (request, reply) => {
+    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
+    if (!authCanManageFederation(auth)) {
+      reply.code(auth ? 403 : 401).send({ error: auth ? "forbidden" : "unauthorized" });
+      return;
+    }
+
+    if (!deps.sqlFederationStore) {
+      reply.code(503).send({ error: "federation_store_not_supported" });
+      return;
+    }
+
+    const ownerSubject = typeof request.query.ownerSubject === "string" ? request.query.ownerSubject.trim() : "";
+    if (!ownerSubject) {
+      reply.code(400).send({ error: "owner_subject_required" });
+      return;
+    }
+
+    const afterSeq = typeof request.query.afterSeq === "string" ? Number.parseInt(request.query.afterSeq, 10) : undefined;
+    const limit = toSafeLimit(request.query.limit, 200, 500);
+    const events = await deps.sqlFederationStore.listDiffEvents({ ownerSubject, afterSeq, limit });
+    reply.send({ ownerSubject, events });
+  });
+
+  app.get<{
+    Querystring: { readonly ownerSubject?: string };
+  }>("/api/ui/federation/accounts", async (request, reply) => {
+    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
+    if (!authCanManageFederation(auth)) {
+      reply.code(auth ? 403 : 401).send({ error: auth ? "forbidden" : "unauthorized" });
+      return;
+    }
+
+    if (!deps.sqlFederationStore) {
+      reply.code(503).send({ error: "federation_store_not_supported" });
+      return;
+    }
+
+    const ownerSubject = typeof request.query.ownerSubject === "string" && request.query.ownerSubject.trim().length > 0
+      ? request.query.ownerSubject.trim()
+      : undefined;
+    const projectedAccounts = await deps.sqlFederationStore.listProjectedAccounts(ownerSubject);
+    const { localAccounts, knownAccounts } = await buildFederationAccountKnowledge(credentialStore, projectedAccounts);
+
+    reply.send({
+      ownerSubject: ownerSubject ?? null,
+      localAccounts,
+      projectedAccounts,
+      knownAccounts,
+    });
+  });
+
+  app.post<{
+    Body: {
+      readonly accounts?: ReadonlyArray<{
+        readonly sourcePeerId?: string;
+        readonly ownerSubject?: string;
+        readonly providerId?: string;
+        readonly accountId?: string;
+        readonly accountSubject?: string;
+        readonly chatgptAccountId?: string;
+        readonly email?: string;
+        readonly planType?: string;
+        readonly availabilityState?: "descriptor" | "remote_route" | "imported";
+        readonly metadata?: Record<string, unknown>;
+      }>;
+    };
+  }>("/api/ui/federation/projected-accounts/import", async (request, reply) => {
+    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
+    if (!authCanManageFederation(auth)) {
+      reply.code(auth ? 403 : 401).send({ error: auth ? "forbidden" : "unauthorized" });
+      return;
+    }
+
+    if (!deps.sqlFederationStore) {
+      reply.code(503).send({ error: "federation_store_not_supported" });
+      return;
+    }
+
+    const accounts = Array.isArray(request.body?.accounts) ? request.body.accounts : [];
+    if (accounts.length === 0) {
+      reply.code(400).send({ error: "accounts_required" });
+      return;
+    }
+
+    const imported = [] as Awaited<ReturnType<typeof deps.sqlFederationStore.upsertProjectedAccount>>[];
+    for (const account of accounts) {
+      const sourcePeerId = typeof account?.sourcePeerId === "string" ? account.sourcePeerId.trim() : "";
+      const ownerSubject = typeof account?.ownerSubject === "string" ? account.ownerSubject.trim() : "";
+      const providerId = typeof account?.providerId === "string" ? account.providerId.trim() : "";
+      const accountId = typeof account?.accountId === "string" ? account.accountId.trim() : "";
+      if (!sourcePeerId || !ownerSubject || !providerId || !accountId) {
+        reply.code(400).send({ error: "source_peer_id_owner_subject_provider_id_and_account_id_required" });
+        return;
+      }
+
+      const record = await deps.sqlFederationStore.upsertProjectedAccount({
+        sourcePeerId,
+        ownerSubject,
+        providerId,
+        accountId,
+        accountSubject: typeof account?.accountSubject === "string" ? account.accountSubject : undefined,
+        chatgptAccountId: typeof account?.chatgptAccountId === "string" ? account.chatgptAccountId : undefined,
+        email: typeof account?.email === "string" ? account.email : undefined,
+        planType: typeof account?.planType === "string" ? account.planType : undefined,
+        availabilityState: account?.availabilityState,
+        metadata: account?.metadata,
+      });
+      imported.push(record);
+      await deps.sqlFederationStore.appendDiffEvent({
+        ownerSubject: record.ownerSubject,
+        entityType: "projected_account",
+        entityKey: `${record.sourcePeerId}:${record.providerId}:${record.accountId}`,
+        op: "upsert",
+        payload: {
+          providerId: record.providerId,
+          accountId: record.accountId,
+          availabilityState: record.availabilityState,
+          sourcePeerId: record.sourcePeerId,
+          email: record.email,
+          chatgptAccountId: record.chatgptAccountId,
+        },
+      });
+    }
+
+    reply.code(201).send({ accounts: imported });
+  });
+
+  app.post<{
+    Body: { readonly sourcePeerId?: string; readonly providerId?: string; readonly accountId?: string };
+  }>("/api/ui/federation/projected-accounts/routed", async (request, reply) => {
+    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
+    if (!authCanManageFederation(auth)) {
+      reply.code(auth ? 403 : 401).send({ error: auth ? "forbidden" : "unauthorized" });
+      return;
+    }
+
+    if (!deps.sqlFederationStore) {
+      reply.code(503).send({ error: "federation_store_not_supported" });
+      return;
+    }
+
+    const sourcePeerId = typeof request.body?.sourcePeerId === "string" ? request.body.sourcePeerId.trim() : "";
+    const providerId = typeof request.body?.providerId === "string" ? request.body.providerId.trim() : "";
+    const accountId = typeof request.body?.accountId === "string" ? request.body.accountId.trim() : "";
+    if (!sourcePeerId || !providerId || !accountId) {
+      reply.code(400).send({ error: "source_peer_id_provider_id_and_account_id_required" });
+      return;
+    }
+
+    const account = await deps.sqlFederationStore.noteProjectedAccountRouted({ sourcePeerId, providerId, accountId });
+    if (!account) {
+      reply.code(404).send({ error: "projected_account_not_found" });
+      return;
+    }
+
+    await deps.sqlFederationStore.appendDiffEvent({
+      ownerSubject: account.ownerSubject,
+      entityType: "projected_account",
+      entityKey: `${account.sourcePeerId}:${account.providerId}:${account.accountId}`,
+      op: "note_routed",
+      payload: {
+        providerId: account.providerId,
+        accountId: account.accountId,
+        availabilityState: account.availabilityState,
+        warmRequestCount: account.warmRequestCount,
+      },
+    });
+
+    reply.send({ account });
+  });
+
+  app.post<{
+    Body: { readonly sourcePeerId?: string; readonly providerId?: string; readonly accountId?: string };
+  }>("/api/ui/federation/projected-accounts/imported", async (request, reply) => {
+    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
+    if (!authCanManageFederation(auth)) {
+      reply.code(auth ? 403 : 401).send({ error: auth ? "forbidden" : "unauthorized" });
+      return;
+    }
+
+    if (!deps.sqlFederationStore) {
+      reply.code(503).send({ error: "federation_store_not_supported" });
+      return;
+    }
+
+    const sourcePeerId = typeof request.body?.sourcePeerId === "string" ? request.body.sourcePeerId.trim() : "";
+    const providerId = typeof request.body?.providerId === "string" ? request.body.providerId.trim() : "";
+    const accountId = typeof request.body?.accountId === "string" ? request.body.accountId.trim() : "";
+    if (!sourcePeerId || !providerId || !accountId) {
+      reply.code(400).send({ error: "source_peer_id_provider_id_and_account_id_required" });
+      return;
+    }
+
+    const account = await deps.sqlFederationStore.markProjectedAccountImported({ sourcePeerId, providerId, accountId });
+    if (!account) {
+      reply.code(404).send({ error: "projected_account_not_found" });
+      return;
+    }
+
+    await deps.sqlFederationStore.appendDiffEvent({
+      ownerSubject: account.ownerSubject,
+      entityType: "projected_account",
+      entityKey: `${account.sourcePeerId}:${account.providerId}:${account.accountId}`,
+      op: "mark_imported",
+      payload: {
+        providerId: account.providerId,
+        accountId: account.accountId,
+        availabilityState: account.availabilityState,
+        importedAt: account.importedAt,
+      },
+    });
+
+    reply.send({ account });
   });
 
   app.get("/api/ui/hosts/self", async (request, reply) => {

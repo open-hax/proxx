@@ -1967,6 +1967,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     requestLogStore,
     credentialStore: runtimeCredentialStore,
     sqlCredentialStore,
+    sqlFederationStore,
     sqlRequestUsageStore,
     authPersistence: sqlAuthPersistence,
     proxySettingsStore,
