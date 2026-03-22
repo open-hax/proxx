@@ -70,6 +70,7 @@ import { AccountHealthStore } from "./lib/db/account-health-store.js";
 import { EventStore } from "./lib/db/event-store.js";
 import { createDefaultLabelers } from "./lib/db/event-labelers.js";
 import { SqlRequestUsageStore } from "./lib/db/sql-request-usage-store.js";
+import { SqlFederationStore } from "./lib/db/sql-federation-store.js";
 import { SqlAuthPersistence } from "./lib/auth/sql-persistence.js";
 import { SqlGitHubAllowlist } from "./lib/auth/github-allowlist.js";
 import { seedFromJsonFile, seedFromJsonValue, seedFactoryAuthFromFiles, seedModelsFromFile, loadModelsFromDb, getConfig, setConfig } from "./lib/db/json-seeder.js";
@@ -353,6 +354,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
   let accountHealthStore: AccountHealthStore | undefined;
   let eventStore: EventStore | undefined;
   let sqlRequestUsageStore: SqlRequestUsageStore | undefined;
+  let sqlFederationStore: SqlFederationStore | undefined;
 
   if (config.databaseUrl) {
     try {
@@ -377,6 +379,10 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       sqlRequestUsageStore = new SqlRequestUsageStore(sql);
       await sqlRequestUsageStore.init();
       app.log.info("request usage store initialized");
+
+      sqlFederationStore = new SqlFederationStore(sql);
+      await sqlFederationStore.init();
+      app.log.info("federation store initialized");
 
       sqlAuthPersistence = new SqlAuthPersistence(sql);
       await sqlAuthPersistence.init();
