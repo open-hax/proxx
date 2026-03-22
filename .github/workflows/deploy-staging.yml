@@ -64,11 +64,18 @@ jobs:
           DEPLOY_USER: ${{ vars.STAGING_SSH_USER || 'error' }}
           DEPLOY_PATH: ${{ vars.STAGING_DEPLOY_PATH || '~/devel/services/proxx-staging' }}
           DEPLOY_COMPOSE_PROJECT_NAME: ${{ vars.STAGING_COMPOSE_PROJECT_NAME || 'proxx-staging' }}
+          DEPLOY_COMPOSE_FILES: docker-compose.federation-runtime.yml,deploy/docker-compose.federation.ssl.yml
+          DEPLOY_CADDY_TEMPLATE: deploy/Caddyfile.federation.template
+          DEPLOY_HEALTH_SERVICE: federation-nginx
+          DEPLOY_RESTART_SERVICES: federation-proxx-a1,federation-proxx-a2
           DEPLOY_PUBLIC_HOST: ${{ vars.STAGING_PUBLIC_HOST || 'ussy3.promethean.rest' }}
           DEPLOY_ENABLE_TLS: 'true'
           DEPLOY_HEALTH_TIMEOUT_SECONDS: '240'
           DEPLOY_SYNC_RUNTIME_FROM_SOURCE: 'true'
           DEPLOY_SYNC_DB_FROM_SOURCE: 'true'
+          DEPLOY_ENV_APPEND: |
+            FEDERATION_CLUSTER_ID=staging
+            FEDERATION_PUBLIC_HOST_SUFFIX=${{ vars.STAGING_PUBLIC_HOST || 'ussy3.promethean.rest' }}
           DEPLOY_SOURCE_HOST: ${{ vars.STAGING_SOURCE_SSH_HOST || 'ussy.promethean.rest' }}
           DEPLOY_SOURCE_USER: ${{ vars.STAGING_SOURCE_SSH_USER || 'error' }}
           DEPLOY_SOURCE_PATH: ${{ vars.STAGING_SOURCE_DEPLOY_PATH || '~/devel/services/proxx' }}
@@ -79,10 +86,11 @@ jobs:
         if: failure()
         run: |
           # shellcheck disable=SC2029,SC2086
-          ssh error@${STAGING_HOST} "cd '${STAGING_PATH}' && docker compose -f docker-compose.yml -f deploy/docker-compose.ssl.yml ps && docker compose -f docker-compose.yml -f deploy/docker-compose.ssl.yml logs --tail=200"
+          ssh error@${STAGING_HOST} "cd '${STAGING_PATH}' && docker compose --project-name '${STAGING_PROJECT}' -f docker-compose.federation-runtime.yml -f deploy/docker-compose.federation.ssl.yml ps && docker compose --project-name '${STAGING_PROJECT}' -f docker-compose.federation-runtime.yml -f deploy/docker-compose.federation.ssl.yml logs --tail=200"
         env:
           STAGING_HOST: ${{ vars.STAGING_SSH_HOST || 'ussy3.promethean.rest' }}
           STAGING_PATH: ${{ vars.STAGING_DEPLOY_PATH || '~/devel/services/proxx-staging' }}
+          STAGING_PROJECT: ${{ vars.STAGING_COMPOSE_PROJECT_NAME || 'proxx-staging' }}
 
   staging-live-e2e:
     name: staging-live-e2e
@@ -122,11 +130,18 @@ jobs:
         env:
           DEV_PROXY_URL: ${{ vars.STAGING_BASE_URL || 'https://ussy3.promethean.rest' }}
           DEV_PROXY_AUTH_TOKEN: ${{ secrets.STAGING_PROXY_AUTH_TOKEN }}
+      - run: ./scripts/e2e-federation-audit.sh
+        env:
+          FEDERATION_HOST_SUFFIX: ${{ vars.STAGING_PUBLIC_HOST || 'ussy3.promethean.rest' }}
+          FEDERATION_AUTH_TOKEN: ${{ secrets.STAGING_PROXY_AUTH_TOKEN }}
+          FEDERATION_SCHEME: https
+          FEDERATION_RESOLVE_ADDRESS: ${{ vars.STAGING_VERIFY_RESOLVE_ADDRESS || vars.STAGING_SSH_HOST || '' }}
       - name: staging live e2e failure logs
         if: failure()
         run: |
           # shellcheck disable=SC2029,SC2086
-          ssh error@${STAGING_HOST} "cd '${STAGING_PATH}' && docker compose -f docker-compose.yml -f deploy/docker-compose.ssl.yml ps && docker compose -f docker-compose.yml -f deploy/docker-compose.ssl.yml logs --tail=200"
+          ssh error@${STAGING_HOST} "cd '${STAGING_PATH}' && docker compose --project-name '${STAGING_PROJECT}' -f docker-compose.federation-runtime.yml -f deploy/docker-compose.federation.ssl.yml ps && docker compose --project-name '${STAGING_PROJECT}' -f docker-compose.federation-runtime.yml -f deploy/docker-compose.federation.ssl.yml logs --tail=200"
         env:
           STAGING_HOST: ${{ vars.STAGING_SSH_HOST || 'ussy3.promethean.rest' }}
           STAGING_PATH: ${{ vars.STAGING_DEPLOY_PATH || '~/devel/services/proxx-staging' }}
+          STAGING_PROJECT: ${{ vars.STAGING_COMPOSE_PROJECT_NAME || 'proxx-staging' }}

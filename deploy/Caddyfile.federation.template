@@ -1,0 +1,9 @@
+__CLUSTER_PUBLIC_HOST__, __GROUP_A_PUBLIC_HOST__, __GROUP_B_PUBLIC_HOST__, __A1_PUBLIC_HOST__, __A2_PUBLIC_HOST__, __B1_PUBLIC_HOST__, __B2_PUBLIC_HOST__ {
+  encode gzip zstd
+
+  header {
+    Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+  }
+
+  reverse_proxy federation-nginx:80
+}
