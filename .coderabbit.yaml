@@ -1,0 +1,87 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+
+# CodeRabbit configuration for proxx
+# Staging PRs use a lighter review profile - only critical/major issues
+
+language: "en-US"
+early_access: false
+
+tone_instructions: |
+  You are an experienced code reviewer for a fast-moving staging environment.
+  
+  For PRs targeting staging: Focus ONLY on critical bugs, security vulnerabilities,
+  and major correctness issues. Skip style nits, minor naming suggestions, optional
+  refactoring ideas, and documentation wording tweaks.
+  
+  Only comment if something is genuinely broken or could cause production issues.
+
+reviews:
+  # "chill" profile reduces pedantic feedback
+  profile: "chill"
+  
+  # Don't request changes for minor issues
+  request_changes_workflow: false
+  
+  # Generate high-level summary
+  high_level_summary: true
+  
+  # Show review status
+  review_status: true
+  
+  # Collapse long walkthroughs to reduce noise
+  collapse_walkthrough: true
+  
+  # Auto-review PRs targeting these branches
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches: ["staging", "main"]
+  
+  # Path-specific instructions matching staging workflow
+  path_instructions:
+    - path: "src/**"
+      instructions: |
+        Staging environment: Only flag critical and major issues.
+        Ignore: style preferences, minor naming, optional refactorings.
+        Focus: correctness, security, data integrity, breaking changes.
+    
+    - path: "src/lib/db/**"
+      instructions: |
+        Database layer: Watch for SQL injection, transaction safety, index needs.
+        Skip minor query formatting suggestions.
+    
+    - path: "src/lib/host-dashboard.ts"
+      instructions: |
+        Host dashboard: Focus on security (auth, token handling) and error handling.
+        Skip cosmetic code style comments.
+    
+    - path: "src/tests/**"
+      instructions: |
+        Tests: Focus on coverage of critical paths and assertion correctness.
+        Skip test style nits.
+    
+    - path: "specs/**"
+      instructions: |
+        Specs: Focus on coherence and completeness of plans.
+        Skip phrasing suggestions.
+    
+    - path: "web/**"
+      instructions: |
+        Frontend: Focus on accessibility, performance, and correct behavior.
+        Skip CSS minor improvements and optional refactorings.
+    
+    - path: ".github/workflows/**"
+      instructions: |
+        CI/CD: Focus on security (secrets handling) and correctness.
+        Skip style/formatting suggestions.
+
+# Keep essential linting, disable noisy tools
+tools:
+  eslint:
+    enabled: true
+  biome:
+    enabled: false
+
+# Auto-reply for questions only
+chat:
+  auto_reply: true
