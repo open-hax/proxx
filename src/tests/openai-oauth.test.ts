@@ -152,6 +152,14 @@ test("browser flow normalizes loopback callback to localhost auth callback route
   assert.match(started.authorizeUrl, /redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fauth%2Fcallback/);
 });
 
+test("browser flow preserves host-routed federation callback URLs", async () => {
+  const manager = new OpenAiOAuthManager();
+  const started = await manager.startBrowserFlow("https://a1.federation.test");
+
+  assert.equal(started.redirectUri, "https://a1.federation.test/auth/callback");
+  assert.match(started.authorizeUrl, /redirect_uri=https%3A%2F%2Fa1\.federation\.test%2Fauth%2Fcallback/);
+});
+
 test("browser flow derives distinct storage ids for different identities on the same ChatGPT account", async () => {
   let tokenExchangeCalls = 0;
 

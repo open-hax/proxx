@@ -40,6 +40,7 @@ import {
   recordAttempt,
   updateFailedAttemptDiagnostics,
   updateUsageCountsFromResponse,
+  readHeaderValue,
   type BuildPayloadResult,
   type FallbackAccumulator,
   type PreferredAffinity,
@@ -74,6 +75,22 @@ function requestyModelPrefix(model: string): string {
   return "openai";
 }
 
+function resolveForcedCredentialSelection(context: StrategyRequestContext): {
+  readonly providerId?: string;
+  readonly accountId?: string;
+} {
+  if (context.requestAuth?.kind !== "legacy_admin") {
+    return {};
+  }
+
+  const providerId = readHeaderValue(context.clientHeaders, "x-open-hax-forced-provider")?.trim().toLowerCase();
+  const accountId = readHeaderValue(context.clientHeaders, "x-open-hax-forced-account-id")?.trim();
+  return {
+    providerId: providerId && providerId.length > 0 ? providerId : undefined,
+    accountId: accountId && accountId.length > 0 ? accountId : undefined,
+  };
+}
+
 export async function executeProviderFallback(
   strategy: ProviderStrategy,
   reply: FastifyReply,
@@ -105,8 +122,13 @@ export async function executeProviderFallback(
   };
 
   const candidatesByProvider: Record<string, Array<{ readonly providerId: string; readonly baseUrl: string; readonly account: ProviderCredential }>> = {};
+  const forcedCredentialSelection = resolveForcedCredentialSelection(context);
 
   for (const route of providerRoutes) {
+    if (forcedCredentialSelection.providerId && route.providerId !== forcedCredentialSelection.providerId) {
+      continue;
+    }
+
     let routeAccounts: ProviderCredential[];
     try {
       const rawAccounts = await keyPool.getRequestOrder(route.providerId);
@@ -122,6 +144,10 @@ export async function executeProviderFallback(
     }
 
     routeAccounts = reorderAccountsForLatency(requestLogStore, route.providerId, routeAccounts, context.routedModel, strategy.mode);
+
+    if (forcedCredentialSelection.accountId) {
+      routeAccounts = routeAccounts.filter((account) => account.accountId === forcedCredentialSelection.accountId);
+    }
 
     const routeCandidates = routeAccounts.map((account) => ({
       providerId: route.providerId,
