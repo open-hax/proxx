@@ -7,6 +7,7 @@ Draft
 Move `proxx` from the current **shared SQL control-plane shortcut** toward a real peer federation model where multiple proxy instances can:
 
 - register each other over API
+- expose auditable federation state over API
 - recognize a shared human owner through AT Protocol DIDs
 - exchange **slow, lazy diffs** of durable state
 - discover remote account availability without immediately copying secrets everywhere
@@ -29,6 +30,7 @@ Additionally:
 - a peer auth/key field should accept **either**:
   - the admin key
   - a valid AT DID
+- deployments should support cluster/group/node inspection via distinct endpoints
 
 ## Why shared SQL is not enough
 The current shared-DB approach is acceptable as a narrow control-plane shortcut, especially for homogeneous cloud deployments.
@@ -112,6 +114,32 @@ This matches the user request:
 - first use routes through the peer
 - repeated use causes full transfer later
 
+## API audit requirements
+
+The federation process must be inspectable through API-only tests.
+
+Minimum required audit surfaces:
+
+1. **Peer registry API**
+   - list registered peers
+   - create/update peers over API
+   - show owner subject, peer DID, URLs, auth mode, status, capabilities
+
+2. **Diff/event API**
+   - list owner-scoped federation diff events by cursor/sequence
+   - make propagation visible without reading a database directly
+
+3. **Account knowledge API**
+   - list accounts with local credentials
+   - list accounts known only by remote projection/descriptor
+   - clearly distinguish whether the node:
+     - has credentials
+     - only knows the account exists
+     - has warmed the remote account through peer routing
+     - has fully imported it
+
+This is important because the intended E2E harness will validate behavior through API requests, not browser-driven flows.
+
 ## Required behavior
 
 ### A. Peer registration over API
@@ -174,6 +202,57 @@ Non-goals for the first real-federation milestone:
 - consensus/leader election
 - exact-once cross-peer replication
 - multi-hop transit beyond one peer hop
+
+## Deployment topology requirement
+
+The deployment should expose three levels of abstraction:
+
+1. **cluster-level endpoint**
+   - one load-balanced entrypoint for the entire cluster
+2. **group-level endpoints**
+   - one load-balanced entrypoint per DB-sharing pair/group
+3. **node-level endpoints**
+   - one endpoint per individual `proxx` node
+
+Desired concrete shape:
+- 4 total nodes
+- 2 groups of 2 nodes each
+- each group shares one database internally
+- the full set federates via peer registration over API
+
+Requested northbound topology:
+- nginx in front of the cluster
+- nginx in front of each group
+- nginx in front of each individual node
+
+That makes it possible to inspect the system at different layers:
+- cluster routing behavior
+- group-local shared-DB behavior
+- exact per-node state
+
+## E2E federation topology
+
+The target E2E environment should create:
+
+- **Group A**
+  - `a1`, `a2`
+  - share DB A
+  - DB A inherits the current environment DB shape/state for migration-oriented coverage
+
+- **Group B**
+  - `b1`, `b2`
+  - share DB B
+  - DB B starts fresh
+
+- all four nodes register/federate through API
+
+The E2E assertions should be API-driven and cover:
+- peer registration visibility
+- diff/event visibility
+- local vs projected account visibility
+- peer-routed remote account usage before import
+- warm-import transition after repeated usage
+- analytics propagation between peers/groups
 
 ## Proposed data model
 
@@ -298,6 +377,7 @@ Near-term acceptable bootstrap:
 - peer listing/status API
 - diff export API
 - diff pull/import API
+- account-knowledge audit API
 
 ### Phase 3 — descriptor projection
 - emit diff events for account descriptors + analytics
@@ -317,6 +397,11 @@ Near-term acceptable bootstrap:
 - resolve DID docs
 - verify peer signatures / DID-rooted control-plane auth
 - keep admin-key bootstrap compatibility
+
+### Phase 7 — deployment + E2E topology
+- add 4-node federation docker compose harness
+- add nginx cluster/group/node fronts
+- add API-only federation propagation tests
 
 ## Affected areas
 - `src/lib/db/schema.ts`
