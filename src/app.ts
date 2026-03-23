@@ -1436,6 +1436,17 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       return;
     }
 
+    // Allow internal bridge requests via dedicated header (no admin token required)
+    const bridgeAuthHeader = request.headers["x-open-hax-bridge-auth"];
+    if (bridgeAuthHeader === "internal" && request.headers[FEDERATION_OWNER_SUBJECT_HEADER]) {
+      // Bridge internal request - authenticate as legacy_admin equivalent for model API routes
+      (request as any).openHaxAuth = {
+        kind: "legacy_admin",
+        subject: String(request.headers[FEDERATION_OWNER_SUBJECT_HEADER]),
+      };
+      return;
+    }
+
     const resolvedAuth = await resolveRequestAuth({
       allowUnauthenticated: config.allowUnauthenticated,
       proxyAuthToken: config.proxyAuthToken,
