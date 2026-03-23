@@ -445,10 +445,26 @@ A2_SELF=$(api_json_host "$NODE_HOST_a2" GET "/api/ui/federation/self")
 B1_SELF=$(api_json_host "$NODE_HOST_b1" GET "/api/ui/federation/self")
 B2_SELF=$(api_json_host "$NODE_HOST_b2" GET "/api/ui/federation/self")
 
-[[ "$(printf '%s' "$A1_SELF" | json_value 'nodeId')" == "a1" ]] && pass "a1 node subdomain routes to a1" || fail "a1 node subdomain" "wrong node"
-[[ "$(printf '%s' "$A2_SELF" | json_value 'nodeId')" == "a2" ]] && pass "a2 node subdomain routes to a2" || fail "a2 node subdomain" "wrong node"
-[[ "$(printf '%s' "$B1_SELF" | json_value 'nodeId')" == "b1" ]] && pass "b1 node subdomain routes to b1" || fail "b1 node subdomain" "wrong node"
-[[ "$(printf '%s' "$B2_SELF" | json_value 'nodeId')" == "b2" ]] && pass "b2 node subdomain routes to b2" || fail "b2 node subdomain" "wrong node"
+if [[ "$(printf '%s' "$A1_SELF" | json_value 'nodeId')" == "a1" ]]; then
+  pass "a1 node subdomain routes to a1"
+else
+  fail "a1 node subdomain" "wrong node"
+fi
+if [[ "$(printf '%s' "$A2_SELF" | json_value 'nodeId')" == "a2" ]]; then
+  pass "a2 node subdomain routes to a2"
+else
+  fail "a2 node subdomain" "wrong node"
+fi
+if [[ "$(printf '%s' "$B1_SELF" | json_value 'nodeId')" == "b1" ]]; then
+  pass "b1 node subdomain routes to b1"
+else
+  fail "b1 node subdomain" "wrong node"
+fi
+if [[ "$(printf '%s' "$B2_SELF" | json_value 'nodeId')" == "b2" ]]; then
+  pass "b2 node subdomain routes to b2"
+else
+  fail "b2 node subdomain" "wrong node"
+fi
 
 GROUP_A_IDS=$(for _ in 1 2 3 4 5 6; do api_json_host "$GROUP_HOST_a" GET "/api/ui/federation/self" | json_value 'nodeId'; done)
 GROUP_B_IDS=$(for _ in 1 2 3 4 5 6; do api_json_host "$GROUP_HOST_b" GET "/api/ui/federation/self" | json_value 'nodeId'; done)
@@ -501,7 +517,7 @@ else
   fail "group A OpenAI OAuth baseline" "openai local account count=${A1_OPENAI_LOCAL_COUNT}"
 fi
 
-IFS=$'\t' read -r FED_PROVIDER_ID FED_ACCOUNT_ID FED_CHATGPT_ACCOUNT_ID <<< "$(printf '%s' "$A1_ACCOUNTS" | local_account_pairs_for_provider "openai" | head -1)"
+IFS=$'\t' read -r FED_PROVIDER_ID FED_ACCOUNT_ID _ <<< "$(printf '%s' "$A1_ACCOUNTS" | local_account_pairs_for_provider "openai" | head -1)"
 if [[ -z "${FED_PROVIDER_ID}" || -z "${FED_ACCOUNT_ID}" ]]; then
   fail "select federation account" "missing provider/account id"
   exit 1
@@ -578,7 +594,6 @@ done
 
 bold "── 6. actual request reroute and warm import ──"
 REROUTE_BODY='{"model":"gpt-5.3-codex","messages":[{"role":"user","content":"route this through federation"}],"stream":false}'
-LAST_ROUTED_HEADERS=''
 for attempt in 1 2 3; do
   HEADER_FILE="${RUNTIME_DIR}/reroute-${attempt}.headers"
   BODY_FILE="${RUNTIME_DIR}/reroute-${attempt}.json"
@@ -588,7 +603,6 @@ for attempt in 1 2 3; do
   ROUTED_ACCOUNT=$(response_header_value "$HEADER_FILE" "x-open-hax-federation-routed-account")
   IMPORTED_FLAG=$(response_header_value "$HEADER_FILE" "x-open-hax-federation-imported")
   RESPONSE_TEXT=$(python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); print(payload["choices"][0]["message"].get("content", ""))' "$BODY_FILE")
-  LAST_ROUTED_HEADERS="$HEADER_FILE"
 
   if [[ "$ROUTED_PEER" == "a1" ]]; then
     pass "rerouted request ${attempt} traversed peer a1"

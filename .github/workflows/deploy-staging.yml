@@ -67,7 +67,7 @@ jobs:
           DEPLOY_COMPOSE_FILES: docker-compose.federation-runtime.yml,deploy/docker-compose.federation.ssl.yml
           DEPLOY_CADDY_TEMPLATE: deploy/Caddyfile.federation.template
           DEPLOY_HEALTH_SERVICE: federation-nginx
-          DEPLOY_RESTART_SERVICES: federation-proxx-a1,federation-proxx-a2
+          DEPLOY_RESTART_SERVICES: federation-proxx-a1,federation-proxx-a2,federation-nginx,open-hax-openai-proxy-ssl
           DEPLOY_PUBLIC_HOST: ${{ vars.STAGING_PUBLIC_HOST || 'ussy3.promethean.rest' }}
           DEPLOY_ENABLE_TLS: 'true'
           DEPLOY_HEALTH_TIMEOUT_SECONDS: '240'
@@ -109,6 +109,18 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
+      - name: configure staging ssh
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "${STAGING_SSH_PRIVATE_KEY}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf 'Host *\n  IdentityFile ~/.ssh/deploy_key\n  IdentitiesOnly yes\n' > ~/.ssh/config
+          chmod 600 ~/.ssh/config
+          touch ~/.ssh/known_hosts
+          ssh-keyscan -H "${STAGING_HOST}" >> ~/.ssh/known_hosts
+        env:
+          STAGING_HOST: ${{ vars.STAGING_SSH_HOST || 'ussy3.promethean.rest' }}
+          STAGING_SSH_PRIVATE_KEY: ${{ secrets.STAGING_SSH_PRIVATE_KEY }}
       - run: chmod +x scripts/*.sh
       - run: |
           for attempt in $(seq 1 40); do

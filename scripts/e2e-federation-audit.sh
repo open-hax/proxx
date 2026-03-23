@@ -213,10 +213,26 @@ A1_SELF=$(curl_json_host "$A1_HOST" GET "/api/ui/federation/self")
 A2_SELF=$(curl_json_host "$A2_HOST" GET "/api/ui/federation/self")
 B1_SELF=$(curl_json_host "$B1_HOST" GET "/api/ui/federation/self")
 B2_SELF=$(curl_json_host "$B2_HOST" GET "/api/ui/federation/self")
-[[ "$(printf '%s' "$A1_SELF" | json_value 'nodeId')" == "a1" ]] && pass "a1 node host routes to a1" || fail "a1 node host" "wrong node"
-[[ "$(printf '%s' "$A2_SELF" | json_value 'nodeId')" == "a2" ]] && pass "a2 node host routes to a2" || fail "a2 node host" "wrong node"
-[[ "$(printf '%s' "$B1_SELF" | json_value 'nodeId')" == "b1" ]] && pass "b1 node host routes to b1" || fail "b1 node host" "wrong node"
-[[ "$(printf '%s' "$B2_SELF" | json_value 'nodeId')" == "b2" ]] && pass "b2 node host routes to b2" || fail "b2 node host" "wrong node"
+if [[ "$(printf '%s' "$A1_SELF" | json_value 'nodeId')" == "a1" ]]; then
+  pass "a1 node host routes to a1"
+else
+  fail "a1 node host" "wrong node"
+fi
+if [[ "$(printf '%s' "$A2_SELF" | json_value 'nodeId')" == "a2" ]]; then
+  pass "a2 node host routes to a2"
+else
+  fail "a2 node host" "wrong node"
+fi
+if [[ "$(printf '%s' "$B1_SELF" | json_value 'nodeId')" == "b1" ]]; then
+  pass "b1 node host routes to b1"
+else
+  fail "b1 node host" "wrong node"
+fi
+if [[ "$(printf '%s' "$B2_SELF" | json_value 'nodeId')" == "b2" ]]; then
+  pass "b2 node host routes to b2"
+else
+  fail "b2 node host" "wrong node"
+fi
 
 GROUP_A_IDS=$(for _ in 1 2 3 4 5 6; do curl_json_host "$GROUP_A_HOST" GET "/api/ui/federation/self" | json_value 'nodeId'; done)
 GROUP_B_IDS=$(for _ in 1 2 3 4 5 6; do curl_json_host "$GROUP_B_HOST" GET "/api/ui/federation/self" | json_value 'nodeId'; done)
@@ -237,7 +253,7 @@ if [[ "$A1_LOCAL_COUNT" -eq 0 ]]; then
   curl_json_host "$A1_HOST" POST "/api/ui/credentials/api-key" '{"providerId":"openai","accountId":"federation-seed-openai","credentialValue":"federation-seed-openai-token"}' >/dev/null
   A1_ACCOUNTS=$(curl_json_host "$A1_HOST" GET "/api/ui/federation/accounts?ownerSubject=${OWNER_DID}")
 fi
-IFS=$'\t' read -r FED_PROVIDER_ID FED_ACCOUNT_ID FED_ACCOUNT_LABEL <<< "$(printf '%s' "$A1_ACCOUNTS" | first_local_account_triplet)"
+IFS=$'\t' read -r FED_PROVIDER_ID FED_ACCOUNT_ID _ <<< "$(printf '%s' "$A1_ACCOUNTS" | first_local_account_triplet)"
 if [[ -n "$FED_PROVIDER_ID" && -n "$FED_ACCOUNT_ID" ]]; then
   pass "selected audit account ${FED_PROVIDER_ID}/${FED_ACCOUNT_ID}"
 else

@@ -1,0 +1,17 @@
+services:
+  open-hax-openai-proxy-ssl:
+    networks:
+      ai-infra: {}
+      battlebussy-edge: {}
+      voxx-edge: {}
+
+networks:
+  ai-infra:
+    external: true
+    name: ai-infra
+  battlebussy-edge:
+    external: true
+    name: battlebussy-prod_default
+  voxx-edge:
+    external: true
+    name: voxx_default
