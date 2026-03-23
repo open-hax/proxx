@@ -67,8 +67,8 @@ jobs:
           DEPLOY_USER: ${{ vars.PRODUCTION_SSH_USER || 'error' }}
           DEPLOY_PATH: ${{ vars.PRODUCTION_DEPLOY_PATH || '~/devel/services/proxx' }}
           DEPLOY_COMPOSE_PROJECT_NAME: ${{ vars.PRODUCTION_COMPOSE_PROJECT_NAME || 'open-hax-openai-proxy' }}
-          DEPLOY_COMPOSE_FILES: docker-compose.federation-runtime.yml,deploy/docker-compose.federation.ssl.yml
-          DEPLOY_CADDY_TEMPLATE: deploy/Caddyfile.federation.template
+          DEPLOY_COMPOSE_FILES: docker-compose.federation-runtime.yml,deploy/docker-compose.federation.ssl.yml,deploy/docker-compose.production.shared-edge.yml
+          DEPLOY_CADDY_TEMPLATE: deploy/Caddyfile.production.template
           DEPLOY_HEALTH_SERVICE: federation-nginx
           DEPLOY_RESTART_SERVICES: federation-proxx-a1,federation-proxx-a2,federation-nginx,open-hax-openai-proxy-ssl
           DEPLOY_PUBLIC_HOST: ${{ vars.PRODUCTION_PUBLIC_HOST || 'ussy.promethean.rest' }}
@@ -81,7 +81,7 @@ jobs:
         if: failure()
         run: |
           # shellcheck disable=SC2029,SC2086
-          ssh ${PRODUCTION_SSH_USER}@${PRODUCTION_HOST} "cd ${PRODUCTION_PATH} && docker compose --project-name '${PRODUCTION_PROJECT}' -f docker-compose.federation-runtime.yml -f deploy/docker-compose.federation.ssl.yml ps && docker compose --project-name '${PRODUCTION_PROJECT}' -f docker-compose.federation-runtime.yml -f deploy/docker-compose.federation.ssl.yml logs --tail=200"
+          ssh ${PRODUCTION_SSH_USER}@${PRODUCTION_HOST} "cd ${PRODUCTION_PATH} && docker compose --project-name '${PRODUCTION_PROJECT}' -f docker-compose.federation-runtime.yml -f deploy/docker-compose.federation.ssl.yml -f deploy/docker-compose.production.shared-edge.yml ps && docker compose --project-name '${PRODUCTION_PROJECT}' -f docker-compose.federation-runtime.yml -f deploy/docker-compose.federation.ssl.yml -f deploy/docker-compose.production.shared-edge.yml logs --tail=200"
         env:
           PRODUCTION_HOST: ${{ vars.PRODUCTION_SSH_HOST || 'ussy.promethean.rest' }}
           PRODUCTION_SSH_USER: ${{ vars.PRODUCTION_SSH_USER || 'error' }}
