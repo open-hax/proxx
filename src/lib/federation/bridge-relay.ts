@@ -24,6 +24,7 @@ import {
 export interface FederationBridgeAuthorizedIdentity {
   readonly authKind: "legacy_admin" | "ui_session";
   readonly subject?: string;
+  readonly tenantId?: string;
 }
 
 export interface FederationBridgeSessionRecord {
@@ -41,6 +42,7 @@ export interface FederationBridgeSessionRecord {
   readonly authMode: string;
   readonly authKind: FederationBridgeAuthorizedIdentity["authKind"];
   readonly authSubject?: string;
+  readonly tenantId?: string;
   readonly labels: readonly string[];
   readonly topology?: BridgeTopologySummary;
   readonly capabilities: readonly BridgeCapabilityAdvertisement[];
@@ -396,6 +398,7 @@ export class FederationBridgeRelay {
       authMode: hello.authMode,
       authKind: identity.authKind,
       authSubject: identity.subject,
+      tenantId: identity.tenantId,
       labels: [...hello.labels],
       topology: hello.topology
         ? {

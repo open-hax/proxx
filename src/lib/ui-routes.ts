@@ -2412,6 +2412,7 @@ export async function registerUiRoutes(app: FastifyInstance, deps: UiRouteDepend
       bridgeRelay.handleAuthorizedUpgrade(request, socket, head, {
         authKind: auth.kind === "legacy_admin" ? "legacy_admin" : "ui_session",
         subject: auth.subject,
+        tenantId: auth.tenantId,
       });
     })().catch((error) => {
       app.log.warn(
@@ -2887,13 +2888,13 @@ export async function registerUiRoutes(app: FastifyInstance, deps: UiRouteDepend
       return;
     }
 
-    // Scope bridge sessions to the authenticated tenant/subject for non-global admins.
-    // legacy_admin has global visibility; ui_session users see only their own sessions.
+    // Scope bridge sessions to the authenticated tenant for non-global admins.
+    // legacy_admin has global visibility; ui_session users see only their tenant's sessions.
     const isGlobalAdmin = auth?.kind === "legacy_admin" || auth?.role === "owner";
     const allSessions = bridgeRelay.listSessions();
     const sessions = isGlobalAdmin
       ? allSessions
-      : allSessions.filter((session) => session.ownerSubject === auth?.subject);
+      : allSessions.filter((session) => session.tenantId === auth?.tenantId);
 
     reply.send({ sessions });
   });
@@ -2911,10 +2912,10 @@ export async function registerUiRoutes(app: FastifyInstance, deps: UiRouteDepend
       return;
     }
 
-    // Scope single session access to authenticated tenant/subject
+    // Scope single session access to authenticated tenant
     const isGlobalAdmin = auth?.kind === "legacy_admin" || auth?.role === "owner";
-    if (!isGlobalAdmin && session.ownerSubject !== auth?.subject) {
-      reply.code(403).send({ error: "forbidden" });
+    if (!isGlobalAdmin && session.tenantId !== auth?.tenantId) {
+      reply.code(404).send({ error: "bridge_session_not_found" });
       return;
     }
 

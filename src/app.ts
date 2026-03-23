@@ -1330,7 +1330,9 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
 
     const headers: Record<string, string> = {
       accept: input.headers.accept ?? "application/json",
-      ...(config.proxyAuthToken ? { authorization: `Bearer ${config.proxyAuthToken}` } : {}),
+      // Use a dedicated bridge identity header instead of the global admin token.
+      // This prevents the bridge from becoming a privileged proxy with admin access.
+      "x-open-hax-bridge-auth": "internal",
       [FEDERATION_HOP_HEADER]: "1",
       [FEDERATION_OWNER_SUBJECT_HEADER]: input.ownerSubject,
     };
