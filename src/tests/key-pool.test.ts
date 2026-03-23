@@ -232,6 +232,43 @@ test("loads env-backed openrouter and requesty providers alongside file accounts
   );
 });
 
+test("warmup clears stale provider accounts when the account store becomes empty", async () => {
+  let providers = new Map<string, { authType: ProviderAuthType }>([
+    ["openai", { authType: "oauth_bearer" }],
+  ]);
+  let accounts = new Map<string, ProviderCredential[]>([
+    ["openai", [{
+      providerId: "openai",
+      accountId: "chatgpt-a1-account",
+      token: "access-a1",
+      authType: "oauth_bearer",
+      chatgptAccountId: "chatgpt-a1",
+    }]],
+  ]);
+
+  const keyPool = new KeyPool({
+    keysFilePath: "/tmp/nonexistent-keys.json",
+    reloadIntervalMs: 1,
+    defaultCooldownMs: 1000,
+    defaultProviderId: "openai",
+    accountStore: {
+      getAllProviders: async () => new Map(providers),
+      getAllAccounts: async () => new Map(accounts),
+    },
+    preferAccountStoreProviders: true,
+  });
+
+  await keyPool.warmup();
+  assert.equal((await keyPool.getAllAccounts("openai")).length, 1);
+
+  providers = new Map();
+  accounts = new Map();
+
+  await keyPool.warmup();
+  assert.equal((await keyPool.getAllAccounts("openai")).length, 0);
+  await assert.rejects(() => keyPool.getRequestOrder("openai"), /No accounts configured for provider: openai/);
+});
+
 test("loads env-backed gemini provider via GEMINI_API_KEY", { concurrency: false }, async () => {
   await withEnv(
     {

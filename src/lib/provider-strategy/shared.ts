@@ -1377,12 +1377,15 @@ function extractUsageFromResponsesSse(streamText: string, routedModel: string): 
   try {
     const chatCompletion = responsesEventStreamToChatCompletion(streamText, routedModel);
     const counts = usageCountsFromCompletion(chatCompletion);
+    const normalizedCounts = counts.promptTokens !== undefined && counts.cachedPromptTokens === undefined
+      ? { ...counts, cachedPromptTokens: 0 }
+      : counts;
     const terminalResponse = extractTerminalResponseFromEventStream(streamText);
     const imageCount = terminalResponse ? imageCountFromResponsesPayload(terminalResponse) : undefined;
     if (imageCount !== undefined) {
-      return { ...counts, imageCount };
+      return { ...normalizedCounts, imageCount };
     }
-    return counts;
+    return normalizedCounts;
   } catch {
     return {};
   }

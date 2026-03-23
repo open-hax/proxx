@@ -540,6 +540,9 @@ async function readProvidersFromSources(
   }
 
   if (merged.size === 0) {
+    if (accountStore) {
+      return merged;
+    }
     throw new Error("No provider accounts found in keys file or environment");
   }
 

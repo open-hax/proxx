@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { Readable } from "node:stream";
 
 import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
 
@@ -70,6 +71,7 @@ import { AccountHealthStore } from "./lib/db/account-health-store.js";
 import { EventStore } from "./lib/db/event-store.js";
 import { createDefaultLabelers } from "./lib/db/event-labelers.js";
 import { SqlRequestUsageStore } from "./lib/db/sql-request-usage-store.js";
+import { SqlFederationStore, shouldWarmImportProjectedAccount, type FederationPeerRecord, type FederationProjectedAccountRecord } from "./lib/db/sql-federation-store.js";
 import { SqlAuthPersistence } from "./lib/auth/sql-persistence.js";
 import { SqlGitHubAllowlist } from "./lib/auth/github-allowlist.js";
 import { seedFromJsonFile, seedFromJsonValue, seedFactoryAuthFromFiles, seedModelsFromFile, loadModelsFromDb, getConfig, setConfig } from "./lib/db/json-seeder.js";
@@ -353,6 +355,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
   let accountHealthStore: AccountHealthStore | undefined;
   let eventStore: EventStore | undefined;
   let sqlRequestUsageStore: SqlRequestUsageStore | undefined;
+  let sqlFederationStore: SqlFederationStore | undefined;
 
   if (config.databaseUrl) {
     try {
@@ -377,6 +380,15 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       sqlRequestUsageStore = new SqlRequestUsageStore(sql);
       await sqlRequestUsageStore.init();
       app.log.info("request usage store initialized");
+
+      try {
+        sqlFederationStore = new SqlFederationStore(sql);
+        await sqlFederationStore.init();
+        app.log.info("federation store initialized");
+      } catch (error) {
+        sqlFederationStore = undefined;
+        app.log.warn({ error: toErrorMessage(error) }, "failed to initialize federation store; continuing with federation disabled");
+      }
 
       sqlAuthPersistence = new SqlAuthPersistence(sql);
       await sqlAuthPersistence.init();
@@ -691,6 +703,398 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
         }
       }
     }
+  }
+
+  const FEDERATION_HOP_HEADER = "x-open-hax-federation-hop";
+  const FEDERATION_OWNER_SUBJECT_HEADER = "x-open-hax-federation-owner-subject";
+  const FEDERATION_FORCED_PROVIDER_HEADER = "x-open-hax-forced-provider";
+  const FEDERATION_FORCED_ACCOUNT_ID_HEADER = "x-open-hax-forced-account-id";
+  const FEDERATION_ROUTED_PEER_HEADER = "x-open-hax-federation-routed-peer";
+  const FEDERATION_ROUTED_PROVIDER_HEADER = "x-open-hax-federation-routed-provider";
+  const FEDERATION_ROUTED_ACCOUNT_HEADER = "x-open-hax-federation-routed-account";
+  const FEDERATION_IMPORTED_HEADER = "x-open-hax-federation-imported";
+  const FEDERATION_BLOCKED_RESPONSE_HEADERS = new Set([
+    "set-cookie",
+    "x-open-hax-federation-hop",
+    "x-open-hax-federation-owner-subject",
+    "x-open-hax-federation-routed-peer",
+    "x-open-hax-federation-routed-provider",
+    "x-open-hax-federation-routed-account",
+    "x-open-hax-federation-imported",
+    "x-open-hax-forced-provider",
+    "x-open-hax-forced-account-id",
+  ]);
+
+  interface FederationCredentialExport {
+    readonly providerId: string;
+    readonly accountId: string;
+    readonly authType: "api_key" | "oauth_bearer";
+    readonly secret: string;
+    readonly refreshToken?: string;
+    readonly expiresAt?: number;
+    readonly chatgptAccountId?: string;
+    readonly email?: string;
+    readonly subject?: string;
+    readonly planType?: string;
+  }
+
+  function readSingleHeader(headers: Record<string, unknown>, name: string): string | undefined {
+    const raw = headers[name];
+    if (typeof raw === "string") {
+      return raw;
+    }
+    if (Array.isArray(raw)) {
+      return raw.find((value) => typeof value === "string" && value.length > 0);
+    }
+    return undefined;
+  }
+
+  function resolveFederationHopCount(headers: Record<string, unknown>): number {
+    const raw = readSingleHeader(headers, FEDERATION_HOP_HEADER)?.trim();
+    if (!raw) {
+      return 0;
+    }
+
+    const parsed = Number.parseInt(raw, 10);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+  }
+
+  function resolveFederationOwnerSubject(input: {
+    readonly headers: Record<string, unknown>;
+    readonly requestAuth?: { readonly kind: "legacy_admin" | "tenant_api_key" | "ui_session" | "unauthenticated"; readonly subject?: string };
+    readonly hopCount?: number;
+  }): string | undefined {
+    const explicitHeader = readSingleHeader(input.headers, FEDERATION_OWNER_SUBJECT_HEADER)?.trim();
+    if (explicitHeader && ((input.hopCount ?? 0) > 0 || input.requestAuth?.kind === "legacy_admin")) {
+      return explicitHeader;
+    }
+
+    const authSubject = input.requestAuth?.subject?.trim();
+    if (authSubject && authSubject !== "legacy:proxy-auth-token") {
+      return authSubject;
+    }
+
+    if (input.requestAuth?.kind === "legacy_admin") {
+      const defaultOwnerSubject = process.env.FEDERATION_DEFAULT_OWNER_SUBJECT?.trim();
+      if (defaultOwnerSubject) {
+        return defaultOwnerSubject;
+      }
+    }
+
+    return undefined;
+  }
+
+  function extractPeerCredential(auth: Record<string, unknown>): string | undefined {
+    const direct = typeof auth.credential === "string" ? auth.credential.trim() : "";
+    if (direct.length > 0) {
+      return direct;
+    }
+
+    const bearer = typeof auth.bearer === "string" ? auth.bearer.trim() : "";
+    return bearer.length > 0 ? bearer : undefined;
+  }
+
+  async function fetchFederationJson<T>(input: {
+    readonly url: string;
+    readonly credential?: string;
+    readonly timeoutMs: number;
+    readonly method?: "GET" | "POST";
+    readonly body?: Record<string, unknown>;
+  }): Promise<T> {
+    const headers = new Headers();
+    headers.set("content-type", "application/json");
+    if (input.credential && input.credential.length > 0) {
+      headers.set("authorization", `Bearer ${input.credential}`);
+    }
+
+    const response = await fetchWithResponseTimeout(input.url, {
+      method: input.method ?? "GET",
+      headers,
+      body: input.body ? JSON.stringify(input.body) : undefined,
+    }, input.timeoutMs);
+
+    const text = await response.text();
+    const parsed = text.length > 0 ? JSON.parse(text) as T & { readonly error?: string } : {} as T & { readonly error?: string };
+    if (!response.ok) {
+      throw new Error(typeof parsed.error === "string" ? parsed.error : `request failed with ${response.status}`);
+    }
+
+    return parsed as T;
+  }
+
+  async function noteFederatedProjectedAccountRouted(input: {
+    readonly projectedAccount: FederationProjectedAccountRecord;
+    readonly timeoutMs: number;
+  }): Promise<{ readonly importedCredential: boolean; readonly projectedAccount: FederationProjectedAccountRecord }> {
+    if (!sqlFederationStore) {
+      return { importedCredential: false, projectedAccount: input.projectedAccount };
+    }
+
+    let projectedAccount = await sqlFederationStore.noteProjectedAccountRouted({
+      sourcePeerId: input.projectedAccount.sourcePeerId,
+      providerId: input.projectedAccount.providerId,
+      accountId: input.projectedAccount.accountId,
+    }) ?? input.projectedAccount;
+
+    let importedCredential = false;
+    if (shouldWarmImportProjectedAccount(projectedAccount.warmRequestCount)) {
+      const importResult = await sqlFederationStore.withProjectedAccountImportLock({
+        sourcePeerId: projectedAccount.sourcePeerId,
+        providerId: projectedAccount.providerId,
+        accountId: projectedAccount.accountId,
+      }, async () => {
+        const latest = await sqlFederationStore.getProjectedAccount({
+          sourcePeerId: projectedAccount.sourcePeerId,
+          providerId: projectedAccount.providerId,
+          accountId: projectedAccount.accountId,
+        });
+        if (!latest) {
+          return undefined;
+        }
+        if (latest.availabilityState === "imported") {
+          return { importedCredential: false, projectedAccount: latest };
+        }
+
+        const peer = await sqlFederationStore.getPeer(latest.sourcePeerId);
+        const credential = peer ? extractPeerCredential(peer.auth) : undefined;
+        if (!peer || !credential) {
+          return { importedCredential: false, projectedAccount: latest };
+        }
+
+        try {
+          const remoteExport = await fetchFederationJson<{ readonly account: FederationCredentialExport }>({
+            url: `${peer.controlBaseUrl ?? peer.baseUrl}/api/ui/federation/accounts/export`,
+            credential,
+            timeoutMs: input.timeoutMs,
+            method: "POST",
+            body: {
+              providerId: latest.providerId,
+              accountId: latest.accountId,
+            },
+          });
+
+          if (remoteExport.account.authType === "oauth_bearer") {
+            await runtimeCredentialStore.upsertOAuthAccount(
+              remoteExport.account.providerId,
+              remoteExport.account.accountId,
+              remoteExport.account.secret,
+              remoteExport.account.refreshToken,
+              remoteExport.account.expiresAt,
+              remoteExport.account.chatgptAccountId,
+              remoteExport.account.email,
+              remoteExport.account.subject,
+              remoteExport.account.planType,
+            );
+          } else {
+            await runtimeCredentialStore.upsertApiKeyAccount(
+              remoteExport.account.providerId,
+              remoteExport.account.accountId,
+              remoteExport.account.secret,
+            );
+          }
+
+          await keyPool.warmup().catch(() => undefined);
+
+          const imported = await sqlFederationStore.markProjectedAccountImported({
+            sourcePeerId: latest.sourcePeerId,
+            providerId: latest.providerId,
+            accountId: latest.accountId,
+          });
+          return {
+            importedCredential: true,
+            projectedAccount: imported ?? latest,
+          };
+        } catch (error) {
+          app.log.warn({
+            error: toErrorMessage(error),
+            sourcePeerId: latest.sourcePeerId,
+            providerId: latest.providerId,
+            accountId: latest.accountId,
+          }, "failed warm federation credential import during request routing");
+          return { importedCredential: false, projectedAccount: latest };
+        }
+      });
+
+      if (importResult) {
+        projectedAccount = importResult.projectedAccount;
+        importedCredential = importResult.importedCredential;
+      } else {
+        const latest = await sqlFederationStore.getProjectedAccount({
+          sourcePeerId: projectedAccount.sourcePeerId,
+          providerId: projectedAccount.providerId,
+          accountId: projectedAccount.accountId,
+        });
+        if (latest) {
+          projectedAccount = latest;
+          importedCredential = latest.availabilityState === "imported";
+        }
+      }
+    }
+
+    await sqlFederationStore.appendDiffEvent({
+      ownerSubject: projectedAccount.ownerSubject,
+      entityType: "projected_account",
+      entityKey: `${projectedAccount.sourcePeerId}:${projectedAccount.providerId}:${projectedAccount.accountId}`,
+      op: "note_routed",
+      payload: {
+        providerId: projectedAccount.providerId,
+        accountId: projectedAccount.accountId,
+        availabilityState: projectedAccount.availabilityState,
+        warmRequestCount: projectedAccount.warmRequestCount,
+        importedCredential,
+      },
+    });
+
+    return { importedCredential, projectedAccount };
+  }
+
+  async function executeFederatedRequestFallback(input: {
+    readonly requestHeaders: Record<string, unknown>;
+    readonly requestBody: Record<string, unknown>;
+    readonly requestAuth?: { readonly kind: "legacy_admin" | "tenant_api_key" | "ui_session" | "unauthenticated"; readonly subject?: string };
+    readonly providerRoutes: readonly ProviderRoute[];
+    readonly upstreamPath: string;
+    readonly reply: FastifyReply;
+    readonly timeoutMs: number;
+  }): Promise<boolean> {
+    if (!sqlFederationStore) {
+      return false;
+    }
+
+    const hopCount = resolveFederationHopCount(input.requestHeaders);
+    if (hopCount >= 1) {
+      return false;
+    }
+
+    const ownerSubject = resolveFederationOwnerSubject({
+      headers: input.requestHeaders,
+      requestAuth: input.requestAuth,
+      hopCount,
+    });
+    if (!ownerSubject) {
+      return false;
+    }
+
+    const localProviderIds = new Set(input.providerRoutes.map((route) => route.providerId.trim().toLowerCase()));
+    if (localProviderIds.size === 0) {
+      return false;
+    }
+
+    const peers = await sqlFederationStore.listPeers(ownerSubject);
+    const peersById = new Map(peers
+      .filter((peer) => peer.status.trim().toLowerCase() === "active")
+      .map((peer) => [peer.id, peer] as const));
+
+    const projectedCandidates = (await sqlFederationStore.getProjectedAccountsForOwner(ownerSubject))
+      .filter((account) => account.availabilityState !== "imported")
+      .filter((account) => localProviderIds.has(account.providerId.trim().toLowerCase()))
+      .map((projectedAccount) => {
+        const peer = peersById.get(projectedAccount.sourcePeerId);
+        const credential = peer ? extractPeerCredential(peer.auth) : undefined;
+        return peer && credential
+          ? { peer, credential, projectedAccount }
+          : undefined;
+      })
+      .filter((candidate): candidate is { readonly peer: FederationPeerRecord; readonly credential: string; readonly projectedAccount: FederationProjectedAccountRecord } => candidate !== undefined)
+      .sort((left, right) => {
+        const stateWeight = (value: FederationProjectedAccountRecord["availabilityState"]): number => value === "remote_route" ? 0 : 1;
+        return stateWeight(left.projectedAccount.availabilityState) - stateWeight(right.projectedAccount.availabilityState)
+          || right.projectedAccount.warmRequestCount - left.projectedAccount.warmRequestCount
+          || left.projectedAccount.providerId.localeCompare(right.projectedAccount.providerId)
+          || left.projectedAccount.accountId.localeCompare(right.projectedAccount.accountId)
+          || left.projectedAccount.sourcePeerId.localeCompare(right.projectedAccount.sourcePeerId);
+      });
+
+    if (projectedCandidates.length === 0) {
+      return false;
+    }
+
+    const bodyText = JSON.stringify(input.requestBody);
+
+    for (const candidate of projectedCandidates) {
+      const headers = buildForwardHeaders(input.requestHeaders as never);
+      headers.set("authorization", `Bearer ${candidate.credential}`);
+      headers.set(FEDERATION_HOP_HEADER, String(hopCount + 1));
+      headers.set(FEDERATION_OWNER_SUBJECT_HEADER, ownerSubject);
+      headers.set(FEDERATION_FORCED_PROVIDER_HEADER, candidate.projectedAccount.providerId);
+      headers.set(FEDERATION_FORCED_ACCOUNT_ID_HEADER, candidate.projectedAccount.accountId);
+
+      let remoteResponse: Response;
+      try {
+        remoteResponse = await fetchWithResponseTimeout(
+          `${candidate.peer.baseUrl}${input.upstreamPath}`,
+          {
+            method: "POST",
+            headers,
+            body: bodyText,
+          },
+          input.timeoutMs,
+        );
+      } catch (error) {
+        app.log.warn({
+          error: toErrorMessage(error),
+          peerId: candidate.peer.id,
+          upstreamPath: input.upstreamPath,
+          providerId: candidate.projectedAccount.providerId,
+          accountId: candidate.projectedAccount.accountId,
+        }, "federated request attempt failed before response");
+        continue;
+      }
+
+      if (!remoteResponse.ok) {
+        try {
+          await remoteResponse.arrayBuffer();
+        } catch {
+          // ignore response drain failure while trying the next candidate
+        }
+        app.log.warn({
+          peerId: candidate.peer.id,
+          status: remoteResponse.status,
+          providerId: candidate.projectedAccount.providerId,
+          accountId: candidate.projectedAccount.accountId,
+        }, "federated request attempt returned non-success response");
+        continue;
+      }
+
+      const routed = await noteFederatedProjectedAccountRouted({
+        projectedAccount: candidate.projectedAccount,
+        timeoutMs: input.timeoutMs,
+      });
+
+      for (const [name, value] of remoteResponse.headers.entries()) {
+        if (FEDERATION_BLOCKED_RESPONSE_HEADERS.has(name.toLowerCase())) {
+          continue;
+        }
+        input.reply.header(name, value);
+      }
+      input.reply.header(FEDERATION_OWNER_SUBJECT_HEADER, ownerSubject);
+      input.reply.header(FEDERATION_ROUTED_PEER_HEADER, candidate.peer.id);
+      input.reply.header(FEDERATION_ROUTED_PROVIDER_HEADER, candidate.projectedAccount.providerId);
+      input.reply.header(FEDERATION_ROUTED_ACCOUNT_HEADER, candidate.projectedAccount.accountId);
+      if (routed.importedCredential) {
+        input.reply.header(FEDERATION_IMPORTED_HEADER, "true");
+      }
+
+      input.reply.code(remoteResponse.status);
+      const contentType = remoteResponse.headers.get("content-type") ?? "";
+      const isEventStream = contentType.toLowerCase().includes("text/event-stream");
+
+      if (!remoteResponse.body) {
+        input.reply.send(await remoteResponse.text());
+        return true;
+      }
+
+      if (isEventStream) {
+        input.reply.removeHeader("content-length");
+        input.reply.send(Readable.fromWeb(remoteResponse.body as never));
+        return true;
+      }
+
+      input.reply.send(Buffer.from(await remoteResponse.arrayBuffer()));
+      return true;
+    }
+
+    return false;
   }
 
   async function refreshOpenAiOauthAccounts(accountId?: string): Promise<{
@@ -1331,6 +1735,19 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       return;
     }
 
+    const federatedChatHandled = await executeFederatedRequestFallback({
+      requestHeaders: request.headers,
+      requestBody,
+      requestAuth: (request as { readonly openHaxAuth?: { readonly kind: "legacy_admin" | "tenant_api_key" | "ui_session" | "unauthenticated"; readonly subject?: string } }).openHaxAuth,
+      providerRoutes,
+      upstreamPath: "/v1/chat/completions",
+      reply,
+      timeoutMs: context.upstreamAttemptTimeoutMs,
+    });
+    if (federatedChatHandled) {
+      return;
+    }
+
     if (execution.candidateCount === 0) {
       const retryInMs = await minMsUntilAnyProviderKeyReady(keyPool, providerRoutes);
       if (retryInMs > 0) {
@@ -1550,6 +1967,19 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       return;
     }
 
+    const federatedResponsesHandled = await executeFederatedRequestFallback({
+      requestHeaders: request.headers,
+      requestBody,
+      requestAuth: (request as { readonly openHaxAuth?: { readonly kind: "legacy_admin" | "tenant_api_key" | "ui_session" | "unauthenticated"; readonly subject?: string } }).openHaxAuth,
+      providerRoutes,
+      upstreamPath: "/v1/responses",
+      reply,
+      timeoutMs: context.upstreamAttemptTimeoutMs,
+    });
+    if (federatedResponsesHandled) {
+      return;
+    }
+
     if (execution.candidateCount === 0) {
       const retryInMs = await minMsUntilAnyProviderKeyReady(keyPool, providerRoutes);
       if (retryInMs > 0) {
@@ -1711,6 +2141,19 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     );
 
     if (execution.handled) {
+      return;
+    }
+
+    const federatedImagesHandled = await executeFederatedRequestFallback({
+      requestHeaders: request.headers,
+      requestBody,
+      requestAuth: (request as { readonly openHaxAuth?: { readonly kind: "legacy_admin" | "tenant_api_key" | "ui_session" | "unauthenticated"; readonly subject?: string } }).openHaxAuth,
+      providerRoutes,
+      upstreamPath: "/v1/images/generations",
+      reply,
+      timeoutMs: context.upstreamAttemptTimeoutMs,
+    });
+    if (federatedImagesHandled) {
       return;
     }
 
@@ -1961,6 +2404,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     requestLogStore,
     credentialStore: runtimeCredentialStore,
     sqlCredentialStore,
+    sqlFederationStore,
     sqlRequestUsageStore,
     authPersistence: sqlAuthPersistence,
     proxySettingsStore,

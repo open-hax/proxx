@@ -1,0 +1,206 @@
+x-proxx-node: &proxx-node
+  build:
+    context: .
+    dockerfile: Dockerfile
+  environment: &proxx-node-env
+    NODE_ENV: production
+    PROXY_HOST: 0.0.0.0
+    PROXY_PORT: "8789"
+    PORT: "8789"
+    PROXY_AUTH_TOKEN: "${PROXY_AUTH_TOKEN:-change-me-open-hax-proxy-token}"
+    PROXY_KEYS_FILE: /workspace/service-config/keys.json
+    PROXY_MODELS_FILE: /workspace/service-config/models.json
+    PROXY_REQUEST_LOGS_FILE: /app/data/request-logs.jsonl
+    PROXY_REQUEST_LOGS_MAX_ENTRIES: "${PROXY_REQUEST_LOGS_MAX_ENTRIES:-100000}"
+    PROXY_REQUEST_LOGS_FLUSH_MS: "${PROXY_REQUEST_LOGS_FLUSH_MS:-1000}"
+    PROXY_PROMPT_AFFINITY_FLUSH_MS: "${PROXY_PROMPT_AFFINITY_FLUSH_MS:-250}"
+    UPSTREAM_PROVIDER_ID: "${UPSTREAM_PROVIDER_ID:-openai}"
+    UPSTREAM_FALLBACK_PROVIDER_IDS: "${UPSTREAM_FALLBACK_PROVIDER_IDS:-ollama-cloud,requesty}"
+    DISABLED_PROVIDER_IDS: "${DISABLED_PROVIDER_IDS:-}"
+    UPSTREAM_BASE_URL: "${UPSTREAM_BASE_URL:-}"
+    UPSTREAM_PROVIDER_BASE_URLS: "${UPSTREAM_PROVIDER_BASE_URLS:-ollama-cloud=https://ollama.com,ob1=https://dashboard.openblocklabs.com/api,openai=https://chatgpt.com/backend-api,openrouter=https://openrouter.ai/api/v1,requesty=https://router.requesty.ai/v1,vivgrid=https://api.vivgrid.com}"
+    REQUESTY_API_TOKEN: "${REQUESTY_API_TOKEN:-}"
+    OPENAI_PROVIDER_ID: "${OPENAI_PROVIDER_ID:-openai}"
+    OPENAI_BASE_URL: "${OPENAI_BASE_URL:-https://chatgpt.com/backend-api}"
+    OPENAI_API_BASE_URL: "${OPENAI_API_BASE_URL:-https://api.openai.com}"
+    OPENAI_IMAGES_UPSTREAM_MODE: "${OPENAI_IMAGES_UPSTREAM_MODE:-auto}"
+    OPENAI_OAUTH_CLIENT_ID: "${OPENAI_OAUTH_CLIENT_ID:-app_EMoamEEZ73f0CkXaXp7hrann}"
+    OPENAI_OAUTH_CLIENT_SECRET: "${OPENAI_OAUTH_CLIENT_SECRET:-}"
+    OPENAI_OAUTH_ISSUER: "${OPENAI_OAUTH_ISSUER:-https://auth.openai.com}"
+    OPENAI_OAUTH_SCOPES: "${OPENAI_OAUTH_SCOPES:-openid profile email offline_access}"
+    OPENAI_IMAGES_GENERATIONS_PATHS: "${OPENAI_IMAGES_GENERATIONS_PATHS:-}"
+    IMAGE_COST_USD_DEFAULT: "${IMAGE_COST_USD_DEFAULT:-0}"
+    IMAGE_COST_USD_BY_PROVIDER: "${IMAGE_COST_USD_BY_PROVIDER:-}"
+    OLLAMA_BASE_URL: "${OLLAMA_BASE_URL:-http://ollama:11434}"
+    ZAI_API_KEY: "${ZAI_API_KEY:-}"
+    ZHIPU_API_KEY: "${ZHIPU_API_KEY:-}"
+    ZAI_PROVIDER_ID: "${ZAI_PROVIDER_ID:-zai}"
+    ZHIPU_PROVIDER_ID: "${ZHIPU_PROVIDER_ID:-}"
+    ZAI_BASE_URL: "${ZAI_BASE_URL:-https://api.z.ai/api/paas/v4}"
+    ZHIPU_BASE_URL: "${ZHIPU_BASE_URL:-}"
+    UPSTREAM_CHAT_COMPLETIONS_PATH: "${UPSTREAM_CHAT_COMPLETIONS_PATH:-/v1/chat/completions}"
+    OPENAI_CHAT_COMPLETIONS_PATH: "${OPENAI_CHAT_COMPLETIONS_PATH:-/codex/responses/compact}"
+    UPSTREAM_MESSAGES_PATH: "${UPSTREAM_MESSAGES_PATH:-/v1/messages}"
+    UPSTREAM_MESSAGES_MODEL_PREFIXES: "${UPSTREAM_MESSAGES_MODEL_PREFIXES:-claude-}"
+    UPSTREAM_MESSAGES_INTERLEAVED_THINKING_BETA: "${UPSTREAM_MESSAGES_INTERLEAVED_THINKING_BETA:-interleaved-thinking-2025-05-14}"
+    UPSTREAM_RESPONSES_PATH: "${UPSTREAM_RESPONSES_PATH:-/v1/responses}"
+    OPENAI_RESPONSES_PATH: "${OPENAI_RESPONSES_PATH:-/codex/responses}"
+    UPSTREAM_RESPONSES_MODEL_PREFIXES: "${UPSTREAM_RESPONSES_MODEL_PREFIXES:-gpt-}"
+    OPENAI_MODEL_PREFIXES: "${OPENAI_MODEL_PREFIXES:-openai/,openai:}"
+    OLLAMA_CHAT_PATH: "${OLLAMA_CHAT_PATH:-/api/chat}"
+    OLLAMA_MODEL_PREFIXES: "${OLLAMA_MODEL_PREFIXES:-ollama/,ollama:}"
+    PROXY_KEY_RELOAD_MS: "${PROXY_KEY_RELOAD_MS:-5000}"
+    PROXY_KEY_COOLDOWN_MS: "${PROXY_KEY_COOLDOWN_MS:-30000}"
+    UPSTREAM_REQUEST_TIMEOUT_MS: "${UPSTREAM_REQUEST_TIMEOUT_MS:-180000}"
+    PROXY_ALLOW_UNAUTHENTICATED: "${PROXY_ALLOW_UNAUTHENTICATED:-false}"
+    CHROMA_URL: "${CHROMA_URL:-http://host.docker.internal:8000}"
+    CHROMA_COLLECTION: "${CHROMA_COLLECTION:-open_hax_proxy_sessions}"
+    CHROMA_EMBED_MODEL: "${CHROMA_EMBED_MODEL:-nomic-embed-text:latest}"
+    FEDERATION_REQUEST_TIMEOUT_MS: "${FEDERATION_REQUEST_TIMEOUT_MS:-5000}"
+    FEDERATION_SELF_CLUSTER_ID: "${FEDERATION_CLUSTER_ID:-proxx-federation}"
+  restart: unless-stopped
+  healthcheck:
+    test:
+      [
+        "CMD",
+        "node",
+        "-e",
+        "Promise.all([fetch('http://127.0.0.1:8789/health',{headers:{Authorization:'Bearer '+(process.env.PROXY_AUTH_TOKEN||'')}}), fetch('http://127.0.0.1:5174')]).then(([proxyResponse, webResponse]) => { if (!proxyResponse.ok || !webResponse.ok) { process.exit(1); } }).catch(() => process.exit(1))"
+      ]
+    interval: 30s
+    timeout: 10s
+    retries: 5
+    start_period: 20s
+  networks:
+    ai-infra: {}
+
+services:
+  open-hax-openai-proxy-db:
+    image: postgres:16-bookworm
+    environment:
+      POSTGRES_DB: openai_proxy
+      POSTGRES_USER: openai_proxy
+      POSTGRES_PASSWORD: openai_proxy
+    volumes:
+      - open-hax-openai-proxy-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U openai_proxy -d openai_proxy"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      ai-infra: {}
+
+  open-hax-openai-proxy-db-b:
+    image: postgres:16-bookworm
+    environment:
+      POSTGRES_DB: openai_proxy
+      POSTGRES_USER: openai_proxy
+      POSTGRES_PASSWORD: openai_proxy
+    volumes:
+      - open-hax-openai-proxy-db-b-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U openai_proxy -d openai_proxy"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      ai-infra: {}
+
+  federation-proxx-a1:
+    <<: *proxx-node
+    depends_on:
+      open-hax-openai-proxy-db:
+        condition: service_healthy
+    environment:
+      <<: *proxx-node-env
+      DATABASE_URL: postgresql://openai_proxy:openai_proxy@open-hax-openai-proxy-db:5432/openai_proxy
+      FEDERATION_SELF_NODE_ID: a1
+      FEDERATION_SELF_GROUP_ID: group-a
+      FEDERATION_SELF_PEER_DID: did:web:a1.${FEDERATION_PUBLIC_HOST_SUFFIX:-invalid.local}
+      FEDERATION_SELF_PUBLIC_BASE_URL: https://a1.${FEDERATION_PUBLIC_HOST_SUFFIX:-invalid.local}
+    volumes:
+      - ./keys.json:/workspace/service-config/keys.json:ro
+      - ./models.json:/workspace/service-config/models.json:ro
+      - ./data/federation/a1:/app/data
+
+  federation-proxx-a2:
+    <<: *proxx-node
+    depends_on:
+      open-hax-openai-proxy-db:
+        condition: service_healthy
+    environment:
+      <<: *proxx-node-env
+      DATABASE_URL: postgresql://openai_proxy:openai_proxy@open-hax-openai-proxy-db:5432/openai_proxy
+      FEDERATION_SELF_NODE_ID: a2
+      FEDERATION_SELF_GROUP_ID: group-a
+      FEDERATION_SELF_PEER_DID: did:web:a2.${FEDERATION_PUBLIC_HOST_SUFFIX:-invalid.local}
+      FEDERATION_SELF_PUBLIC_BASE_URL: https://a2.${FEDERATION_PUBLIC_HOST_SUFFIX:-invalid.local}
+    volumes:
+      - ./keys.json:/workspace/service-config/keys.json:ro
+      - ./models.json:/workspace/service-config/models.json:ro
+      - ./data/federation/a2:/app/data
+
+  federation-proxx-b1:
+    <<: *proxx-node
+    depends_on:
+      open-hax-openai-proxy-db-b:
+        condition: service_healthy
+    environment:
+      <<: *proxx-node-env
+      DATABASE_URL: postgresql://openai_proxy:openai_proxy@open-hax-openai-proxy-db-b:5432/openai_proxy
+      FEDERATION_SELF_NODE_ID: b1
+      FEDERATION_SELF_GROUP_ID: group-b
+      FEDERATION_SELF_PEER_DID: did:web:b1.${FEDERATION_PUBLIC_HOST_SUFFIX:-invalid.local}
+      FEDERATION_SELF_PUBLIC_BASE_URL: https://b1.${FEDERATION_PUBLIC_HOST_SUFFIX:-invalid.local}
+    volumes:
+      - ./keys.empty.json:/workspace/service-config/keys.json:ro
+      - ./models.json:/workspace/service-config/models.json:ro
+      - ./data/federation/b1:/app/data
+
+  federation-proxx-b2:
+    <<: *proxx-node
+    depends_on:
+      open-hax-openai-proxy-db-b:
+        condition: service_healthy
+    environment:
+      <<: *proxx-node-env
+      DATABASE_URL: postgresql://openai_proxy:openai_proxy@open-hax-openai-proxy-db-b:5432/openai_proxy
+      FEDERATION_SELF_NODE_ID: b2
+      FEDERATION_SELF_GROUP_ID: group-b
+      FEDERATION_SELF_PEER_DID: did:web:b2.${FEDERATION_PUBLIC_HOST_SUFFIX:-invalid.local}
+      FEDERATION_SELF_PUBLIC_BASE_URL: https://b2.${FEDERATION_PUBLIC_HOST_SUFFIX:-invalid.local}
+    volumes:
+      - ./keys.empty.json:/workspace/service-config/keys.json:ro
+      - ./models.json:/workspace/service-config/models.json:ro
+      - ./data/federation/b2:/app/data
+
+  federation-nginx:
+    image: nginx:1.27-alpine
+    depends_on:
+      federation-proxx-a1:
+        condition: service_healthy
+      federation-proxx-a2:
+        condition: service_healthy
+      federation-proxx-b1:
+        condition: service_healthy
+      federation-proxx-b2:
+        condition: service_healthy
+    volumes:
+      - ./deploy/nginx.federation.runtime.conf:/etc/nginx/nginx.conf:ro
+    restart: unless-stopped
+    networks:
+      ai-infra: {}
+
+volumes:
+  open-hax-openai-proxy-db-data:
+  open-hax-openai-proxy-db-b-data:
+
+networks:
+  ai-infra:
+    external: true
+    name: ai-infra

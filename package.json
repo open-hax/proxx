@@ -13,6 +13,8 @@
     "test": "pnpm run build && node --test --test-concurrency=1 dist/tests/*.test.js",
     "test:e2e": "./scripts/e2e-test.sh",
     "test:e2e:multitenancy": "./scripts/e2e-multitenancy-smoke.sh",
+    "test:e2e:federation": "./scripts/e2e-federation-cluster.sh",
+    "test:e2e:federation:audit": "./scripts/e2e-federation-audit.sh",
     "test:load": "node ./scripts/load-test.mjs",
     "web:dev": "vite --config web/vite.config.ts",
     "web:build": "vite build --config web/vite.config.ts",

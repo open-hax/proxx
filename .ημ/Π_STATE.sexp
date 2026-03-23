@@ -1,22 +1,26 @@
-(Π_STATE
-  (time "2026-03-21T22:17:42Z")
-  (branch "staging")
-  (pre_head "100df62")
-  (dirty true)
-  (checks
-    (check (status passed) (command "pnpm test (325/325) from 2026-03-21T22:13:55Z receipt"))
-    (check (status passed) (command "docker compose up -d --build open-hax-openai-proxy + curl /health + direct z.ai /models/chat/completions + temporary local zai proxy probe from 2026-03-21T22:13:55Z receipt"))
-  )
-  (repo_notes
-    (upstream "https://github.com/open-hax/proxx.git")
-    (status_digest "07a4-2815-e9df-7168")
-    (note "Capture the z.ai live-env validation spec/results plus receipts after verifying compose pass-through, direct upstream probes, and the temporary local zai-pinned proxy.")
-    (note "Keep the latest z.ai catalog-path code snapshot aligned with its supporting docs on the current staging line.")
-    (note "push branch: pi/fork-tax/2026-03-21-211345")
-    (changed_file ".ημ/Π_LAST.md")
-    (changed_file ".ημ/Π_MANIFEST.sha256")
-    (changed_file ".ημ/Π_STATE.sexp")
-    (changed_file "receipts.log")
-    (changed_file "specs/drafts/zai-mistral-env-provider-validation.md")
-  )
-)
+;; Π State Snapshot
+;; Generated: 2026-03-22T15:09:30Z
+
+(Π-state
+  (branch "feat/consolidate-federation-into-staging")
+  (head "6bc392a")
+  (tag "Π/2026-03-22/150930-6bc392a")
+  (status :clean)
+  (work
+    (task "fix-dashboard-cache-metrics")
+    (phase :complete)
+    (result :success)
+    (artifacts
+      (file "src/lib/provider-strategy/shared.ts")
+      (commit "6bc392a")))
+
+  (session
+    (investigation "cache-affinity-regression")
+    (finding "no-bug")
+    (notes "OpenAI semantic cache is account-agnostic; affinity system working correctly"))
+
+  (metrics
+    (cache-hit-rate 0.11)
+    (token-efficiency 0.376)
+    (cache-key-uses 164)
+    (requests-with-null-usage 31)))
