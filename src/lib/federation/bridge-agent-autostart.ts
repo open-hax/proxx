@@ -2,7 +2,13 @@ import type { CredentialStoreLike } from "../credential-store.js";
 import type { ProxyConfig } from "../config.js";
 import type { KeyPool } from "../key-pool.js";
 import { toOpenAiModel } from "../models.js";
-import { createFederationBridgeAgent, type FederationBridgeAgent } from "./bridge-agent.js";
+import {
+  createFederationBridgeAgent,
+  type BridgeBufferedRequestResponse,
+  type BridgeRequestHandlerResult,
+  type BridgeRequestHandlerStreamEvent,
+  type FederationBridgeAgent,
+} from "./bridge-agent.js";
 import type {
   BridgeCapabilityAdvertisement,
   BridgeDefaultExecutionPolicy,
@@ -27,12 +33,7 @@ interface FederationBridgeAutostartDeps {
     readonly headers: Readonly<Record<string, string>>;
     readonly bodyText: string;
     readonly ownerSubject: string;
-  }) => Promise<{
-    readonly status: number;
-    readonly headers?: Readonly<Record<string, string>>;
-    readonly body?: string;
-    readonly encoding?: "utf8" | "base64";
-  }>;
+  }) => Promise<BridgeRequestHandlerResult>;
 }
 
 function uniqueStrings(values: readonly string[]): string[] {
@@ -93,6 +94,142 @@ function capabilityPrefixesForProvider(providerId: string, config: ProxyConfig):
   return [];
 }
 
+function capabilityPathsForProvider(config: ProxyConfig): readonly string[] {
+  return uniqueStrings([
+    "/v1/models",
+    config.chatCompletionsPath,
+    config.responsesPath,
+  ]);
+}
+
+function copyFetchHeaders(headers: Headers): Record<string, string> {
+  const copied: Record<string, string> = {};
+  for (const [name, value] of headers.entries()) {
+    copied[name] = value;
+  }
+  return copied;
+}
+
+function resolveLocalBridgeResponseProvenance(headers: Readonly<Record<string, string>>): BridgeBufferedRequestResponse {
+  const providerId = typeof headers["x-open-hax-upstream-provider"] === "string"
+    ? headers["x-open-hax-upstream-provider"]
+    : undefined;
+
+  return {
+    status: 200,
+    servedByClusterId: process.env.FEDERATION_SELF_CLUSTER_ID?.trim(),
+    servedByGroupId: process.env.FEDERATION_SELF_GROUP_ID?.trim(),
+    servedByNodeId: process.env.FEDERATION_SELF_NODE_ID?.trim(),
+    providerId,
+  };
+}
+
+function shouldEncodeChunkAsUtf8(contentType: string): boolean {
+  const normalized = contentType.trim().toLowerCase();
+  return normalized.length === 0
+    || normalized.startsWith("text/")
+    || normalized.includes("json")
+    || normalized.includes("xml")
+    || normalized.includes("javascript")
+    || normalized.includes("event-stream");
+}
+
+async function* streamFetchResponseToBridgeEvents(response: Response): AsyncIterable<BridgeRequestHandlerStreamEvent> {
+  const headers = copyFetchHeaders(response.headers);
+  const provenance = resolveLocalBridgeResponseProvenance(headers);
+
+  yield {
+    type: "response_head",
+    status: response.status,
+    headers,
+    servedByClusterId: provenance.servedByClusterId,
+    servedByGroupId: provenance.servedByGroupId,
+    servedByNodeId: provenance.servedByNodeId,
+    providerId: provenance.providerId,
+    accountId: provenance.accountId,
+  };
+
+  if (!response.body) {
+    yield {
+      type: "response_end",
+      servedByClusterId: provenance.servedByClusterId,
+      servedByGroupId: provenance.servedByGroupId,
+      servedByNodeId: provenance.servedByNodeId,
+      providerId: provenance.providerId,
+      accountId: provenance.accountId,
+    };
+    return;
+  }
+
+  const contentType = response.headers.get("content-type") ?? "";
+  const encodeAsUtf8 = shouldEncodeChunkAsUtf8(contentType);
+  const decoder = encodeAsUtf8 ? new TextDecoder("utf8") : undefined;
+  const reader = response.body.getReader();
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+    if (!value || value.length === 0) {
+      continue;
+    }
+
+    if (decoder) {
+      const chunk = decoder.decode(value, { stream: true });
+      if (chunk.length > 0) {
+        yield {
+          type: "response_chunk",
+          chunk,
+          encoding: "utf8",
+          servedByClusterId: provenance.servedByClusterId,
+          servedByGroupId: provenance.servedByGroupId,
+          servedByNodeId: provenance.servedByNodeId,
+          providerId: provenance.providerId,
+          accountId: provenance.accountId,
+        };
+      }
+      continue;
+    }
+
+    yield {
+      type: "response_chunk",
+      chunk: Buffer.from(value).toString("base64"),
+      encoding: "base64",
+      servedByClusterId: provenance.servedByClusterId,
+      servedByGroupId: provenance.servedByGroupId,
+      servedByNodeId: provenance.servedByNodeId,
+      providerId: provenance.providerId,
+      accountId: provenance.accountId,
+    };
+  }
+
+  if (decoder) {
+    const tail = decoder.decode();
+    if (tail.length > 0) {
+      yield {
+        type: "response_chunk",
+        chunk: tail,
+        encoding: "utf8",
+        servedByClusterId: provenance.servedByClusterId,
+        servedByGroupId: provenance.servedByGroupId,
+        servedByNodeId: provenance.servedByNodeId,
+        providerId: provenance.providerId,
+        accountId: provenance.accountId,
+      };
+    }
+  }
+
+  yield {
+    type: "response_end",
+    servedByClusterId: provenance.servedByClusterId,
+    servedByGroupId: provenance.servedByGroupId,
+    servedByNodeId: provenance.servedByNodeId,
+    providerId: provenance.providerId,
+    accountId: provenance.accountId,
+  };
+}
+
 async function buildCapabilities(
   config: ProxyConfig,
   keyPool: KeyPool,
@@ -112,6 +249,7 @@ async function buildCapabilities(
   return providers.map((provider) => {
     const providerStatus = statuses[provider.id];
     const modelPrefixes = capabilityPrefixesForProvider(provider.id, config);
+    const paths = capabilityPathsForProvider(config);
     const models = modelPrefixes.length > 0
       ? resolvedModelCatalog.modelIds.filter((modelId) => modelPrefixes.some((prefix) => modelId.startsWith(prefix.replace(/[:/]$/u, ""))))
       : [];
@@ -119,6 +257,8 @@ async function buildCapabilities(
       providerId: provider.id,
       modelPrefixes,
       models,
+      paths,
+      routes: paths,
       authType: provider.authType,
       accountCount: provider.accountCount,
       availableAccountCount: providerStatus?.availableAccounts ?? provider.accountCount,
@@ -232,6 +372,9 @@ export function createEnvFederationBridgeAgent(deps: FederationBridgeAutostartDe
             object: "list",
             data: modelCatalog.modelIds.map(toOpenAiModel),
           }),
+          servedByClusterId: process.env.FEDERATION_SELF_CLUSTER_ID?.trim(),
+          servedByGroupId: process.env.FEDERATION_SELF_GROUP_ID?.trim(),
+          servedByNodeId: process.env.FEDERATION_SELF_NODE_ID?.trim(),
         };
       }
 

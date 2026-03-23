@@ -82,7 +82,7 @@ import { TokenRefreshManager } from "./lib/token-refresh-manager.js";
 import { DEFAULT_TENANT_ID } from "./lib/tenant-api-key.js";
 import { resolveRequestAuth } from "./lib/request-auth.js";
 import { createEnvFederationBridgeAgent } from "./lib/federation/bridge-agent-autostart.js";
-import type { FederationBridgeRelay } from "./lib/federation/bridge-relay.js";
+import type { BridgeRelayResponseEvent, FederationBridgeRelay } from "./lib/federation/bridge-relay.js";
 
 interface ChatCompletionRequest {
   readonly model?: string;
@@ -1208,6 +1208,63 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     return [...new Set([...localCatalog.modelIds, ...bridgedModels])];
   }
 
+  const legacyBridgePathPrefixes = [
+    "/v1/chat/completions",
+    "/v1/models",
+    "/v1/responses",
+    "/v1/embeddings",
+    "/v1/images/generations",
+  ] as const;
+
+  function bridgeCapabilitySupportsPath(capability: {
+    readonly paths?: readonly string[];
+    readonly routes?: readonly string[];
+    readonly supportsModelsList?: boolean;
+    readonly supportsChatCompletions?: boolean;
+    readonly supportsResponses?: boolean;
+  }, normalizedPath: string): boolean {
+    const advertisedRoutes = [...(capability.paths ?? []), ...(capability.routes ?? [])]
+      .filter((entry): entry is string => typeof entry === "string")
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0);
+
+    if (advertisedRoutes.length > 0) {
+      return advertisedRoutes.some((prefix) => normalizedPath.startsWith(prefix));
+    }
+
+    if (normalizedPath.startsWith("/v1/models")) {
+      return capability.supportsModelsList === true;
+    }
+    if (normalizedPath.startsWith("/v1/chat/completions")) {
+      return capability.supportsChatCompletions === true;
+    }
+    if (normalizedPath.startsWith("/v1/responses")) {
+      return capability.supportsResponses === true;
+    }
+
+    const hasStructuredCapabilityHints = capability.supportsModelsList !== undefined
+      || capability.supportsChatCompletions !== undefined
+      || capability.supportsResponses !== undefined;
+
+    return !hasStructuredCapabilityHints
+      && legacyBridgePathPrefixes.some((prefix) => normalizedPath.startsWith(prefix));
+  }
+
+  function appendBridgeResponseHeaders(reply: FastifyReply, headers: Readonly<Record<string, string>>): void {
+    for (const [name, value] of Object.entries(headers)) {
+      if (name.toLowerCase() === "content-length") {
+        continue;
+      }
+      reply.header(name, value);
+    }
+  }
+
+  function decodeBridgeResponseChunk(event: Extract<BridgeRelayResponseEvent, { readonly type: "response_chunk" }>): Buffer {
+    return event.encoding === "base64"
+      ? Buffer.from(event.chunk, "base64")
+      : Buffer.from(event.chunk, "utf8");
+  }
+
   async function executeBridgeRequestFallback(input: {
     readonly requestHeaders: Record<string, unknown>;
     readonly requestBody: Record<string, unknown>;
@@ -1242,11 +1299,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       .filter((session) => session.state === "connected")
       .filter((session) => session.ownerSubject === ownerSubject)
       .filter((session) => {
-        // Check if session advertises capability for this path
-        const hasCapability = session.capabilities.some((cap) => {
-          const pathPrefixes = ["/v1/chat/completions", "/v1/models", "/v1/responses", "/v1/embeddings", "/v1/images/generations"];
-          return pathPrefixes.some((prefix) => normalizedPath.startsWith(prefix));
-        });
+        const hasCapability = session.capabilities.some((cap) => bridgeCapabilitySupportsPath(cap, normalizedPath));
         return hasCapability;
       });
     if (connectedSessions.length === 0) {
@@ -1256,8 +1309,10 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     const bodyText = JSON.stringify(input.requestBody);
 
     for (const session of connectedSessions) {
+      let responseStarted = false;
+      let rawResponse: typeof input.reply.raw | undefined;
       try {
-        const response = await bridgeRelay.requestJson(session.sessionId, {
+        const responseEvents = bridgeRelay.requestStream(session.sessionId, {
           method: "POST",
           path: input.upstreamPath,
           timeoutMs: input.timeoutMs,
@@ -1268,28 +1323,91 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
           body: bodyText,
         });
 
-        for (const [name, value] of Object.entries(response.headers)) {
-          if (name.toLowerCase() === "content-length") {
-            continue;
-          }
-          input.reply.header(name, value);
-        }
-        input.reply.header(FEDERATION_OWNER_SUBJECT_HEADER, ownerSubject);
-        input.reply.header(FEDERATION_ROUTED_PEER_HEADER, `bridge:${session.clusterId}:${session.agentId}`);
-        input.reply.code(response.status);
+        let sawHead = false;
+        let isStreaming = false;
+        let responseHeaders: Readonly<Record<string, string>> = {};
+        const bufferedChunks: Buffer[] = [];
 
-        const contentType = response.headers["content-type"] ?? response.headers["Content-Type"] ?? "";
+        for await (const event of responseEvents) {
+          switch (event.type) {
+            case "response_head": {
+              sawHead = true;
+              responseStarted = true;
+              responseHeaders = event.headers;
+              appendBridgeResponseHeaders(input.reply, event.headers);
+              input.reply.header(FEDERATION_OWNER_SUBJECT_HEADER, ownerSubject);
+              input.reply.header(FEDERATION_ROUTED_PEER_HEADER, `bridge:${session.clusterId}:${session.agentId}`);
+              input.reply.code(event.status);
+
+              const contentType = event.headers["content-type"] ?? event.headers["Content-Type"] ?? "";
+              isStreaming = typeof contentType === "string" && contentType.toLowerCase().includes("text/event-stream");
+              if (isStreaming) {
+                input.reply.removeHeader("content-length");
+                input.reply.header("cache-control", "no-cache");
+                input.reply.header("x-accel-buffering", "no");
+                input.reply.header("content-type", "text/event-stream; charset=utf-8");
+                input.reply.hijack();
+                rawResponse = input.reply.raw;
+                rawResponse.statusCode = event.status;
+                for (const [name, value] of Object.entries(input.reply.getHeaders())) {
+                  if (value !== undefined) {
+                    rawResponse.setHeader(name, value as never);
+                  }
+                }
+                rawResponse.flushHeaders();
+              }
+              break;
+            }
+            case "response_chunk": {
+              if (!sawHead) {
+                sawHead = true;
+                responseStarted = true;
+                input.reply.header(FEDERATION_OWNER_SUBJECT_HEADER, ownerSubject);
+                input.reply.header(FEDERATION_ROUTED_PEER_HEADER, `bridge:${session.clusterId}:${session.agentId}`);
+                input.reply.code(200);
+              }
+
+              const chunk = decodeBridgeResponseChunk(event);
+              if (isStreaming && rawResponse) {
+                rawResponse.write(chunk);
+              } else {
+                bufferedChunks.push(chunk);
+              }
+              break;
+            }
+            case "response_end":
+              break;
+            default:
+              break;
+          }
+        }
+
+        if (isStreaming && rawResponse) {
+          if (!rawResponse.writableEnded) {
+            rawResponse.end();
+          }
+          return true;
+        }
+
+        const responseBody = Buffer.concat(bufferedChunks).toString("utf8");
+        const contentType = responseHeaders["content-type"] ?? responseHeaders["Content-Type"] ?? "";
         const parsed = typeof contentType === "string" && contentType.toLowerCase().includes("application/json")
-          ? parseJsonIfPossible(response.body)
+          ? parseJsonIfPossible(responseBody)
           : undefined;
         if (parsed !== undefined) {
           input.reply.send(parsed);
         } else {
-          input.reply.send(response.body);
+          input.reply.send(responseBody);
         }
         return true;
       } catch (error) {
+        if (rawResponse && !rawResponse.writableEnded) {
+          rawResponse.end();
+        }
         app.log.warn({ error: toErrorMessage(error), sessionId: session.sessionId, upstreamPath: input.upstreamPath }, "bridged request attempt failed");
+        if (responseStarted) {
+          return true;
+        }
       }
     }
 
@@ -1302,12 +1420,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     readonly headers: Readonly<Record<string, string>>;
     readonly bodyText: string;
     readonly ownerSubject: string;
-  }): Promise<{
-    readonly status: number;
-    readonly headers?: Readonly<Record<string, string>>;
-    readonly body?: string;
-    readonly encoding?: "utf8" | "base64";
-  }> => {
+  }): ReturnType<NonNullable<Parameters<typeof createEnvFederationBridgeAgent>[0]["handleBridgeRequest"]>> => {
     // Security: restrict bridge requests to allowed API paths only.
     // This prevents the bridge from acting as a privileged generic proxy
     // that could access internal routes like /api/ui/federation/accounts.
@@ -1325,6 +1438,9 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
         status: 403,
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ error: { message: "Bridge requests are restricted to model API paths", type: "invalid_request_error" } }),
+        servedByClusterId: process.env.FEDERATION_SELF_CLUSTER_ID?.trim(),
+        servedByGroupId: process.env.FEDERATION_SELF_GROUP_ID?.trim(),
+        servedByNodeId: process.env.FEDERATION_SELF_NODE_ID?.trim(),
       };
     }
 
@@ -1338,6 +1454,117 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     };
     if (typeof input.headers["content-type"] === "string") {
       headers["content-type"] = input.headers["content-type"];
+    }
+
+    const appAddress = app.server.address();
+    if (appAddress && typeof appAddress !== "string") {
+      const response = await fetch(`http://127.0.0.1:${appAddress.port}${input.path}`, {
+        method: input.method,
+        headers,
+        body: input.bodyText.length > 0 ? input.bodyText : undefined,
+      });
+
+      return (async function* () {
+        const responseHeaders: Record<string, string> = {};
+        for (const [name, value] of response.headers.entries()) {
+          responseHeaders[name] = value;
+        }
+
+        const providerId = responseHeaders["x-open-hax-upstream-provider"];
+        const servedByClusterId = process.env.FEDERATION_SELF_CLUSTER_ID?.trim();
+        const servedByGroupId = process.env.FEDERATION_SELF_GROUP_ID?.trim();
+        const servedByNodeId = process.env.FEDERATION_SELF_NODE_ID?.trim();
+
+        yield {
+          type: "response_head" as const,
+          status: response.status,
+          headers: responseHeaders,
+          servedByClusterId,
+          servedByGroupId,
+          servedByNodeId,
+          providerId,
+        };
+
+        if (!response.body) {
+          yield {
+            type: "response_end" as const,
+            servedByClusterId,
+            servedByGroupId,
+            servedByNodeId,
+            providerId,
+          };
+          return;
+        }
+
+        const contentType = (response.headers.get("content-type") ?? "").trim().toLowerCase();
+        const encodeAsUtf8 = contentType.length === 0
+          || contentType.startsWith("text/")
+          || contentType.includes("json")
+          || contentType.includes("xml")
+          || contentType.includes("javascript")
+          || contentType.includes("event-stream");
+        const decoder = encodeAsUtf8 ? new TextDecoder("utf8") : undefined;
+        const reader = response.body.getReader();
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) {
+            break;
+          }
+          if (!value || value.length === 0) {
+            continue;
+          }
+
+          if (decoder) {
+            const chunk = decoder.decode(value, { stream: true });
+            if (chunk.length > 0) {
+              yield {
+                type: "response_chunk" as const,
+                chunk,
+                encoding: "utf8" as const,
+                servedByClusterId,
+                servedByGroupId,
+                servedByNodeId,
+                providerId,
+              };
+            }
+            continue;
+          }
+
+          yield {
+            type: "response_chunk" as const,
+            chunk: Buffer.from(value).toString("base64"),
+            encoding: "base64" as const,
+            servedByClusterId,
+            servedByGroupId,
+            servedByNodeId,
+            providerId,
+          };
+        }
+
+        if (decoder) {
+          const tail = decoder.decode();
+          if (tail.length > 0) {
+            yield {
+              type: "response_chunk" as const,
+              chunk: tail,
+              encoding: "utf8" as const,
+              servedByClusterId,
+              servedByGroupId,
+              servedByNodeId,
+              providerId,
+            };
+          }
+        }
+
+        yield {
+          type: "response_end" as const,
+          servedByClusterId,
+          servedByGroupId,
+          servedByNodeId,
+          providerId,
+        };
+      })();
     }
 
     const injected = await app.inject({
@@ -1354,11 +1581,19 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       }
     }
 
+    const provenance = {
+      servedByClusterId: process.env.FEDERATION_SELF_CLUSTER_ID?.trim(),
+      servedByGroupId: process.env.FEDERATION_SELF_GROUP_ID?.trim(),
+      servedByNodeId: process.env.FEDERATION_SELF_NODE_ID?.trim(),
+      providerId: responseHeaders["x-open-hax-upstream-provider"],
+    };
+
     return {
       status: injected.statusCode,
       headers: responseHeaders,
       body: injected.body,
       encoding: "utf8",
+      ...provenance,
     };
   };
 
