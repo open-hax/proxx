@@ -48,6 +48,7 @@ jobs:
       - name: Create eta-mu app token
         id: eta_mu_token
         if: ${{ env.ETA_MU_APP_ID != '' && env.ETA_MU_APP_PRIVATE_KEY != '' }}
+        continue-on-error: true
         uses: actions/create-github-app-token@v1
         with:
           app-id: ${{ env.ETA_MU_APP_ID }}
@@ -70,7 +71,7 @@ jobs:
 
       - name: Run eta-mu event handler
         env:
-          GITHUB_TOKEN: ${{ steps.eta_mu_token.outputs.token != '' && steps.eta_mu_token.outputs.token || github.token }}
+          GITHUB_TOKEN: ${{ steps.eta_mu_token.conclusion == 'success' && steps.eta_mu_token.outputs.token != '' && steps.eta_mu_token.outputs.token || github.token }}
           ETA_MU_APP_ID: ${{ secrets.ETA_MU_APP_ID }}
           ETA_MU_APP_PRIVATE_KEY: ${{ secrets.ETA_MU_APP_PRIVATE_KEY }}
           ETA_MU_MODEL_PROVIDER: ${{ vars.ETA_MU_MODEL_PROVIDER }}
