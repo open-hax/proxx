@@ -58,14 +58,19 @@ export interface FederationBridgeSessionRecord {
   readonly lastHeartbeatSequence?: number;
 }
 
+export type BridgeRelayResponseEvent = BridgeResponseHeadMessage | BridgeResponseChunkMessage | BridgeResponseEndMessage;
+
 interface PendingBridgeRequest {
   readonly sessionId: string;
   readonly streamId: string;
-  readonly chunks: string[];
   readonly timeout: NodeJS.Timeout;
-  responseHead?: BridgeResponseHeadMessage;
-  resolve: (value: { readonly status: number; readonly headers: Readonly<Record<string, string>>; readonly body: string; readonly json: unknown }) => void;
-  reject: (error: Error) => void;
+  readonly events: BridgeRelayResponseEvent[];
+  readonly waiters: Array<{
+    readonly resolve: (value: IteratorResult<BridgeRelayResponseEvent>) => void;
+    readonly reject: (error: Error) => void;
+  }>;
+  done: boolean;
+  failure?: Error;
 }
 
 type Mutable<T> = {
@@ -89,6 +94,8 @@ function cloneSession(session: MutableFederationBridgeSessionRecord): Federation
       ...capability,
       modelPrefixes: [...capability.modelPrefixes],
       models: [...capability.models],
+      paths: capability.paths ? [...capability.paths] : undefined,
+      routes: capability.routes ? [...capability.routes] : undefined,
       topologyTargets: capability.topologyTargets.map((target) => ({ ...target })),
     })),
     health: session.health
@@ -179,7 +186,7 @@ export class FederationBridgeRelay {
   public async close(): Promise<void> {
     for (const pending of this.pendingRequests.values()) {
       clearTimeout(pending.timeout);
-      pending.reject(new Error("bridge relay closed"));
+      this.failPendingRequest(pending, new Error("bridge relay closed"));
     }
     this.pendingRequests.clear();
     for (const client of this.wsServer.clients) {
@@ -190,13 +197,13 @@ export class FederationBridgeRelay {
     });
   }
 
-  public async requestJson(sessionId: string, input: {
+  public requestStream(sessionId: string, input: {
     readonly method?: "GET" | "POST";
     readonly path: string;
     readonly timeoutMs: number;
     readonly headers?: Readonly<Record<string, string>>;
     readonly body?: string;
-  }): Promise<{ readonly status: number; readonly headers: Readonly<Record<string, string>>; readonly body: string; readonly json: unknown }> {
+  }): AsyncIterable<BridgeRelayResponseEvent> {
     const session = this.sessions.get(sessionId);
     if (!session || session.state !== "connected") {
       throw new Error(`bridge session ${sessionId} is not connected`);
@@ -224,40 +231,87 @@ export class FederationBridgeRelay {
       hopCount: 0,
     };
 
-    const pending = await new Promise<{ readonly status: number; readonly headers: Readonly<Record<string, string>>; readonly body: string; readonly json: unknown }>((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        this.pendingRequests.delete(streamId);
-        reject(new Error(`bridge request timed out for ${input.path}`));
-      }, input.timeoutMs);
+    const timeout = setTimeout(() => {
+      const pending = this.pendingRequests.get(streamId);
+      if (!pending) {
+        return;
+      }
+      this.pendingRequests.delete(streamId);
+      this.failPendingRequest(pending, new Error(`bridge request timed out for ${input.path}`));
+    }, input.timeoutMs);
 
-      this.pendingRequests.set(streamId, {
+    const pending: PendingBridgeRequest = {
+      sessionId,
+      streamId,
+      timeout,
+      events: [],
+      waiters: [],
+      done: false,
+    };
+
+    this.pendingRequests.set(streamId, pending);
+    webSocket.send(JSON.stringify(request));
+    if (typeof input.body === "string" && input.body.length > 0) {
+      webSocket.send(JSON.stringify({
+        type: "request_chunk",
+        protocolVersion: BRIDGE_PROTOCOL_VERSION,
         sessionId,
         streamId,
-        chunks: [],
-        timeout,
-        resolve,
-        reject,
-      });
-      webSocket.send(JSON.stringify(request));
-      if (typeof input.body === "string" && input.body.length > 0) {
-        webSocket.send(JSON.stringify({
-          type: "request_chunk",
-          protocolVersion: BRIDGE_PROTOCOL_VERSION,
-          sessionId,
-          streamId,
-          sentAt: new Date().toISOString(),
-          traceId: randomUUID(),
-          ownerSubject: session.ownerSubject,
-          clusterId: session.clusterId,
-          agentId: session.agentId,
-          chunk: input.body,
-          encoding: "utf8",
-          final: true,
-        }));
-      }
-    });
+        sentAt: new Date().toISOString(),
+        traceId: randomUUID(),
+        ownerSubject: session.ownerSubject,
+        clusterId: session.clusterId,
+        agentId: session.agentId,
+        chunk: input.body,
+        encoding: "utf8",
+        final: true,
+      }));
+    }
 
-    return pending;
+    return this.createResponseStream(streamId, pending);
+  }
+
+  public async requestJson(sessionId: string, input: {
+    readonly method?: "GET" | "POST";
+    readonly path: string;
+    readonly timeoutMs: number;
+    readonly headers?: Readonly<Record<string, string>>;
+    readonly body?: string;
+  }): Promise<{ readonly status: number; readonly headers: Readonly<Record<string, string>>; readonly body: string; readonly json: unknown }> {
+    const events = this.requestStream(sessionId, input);
+    let status = 200;
+    let headers: Readonly<Record<string, string>> = {};
+    const chunks: string[] = [];
+
+    for await (const event of events) {
+      switch (event.type) {
+        case "response_head":
+          status = event.status;
+          headers = event.headers;
+          break;
+        case "response_chunk": {
+          const decoded = event.encoding === "base64"
+            ? Buffer.from(event.chunk, "base64").toString("utf8")
+            : event.chunk;
+          chunks.push(decoded);
+          break;
+        }
+        case "response_end":
+          break;
+        default:
+          break;
+      }
+    }
+
+    const body = chunks.join("");
+    let json: unknown;
+    try {
+      json = body.length > 0 ? JSON.parse(body) : undefined;
+    } catch {
+      json = undefined;
+    }
+
+    return { status, headers, body, json };
   }
 
   private handleConnection(webSocket: WebSocket, identity: FederationBridgeAuthorizedIdentity): void {
@@ -374,9 +428,61 @@ export class FederationBridgeRelay {
       for (const pending of [...this.pendingRequests.values()].filter((candidate) => candidate.sessionId === sessionId)) {
         clearTimeout(pending.timeout);
         this.pendingRequests.delete(pending.streamId);
-        pending.reject(new Error(`bridge session ${sessionId} closed during request ${pending.streamId}`));
+        this.failPendingRequest(pending, new Error(`bridge session ${sessionId} closed during request ${pending.streamId}`));
       }
     });
+  }
+
+  private createResponseStream(streamId: string, pending: PendingBridgeRequest): AsyncIterable<BridgeRelayResponseEvent> {
+    const nextEvent = async (): Promise<IteratorResult<BridgeRelayResponseEvent>> => {
+      if (pending.events.length > 0) {
+        const event = pending.events.shift()!;
+        return { value: event, done: false };
+      }
+      if (pending.failure) {
+        throw pending.failure;
+      }
+      if (pending.done) {
+        return { value: undefined, done: true };
+      }
+      return new Promise<IteratorResult<BridgeRelayResponseEvent>>((resolve, reject) => {
+        pending.waiters.push({ resolve, reject });
+      });
+    };
+
+    return {
+      [Symbol.asyncIterator]: () => ({
+        next: () => nextEvent(),
+        return: async () => {
+          clearTimeout(pending.timeout);
+          this.pendingRequests.delete(streamId);
+          pending.done = true;
+          this.flushPendingDone(pending);
+          return { value: undefined, done: true };
+        },
+      }),
+    };
+  }
+
+  private pushPendingEvent(pending: PendingBridgeRequest, event: BridgeRelayResponseEvent): void {
+    if (pending.waiters.length > 0) {
+      pending.waiters.shift()!.resolve({ value: event, done: false });
+      return;
+    }
+    pending.events.push(event);
+  }
+
+  private flushPendingDone(pending: PendingBridgeRequest): void {
+    while (pending.waiters.length > 0) {
+      pending.waiters.shift()!.resolve({ value: undefined, done: true });
+    }
+  }
+
+  private failPendingRequest(pending: PendingBridgeRequest, error: Error): void {
+    pending.failure = error;
+    while (pending.waiters.length > 0) {
+      pending.waiters.shift()!.reject(error);
+    }
   }
 
   private acceptHello(hello: BridgeHelloMessage, identity: FederationBridgeAuthorizedIdentity): BridgeHelloAckMessage {
@@ -479,7 +585,7 @@ export class FederationBridgeRelay {
     if (!pending) {
       return;
     }
-    pending.responseHead = message;
+    this.pushPendingEvent(pending, message);
   }
 
   private handleResponseChunk(message: BridgeResponseChunkMessage): void {
@@ -487,10 +593,7 @@ export class FederationBridgeRelay {
     if (!pending) {
       return;
     }
-    const decoded = message.encoding === "base64"
-      ? Buffer.from(message.chunk, "base64").toString("utf8")
-      : message.chunk;
-    pending.chunks.push(decoded);
+    this.pushPendingEvent(pending, message);
   }
 
   private handleResponseEnd(message: BridgeResponseEndMessage): void {
@@ -500,18 +603,9 @@ export class FederationBridgeRelay {
     }
     clearTimeout(pending.timeout);
     this.pendingRequests.delete(message.streamId);
-
-    const status = pending.responseHead?.status ?? 200;
-    const headers = pending.responseHead?.headers ?? {};
-    const body = pending.chunks.join("");
-    let json: unknown;
-    try {
-      json = body.length > 0 ? JSON.parse(body) : undefined;
-    } catch {
-      json = undefined;
-    }
-
-    pending.resolve({ status, headers, body, json });
+    pending.done = true;
+    this.pushPendingEvent(pending, message);
+    this.flushPendingDone(pending);
   }
 
   private handleResponseError(message: BridgeErrorMessage): void {
@@ -521,7 +615,7 @@ export class FederationBridgeRelay {
     }
     clearTimeout(pending.timeout);
     this.pendingRequests.delete(pending.streamId);
-    pending.reject(new Error(`${message.code}: ${message.message}`));
+    this.failPendingRequest(pending, new Error(`${message.code}: ${message.message}`));
   }
 }
 
@@ -530,6 +624,8 @@ function cloneCapabilities(message: BridgeCapabilitiesMessage): readonly BridgeC
     ...capability,
     modelPrefixes: [...capability.modelPrefixes],
     models: [...capability.models],
+    paths: capability.paths ? [...capability.paths] : undefined,
+    routes: capability.routes ? [...capability.routes] : undefined,
     topologyTargets: capability.topologyTargets.map((target) => ({ ...target })),
   }));
 }

@@ -35,15 +35,28 @@ export interface FederationBridgeAgentOptions {
   readonly capabilitiesHash?: string;
   readonly getCapabilities?: () => Promise<readonly BridgeCapabilityAdvertisement[]> | readonly BridgeCapabilityAdvertisement[];
   readonly getHealth?: () => Promise<BridgeHealthReportPayload> | BridgeHealthReportPayload;
-  readonly handleRequest?: (input: { readonly request: BridgeRequestOpenMessage; readonly bodyText: string }) => Promise<{
-    readonly status: number;
-    readonly headers?: Readonly<Record<string, string>>;
-    readonly body?: string;
-    readonly encoding?: BridgeChunkEncoding;
-  }>;
+  readonly handleRequest?: (input: { readonly request: BridgeRequestOpenMessage; readonly bodyText: string }) => Promise<BridgeRequestHandlerResult>;
+  readonly handshakeDeadlineMs?: number;
   readonly reconnectMinMs?: number;
   readonly reconnectMaxMs?: number;
 }
+
+type BridgeResponseProvenance = Pick<BridgeResponseEndMessage, "servedByClusterId" | "servedByGroupId" | "servedByNodeId" | "providerId" | "accountId">;
+
+export type BridgeBufferedRequestResponse = BridgeResponseProvenance & {
+  readonly status: number;
+  readonly headers?: Readonly<Record<string, string>>;
+  readonly body?: string;
+  readonly encoding?: BridgeChunkEncoding;
+  readonly usage?: BridgeResponseEndMessage["usage"];
+};
+
+export type BridgeRequestHandlerStreamEvent =
+  | ({ readonly type: "response_head"; readonly status: number; readonly headers?: Readonly<Record<string, string>> } & BridgeResponseProvenance)
+  | ({ readonly type: "response_chunk"; readonly chunk: string; readonly encoding?: BridgeChunkEncoding; readonly final?: boolean } & BridgeResponseProvenance)
+  | ({ readonly type: "response_end"; readonly usage?: BridgeResponseEndMessage["usage"] } & BridgeResponseProvenance);
+
+export type BridgeRequestHandlerResult = BridgeBufferedRequestResponse | AsyncIterable<BridgeRequestHandlerStreamEvent>;
 
 export interface FederationBridgeAgentSnapshot {
   readonly state: "idle" | "connecting" | "connected" | "reconnecting" | "stopped";
@@ -74,6 +87,10 @@ function normalizeWsText(data: unknown): string {
     return Buffer.from(data).toString("utf8");
   }
   return Buffer.from(String(data)).toString("utf8");
+}
+
+function isAsyncIterable(value: BridgeRequestHandlerResult): value is AsyncIterable<BridgeRequestHandlerStreamEvent> {
+  return typeof (value as AsyncIterable<BridgeRequestHandlerStreamEvent>)[Symbol.asyncIterator] === "function";
 }
 
 export class FederationBridgeAgent {
@@ -167,16 +184,27 @@ export class FederationBridgeAgent {
     this.webSocket = ws;
 
     await new Promise<void>((resolve, reject) => {
+      let helloAckReceived = false;
       let settled = false;
+      let handshakeTimer: NodeJS.Timeout | undefined;
+
+      const clearHandshakeTimer = () => {
+        if (handshakeTimer) {
+          clearTimeout(handshakeTimer);
+          handshakeTimer = undefined;
+        }
+      };
 
       const settleResolve = () => {
         if (!settled) {
+          clearHandshakeTimer();
           settled = true;
           resolve();
         }
       };
       const settleReject = (error: unknown) => {
         if (!settled) {
+          clearHandshakeTimer();
           settled = true;
           reject(error);
         }
@@ -201,6 +229,18 @@ export class FederationBridgeAgent {
         };
         this.lastSentAt = hello.sentAt;
         ws.send(JSON.stringify(hello));
+
+        const handshakeDeadlineMs = this.options.handshakeDeadlineMs ?? 10_000;
+        handshakeTimer = setTimeout(() => {
+          const error = new Error(`bridge hello_ack was not received within ${handshakeDeadlineMs}ms`);
+          this.recordError({
+            code: "bridge_hello_ack_timeout",
+            message: error.message,
+            retryable: true,
+          });
+          ws.close(1008, "hello_ack timeout");
+          settleReject(error);
+        }, handshakeDeadlineMs);
       });
 
       ws.on("message", async (data, isBinary) => {
@@ -214,7 +254,10 @@ export class FederationBridgeAgent {
         try {
           const parsed = parseBridgeMessageJson(normalizeWsText(data));
           this.lastReceivedAt = parsed.sentAt;
-          await this.handleMessage(parsed, ws, settleResolve);
+          await this.handleMessage(parsed, ws, () => {
+            helloAckReceived = true;
+            settleResolve();
+          });
         } catch (error) {
           this.recordError({
             code: "bridge_message_invalid",
@@ -227,6 +270,7 @@ export class FederationBridgeAgent {
       });
 
       ws.on("error", (error) => {
+        clearHandshakeTimer();
         this.recordError({
           code: "bridge_socket_error",
           message: error instanceof Error ? error.message : String(error),
@@ -236,12 +280,13 @@ export class FederationBridgeAgent {
       });
 
       ws.on("close", () => {
+        clearHandshakeTimer();
         this.clearHeartbeatTimer();
         this.webSocket = undefined;
         if (!this.stopped) {
           this.scheduleReconnect();
         }
-        if (!settled && !this.sessionId) {
+        if (!settled && !helloAckReceived) {
           settleReject(new Error("bridge socket closed before hello_ack"));
         }
       });
@@ -318,60 +363,59 @@ export class FederationBridgeAgent {
 
     try {
       const result = await this.options.handleRequest({ request: message, bodyText });
-      const responseHead: BridgeResponseHeadMessage = {
-        type: "response_head",
-        protocolVersion: BRIDGE_PROTOCOL_VERSION,
-        sessionId: this.sessionId,
-        streamId: message.streamId,
-        sentAt: new Date().toISOString(),
-        traceId: randomUUID(),
-        ownerSubject: this.options.ownerSubject,
-        clusterId: this.options.clusterId,
-        agentId: this.options.agentId,
-        status: result.status,
-        headers: result.headers ?? {},
-        servedByClusterId: this.options.clusterId,
-        servedByGroupId: this.options.topology?.nodes[0]?.groupId,
-        servedByNodeId: this.options.topology?.nodes[0]?.nodeId,
-      };
-      this.lastSentAt = responseHead.sentAt;
-      ws.send(JSON.stringify(responseHead));
+      if (isAsyncIterable(result)) {
+        let sawHead = false;
+        let sawEnd = false;
+        let lastProvenance: BridgeResponseProvenance | undefined;
 
-      if (typeof result.body === "string" && result.body.length > 0) {
-        const responseChunk: BridgeResponseChunkMessage = {
-          type: "response_chunk",
-          protocolVersion: BRIDGE_PROTOCOL_VERSION,
-          sessionId: this.sessionId,
-          streamId: message.streamId,
-          sentAt: new Date().toISOString(),
-          traceId: randomUUID(),
-          ownerSubject: this.options.ownerSubject,
-          clusterId: this.options.clusterId,
-          agentId: this.options.agentId,
-          chunk: result.body,
-          encoding: result.encoding ?? "utf8",
-          final: true,
-        };
-        this.lastSentAt = responseChunk.sentAt;
-        ws.send(JSON.stringify(responseChunk));
+        for await (const event of result) {
+          if (!this.sessionId || ws.readyState !== WebSocket.OPEN) {
+            return;
+          }
+
+          lastProvenance = this.mergeResponseProvenance(lastProvenance, event);
+
+          switch (event.type) {
+            case "response_head":
+              sawHead = true;
+              this.sendResponseHeadMessage(ws, message.streamId, event.status, event.headers ?? {}, event);
+              break;
+            case "response_chunk":
+              if (!sawHead) {
+                sawHead = true;
+                this.sendResponseHeadMessage(ws, message.streamId, 200, {}, event);
+              }
+              this.sendResponseChunkMessage(ws, message.streamId, event.chunk, event.encoding ?? "utf8", event.final ?? false, event);
+              break;
+            case "response_end":
+              if (!sawHead) {
+                sawHead = true;
+                this.sendResponseHeadMessage(ws, message.streamId, 200, {}, event);
+              }
+              sawEnd = true;
+              this.sendResponseEndMessage(ws, message.streamId, event.usage, event);
+              break;
+            default:
+              break;
+          }
+        }
+
+        if (!sawHead) {
+          this.sendResponseHeadMessage(ws, message.streamId, 200, {}, lastProvenance);
+        }
+        if (!sawEnd) {
+          this.sendResponseEndMessage(ws, message.streamId, undefined, lastProvenance);
+        }
+        return;
       }
 
-      const responseEnd: BridgeResponseEndMessage = {
-        type: "response_end",
-        protocolVersion: BRIDGE_PROTOCOL_VERSION,
-        sessionId: this.sessionId,
-        streamId: message.streamId,
-        sentAt: new Date().toISOString(),
-        traceId: randomUUID(),
-        ownerSubject: this.options.ownerSubject,
-        clusterId: this.options.clusterId,
-        agentId: this.options.agentId,
-        servedByClusterId: this.options.clusterId,
-        servedByGroupId: this.options.topology?.nodes[0]?.groupId,
-        servedByNodeId: this.options.topology?.nodes[0]?.nodeId,
-      };
-      this.lastSentAt = responseEnd.sentAt;
-      ws.send(JSON.stringify(responseEnd));
+      this.sendResponseHeadMessage(ws, message.streamId, result.status, result.headers ?? {}, result);
+
+      if (typeof result.body === "string" && result.body.length > 0) {
+        this.sendResponseChunkMessage(ws, message.streamId, result.body, result.encoding ?? "utf8", true, result);
+      }
+
+      this.sendResponseEndMessage(ws, message.streamId, result.usage, result);
     } catch (error) {
       this.sendError(ws, {
         streamId: message.streamId,
@@ -380,6 +424,109 @@ export class FederationBridgeAgent {
         retryable: true,
       });
     }
+  }
+
+  private mergeResponseProvenance(
+    base: BridgeResponseProvenance | undefined,
+    update: BridgeResponseProvenance | undefined,
+  ): BridgeResponseProvenance {
+    return {
+      servedByClusterId: update?.servedByClusterId ?? base?.servedByClusterId ?? this.options.clusterId,
+      servedByGroupId: update?.servedByGroupId ?? base?.servedByGroupId,
+      servedByNodeId: update?.servedByNodeId ?? base?.servedByNodeId,
+      providerId: update?.providerId ?? base?.providerId,
+      accountId: update?.accountId ?? base?.accountId,
+    };
+  }
+
+  private sendResponseHeadMessage(
+    ws: WebSocket,
+    streamId: string,
+    status: number,
+    headers: Readonly<Record<string, string>>,
+    provenance: BridgeResponseProvenance | undefined,
+  ): void {
+    if (!this.sessionId || ws.readyState !== WebSocket.OPEN) {
+      return;
+    }
+
+    const resolvedProvenance = this.mergeResponseProvenance(undefined, provenance);
+    const responseHead: BridgeResponseHeadMessage = {
+      type: "response_head",
+      protocolVersion: BRIDGE_PROTOCOL_VERSION,
+      sessionId: this.sessionId,
+      streamId,
+      sentAt: new Date().toISOString(),
+      traceId: randomUUID(),
+      ownerSubject: this.options.ownerSubject,
+      clusterId: this.options.clusterId,
+      agentId: this.options.agentId,
+      status,
+      headers,
+      ...resolvedProvenance,
+    };
+    this.lastSentAt = responseHead.sentAt;
+    ws.send(JSON.stringify(responseHead));
+  }
+
+  private sendResponseChunkMessage(
+    ws: WebSocket,
+    streamId: string,
+    chunk: string,
+    encoding: BridgeChunkEncoding,
+    final: boolean,
+    provenance: BridgeResponseProvenance | undefined,
+  ): void {
+    if (!this.sessionId || ws.readyState !== WebSocket.OPEN) {
+      return;
+    }
+
+    const resolvedProvenance = this.mergeResponseProvenance(undefined, provenance);
+    const responseChunk: BridgeResponseChunkMessage = {
+      type: "response_chunk",
+      protocolVersion: BRIDGE_PROTOCOL_VERSION,
+      sessionId: this.sessionId,
+      streamId,
+      sentAt: new Date().toISOString(),
+      traceId: randomUUID(),
+      ownerSubject: this.options.ownerSubject,
+      clusterId: this.options.clusterId,
+      agentId: this.options.agentId,
+      chunk,
+      encoding,
+      final,
+      ...resolvedProvenance,
+    };
+    this.lastSentAt = responseChunk.sentAt;
+    ws.send(JSON.stringify(responseChunk));
+  }
+
+  private sendResponseEndMessage(
+    ws: WebSocket,
+    streamId: string,
+    usage: BridgeResponseEndMessage["usage"],
+    provenance: BridgeResponseProvenance | undefined,
+  ): void {
+    if (!this.sessionId || ws.readyState !== WebSocket.OPEN) {
+      return;
+    }
+
+    const resolvedProvenance = this.mergeResponseProvenance(undefined, provenance);
+    const responseEnd: BridgeResponseEndMessage = {
+      type: "response_end",
+      protocolVersion: BRIDGE_PROTOCOL_VERSION,
+      sessionId: this.sessionId,
+      streamId,
+      sentAt: new Date().toISOString(),
+      traceId: randomUUID(),
+      ownerSubject: this.options.ownerSubject,
+      clusterId: this.options.clusterId,
+      agentId: this.options.agentId,
+      usage,
+      ...resolvedProvenance,
+    };
+    this.lastSentAt = responseEnd.sentAt;
+    ws.send(JSON.stringify(responseEnd));
   }
 
   private startHeartbeatLoop(ws: WebSocket): void {

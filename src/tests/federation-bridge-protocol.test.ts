@@ -57,6 +57,8 @@ test("parseBridgeMessage parses capabilities with topology targets", () => {
         providerId: "openai",
         modelPrefixes: ["gpt-"],
         models: ["gpt-5.2", "gpt-5.2-codex"],
+        paths: ["/v1/models", "/v1/chat/completions", "/v1/responses"],
+        routes: ["/v1/models", "/v1/chat/completions", "/v1/responses"],
         authType: "oauth_bearer",
         accountCount: 12,
         availableAccountCount: 9,
@@ -79,10 +81,36 @@ test("parseBridgeMessage parses capabilities with topology targets", () => {
   assert.equal(message.type, "capabilities");
   assert.equal(message.capabilities.length, 1);
   assert.equal(message.capabilities[0]?.providerId, "openai");
+  assert.deepEqual(message.capabilities[0]?.paths, ["/v1/models", "/v1/chat/completions", "/v1/responses"]);
   assert.deepEqual(message.capabilities[0]?.topologyTargets, [
     { groupId: "group-a", nodeId: "a1" },
     { groupId: "group-a", nodeId: "a2" },
   ]);
+});
+
+test("parseBridgeMessageJson parses response_chunk provenance", () => {
+  const message = parseBridgeMessageJson(JSON.stringify({
+    type: "response_chunk",
+    protocolVersion: BRIDGE_PROTOCOL_VERSION,
+    sessionId: "session-1",
+    streamId: "stream-1",
+    sentAt: "2026-03-23T05:00:02.500Z",
+    traceId: "trace-resp-chunk-1",
+    ownerSubject: "did:plc:z72i7hdynmk6r22z27h6tvur",
+    clusterId: "staging",
+    agentId: "cluster-agent-1",
+    chunk: "data: hello\n\n",
+    encoding: "utf8",
+    servedByClusterId: "local-dev",
+    servedByGroupId: "group-a",
+    servedByNodeId: "a2",
+    providerId: "openai",
+    accountId: "acct-2",
+  }));
+
+  assert.equal(message.type, "response_chunk");
+  assert.equal(message.servedByNodeId, "a2");
+  assert.equal(message.providerId, "openai");
 });
 
 test("parseBridgeMessageJson parses response_head messages", () => {

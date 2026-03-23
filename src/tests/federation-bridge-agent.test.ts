@@ -7,10 +7,12 @@ import path from "node:path";
 import test from "node:test";
 
 import type { FastifyInstance } from "fastify";
+import { WebSocketServer } from "ws";
 
 import { createApp } from "../app.js";
 import type { ProxyConfig } from "../lib/config.js";
 import { createFederationBridgeAgent } from "../lib/federation/bridge-agent.js";
+import { createFederationBridgeRelay } from "../lib/federation/bridge-relay.js";
 
 interface BridgeTestContext {
   readonly app: FastifyInstance;
@@ -246,4 +248,177 @@ test("bridge agent connects, publishes capabilities/health, and stops cleanly", 
     const stoppedSnapshot = agent.snapshot();
     assert.equal(stoppedSnapshot.state, "stopped");
   });
+});
+
+test("bridge agent times out the hello handshake and retries in the background", async () => {
+  const server = createServer();
+  const wsServer = new WebSocketServer({ noServer: true });
+
+  server.on("upgrade", (request, socket, head) => {
+    wsServer.handleUpgrade(request, socket, head, (webSocket) => {
+      webSocket.on("message", () => {
+        // Intentionally never send hello_ack.
+      });
+    });
+  });
+
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address();
+  if (!address || typeof address === "string") {
+    throw new Error("failed to resolve handshake timeout server address");
+  }
+
+  const agent = createFederationBridgeAgent({
+    relayUrl: `ws://127.0.0.1:${address.port}`,
+    authorization: "Bearer bridge-admin-token",
+    ownerSubject: "did:plc:z72i7hdynmk6r22z27h6tvur",
+    peerDid: "did:web:local.promethean.rest",
+    clusterId: "local-dev",
+    agentId: "cluster-agent-timeout",
+    environment: "local",
+    bridgeAgentVersion: "0.1.0",
+    authMode: "admin_key",
+    handshakeDeadlineMs: 50,
+    reconnectMinMs: 25,
+    reconnectMaxMs: 50,
+  });
+
+  try {
+    await agent.start();
+
+    await waitFor(async () => agent.snapshot().lastError?.code === "bridge_hello_ack_timeout", 1_000);
+
+    const snapshot = agent.snapshot();
+    assert.equal(snapshot.lastError?.code, "bridge_hello_ack_timeout");
+    assert.notEqual(snapshot.state, "connected");
+  } finally {
+    await agent.stop();
+    await new Promise<void>((resolve) => wsServer.close(() => resolve()));
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve();
+      });
+    });
+  }
+});
+
+test("bridge relay requestStream preserves streamed chunks and provenance from the agent", async () => {
+  const relay = createFederationBridgeRelay();
+  const server = createServer();
+
+  server.on("upgrade", (request, socket, head) => {
+    relay.handleAuthorizedUpgrade(request, socket, head, {
+      authKind: "legacy_admin",
+      subject: "bridge-admin-token",
+      tenantId: "default",
+    });
+  });
+
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address();
+  if (!address || typeof address === "string") {
+    throw new Error("failed to resolve relay streaming server address");
+  }
+
+  const agent = createFederationBridgeAgent({
+    relayUrl: `ws://127.0.0.1:${address.port}`,
+    authorization: "Bearer bridge-admin-token",
+    ownerSubject: "did:plc:z72i7hdynmk6r22z27h6tvur",
+    peerDid: "did:web:local.promethean.rest",
+    clusterId: "local-dev",
+    agentId: "cluster-agent-streaming",
+    environment: "local",
+    bridgeAgentVersion: "0.1.0",
+    authMode: "admin_key",
+    reconnectMinMs: 25,
+    reconnectMaxMs: 50,
+    handleRequest: async () => (async function* () {
+      yield {
+        type: "response_head" as const,
+        status: 200,
+        headers: { "content-type": "text/event-stream; charset=utf-8" },
+        servedByClusterId: "local-dev",
+        servedByGroupId: "group-a",
+        servedByNodeId: "a2",
+        providerId: "openai",
+        accountId: "acct-stream-1",
+      };
+      yield {
+        type: "response_chunk" as const,
+        chunk: "data: hello\n\n",
+        encoding: "utf8" as const,
+        servedByClusterId: "local-dev",
+        servedByGroupId: "group-a",
+        servedByNodeId: "a2",
+        providerId: "openai",
+        accountId: "acct-stream-1",
+      };
+      yield {
+        type: "response_chunk" as const,
+        chunk: "data: [DONE]\n\n",
+        encoding: "utf8" as const,
+        servedByClusterId: "local-dev",
+        servedByGroupId: "group-a",
+        servedByNodeId: "a3",
+        providerId: "openai",
+        accountId: "acct-stream-2",
+      };
+      yield {
+        type: "response_end" as const,
+        servedByClusterId: "local-dev",
+        servedByGroupId: "group-a",
+        servedByNodeId: "a3",
+        providerId: "openai",
+        accountId: "acct-stream-2",
+      };
+    })(),
+  });
+
+  try {
+    await agent.start();
+    await waitFor(async () => relay.listSessions().some((session) => session.state === "connected"), 1_000);
+
+    const sessionId = relay.listSessions()[0]?.sessionId;
+    assert.ok(sessionId);
+
+    const events = [] as Array<{ readonly type: string; readonly servedByNodeId?: string; readonly accountId?: string; readonly chunk?: string }>;
+    for await (const event of relay.requestStream(sessionId!, {
+      method: "POST",
+      path: "/v1/chat/completions",
+      timeoutMs: 1_000,
+      headers: { accept: "text/event-stream", "content-type": "application/json" },
+      body: JSON.stringify({ model: "gpt-5.2", stream: true }),
+    })) {
+      events.push({
+        type: event.type,
+        servedByNodeId: event.servedByNodeId,
+        accountId: event.accountId,
+        chunk: event.type === "response_chunk" ? event.chunk : undefined,
+      });
+    }
+
+    assert.deepEqual(events.map((event) => event.type), ["response_head", "response_chunk", "response_chunk", "response_end"]);
+    assert.equal(events[1]?.servedByNodeId, "a2");
+    assert.equal(events[2]?.servedByNodeId, "a3");
+    assert.equal(events[2]?.accountId, "acct-stream-2");
+    assert.equal(events[1]?.chunk, "data: hello\n\n");
+  } finally {
+    await agent.stop();
+    await relay.close();
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve();
+      });
+    });
+  }
 });

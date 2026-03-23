@@ -2890,7 +2890,7 @@ export async function registerUiRoutes(app: FastifyInstance, deps: UiRouteDepend
 
     // Scope bridge sessions to the authenticated tenant for non-global admins.
     // legacy_admin has global visibility; ui_session users see only their tenant's sessions.
-    const isGlobalAdmin = auth?.kind === "legacy_admin" || auth?.role === "owner";
+    const isGlobalAdmin = auth?.kind === "legacy_admin";
     const allSessions = bridgeRelay.listSessions();
     const sessions = isGlobalAdmin
       ? allSessions
@@ -2913,7 +2913,7 @@ export async function registerUiRoutes(app: FastifyInstance, deps: UiRouteDepend
     }
 
     // Scope single session access to authenticated tenant
-    const isGlobalAdmin = auth?.kind === "legacy_admin" || auth?.role === "owner";
+    const isGlobalAdmin = auth?.kind === "legacy_admin";
     if (!isGlobalAdmin && session.tenantId !== auth?.tenantId) {
       reply.code(404).send({ error: "bridge_session_not_found" });
       return;

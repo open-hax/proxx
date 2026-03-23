@@ -227,6 +227,14 @@ function requiredString(record: Record<string, unknown>, fieldName: string): str
   return value;
 }
 
+function requiredRawString(record: Record<string, unknown>, fieldName: string): string {
+  const value = asString(record[fieldName]);
+  if (typeof value !== "string" || value.length === 0) {
+    throw new Error(`bridge message ${fieldName} must be a non-empty string`);
+  }
+  return value;
+}
+
 function optionalString(record: Record<string, unknown>, fieldName: string): string | undefined {
   const value = asString(record[fieldName])?.trim();
   return value && value.length > 0 ? value : undefined;
@@ -596,7 +604,7 @@ export function parseBridgeMessage(value: unknown): BridgeMessage {
         ...base,
         type: "request_chunk",
         streamId: requiredString(value, "streamId"),
-        chunk: requiredString(value, "chunk"),
+        chunk: requiredRawString(value, "chunk"),
         encoding: readEnum(value.encoding, "encoding", ["utf8", "base64"] as const),
         final: value.final === undefined ? false : requiredBoolean(value, "final"),
       };
@@ -618,7 +626,7 @@ export function parseBridgeMessage(value: unknown): BridgeMessage {
         ...base,
         type: "response_chunk",
         streamId: requiredString(value, "streamId"),
-        chunk: requiredString(value, "chunk"),
+        chunk: requiredRawString(value, "chunk"),
         encoding: readEnum(value.encoding, "encoding", ["utf8", "base64"] as const),
         final: value.final === undefined ? false : requiredBoolean(value, "final"),
         servedByClusterId: optionalString(value, "servedByClusterId"),
