@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { Readable } from "node:stream";
 
-import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
+import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
 
 import { DEFAULT_MODELS, type ProxyConfig } from "./lib/config.js";
 import { KeyPool, type ProviderCredential } from "./lib/key-pool.js";
@@ -80,7 +80,7 @@ import { registerOAuthRoutes } from "./lib/oauth-routes.js";
 import { RuntimeCredentialStore } from "./lib/runtime-credential-store.js";
 import { TokenRefreshManager } from "./lib/token-refresh-manager.js";
 import { DEFAULT_TENANT_ID } from "./lib/tenant-api-key.js";
-import { resolveRequestAuth } from "./lib/request-auth.js";
+import { resolveRequestAuth, type ResolvedRequestAuth } from "./lib/request-auth.js";
 import { createEnvFederationBridgeAgent } from "./lib/federation/bridge-agent-autostart.js";
 import type { BridgeRelayResponseEvent, FederationBridgeRelay } from "./lib/federation/bridge-relay.js";
 
@@ -710,6 +710,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
 
   const FEDERATION_HOP_HEADER = "x-open-hax-federation-hop";
   const FEDERATION_OWNER_SUBJECT_HEADER = "x-open-hax-federation-owner-subject";
+  const FEDERATION_BRIDGE_TENANT_HEADER = "x-open-hax-bridge-tenant-id";
   const FEDERATION_FORCED_PROVIDER_HEADER = "x-open-hax-forced-provider";
   const FEDERATION_FORCED_ACCOUNT_ID_HEADER = "x-open-hax-forced-account-id";
   const FEDERATION_ROUTED_PEER_HEADER = "x-open-hax-federation-routed-peer";
@@ -752,6 +753,25 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     return undefined;
   }
 
+  function isTrustedLocalBridgeAddress(remoteAddress: string | undefined): boolean {
+    if (!remoteAddress) {
+      return false;
+    }
+
+    return remoteAddress === "127.0.0.1"
+      || remoteAddress === "::1"
+      || remoteAddress === "::ffff:127.0.0.1";
+  }
+
+  function normalizeRequestedModel(value: unknown): string | undefined {
+    if (typeof value !== "string") {
+      return undefined;
+    }
+
+    const normalized = value.trim();
+    return normalized.length > 0 ? normalized : undefined;
+  }
+
   function resolveFederationHopCount(headers: Record<string, unknown>): number {
     const raw = readSingleHeader(headers, FEDERATION_HOP_HEADER)?.trim();
     if (!raw) {
@@ -764,7 +784,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
 
   function resolveFederationOwnerSubject(input: {
     readonly headers: Record<string, unknown>;
-    readonly requestAuth?: { readonly kind: "legacy_admin" | "tenant_api_key" | "ui_session" | "unauthenticated"; readonly subject?: string };
+    readonly requestAuth?: Pick<ResolvedRequestAuth, "kind" | "subject">;
     readonly hopCount?: number;
   }): string | undefined {
     const explicitHeader = readSingleHeader(input.headers, FEDERATION_OWNER_SUBJECT_HEADER)?.trim();
@@ -1250,6 +1270,34 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       && legacyBridgePathPrefixes.some((prefix) => normalizedPath.startsWith(prefix));
   }
 
+  function bridgeCapabilitySupportsModel(capability: {
+    readonly models?: readonly string[];
+    readonly modelPrefixes?: readonly string[];
+  }, requestedModel: string | undefined): boolean {
+    if (!requestedModel) {
+      return true;
+    }
+
+    const normalizedModel = requestedModel.trim();
+    if (normalizedModel.length === 0) {
+      return true;
+    }
+
+    const advertisedModels = (capability.models ?? [])
+      .filter((entry): entry is string => typeof entry === "string")
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0);
+    if (advertisedModels.includes(normalizedModel)) {
+      return true;
+    }
+
+    const advertisedPrefixes = (capability.modelPrefixes ?? [])
+      .filter((entry): entry is string => typeof entry === "string")
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0);
+    return advertisedPrefixes.some((prefix) => normalizedModel.startsWith(prefix));
+  }
+
   function appendBridgeResponseHeaders(reply: FastifyReply, headers: Readonly<Record<string, string>>): void {
     for (const [name, value] of Object.entries(headers)) {
       if (name.toLowerCase() === "content-length") {
@@ -1268,7 +1316,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
   async function executeBridgeRequestFallback(input: {
     readonly requestHeaders: Record<string, unknown>;
     readonly requestBody: Record<string, unknown>;
-    readonly requestAuth?: { readonly kind: "legacy_admin" | "tenant_api_key" | "ui_session" | "unauthenticated"; readonly subject?: string };
+    readonly requestAuth?: Pick<ResolvedRequestAuth, "kind" | "subject" | "tenantId">;
     readonly upstreamPath: string;
     readonly reply: FastifyReply;
     readonly timeoutMs: number;
@@ -1293,13 +1341,25 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       return false;
     }
 
+    const tenantId = input.requestAuth?.tenantId
+      ?? (input.requestAuth?.kind === "legacy_admin" ? DEFAULT_TENANT_ID : undefined);
+    if (!tenantId) {
+      return false;
+    }
+
+    const requestedModel = normalizeRequestedModel(input.requestBody.model);
+
     // Filter connected sessions by advertised capability for the requested path
     const normalizedPath = input.upstreamPath.split("?")[0]!;
     const connectedSessions = bridgeRelay.listSessions()
       .filter((session) => session.state === "connected")
       .filter((session) => session.ownerSubject === ownerSubject)
+      .filter((session) => session.tenantId === tenantId)
       .filter((session) => {
-        const hasCapability = session.capabilities.some((cap) => bridgeCapabilitySupportsPath(cap, normalizedPath));
+        const hasCapability = session.capabilities.some((cap) => {
+          return bridgeCapabilitySupportsPath(cap, normalizedPath)
+            && bridgeCapabilitySupportsModel(cap, requestedModel);
+        });
         return hasCapability;
       });
     if (connectedSessions.length === 0) {
@@ -1321,6 +1381,8 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
             "content-type": "application/json",
           },
           body: bodyText,
+          requestContext: { tenantId },
+          routingIntent: requestedModel ? { model: requestedModel } : undefined,
         });
 
         let sawHead = false;
@@ -1420,6 +1482,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     readonly headers: Readonly<Record<string, string>>;
     readonly bodyText: string;
     readonly ownerSubject: string;
+    readonly tenantId?: string;
   }): ReturnType<NonNullable<Parameters<typeof createEnvFederationBridgeAgent>[0]["handleBridgeRequest"]>> => {
     // Security: restrict bridge requests to allowed API paths only.
     // This prevents the bridge from acting as a privileged generic proxy
@@ -1452,6 +1515,9 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       [FEDERATION_HOP_HEADER]: "1",
       [FEDERATION_OWNER_SUBJECT_HEADER]: input.ownerSubject,
     };
+    if (typeof input.tenantId === "string" && input.tenantId.trim().length > 0) {
+      headers[FEDERATION_BRIDGE_TENANT_HEADER] = input.tenantId.trim();
+    }
     if (typeof input.headers["content-type"] === "string") {
       headers["content-type"] = input.headers["content-type"];
     }
@@ -1647,9 +1713,15 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     app.log.warn("proxy auth disabled via PROXY_ALLOW_UNAUTHENTICATED=true");
   }
 
+  type DecoratedAppRequest = FastifyRequest & {
+    openHaxAuth: ResolvedRequestAuth | null;
+    _otelSpan: TelemetrySpan | null;
+  };
+
   app.decorateRequest("openHaxAuth", null);
 
   app.addHook("onRequest", async (request, reply) => {
+    const decoratedRequest = request as DecoratedAppRequest;
     const origin = request.headers.origin;
     reply.header("Access-Control-Allow-Origin", origin ?? "*");
     reply.header("Vary", "Origin");
@@ -1671,18 +1743,30 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       return;
     }
 
-    // Allow internal bridge requests via dedicated header (no admin token required)
+    let bridgeResolvedAuth: ResolvedRequestAuth | undefined;
     const bridgeAuthHeader = request.headers["x-open-hax-bridge-auth"];
-    if (bridgeAuthHeader === "internal" && request.headers[FEDERATION_OWNER_SUBJECT_HEADER]) {
-      // Bridge internal request - authenticate as legacy_admin equivalent for model API routes
-      (request as any).openHaxAuth = {
+    const internalOwnerSubject = typeof request.headers[FEDERATION_OWNER_SUBJECT_HEADER] === "string"
+      ? request.headers[FEDERATION_OWNER_SUBJECT_HEADER].trim()
+      : undefined;
+    const internalTenantId = typeof request.headers[FEDERATION_BRIDGE_TENANT_HEADER] === "string"
+      ? request.headers[FEDERATION_BRIDGE_TENANT_HEADER].trim()
+      : undefined;
+    if (
+      bridgeAuthHeader === "internal"
+      && rawPath.startsWith("/v1/")
+      && internalOwnerSubject
+      && isTrustedLocalBridgeAddress(request.raw.socket.remoteAddress)
+    ) {
+      bridgeResolvedAuth = {
         kind: "legacy_admin",
-        subject: String(request.headers[FEDERATION_OWNER_SUBJECT_HEADER]),
+        tenantId: internalTenantId || DEFAULT_TENANT_ID,
+        role: "owner",
+        source: "none",
+        subject: internalOwnerSubject,
       };
-      return;
     }
 
-    const resolvedAuth = await resolveRequestAuth({
+    const resolvedAuth = bridgeResolvedAuth ?? await resolveRequestAuth({
       allowUnauthenticated: config.allowUnauthenticated,
       proxyAuthToken: config.proxyAuthToken,
       authorization: request.headers.authorization,
@@ -1711,7 +1795,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       return;
     }
 
-    (request as any).openHaxAuth = resolvedAuth;
+    decoratedRequest.openHaxAuth = resolvedAuth;
 
     const enforceTenantQuotaRoute = request.method === "POST" && (
       rawPath === "/v1/chat/completions"
@@ -1761,11 +1845,11 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       "http.method": request.method,
       "http.path": (request.raw.url ?? request.url).split("?")[0],
     });
-    (request as any)._otelSpan = span;
+    (request as DecoratedAppRequest)._otelSpan = span;
   });
 
   app.addHook("onResponse", async (request, reply) => {
-    const span = (request as any)._otelSpan as TelemetrySpan | null;
+    const span = (request as DecoratedAppRequest)._otelSpan;
     if (!span) return;
     span.setAttribute("http.status_code", reply.statusCode);
     if (reply.statusCode >= 400) span.setStatus("error", `HTTP ${reply.statusCode}`);
