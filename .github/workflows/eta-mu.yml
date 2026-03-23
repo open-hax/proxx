@@ -88,15 +88,9 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           # Point pi to the checked-out eta-mu-pi config
           PI_CODING_AGENT_DIR: ${{ github.workspace }}/.pi/agent
-        run: |
-          set +e
-          pnpm --dir .eta-mu dev run-event \
-            --repo "${GITHUB_REPOSITORY}" \
-            --event-name "${GITHUB_EVENT_NAME}" \
-            --event-path "${GITHUB_EVENT_PATH}" \
-            --cwd "$PWD"
-          status=$?
-          set -e
-          if [[ "$status" -ne 0 ]]; then
-            echo "::warning::eta-mu event handler failed (non-blocking); continuing so automation outages do not block the PR."
-          fi
+        run: >-
+          pnpm --dir .eta-mu dev run-event
+          --repo "${GITHUB_REPOSITORY}"
+          --event-name "${GITHUB_EVENT_NAME}"
+          --event-path "${GITHUB_EVENT_PATH}"
+          --cwd "$PWD"
