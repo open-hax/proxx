@@ -42,7 +42,6 @@ import {
   REVOKE_TENANT_API_KEY,
   TOUCH_TENANT_API_KEY_LAST_USED,
   SET_COOLDOWN,
-  GET_COOLDOWN,
   CLEAR_EXPIRED_COOLDOWNS,
   SCHEMA_VERSION,
 } from "./schema.js";
@@ -100,10 +99,6 @@ export interface SqlOpenAiAccountIdentityRow {
   readonly id: string;
   readonly provider_id: string;
   readonly chatgpt_account_id: string | null;
-}
-
-interface CooldownRow {
-  cooldown_until: string;
 }
 
 function normalizeAuthType(raw: string): ProviderAuthType {

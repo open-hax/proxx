@@ -24,7 +24,6 @@ import {
   inlineSystemPrompt,
   sanitizeFactorySystemPrompt,
 } from "../../factory-compat.js";
-import { chatCompletionHasReasoningContent } from "../../provider-utils.js";
 import { BaseProviderStrategy, TransformedJsonProviderStrategy } from "../base.js";
 import {
   applyRequestedServiceTier,

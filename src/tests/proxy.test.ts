@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import assert from "node:assert/strict";
 import { once } from "node:events";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -2623,7 +2624,7 @@ test("refreshes oauth tokens on 401 unauthorized before marking rate-limited", a
             upstreamProviderId: "openai",
             upstreamFallbackProviderIds: [],
           },
-          upstreamHandler: async (request, body) => {
+          upstreamHandler: async (request, _body) => {
             const auth = request.headers.authorization;
             if (typeof auth === "string") {
               observedAuth.push(auth.replace(/^Bearer\s+/i, ""));
@@ -3350,7 +3351,7 @@ test("permanently disables api_key accounts on 403 (forbidden/suspended)", async
       assert.ok(first.statusCode >= 400, `first request should fail, got ${first.statusCode}`);
       const firstCount = requestCount;
 
-      const second = await app.inject({
+      const _second = await app.inject({
         method: "POST",
         url: "/v1/chat/completions",
         headers: { "content-type": "application/json" },

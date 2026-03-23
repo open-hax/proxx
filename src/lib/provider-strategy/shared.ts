@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
 import type { IncomingHttpHeaders } from "node:http";
-import { Readable } from "node:stream";
 
 import type { FastifyReply } from "fastify";
 
@@ -9,65 +8,23 @@ import type { ProviderCredential } from "../key-pool.js";
 import type { Factory4xxDiagnostics, RequestLogStore } from "../request-log-store.js";
 import type { ResolvedRequestAuth } from "../request-auth.js";
 import { estimateRequestCost } from "../model-pricing.js";
-import type { PromptAffinityStore } from "../prompt-affinity-store.js";
 import type { PolicyEngine } from "../policy/index.js";
-import type { AccountHealthStore } from "../db/account-health-store.js";
 import { orderAccountsByPolicy } from "../provider-policy.js";
 import {
-  buildForwardHeaders,
-  buildUpstreamHeadersForCredential,
-  copyUpstreamHeaders,
-  isRateLimitResponse,
-  parseRetryAfterMs,
-} from "../proxy.js";
-import {
-  chatRequestToResponsesRequest,
-  chatCompletionToSse,
   responsesEventStreamToChatCompletion,
-  responsesEventStreamToErrorPayload,
   responsesToChatCompletion,
-  shouldUseResponsesUpstream,
-  responsesOutputHasReasoning,
-  writeInterleavedResponsesSse,
   extractTerminalResponseFromEventStream,
 } from "../responses-compat.js";
 import {
-  chatRequestToMessagesRequest,
   messagesToChatCompletion,
-  shouldUseMessagesUpstream,
 } from "../messages-compat.js";
 import {
-  chatRequestToOllamaRequest,
   ollamaToChatCompletion,
 } from "../ollama-compat.js";
-import type { ProviderRoute } from "../provider-routing.js";
 import {
-  buildFactoryAnthropicHeaders,
-  buildFactoryCommonHeaders,
-  getFactoryEndpointPath,
-  getFactoryModelType,
-  inlineSystemPrompt,
-  sanitizeFactorySystemPrompt,
-} from "../factory-compat.js";
-import {
-  appendCsvHeaderValue,
-  chatCompletionHasReasoningContent,
-  fetchWithResponseTimeout,
-  requestWantsReasoningTrace,
   responseIsEventStream,
-  responseIndicatesMissingModel,
-  responseIndicatesModelNotSupportedForAccount,
-  responseIndicatesQuotaError,
-  sendOpenAiError,
-  shouldEnableInterleavedThinkingHeader,
-  streamPayloadIndicatesQuotaError,
-
-  streamPayloadHasSubstantiveChunks,
   summarizeUpstreamError,
-  toErrorMessage,
 } from "../provider-utils.js";
-import { resolveRequestRoutingState } from "../provider-routing.js";
-import { getTelemetry } from "../telemetry/otel.js";
 
 function joinUrl(baseUrl: string, path: string): string {
   const normalizedBase = baseUrl.replace(/\/+$/, "");
