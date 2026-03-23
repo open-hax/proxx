@@ -81,9 +81,10 @@ jobs:
         if: failure()
         run: |
           # shellcheck disable=SC2029,SC2086
-          ssh error@${PRODUCTION_HOST} "cd '${PRODUCTION_PATH}' && docker compose --project-name '${PRODUCTION_PROJECT}' -f docker-compose.federation-runtime.yml -f deploy/docker-compose.federation.ssl.yml ps && docker compose --project-name '${PRODUCTION_PROJECT}' -f docker-compose.federation-runtime.yml -f deploy/docker-compose.federation.ssl.yml logs --tail=200"
+          ssh ${PRODUCTION_SSH_USER}@${PRODUCTION_HOST} "cd ${PRODUCTION_PATH} && docker compose --project-name '${PRODUCTION_PROJECT}' -f docker-compose.federation-runtime.yml -f deploy/docker-compose.federation.ssl.yml ps && docker compose --project-name '${PRODUCTION_PROJECT}' -f docker-compose.federation-runtime.yml -f deploy/docker-compose.federation.ssl.yml logs --tail=200"
         env:
           PRODUCTION_HOST: ${{ vars.PRODUCTION_SSH_HOST || 'ussy.promethean.rest' }}
+          PRODUCTION_SSH_USER: ${{ vars.PRODUCTION_SSH_USER || 'error' }}
           PRODUCTION_PATH: ${{ vars.PRODUCTION_DEPLOY_PATH || '~/devel/services/proxx' }}
           PRODUCTION_PROJECT: ${{ vars.PRODUCTION_COMPOSE_PROJECT_NAME || 'open-hax-openai-proxy' }}
 

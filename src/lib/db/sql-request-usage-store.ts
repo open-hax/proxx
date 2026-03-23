@@ -430,12 +430,23 @@ export class SqlRequestUsageStore implements RequestLogMirror {
     sinceMs: number,
     filters: Omit<RequestLogFilters, "limit" | "before"> = {},
     limit?: number,
+    after?: { readonly timestampMs: number; readonly id: string },
   ): Promise<RequestLogEntry[]> {
     const queryFilters = { ...filters, sinceMs };
     const { where, values } = this.buildWhere(queryFilters);
-    const safeLimit = sanitizeLimit(limit, MAX_PAGE_SIZE);
+    const baseConditions = where.length > 0 ? [where.replace(/^WHERE\s+/u, "")] : [];
+    if (after) {
+      const timestampIndex = values.length + 1;
+      const idIndex = values.length + 2;
+      baseConditions.push(`(timestamp_ms > $${timestampIndex} OR (timestamp_ms = $${timestampIndex} AND id > $${idIndex}))`);
+      values.push(after.timestampMs, after.id);
+    }
+    const finalWhere = baseConditions.length > 0 ? `WHERE ${baseConditions.join(" AND ")}` : "";
+    const limitClause = typeof limit === "number" && Number.isFinite(limit)
+      ? ` LIMIT ${sanitizeLimit(limit, MAX_PAGE_SIZE)}`
+      : "";
     const rows = await this.sql.unsafe<RequestUsageRow[]>(
-      `SELECT ${ENTRY_COLUMNS} FROM request_usage_entries ${where} ORDER BY timestamp_ms ASC, id ASC LIMIT ${safeLimit}`,
+      `SELECT ${ENTRY_COLUMNS} FROM request_usage_entries ${finalWhere} ORDER BY timestamp_ms ASC, id ASC${limitClause}`,
       values as (string | number | boolean | null)[],
     );
     return rows.map(toEntry);

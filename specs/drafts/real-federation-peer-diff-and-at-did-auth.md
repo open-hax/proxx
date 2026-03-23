@@ -135,7 +135,7 @@ Minimum required audit surfaces:
    - clearly distinguish whether the node:
      - has credentials
      - only knows the account exists
-     - has warmed the remote account through peer routing
+     - has warmed the remote account through peer routing (`remote_route`)
      - has fully imported it
 
 This is important because the intended E2E harness will validate behavior through API requests, not browser-driven flows.
@@ -148,8 +148,9 @@ Peers must be registerable over API, not only by static file config.
 Minimum required fields:
 - `peerDid`
 - `label`
-- `baseUrl`
+- `baseUrl` (current data-plane URL)
 - `controlBaseUrl` (optional if same as base)
+- `dataPlaneBaseUrl` (optional future alias when control-plane and data-plane URLs are fully separated in config/API)
 - `ownerCredential` (admin key or AT DID)
 - `capabilities` (optional)
 

@@ -86,9 +86,10 @@ jobs:
         if: failure()
         run: |
           # shellcheck disable=SC2029,SC2086
-          ssh error@${STAGING_HOST} "cd '${STAGING_PATH}' && docker compose --project-name '${STAGING_PROJECT}' -f docker-compose.federation-runtime.yml -f deploy/docker-compose.federation.ssl.yml ps && docker compose --project-name '${STAGING_PROJECT}' -f docker-compose.federation-runtime.yml -f deploy/docker-compose.federation.ssl.yml logs --tail=200"
+          ssh ${STAGING_SSH_USER}@${STAGING_HOST} "cd ${STAGING_PATH} && docker compose --project-name '${STAGING_PROJECT}' -f docker-compose.federation-runtime.yml -f deploy/docker-compose.federation.ssl.yml ps && docker compose --project-name '${STAGING_PROJECT}' -f docker-compose.federation-runtime.yml -f deploy/docker-compose.federation.ssl.yml logs --tail=200"
         env:
           STAGING_HOST: ${{ vars.STAGING_SSH_HOST || 'ussy3.promethean.rest' }}
+          STAGING_SSH_USER: ${{ vars.STAGING_SSH_USER || 'error' }}
           STAGING_PATH: ${{ vars.STAGING_DEPLOY_PATH || '~/devel/services/proxx-staging' }}
           STAGING_PROJECT: ${{ vars.STAGING_COMPOSE_PROJECT_NAME || 'proxx-staging' }}
 
@@ -140,8 +141,9 @@ jobs:
         if: failure()
         run: |
           # shellcheck disable=SC2029,SC2086
-          ssh error@${STAGING_HOST} "cd '${STAGING_PATH}' && docker compose --project-name '${STAGING_PROJECT}' -f docker-compose.federation-runtime.yml -f deploy/docker-compose.federation.ssl.yml ps && docker compose --project-name '${STAGING_PROJECT}' -f docker-compose.federation-runtime.yml -f deploy/docker-compose.federation.ssl.yml logs --tail=200"
+          ssh ${STAGING_SSH_USER}@${STAGING_HOST} "cd ${STAGING_PATH} && docker compose --project-name '${STAGING_PROJECT}' -f docker-compose.federation-runtime.yml -f deploy/docker-compose.federation.ssl.yml ps && docker compose --project-name '${STAGING_PROJECT}' -f docker-compose.federation-runtime.yml -f deploy/docker-compose.federation.ssl.yml logs --tail=200"
         env:
           STAGING_HOST: ${{ vars.STAGING_SSH_HOST || 'ussy3.promethean.rest' }}
+          STAGING_SSH_USER: ${{ vars.STAGING_SSH_USER || 'error' }}
           STAGING_PATH: ${{ vars.STAGING_DEPLOY_PATH || '~/devel/services/proxx-staging' }}
           STAGING_PROJECT: ${{ vars.STAGING_COMPOSE_PROJECT_NAME || 'proxx-staging' }}

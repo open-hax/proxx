@@ -445,6 +445,10 @@ async function buildFederationAccountKnowledge(
     readonly availabilityState: string;
     readonly warmRequestCount: number;
   }>,
+  options: {
+    readonly ownerSubject?: string;
+    readonly defaultOwnerSubject?: string;
+  } = {},
 ): Promise<{
   readonly localAccounts: readonly FederationKnownAccountSummary[];
   readonly knownAccounts: readonly FederationKnownAccountSummary[];
@@ -452,9 +456,19 @@ async function buildFederationAccountKnowledge(
   const providers = await credentialStore.listProviders(false);
   const localAccounts: FederationKnownAccountSummary[] = [];
   const known = new Map<string, FederationKnownAccountSummary>();
+  const requestedOwnerSubject = options.ownerSubject?.trim();
+  const defaultOwnerSubject = options.defaultOwnerSubject?.trim();
+  const includeAllLocalAccounts = !requestedOwnerSubject
+    || (defaultOwnerSubject !== undefined && defaultOwnerSubject.length > 0 && requestedOwnerSubject === defaultOwnerSubject);
+  const projectedAccountKeys = new Set(projectedAccounts.map((projected) => accountKnowledgeKey(projected.providerId, projected.accountId)));
 
   for (const provider of providers) {
     for (const account of provider.accounts) {
+      const key = accountKnowledgeKey(provider.id, account.id);
+      if (!includeAllLocalAccounts && account.subject !== requestedOwnerSubject && !projectedAccountKeys.has(key)) {
+        continue;
+      }
+
       const summary: FederationKnownAccountSummary = {
         providerId: provider.id,
         accountId: account.id,
@@ -464,11 +478,12 @@ async function buildFederationAccountKnowledge(
         chatgptAccountId: account.chatgptAccountId,
         email: account.email,
         subject: account.subject,
+        ownerSubject: requestedOwnerSubject,
         hasCredentials: true,
         knowledgeSources: ["local_credential"],
       };
       localAccounts.push(summary);
-      known.set(accountKnowledgeKey(provider.id, account.id), summary);
+      known.set(key, summary);
     }
   }
 
@@ -2868,7 +2883,10 @@ export async function registerUiRoutes(app: FastifyInstance, deps: UiRouteDepend
       ? request.query.ownerSubject.trim()
       : undefined;
     const projectedAccounts = await deps.sqlFederationStore.listProjectedAccounts(ownerSubject);
-    const { localAccounts, knownAccounts } = await buildFederationAccountKnowledge(credentialStore, projectedAccounts);
+    const { localAccounts, knownAccounts } = await buildFederationAccountKnowledge(credentialStore, projectedAccounts, {
+      ownerSubject,
+      defaultOwnerSubject: process.env.FEDERATION_DEFAULT_OWNER_SUBJECT,
+    });
 
     reply.send({
       ownerSubject: ownerSubject ?? null,
@@ -2992,6 +3010,7 @@ export async function registerUiRoutes(app: FastifyInstance, deps: UiRouteDepend
       reply.code(503).send({ error: "federation_store_not_supported" });
       return;
     }
+    const sqlFederationStore = deps.sqlFederationStore;
 
     const sourcePeerId = typeof request.body?.sourcePeerId === "string" ? request.body.sourcePeerId.trim() : "";
     const providerId = typeof request.body?.providerId === "string" ? request.body.providerId.trim() : "";
@@ -3001,7 +3020,7 @@ export async function registerUiRoutes(app: FastifyInstance, deps: UiRouteDepend
       return;
     }
 
-    let account = await deps.sqlFederationStore.noteProjectedAccountRouted({ sourcePeerId, providerId, accountId });
+    let account = await sqlFederationStore.noteProjectedAccountRouted({ sourcePeerId, providerId, accountId });
     if (!account) {
       reply.code(404).send({ error: "projected_account_not_found" });
       return;
@@ -3009,9 +3028,21 @@ export async function registerUiRoutes(app: FastifyInstance, deps: UiRouteDepend
 
     let importedCredential = false;
     if (shouldWarmImportProjectedAccount(account.warmRequestCount)) {
-      const peer = await deps.sqlFederationStore.getPeer(sourcePeerId);
-      const credential = peer ? extractPeerCredential(peer.auth) : undefined;
-      if (peer && credential) {
+      const importResult = await sqlFederationStore.withProjectedAccountImportLock({ sourcePeerId, providerId, accountId }, async () => {
+        const latest = await sqlFederationStore.getProjectedAccount({ sourcePeerId, providerId, accountId });
+        if (!latest) {
+          return undefined;
+        }
+        if (latest.availabilityState === "imported") {
+          return { account: latest, importedCredential: false };
+        }
+
+        const peer = await sqlFederationStore.getPeer(sourcePeerId);
+        const credential = peer ? extractPeerCredential(peer.auth) : undefined;
+        if (!peer || !credential) {
+          return { account: latest, importedCredential: false };
+        }
+
         try {
           const remoteExport = await fetchFederationJson<{ readonly account: FederationCredentialExport }>({
             url: `${peer.controlBaseUrl ?? peer.baseUrl}/api/ui/federation/accounts/export`,
@@ -3019,8 +3050,8 @@ export async function registerUiRoutes(app: FastifyInstance, deps: UiRouteDepend
             timeoutMs: federationRequestTimeoutMs,
             method: "POST",
             body: {
-              providerId: account.providerId,
-              accountId: account.accountId,
+              providerId: latest.providerId,
+              accountId: latest.accountId,
             },
           });
 
@@ -3044,18 +3075,27 @@ export async function registerUiRoutes(app: FastifyInstance, deps: UiRouteDepend
             );
           }
 
-          const imported = await deps.sqlFederationStore.markProjectedAccountImported({ sourcePeerId, providerId, accountId });
-          if (imported) {
-            account = imported;
-          }
-          importedCredential = true;
+          const imported = await sqlFederationStore.markProjectedAccountImported({ sourcePeerId, providerId, accountId });
+          return { account: imported ?? latest, importedCredential: true };
         } catch (error) {
           app.log.warn({ error: error instanceof Error ? error.message : String(error), sourcePeerId, providerId, accountId }, "failed warm federation credential import");
+          return { account: latest, importedCredential: false };
+        }
+      });
+
+      if (importResult) {
+        account = importResult.account;
+        importedCredential = importResult.importedCredential;
+      } else {
+        const latest = await sqlFederationStore.getProjectedAccount({ sourcePeerId, providerId, accountId });
+        if (latest) {
+          account = latest;
+          importedCredential = latest.availabilityState === "imported";
         }
       }
     }
 
-    await deps.sqlFederationStore.appendDiffEvent({
+    await sqlFederationStore.appendDiffEvent({
       ownerSubject: account.ownerSubject,
       entityType: "projected_account",
       entityKey: `${account.sourcePeerId}:${account.providerId}:${account.accountId}`,
@@ -3117,7 +3157,7 @@ export async function registerUiRoutes(app: FastifyInstance, deps: UiRouteDepend
   });
 
   app.get<{
-    Querystring: { readonly sinceMs?: string; readonly limit?: string };
+    Querystring: { readonly sinceMs?: string; readonly limit?: string; readonly afterTimestampMs?: string; readonly afterId?: string };
   }>("/api/ui/federation/usage-export", async (request, reply) => {
     const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
     if (!authCanManageFederation(auth)) {
@@ -3127,11 +3167,18 @@ export async function registerUiRoutes(app: FastifyInstance, deps: UiRouteDepend
 
     const sinceMs = typeof request.query.sinceMs === "string" ? Number.parseInt(request.query.sinceMs, 10) : 0;
     const limit = toSafeLimit(request.query.limit, 500, 5000);
+    const afterTimestampMs = typeof request.query.afterTimestampMs === "string" ? Number.parseInt(request.query.afterTimestampMs, 10) : undefined;
+    const afterId = typeof request.query.afterId === "string" && request.query.afterId.trim().length > 0
+      ? request.query.afterId.trim()
+      : undefined;
 
     const safeSinceMs = Number.isFinite(sinceMs) ? sinceMs : 0;
+    const after = afterId && typeof afterTimestampMs === "number" && Number.isFinite(afterTimestampMs)
+      ? { timestampMs: afterTimestampMs, id: afterId }
+      : undefined;
     const entries = deps.sqlRequestUsageStore
-      ? await deps.sqlRequestUsageStore.listEntriesSince(safeSinceMs, {}, limit)
-      : deps.requestLogStore.snapshotSinceWithLimit(safeSinceMs, limit);
+      ? await deps.sqlRequestUsageStore.listEntriesSince(safeSinceMs, {}, limit, after)
+      : deps.requestLogStore.snapshotSinceWithLimit(safeSinceMs, limit, after);
 
     reply.send({ entries });
   });
@@ -3250,19 +3297,39 @@ export async function registerUiRoutes(app: FastifyInstance, deps: UiRouteDepend
 
       let importedUsageCount = 0;
       if (request.body?.pullUsage !== false && deps.sqlRequestUsageStore) {
-        const remoteUsage = await fetchFederationJson<{ readonly entries: readonly unknown[] }>({
-          url: `${controlBaseUrl}/api/ui/federation/usage-export?sinceMs=${Number.isFinite(requestedSinceMs) ? requestedSinceMs : 0}&limit=5000`,
-          credential,
-          timeoutMs: federationRequestTimeoutMs,
-        });
-
-        for (const candidate of remoteUsage.entries) {
-          const entry = sanitizeFederationUsageEntry(candidate);
-          if (!entry) {
-            continue;
+        let cursor: { readonly timestampMs: number; readonly id: string } | undefined;
+        while (true) {
+          const query = new URLSearchParams({
+            sinceMs: String(Number.isFinite(requestedSinceMs) ? requestedSinceMs : 0),
+            limit: "5000",
+          });
+          if (cursor) {
+            query.set("afterTimestampMs", String(cursor.timestampMs));
+            query.set("afterId", cursor.id);
           }
-          await deps.sqlRequestUsageStore.upsertEntry(entry);
-          importedUsageCount += 1;
+
+          const remoteUsage = await fetchFederationJson<{ readonly entries: readonly unknown[] }>({
+            url: `${controlBaseUrl}/api/ui/federation/usage-export?${query.toString()}`,
+            credential,
+            timeoutMs: federationRequestTimeoutMs,
+          });
+
+          let lastEntry: RequestLogEntry | undefined;
+          for (const candidate of remoteUsage.entries) {
+            const entry = sanitizeFederationUsageEntry(candidate);
+            if (!entry) {
+              continue;
+            }
+            await deps.sqlRequestUsageStore.upsertEntry(entry);
+            importedUsageCount += 1;
+            lastEntry = entry;
+          }
+
+          if (remoteUsage.entries.length < 5000 || !lastEntry) {
+            break;
+          }
+
+          cursor = { timestampMs: lastEntry.timestamp, id: lastEntry.id };
         }
       }
 

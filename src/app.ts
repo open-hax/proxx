@@ -15,7 +15,7 @@ import {
 } from "./lib/factory-auth.js";
 import { toOpenAiModel } from "./lib/models.js";
 import { ProviderCatalogStore, type ResolvedCatalogWithPreferences } from "./lib/provider-catalog.js";
-import { buildForwardHeaders, copyUpstreamHeaders } from "./lib/proxy.js";
+import { buildForwardHeaders } from "./lib/proxy.js";
 import { initializePolicyEngine, createPolicyEngine, type PolicyEngine } from "./lib/policy/index.js";
 import { DEFAULT_POLICY_CONFIG } from "./lib/policy/index.js";
 import {
@@ -713,6 +713,17 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
   const FEDERATION_ROUTED_PROVIDER_HEADER = "x-open-hax-federation-routed-provider";
   const FEDERATION_ROUTED_ACCOUNT_HEADER = "x-open-hax-federation-routed-account";
   const FEDERATION_IMPORTED_HEADER = "x-open-hax-federation-imported";
+  const FEDERATION_BLOCKED_RESPONSE_HEADERS = new Set([
+    "set-cookie",
+    "x-open-hax-federation-hop",
+    "x-open-hax-federation-owner-subject",
+    "x-open-hax-federation-routed-peer",
+    "x-open-hax-federation-routed-provider",
+    "x-open-hax-federation-routed-account",
+    "x-open-hax-federation-imported",
+    "x-open-hax-forced-provider",
+    "x-open-hax-forced-account-id",
+  ]);
 
   interface FederationCredentialExport {
     readonly providerId: string;
@@ -753,7 +764,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     readonly requestAuth?: { readonly kind: "legacy_admin" | "tenant_api_key" | "ui_session" | "unauthenticated"; readonly subject?: string };
   }): string | undefined {
     const explicitHeader = readSingleHeader(input.headers, FEDERATION_OWNER_SUBJECT_HEADER)?.trim();
-    if (explicitHeader) {
+    if (explicitHeader && input.requestAuth?.kind === "legacy_admin") {
       return explicitHeader;
     }
 
@@ -826,9 +837,29 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
 
     let importedCredential = false;
     if (shouldWarmImportProjectedAccount(projectedAccount.warmRequestCount)) {
-      const peer = await sqlFederationStore.getPeer(projectedAccount.sourcePeerId);
-      const credential = peer ? extractPeerCredential(peer.auth) : undefined;
-      if (peer && credential) {
+      const importResult = await sqlFederationStore.withProjectedAccountImportLock({
+        sourcePeerId: projectedAccount.sourcePeerId,
+        providerId: projectedAccount.providerId,
+        accountId: projectedAccount.accountId,
+      }, async () => {
+        const latest = await sqlFederationStore.getProjectedAccount({
+          sourcePeerId: projectedAccount.sourcePeerId,
+          providerId: projectedAccount.providerId,
+          accountId: projectedAccount.accountId,
+        });
+        if (!latest) {
+          return undefined;
+        }
+        if (latest.availabilityState === "imported") {
+          return { importedCredential: false, projectedAccount: latest };
+        }
+
+        const peer = await sqlFederationStore.getPeer(latest.sourcePeerId);
+        const credential = peer ? extractPeerCredential(peer.auth) : undefined;
+        if (!peer || !credential) {
+          return { importedCredential: false, projectedAccount: latest };
+        }
+
         try {
           const remoteExport = await fetchFederationJson<{ readonly account: FederationCredentialExport }>({
             url: `${peer.controlBaseUrl ?? peer.baseUrl}/api/ui/federation/accounts/export`,
@@ -836,8 +867,8 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
             timeoutMs: input.timeoutMs,
             method: "POST",
             body: {
-              providerId: projectedAccount.providerId,
-              accountId: projectedAccount.accountId,
+              providerId: latest.providerId,
+              accountId: latest.accountId,
             },
           });
 
@@ -864,21 +895,37 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
           await keyPool.warmup().catch(() => undefined);
 
           const imported = await sqlFederationStore.markProjectedAccountImported({
-            sourcePeerId: projectedAccount.sourcePeerId,
-            providerId: projectedAccount.providerId,
-            accountId: projectedAccount.accountId,
+            sourcePeerId: latest.sourcePeerId,
+            providerId: latest.providerId,
+            accountId: latest.accountId,
           });
-          if (imported) {
-            projectedAccount = imported;
-          }
-          importedCredential = true;
+          return {
+            importedCredential: true,
+            projectedAccount: imported ?? latest,
+          };
         } catch (error) {
           app.log.warn({
             error: toErrorMessage(error),
-            sourcePeerId: projectedAccount.sourcePeerId,
-            providerId: projectedAccount.providerId,
-            accountId: projectedAccount.accountId,
+            sourcePeerId: latest.sourcePeerId,
+            providerId: latest.providerId,
+            accountId: latest.accountId,
           }, "failed warm federation credential import during request routing");
+          return { importedCredential: false, projectedAccount: latest };
+        }
+      });
+
+      if (importResult) {
+        projectedAccount = importResult.projectedAccount;
+        importedCredential = importResult.importedCredential;
+      } else {
+        const latest = await sqlFederationStore.getProjectedAccount({
+          sourcePeerId: projectedAccount.sourcePeerId,
+          providerId: projectedAccount.providerId,
+          accountId: projectedAccount.accountId,
+        });
+        if (latest) {
+          projectedAccount = latest;
+          importedCredential = latest.availabilityState === "imported";
         }
       }
     }
@@ -1012,7 +1059,12 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
         timeoutMs: input.timeoutMs,
       });
 
-      copyUpstreamHeaders(input.reply, remoteResponse.headers);
+      for (const [name, value] of remoteResponse.headers.entries()) {
+        if (FEDERATION_BLOCKED_RESPONSE_HEADERS.has(name.toLowerCase())) {
+          continue;
+        }
+        input.reply.header(name, value);
+      }
       input.reply.header(FEDERATION_OWNER_SUBJECT_HEADER, ownerSubject);
       input.reply.header(FEDERATION_ROUTED_PEER_HEADER, candidate.peer.id);
       input.reply.header(FEDERATION_ROUTED_PROVIDER_HEADER, candidate.projectedAccount.providerId);

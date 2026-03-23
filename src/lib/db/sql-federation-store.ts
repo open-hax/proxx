@@ -345,6 +345,7 @@ export class SqlFederationStore {
     }
 
     const id = input.id?.trim() || crypto.randomUUID();
+    const existing = input.id?.trim() ? await this.getPeer(id) : undefined;
     const peerDid = input.peerDid?.trim().toLowerCase() || null;
     const label = input.label.trim();
     if (label.length === 0) {
@@ -352,9 +353,14 @@ export class SqlFederationStore {
     }
 
     const baseUrl = normalizeUrl(input.baseUrl);
-    const controlBaseUrl = input.controlBaseUrl ? normalizeUrl(input.controlBaseUrl) : null;
-    const status = input.status?.trim() || "active";
-    const auth = input.auth ?? { credential: credential.value };
+    const controlBaseUrl = input.controlBaseUrl !== undefined
+      ? (input.controlBaseUrl ? normalizeUrl(input.controlBaseUrl) : null)
+      : existing?.controlBaseUrl ?? null;
+    const status = input.status !== undefined
+      ? (input.status.trim() || "active")
+      : existing?.status ?? "active";
+    const auth = input.auth ?? existing?.auth ?? { credential: credential.value };
+    const capabilities = input.capabilities ?? existing?.capabilities ?? {};
     let rows: FederationPeerRow[];
     try {
       rows = await this.sql.unsafe<FederationPeerRow[]>(
@@ -383,7 +389,7 @@ export class SqlFederationStore {
           credential.kind,
           JSON.stringify(auth),
           status,
-          JSON.stringify(input.capabilities ?? {}),
+          JSON.stringify(capabilities),
         ],
       );
     } catch (error) {
@@ -481,6 +487,12 @@ export class SqlFederationStore {
     readonly availabilityState?: FederationProjectedAccountState;
     readonly metadata?: Record<string, unknown>;
   }): Promise<FederationProjectedAccountRecord> {
+    const existing = await this.getProjectedAccount({
+      sourcePeerId: input.sourcePeerId,
+      providerId: input.providerId,
+      accountId: input.accountId,
+    });
+
     const rows = await this.sql.unsafe<FederationProjectedAccountRow[]>(
       `INSERT INTO federation_projected_accounts (
          source_peer_id, owner_subject, provider_id, account_id, account_subject, chatgpt_account_id, email, plan_type, availability_state, metadata, updated_at
@@ -500,16 +512,54 @@ export class SqlFederationStore {
         input.ownerSubject.trim(),
         input.providerId.trim().toLowerCase(),
         input.accountId.trim(),
-        input.accountSubject?.trim() || null,
-        input.chatgptAccountId?.trim() || null,
-        input.email?.trim().toLowerCase() || null,
-        input.planType?.trim().toLowerCase() || null,
-        input.availabilityState ?? "descriptor",
-        JSON.stringify(input.metadata ?? {}),
+        input.accountSubject !== undefined ? (input.accountSubject.trim() || null) : existing?.accountSubject ?? null,
+        input.chatgptAccountId !== undefined ? (input.chatgptAccountId.trim() || null) : existing?.chatgptAccountId ?? null,
+        input.email !== undefined ? (input.email.trim().toLowerCase() || null) : existing?.email ?? null,
+        input.planType !== undefined ? (input.planType.trim().toLowerCase() || null) : existing?.planType ?? null,
+        input.availabilityState ?? existing?.availabilityState ?? "descriptor",
+        JSON.stringify(input.metadata ?? existing?.metadata ?? {}),
       ],
     );
 
     return toProjectedAccountRecord(rows[0]!);
+  }
+
+  public async getProjectedAccount(input: {
+    readonly sourcePeerId: string;
+    readonly providerId: string;
+    readonly accountId: string;
+  }): Promise<FederationProjectedAccountRecord | undefined> {
+    const rows = await this.sql.unsafe<FederationProjectedAccountRow[]>(
+      `SELECT * FROM federation_projected_accounts
+       WHERE source_peer_id = $1 AND provider_id = $2 AND account_id = $3
+       LIMIT 1`,
+      [input.sourcePeerId.trim(), input.providerId.trim().toLowerCase(), input.accountId.trim()],
+    );
+
+    return rows[0] ? toProjectedAccountRecord(rows[0]) : undefined;
+  }
+
+  public async withProjectedAccountImportLock<T>(
+    input: {
+      readonly sourcePeerId: string;
+      readonly providerId: string;
+      readonly accountId: string;
+    },
+    fn: () => Promise<T>,
+  ): Promise<T | undefined> {
+    const lockKey = `${input.sourcePeerId.trim()}|${input.providerId.trim().toLowerCase()}|${input.accountId.trim()}`;
+    const result = await this.sql.begin(async (tx) => {
+      const rows = await tx.unsafe<Array<{ readonly locked: boolean }>>(
+        "SELECT pg_try_advisory_xact_lock(hashtext($1)) AS locked",
+        [lockKey],
+      );
+      if (!rows[0]?.locked) {
+        return undefined;
+      }
+
+      return fn();
+    });
+    return result as T | undefined;
   }
 
   public async noteProjectedAccountRouted(input: {
@@ -597,26 +647,39 @@ export class SqlFederationStore {
     readonly lastPushAt?: boolean;
     readonly lastError?: string | null;
   }): Promise<FederationPeerSyncStateRecord> {
-    const current = await this.getSyncState(input.peerId);
+    const lastPulledSeq = input.lastPulledSeq ?? null;
+    const lastPushedSeq = input.lastPushedSeq ?? null;
+    const setLastPullAt = input.lastPullAt === true;
+    const setLastPushAt = input.lastPushAt === true;
+    const setLastError = input.lastError !== undefined;
     const rows = await this.sql.unsafe<FederationPeerSyncStateRow[]>(
       `INSERT INTO federation_peer_sync_state (
          peer_id, last_pulled_seq, last_pushed_seq, last_pull_at, last_push_at, last_error, updated_at
-       ) VALUES ($1, $2, $3, $4, $5, $6, NOW())
+       ) VALUES (
+         $1,
+         COALESCE($2, 0),
+         COALESCE($3, 0),
+         CASE WHEN $4 THEN NOW() ELSE NULL END,
+         CASE WHEN $5 THEN NOW() ELSE NULL END,
+         CASE WHEN $7 THEN $6 ELSE NULL END,
+         NOW()
+       )
        ON CONFLICT (peer_id) DO UPDATE SET
-         last_pulled_seq = EXCLUDED.last_pulled_seq,
-         last_pushed_seq = EXCLUDED.last_pushed_seq,
-         last_pull_at = EXCLUDED.last_pull_at,
-         last_push_at = EXCLUDED.last_push_at,
-         last_error = EXCLUDED.last_error,
+         last_pulled_seq = COALESCE($2, federation_peer_sync_state.last_pulled_seq),
+         last_pushed_seq = COALESCE($3, federation_peer_sync_state.last_pushed_seq),
+         last_pull_at = CASE WHEN $4 THEN NOW() ELSE federation_peer_sync_state.last_pull_at END,
+         last_push_at = CASE WHEN $5 THEN NOW() ELSE federation_peer_sync_state.last_push_at END,
+         last_error = CASE WHEN $7 THEN $6 ELSE federation_peer_sync_state.last_error END,
          updated_at = NOW()
        RETURNING *`,
       [
         input.peerId.trim(),
-        input.lastPulledSeq ?? current?.lastPulledSeq ?? 0,
-        input.lastPushedSeq ?? current?.lastPushedSeq ?? 0,
-        input.lastPullAt ? new Date().toISOString() : current?.lastPullAt ?? null,
-        input.lastPushAt ? new Date().toISOString() : current?.lastPushAt ?? null,
-        input.lastError === undefined ? current?.lastError ?? null : input.lastError,
+        lastPulledSeq,
+        lastPushedSeq,
+        setLastPullAt,
+        setLastPushAt,
+        input.lastError ?? null,
+        setLastError,
       ],
     );
 

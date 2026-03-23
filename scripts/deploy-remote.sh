@@ -41,6 +41,15 @@ cat "$1"
 EOF
 }
 
+fetch_remote_file_if_exists() {
+  local remote="$1" remote_path="$2" local_path="$3"
+  if ssh "${SSH_OPTS[@]}" "$remote" test -f "$remote_path"; then
+    fetch_remote_file "$remote" "$remote_path" "$local_path"
+    return 0
+  fi
+  return 1
+}
+
 render_caddyfile() {
   local template_path="$1" output_path="$2" public_host="$3"
   python3 - "$template_path" "$output_path" "$public_host" <<'PY'
@@ -77,6 +86,10 @@ build_runtime_payloads() {
     fetch_remote_file "$SOURCE_REMOTE" "$DEPLOY_SOURCE_PATH/.env" "$TMP_DIR/.env"
     fetch_remote_file "$SOURCE_REMOTE" "$DEPLOY_SOURCE_PATH/keys.json" "$TMP_DIR/keys.json"
     fetch_remote_file "$SOURCE_REMOTE" "$DEPLOY_SOURCE_PATH/models.json" "$TMP_DIR/models.json"
+  fi
+
+  if [[ -n "$DEPLOY_ENV_APPEND" && ! -f "$TMP_DIR/.env" ]]; then
+    fetch_remote_file_if_exists "$REMOTE" "$DEPLOY_PATH/.env" "$TMP_DIR/.env" || true
   fi
 
   if [[ -n "${DEPLOY_ENV_FILE:-}" ]]; then

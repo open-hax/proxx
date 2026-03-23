@@ -1059,12 +1059,19 @@ export class RequestLogStore {
     return [...this.entries];
   }
 
-  public snapshotSinceWithLimit(sinceMs: number, limit: number): RequestLogEntry[] {
+  public snapshotSinceWithLimit(
+    sinceMs: number,
+    limit: number,
+    after?: { readonly timestampMs: number; readonly id: string },
+  ): RequestLogEntry[] {
     const since = Number.isFinite(sinceMs) ? sinceMs : 0;
     const maxEntries = Number.isFinite(limit) ? Math.max(0, Math.floor(limit)) : this.entries.length;
     const results: RequestLogEntry[] = [];
     for (const entry of this.entries) {
       if (entry.timestamp < since) {
+        continue;
+      }
+      if (after && (entry.timestamp < after.timestampMs || (entry.timestamp === after.timestampMs && entry.id <= after.id))) {
         continue;
       }
       results.push(entry);

@@ -47,7 +47,9 @@ cleanup() {
     return
   fi
 
+  ensure_safe_runtime_dir
   compose down -v --remove-orphans >/dev/null 2>&1 || true
+  rm -rf "${RUNTIME_DIR}"
 }
 
 trap cleanup EXIT

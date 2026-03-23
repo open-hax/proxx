@@ -4205,6 +4205,9 @@ test("tenant disabledProviderIds blocks local ollama usage", async () => {
 });
 
 test("weekly dashboard uses persisted daily model/account aggregates and reports incomplete coverage", async () => {
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const day0 = Math.floor((Date.now() - 5 * DAY_MS) / DAY_MS) * DAY_MS;
+  const day1 = day0 + DAY_MS;
   const requestLogsPayload = {
     entries: [
       {
@@ -4229,7 +4232,7 @@ test("weekly dashboard uses persisted daily model/account aggregates and reports
     hourlyBuckets: [],
     dailyBuckets: [
       {
-        startMs: Date.UTC(2026, 2, 17, 0, 0, 0),
+        startMs: day0,
         requestCount: 5,
         errorCount: 0,
         totalTokens: 1500,
@@ -4248,7 +4251,7 @@ test("weekly dashboard uses persisted daily model/account aggregates and reports
         waterEvaporatedMl: 0.075,
       },
       {
-        startMs: Date.UTC(2026, 2, 18, 0, 0, 0),
+        startMs: day1,
         requestCount: 4,
         errorCount: 1,
         totalTokens: 900,
@@ -4269,7 +4272,7 @@ test("weekly dashboard uses persisted daily model/account aggregates and reports
     ],
     dailyModelBuckets: [
       {
-        startMs: Date.UTC(2026, 2, 17, 0, 0, 0),
+        startMs: day0,
         providerId: "openai",
         model: "gpt-5.4",
         requestCount: 5,
@@ -4290,7 +4293,7 @@ test("weekly dashboard uses persisted daily model/account aggregates and reports
         waterEvaporatedMl: 0.075,
       },
       {
-        startMs: Date.UTC(2026, 2, 18, 0, 0, 0),
+        startMs: day1,
         providerId: "factory",
         model: "claude-sonnet-4-5",
         requestCount: 4,
@@ -4313,7 +4316,7 @@ test("weekly dashboard uses persisted daily model/account aggregates and reports
     ],
     dailyAccountBuckets: [
       {
-        startMs: Date.UTC(2026, 2, 17, 0, 0, 0),
+        startMs: day0,
         providerId: "openai",
         accountId: "acct-openai",
         authType: "oauth_bearer",
@@ -4334,13 +4337,13 @@ test("weekly dashboard uses persisted daily model/account aggregates and reports
         ttftCount: 5,
         tpsSum: 50,
         tpsCount: 5,
-        lastUsedAtMs: Date.UTC(2026, 2, 17, 12, 0, 0),
+        lastUsedAtMs: day0 + 12 * 60 * 60 * 1000,
         costUsd: 1.5,
         energyJoules: 150,
         waterEvaporatedMl: 0.075,
       },
       {
-        startMs: Date.UTC(2026, 2, 18, 0, 0, 0),
+        startMs: day1,
         providerId: "factory",
         accountId: "acct-factory",
         authType: "oauth_bearer",
@@ -4361,7 +4364,7 @@ test("weekly dashboard uses persisted daily model/account aggregates and reports
         ttftCount: 4,
         tpsSum: 40,
         tpsCount: 4,
-        lastUsedAtMs: Date.UTC(2026, 2, 18, 12, 0, 0),
+        lastUsedAtMs: day1 + 12 * 60 * 60 * 1000,
         costUsd: 0.9,
         energyJoules: 90,
         waterEvaporatedMl: 0.045,
@@ -4465,13 +4468,16 @@ test("/api/ui/me exposes resolved auth context for legacy admin token", async ()
 });
 
 test("provider-model analytics summarizes global models, providers, and provider-model pairs", async () => {
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const day0 = Math.floor((Date.now() - 5 * DAY_MS) / DAY_MS) * DAY_MS;
+  const day1 = day0 + DAY_MS;
   const requestLogsPayload = {
     entries: [],
     hourlyBuckets: [],
     dailyBuckets: [],
     dailyModelBuckets: [
       {
-        startMs: Date.UTC(2026, 2, 17, 0, 0, 0),
+        startMs: day0,
         providerId: "openai",
         model: "gpt-5.4",
         requestCount: 6,
@@ -4491,13 +4497,13 @@ test("provider-model analytics summarizes global models, providers, and provider
         ttftCount: 6,
         tpsSum: 72,
         tpsCount: 6,
-        lastUsedAtMs: Date.UTC(2026, 2, 17, 12, 0, 0),
+        lastUsedAtMs: day0 + 12 * 60 * 60 * 1000,
         costUsd: 1.8,
         energyJoules: 180,
         waterEvaporatedMl: 0.09,
       },
       {
-        startMs: Date.UTC(2026, 2, 18, 0, 0, 0),
+        startMs: day1,
         providerId: "factory",
         model: "gpt-5.4",
         requestCount: 4,
@@ -4517,13 +4523,13 @@ test("provider-model analytics summarizes global models, providers, and provider
         ttftCount: 4,
         tpsSum: 44,
         tpsCount: 4,
-        lastUsedAtMs: Date.UTC(2026, 2, 18, 12, 0, 0),
+        lastUsedAtMs: day1 + 12 * 60 * 60 * 1000,
         costUsd: 1.0,
         energyJoules: 100,
         waterEvaporatedMl: 0.05,
       },
       {
-        startMs: Date.UTC(2026, 2, 18, 0, 0, 0),
+        startMs: day1,
         providerId: "factory",
         model: "claude-sonnet-4-5",
         requestCount: 3,
@@ -4543,7 +4549,7 @@ test("provider-model analytics summarizes global models, providers, and provider
         ttftCount: 3,
         tpsSum: 24,
         tpsCount: 3,
-        lastUsedAtMs: Date.UTC(2026, 2, 18, 15, 0, 0),
+        lastUsedAtMs: day1 + 15 * 60 * 60 * 1000,
         costUsd: 0.9,
         energyJoules: 90,
         waterEvaporatedMl: 0.045,
