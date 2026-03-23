@@ -35,6 +35,8 @@ export interface BridgeCapabilityAdvertisement {
   readonly providerId: string;
   readonly modelPrefixes: readonly string[];
   readonly models: readonly string[];
+  readonly paths?: readonly string[];
+  readonly routes?: readonly string[];
   readonly authType: BridgeAccountAuthType;
   readonly accountCount: number;
   readonly availableAccountCount: number;
@@ -178,6 +180,11 @@ export interface BridgeResponseChunkMessage extends BridgeBaseEnvelope {
   readonly chunk: string;
   readonly encoding: BridgeChunkEncoding;
   readonly final: boolean;
+  readonly servedByClusterId?: string;
+  readonly servedByGroupId?: string;
+  readonly servedByNodeId?: string;
+  readonly providerId?: string;
+  readonly accountId?: string;
 }
 
 export interface BridgeResponseEndMessage extends BridgeBaseEnvelope {
@@ -404,6 +411,8 @@ function parseCapabilityAdvertisement(value: unknown, context: string): BridgeCa
     providerId: requiredString(value, "providerId"),
     modelPrefixes: optionalStringArray(value, "modelPrefixes"),
     models: optionalStringArray(value, "models"),
+    paths: optionalStringArray(value, "paths"),
+    routes: optionalStringArray(value, "routes"),
     authType: readEnum(value.authType, `${context}.authType`, ["api_key", "oauth_bearer", "local", "none"] as const),
     accountCount: requiredNonNegativeInteger(value, "accountCount"),
     availableAccountCount: requiredNonNegativeInteger(value, "availableAccountCount"),
@@ -612,6 +621,11 @@ export function parseBridgeMessage(value: unknown): BridgeMessage {
         chunk: requiredString(value, "chunk"),
         encoding: readEnum(value.encoding, "encoding", ["utf8", "base64"] as const),
         final: value.final === undefined ? false : requiredBoolean(value, "final"),
+        servedByClusterId: optionalString(value, "servedByClusterId"),
+        servedByGroupId: optionalString(value, "servedByGroupId"),
+        servedByNodeId: optionalString(value, "servedByNodeId"),
+        providerId: optionalString(value, "providerId"),
+        accountId: optionalString(value, "accountId"),
       };
     case "response_end":
       return {
