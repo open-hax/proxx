@@ -1,27 +1,45 @@
-# Π Snapshot: 2026-03-22T15:09:30Z
+# Π Snapshot: Federation Bridge Implementation
 
-## Context
-- Branch: feat/consolidate-federation-into-staging
-- Commit: 6bc392a
-- Tag: Π/2026-03-22/150930-6bc392a
+**Branch:** `feat/consolidate-federation-into-staging`
+**Commit:** `f33516c`
+**Date:** 2026-03-23
 
-## Work Completed
+## Work Summary
 
-### Dashboard Cache Metrics Fix
-- **Root cause**: Streaming Responses API may not include usage in `response.completed` event
-- **Symptom**: 31 requests had `cachedPromptTokens: null` instead of explicit `0`
-- **Fix**: Modified `extractUsageFromResponsesSse()` to return `cachedPromptTokens: 0` when usage present but no cache field
+Implemented WebSocket-based federation bridge for multi-instance communication:
 
-### Investigation Summary
-- Cache affinity system working correctly
-- OpenAI semantic cache spans accounts (account-agnostic)
-- Dashboard correctly handles null values in aggregation
-- JSONL deduplication by ID working as designed
+### Core Components
+- **bridge-relay.ts** – WebSocket relay for routing messages between instances
+- **bridge-protocol.ts** – Wire protocol, message types, and type definitions
+- **bridge-agent.ts** – Federation agent for inter-instance coordination
+- **bridge-bridge-agent-autostart.ts** – Auto-start integration with main app
 
-## Files Modified
-- `src/lib/provider-strategy/shared.ts`: Added explicit handling in `extractUsageFromResponsesSse()`
+### Integration Points
+- Updated `src/app.ts` with federation agent initialization
+- Added federation status routes in `src/lib/ui-routes.ts`
+- Added GitHub Actions workflow updates for staging deployment
+- Updated `.env.example` with federation environment variables
 
-## Metrics Observed
-- Cache hit rate: ~11% (dashboard-wide)
-- Per-account hit rate: ~47% (bound affinity account)
-- Token efficiency: ~37.6% (4.1M cached / 11M prompt tokens)
+### Specification
+- `specs/drafts/federation-bridge-ws-v0.md` – Protocol specification document
+
+### Tests
+- Federation bridge agent tests
+- Federation bridge autostart tests
+- Federation bridge protocol tests
+- Federation bridge relay tests
+
+## Verification Status
+
+| Check | Status |
+|-------|--------|
+| TypeScript | ✅ Pass |
+| Lint | ⚠️ 143 errors (pre-existing web/ issues, some unused vars in new code) |
+| Tests | Not run for snapshot |
+
+## Next Steps
+
+1. Run tests: `pnpm test src/tests/federation-bridge*.test.ts`
+2. Address unused variables in federation modules
+3. Resolve lint warnings in web/ components (separate from this work)
+4. Merge to staging after CI gate

@@ -22,11 +22,15 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
       - run: sudo apt-get update && sudo apt-get install -y shellcheck
       - run: go install github.com/rhysd/actionlint/cmd/actionlint@latest
       - run: chmod +x scripts/*.sh
       - run: ./scripts/ci-lint.sh
       - run: /home/runner/go/bin/actionlint
+      - name: eslint complexity check
+        run: pnpm run lint:errors
 
   main-typecheck:
     name: main-typecheck

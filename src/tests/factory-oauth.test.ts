@@ -103,7 +103,7 @@ test("device flow poll returns authorized with tokens", async () => {
 });
 
 test("device flow poll returns pending when authorization_pending", async () => {
-  let now = 1_000;
+  const now = 1_000;
 
   const manager = new FactoryOAuthManager({
     now: () => now,
@@ -187,7 +187,7 @@ test("device flow start throws on HTTP error", async () => {
 });
 
 test("device polling reuses cached authorized result", async () => {
-  let now = 1_000;
+  const now = 1_000;
   let authenticateCalls = 0;
 
   const fakeAccessToken = makeJwt({ sub: "user_cache", exp: Math.floor(Date.now() / 1000) + 3600 });
