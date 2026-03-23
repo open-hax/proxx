@@ -206,7 +206,16 @@ test("createApp auto-starts the federation bridge agent from env", async () => {
       }));
       await localApp.listen({ host: "127.0.0.1", port: 0 });
 
-      await new Promise((resolve) => setTimeout(resolve, 300));
+      // Wait for bridge agent to announce connection to relay (state-based, not timing-dependent)
+      await waitFor(async () => {
+        const response = await relayApp!.inject({
+          method: "GET",
+          url: "/api/ui/federation/bridges",
+          headers: { authorization: "Bearer bridge-admin-token" },
+        });
+        const payload = response.json() as { readonly sessions: ReadonlyArray<{ state: string }> };
+        return payload.sessions.some((session) => session.state === "connected");
+      }, 5_000);
 
       const connectedResponse = await relayApp!.inject({
         method: "GET",

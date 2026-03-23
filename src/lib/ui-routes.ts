@@ -2385,6 +2385,20 @@ export async function registerUiRoutes(app: FastifyInstance, deps: UiRouteDepend
     }
 
     void (async () => {
+      // CSRF protection: reject cross-origin WebSocket upgrades
+      const origin = request.headers.origin;
+      const forwardedHost = request.headers["x-forwarded-host"] ?? request.headers.host ?? "localhost";
+      const allowedOrigins = new Set([
+        `http://localhost`,
+        `http://127.0.0.1`,
+        `http://${forwardedHost}`,
+        `https://${forwardedHost}`,
+      ]);
+      if (origin && !allowedOrigins.has(origin) && !origin.startsWith("http://localhost:") && !origin.startsWith("http://127.0.0.1:")) {
+        bridgeRelay.rejectUpgrade(socket, 403, { error: "invalid_origin" });
+        return;
+      }
+
       const auth = await resolveBridgeUpgradeAuth(request);
       if (!auth) {
         bridgeRelay.rejectUpgrade(socket, 401, { error: "unauthorized" });
@@ -2873,7 +2887,15 @@ export async function registerUiRoutes(app: FastifyInstance, deps: UiRouteDepend
       return;
     }
 
-    reply.send({ sessions: bridgeRelay.listSessions() });
+    // Scope bridge sessions to the authenticated tenant/subject for non-global admins.
+    // legacy_admin has global visibility; ui_session users see only their own sessions.
+    const isGlobalAdmin = auth?.kind === "legacy_admin" || auth?.role === "owner";
+    const allSessions = bridgeRelay.listSessions();
+    const sessions = isGlobalAdmin
+      ? allSessions
+      : allSessions.filter((session) => session.ownerSubject === auth?.subject);
+
+    reply.send({ sessions });
   });
 
   app.get<{ Params: { readonly sessionId: string } }>("/api/ui/federation/bridges/:sessionId", async (request, reply) => {
@@ -2886,6 +2908,13 @@ export async function registerUiRoutes(app: FastifyInstance, deps: UiRouteDepend
     const session = bridgeRelay.getSession(request.params.sessionId);
     if (!session) {
       reply.code(404).send({ error: "bridge_session_not_found" });
+      return;
+    }
+
+    // Scope single session access to authenticated tenant/subject
+    const isGlobalAdmin = auth?.kind === "legacy_admin" || auth?.role === "owner";
+    if (!isGlobalAdmin && session.ownerSubject !== auth?.subject) {
+      reply.code(403).send({ error: "forbidden" });
       return;
     }
 

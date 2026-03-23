@@ -1169,6 +1169,22 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       return [];
     }
 
+    // Prefer advertised capabilities when available (avoids fan-out overhead).
+    // Fall back to /v1/models fan-out when capabilities are not yet advertised.
+    const advertisedModels = new Set<string>();
+    for (const session of connectedSessions) {
+      for (const capability of session.capabilities) {
+        for (const model of capability.models) {
+          advertisedModels.add(model);
+        }
+      }
+    }
+
+    if (advertisedModels.size > 0) {
+      return [...advertisedModels];
+    }
+
+    // Fallback: fan-out /v1/models to each connected session when capabilities not advertised
     const remoteModelLists = await Promise.all(connectedSessions.map(async (session) => {
       try {
         const response = await bridgeRelay!.requestJson(session.sessionId, {
@@ -1204,18 +1220,35 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       return false;
     }
 
+    // Reject multi-hop bridge routing to prevent request loops
+    const hopCount = resolveFederationHopCount(input.requestHeaders);
+    if (hopCount >= 1) {
+      app.log.warn({ hopCount, upstreamPath: input.upstreamPath }, "bridge request rejected: hop limit exceeded");
+      return false;
+    }
+
     const ownerSubject = resolveFederationOwnerSubject({
       headers: input.requestHeaders,
       requestAuth: input.requestAuth,
-      hopCount: resolveFederationHopCount(input.requestHeaders),
+      hopCount,
     });
     if (!ownerSubject) {
       return false;
     }
 
+    // Filter connected sessions by advertised capability for the requested path
+    const normalizedPath = input.upstreamPath.split("?")[0]!;
     const connectedSessions = bridgeRelay.listSessions()
       .filter((session) => session.state === "connected")
-      .filter((session) => session.ownerSubject === ownerSubject);
+      .filter((session) => session.ownerSubject === ownerSubject)
+      .filter((session) => {
+        // Check if session advertises capability for this path
+        const hasCapability = session.capabilities.some((cap) => {
+          const pathPrefixes = ["/v1/chat/completions", "/v1/models", "/v1/responses", "/v1/embeddings", "/v1/images/generations"];
+          return pathPrefixes.some((prefix) => normalizedPath.startsWith(prefix));
+        });
+        return hasCapability;
+      });
     if (connectedSessions.length === 0) {
       return false;
     }
@@ -1275,6 +1308,26 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     readonly body?: string;
     readonly encoding?: "utf8" | "base64";
   }> => {
+    // Security: restrict bridge requests to allowed API paths only.
+    // This prevents the bridge from acting as a privileged generic proxy
+    // that could access internal routes like /api/ui/federation/accounts.
+    const allowedBridgePaths = [
+      "/v1/chat/completions",
+      "/v1/models",
+      "/v1/responses",
+      "/v1/embeddings",
+      "/v1/images/generations",
+    ];
+    const normalizedPath = input.path.split("?")[0]!;
+    if (!allowedBridgePaths.some((prefix) => normalizedPath.startsWith(prefix))) {
+      app.log.warn({ path: input.path, ownerSubject: input.ownerSubject }, "bridge request rejected: path not in allowed list");
+      return {
+        status: 403,
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ error: { message: "Bridge requests are restricted to model API paths", type: "invalid_request_error" } }),
+      };
+    }
+
     const headers: Record<string, string> = {
       accept: input.headers.accept ?? "application/json",
       ...(config.proxyAuthToken ? { authorization: `Bearer ${config.proxyAuthToken}` } : {}),

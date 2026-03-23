@@ -114,7 +114,25 @@ export class FederationBridgeAgent {
     }
     this.clearReconnectTimer();
     this.startPromise = this.connect(false);
-    await this.startPromise;
+
+    // Handle transient relay outages during startup gracefully.
+    // If the initial connection fails, schedule reconnection and resolve
+    // instead of propagating the error. Callers can use snapshot() to
+    // monitor connection state.
+    try {
+      await this.startPromise;
+    } catch (error) {
+      this.recordError({
+        code: "bridge_initial_connection_failed",
+        message: error instanceof Error ? error.message : String(error),
+        retryable: true,
+      });
+      if (!this.stopped) {
+        this.scheduleReconnect();
+      }
+      // Resolve successfully even on initial failure - the agent will
+      // continue attempting reconnection in the background.
+    }
   }
 
   public async stop(): Promise<void> {

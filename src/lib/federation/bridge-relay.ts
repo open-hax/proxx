@@ -134,6 +134,19 @@ export class FederationBridgeRelay {
   private readonly connections = new Map<string, WebSocket>();
   private readonly pendingRequests = new Map<string, PendingBridgeRequest>();
 
+  /** Remove disconnected sessions older than the retention window to prevent unbounded growth. */
+  private pruneDisconnectedSessions(maxAgeMs = 300_000): void {
+    const cutoff = Date.now() - maxAgeMs;
+    for (const [sessionId, session] of this.sessions.entries()) {
+      if (session.state === "disconnected" && session.disconnectedAt) {
+        const disconnectedTime = new Date(session.disconnectedAt).getTime();
+        if (disconnectedTime < cutoff) {
+          this.sessions.delete(sessionId);
+        }
+      }
+    }
+  }
+
   public listSessions(): FederationBridgeSessionRecord[] {
     return [...this.sessions.values()]
       .map(cloneSession)
@@ -367,6 +380,8 @@ export class FederationBridgeRelay {
   private acceptHello(hello: BridgeHelloMessage, identity: FederationBridgeAuthorizedIdentity): BridgeHelloAckMessage {
     const connectedAt = hello.sentAt;
     const sessionId = randomUUID();
+    // Prune old disconnected sessions before adding a new one to prevent unbounded growth
+    this.pruneDisconnectedSessions();
     this.sessions.set(sessionId, {
       sessionId,
       state: "connected",

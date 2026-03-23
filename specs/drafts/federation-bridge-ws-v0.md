@@ -610,7 +610,3 @@ If a cloud check fails because the bridge is absent or degraded, the error shoul
 - At least `models`, `chat/completions`, and `responses` can be bridged for eligible accounts.
 - Bridge failures are explicit, auditable, and distinct from generic upstream failures.
 - Cloud-self health remains distinguishable from bridge-assisted capability.
-dge-assisted capability.
-lf health remains distinguishable from bridge-assisted capability.
- remains distinguishable from bridge-assisted capability.
-isted capability.
