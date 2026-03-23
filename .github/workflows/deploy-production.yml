@@ -70,7 +70,7 @@ jobs:
           DEPLOY_COMPOSE_FILES: docker-compose.federation-runtime.yml,deploy/docker-compose.federation.ssl.yml
           DEPLOY_CADDY_TEMPLATE: deploy/Caddyfile.federation.template
           DEPLOY_HEALTH_SERVICE: federation-nginx
-          DEPLOY_RESTART_SERVICES: federation-proxx-a1,federation-proxx-a2
+          DEPLOY_RESTART_SERVICES: federation-proxx-a1,federation-proxx-a2,federation-nginx,open-hax-openai-proxy-ssl
           DEPLOY_PUBLIC_HOST: ${{ vars.PRODUCTION_PUBLIC_HOST || 'ussy.promethean.rest' }}
           DEPLOY_ENABLE_TLS: 'true'
           DEPLOY_HEALTH_TIMEOUT_SECONDS: '240'
