@@ -75,7 +75,7 @@ import { SqlRequestUsageStore } from "./lib/db/sql-request-usage-store.js";
 import { SqlFederationStore, shouldWarmImportProjectedAccount, type FederationPeerRecord, type FederationProjectedAccountRecord } from "./lib/db/sql-federation-store.js";
 import { SqlAuthPersistence } from "./lib/auth/sql-persistence.js";
 import { SqlGitHubAllowlist } from "./lib/auth/github-allowlist.js";
-import { seedFromJsonFile, seedFromJsonValue, seedFactoryAuthFromFiles, seedModelsFromFile, loadModelsFromDb, getConfig, setConfig } from "./lib/db/json-seeder.js";
+import { seedFromJsonFile, seedFromJsonValue, seedFactoryAuthFromFiles, seedModelsFromFile } from "./lib/db/json-seeder.js";
 import { registerOAuthRoutes } from "./lib/oauth-routes.js";
 import { RuntimeCredentialStore } from "./lib/runtime-credential-store.js";
 import { TokenRefreshManager } from "./lib/token-refresh-manager.js";

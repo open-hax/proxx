@@ -1,10 +1,6 @@
 import type { Sql } from "./index.js";
 import type { ProviderCredential } from "../key-pool.js";
-import {
-  SELECT_ALL_ACCOUNT_HEALTH,
-  UPSERT_ACCOUNT_HEALTH_SUCCESS,
-  UPSERT_ACCOUNT_HEALTH_FAILURE,
-} from "./schema.js";
+import { SELECT_ALL_ACCOUNT_HEALTH } from "./schema.js";
 
 interface HealthRow {
   provider_id: string;

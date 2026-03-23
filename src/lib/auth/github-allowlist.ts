@@ -1,11 +1,5 @@
 import type { Sql } from "../db/index.js";
-import {
-  CREATE_GITHUB_ALLOWLIST_TABLE,
-  UPSERT_GITHUB_USER,
-  DELETE_GITHUB_USER,
-  SELECT_GITHUB_ALLOWLIST,
-  IS_GITHUB_USER_ALLOWED,
-} from "../db/schema.js";
+import { CREATE_GITHUB_ALLOWLIST_TABLE } from "../db/schema.js";
 
 export class SqlGitHubAllowlist {
   public constructor(private readonly sql: Sql) {}
