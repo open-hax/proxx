@@ -97,11 +97,11 @@ export function buildFactory4xxDiagnostics(
   promptCacheKey?: string
 ): Factory4xxDiagnostics {
   const accumulator = createDiagnosticAccumulator();
-
+  
   collectFromInstructions(accumulator, upstreamPayload);
   collectFromInput(accumulator, upstreamPayload);
   collectFromMessages(accumulator, upstreamPayload);
-
+  
   return finalizeDiagnostics(accumulator);
 }
 
@@ -123,7 +123,7 @@ function collectFromInput(
 ): void {
   const input = payload['input'];
   if (!Array.isArray(input)) return;
-
+  
   acc.requestFormat = 'responses';
   for (const item of input) {
     collectFromInputItem(acc, item);
@@ -136,21 +136,10 @@ function collectFromMessages(
 ): void {
   const messages = payload['messages'];
   if (!Array.isArray(messages)) return;
-
-  // Match actual shared.ts behavior: check for anthropic_version
-  acc.requestFormat = payload['anthropic_version'] !== undefined ? 'messages' : 'chat_completions';
-  acc.messageCount = messages.length;
-
+  
+  acc.requestFormat = 'chat_completions';
   for (const message of messages) {
     collectFromMessage(acc, message);
-  }
-
-  // Match actual code: handle top-level system field
-  const topLevelSystem = payload['system'];
-  if (topLevelSystem !== undefined) {
-    acc.systemMessageCount = (acc.systemMessageCount ?? 0) + 1;
-    acc.messageCount = (acc.messageCount ?? 0) + 1;
-    collectDiagnosticContentText(acc, topLevelSystem);
   }
 }
 ```

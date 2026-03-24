@@ -10,29 +10,26 @@ The function handles SSE stream parsing for OpenAI Responses API.
 
 ## Root Causes
 
-### 1. Sequential If-Statement Chain
+### 1. Giant Switch Statement
 ```typescript
-function processEvent(payload: Record<string, unknown>): void {
-  const type = asString(payload["type"]) ?? "";
-
-  // ~40 sequential if-statements checking event type
-  if (type === "response.created" || type === "response.in_progress") {
-    // ~15 lines of state updates
+function processEvent(type: string, payload: unknown): void {
+  switch (type) {
+    case 'response.created':
+      // 30 lines
+    case 'response.output_item.added':
+      // 40 lines
+    case 'response.function_call_arguments.delta':
+      // 50 lines
+    case 'response.content_part.added':
+      // 20 lines
+    case 'response.reasoning_content.delta':
+      // 25 lines
+    // ... 20+ more cases
+    default:
+      // 10 lines
   }
-  if (type === "response.output_text.delta") {
-    // ~20 lines
-  }
-  if (type === "response.output_item.added") {
-    // ~30 lines with nested conditionals
-  }
-  if (type === "response.function_call_arguments.delta") {
-    // ~25 lines
-  }
-  // ... 30+ more if-statements for different event types
 }
 ```
-
-The function uses sequential `if` statements rather than a `switch`, but each branch has deeply nested conditionals that contribute to high cognitive complexity.
 
 ### 2. Deeply Nested State Updates
 Each case modifies shared state with nested conditionals:
@@ -72,34 +69,10 @@ export interface StreamingEventHandler {
 
 export interface StreamContext {
   emit: (chunk: ChatCompletionChunk) => void;
-  stage: StreamState;                          // Processing stage (enum)
-  response: ResponseState;                      // Per-response data (object)
-}
-
-// ResponseState contains the closure-bound variables from original processEvent
-export interface ResponseState {
-  responseId: string | undefined;
-  createdAt: number | undefined;
+  state: StreamState;
   model: string;
-  isFirstChunk: boolean;
-  hasToolCalls: boolean;
-  terminalResponse: unknown | undefined;
-  sawError: boolean;
-  buffer: string;
-  functionCallState: Map<number, { callId: string; name: string; arguments: string }>;
-  toolCallIndex: number;
 }
 ```
-
-**Handler Field Mutations (documented per eventType):**
-| Handler | Fields Mutated |
-|---------|-----------------|
-| `response.created` | `responseId`, `createdAt`, `model` |
-| `response.output_text.delta` | `buffer`, `isFirstChunk` |
-| `response.output_item.added` | `hasToolCalls`, `toolCallIndex`, `functionCallState` |
-| `response.function_call_arguments.delta` | `functionCallState` |
-| `error.*` | `sawError`, `terminalResponse` |
-| `response.done` | `terminalResponse` |
 
 #### 1.2 Create Handler Registry
 ```typescript
@@ -159,8 +132,6 @@ Replace imperative state mutations with state machine:
 
 ```typescript
 // src/lib/responses-compat/state-machine.ts
-
-// StreamState represents the processing stage (what phase of processing we're in)
 export type StreamState = 'idle' | 'streaming' | 'function_calling' | 'reasoning' | 'error' | 'complete';
 
 export const transitions: Record<StreamState, Set<StreamState>> = {
@@ -175,46 +146,7 @@ export const transitions: Record<StreamState, Set<StreamState>> = {
 export function transition(current: StreamState, event: string): StreamState | null {
   // State transition logic
 }
-
-// ResponseState contains per-response data (mutated by handlers)
-export interface ResponseState {
-  responseId: string | undefined;
-  createdAt: number | undefined;
-  model: string;
-  isFirstChunk: boolean;
-  hasToolCalls: boolean;
-  terminalResponse: unknown | undefined;
-  sawError: boolean;
-  buffer: string;
-  functionCallState: Map<number, { callId: string; name: string; arguments: string }>;
-  toolCallIndex: number;
-}
-
-// Factory creates fresh ResponseState for each response stream
-export function createResponseState(model: string): ResponseState {
-  return {
-    responseId: undefined,
-    createdAt: undefined,
-    model,
-    isFirstChunk: true,
-    hasToolCalls: false,
-    terminalResponse: undefined,
-    sawError: false,
-    buffer: "",
-    functionCallState: new Map(),
-    toolCallIndex: 0,
-  };
-}
 ```
-
-**State vs Data Separation:**
-- `StreamState` (enum) = processing stage (idle → streaming → complete)
-- `ResponseState` (object) = per-response data (responseId, model, buffer, etc.)
-- Each `StreamState` transition may initialize/mutate `ResponseState`:
-  - `streaming` → sets `responseId`, `model` from first event
-  - `function_calling` → initializes `functionCallState`, sets `hasToolCalls: true`
-  - `complete` → sets `terminalResponse`, stops buffering
-  - `error` → sets `sawError: true`, captures error in buffer
 
 ### Phase 3: Format Conversion Separation (target: clean separation)
 
@@ -286,8 +218,7 @@ src/lib/responses-compat/
 
 ### Step 3: Extract Remaining Handlers (2 days)
 - [ ] Extract all other event type handlers (~15 more)
-- [ ] Replace sequential if-chain with registry dispatch
-- [ ] Preserve closure-scoped state (responseId, model, isFirstChunk, hasToolCalls, functionCallState, toolCallIndex) via StreamContext/ResponseState
+- [ ] Replace giant switch with registry dispatch
 - [ ] Update tests
 
 ### Step 4: Extract Converters (1 day)
@@ -346,6 +277,6 @@ export { streamResponsesSseToChatCompletionChunks } from './stream-processor.js'
 
 ## Rollback Plan
 - Handlers can be removed individually
-- Registry can be unwound back to sequential if-chain
+- Registry can be unwound back to switch statement
 - Converters can be re-inlined into main file
 - Each phase is independent PR

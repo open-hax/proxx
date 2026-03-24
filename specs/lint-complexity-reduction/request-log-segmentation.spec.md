@@ -2,12 +2,12 @@
 
 ## Problem Statement
 `src/lib/request-log-store.ts` has:
+- **Cyclomatic complexity: 61** in `sanitizeFederationUsageEntry` (but it's in ui-routes.ts)
+- **Lines: 392** in `buildUsageOverviewFromEntries`
+- **Lines: 373** in `buildUsageOverview`
+- **Cognitive complexity: 56** in `buildUsageOverview`
 - **File lines: 2533** (target: <800)
-- **Hydration functions**: `hydrateEntry` (63 lines), `hydrateHourlyBucket`, `hydrateDailyBucket`, `hydrateDailyModelBucket`, `hydrateDailyAccountBucket`
-- **Exported class**: `RequestLogStore` with 40+ public methods (CRUD, aggregation, hydration, metrics)
-- **Type definitions**: 15+ interfaces and types at file top
-
-**Note**: Functions like `sanitizeFederationUsageEntry`, `buildUsageOverviewFromEntries`, and `buildUsageOverview` are in `ui-routes.ts`, not this file. Those are addressed in the ui-routes-flattening spec.
+- **Exported functions: 40+** (CRUD, aggregation, hydration, metrics)
 
 ## Root Causes
 
@@ -21,7 +21,7 @@ The file handles:
 - **Performance indexing**: Request latency analysis
 
 ### 2. Massive Hydration Functions
-```text
+```typescript
 function hydrateDb() { // 52+ lines
 function hydrateEntry() { // 63 lines, complexity 25
 function hydrateHourlyBucket() { // complexity 19
@@ -31,7 +31,7 @@ function hydrateDailyAccountBucket() { // complexity 32
 ```
 
 ### 3. Complex Update Logic
-```text
+```typescript
 function update() { // 67 lines, complexity 23
   // Multiple fields updated conditionally
   // Metric calculations inline
@@ -296,25 +296,10 @@ src/lib/request-log-store/
 | Metric | Before | After Each Phase | Final Target |
 |--------|--------|------------------|--------------|
 | File lines (request-log-store.ts) | 2533 | P1: 1800, P2: 1200, P3: 600 | <500 |
-| `hydrateEntry` complexity | 25 | P1: 15, P2: 10, P3: 8 | <8 |
-| `hydrateDailyAccountBucket` complexity | 32 | P1: 20, P2: 15, P3: 10 | <10 |
+| `buildUsageOverviewFromEntries` lines | 392 | P1: 200, P2: 120, P3: 80 | <80 |
+| `buildUsageOverview` lines | 373 | P1: 200, P2: 100, P3: 60 | <60 |
+| `buildUsageOverview` cognitive | 56 | P1: 30, P2: 20, P3: 15 | <15 |
 | Domain modules | 0 | P1: 2, P2: 4, P3: 6 | 6 |
-
-**Note**: Metrics for `buildUsageOverviewFromEntries` and `buildUsageOverview` are tracked in the ui-routes-flattening spec since those functions live in `ui-routes.ts`.
-
-## Lint Threshold Enforcement
-
-Each phase should update ESLint thresholds to enforce progress:
-
-| Phase | ESLint Overrides (eslint.config.mjs) |
-|-------|--------------------------------------|
-| P1 | `max-lines: [1800, "warn"]` for request-log-store.ts, raise complexity for hydration fns |
-| P2 | `max-lines: [1200, "warn"]`, lower function complexity thresholds |
-| P3 | `max-lines: [600, "warn"]`, final thresholds |
-
-**Checkpoint:** Update `eslint.config.mjs` worst-offenders entry for `request-log-store.ts`:
-- Reduce `max-lines-per-function` for `hydrateEntry`, `hydrateDailyAccountBucket` after extraction
-- Add CI gate: lint must pass before merge
 
 ## Risk Mitigation
 

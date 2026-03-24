@@ -22,7 +22,7 @@ The function handles:
 - Codex/Responses API translation
 
 ### 2. Deeply Nested Conditionals
-```text
+```
 for (candidate of candidates)
   for (attempt 0..maxRetries)
     if (response.ok)
@@ -192,39 +192,16 @@ Move provider-specific logic into strategy implementations:
 
 interface ProviderStrategy {
   // ... existing methods
-
+  
   classifyError(response: Response): ErrorClassification;
   shouldRetrySame(error: ErrorClassification): boolean;
   getCooldownDuration(error: ErrorClassification, response: Response): number | undefined;
 }
 ```
 
-**Compatibility Plan:**
-To avoid breaking existing `ProviderStrategy` implementations:
-1. Add default implementations in `BaseProviderStrategy` abstract class:
-   ```typescript
-   // src/lib/provider-strategy/base.ts
-   export abstract class BaseProviderStrategy implements ProviderStrategy {
-     // ... existing abstract methods
-
-     // Default implementations (Phase 3 rollout)
-     classifyError(response: Response): ErrorClassification {
-       return classifyErrorDefault(response, this.providerId);
-     }
-     shouldRetrySame(error: ErrorClassification): boolean {
-       return shouldRetrySameDefault(error);
-     }
-     getCooldownDuration(error: ErrorClassification, response: Response): number | undefined {
-       return getCooldownDurationDefault(error, response);
-     }
-   }
-   ```
-2. Phase 3 checkpoint: All provider strategies must extend `BaseProviderStrategy` before interface methods become required.
-3. Provide explicit deprecation notice for strategies not using the base class.
-
 ## File Structure After Refactoring
 
-```text
+```
 src/lib/provider-strategy/fallback/
 ├── orchestrator.ts          # FallbackOrchestrator (~150 lines)
 ├── credential-selector.ts   # CredentialSelector (~120 lines)
@@ -271,11 +248,9 @@ src/lib/provider-strategy/fallback/
 | Metric | Before | Phase 1 Target | Phase 2 Target | Final Target |
 |--------|--------|---------------|-----------------|--------------|
 | Cyclomatic Complexity | 154 | 80 | 60 | <50 |
-| Cognitive Complexity | 399 | 150 | 100 | <100 |
-| Lines (main function) | 663 | 300 | 200 | <200 |
+| Cognitive Complexity | 399 | 150 | 100 | <50 |
+| Lines (main function) | 663 | 300 | 200 | <150 |
 | Test Coverage | existing | ≥90% | ≥90% | ≥90% |
-
-Note: Cognitive complexity target (<100) aligns with problem statement target.
 
 ## Rollback Plan
 - Each phase is a separate PR
