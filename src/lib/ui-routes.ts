@@ -3441,12 +3441,13 @@ export async function registerUiRoutes(app: FastifyInstance, deps: UiRouteDepend
       }
 
       let importedUsageCount = 0;
+      const usagePageSize = 5000;
       if (request.body?.pullUsage !== false && deps.sqlRequestUsageStore) {
         let cursor: { readonly timestampMs: number; readonly id: string } | undefined;
         while (true) {
           const query = new URLSearchParams({
             sinceMs: String(Number.isFinite(requestedSinceMs) ? requestedSinceMs : 0),
-            limit: "5000",
+            limit: String(usagePageSize),
           });
           if (cursor) {
             query.set("afterTimestampMs", String(cursor.timestampMs));
@@ -3470,7 +3471,7 @@ export async function registerUiRoutes(app: FastifyInstance, deps: UiRouteDepend
             lastEntry = entry;
           }
 
-          if (remoteUsage.entries.length < 5000 || !lastEntry) {
+          if (remoteUsage.entries.length < usagePageSize || !lastEntry) {
             break;
           }
 

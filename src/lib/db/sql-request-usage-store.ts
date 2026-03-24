@@ -203,7 +203,7 @@ const ENTRY_COLUMNS = [
   "water_evaporated_ml",
 ].join(", ");
 
-const MAX_PAGE_SIZE = 1000;
+const MAX_PAGE_SIZE = 5000;
 
 function sanitizeLimit(limit: number | undefined, fallback: number): number {
   if (typeof limit !== "number" || !Number.isFinite(limit)) {
