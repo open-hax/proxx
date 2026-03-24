@@ -58,6 +58,7 @@ x-proxx-node: &proxx-node
     CHROMA_EMBED_MODEL: "${CHROMA_EMBED_MODEL:-nomic-embed-text:latest}"
     FEDERATION_REQUEST_TIMEOUT_MS: "${FEDERATION_REQUEST_TIMEOUT_MS:-5000}"
     FEDERATION_SELF_CLUSTER_ID: "${FEDERATION_CLUSTER_ID:-proxx-federation}"
+    FEDERATION_DEFAULT_OWNER_SUBJECT: "${FEDERATION_DEFAULT_OWNER_SUBJECT:-}"
   restart: unless-stopped
   healthcheck:
     test:

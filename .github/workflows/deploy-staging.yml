@@ -76,6 +76,7 @@ jobs:
           DEPLOY_ENV_APPEND: |
             FEDERATION_CLUSTER_ID=staging
             FEDERATION_PUBLIC_HOST_SUFFIX=${{ vars.STAGING_PUBLIC_HOST || 'ussy3.promethean.rest' }}
+            FEDERATION_DEFAULT_OWNER_SUBJECT=did:web:${{ vars.STAGING_PUBLIC_HOST || 'ussy3.promethean.rest' }}
           DEPLOY_SOURCE_HOST: ${{ vars.STAGING_SOURCE_SSH_HOST || 'ussy.promethean.rest' }}
           DEPLOY_SOURCE_USER: ${{ vars.STAGING_SOURCE_SSH_USER || 'error' }}
           DEPLOY_SOURCE_PATH: ${{ vars.STAGING_SOURCE_DEPLOY_PATH || '~/devel/services/proxx' }}
