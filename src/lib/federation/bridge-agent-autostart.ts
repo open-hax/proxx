@@ -140,7 +140,7 @@ function shouldEncodeChunkAsUtf8(contentType: string): boolean {
     || normalized.includes("event-stream");
 }
 
-async function* streamFetchResponseToBridgeEvents(response: Response): AsyncIterable<BridgeRequestHandlerStreamEvent> {
+async function* _streamFetchResponseToBridgeEvents(response: Response): AsyncIterable<BridgeRequestHandlerStreamEvent> {
   const headers = copyFetchHeaders(response.headers);
   const provenance = resolveLocalBridgeResponseProvenance(headers);
 

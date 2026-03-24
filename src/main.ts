@@ -2,7 +2,7 @@ import { initTelemetry, shutdownTelemetry } from "./lib/telemetry/otel.js";
 import { createApp } from "./app.js";
 import { loadConfig } from "./lib/config.js";
 
-const telemetry = initTelemetry();
+initTelemetry();
 
 const config = loadConfig();
 const app = await createApp(config);

@@ -5,17 +5,13 @@ import type { FastifyReply } from "fastify";
 import { copyUpstreamHeaders } from "../../proxy.js";
 import {
   chatRequestToResponsesRequest,
-  chatCompletionToSse,
   extractTerminalResponseFromEventStream,
   responsesEventStreamToChatCompletion,
   responsesEventStreamToErrorPayload,
-  responsesOutputHasReasoning,
   responsesToChatCompletion,
   shouldUseResponsesUpstream,
   streamResponsesSseToChatCompletionChunks,
-  writeInterleavedResponsesSse,
 } from "../../responses-compat.js";
-import { chatCompletionHasReasoningContent } from "../../provider-utils.js";
 import { BaseProviderStrategy, TransformedJsonProviderStrategy } from "../base.js";
 import {
   applyRequestedServiceTier,

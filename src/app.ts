@@ -1177,6 +1177,8 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     return resolved.catalog;
   }
 
+  // Declared separately to allow closure capture before assignment
+  // eslint-disable-next-line prefer-const
   let bridgeRelay: FederationBridgeRelay | undefined;
 
   async function getBridgeAdvertisedModelIds(): Promise<string[]> {

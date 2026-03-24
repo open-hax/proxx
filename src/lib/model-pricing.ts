@@ -67,7 +67,7 @@ const MODELS_DEV = modelsDevPricingSnapshot as ModelsDevSnapshot;
 const DC_WUE_ML_PER_KWH = Number(process.env.DC_WATER_USE_EFFICIENCY_ML_PER_KWH ?? "1800");
 const JOULES_PER_KWH = 3_600_000;
 
-const ZERO_BILLING_COST: ModelsDevCost = {
+const _ZERO_BILLING_COST: ModelsDevCost = {
   input: 0,
   output: 0,
   reasoning: 0,

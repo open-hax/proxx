@@ -135,7 +135,7 @@ export abstract class BaseProviderStrategy implements ProviderStrategy {
   protected async handleStandardLocalAttempt(
     reply: FastifyReply,
     upstreamResponse: Response,
-    context: LocalAttemptContext
+    _context: LocalAttemptContext
   ): Promise<void> {
     if (!upstreamResponse.ok) {
       reply.code(upstreamResponse.status);

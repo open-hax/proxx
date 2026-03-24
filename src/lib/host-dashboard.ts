@@ -66,7 +66,7 @@ interface DockerPortRow {
   readonly Type?: string;
 }
 
-const DEFAULT_HOST_DASHBOARD_TARGETS: readonly HostDashboardTarget[] = [
+const _DEFAULT_HOST_DASHBOARD_TARGETS: readonly HostDashboardTarget[] = [
   {
     id: "ussy",
     label: "ussy.promethean.rest",

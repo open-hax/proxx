@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 
 import type { Sql } from "./index.js";
-import { parseFederationOwnerCredential, type FederationOwnerCredential } from "../federation/owner-credential.js";
+import { parseFederationOwnerCredential } from "../federation/owner-credential.js";
 
 export type FederationPeerAuthMode = "admin_key" | "at_did";
 export type FederationProjectedAccountState = "descriptor" | "remote_route" | "imported";

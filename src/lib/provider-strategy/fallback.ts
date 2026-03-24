@@ -1,6 +1,5 @@
 import type { FastifyReply } from "fastify";
 
-import type { ProxyConfig } from "../config.js";
 import type { AccountHealthStore } from "../db/account-health-store.js";
 import type { EventStore } from "../db/event-store.js";
 import type { ProviderCredential } from "../key-pool.js";
@@ -9,7 +8,6 @@ import type { PromptAffinityStore } from "../prompt-affinity-store.js";
 import type { RequestLogStore } from "../request-log-store.js";
 import { buildUpstreamHeadersForCredential, extractRateLimitCooldownMs, isRateLimitResponse } from "../proxy.js";
 import {
-  extractTerminalResponseFromEventStream,
   responsesEventStreamToErrorPayload,
 } from "../responses-compat.js";
 import type { ProviderRoute } from "../provider-routing.js";
@@ -43,7 +41,6 @@ import {
   readHeaderValue,
   type BuildPayloadResult,
   type FallbackAccumulator,
-  type PreferredAffinity,
   type ProviderAttemptContext,
   type ProviderAvailabilitySummary,
   type ProviderFallbackExecutionResult,

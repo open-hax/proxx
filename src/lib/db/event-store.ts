@@ -298,7 +298,6 @@ export class EventStore {
   }
 
   public async countByTag(since?: Date): Promise<Record<string, number>> {
-    const where = since ? `WHERE ts >= $1` : "";
     const params = since ? [since.toISOString()] : [];
     const timeFilter = since ? `AND e.ts >= $1` : "";
     const rows = await this.sql.unsafe<Array<{ tag: string; count: string }>>(
@@ -403,6 +402,7 @@ function sanitizePayload(payload: Record<string, unknown>): Record<string, unkno
 function stripInvalidJsonChars(obj: unknown): unknown {
   if (obj === null || obj === undefined) return obj;
   if (typeof obj === "string") {
+    // eslint-disable-next-line no-control-regex
     return obj.replace(new RegExp("\\x00", "g"), "").replace(new RegExp("[\\x01-\\x1F]", "g"), (c) =>
       c === "\x1F" ? "\u241F" : c
     );

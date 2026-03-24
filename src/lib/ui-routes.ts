@@ -1270,7 +1270,7 @@ async function buildUsageOverview(
   }
 
   const allLogs = requestLogStore.snapshot();
-  const allStatuses: Record<string, Awaited<ReturnType<KeyPool["getStatus"]>>> = await keyPool.getAllStatuses().catch(() => ({}));
+  const _allStatuses: Record<string, Awaited<ReturnType<KeyPool["getStatus"]>>> = await keyPool.getAllStatuses().catch(() => ({}));
   const allAccountStatuses: Record<string, readonly KeyPoolAccountStatus[]> = await keyPool.getAllAccountStatuses().catch(() => ({}));
   const credentialProviders = await credentialStore.listProviders(false).catch(() => []);
   const providerById = new Map(credentialProviders.map((provider) => [provider.id, provider]));

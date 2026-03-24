@@ -1224,7 +1224,7 @@ export async function streamResponsesSseToChatCompletionChunks(
   let terminalResponse: Record<string, unknown> | null = null;
   let sawError: Record<string, unknown> | null = null;
   let buffer = "";
-  const functionCallState: Map<number, { name: string; callId: string }> = new Map();
+  const functionCallState: Map<number, { name: string; callId: string; itemId?: string }> = new Map();
   let toolCallIndex = 0;
 
   function emitChunk(delta: Record<string, unknown>, finishReason: string | null): void {
@@ -1320,7 +1320,7 @@ export async function streamResponsesSseToChatCompletionChunks(
           functionCallState.set(slotIdx, { name: name ?? "", callId });
           // Also register by item id so delta lookups by item_id succeed
           if (itemIdVal) {
-            functionCallState.set(slotIdx, { name: name ?? "", callId, itemId: itemIdVal } as any);
+            functionCallState.set(slotIdx, { name: name ?? "", callId, itemId: itemIdVal });
           }
           toolCallIndex++;
           hasToolCalls = true;
@@ -1352,7 +1352,7 @@ export async function streamResponsesSseToChatCompletionChunks(
       // Find existing tool call slot by call_id or item_id
       let slotIdx = -1;
       for (const [idx, fc] of functionCallState.entries()) {
-        if ((callId && fc.callId === callId) || (itemId && ((fc as any).itemId === itemId || fc.callId === itemId))) {
+        if ((callId && fc.callId === callId) || (itemId && (fc.itemId === itemId || fc.callId === itemId))) {
           slotIdx = idx;
           break;
         }
