@@ -136,20 +136,40 @@ jobs:
           DEV_PROXY_URL: ${{ vars.STAGING_BASE_URL || 'https://ussy3.promethean.rest' }}
           DEV_PROXY_AUTH_TOKEN: ${{ secrets.STAGING_PROXY_AUTH_TOKEN }}
       - run: pnpm install --frozen-lockfile
-      - run: ./scripts/e2e-test.sh
+      - id: live-e2e-core
+        continue-on-error: true
+        run: ./scripts/e2e-test.sh
         env:
           DEV_PROXY_URL: ${{ vars.STAGING_BASE_URL || 'https://ussy3.promethean.rest' }}
           DEV_PROXY_AUTH_TOKEN: ${{ secrets.STAGING_PROXY_AUTH_TOKEN }}
-      - run: ./scripts/e2e-multitenancy-smoke.sh
+      - id: live-e2e-multitenancy
+        continue-on-error: true
+        run: ./scripts/e2e-multitenancy-smoke.sh
         env:
           DEV_PROXY_URL: ${{ vars.STAGING_BASE_URL || 'https://ussy3.promethean.rest' }}
           DEV_PROXY_AUTH_TOKEN: ${{ secrets.STAGING_PROXY_AUTH_TOKEN }}
-      - run: ./scripts/e2e-federation-audit.sh
+      - id: live-e2e-federation
+        continue-on-error: true
+        run: ./scripts/e2e-federation-audit.sh
         env:
           FEDERATION_HOST_SUFFIX: ${{ vars.STAGING_PUBLIC_HOST || 'ussy3.promethean.rest' }}
           FEDERATION_AUTH_TOKEN: ${{ secrets.STAGING_PROXY_AUTH_TOKEN }}
           FEDERATION_SCHEME: https
           FEDERATION_RESOLVE_ADDRESS: ${{ vars.STAGING_VERIFY_RESOLVE_ADDRESS || vars.STAGING_SSH_HOST || '' }}
+      - name: assert staging live e2e suite
+        if: always()
+        run: |
+          core='${{ steps.live-e2e-core.outcome }}'
+          multitenancy='${{ steps.live-e2e-multitenancy.outcome }}'
+          federation='${{ steps.live-e2e-federation.outcome }}'
+
+          echo "core=${core}"
+          echo "multitenancy=${multitenancy}"
+          echo "federation=${federation}"
+
+          if [[ "$core" != "success" || "$multitenancy" != "success" || "$federation" != "success" ]]; then
+            exit 1
+          fi
       - name: staging live e2e failure logs
         if: failure()
         run: |
