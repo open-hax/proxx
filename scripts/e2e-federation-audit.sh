@@ -359,7 +359,7 @@ print(any(entry.get("id") == target for entry in payload.get("entries", [])))
 
 # Retry B2 visibility check with brief delay - shared database may have propagation latency
 if [[ "$HAS_SYNTHETIC" != "True" && "$HAS_SYNTHETIC" != "true" ]]; then
-  for attempt in 1 2 3; do
+  for _ in 1 2 3; do
     sleep 1
     B2_LOGS=$(curl_json_host "$B2_HOST" GET "/api/ui/request-logs?limit=200")
     HAS_SYNTHETIC=$(printf '%s' "$B2_LOGS" | python3 -c '
