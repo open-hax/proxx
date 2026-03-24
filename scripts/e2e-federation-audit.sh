@@ -133,17 +133,38 @@ print(len(value) if isinstance(value, (list, dict)) else 0)
 ' "$path"
 }
 
-first_local_account_triplet() {
+select_audit_account_triplet() {
+  local b1_accounts_file="$1" b2_accounts_file="$2"
   python3 -c '
 import json, sys
+
 payload = json.load(sys.stdin)
+with open(sys.argv[1], "r", encoding="utf-8") as handle:
+    b1_payload = json.load(handle)
+with open(sys.argv[2], "r", encoding="utf-8") as handle:
+    b2_payload = json.load(handle)
+
 accounts = payload.get("localAccounts", [])
 if not accounts:
     print("\t\t")
     raise SystemExit(0)
-acct = accounts[0]
+
+blocked = {
+    (acct.get("providerId", ""), acct.get("accountId", ""))
+    for host_payload in (b1_payload, b2_payload)
+    for acct in host_payload.get("localAccounts", [])
+}
+
+acct = next(
+    (
+        candidate for candidate in accounts
+        if (candidate.get("providerId", ""), candidate.get("accountId", "")) not in blocked
+    ),
+    accounts[0],
+)
+
 print("{}\t{}\t{}".format(acct.get("providerId", ""), acct.get("accountId", ""), acct.get("displayName", "")))
-'
+' "$b1_accounts_file" "$b2_accounts_file"
 }
 
 known_account_state() {
@@ -253,7 +274,12 @@ if [[ "$A1_LOCAL_COUNT" -eq 0 ]]; then
   curl_json_host "$A1_HOST" POST "/api/ui/credentials/api-key" '{"providerId":"openai","accountId":"federation-seed-openai","credentialValue":"federation-seed-openai-token"}' >/dev/null
   A1_ACCOUNTS=$(curl_json_host "$A1_HOST" GET "/api/ui/federation/accounts?ownerSubject=${OWNER_DID}")
 fi
-IFS=$'\t' read -r FED_PROVIDER_ID FED_ACCOUNT_ID _ <<< "$(printf '%s' "$A1_ACCOUNTS" | first_local_account_triplet)"
+B1_ACCOUNTS_FILE=$(mktemp)
+B2_ACCOUNTS_FILE=$(mktemp)
+curl_json_host "$B1_HOST" GET "/api/ui/federation/accounts?ownerSubject=${OWNER_DID}" > "$B1_ACCOUNTS_FILE"
+curl_json_host "$B2_HOST" GET "/api/ui/federation/accounts?ownerSubject=${OWNER_DID}" > "$B2_ACCOUNTS_FILE"
+IFS=$'\t' read -r FED_PROVIDER_ID FED_ACCOUNT_ID _ <<< "$(printf '%s' "$A1_ACCOUNTS" | select_audit_account_triplet "$B1_ACCOUNTS_FILE" "$B2_ACCOUNTS_FILE")"
+rm -f "$B1_ACCOUNTS_FILE" "$B2_ACCOUNTS_FILE"
 if [[ -n "$FED_PROVIDER_ID" && -n "$FED_ACCOUNT_ID" ]]; then
   pass "selected audit account ${FED_PROVIDER_ID}/${FED_ACCOUNT_ID}"
 else
@@ -300,18 +326,19 @@ else
   fail "warm routed account auto-imported credential" "import flag=${IMPORTED_CREDENTIAL}"
 fi
 
-USAGE_EXPORT=$(curl_json_host "$A1_HOST" GET "/api/ui/federation/usage-export?sinceMs=0&limit=5")
-USAGE_COUNT=$(printf '%s' "$USAGE_EXPORT" | json_len 'entries')
 SYNTHETIC_USAGE_ID="federation-usage-$(date +%s)"
-if [[ "$USAGE_COUNT" -eq 0 ]]; then
-  info "No source usage rows on A1; injecting deterministic synthetic usage"
-  SYNTHETIC_PAYLOAD=$(python3 - <<'PY' "$SYNTHETIC_USAGE_ID" "$FED_PROVIDER_ID" "$FED_ACCOUNT_ID"
+SYNTHETIC_USAGE_TS=$(python3 - <<'PY'
+import time
+print(int(time.time() * 1000))
+PY
+)
+SYNTHETIC_PAYLOAD=$(python3 - <<'PY' "$SYNTHETIC_USAGE_ID" "$FED_PROVIDER_ID" "$FED_ACCOUNT_ID" "$SYNTHETIC_USAGE_TS"
 import json, sys, time
-entry_id, provider_id, account_id = sys.argv[1:4]
+entry_id, provider_id, account_id, timestamp_ms = sys.argv[1:5]
 print(json.dumps({
   "entries": [{
     "id": entry_id,
-    "timestamp": int(time.time() * 1000),
+    "timestamp": int(timestamp_ms),
     "providerId": provider_id,
     "accountId": account_id,
     "authType": "api_key",
@@ -330,16 +357,13 @@ print(json.dumps({
 }))
 PY
 )
-  curl_json_host "$A1_HOST" POST "/api/ui/federation/usage-import" "$SYNTHETIC_PAYLOAD" >/dev/null
-  pass "synthetic usage injected on A1"
-else
-  SYNTHETIC_USAGE_ID=$(printf '%s' "$USAGE_EXPORT" | json_value 'entries.0.id')
-  pass "source usage already available on A1"
-fi
+curl_json_host "$A1_HOST" POST "/api/ui/federation/usage-import" "$SYNTHETIC_PAYLOAD" >/dev/null
+pass "synthetic usage injected on A1"
 
-USAGE_SYNC=$(curl_json_host "$B1_HOST" POST "/api/ui/federation/sync/pull" "$(python3 - <<'PY' "$OWNER_DID"
+USAGE_SYNC=$(curl_json_host "$B1_HOST" POST "/api/ui/federation/sync/pull" "$(python3 - <<'PY' "$OWNER_DID" "$SYNTHETIC_USAGE_TS"
 import json, sys
-print(json.dumps({"peerId": "a1", "ownerSubject": sys.argv[1], "pullUsage": True, "sinceMs": 0}))
+owner_did, timestamp_ms = sys.argv[1:3]
+print(json.dumps({"peerId": "a1", "ownerSubject": owner_did, "pullUsage": True, "sinceMs": max(0, int(timestamp_ms) - 1000)}))
 PY
 )")
 IMPORTED_USAGE_COUNT=$(printf '%s' "$USAGE_SYNC" | json_value 'importedUsageCount')
@@ -349,31 +373,20 @@ else
   fail "usage sync imported rows into Group B" "count=${IMPORTED_USAGE_COUNT}"
 fi
 
-B2_LOGS=$(curl_json_host "$B2_HOST" GET "/api/ui/request-logs?limit=200")
-HAS_SYNTHETIC=$(printf '%s' "$B2_LOGS" | python3 -c '
+HAS_SYNTHETIC='False'
+for _ in 1 2 3; do
+  B2_LOGS=$(curl_json_host "$B2_HOST" GET "/api/ui/request-logs?limit=500")
+  HAS_SYNTHETIC=$(printf '%s' "$B2_LOGS" | python3 -c '
 import json, sys
 payload = json.load(sys.stdin)
 target = sys.argv[1]
 print(any(entry.get("id") == target for entry in payload.get("entries", [])))
 ' "$SYNTHETIC_USAGE_ID")
-
-# Retry B2 visibility check with brief delay - shared database may have propagation latency
-if [[ "$HAS_SYNTHETIC" != "True" && "$HAS_SYNTHETIC" != "true" ]]; then
-  for _ in 1 2 3; do
-    sleep 1
-    B2_LOGS=$(curl_json_host "$B2_HOST" GET "/api/ui/request-logs?limit=200")
-    HAS_SYNTHETIC=$(printf '%s' "$B2_LOGS" | python3 -c '
-import json, sys
-payload = json.load(sys.stdin)
-target = sys.argv[1]
-print(any(entry.get("id") == target for entry in payload.get("entries", [])))
-' "$SYNTHETIC_USAGE_ID")
-    if [[ "$HAS_SYNTHETIC" == "True" || "$HAS_SYNTHETIC" == "true" ]]; then
-      break
-    fi
-  done
-fi
-
+  if [[ "$HAS_SYNTHETIC" == "True" || "$HAS_SYNTHETIC" == "true" ]]; then
+    break
+  fi
+  sleep 1
+done
 if [[ "$HAS_SYNTHETIC" == "True" || "$HAS_SYNTHETIC" == "true" ]]; then
   pass "Group B sibling sees synced usage"
 else
