@@ -160,8 +160,11 @@ acct = next(
         candidate for candidate in accounts
         if (candidate.get("providerId", ""), candidate.get("accountId", "")) not in blocked
     ),
-    accounts[0],
+    None,
 )
+if acct is None:
+    print("\t\t")
+    raise SystemExit(0)
 
 print("{}\t{}\t{}".format(acct.get("providerId", ""), acct.get("accountId", ""), acct.get("displayName", "")))
 ' "$b1_accounts_file" "$b2_accounts_file"
@@ -280,6 +283,22 @@ curl_json_host "$B1_HOST" GET "/api/ui/federation/accounts?ownerSubject=${OWNER_
 curl_json_host "$B2_HOST" GET "/api/ui/federation/accounts?ownerSubject=${OWNER_DID}" > "$B2_ACCOUNTS_FILE"
 IFS=$'\t' read -r FED_PROVIDER_ID FED_ACCOUNT_ID _ <<< "$(printf '%s' "$A1_ACCOUNTS" | select_audit_account_triplet "$B1_ACCOUNTS_FILE" "$B2_ACCOUNTS_FILE")"
 rm -f "$B1_ACCOUNTS_FILE" "$B2_ACCOUNTS_FILE"
+if [[ -z "$FED_PROVIDER_ID" || -z "$FED_ACCOUNT_ID" ]]; then
+  AUDIT_WITNESS_ID="federation-audit-openai-$(date +%s)"
+  info "No A1-only account candidate; seeding dedicated audit witness ${AUDIT_WITNESS_ID}"
+  curl_json_host "$A1_HOST" POST "/api/ui/credentials/api-key" "$(python3 - <<'PY' "$AUDIT_WITNESS_ID"
+import json, sys
+account_id = sys.argv[1]
+print(json.dumps({
+  "providerId": "openai",
+  "accountId": account_id,
+  "credentialValue": f"{account_id}-token",
+}))
+PY
+)" >/dev/null
+  FED_PROVIDER_ID="openai"
+  FED_ACCOUNT_ID="$AUDIT_WITNESS_ID"
+fi
 if [[ -n "$FED_PROVIDER_ID" && -n "$FED_ACCOUNT_ID" ]]; then
   pass "selected audit account ${FED_PROVIDER_ID}/${FED_ACCOUNT_ID}"
 else
