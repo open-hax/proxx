@@ -77,6 +77,7 @@ jobs:
           DEPLOY_ENV_APPEND: |
             FEDERATION_CLUSTER_ID=production
             FEDERATION_PUBLIC_HOST_SUFFIX=${{ vars.PRODUCTION_PUBLIC_HOST || 'ussy.promethean.rest' }}
+            FEDERATION_DEFAULT_OWNER_SUBJECT=did:web:${{ vars.PRODUCTION_PUBLIC_HOST || 'ussy.promethean.rest' }}
       - name: production deploy failure logs
         if: failure()
         run: |
