@@ -865,12 +865,12 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
         sourcePeerId: projectedAccount.sourcePeerId,
         providerId: projectedAccount.providerId,
         accountId: projectedAccount.accountId,
-      }, async () => {
+      }, async (tx) => {
         const latest = await sqlFederationStore.getProjectedAccount({
           sourcePeerId: projectedAccount.sourcePeerId,
           providerId: projectedAccount.providerId,
           accountId: projectedAccount.accountId,
-        });
+        }, tx);
         if (!latest) {
           return undefined;
         }
@@ -878,7 +878,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
           return { importedCredential: false, projectedAccount: latest };
         }
 
-        const peer = await sqlFederationStore.getPeer(latest.sourcePeerId);
+        const peer = await sqlFederationStore.getPeer(latest.sourcePeerId, tx);
         const credential = peer ? extractPeerCredential(peer.auth) : undefined;
         if (!peer || !credential) {
           return { importedCredential: false, projectedAccount: latest };
@@ -922,7 +922,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
             sourcePeerId: latest.sourcePeerId,
             providerId: latest.providerId,
             accountId: latest.accountId,
-          });
+          }, tx);
           return {
             importedCredential: true,
             projectedAccount: imported ?? latest,

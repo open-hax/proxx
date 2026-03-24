@@ -47,11 +47,15 @@ EOF
 fetch_remote_file_if_exists() {
   local remote="$1" remote_path="$2" local_path="$3"
   local status=0
-  if ssh "${SSH_OPTS[@]}" "$remote" test -f "$remote_path"; then
+
+  ssh "${SSH_OPTS[@]}" "$remote" test -f "$remote_path"
+  status=$?
+
+  if [[ "$status" -eq 0 ]]; then
     fetch_remote_file "$remote" "$remote_path" "$local_path"
     return 0
   fi
-  status=$?
+
   if [[ "$status" -eq 1 ]]; then
     return 1
   fi
