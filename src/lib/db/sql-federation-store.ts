@@ -3,6 +3,8 @@ import crypto from "node:crypto";
 import type { Sql } from "./index.js";
 import { parseFederationOwnerCredential } from "../federation/owner-credential.js";
 
+type SqlExecutor = Pick<Sql, "unsafe">;
+
 export type FederationPeerAuthMode = "admin_key" | "at_did";
 export type FederationProjectedAccountState = "descriptor" | "remote_route" | "imported";
 
@@ -416,8 +418,8 @@ export class SqlFederationStore {
     return rows.map(toPeerRecord);
   }
 
-  public async getPeer(id: string): Promise<FederationPeerRecord | undefined> {
-    const rows = await this.sql.unsafe<FederationPeerRow[]>(
+  public async getPeer(id: string, executor: SqlExecutor = this.sql): Promise<FederationPeerRecord | undefined> {
+    const rows = await executor.unsafe<FederationPeerRow[]>(
       "SELECT * FROM federation_peers WHERE id = $1 LIMIT 1",
       [id.trim()],
     );
@@ -528,8 +530,8 @@ export class SqlFederationStore {
     readonly sourcePeerId: string;
     readonly providerId: string;
     readonly accountId: string;
-  }): Promise<FederationProjectedAccountRecord | undefined> {
-    const rows = await this.sql.unsafe<FederationProjectedAccountRow[]>(
+  }, executor: SqlExecutor = this.sql): Promise<FederationProjectedAccountRecord | undefined> {
+    const rows = await executor.unsafe<FederationProjectedAccountRow[]>(
       `SELECT * FROM federation_projected_accounts
        WHERE source_peer_id = $1 AND provider_id = $2 AND account_id = $3
        LIMIT 1`,
@@ -545,7 +547,7 @@ export class SqlFederationStore {
       readonly providerId: string;
       readonly accountId: string;
     },
-    fn: () => Promise<T>,
+    fn: (tx: SqlExecutor) => Promise<T>,
   ): Promise<T | undefined> {
     const lockKey = `${input.sourcePeerId.trim()}|${input.providerId.trim().toLowerCase()}|${input.accountId.trim()}`;
     const result = await this.sql.begin(async (tx) => {
@@ -557,7 +559,7 @@ export class SqlFederationStore {
         return undefined;
       }
 
-      return fn();
+      return await fn(tx);
     });
     return result as T | undefined;
   }
@@ -588,8 +590,8 @@ export class SqlFederationStore {
     readonly sourcePeerId: string;
     readonly providerId: string;
     readonly accountId: string;
-  }): Promise<FederationProjectedAccountRecord | undefined> {
-    const rows = await this.sql.unsafe<FederationProjectedAccountRow[]>(
+  }, executor: SqlExecutor = this.sql): Promise<FederationProjectedAccountRecord | undefined> {
+    const rows = await executor.unsafe<FederationProjectedAccountRow[]>(
       `UPDATE federation_projected_accounts
        SET availability_state = 'imported',
            imported_at = COALESCE(imported_at, NOW()),

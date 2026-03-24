@@ -3173,8 +3173,8 @@ export async function registerUiRoutes(app: FastifyInstance, deps: UiRouteDepend
 
     let importedCredential = false;
     if (shouldWarmImportProjectedAccount(account.warmRequestCount)) {
-      const importResult = await sqlFederationStore.withProjectedAccountImportLock({ sourcePeerId, providerId, accountId }, async () => {
-        const latest = await sqlFederationStore.getProjectedAccount({ sourcePeerId, providerId, accountId });
+      const importResult = await sqlFederationStore.withProjectedAccountImportLock({ sourcePeerId, providerId, accountId }, async (tx) => {
+        const latest = await sqlFederationStore.getProjectedAccount({ sourcePeerId, providerId, accountId }, tx);
         if (!latest) {
           return undefined;
         }
@@ -3182,7 +3182,7 @@ export async function registerUiRoutes(app: FastifyInstance, deps: UiRouteDepend
           return { account: latest, importedCredential: false };
         }
 
-        const peer = await sqlFederationStore.getPeer(sourcePeerId);
+        const peer = await sqlFederationStore.getPeer(sourcePeerId, tx);
         const credential = peer ? extractPeerCredential(peer.auth) : undefined;
         if (!peer || !credential) {
           return { account: latest, importedCredential: false };
@@ -3220,7 +3220,7 @@ export async function registerUiRoutes(app: FastifyInstance, deps: UiRouteDepend
             );
           }
 
-          const imported = await sqlFederationStore.markProjectedAccountImported({ sourcePeerId, providerId, accountId });
+          const imported = await sqlFederationStore.markProjectedAccountImported({ sourcePeerId, providerId, accountId }, tx);
           return { account: imported ?? latest, importedCredential: true };
         } catch (error) {
           app.log.warn({ error: error instanceof Error ? error.message : String(error), sourcePeerId, providerId, accountId }, "failed warm federation credential import");

@@ -46,11 +46,18 @@ EOF
 
 fetch_remote_file_if_exists() {
   local remote="$1" remote_path="$2" local_path="$3"
+  local status=0
   if ssh "${SSH_OPTS[@]}" "$remote" test -f "$remote_path"; then
     fetch_remote_file "$remote" "$remote_path" "$local_path"
     return 0
   fi
-  return 1
+  status=$?
+  if [[ "$status" -eq 1 ]]; then
+    return 1
+  fi
+
+  printf 'Failed to check remote file %s on %s (exit %s)\n' "$remote_path" "$remote" "$status" >&2
+  return "$status"
 }
 
 render_caddyfile() {
@@ -92,7 +99,12 @@ build_runtime_payloads() {
   fi
 
   if [[ -n "$DEPLOY_ENV_APPEND" && ! -f "$TMP_DIR/.env" ]]; then
-    fetch_remote_file_if_exists "$REMOTE" "$DEPLOY_PATH/.env" "$TMP_DIR/.env" || true
+    local env_fetch_status=0
+    fetch_remote_file_if_exists "$REMOTE" "$DEPLOY_PATH/.env" "$TMP_DIR/.env" || env_fetch_status=$?
+    if [[ "$env_fetch_status" -gt 1 ]]; then
+      printf 'Aborting deploy: unable to fetch existing remote .env from %s\n' "$REMOTE" >&2
+      return "$env_fetch_status"
+    fi
   fi
 
   if [[ -n "${DEPLOY_ENV_FILE:-}" ]]; then
