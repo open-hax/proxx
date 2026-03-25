@@ -10,6 +10,7 @@ export interface ResolvedModelCatalog {
   readonly modelIds: readonly string[];
   readonly aliasTargets: Readonly<Record<string, string>>;
   readonly dynamicOllamaModelIds: readonly string[];
+  readonly declaredModelIds: readonly string[];
 }
 
 export interface RequestRoutingState {

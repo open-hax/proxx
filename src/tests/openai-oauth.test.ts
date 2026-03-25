@@ -150,10 +150,19 @@ test("browser flow normalizes loopback callback to localhost auth callback route
 
   assert.equal(started.redirectUri, "http://localhost:1455/auth/callback");
   assert.match(started.authorizeUrl, /redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fauth%2Fcallback/);
+  assert.match(started.authorizeUrl, /originator=codex_cli_rs/);
 });
 
-test("browser flow preserves host-routed federation callback URLs", async () => {
+test("browser flow defaults host-routed inputs back to localhost callback topology", async () => {
   const manager = new OpenAiOAuthManager();
+  const started = await manager.startBrowserFlow("https://a1.federation.test");
+
+  assert.equal(started.redirectUri, "http://localhost:1455/auth/callback");
+  assert.match(started.authorizeUrl, /redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fauth%2Fcallback/);
+});
+
+test("browser flow preserves host-routed federation callback URLs when explicitly enabled", async () => {
+  const manager = new OpenAiOAuthManager({ allowHostRoutedCallbacks: true });
   const started = await manager.startBrowserFlow("https://a1.federation.test");
 
   assert.equal(started.redirectUri, "https://a1.federation.test/auth/callback");

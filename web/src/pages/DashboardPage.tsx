@@ -33,7 +33,7 @@ function validateAccountSort(value: unknown): string | undefined {
   }
 
   const normalized = value.trim().toLowerCase();
-  if (normalized === "health" || normalized === "ttft" || normalized === "tps" || normalized === "tokens" || normalized === "requests") {
+  if (normalized === "health" || normalized === "ttft" || normalized === "tps" || normalized === "decode-tps" || normalized === "e2e-tps" || normalized === "tokens" || normalized === "requests") {
     return normalized;
   }
 
@@ -238,7 +238,7 @@ export function DashboardPage(): JSX.Element {
     if (accountProviderFilter !== ALL_PROVIDERS_FILTER && !accountProviderOptions.includes(accountProviderFilter)) {
       setAccountProviderFilter(ALL_PROVIDERS_FILTER);
     }
-  }, [accountProviderFilter, accountProviderOptions]);
+  }, [accountProviderFilter, accountProviderOptions, setAccountProviderFilter]);
 
   useEffect(() => {
     let cancelled = false;
@@ -323,8 +323,6 @@ export function DashboardPage(): JSX.Element {
     observer.observe(sentinel);
     return () => observer.disconnect();
   }, [loadMoreHealth]);
-
-  useEffect(() => { setHealthVisible(50); }, [overview, accountProviderFilter]);
 
   return (
     <div className="dashboard-layout">
@@ -543,7 +541,7 @@ export function DashboardPage(): JSX.Element {
         <header className="dashboard-panel-header">
           <div>
             <h3>Account Health</h3>
-            <p>Ordered by health by default; filter to a provider or sort by tokens/requests/TTFT/TPS.</p>
+            <p>Ordered by health by default; filter to a provider or sort by tokens, requests, TTFT, decode TPS, or end-to-end TPS.</p>
           </div>
           <div className="dashboard-panel-controls">
             <label>
@@ -551,14 +549,18 @@ export function DashboardPage(): JSX.Element {
               <select value={accountSort} onChange={(event) => setAccountSort(event.target.value)}>
                 <option value="health">Health</option>
                 <option value="ttft">TTFT</option>
-                <option value="tps">TPS</option>
+                <option value="tps">Decode TPS</option>
+                <option value="e2e-tps">End-to-end TPS</option>
                 <option value="tokens">Tokens</option>
                 <option value="requests">Requests</option>
               </select>
             </label>
             <label>
               Provider&nbsp;
-              <select value={accountProviderFilter} onChange={(event) => setAccountProviderFilter(event.target.value)}>
+              <select value={accountProviderFilter} onChange={(event) => {
+                setAccountProviderFilter(event.target.value);
+                setHealthVisible(50);
+              }}>
                 <option value={ALL_PROVIDERS_FILTER}>All providers</option>
                 {accountProviderOptions.map((providerId) => (
                   <option key={providerId} value={providerId}>{providerId}</option>
@@ -574,7 +576,8 @@ export function DashboardPage(): JSX.Element {
               <span>Status</span>
               <span>Health</span>
               <span>TTFT</span>
-              <span>TPS</span>
+              <span>Decode TPS</span>
+              <span>End-to-End TPS</span>
               <span>Cache</span>
               <span>Requests</span>
               <span>Tokens</span>
@@ -596,7 +599,8 @@ export function DashboardPage(): JSX.Element {
                   <span className={`dashboard-status-pill dashboard-status-${account.status}`}>{account.status}</span>
                   <span>{formatMaybeScore(account.healthScore)}</span>
                   <span>{formatMaybeMs(account.avgTtftMs)}</span>
-                  <span>{formatMaybeTps(account.avgTps)}</span>
+                  <span>{formatMaybeTps(account.avgDecodeTps)}</span>
+                  <span>{formatMaybeTps(account.avgEndToEndTps)}</span>
                   <span>
                     {account.cacheKeyUseCount > 0
                       ? `${formatPercent((account.cacheHitCount / account.cacheKeyUseCount) * 100)} (${account.cacheHitCount}/${account.cacheKeyUseCount})`

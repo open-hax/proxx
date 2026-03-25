@@ -69,8 +69,10 @@ interface UsageAccountSummary {
   readonly waterEvaporatedMl: number;
   readonly cacheHitCount: number;
   readonly cacheKeyUseCount: number;
+  readonly avgDecodeTps: number | null;
   readonly avgTtftMs: number | null;
   readonly avgTps: number | null;
+  readonly avgEndToEndTps: number | null;
   readonly healthScore: number | null;
   readonly transientDebuff: number | null;
   readonly lastUsedAt: string | null;
@@ -144,7 +146,9 @@ interface AnalyticsRowResponse {
   readonly cachedPromptTokens: number;
   readonly cacheHitRate: number;
   readonly avgTtftMs: number | null;
+  readonly avgDecodeTps: number | null;
   readonly avgTps: number | null;
+  readonly avgEndToEndTps: number | null;
   readonly costUsd: number;
   readonly energyJoules: number;
   readonly waterEvaporatedMl: number;
@@ -884,6 +888,8 @@ async function buildUsageOverviewFromEntries(
     ttftCount: number;
     tpsSum: number;
     tpsCount: number;
+    endToEndTpsSum: number;
+    endToEndTpsCount: number;
     lastUsedAtMs: number;
   }>();
   const shortAgg = new Map<string, { ttftSum: number; ttftCount: number; tpsSum: number; tpsCount: number }>();
@@ -960,6 +966,8 @@ async function buildUsageOverviewFromEntries(
       ttftCount: 0,
       tpsSum: 0,
       tpsCount: 0,
+      endToEndTpsSum: 0,
+      endToEndTpsCount: 0,
       lastUsedAtMs: 0,
     };
     account.requestCount += 1;
@@ -985,6 +993,10 @@ async function buildUsageOverviewFromEntries(
     if (typeof entry.tps === "number" && Number.isFinite(entry.tps)) {
       account.tpsSum += entry.tps;
       account.tpsCount += 1;
+    }
+    if (typeof entry.endToEndTps === "number" && Number.isFinite(entry.endToEndTps)) {
+      account.endToEndTpsSum += entry.endToEndTps;
+      account.endToEndTpsCount += 1;
     }
     account.lastUsedAtMs = Math.max(account.lastUsedAtMs, entry.timestamp);
     accountAgg.set(accountKey, account);
@@ -1013,13 +1025,16 @@ async function buildUsageOverviewFromEntries(
     ttftCount: number;
     tpsSum: number;
     tpsCount: number;
+    endToEndTpsSum: number;
+    endToEndTpsCount: number;
   }, status: "healthy" | "cooldown" | "idle") => {
     if (status === "cooldown") {
-      return { score: 0, debuff: 1, avgTtftMs: null, avgTps: null };
+      return { score: 0, debuff: 1, avgTtftMs: null, avgTps: null, avgEndToEndTps: null };
     }
 
     const avgTtftMs = account.ttftCount > 0 ? account.ttftSum / account.ttftCount : null;
     const avgTps = account.tpsCount > 0 ? account.tpsSum / account.tpsCount : null;
+    const avgEndToEndTps = account.endToEndTpsCount > 0 ? account.endToEndTpsSum / account.endToEndTpsCount : null;
     const recent = shortAgg.get(`${account.providerId}\0${account.accountId}`);
     const recentTtft = recent && recent.ttftCount > 0 ? recent.ttftSum / recent.ttftCount : null;
     const recentTps = recent && recent.tpsCount > 0 ? recent.tpsSum / recent.tpsCount : null;
@@ -1040,6 +1055,7 @@ async function buildUsageOverviewFromEntries(
       debuff,
       avgTtftMs,
       avgTps,
+      avgEndToEndTps,
     };
   };
 
@@ -1068,6 +1084,8 @@ async function buildUsageOverviewFromEntries(
           ttftCount: 0,
           tpsSum: 0,
           tpsCount: 0,
+          endToEndTpsSum: 0,
+          endToEndTpsCount: 0,
           lastUsedAtMs: 0,
         });
       }
@@ -1104,8 +1122,10 @@ async function buildUsageOverviewFromEntries(
       waterEvaporatedMl: account.waterEvaporatedMl,
       cacheHitCount: account.cacheHitCount,
       cacheKeyUseCount: account.cacheKeyUseCount,
+      avgDecodeTps: health.avgTps,
       avgTtftMs: health.avgTtftMs,
       avgTps: health.avgTps,
+      avgEndToEndTps: health.avgEndToEndTps,
       healthScore: health.score,
       transientDebuff: health.debuff,
       lastUsedAt: isoFromTimestamp(account.lastUsedAtMs),
@@ -1217,9 +1237,16 @@ async function buildUsageOverviewFromEntries(
           if (leftValue !== rightValue) return leftValue - rightValue;
           return byTokens();
         }
-        case "tps": {
+        case "tps":
+        case "decode-tps": {
           const leftValue = a.avgTps ?? Number.NEGATIVE_INFINITY;
           const rightValue = b.avgTps ?? Number.NEGATIVE_INFINITY;
+          if (leftValue !== rightValue) return rightValue - leftValue;
+          return byTokens();
+        }
+        case "e2e-tps": {
+          const leftValue = a.avgEndToEndTps ?? Number.NEGATIVE_INFINITY;
+          const rightValue = b.avgEndToEndTps ?? Number.NEGATIVE_INFINITY;
           if (leftValue !== rightValue) return rightValue - leftValue;
           return byTokens();
         }
@@ -1327,6 +1354,8 @@ async function buildUsageOverview(
     ttftCount: number;
     tpsSum: number;
     tpsCount: number;
+    endToEndTpsSum: number;
+    endToEndTpsCount: number;
     lastUsedAtMs: number;
   };
 
@@ -1357,6 +1386,8 @@ async function buildUsageOverview(
         ttftCount: 0,
         tpsSum: 0,
         tpsCount: 0,
+        endToEndTpsSum: 0,
+        endToEndTpsCount: 0,
         lastUsedAtMs: 0,
       };
 
@@ -1379,6 +1410,10 @@ async function buildUsageOverview(
       if (typeof entry.tps === "number" && Number.isFinite(entry.tps)) {
         existing.tpsSum += entry.tps;
         existing.tpsCount += 1;
+      }
+      if (typeof entry.endToEndTps === "number" && Number.isFinite(entry.endToEndTps)) {
+        existing.endToEndTpsSum += entry.endToEndTps;
+        existing.endToEndTpsCount += 1;
       }
       existing.lastUsedAtMs = Math.max(existing.lastUsedAtMs, entry.timestamp);
       accountAgg.set(mapKey, existing);
@@ -1406,6 +1441,8 @@ async function buildUsageOverview(
         ttftCount: acc.ttftCount,
         tpsSum: acc.tpsSum,
         tpsCount: acc.tpsCount,
+        endToEndTpsSum: acc.endToEndTpsSum,
+        endToEndTpsCount: acc.endToEndTpsCount,
         lastUsedAtMs: acc.lastUsedAtMs,
       });
     }
@@ -1442,13 +1479,14 @@ async function buildUsageOverview(
   const accountStats = new Map<string, UsageAccountSummary>();
 
   const clamp01 = (value: number): number => Math.max(0, Math.min(1, value));
-  const healthScoreFor = (agg: AccountAgg, status: "healthy" | "cooldown" | "idle"): { score: number | null; debuff: number | null; avgTtftMs: number | null; avgTps: number | null } => {
+  const healthScoreFor = (agg: AccountAgg, status: "healthy" | "cooldown" | "idle"): { score: number | null; debuff: number | null; avgTtftMs: number | null; avgTps: number | null; avgEndToEndTps: number | null } => {
     if (status === "cooldown") {
-      return { score: 0, debuff: 1, avgTtftMs: null, avgTps: null };
+      return { score: 0, debuff: 1, avgTtftMs: null, avgTps: null, avgEndToEndTps: null };
     }
 
     const avgTtftMs = agg.ttftCount > 0 ? agg.ttftSum / agg.ttftCount : null;
     const avgTps = agg.tpsCount > 0 ? agg.tpsSum / agg.tpsCount : null;
+    const avgEndToEndTps = agg.endToEndTpsCount > 0 ? agg.endToEndTpsSum / agg.endToEndTpsCount : null;
 
     const recent = shortAgg.get(`${agg.providerId}\0${agg.accountId}`);
     const recentTtft = recent && recent.ttftCount > 0 ? recent.ttftSum / recent.ttftCount : null;
@@ -1467,7 +1505,7 @@ async function buildUsageOverview(
     const usageScore = clamp01(Math.log10(1 + agg.totalTokens) / 6);
 
     const score = clamp01(0.65 * ttftScore + 0.25 * tpsScore + 0.10 * usageScore - debuff * 0.35);
-    return { score, debuff, avgTtftMs, avgTps };
+    return { score, debuff, avgTtftMs, avgTps, avgEndToEndTps };
   };
 
   for (const [providerId, provider] of providerById.entries()) {
@@ -1495,6 +1533,8 @@ async function buildUsageOverview(
         ttftCount: 0,
         tpsSum: 0,
         tpsCount: 0,
+        endToEndTpsSum: 0,
+        endToEndTpsCount: 0,
         lastUsedAtMs: 0,
       };
 
@@ -1527,8 +1567,10 @@ async function buildUsageOverview(
         waterEvaporatedMl: agg.waterEvaporatedMl,
         cacheHitCount: agg.cacheHitCount,
         cacheKeyUseCount: agg.cacheKeyUseCount,
+        avgDecodeTps: health.avgTps,
         avgTtftMs: health.avgTtftMs,
         avgTps: health.avgTps,
+        avgEndToEndTps: health.avgEndToEndTps,
         healthScore: health.score,
         transientDebuff: health.debuff,
         lastUsedAt: isoFromTimestamp(agg.lastUsedAtMs),
@@ -1624,9 +1666,16 @@ async function buildUsageOverview(
           if (ttftA !== ttftB) return ttftA - ttftB;
           return byTokens();
         }
-        case "tps": {
+        case "tps":
+        case "decode-tps": {
           const tpsA = a.avgTps ?? Number.NEGATIVE_INFINITY;
           const tpsB = b.avgTps ?? Number.NEGATIVE_INFINITY;
+          if (tpsA !== tpsB) return tpsB - tpsA;
+          return byTokens();
+        }
+        case "e2e-tps": {
+          const tpsA = a.avgEndToEndTps ?? Number.NEGATIVE_INFINITY;
+          const tpsB = b.avgEndToEndTps ?? Number.NEGATIVE_INFINITY;
           if (tpsA !== tpsB) return tpsB - tpsA;
           return byTokens();
         }
@@ -1657,6 +1706,8 @@ type MutableAnalyticsAgg = {
   ttftCount: number;
   tpsSum: number;
   tpsCount: number;
+  endToEndTpsSum: number;
+  endToEndTpsCount: number;
   costUsd: number;
   energyJoules: number;
   waterEvaporatedMl: number;
@@ -1699,6 +1750,7 @@ function toAnalyticsRow(
 ): AnalyticsRowResponse {
   const avgTtftMs = agg.ttftCount > 0 ? agg.ttftSum / agg.ttftCount : null;
   const avgTps = agg.tpsCount > 0 ? agg.tpsSum / agg.tpsCount : null;
+  const avgEndToEndTps = agg.endToEndTpsCount > 0 ? agg.endToEndTpsSum / agg.endToEndTpsCount : null;
   const errorRate = agg.requestCount > 0 ? percentage(agg.errorCount, agg.requestCount) : 0;
   const cacheHitRate = agg.cacheKeyUseCount > 0 ? percentage(agg.cacheHitCount, agg.cacheKeyUseCount) : 0;
 
@@ -1714,7 +1766,9 @@ function toAnalyticsRow(
     cachedPromptTokens: agg.cachedPromptTokens,
     cacheHitRate,
     avgTtftMs,
+    avgDecodeTps: avgTps,
     avgTps,
+    avgEndToEndTps,
     costUsd: agg.costUsd,
     energyJoules: agg.energyJoules,
     waterEvaporatedMl: agg.waterEvaporatedMl,
@@ -1748,9 +1802,15 @@ function sortAnalyticsRows(rows: readonly AnalyticsRowResponse[], sort: string |
         const rightValue = right.avgTtftMs ?? Number.POSITIVE_INFINITY;
         return leftValue - rightValue || right.totalTokens - left.totalTokens || fallback();
       }
-      case "tps": {
+      case "tps":
+      case "decode-tps": {
         const leftValue = left.avgTps ?? Number.NEGATIVE_INFINITY;
         const rightValue = right.avgTps ?? Number.NEGATIVE_INFINITY;
+        return rightValue - leftValue || right.totalTokens - left.totalTokens || fallback();
+      }
+      case "e2e-tps": {
+        const leftValue = left.avgEndToEndTps ?? Number.NEGATIVE_INFINITY;
+        const rightValue = right.avgEndToEndTps ?? Number.NEGATIVE_INFINITY;
         return rightValue - leftValue || right.totalTokens - left.totalTokens || fallback();
       }
       case "errors":
@@ -1807,6 +1867,8 @@ function buildProviderModelAnalyticsFromEntries(
       ttftCount: 0,
       tpsSum: 0,
       tpsCount: 0,
+      endToEndTpsSum: 0,
+      endToEndTpsCount: 0,
       costUsd: 0,
       energyJoules: 0,
       waterEvaporatedMl: 0,
@@ -1841,6 +1903,10 @@ function buildProviderModelAnalyticsFromEntries(
       agg.tpsSum += entry.tps;
       agg.tpsCount += 1;
     }
+    if (typeof entry.endToEndTps === "number" && Number.isFinite(entry.endToEndTps)) {
+      agg.endToEndTpsSum += entry.endToEndTps;
+      agg.endToEndTpsCount += 1;
+    }
     agg.costUsd += usageCount(entry.costUsd);
     agg.energyJoules += usageCount(entry.energyJoules);
     agg.waterEvaporatedMl += usageCount(entry.waterEvaporatedMl);
@@ -1872,6 +1938,8 @@ function buildProviderModelAnalyticsFromEntries(
       ttftCount: 0,
       tpsSum: 0,
       tpsCount: 0,
+      endToEndTpsSum: 0,
+      endToEndTpsCount: 0,
       costUsd: 0,
       energyJoules: 0,
       waterEvaporatedMl: 0,
@@ -1890,6 +1958,8 @@ function buildProviderModelAnalyticsFromEntries(
     modelRow.ttftCount += pair.ttftCount;
     modelRow.tpsSum += pair.tpsSum;
     modelRow.tpsCount += pair.tpsCount;
+    modelRow.endToEndTpsSum += pair.endToEndTpsSum;
+    modelRow.endToEndTpsCount += pair.endToEndTpsCount;
     modelRow.costUsd += pair.costUsd;
     modelRow.energyJoules += pair.energyJoules;
     modelRow.waterEvaporatedMl += pair.waterEvaporatedMl;
@@ -1914,6 +1984,8 @@ function buildProviderModelAnalyticsFromEntries(
       ttftCount: 0,
       tpsSum: 0,
       tpsCount: 0,
+      endToEndTpsSum: 0,
+      endToEndTpsCount: 0,
       costUsd: 0,
       energyJoules: 0,
       waterEvaporatedMl: 0,
@@ -1932,6 +2004,8 @@ function buildProviderModelAnalyticsFromEntries(
     providerRow.ttftCount += pair.ttftCount;
     providerRow.tpsSum += pair.tpsSum;
     providerRow.tpsCount += pair.tpsCount;
+    providerRow.endToEndTpsSum += pair.endToEndTpsSum;
+    providerRow.endToEndTpsCount += pair.endToEndTpsCount;
     providerRow.costUsd += pair.costUsd;
     providerRow.energyJoules += pair.energyJoules;
     providerRow.waterEvaporatedMl += pair.waterEvaporatedMl;
@@ -2021,6 +2095,8 @@ async function buildProviderModelAnalytics(
       ttftCount: 0,
       tpsSum: 0,
       tpsCount: 0,
+      endToEndTpsSum: 0,
+      endToEndTpsCount: 0,
       costUsd: 0,
       energyJoules: 0,
       waterEvaporatedMl: 0,
@@ -2057,6 +2133,10 @@ async function buildProviderModelAnalytics(
         agg.tpsSum += entry.tps;
         agg.tpsCount += 1;
       }
+      if (typeof entry.endToEndTps === "number" && Number.isFinite(entry.endToEndTps)) {
+        agg.endToEndTpsSum += entry.endToEndTps;
+        agg.endToEndTpsCount += 1;
+      }
       agg.costUsd += usageCount(entry.costUsd);
       agg.energyJoules += usageCount(entry.energyJoules);
       agg.waterEvaporatedMl += usageCount(entry.waterEvaporatedMl);
@@ -2078,6 +2158,8 @@ async function buildProviderModelAnalytics(
       agg.ttftCount += bucket.ttftCount;
       agg.tpsSum += bucket.tpsSum;
       agg.tpsCount += bucket.tpsCount;
+      agg.endToEndTpsSum += bucket.endToEndTpsSum;
+      agg.endToEndTpsCount += bucket.endToEndTpsCount;
       agg.costUsd += bucket.costUsd;
       agg.energyJoules += bucket.energyJoules;
       agg.waterEvaporatedMl += bucket.waterEvaporatedMl;
@@ -2110,6 +2192,8 @@ async function buildProviderModelAnalytics(
       ttftCount: 0,
       tpsSum: 0,
       tpsCount: 0,
+      endToEndTpsSum: 0,
+      endToEndTpsCount: 0,
       costUsd: 0,
       energyJoules: 0,
       waterEvaporatedMl: 0,
@@ -2128,6 +2212,8 @@ async function buildProviderModelAnalytics(
     modelRow.ttftCount += pair.ttftCount;
     modelRow.tpsSum += pair.tpsSum;
     modelRow.tpsCount += pair.tpsCount;
+    modelRow.endToEndTpsSum += pair.endToEndTpsSum;
+    modelRow.endToEndTpsCount += pair.endToEndTpsCount;
     modelRow.costUsd += pair.costUsd;
     modelRow.energyJoules += pair.energyJoules;
     modelRow.waterEvaporatedMl += pair.waterEvaporatedMl;
@@ -2152,6 +2238,8 @@ async function buildProviderModelAnalytics(
       ttftCount: 0,
       tpsSum: 0,
       tpsCount: 0,
+      endToEndTpsSum: 0,
+      endToEndTpsCount: 0,
       costUsd: 0,
       energyJoules: 0,
       waterEvaporatedMl: 0,
@@ -2170,6 +2258,8 @@ async function buildProviderModelAnalytics(
     providerRow.ttftCount += pair.ttftCount;
     providerRow.tpsSum += pair.tpsSum;
     providerRow.tpsCount += pair.tpsCount;
+    providerRow.endToEndTpsSum += pair.endToEndTpsSum;
+    providerRow.endToEndTpsCount += pair.endToEndTpsCount;
     providerRow.costUsd += pair.costUsd;
     providerRow.energyJoules += pair.energyJoules;
     providerRow.waterEvaporatedMl += pair.waterEvaporatedMl;
@@ -2298,6 +2388,7 @@ export async function registerUiRoutes(app: FastifyInstance, deps: UiRouteDepend
   });
   const credentialStore = deps.credentialStore;
   const oauthManager = new OpenAiOAuthManager({
+    allowHostRoutedCallbacks: deps.config.openaiOauthAllowHostRoutedCallbacks,
     oauthScopes: deps.config.openaiOauthScopes,
     clientId: deps.config.openaiOauthClientId,
     issuer: deps.config.openaiOauthIssuer,
@@ -3982,7 +4073,12 @@ export async function registerUiRoutes(app: FastifyInstance, deps: UiRouteDepend
       ? await deps.sqlRequestUsageStore.listEntries(entryFilters)
       : deps.requestLogStore.list(entryFilters);
 
-    reply.send({ entries });
+    reply.send({
+      entries: entries.map((entry) => ({
+        ...entry,
+        decodeTps: entry.tps,
+      })),
+    });
   });
 
   app.get<{
@@ -4034,7 +4130,7 @@ export async function registerUiRoutes(app: FastifyInstance, deps: UiRouteDepend
     reply.send(html);
   };
 
-  for (const path of ["/", "/chat", "/images", "/credentials", "/tools", "/hosts"] as const) {
+  for (const path of ["/chat", "/images", "/credentials", "/tools", "/hosts"] as const) {
     app.get(path, async (_request, reply) => {
       await sendUiIndex(reply);
     });

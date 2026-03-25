@@ -34,6 +34,7 @@ interface RequestUsageRow {
   readonly cache_hit: boolean | null;
   readonly ttft_ms: number | string | null;
   readonly tps: number | string | null;
+  readonly end_to_end_tps: number | string | null;
   readonly error: string | null;
   readonly upstream_error_code: string | null;
   readonly upstream_error_type: string | null;
@@ -156,6 +157,7 @@ function toEntry(row: RequestUsageRow): RequestLogEntry {
     cacheHit: asOptionalBoolean(row.cache_hit),
     ttftMs: asOptionalNumber(row.ttft_ms),
     tps: asOptionalNumber(row.tps),
+    endToEndTps: asOptionalNumber(row.end_to_end_tps),
     error: asOptionalString(row.error),
     upstreamErrorCode: asOptionalString(row.upstream_error_code),
     upstreamErrorType: asOptionalString(row.upstream_error_type),
@@ -193,6 +195,7 @@ const ENTRY_COLUMNS = [
   "cache_hit",
   "ttft_ms",
   "tps",
+  "end_to_end_tps",
   "error",
   "upstream_error_code",
   "upstream_error_type",
@@ -249,6 +252,7 @@ export class SqlRequestUsageStore implements RequestLogMirror {
         cache_hit BOOLEAN NOT NULL DEFAULT FALSE,
         ttft_ms BIGINT,
         tps DOUBLE PRECISION,
+        end_to_end_tps DOUBLE PRECISION,
         error TEXT,
         upstream_error_code TEXT,
         upstream_error_type TEXT,
@@ -267,6 +271,7 @@ export class SqlRequestUsageStore implements RequestLogMirror {
     await this.sql.unsafe("CREATE INDEX IF NOT EXISTS idx_request_usage_entries_key_ts ON request_usage_entries(key_id, timestamp_ms DESC, id DESC);");
     await this.sql.unsafe("CREATE INDEX IF NOT EXISTS idx_request_usage_entries_provider_ts ON request_usage_entries(provider_id, timestamp_ms DESC, id DESC);");
     await this.sql.unsafe("CREATE INDEX IF NOT EXISTS idx_request_usage_entries_provider_model_ts ON request_usage_entries(provider_id, model, timestamp_ms DESC, id DESC);");
+    await this.sql.unsafe("ALTER TABLE request_usage_entries ADD COLUMN IF NOT EXISTS end_to_end_tps DOUBLE PRECISION;");
   }
 
   public async upsertEntry(entry: RequestLogEntry): Promise<void> {
@@ -297,6 +302,7 @@ export class SqlRequestUsageStore implements RequestLogMirror {
         cache_hit,
         ttft_ms,
         tps,
+        end_to_end_tps,
         error,
         upstream_error_code,
         upstream_error_type,
@@ -331,6 +337,7 @@ export class SqlRequestUsageStore implements RequestLogMirror {
         ${entry.cacheHit === true},
         ${entry.ttftMs ?? null},
         ${entry.tps ?? null},
+        ${entry.endToEndTps ?? null},
         ${entry.error ?? null},
         ${entry.upstreamErrorCode ?? null},
         ${entry.upstreamErrorType ?? null},
@@ -365,6 +372,7 @@ export class SqlRequestUsageStore implements RequestLogMirror {
         cache_hit = EXCLUDED.cache_hit,
         ttft_ms = EXCLUDED.ttft_ms,
         tps = EXCLUDED.tps,
+        end_to_end_tps = EXCLUDED.end_to_end_tps,
         error = EXCLUDED.error,
         upstream_error_code = EXCLUDED.upstream_error_code,
         upstream_error_type = EXCLUDED.upstream_error_type,

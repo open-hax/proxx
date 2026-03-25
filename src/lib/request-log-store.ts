@@ -59,6 +59,7 @@ export interface RequestLogEntry {
   readonly cacheHit?: boolean;
   readonly ttftMs?: number;
   readonly tps?: number;
+  readonly endToEndTps?: number;
   readonly error?: string;
   readonly upstreamErrorCode?: string;
   readonly upstreamErrorType?: string;
@@ -103,6 +104,7 @@ export interface RequestLogRecordInput {
   readonly cacheHit?: boolean;
   readonly ttftMs?: number;
   readonly tps?: number;
+  readonly endToEndTps?: number;
   readonly error?: string;
   readonly upstreamErrorCode?: string;
   readonly upstreamErrorType?: string;
@@ -175,6 +177,8 @@ export interface RequestLogDailyModelBucket {
   readonly ttftCount: number;
   readonly tpsSum: number;
   readonly tpsCount: number;
+  readonly endToEndTpsSum: number;
+  readonly endToEndTpsCount: number;
   readonly lastUsedAtMs: number;
   readonly costUsd: number;
   readonly energyJoules: number;
@@ -206,6 +210,8 @@ export interface RequestLogDailyAccountBucket {
   readonly ttftCount: number;
   readonly tpsSum: number;
   readonly tpsCount: number;
+  readonly endToEndTpsSum: number;
+  readonly endToEndTpsCount: number;
   readonly lastUsedAtMs: number;
   readonly costUsd: number;
   readonly energyJoules: number;
@@ -242,6 +248,8 @@ export interface AccountUsageAccumulator {
   readonly ttftCount: number;
   readonly tpsSum: number;
   readonly tpsCount: number;
+  readonly endToEndTpsSum: number;
+  readonly endToEndTpsCount: number;
   readonly lastUsedAtMs: number;
   readonly costUsd: number;
   readonly energyJoules: number;
@@ -256,6 +264,7 @@ export interface RequestLogPerfSummary {
   readonly sampleCount: number;
   readonly ewmaTtftMs: number;
   readonly ewmaTps: number | null;
+  readonly ewmaEndToEndTps: number | null;
   readonly updatedAt: number;
 }
 
@@ -338,6 +347,8 @@ type DailyModelBucket = {
   ttftCount: number;
   tpsSum: number;
   tpsCount: number;
+  endToEndTpsSum: number;
+  endToEndTpsCount: number;
   lastUsedAtMs: number;
   costUsd: number;
   energyJoules: number;
@@ -369,6 +380,8 @@ type DailyAccountBucket = {
   ttftCount: number;
   tpsSum: number;
   tpsCount: number;
+  endToEndTpsSum: number;
+  endToEndTpsCount: number;
   lastUsedAtMs: number;
   costUsd: number;
   energyJoules: number;
@@ -383,6 +396,7 @@ type PerfIndexEntry = {
   sampleCount: number;
   ewmaTtftMs: number;
   ewmaTps: number | null;
+  ewmaEndToEndTps: number | null;
   updatedAt: number;
 };
 
@@ -597,6 +611,7 @@ function hydrateEntry(raw: unknown): RequestLogEntry | null {
     cacheHit: raw.cacheHit === true,
     ttftMs: sanitizeOptionalCount(asNumber(raw.ttftMs)),
     tps: asNumber(raw.tps),
+    endToEndTps: asNumber(raw.endToEndTps),
     error: asString(raw.error),
     upstreamErrorCode: sanitizeOptionalShortString(raw.upstreamErrorCode, 80),
     upstreamErrorType: sanitizeOptionalShortString(raw.upstreamErrorType, 80),
@@ -704,6 +719,8 @@ function hydrateDailyModelBucket(raw: unknown): RequestLogDailyModelBucket | nul
     ttftCount: asNumber(raw.ttftCount) ?? 0,
     tpsSum: asNumber(raw.tpsSum) ?? 0,
     tpsCount: asNumber(raw.tpsCount) ?? 0,
+    endToEndTpsSum: asNumber(raw.endToEndTpsSum) ?? 0,
+    endToEndTpsCount: asNumber(raw.endToEndTpsCount) ?? 0,
     lastUsedAtMs: asNumber(raw.lastUsedAtMs) ?? 0,
     costUsd: asNumber(raw.costUsd) ?? 0,
     energyJoules: asNumber(raw.energyJoules) ?? 0,
@@ -755,6 +772,8 @@ function hydrateDailyAccountBucket(raw: unknown): RequestLogDailyAccountBucket |
     ttftCount: asNumber(raw.ttftCount) ?? 0,
     tpsSum: asNumber(raw.tpsSum) ?? 0,
     tpsCount: asNumber(raw.tpsCount) ?? 0,
+    endToEndTpsSum: asNumber(raw.endToEndTpsSum) ?? 0,
+    endToEndTpsCount: asNumber(raw.endToEndTpsCount) ?? 0,
     lastUsedAtMs: asNumber(raw.lastUsedAtMs) ?? 0,
     costUsd: asNumber(raw.costUsd) ?? 0,
     energyJoules: asNumber(raw.energyJoules) ?? 0,
@@ -867,6 +886,8 @@ type MutableAccountAccumulator = {
   ttftCount: number;
   tpsSum: number;
   tpsCount: number;
+  endToEndTpsSum: number;
+  endToEndTpsCount: number;
   lastUsedAtMs: number;
   costUsd: number;
   energyJoules: number;
@@ -950,18 +971,19 @@ export class RequestLogStore {
       imageCount: sanitizeOptionalCount(input.imageCount),
       imageCostUsd: sanitizeOptionalCost(input.imageCostUsd),
       promptCacheKeyUsed: input.promptCacheKeyUsed === true,
-    cacheHit: input.cacheHit === true,
-    ttftMs: sanitizeOptionalCount(input.ttftMs),
-    tps: input.tps,
-    error: input.error,
-    upstreamErrorCode: sanitizeOptionalShortString(input.upstreamErrorCode, 80),
-    upstreamErrorType: sanitizeOptionalShortString(input.upstreamErrorType, 80),
-    upstreamErrorMessage: sanitizeOptionalShortString(input.upstreamErrorMessage),
-    factoryDiagnostics: hydrateFactoryDiagnostics(input.factoryDiagnostics),
-    costUsd: sanitizeOptionalCost(input.costUsd),
-    energyJoules: sanitizeOptionalCost(input.energyJoules),
-    waterEvaporatedMl: sanitizeOptionalCost(input.waterEvaporatedMl),
-  };
+      cacheHit: input.cacheHit === true,
+      ttftMs: sanitizeOptionalCount(input.ttftMs),
+      tps: input.tps,
+      endToEndTps: input.endToEndTps,
+      error: input.error,
+      upstreamErrorCode: sanitizeOptionalShortString(input.upstreamErrorCode, 80),
+      upstreamErrorType: sanitizeOptionalShortString(input.upstreamErrorType, 80),
+      upstreamErrorMessage: sanitizeOptionalShortString(input.upstreamErrorMessage),
+      factoryDiagnostics: hydrateFactoryDiagnostics(input.factoryDiagnostics),
+      costUsd: sanitizeOptionalCost(input.costUsd),
+      energyJoules: sanitizeOptionalCost(input.energyJoules),
+      waterEvaporatedMl: sanitizeOptionalCost(input.waterEvaporatedMl),
+    };
 
     this.entries.push(entry);
     const overflow = this.entries.length - this.maxEntries;
@@ -996,6 +1018,7 @@ export class RequestLogStore {
       readonly cacheHit?: boolean;
       readonly ttftMs?: number;
       readonly tps?: number;
+      readonly endToEndTps?: number;
       readonly error?: string;
       readonly upstreamErrorCode?: string;
       readonly upstreamErrorType?: string;
@@ -1032,6 +1055,7 @@ export class RequestLogStore {
       cacheHit: patch.cacheHit ?? current.cacheHit,
       ttftMs: sanitizeOptionalCount(patch.ttftMs) ?? current.ttftMs,
       tps: typeof patch.tps === "number" && Number.isFinite(patch.tps) ? patch.tps : current.tps,
+      endToEndTps: typeof patch.endToEndTps === "number" && Number.isFinite(patch.endToEndTps) ? patch.endToEndTps : current.endToEndTps,
       error: patch.error ?? current.error,
       upstreamErrorCode: sanitizeOptionalShortString(patch.upstreamErrorCode, 80) ?? current.upstreamErrorCode,
       upstreamErrorType: sanitizeOptionalShortString(patch.upstreamErrorType, 80) ?? current.upstreamErrorType,
@@ -1396,6 +1420,8 @@ export class RequestLogStore {
       ttftCount: 0,
       tpsSum: 0,
       tpsCount: 0,
+      endToEndTpsSum: 0,
+      endToEndTpsCount: 0,
       lastUsedAtMs: 0,
       costUsd: 0,
       energyJoules: 0,
@@ -1446,6 +1472,8 @@ export class RequestLogStore {
       ttftCount: 0,
       tpsSum: 0,
       tpsCount: 0,
+      endToEndTpsSum: 0,
+      endToEndTpsCount: 0,
       lastUsedAtMs: 0,
       costUsd: 0,
       energyJoules: 0,
@@ -1505,7 +1533,7 @@ export class RequestLogStore {
       authType: entry.authType,
       requestCount: 0, totalTokens: 0, promptTokens: 0, completionTokens: 0,
       cachedPromptTokens: 0, imageCount: 0, imageCostUsd: 0, cacheHitCount: 0, cacheKeyUseCount: 0,
-      ttftSum: 0, ttftCount: 0, tpsSum: 0, tpsCount: 0, lastUsedAtMs: 0,
+      ttftSum: 0, ttftCount: 0, tpsSum: 0, tpsCount: 0, endToEndTpsSum: 0, endToEndTpsCount: 0, lastUsedAtMs: 0,
       costUsd: 0, energyJoules: 0, waterEvaporatedMl: 0,
     };
     acc.requestCount += 1;
@@ -1522,6 +1550,7 @@ export class RequestLogStore {
     if (entry.promptCacheKeyUsed) acc.cacheKeyUseCount += 1;
     if (typeof entry.ttftMs === "number" && Number.isFinite(entry.ttftMs)) { acc.ttftSum += entry.ttftMs; acc.ttftCount += 1; }
     if (typeof entry.tps === "number" && Number.isFinite(entry.tps)) { acc.tpsSum += entry.tps; acc.tpsCount += 1; }
+    if (typeof entry.endToEndTps === "number" && Number.isFinite(entry.endToEndTps)) { acc.endToEndTpsSum += entry.endToEndTps; acc.endToEndTpsCount += 1; }
     acc.lastUsedAtMs = Math.max(acc.lastUsedAtMs, entry.timestamp);
     this.accountAccumulators.set(key, acc);
   }
@@ -1546,6 +1575,9 @@ export class RequestLogStore {
     }
     if (typeof next.tps === "number" && Number.isFinite(next.tps) && (prev.tps === undefined || prev.tps === null)) {
       acc.tpsSum += next.tps; acc.tpsCount += 1;
+    }
+    if (typeof next.endToEndTps === "number" && Number.isFinite(next.endToEndTps) && (prev.endToEndTps === undefined || prev.endToEndTps === null)) {
+      acc.endToEndTpsSum += next.endToEndTps; acc.endToEndTpsCount += 1;
     }
   }
 
@@ -1680,6 +1712,11 @@ export class RequestLogStore {
       bucket.tpsCount += 1;
     }
 
+    if (typeof entry.endToEndTps === "number" && Number.isFinite(entry.endToEndTps)) {
+      bucket.endToEndTpsSum += entry.endToEndTps;
+      bucket.endToEndTpsCount += 1;
+    }
+
     bucket.lastUsedAtMs = Math.max(bucket.lastUsedAtMs, entry.timestamp);
 
     this.pruneDailyModelBuckets(entry.timestamp);
@@ -1738,6 +1775,11 @@ export class RequestLogStore {
     if (typeof entry.tps === "number" && Number.isFinite(entry.tps)) {
       bucket.tpsSum += entry.tps;
       bucket.tpsCount += 1;
+    }
+
+    if (typeof entry.endToEndTps === "number" && Number.isFinite(entry.endToEndTps)) {
+      bucket.endToEndTpsSum += entry.endToEndTps;
+      bucket.endToEndTpsCount += 1;
     }
 
     bucket.lastUsedAtMs = Math.max(bucket.lastUsedAtMs, entry.timestamp);
@@ -1828,6 +1870,11 @@ export class RequestLogStore {
       bucket.tpsCount += 1;
     }
 
+    if (typeof entry.endToEndTps === "number" && Number.isFinite(entry.endToEndTps) && (previous.endToEndTps === undefined || previous.endToEndTps === null)) {
+      bucket.endToEndTpsSum += entry.endToEndTps;
+      bucket.endToEndTpsCount += 1;
+    }
+
     bucket.lastUsedAtMs = Math.max(bucket.lastUsedAtMs, entry.timestamp);
 
     this.pruneDailyModelBuckets(entry.timestamp);
@@ -1873,6 +1920,11 @@ export class RequestLogStore {
       bucket.tpsCount += 1;
     }
 
+    if (typeof entry.endToEndTps === "number" && Number.isFinite(entry.endToEndTps) && (previous.endToEndTps === undefined || previous.endToEndTps === null)) {
+      bucket.endToEndTpsSum += entry.endToEndTps;
+      bucket.endToEndTpsCount += 1;
+    }
+
     bucket.lastUsedAtMs = Math.max(bucket.lastUsedAtMs, entry.timestamp);
     this.pruneDailyAccountBuckets(entry.timestamp);
   }
@@ -1894,6 +1946,12 @@ export class RequestLogStore {
 
     const alpha = 0.20;
     const existing = this.perfIndex.get(key);
+    const derivedEndToEndTps =
+      typeof entry.endToEndTps === "number" && Number.isFinite(entry.endToEndTps)
+        ? entry.endToEndTps
+        : typeof entry.completionTokens === "number" && Number.isFinite(entry.completionTokens) && entry.latencyMs > 0
+          ? entry.completionTokens / (entry.latencyMs / 1000)
+          : null;
     if (!existing) {
       this.perfIndex.set(key, {
         providerId: entry.providerId,
@@ -1903,6 +1961,7 @@ export class RequestLogStore {
         sampleCount: 1,
         ewmaTtftMs: ttftMs,
         ewmaTps: derivedTps,
+        ewmaEndToEndTps: derivedEndToEndTps,
         updatedAt: entry.timestamp,
       });
       return;
@@ -1915,6 +1974,12 @@ export class RequestLogStore {
 
     if (derivedTps !== null) {
       existing.ewmaTps = existing.ewmaTps === null ? derivedTps : existing.ewmaTps * (1 - alpha) + derivedTps * alpha;
+    }
+
+    if (derivedEndToEndTps !== null) {
+      existing.ewmaEndToEndTps = existing.ewmaEndToEndTps === null
+        ? derivedEndToEndTps
+        : existing.ewmaEndToEndTps * (1 - alpha) + derivedEndToEndTps * alpha;
     }
 
     existing.updatedAt = Math.max(existing.updatedAt, entry.timestamp);
@@ -2070,6 +2135,8 @@ export class RequestLogStore {
             ttftCount: asNumber(acc.ttftCount) ?? 0,
             tpsSum: asNumber(acc.tpsSum) ?? 0,
             tpsCount: asNumber(acc.tpsCount) ?? 0,
+            endToEndTpsSum: asNumber(acc.endToEndTpsSum) ?? 0,
+            endToEndTpsCount: asNumber(acc.endToEndTpsCount) ?? 0,
             lastUsedAtMs: asNumber(acc.lastUsedAtMs) ?? 0,
             costUsd: asNumber(acc.costUsd) ?? 0,
             energyJoules: asNumber(acc.energyJoules) ?? 0,

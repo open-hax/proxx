@@ -48,6 +48,14 @@ import {
   type StrategyRequestContext,
 } from "./shared.js";
 
+function shouldUseOpenAiCodexHeaderProfile(
+  providerId: string,
+  account: ProviderCredential,
+  openaiProviderId: string,
+): boolean {
+  return providerId === openaiProviderId && account.authType === "oauth_bearer";
+}
+
 const REQUESTY_MODEL_PREFIXES: ReadonlyArray<readonly [string, string]> = [
   ["gpt-", "openai"],
   ["o1", "openai"],
@@ -308,7 +316,13 @@ export async function executeProviderFallback(
         };
 
         const upstreamUrl = joinUrl(providerContext.baseUrl, upstreamPath);
-        const upstreamHeaders = buildUpstreamHeadersForCredential(context.clientHeaders, candidate.account);
+        const upstreamHeaders = buildUpstreamHeadersForCredential(context.clientHeaders, candidate.account, {
+          useOpenAiCodexHeaderProfile: shouldUseOpenAiCodexHeaderProfile(
+            candidate.providerId,
+            candidate.account,
+            context.config.openaiProviderId,
+          ),
+        });
         candidateStrategy.applyRequestHeaders(upstreamHeaders, providerContext, candidatePayload.upstreamPayload);
         const attemptStartedAt = Date.now();
 
@@ -440,6 +454,7 @@ export async function executeProviderFallback(
           context.routedModel,
           candidate.providerId,
           context.config,
+          attemptStartedAt,
         );
         if (responseLooksLikeEventStream(upstreamResponse, candidateStrategy.mode) && context.clientWantsStream) {
           void usagePromise;
@@ -495,11 +510,14 @@ export async function executeProviderFallback(
         if (await responseIndicatesQuotaError(upstreamResponse)) {
           accumulator.sawRateLimit = true;
           const permanentlyDisable = shouldPermanentlyDisableCredential(candidate.account, upstreamResponse.status);
-          const quotaCooldownMs = permanentlyDisable
+          const baseCooldownMs = permanentlyDisable
             ? PERMANENT_DISABLE_COOLDOWN_MS
             : upstreamResponse.status === 402
               ? 24 * 60 * 60 * 1000
               : Math.min(context.config.keyCooldownMs, 60_000);
+          const quotaCooldownMs = healthStore
+            ? healthStore.getGrowingCooldown(candidate.account.providerId, candidate.account.accountId, baseCooldownMs)
+            : baseCooldownMs;
           keyPool.markRateLimited(candidate.account, quotaCooldownMs);
           if (healthStore) {
             healthStore.recordFailure(candidate.account, upstreamResponse.status, "quota_exhausted");
@@ -659,7 +677,13 @@ export async function executeProviderFallback(
           const refreshedCredential = await refreshExpiredToken(candidate.account);
           if (refreshedCredential) {
             const refreshedProviderContext: ProviderAttemptContext = { ...providerContext, account: refreshedCredential };
-            const refreshedHeaders = buildUpstreamHeadersForCredential(context.clientHeaders, refreshedCredential);
+            const refreshedHeaders = buildUpstreamHeadersForCredential(context.clientHeaders, refreshedCredential, {
+              useOpenAiCodexHeaderProfile: shouldUseOpenAiCodexHeaderProfile(
+                candidate.providerId,
+                refreshedCredential,
+                context.config.openaiProviderId,
+              ),
+            });
             candidateStrategy.applyRequestHeaders(refreshedHeaders, refreshedProviderContext, candidatePayload.upstreamPayload);
             const refreshedRelease = keyPool.markInFlight(refreshedCredential);
             const refreshedAttemptStartedAt = Date.now();
@@ -705,6 +729,7 @@ export async function executeProviderFallback(
                 context.routedModel,
                 candidate.providerId,
                 context.config,
+                refreshedAttemptStartedAt,
               );
               if (responseLooksLikeEventStream(refreshedResponse, candidateStrategy.mode) && context.clientWantsStream) {
                 void usagePromise;

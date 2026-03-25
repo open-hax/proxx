@@ -3,7 +3,7 @@ import type { KeyPool, ProviderCredential } from "./key-pool.js";
 import type { ProviderRoute, ResolvedModelCatalog } from "./provider-routing.js";
 import { parseModelIdsFromCatalogPayload, buildLargestModelAliases, dedupeModelIds } from "./provider-routing.js";
 import { fetchWithResponseTimeout } from "./provider-utils.js";
-import { loadModelPreferences, type ModelPreferences } from "./models.js";
+import { loadDeclaredModels, loadModelPreferences, type ModelPreferences } from "./models.js";
 
 export interface ProviderCatalogEntry {
   readonly providerId: string;
@@ -108,6 +108,7 @@ export class ProviderCatalogStore {
     }
 
     const preferences = await loadModelPreferences(this.config.modelsFilePath, []);
+    const declaredModels = await loadDeclaredModels(this.config.modelsFilePath);
     const providerCatalogs: Record<string, ProviderCatalogEntry> = {};
     const discoveredModels: string[] = [];
 
@@ -151,14 +152,17 @@ export class ProviderCatalogStore {
     const dedupedDiscovered = dedupeModelIds(discoveredModels);
     const disabledFiltered = filterDisabled(dedupedDiscovered, preferences.disabled);
     const preferredDiscovered = extractPreferredDiscovered(preferences.preferred, disabledFiltered);
-    const orderedModels = orderPreferredFirst(disabledFiltered, preferredDiscovered);
+    const orderedDiscoveredModels = orderPreferredFirst(disabledFiltered, preferredDiscovered);
+    const declaredFiltered = filterDisabled(declaredModels, preferences.disabled);
+    const declaredOnlyModels = declaredFiltered.filter((modelId) => !disabledFiltered.includes(modelId));
+    const orderedModels = dedupeModelIds([...orderedDiscoveredModels, ...declaredOnlyModels]);
 
     const ollamaModelIds = dedupeModelIds(
       this.ollamaRoutes.flatMap((route) => providerCatalogs[route.providerId]?.modelIds ?? [])
     );
     const aliasTargets = {
       ...buildLargestModelAliases(ollamaModelIds),
-      ...buildPreferredAliasTargets(preferences.aliases, disabledFiltered),
+      ...buildPreferredAliasTargets(preferences.aliases, orderedModels),
     };
     const aliasIds = Object.keys(aliasTargets);
     const modelIds = dedupeModelIds([...orderedModels, ...aliasIds]);
@@ -167,6 +171,7 @@ export class ProviderCatalogStore {
       modelIds,
       aliasTargets,
       dynamicOllamaModelIds: ollamaModelIds,
+      declaredModelIds: declaredFiltered,
     };
 
     const resolved = {

@@ -49,6 +49,7 @@ import { getTelemetry, type TelemetrySpan } from "./lib/telemetry/otel.js";
 import { RequestLogStore } from "./lib/request-log-store.js";
 import { PromptAffinityStore } from "./lib/prompt-affinity-store.js";
 import { ProxySettingsStore } from "./lib/proxy-settings-store.js";
+import { QuotaMonitor } from "./lib/quota-monitor.js";
 import { registerUiRoutes } from "./lib/ui-routes.js";
 import {
   ensureOllamaContextFits,
@@ -64,6 +65,7 @@ import {
   openAiEmbeddingsToNativeEmbed,
   openAiEmbeddingsToNativeEmbeddings,
 } from "./lib/ollama-native.js";
+import { shouldUseResponsesUpstream } from "./lib/responses-compat.js";
 import { applyNativeOllamaAuth } from "./lib/native-auth.js";
 import { requestHasExplicitNumCtx } from "./lib/ollama-compat.js";
 import { createSqlConnection, closeConnection, type Sql } from "./lib/db/index.js";
@@ -77,6 +79,7 @@ import { SqlAuthPersistence } from "./lib/auth/sql-persistence.js";
 import { SqlGitHubAllowlist } from "./lib/auth/github-allowlist.js";
 import { seedFromJsonFile, seedFromJsonValue, seedFactoryAuthFromFiles, seedModelsFromFile } from "./lib/db/json-seeder.js";
 import { registerOAuthRoutes } from "./lib/oauth-routes.js";
+import { isAutoModel, rankAutoModels } from "./lib/auto-model-selector.js";
 import { RuntimeCredentialStore } from "./lib/runtime-credential-store.js";
 import { TokenRefreshManager } from "./lib/token-refresh-manager.js";
 import { DEFAULT_TENANT_ID } from "./lib/tenant-api-key.js";
@@ -753,6 +756,67 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     return undefined;
   }
 
+  function escapeHtml(value: string): string {
+    return value
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#39;");
+  }
+
+  function inferWebConsoleUrl(request: FastifyRequest): string {
+    const forwardedHost = readSingleHeader(request.headers as Record<string, unknown>, "x-forwarded-host")?.trim();
+    const host = readSingleHeader(request.headers as Record<string, unknown>, "host")?.trim() || forwardedHost || "localhost";
+    const forwardedProto = readSingleHeader(request.headers as Record<string, unknown>, "x-forwarded-proto")?.trim();
+    const protocol = forwardedProto || request.protocol || "http";
+    const webPort = (process.env.PROXY_WEB_PORT ?? "5174").trim() || "5174";
+
+    let hostname = "localhost";
+    try {
+      hostname = new URL(`http://${host}`).hostname || "localhost";
+    } catch {
+      hostname = host.split(":", 1)[0] || "localhost";
+    }
+
+    return `${protocol}://${hostname}:${webPort}`;
+  }
+
+  function renderPublicLandingPage(request: FastifyRequest): string {
+    const consoleUrl = inferWebConsoleUrl(request);
+    const safeConsoleUrl = escapeHtml(consoleUrl);
+    return `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Open Hax Proxy</title>
+    <style>
+      body { font-family: "IBM Plex Sans", "Fira Sans", sans-serif; background: radial-gradient(circle at top, #12313b 0%, #0b161c 60%); color: #e9f7fb; margin: 0; min-height: 100vh; display: grid; place-items: center; }
+      .card { background: rgba(17, 33, 42, 0.9); border: 1px solid rgba(145, 212, 232, 0.35); padding: 28px; border-radius: 14px; width: min(680px, 92vw); box-shadow: 0 20px 48px rgba(0, 0, 0, 0.33); }
+      h1 { margin: 0 0 12px 0; font-size: 1.4rem; }
+      p { margin: 0 0 10px 0; color: #bce2ec; line-height: 1.5; }
+      code { background: rgba(255,255,255,0.08); padding: 2px 6px; border-radius: 6px; }
+      a { color: #9be7ff; }
+      .actions { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 18px; }
+      .button { display: inline-flex; align-items: center; justify-content: center; padding: 10px 14px; border-radius: 10px; background: #10313d; border: 1px solid rgba(145, 212, 232, 0.35); color: #e9f7fb; text-decoration: none; }
+      .button.secondary { background: transparent; }
+    </style>
+  </head>
+  <body>
+    <section class="card">
+      <h1>Open Hax OpenAI Proxy</h1>
+      <p>This port serves the proxy API and OAuth callback surface. The operator web console lives on a separate port.</p>
+      <p>You can open the console without an API token, then paste the frontend bearer token into the <code>Proxy Token</code> field there.</p>
+      <div class="actions">
+        <a class="button" href="${safeConsoleUrl}">Open web console</a>
+        <a class="button secondary" href="/health">View health</a>
+      </div>
+    </section>
+  </body>
+</html>`;
+  }
+
   function isTrustedLocalBridgeAddress(remoteAddress: string | undefined): boolean {
     if (!remoteAddress) {
       return false;
@@ -1162,6 +1226,24 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     return [...expired, ...expiring];
   });
 
+  const quotaMonitor = new QuotaMonitor(
+    runtimeCredentialStore,
+    {
+      info: (obj, msg) => app.log.info(obj, msg),
+      warn: (obj, msg) => app.log.warn(obj, msg),
+      error: (obj, msg) => app.log.error(obj, msg),
+    },
+    {
+      checkIntervalMs: 20 * 60 * 1000,
+      providerId: "openai",
+      quotaWarningThreshold: 90,
+      quotaCriticalThreshold: 98,
+    },
+    accountHealthStore,
+    sql,
+  );
+  quotaMonitor.start();
+
   const ollamaCatalogRoutes = buildOllamaCatalogRoutes(config);
   const providerCatalogRoutes = buildProviderRoutes(config, false, true)
     .filter((route) => route.providerId !== "factory" || !config.disabledProviderIds.includes("factory"));
@@ -1228,6 +1310,51 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     const localCatalog = await getResolvedModelCatalog(forceRefresh);
     const bridgedModels = await getBridgeAdvertisedModelIds();
     return [...new Set([...localCatalog.modelIds, ...bridgedModels])];
+  }
+
+  function resolvableConcreteModelIds(catalog: ResolvedModelCatalog | null): string[] | undefined {
+    if (!catalog) {
+      return undefined;
+    }
+
+    return catalog.modelIds.filter((modelId) => !isAutoModel(modelId) && catalog.aliasTargets[modelId] === undefined);
+  }
+
+  function resolvableConcreteModelIdsForProviders(
+    catalogBundle: ResolvedCatalogWithPreferences | null,
+    providerIds: readonly string[],
+    includeDeclaredModel?: (modelId: string) => boolean,
+  ): string[] | undefined {
+    if (!catalogBundle) {
+      return undefined;
+    }
+
+    const ids: string[] = [];
+    for (const modelId of catalogBundle.catalog.declaredModelIds) {
+      if (
+        isAutoModel(modelId)
+        || catalogBundle.catalog.aliasTargets[modelId] !== undefined
+        || (includeDeclaredModel && !includeDeclaredModel(modelId))
+      ) {
+        continue;
+      }
+      ids.push(modelId);
+    }
+
+    for (const providerId of providerIds) {
+      const entry = catalogBundle.providerCatalogs[providerId];
+      if (!entry) {
+        continue;
+      }
+      for (const modelId of entry.modelIds) {
+        if (isAutoModel(modelId) || catalogBundle.catalog.aliasTargets[modelId] !== undefined) {
+          continue;
+        }
+        ids.push(modelId);
+      }
+    }
+
+    return [...new Set(ids)];
   }
 
   const legacyBridgePathPrefixes = [
@@ -1679,6 +1806,10 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     routedModel: string,
     catalogBundle: ResolvedCatalogWithPreferences,
   ): boolean {
+    if (catalogBundle.catalog.declaredModelIds.includes(routedModel)) {
+      return false;
+    }
+
     let sawCatalogForCandidate = false;
 
     for (const route of providerRoutes) {
@@ -1735,7 +1866,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     }
 
     const rawPath = (request.raw.url ?? request.url).split("?", 1)[0] ?? request.url;
-    const allowUnauthenticatedRoute = rawPath === "/health" || rawPath === "/api/ui/credentials/openai/oauth/browser/callback"
+    const allowUnauthenticatedRoute = rawPath === "/" || rawPath === "/favicon.ico" || rawPath === "/health" || rawPath === "/api/ui/credentials/openai/oauth/browser/callback"
       || rawPath === "/auth/callback" || rawPath === "/auth/factory/callback"
       || rawPath === config.githubOAuthCallbackPath || rawPath === "/auth/login"
       || rawPath === "/auth/refresh" || rawPath === "/auth/logout";
@@ -1860,6 +1991,15 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
   });
 
   app.options("/", async (_request, reply) => {
+    reply.code(204).send();
+  });
+
+  app.get("/", async (request, reply) => {
+    reply.header("content-type", "text/html; charset=utf-8");
+    reply.send(renderPublicLandingPage(request));
+  });
+
+  app.get("/favicon.ico", async (_request, reply) => {
     reply.code(204).send();
   });
 
@@ -2164,233 +2304,277 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       request.log.warn({ error: toErrorMessage(error) }, "failed to resolve dynamic model aliases; using requested model as-is");
     }
 
-    const { strategy, context } = selectProviderStrategy(
-      config,
-      request.headers,
-      requestBody,
-      requestedModelInput,
-      routingModelInput,
-      (request as { readonly openHaxAuth?: { readonly kind: "legacy_admin" | "tenant_api_key" | "ui_session" | "unauthenticated"; readonly tenantId?: string; readonly keyId?: string; readonly subject?: string } }).openHaxAuth,
-    );
-    reply.header("x-open-hax-upstream-mode", strategy.mode);
+    const concreteModelIds = resolvableConcreteModelIds(resolvedModelCatalog);
+    const routingModelCandidates = isAutoModel(routingModelInput)
+      ? rankAutoModels(
+          routingModelInput,
+          requestBody,
+          concreteModelIds,
+          config.upstreamProviderId,
+          requestLogStore,
+          accountHealthStore,
+        ).map((entry) => entry.modelId)
+      : [routingModelInput];
 
-    let providerRoutes: ProviderRoute[];
-    if (context.factoryPrefixed) {
-      const factoryBaseUrl = config.upstreamProviderBaseUrls["factory"] ?? "https://api.factory.ai";
-      providerRoutes = config.disabledProviderIds.includes("factory")
-        ? []
-        : [{ providerId: "factory", baseUrl: factoryBaseUrl }];
-    } else {
-      providerRoutes = buildProviderRoutes(
+    if (routingModelCandidates.length === 0) {
+      sendOpenAiError(reply, 404, `Model not found: ${requestedModelInput}`, "invalid_request_error", "model_not_found");
+      return;
+    }
+
+    if (isAutoModel(routingModelInput)) {
+      reply.header("x-open-hax-auto-model-candidates", routingModelCandidates.slice(0, 12).join(","));
+    }
+
+    for (const [candidateIndex, candidateRoutingModel] of routingModelCandidates.entries()) {
+      const hasMoreModelCandidates = candidateIndex < routingModelCandidates.length - 1;
+      const { strategy, context } = selectProviderStrategy(
         config,
-        context.openAiPrefixed,
-        !context.openAiPrefixed && strategy.mode === "responses"
+        request.headers,
+        requestBody,
+        requestedModelInput,
+        candidateRoutingModel,
+        (request as { readonly openHaxAuth?: { readonly kind: "legacy_admin" | "tenant_api_key" | "ui_session" | "unauthenticated"; readonly tenantId?: string; readonly keyId?: string; readonly subject?: string } }).openHaxAuth,
       );
-      if (!context.openAiPrefixed && resolvedModelCatalog) {
-        providerRoutes = resolveProviderRoutesForModel(providerRoutes, context.routedModel, resolvedModelCatalog);
-      }
-    }
-    providerRoutes = filterTenantProviderRoutes(providerRoutes, proxySettings);
-    providerRoutes = orderProviderRoutesByPolicy(policyEngine, providerRoutes, context.requestedModelInput, context.routedModel, {
-      openAiPrefixed: context.openAiPrefixed,
-      localOllama: context.localOllama,
-      explicitOllama: context.explicitOllama,
-    });
+      reply.header("x-open-hax-upstream-mode", strategy.mode);
 
-    if (providerRoutes.length === 0) {
-      sendOpenAiError(reply, 403, "No upstream providers are allowed for this tenant and request.", "invalid_request_error", "provider_not_allowed");
-      return;
-    }
-
-    try {
-      const catalogBundle = await providerCatalogStore.getCatalog();
-      const disabledSet = new Set(catalogBundle.preferences.disabled);
-      if (disabledSet.has(context.routedModel)) {
-        sendOpenAiError(reply, 403, `Model is disabled: ${context.routedModel}`, "invalid_request_error", "model_disabled");
-        return;
-      }
-
-      if (shouldRejectModelFromProviderCatalog(providerRoutes, context.routedModel, catalogBundle)) {
-        sendOpenAiError(reply, 404, `Model not found: ${context.routedModel}`, "invalid_request_error", "model_not_found");
-        return;
-      }
-    } catch (error) {
-      request.log.warn({ error: toErrorMessage(error) }, "failed to verify provider model catalog; continuing without gating");
-    }
-
-    let payload: ReturnType<typeof strategy.buildPayload>;
-    try {
-      payload = strategy.buildPayload(context);
-    } catch (error) {
-      sendOpenAiError(reply, 400, toErrorMessage(error), "invalid_request_error", "invalid_provider_options");
-      return;
-    }
-
-    if (strategy.mode === "ollama_chat" || strategy.mode === "local_ollama_chat") {
-      const candidateRequestBody = payload.upstreamPayload;
-      if (isRecord(candidateRequestBody) && !requestHasExplicitNumCtx(requestBody)) {
-        const budget = await ensureOllamaContextFits(config.ollamaBaseUrl, candidateRequestBody, Math.min(config.requestTimeoutMs, 30_000));
-        if (budget && budget.requiredContextTokens > budget.availableContextTokens) {
-          sendOpenAiError(
-            reply,
-            400,
-            `Request exceeds model context window for ${budget.model}. Estimated input tokens: ${budget.estimatedInputTokens}, requested output tokens: ${budget.requestedOutputTokens}, required total: ${budget.requiredContextTokens}, available: ${budget.availableContextTokens}. Reduce input size or request a larger context/model.`,
-            "invalid_request_error",
-            "ollama_context_overflow"
-          );
-          return;
+      let providerRoutes: ProviderRoute[];
+      if (context.factoryPrefixed) {
+        const factoryBaseUrl = config.upstreamProviderBaseUrls["factory"] ?? "https://api.factory.ai";
+        providerRoutes = config.disabledProviderIds.includes("factory")
+          ? []
+          : [{ providerId: "factory", baseUrl: factoryBaseUrl }];
+      } else {
+        providerRoutes = buildProviderRoutes(
+          config,
+          context.openAiPrefixed,
+          !context.openAiPrefixed && strategy.mode === "responses"
+        );
+        if (!context.openAiPrefixed && resolvedModelCatalog) {
+          providerRoutes = resolveProviderRoutesForModel(providerRoutes, context.routedModel, resolvedModelCatalog);
         }
       }
-    }
+      providerRoutes = filterTenantProviderRoutes(providerRoutes, proxySettings);
+      providerRoutes = orderProviderRoutesByPolicy(policyEngine, providerRoutes, context.requestedModelInput, context.routedModel, {
+        openAiPrefixed: context.openAiPrefixed,
+        localOllama: context.localOllama,
+        explicitOllama: context.explicitOllama,
+      });
 
-    if (strategy.isLocal) {
-      if (!tenantProviderAllowed(proxySettings, "ollama")) {
-        sendOpenAiError(reply, 403, "Provider is disabled for this tenant: ollama", "invalid_request_error", "provider_not_allowed");
+      if (providerRoutes.length === 0) {
+        if (hasMoreModelCandidates) {
+          continue;
+        }
+        sendOpenAiError(reply, 403, "No upstream providers are allowed for this tenant and request.", "invalid_request_error", "provider_not_allowed");
         return;
       }
 
-      await executeLocalStrategy(strategy, reply, requestLogStore, context, payload);
-      return;
-    }
+      try {
+        const catalogBundle = await providerCatalogStore.getCatalog();
+        const disabledSet = new Set(catalogBundle.preferences.disabled);
+        if (disabledSet.has(context.routedModel)) {
+          if (hasMoreModelCandidates) {
+            continue;
+          }
+          sendOpenAiError(reply, 403, `Model is disabled: ${context.routedModel}`, "invalid_request_error", "model_disabled");
+          return;
+        }
 
-    if (providerRoutes.length === 0) {
-      sendOpenAiError(reply, 403, "No upstream providers are allowed for this tenant and request.", "invalid_request_error", "provider_not_allowed");
-      return;
-    }
-
-    for (const providerId of new Set(providerRoutes.map((route) => route.providerId))) {
-      await ensureFreshAccounts(providerId);
-    }
-
-    const availability = await inspectProviderAvailability(keyPool, providerRoutes);
-    const promptCacheKey = extractPromptCacheKey(requestBody);
-    const execution = await executeProviderFallback(
-      strategy,
-      reply,
-      requestLogStore,
-      promptAffinityStore,
-      keyPool,
-      providerRoutes,
-      context,
-      payload,
-      promptCacheKey,
-      refreshExpiredOAuthAccount,
-      policyEngine,
-      accountHealthStore,
-      eventStore,
-    );
-
-    if (execution.handled) {
-      return;
-    }
-
-    const federatedChatHandled = await executeFederatedRequestFallback({
-      requestHeaders: request.headers,
-      requestBody,
-      requestAuth: (request as { readonly openHaxAuth?: { readonly kind: "legacy_admin" | "tenant_api_key" | "ui_session" | "unauthenticated"; readonly subject?: string } }).openHaxAuth,
-      providerRoutes,
-      upstreamPath: "/v1/chat/completions",
-      reply,
-      timeoutMs: context.upstreamAttemptTimeoutMs,
-    });
-    if (federatedChatHandled) {
-      return;
-    }
-
-    const bridgedChatHandled = await executeBridgeRequestFallback({
-      requestHeaders: request.headers,
-      requestBody,
-      requestAuth: (request as { readonly openHaxAuth?: { readonly kind: "legacy_admin" | "tenant_api_key" | "ui_session" | "unauthenticated"; readonly subject?: string } }).openHaxAuth,
-      upstreamPath: "/v1/chat/completions",
-      reply,
-      timeoutMs: context.upstreamAttemptTimeoutMs,
-    });
-    if (bridgedChatHandled) {
-      return;
-    }
-
-    if (execution.candidateCount === 0) {
-      const retryInMs = await minMsUntilAnyProviderKeyReady(keyPool, providerRoutes);
-      if (retryInMs > 0) {
-        reply.header("retry-after", Math.ceil(retryInMs / 1000));
+        if (shouldRejectModelFromProviderCatalog(providerRoutes, context.routedModel, catalogBundle)) {
+          if (hasMoreModelCandidates) {
+            continue;
+          }
+          sendOpenAiError(reply, 404, `Model not found: ${context.routedModel}`, "invalid_request_error", "model_not_found");
+          return;
+        }
+      } catch (error) {
+        request.log.warn({ error: toErrorMessage(error) }, "failed to verify provider model catalog; continuing without gating");
       }
 
-      if (!availability.sawConfiguredProvider) {
-        sendOpenAiError(reply, 500, "Proxy is missing upstream account configuration", "server_error", "keys_unavailable");
+      let payload: ReturnType<typeof strategy.buildPayload>;
+      try {
+        payload = strategy.buildPayload(context);
+      } catch (error) {
+        if (hasMoreModelCandidates) {
+          continue;
+        }
+        sendOpenAiError(reply, 400, toErrorMessage(error), "invalid_request_error", "invalid_provider_options");
         return;
       }
 
-      sendOpenAiError(
-        reply,
-        429,
-        "All upstream accounts are currently rate-limited. Retry after the cooldown window.",
-        "rate_limit_error",
-        "all_keys_rate_limited"
-      );
-      return;
-    }
-
-    const { summary } = execution;
-
-    if (summary.sawUpstreamInvalidRequest) {
-      app.log.warn({ providerRoutes, attempts: summary.attempts, upstreamMode: strategy.mode }, "all attempts exhausted due to upstream invalid-request responses");
-      sendOpenAiError(
-        reply,
-        400,
-        "No upstream account accepted the request payload. Check model availability and request parameters.",
-        "invalid_request_error",
-        "upstream_rejected_request"
-      );
-      return;
-    }
-
-    if (summary.sawRateLimit) {
-      const retryInMs = await minMsUntilAnyProviderKeyReady(keyPool, providerRoutes);
-      if (retryInMs > 0) {
-        reply.header("retry-after", Math.ceil(retryInMs / 1000));
+      if (strategy.mode === "ollama_chat" || strategy.mode === "local_ollama_chat") {
+        const candidateRequestBody = payload.upstreamPayload;
+        if (isRecord(candidateRequestBody) && !requestHasExplicitNumCtx(requestBody)) {
+          const budget = await ensureOllamaContextFits(config.ollamaBaseUrl, candidateRequestBody, Math.min(config.requestTimeoutMs, 30_000));
+          if (budget && budget.requiredContextTokens > budget.availableContextTokens) {
+            if (hasMoreModelCandidates) {
+              continue;
+            }
+            sendOpenAiError(
+              reply,
+              400,
+              `Request exceeds model context window for ${budget.model}. Estimated input tokens: ${budget.estimatedInputTokens}, requested output tokens: ${budget.requestedOutputTokens}, required total: ${budget.requiredContextTokens}, available: ${budget.availableContextTokens}. Reduce input size or request a larger context/model.`,
+              "invalid_request_error",
+              "ollama_context_overflow"
+            );
+            return;
+          }
+        }
       }
 
-      app.log.warn({ providerRoutes, attempts: summary.attempts, upstreamMode: strategy.mode }, "all attempts exhausted due to upstream rate limits");
-      sendOpenAiError(
+      if (strategy.isLocal) {
+        if (!tenantProviderAllowed(proxySettings, "ollama")) {
+          if (hasMoreModelCandidates) {
+            continue;
+          }
+          sendOpenAiError(reply, 403, "Provider is disabled for this tenant: ollama", "invalid_request_error", "provider_not_allowed");
+          return;
+        }
+
+        await executeLocalStrategy(strategy, reply, requestLogStore, context, payload);
+        return;
+      }
+
+      for (const providerId of new Set(providerRoutes.map((route) => route.providerId))) {
+        await ensureFreshAccounts(providerId);
+      }
+
+      const availability = await inspectProviderAvailability(keyPool, providerRoutes);
+      const promptCacheKey = extractPromptCacheKey(requestBody);
+      const execution = await executeProviderFallback(
+        strategy,
         reply,
-        429,
-        "No upstream account succeeded. Accounts may be rate-limited, quota-exhausted, or have outstanding balances.",
-        "rate_limit_error",
-        "no_available_key"
+        requestLogStore,
+        promptAffinityStore,
+        keyPool,
+        providerRoutes,
+        context,
+        payload,
+        promptCacheKey,
+        refreshExpiredOAuthAccount,
+        policyEngine,
+        accountHealthStore,
+        eventStore,
       );
+
+      if (execution.handled) {
+        return;
+      }
+
+      const federatedChatHandled = await executeFederatedRequestFallback({
+        requestHeaders: request.headers,
+        requestBody,
+        requestAuth: (request as { readonly openHaxAuth?: { readonly kind: "legacy_admin" | "tenant_api_key" | "ui_session" | "unauthenticated"; readonly subject?: string } }).openHaxAuth,
+        providerRoutes,
+        upstreamPath: "/v1/chat/completions",
+        reply,
+        timeoutMs: context.upstreamAttemptTimeoutMs,
+      });
+      if (federatedChatHandled) {
+        return;
+      }
+
+      const bridgedChatHandled = await executeBridgeRequestFallback({
+        requestHeaders: request.headers,
+        requestBody,
+        requestAuth: (request as { readonly openHaxAuth?: { readonly kind: "legacy_admin" | "tenant_api_key" | "ui_session" | "unauthenticated"; readonly subject?: string } }).openHaxAuth,
+        upstreamPath: "/v1/chat/completions",
+        reply,
+        timeoutMs: context.upstreamAttemptTimeoutMs,
+      });
+      if (bridgedChatHandled) {
+        return;
+      }
+
+      if (hasMoreModelCandidates) {
+        continue;
+      }
+
+      if (execution.candidateCount === 0) {
+        const retryInMs = await minMsUntilAnyProviderKeyReady(keyPool, providerRoutes);
+        if (retryInMs > 0) {
+          reply.header("retry-after", Math.ceil(retryInMs / 1000));
+        }
+
+        if (!availability.sawConfiguredProvider) {
+          sendOpenAiError(reply, 500, "Proxy is missing upstream account configuration", "server_error", "keys_unavailable");
+          return;
+        }
+
+        sendOpenAiError(
+          reply,
+          429,
+          "All upstream accounts are currently rate-limited. Retry after the cooldown window.",
+          "rate_limit_error",
+          "all_keys_rate_limited"
+        );
+        return;
+      }
+
+      const { summary } = execution;
+
+      if (summary.sawUpstreamInvalidRequest) {
+        app.log.warn({ providerRoutes, attempts: summary.attempts, upstreamMode: strategy.mode }, "all attempts exhausted due to upstream invalid-request responses");
+        sendOpenAiError(
+          reply,
+          400,
+          "No upstream account accepted the request payload. Check model availability and request parameters.",
+          "invalid_request_error",
+          "upstream_rejected_request"
+        );
+        return;
+      }
+
+      if (summary.sawRateLimit) {
+        const retryInMs = await minMsUntilAnyProviderKeyReady(keyPool, providerRoutes);
+        if (retryInMs > 0) {
+          reply.header("retry-after", Math.ceil(retryInMs / 1000));
+        }
+
+        app.log.warn({ providerRoutes, attempts: summary.attempts, upstreamMode: strategy.mode }, "all attempts exhausted due to upstream rate limits");
+        sendOpenAiError(
+          reply,
+          429,
+          "No upstream account succeeded. Accounts may be rate-limited, quota-exhausted, or have outstanding balances.",
+          "rate_limit_error",
+          "no_available_key"
+        );
+        return;
+      }
+
+      if (summary.sawUpstreamServerError) {
+        app.log.warn({ providerRoutes, attempts: summary.attempts, upstreamMode: strategy.mode }, "all attempts exhausted due to upstream server errors");
+        sendOpenAiError(
+          reply,
+          502,
+          "Upstream returned transient server errors across all available accounts.",
+          "server_error",
+          "upstream_server_error"
+        );
+        return;
+      }
+
+      if (summary.sawModelNotFound && !summary.sawRequestError) {
+        app.log.warn({ providerRoutes, attempts: summary.attempts, upstreamMode: strategy.mode }, "all attempts exhausted due to model-not-found responses");
+        sendOpenAiError(
+          reply,
+          404,
+          `Model not found across available upstream providers: ${context.routedModel}`,
+          "invalid_request_error",
+          "model_not_found"
+        );
+        return;
+      }
+
+      const message = summary.sawRequestError
+        ? "All upstream attempts failed due to network/transport errors."
+        : "Upstream rejected the request with no successful fallback.";
+
+      app.log.error({ providerRoutes, attempts: summary.attempts, upstreamMode: strategy.mode, sawRequestError: summary.sawRequestError }, "all upstream attempts exhausted");
+      sendOpenAiError(reply, 502, message, "server_error", "upstream_unavailable");
       return;
     }
 
-    if (summary.sawUpstreamServerError) {
-      app.log.warn({ providerRoutes, attempts: summary.attempts, upstreamMode: strategy.mode }, "all attempts exhausted due to upstream server errors");
-      sendOpenAiError(
-        reply,
-        502,
-        "Upstream returned transient server errors across all available accounts.",
-        "server_error",
-        "upstream_server_error"
-      );
-      return;
-    }
-
-    if (summary.sawModelNotFound && !summary.sawRequestError) {
-      app.log.warn({ providerRoutes, attempts: summary.attempts, upstreamMode: strategy.mode }, "all attempts exhausted due to model-not-found responses");
-      sendOpenAiError(
-        reply,
-        404,
-        `Model not found across available upstream providers: ${context.routedModel}`,
-        "invalid_request_error",
-        "model_not_found"
-      );
-      return;
-    }
-
-    const message = summary.sawRequestError
-      ? "All upstream attempts failed due to network/transport errors."
-      : "Upstream rejected the request with no successful fallback.";
-
-    app.log.error({ providerRoutes, attempts: summary.attempts, upstreamMode: strategy.mode, sawRequestError: summary.sawRequestError }, "all upstream attempts exhausted");
-    sendOpenAiError(reply, 502, message, "server_error", "upstream_unavailable");
+    sendOpenAiError(reply, 502, "Upstream rejected the request with no successful fallback.", "server_error", "upstream_unavailable");
   });
 
   app.post<{ Body: Record<string, unknown> }>("/v1/responses", async (request, reply) => {
@@ -2424,9 +2608,13 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     }
 
     let routingModelInput = requestedModelInput;
+    let resolvedModelCatalog: ResolvedModelCatalog | null = null;
+    let resolvedCatalogBundle: ResolvedCatalogWithPreferences | null = null;
     try {
       const catalogBundle = await providerCatalogStore.getCatalog();
+      resolvedCatalogBundle = catalogBundle;
       const catalog = catalogBundle.catalog;
+      resolvedModelCatalog = catalog;
       const disabledModelSet = new Set(catalogBundle.preferences.disabled);
       if (disabledModelSet.has(requestedModelInput) || disabledModelSet.has(catalog.aliasTargets[requestedModelInput] ?? "")) {
         sendOpenAiError(reply, 403, `Model is disabled: ${requestedModelInput}`, "invalid_request_error", "model_disabled");
@@ -2441,188 +2629,236 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       request.log.warn({ error: toErrorMessage(error) }, "failed to resolve dynamic model aliases for /v1/responses; using requested model as-is");
     }
 
-    const { strategy, context } = buildResponsesPassthroughContext(
-      config,
-      request.headers,
-      requestBody,
-      requestedModelInput,
-      routingModelInput,
-      (request as { readonly openHaxAuth?: { readonly kind: "legacy_admin" | "tenant_api_key" | "ui_session" | "unauthenticated"; readonly tenantId?: string; readonly keyId?: string; readonly subject?: string } }).openHaxAuth,
-    );
-    reply.header("x-open-hax-upstream-mode", strategy.mode);
+    const autoCandidateProviderIds = filterTenantProviderRoutes(
+      filterResponsesApiRoutes(buildProviderRoutes(config, false, true), config.openaiProviderId),
+      tenantSettings,
+    ).map((route) => route.providerId);
+    const concreteModelIds = isAutoModel(routingModelInput)
+      ? resolvableConcreteModelIdsForProviders(
+          resolvedCatalogBundle,
+          autoCandidateProviderIds,
+          (modelId) => shouldUseResponsesUpstream(modelId, config.responsesModelPrefixes),
+        )
+      : resolvableConcreteModelIds(resolvedModelCatalog);
+    const routingModelCandidates = isAutoModel(routingModelInput)
+      ? rankAutoModels(
+          routingModelInput,
+          requestBody,
+          concreteModelIds,
+          config.upstreamProviderId,
+          requestLogStore,
+          accountHealthStore,
+        ).map((entry) => entry.modelId)
+      : [routingModelInput];
 
-    let providerRoutes: ProviderRoute[];
-    if (context.factoryPrefixed) {
-      const factoryBaseUrl = config.upstreamProviderBaseUrls["factory"] ?? "https://api.factory.ai";
-      providerRoutes = config.disabledProviderIds.includes("factory")
-        ? []
-        : [{ providerId: "factory", baseUrl: factoryBaseUrl }];
-    } else {
-      providerRoutes = buildProviderRoutes(config, context.openAiPrefixed, true);
-    }
-
-    providerRoutes = filterResponsesApiRoutes(providerRoutes, config.openaiProviderId);
-    providerRoutes = filterTenantProviderRoutes(providerRoutes, tenantSettings);
-    providerRoutes = orderProviderRoutesByPolicy(policyEngine, providerRoutes, context.requestedModelInput, context.routedModel, {
-      openAiPrefixed: context.openAiPrefixed,
-      localOllama: false,
-      explicitOllama: false,
-    });
-
-    if (providerRoutes.length === 0) {
-      sendOpenAiError(reply, 403, "No upstream providers are allowed for this tenant and request.", "invalid_request_error", "provider_not_allowed");
+    if (routingModelCandidates.length === 0) {
+      sendOpenAiError(reply, 404, `Model not found: ${requestedModelInput}`, "invalid_request_error", "model_not_found");
       return;
     }
 
-    try {
-      const catalogBundle = await providerCatalogStore.getCatalog();
-      const disabledSet = new Set(catalogBundle.preferences.disabled);
-      if (disabledSet.has(context.routedModel)) {
-        sendOpenAiError(reply, 403, `Model is disabled: ${context.routedModel}`, "invalid_request_error", "model_disabled");
+    if (isAutoModel(routingModelInput)) {
+      reply.header("x-open-hax-auto-model-candidates", routingModelCandidates.slice(0, 12).join(","));
+    }
+
+    for (const [candidateIndex, candidateRoutingModel] of routingModelCandidates.entries()) {
+      const hasMoreModelCandidates = candidateIndex < routingModelCandidates.length - 1;
+      const { strategy, context } = buildResponsesPassthroughContext(
+        config,
+        request.headers,
+        requestBody,
+        requestedModelInput,
+        candidateRoutingModel,
+        (request as { readonly openHaxAuth?: { readonly kind: "legacy_admin" | "tenant_api_key" | "ui_session" | "unauthenticated"; readonly tenantId?: string; readonly keyId?: string; readonly subject?: string } }).openHaxAuth,
+      );
+      reply.header("x-open-hax-upstream-mode", strategy.mode);
+
+      let providerRoutes: ProviderRoute[];
+      if (context.factoryPrefixed) {
+        const factoryBaseUrl = config.upstreamProviderBaseUrls["factory"] ?? "https://api.factory.ai";
+        providerRoutes = config.disabledProviderIds.includes("factory")
+          ? []
+          : [{ providerId: "factory", baseUrl: factoryBaseUrl }];
+      } else {
+        providerRoutes = buildProviderRoutes(config, context.openAiPrefixed, true);
+      }
+
+      providerRoutes = filterResponsesApiRoutes(providerRoutes, config.openaiProviderId);
+      providerRoutes = filterTenantProviderRoutes(providerRoutes, tenantSettings);
+      providerRoutes = orderProviderRoutesByPolicy(policyEngine, providerRoutes, context.requestedModelInput, context.routedModel, {
+        openAiPrefixed: context.openAiPrefixed,
+        localOllama: false,
+        explicitOllama: false,
+      });
+
+      if (providerRoutes.length === 0) {
+        if (hasMoreModelCandidates) {
+          continue;
+        }
+        sendOpenAiError(reply, 403, "No upstream providers are allowed for this tenant and request.", "invalid_request_error", "provider_not_allowed");
         return;
       }
 
-      if (shouldRejectModelFromProviderCatalog(providerRoutes, context.routedModel, catalogBundle)) {
-        sendOpenAiError(reply, 404, `Model not found: ${context.routedModel}`, "invalid_request_error", "model_not_found");
-        return;
-      }
-    } catch (error) {
-      request.log.warn({ error: toErrorMessage(error) }, "failed to verify provider model catalog for /v1/responses; continuing without gating");
-    }
+      try {
+        const catalogBundle = await providerCatalogStore.getCatalog();
+        const disabledSet = new Set(catalogBundle.preferences.disabled);
+        if (disabledSet.has(context.routedModel)) {
+          if (hasMoreModelCandidates) {
+            continue;
+          }
+          sendOpenAiError(reply, 403, `Model is disabled: ${context.routedModel}`, "invalid_request_error", "model_disabled");
+          return;
+        }
 
-    let payload: ReturnType<typeof strategy.buildPayload>;
-    try {
-      payload = strategy.buildPayload(context);
-    } catch (error) {
-      sendOpenAiError(reply, 400, toErrorMessage(error), "invalid_request_error", "invalid_provider_options");
-      return;
-    }
-
-    if (providerRoutes.length === 0) {
-      sendOpenAiError(reply, 403, "No upstream providers are allowed for this tenant and request.", "invalid_request_error", "provider_not_allowed");
-      return;
-    }
-
-    for (const providerId of new Set(providerRoutes.map((route) => route.providerId))) {
-      await ensureFreshAccounts(providerId);
-    }
-
-    const availability = await inspectProviderAvailability(keyPool, providerRoutes, promptCacheKey);
-    const execution = await executeProviderFallback(
-      strategy,
-      reply,
-      requestLogStore,
-      promptAffinityStore,
-      keyPool,
-      providerRoutes,
-      context,
-      payload,
-      availability.prompt_cache_key,
-      refreshExpiredOAuthAccount,
-      policyEngine,
-      accountHealthStore,
-      eventStore,
-    );
-
-    if (execution.handled) {
-      return;
-    }
-
-    const federatedResponsesHandled = await executeFederatedRequestFallback({
-      requestHeaders: request.headers,
-      requestBody,
-      requestAuth: (request as { readonly openHaxAuth?: { readonly kind: "legacy_admin" | "tenant_api_key" | "ui_session" | "unauthenticated"; readonly subject?: string } }).openHaxAuth,
-      providerRoutes,
-      upstreamPath: "/v1/responses",
-      reply,
-      timeoutMs: context.upstreamAttemptTimeoutMs,
-    });
-    if (federatedResponsesHandled) {
-      return;
-    }
-
-    if (execution.candidateCount === 0) {
-      const retryInMs = await minMsUntilAnyProviderKeyReady(keyPool, providerRoutes);
-      if (retryInMs > 0) {
-        reply.header("retry-after", Math.ceil(retryInMs / 1000));
+        if (shouldRejectModelFromProviderCatalog(providerRoutes, context.routedModel, catalogBundle)) {
+          if (hasMoreModelCandidates) {
+            continue;
+          }
+          sendOpenAiError(reply, 404, `Model not found: ${context.routedModel}`, "invalid_request_error", "model_not_found");
+          return;
+        }
+      } catch (error) {
+        request.log.warn({ error: toErrorMessage(error) }, "failed to verify provider model catalog for /v1/responses; continuing without gating");
       }
 
-      if (!availability.sawConfiguredProvider) {
-        sendOpenAiError(reply, 500, "Proxy is missing upstream account configuration for Responses API providers", "server_error", "keys_unavailable");
+      let payload: ReturnType<typeof strategy.buildPayload>;
+      try {
+        payload = strategy.buildPayload(context);
+      } catch (error) {
+        if (hasMoreModelCandidates) {
+          continue;
+        }
+        sendOpenAiError(reply, 400, toErrorMessage(error), "invalid_request_error", "invalid_provider_options");
         return;
       }
 
-      sendOpenAiError(
-        reply,
-        429,
-        "All upstream accounts are currently rate-limited. Retry after the cooldown window.",
-        "rate_limit_error",
-        "all_keys_rate_limited"
-      );
-      return;
-    }
-
-    const { summary } = execution;
-
-    if (summary.sawUpstreamInvalidRequest) {
-      app.log.warn({ providerRoutes, attempts: summary.attempts, upstreamMode: strategy.mode }, "responses passthrough: all attempts exhausted due to upstream invalid-request responses");
-      sendOpenAiError(
-        reply,
-        400,
-        "No upstream account accepted the request payload. Check model availability and request parameters.",
-        "invalid_request_error",
-        "upstream_rejected_request"
-      );
-      return;
-    }
-
-    if (summary.sawRateLimit) {
-      const retryInMs = await minMsUntilAnyProviderKeyReady(keyPool, providerRoutes);
-      if (retryInMs > 0) {
-        reply.header("retry-after", Math.ceil(retryInMs / 1000));
+      for (const providerId of new Set(providerRoutes.map((route) => route.providerId))) {
+        await ensureFreshAccounts(providerId);
       }
 
-      app.log.warn({ providerRoutes, attempts: summary.attempts, upstreamMode: strategy.mode }, "responses passthrough: all attempts exhausted due to upstream rate limits");
-      sendOpenAiError(
+      const availability = await inspectProviderAvailability(keyPool, providerRoutes, promptCacheKey);
+      const execution = await executeProviderFallback(
+        strategy,
         reply,
-        429,
-        "No upstream account succeeded. Accounts may be rate-limited, quota-exhausted, or have outstanding balances.",
-        "rate_limit_error",
-        "no_available_key"
+        requestLogStore,
+        promptAffinityStore,
+        keyPool,
+        providerRoutes,
+        context,
+        payload,
+        availability.prompt_cache_key,
+        refreshExpiredOAuthAccount,
+        policyEngine,
+        accountHealthStore,
+        eventStore,
       );
+
+      if (execution.handled) {
+        return;
+      }
+
+      const federatedResponsesHandled = await executeFederatedRequestFallback({
+        requestHeaders: request.headers,
+        requestBody,
+        requestAuth: (request as { readonly openHaxAuth?: { readonly kind: "legacy_admin" | "tenant_api_key" | "ui_session" | "unauthenticated"; readonly subject?: string } }).openHaxAuth,
+        providerRoutes,
+        upstreamPath: "/v1/responses",
+        reply,
+        timeoutMs: context.upstreamAttemptTimeoutMs,
+      });
+      if (federatedResponsesHandled) {
+        return;
+      }
+
+      if (hasMoreModelCandidates) {
+        continue;
+      }
+
+      if (execution.candidateCount === 0) {
+        const retryInMs = await minMsUntilAnyProviderKeyReady(keyPool, providerRoutes);
+        if (retryInMs > 0) {
+          reply.header("retry-after", Math.ceil(retryInMs / 1000));
+        }
+
+        if (!availability.sawConfiguredProvider) {
+          sendOpenAiError(reply, 500, "Proxy is missing upstream account configuration for Responses API providers", "server_error", "keys_unavailable");
+          return;
+        }
+
+        sendOpenAiError(
+          reply,
+          429,
+          "All upstream accounts are currently rate-limited. Retry after the cooldown window.",
+          "rate_limit_error",
+          "all_keys_rate_limited"
+        );
+        return;
+      }
+
+      const { summary } = execution;
+
+      if (summary.sawUpstreamInvalidRequest) {
+        app.log.warn({ providerRoutes, attempts: summary.attempts, upstreamMode: strategy.mode }, "responses passthrough: all attempts exhausted due to upstream invalid-request responses");
+        sendOpenAiError(
+          reply,
+          400,
+          "No upstream account accepted the request payload. Check model availability and request parameters.",
+          "invalid_request_error",
+          "upstream_rejected_request"
+        );
+        return;
+      }
+
+      if (summary.sawRateLimit) {
+        const retryInMs = await minMsUntilAnyProviderKeyReady(keyPool, providerRoutes);
+        if (retryInMs > 0) {
+          reply.header("retry-after", Math.ceil(retryInMs / 1000));
+        }
+
+        app.log.warn({ providerRoutes, attempts: summary.attempts, upstreamMode: strategy.mode }, "responses passthrough: all attempts exhausted due to upstream rate limits");
+        sendOpenAiError(
+          reply,
+          429,
+          "No upstream account succeeded. Accounts may be rate-limited, quota-exhausted, or have outstanding balances.",
+          "rate_limit_error",
+          "no_available_key"
+        );
+        return;
+      }
+
+      if (summary.sawUpstreamServerError) {
+        app.log.warn({ providerRoutes, attempts: summary.attempts, upstreamMode: strategy.mode }, "responses passthrough: all attempts exhausted due to upstream server errors");
+        sendOpenAiError(
+          reply,
+          502,
+          "Upstream returned transient server errors across all available accounts.",
+          "server_error",
+          "upstream_server_error"
+        );
+        return;
+      }
+
+      if (summary.sawModelNotFound && !summary.sawRequestError) {
+        app.log.warn({ providerRoutes, attempts: summary.attempts, upstreamMode: strategy.mode }, "responses passthrough: all attempts exhausted due to model-not-found responses");
+        sendOpenAiError(
+          reply,
+          404,
+          `Model not found across available Responses API providers: ${context.routedModel}`,
+          "invalid_request_error",
+          "model_not_found"
+        );
+        return;
+      }
+
+      const message = summary.sawRequestError
+        ? "All upstream attempts failed due to network/transport errors."
+        : "Upstream rejected the request with no successful fallback.";
+
+      app.log.error({ providerRoutes, attempts: summary.attempts, upstreamMode: strategy.mode, sawRequestError: summary.sawRequestError }, "responses passthrough: all upstream attempts exhausted");
+      sendOpenAiError(reply, 502, message, "server_error", "upstream_unavailable");
       return;
     }
 
-    if (summary.sawUpstreamServerError) {
-      app.log.warn({ providerRoutes, attempts: summary.attempts, upstreamMode: strategy.mode }, "responses passthrough: all attempts exhausted due to upstream server errors");
-      sendOpenAiError(
-        reply,
-        502,
-        "Upstream returned transient server errors across all available accounts.",
-        "server_error",
-        "upstream_server_error"
-      );
-      return;
-    }
-
-    if (summary.sawModelNotFound && !summary.sawRequestError) {
-      app.log.warn({ providerRoutes, attempts: summary.attempts, upstreamMode: strategy.mode }, "responses passthrough: all attempts exhausted due to model-not-found responses");
-      sendOpenAiError(
-        reply,
-        404,
-        `Model not found across available Responses API providers: ${context.routedModel}`,
-        "invalid_request_error",
-        "model_not_found"
-      );
-      return;
-    }
-
-    const message = summary.sawRequestError
-      ? "All upstream attempts failed due to network/transport errors."
-      : "Upstream rejected the request with no successful fallback.";
-
-    app.log.error({ providerRoutes, attempts: summary.attempts, upstreamMode: strategy.mode, sawRequestError: summary.sawRequestError }, "responses passthrough: all upstream attempts exhausted");
-    sendOpenAiError(reply, 502, message, "server_error", "upstream_unavailable");
+    sendOpenAiError(reply, 502, "Upstream rejected the request with no successful fallback.", "server_error", "upstream_unavailable");
   });
 
   app.post<{ Body: Record<string, unknown> }>("/v1/images/generations", async (request, reply) => {
@@ -3003,6 +3239,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       await bridgeAgent.stop();
     }
     await tokenRefreshManager.stopAndWait();
+    quotaMonitor.stop();
 
     if (accountHealthStore) {
       await accountHealthStore.close();

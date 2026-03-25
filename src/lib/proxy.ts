@@ -19,6 +19,7 @@ const BLOCKED_REQUEST_HEADERS = new Set([
   "authorization",
   "connection",
   "content-length",
+  "cookie",
   "host",
   "proxy-authenticate",
   "proxy-authorization",
@@ -27,6 +28,42 @@ const BLOCKED_REQUEST_HEADERS = new Set([
   "transfer-encoding",
   "upgrade"
 ]);
+
+const OPENAI_BROWSER_FINGERPRINT_HEADERS = new Set([
+  "accept-language",
+  "cookie",
+  "dnt",
+  "origin",
+  "priority",
+  "referer",
+  "upgrade-insecure-requests",
+  "user-agent",
+  "x-real-ip",
+  "true-client-ip",
+  "cf-connecting-ip",
+  "cf-ipcountry",
+  "cf-ray",
+  "cdn-loop",
+]);
+
+function isOpenAiBrowserFingerprintHeader(name: string): boolean {
+  const normalized = name.toLowerCase();
+  return OPENAI_BROWSER_FINGERPRINT_HEADERS.has(normalized)
+    || normalized.startsWith("sec-")
+    || normalized.startsWith("x-forwarded-");
+}
+
+function applyOpenAiCodexHeaderProfile(headers: Headers): Headers {
+  const headerNames = [...headers.keys()];
+  for (const name of headerNames) {
+    if (isOpenAiBrowserFingerprintHeader(name)) {
+      headers.delete(name);
+    }
+  }
+
+  headers.set("originator", "codex_cli_rs");
+  return headers;
+}
 
 function asHeaderValue(value: string | string[] | undefined): string | undefined {
   if (Array.isArray(value)) {
@@ -64,10 +101,14 @@ export function buildUpstreamHeaders(clientHeaders: IncomingHttpHeaders, apiKey:
 export function buildUpstreamHeadersForCredential(
   clientHeaders: IncomingHttpHeaders,
   credential: ProviderCredential,
+  options?: { readonly useOpenAiCodexHeaderProfile?: boolean },
 ): Headers {
   const headers = buildUpstreamHeaders(clientHeaders, credential.token);
   if (credential.chatgptAccountId) {
     headers.set("chatgpt-account-id", credential.chatgptAccountId);
+  }
+  if (options?.useOpenAiCodexHeaderProfile) {
+    applyOpenAiCodexHeaderProfile(headers);
   }
   return headers;
 }

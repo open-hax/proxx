@@ -54,6 +54,23 @@ function normalizeModelIds(raw: unknown): string[] {
   throw new Error("Invalid model JSON: expected an array, {\"models\": []}, or OpenAI-style {\"data\": []}");
 }
 
+function normalizeDeclaredModels(raw: unknown): string[] {
+  if (Array.isArray(raw)) {
+    return normalizeModelIds(raw);
+  }
+
+  if (!isRecord(raw)) {
+    return [];
+  }
+
+  const envelope = raw as ModelsEnvelope;
+  if (Array.isArray(envelope.models) || Array.isArray(envelope.data)) {
+    return normalizeModelIds(raw);
+  }
+
+  return [];
+}
+
 function normalizeStringArray(raw: unknown): string[] {
   if (!Array.isArray(raw)) {
     return [];
@@ -137,6 +154,21 @@ export async function loadModels(modelsFilePath: string, fallback: readonly stri
     const maybeNodeError = error as NodeJS.ErrnoException;
     if (maybeNodeError?.code === "ENOENT") {
       return [...fallback];
+    }
+
+    throw error;
+  }
+}
+
+export async function loadDeclaredModels(modelsFilePath: string): Promise<string[]> {
+  try {
+    const json = await readFile(modelsFilePath, "utf8");
+    const parsed: unknown = JSON.parse(json);
+    return normalizeDeclaredModels(parsed);
+  } catch (error) {
+    const maybeNodeError = error as NodeJS.ErrnoException;
+    if (maybeNodeError?.code === "ENOENT") {
+      return [];
     }
 
     throw error;

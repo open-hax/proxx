@@ -191,6 +191,7 @@ Notes:
 - `PROXY_HOST` (default: `127.0.0.1`)
 - `PROXY_PORT` (default: `8789`)
 - `OPENAI_OAUTH_CALLBACK_PORT` (default: `1455`; port used when building the browser OAuth redirect URL)
+- `OPENAI_OAUTH_ALLOW_HOST_ROUTED_CALLBACKS` (default: `false`; when `true`, preserve non-loopback browser OAuth callback hosts instead of forcing Codex-style `localhost` callback topology)
 - `STREAM_CHUNK_DELAY_MS` (optional; default: `0`; fixed delay added between synthetic SSE chunks)
 - `STREAM_CHUNK_DELAY_MS_MIN` / `STREAM_CHUNK_DELAY_MS_MAX` (optional; default: unset; random delay range between chunks)
 - `UPSTREAM_PROVIDER_ID` (default: `vivgrid`; provider key in `keys.json`)

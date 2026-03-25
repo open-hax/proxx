@@ -70,6 +70,10 @@ export interface RequestLogEntry {
   readonly cachedPromptTokens?: number;
   readonly imageCount?: number;
   readonly imageCostUsd?: number;
+  readonly ttftMs?: number;
+  readonly decodeTps?: number;
+  readonly tps?: number;
+  readonly endToEndTps?: number;
   readonly error?: string;
 }
 
@@ -190,7 +194,9 @@ export interface UsageAccountSummary {
   readonly cacheHitCount: number;
   readonly cacheKeyUseCount: number;
   readonly avgTtftMs: number | null;
+  readonly avgDecodeTps: number | null;
   readonly avgTps: number | null;
+  readonly avgEndToEndTps: number | null;
   readonly healthScore: number | null;
   readonly transientDebuff: number | null;
   readonly lastUsedAt: string | null;
@@ -257,7 +263,9 @@ export interface AnalyticsRow {
   readonly cachedPromptTokens: number;
   readonly cacheHitRate: number;
   readonly avgTtftMs: number | null;
+  readonly avgDecodeTps: number | null;
   readonly avgTps: number | null;
+  readonly avgEndToEndTps: number | null;
   readonly costUsd: number;
   readonly energyJoules: number;
   readonly waterEvaporatedMl: number;

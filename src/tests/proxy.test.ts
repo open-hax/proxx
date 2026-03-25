@@ -8299,6 +8299,37 @@ test("allows unauthenticated access to health when proxy auth is enabled", async
   );
 });
 
+test("serves a public landing page at root when proxy auth is enabled", async () => {
+  await withProxyApp(
+    {
+      proxyAuthToken: "proxy-secret",
+      keys: ["key-a"],
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: {
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({ ok: true })
+      }),
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "GET",
+        url: "/",
+        headers: {
+          host: "localhost:8789",
+        },
+      });
+
+      assert.equal(response.statusCode, 200);
+      assert.equal(response.headers["content-type"], "text/html; charset=utf-8");
+      assert.match(response.body, /Open Hax OpenAI Proxy/);
+      assert.match(response.body, /http:\/\/localhost:5174/);
+      assert.match(response.body, /Proxy Token/);
+    }
+  );
+});
+
 test("serves preferred model ordering from models JSON file", async () => {
   await withProxyApp(
     {
@@ -8353,6 +8384,272 @@ test("serves preferred model ordering from models JSON file", async () => {
       const modelPayload: unknown = modelResponse.json();
       assert.ok(isRecord(modelPayload));
       assert.equal(modelPayload.id, "gpt-5.3-codex");
+    }
+  );
+});
+
+test("publishes declared static and synthetic models from models JSON alongside discovered models", async () => {
+  await withProxyApp(
+    {
+      keys: ["key-a"],
+      handleModelCatalog: true,
+      models: {
+        models: ["gpt-5.4-mini", "gpt-5.4-nano", "auto:cheapest"],
+        preferred: ["gpt-5.3-codex"],
+        disabled: [],
+        aliases: {},
+      },
+      keysPayload: {
+        providers: {
+          vivgrid: ["key-a"],
+        },
+      },
+      configOverrides: {
+        upstreamProviderId: "vivgrid",
+        upstreamFallbackProviderIds: [],
+      },
+      upstreamHandler: async (request) => ({
+        status: 200,
+        headers: {
+          "content-type": "application/json"
+        },
+        body: request.method === "GET" && request.url === "/v1/models"
+          ? JSON.stringify({
+              object: "list",
+              data: [
+                { id: "gpt-5.3-codex" },
+              ]
+            })
+          : JSON.stringify({ ok: true })
+      })
+    },
+    async ({ app }) => {
+      const listResponse = await app.inject({ method: "GET", url: "/v1/models" });
+      assert.equal(listResponse.statusCode, 200);
+
+      const listPayload: unknown = listResponse.json();
+      assert.ok(isRecord(listPayload));
+      assert.ok(Array.isArray(listPayload.data));
+      const modelIds = listPayload.data
+        .filter((entry): entry is Record<string, unknown> => isRecord(entry))
+        .map((entry) => entry.id)
+        .filter((entry): entry is string => typeof entry === "string");
+
+      assert.ok(modelIds.includes("gpt-5.3-codex"));
+      assert.ok(modelIds.includes("gpt-5.4-mini"));
+      assert.ok(modelIds.includes("gpt-5.4-nano"));
+      assert.ok(modelIds.includes("auto:cheapest"));
+    }
+  );
+});
+
+test("auto:cheapest falls through to the next ranked model when the cheapest priced candidate fails", async () => {
+  const observedModels: string[] = [];
+
+  await withProxyApp(
+    {
+      keys: [],
+      handleModelCatalog: true,
+      models: {
+        models: ["gpt-5.4-nano", "deepseek-v3.2", "auto:cheapest"],
+        preferred: [],
+        disabled: [],
+        aliases: {},
+      },
+      keysPayload: {
+        providers: {
+          openai: ["openai-key"],
+          "ollama-cloud": ["ollama-key"],
+        },
+      },
+      configOverrides: {
+        upstreamProviderId: "openai",
+        upstreamFallbackProviderIds: ["ollama-cloud"],
+        localOllamaEnabled: false,
+      },
+      upstreamHandler: async (request, body) => {
+        const authorization = request.headers.authorization;
+        if (request.method === "GET" && request.url === "/v1/models") {
+          if (authorization === "Bearer openai-key") {
+            return {
+              status: 200,
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ object: "list", data: [{ id: "gpt-5.4-nano" }] })
+            };
+          }
+
+          if (authorization === "Bearer ollama-key") {
+            return {
+              status: 200,
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ object: "list", data: [{ id: "deepseek-v3.2" }] })
+            };
+          }
+        }
+
+        if (request.method === "POST") {
+          const parsed = JSON.parse(body) as { readonly model?: string };
+          if (typeof parsed.model === "string") {
+            observedModels.push(parsed.model);
+          }
+
+          if (parsed.model === "gpt-5.4-nano") {
+            return {
+              status: 400,
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ error: { message: "model unavailable" } })
+            };
+          }
+
+          if (parsed.model === "deepseek-v3.2") {
+            return {
+              status: 200,
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                id: "chatcmpl-auto",
+                object: "chat.completion",
+                created: 1,
+                model: "deepseek-v3.2",
+                choices: [{ index: 0, message: { role: "assistant", content: "OK" }, finish_reason: "stop" }],
+                usage: { prompt_tokens: 4, completion_tokens: 1, total_tokens: 5 }
+              })
+            };
+          }
+        }
+
+        return {
+          status: 404,
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ error: { message: "unexpected request" } })
+        };
+      }
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json"
+        },
+        payload: {
+          model: "auto:cheapest",
+          messages: [{ role: "user", content: "Reply with exactly OK." }],
+          stream: false,
+        }
+      });
+
+      assert.equal(response.statusCode, 200);
+      assert.equal(response.headers["x-open-hax-auto-model-candidates"], "gpt-5.4-nano,deepseek-v3.2");
+      assert.deepEqual(observedModels, ["gpt-5.4-nano", "deepseek-v3.2"]);
+
+      const payload: unknown = response.json();
+      assert.ok(isRecord(payload));
+      assert.equal(payload.model, "deepseek-v3.2");
+      assert.ok(Array.isArray(payload.choices));
+      assert.ok(isRecord(payload.choices[0]));
+      assert.ok(isRecord(payload.choices[0].message));
+      assert.equal(payload.choices[0].message.content, "OK");
+    }
+  );
+});
+
+test("/v1/responses auto:cheapest ranks only models reachable by responses providers", async () => {
+  const observedModels: string[] = [];
+
+  await withProxyApp(
+    {
+      keys: [],
+      handleModelCatalog: true,
+      models: {
+        models: ["deepseek-v3.2", "gpt-5.4", "auto:cheapest"],
+        preferred: [],
+        disabled: [],
+        aliases: {},
+      },
+      keysPayload: {
+        providers: {
+          openai: ["openai-key"],
+          "ollama-cloud": ["ollama-key"],
+        },
+      },
+      configOverrides: {
+        upstreamProviderId: "openai",
+        upstreamFallbackProviderIds: ["ollama-cloud"],
+        localOllamaEnabled: false,
+      },
+      upstreamHandler: async (request, body) => {
+        const authorization = request.headers.authorization;
+        if (request.method === "GET" && request.url === "/v1/models") {
+          if (authorization === "Bearer openai-key") {
+            return {
+              status: 200,
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ object: "list", data: [{ id: "gpt-5.4" }] })
+            };
+          }
+
+          if (authorization === "Bearer ollama-key") {
+            return {
+              status: 200,
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ object: "list", data: [{ id: "deepseek-v3.2" }] })
+            };
+          }
+        }
+
+        if (request.method === "POST" && request.url === "/v1/responses") {
+          const parsed = JSON.parse(body) as { readonly model?: string };
+          if (typeof parsed.model === "string") {
+            observedModels.push(parsed.model);
+          }
+
+          return {
+            status: 200,
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              id: "resp_auto",
+              object: "response",
+              model: parsed.model,
+              output: [
+                {
+                  type: "message",
+                  role: "assistant",
+                  content: [{ type: "output_text", text: "OK", annotations: [] }]
+                }
+              ]
+            })
+          };
+        }
+
+        return {
+          status: 404,
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ error: { message: "unexpected request" } })
+        };
+      }
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/responses",
+        headers: {
+          "content-type": "application/json"
+        },
+        payload: {
+          model: "auto:cheapest",
+          input: "Reply with exactly OK.",
+          stream: false,
+          max_output_tokens: 8,
+        }
+      });
+
+      assert.equal(response.statusCode, 200);
+      assert.equal(response.headers["x-open-hax-auto-model-candidates"], "gpt-5.4");
+      assert.deepEqual(observedModels, ["gpt-5.4"]);
+
+      const payload: unknown = response.json();
+      assert.ok(isRecord(payload));
+      assert.equal(payload.model, "gpt-5.4");
     }
   );
 });

@@ -1392,29 +1392,105 @@ function responseLooksLikeEventStream(response: Response, mode: UpstreamMode): b
   return false;
 }
 
+function streamBufferLooksSubstantive(buffer: string): boolean {
+  return /(^|\n)data:\s*(?!\[DONE\])\S/imu.test(buffer);
+}
+
+async function readClonedResponseWithTiming(
+  response: Response,
+  mode: UpstreamMode,
+): Promise<{
+  readonly bodyText: string;
+  readonly completedAt: number;
+  readonly firstByteAt: number | null;
+  readonly firstContentAt: number | null;
+}> {
+  const clone = response.clone();
+  if (!clone.body) {
+    return {
+      bodyText: await clone.text(),
+      completedAt: Date.now(),
+      firstByteAt: null,
+      firstContentAt: null,
+    };
+  }
+
+  const eventStream = responseLooksLikeEventStream(response, mode);
+  const reader = clone.body.getReader();
+  const decoder = new TextDecoder();
+  let bodyText = "";
+  let firstByteAt: number | null = null;
+  let firstContentAt: number | null = null;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) {
+      bodyText += decoder.decode();
+      return {
+        bodyText,
+        completedAt: Date.now(),
+        firstByteAt,
+        firstContentAt,
+      };
+    }
+
+    if (!value || value.byteLength === 0) {
+      continue;
+    }
+
+    const now = Date.now();
+    if (firstByteAt === null) {
+      firstByteAt = now;
+    }
+
+    bodyText += decoder.decode(value, { stream: true });
+
+    if (firstContentAt === null) {
+      if (eventStream) {
+        if (streamBufferLooksSubstantive(bodyText)) {
+          firstContentAt = now;
+        }
+      } else if (bodyText.trim().length > 0) {
+        firstContentAt = now;
+      }
+    }
+  }
+}
+
 async function extractUsageCounts(
   response: Response,
   mode: UpstreamMode,
   routedModel: string,
-): Promise<UsageCounts> {
+): Promise<{
+  readonly usageCounts: UsageCounts;
+  readonly completedAt: number;
+  readonly firstByteAt: number | null;
+  readonly firstContentAt: number | null;
+}> {
   if (!response.ok) {
-    return {};
-  }
-
-  if (responseLooksLikeEventStream(response, mode)) {
-    try {
-      const streamText = await response.clone().text();
-      return extractUsageCountsFromSseText(streamText, mode, routedModel);
-    } catch {
-      return {};
-    }
+    return { usageCounts: {}, completedAt: Date.now(), firstByteAt: null, firstContentAt: null };
   }
 
   try {
-    const upstreamJson: unknown = await response.clone().json();
-    return usageCountsForMode(mode, upstreamJson, routedModel);
+    const readResult = await readClonedResponseWithTiming(response, mode);
+    if (responseLooksLikeEventStream(response, mode)) {
+      return {
+        usageCounts: extractUsageCountsFromSseText(readResult.bodyText, mode, routedModel),
+        completedAt: readResult.completedAt,
+        firstByteAt: readResult.firstByteAt,
+        firstContentAt: readResult.firstContentAt,
+      };
+    }
+
+    const upstreamJson: unknown = JSON.parse(readResult.bodyText);
+    return {
+      usageCounts: usageCountsForMode(mode, upstreamJson, routedModel),
+      completedAt: readResult.completedAt,
+      firstByteAt: readResult.firstByteAt,
+      firstContentAt: readResult.firstContentAt,
+    };
   } catch {
-    return {};
+    return { usageCounts: {}, completedAt: Date.now(), firstByteAt: null, firstContentAt: null };
   }
 }
 
@@ -1426,10 +1502,12 @@ async function updateUsageCountsFromResponse(
   routedModel: string,
   providerId: string,
   config: ProxyConfig,
+  attemptStartedAt: number,
 ): Promise<void> {
-  const readStartedAt = Date.now();
-  const usageCounts = await extractUsageCounts(response, mode, routedModel);
-  const readDurationMs = Math.max(0, Date.now() - readStartedAt);
+  const extraction = await extractUsageCounts(response, mode, routedModel);
+  const { usageCounts } = extraction;
+  const completedAt = extraction.completedAt;
+  const firstContentAt = extraction.firstContentAt ?? extraction.firstByteAt;
 
   const imageCount = typeof usageCounts.imageCount === "number" && Number.isFinite(usageCounts.imageCount)
     ? usageCounts.imageCount
@@ -1449,12 +1527,22 @@ async function updateUsageCountsFromResponse(
   }
 
   const isStream = responseLooksLikeEventStream(response, mode);
+  const decodeDurationMs = firstContentAt !== null ? Math.max(0, completedAt - firstContentAt) : 0;
+  const endToEndDurationMs = Math.max(0, completedAt - attemptStartedAt);
+  const ttftMs = firstContentAt !== null ? Math.max(0, firstContentAt - attemptStartedAt) : undefined;
   const tps = isStream
     && typeof usageCounts.completionTokens === "number"
     && Number.isFinite(usageCounts.completionTokens)
     && usageCounts.completionTokens > 0
-    && readDurationMs > 0
-      ? usageCounts.completionTokens / (readDurationMs / 1000)
+    && decodeDurationMs > 0
+      ? usageCounts.completionTokens / (decodeDurationMs / 1000)
+      : undefined;
+  const endToEndTps = isStream
+    && typeof usageCounts.completionTokens === "number"
+    && Number.isFinite(usageCounts.completionTokens)
+    && usageCounts.completionTokens > 0
+    && endToEndDurationMs > 0
+      ? usageCounts.completionTokens / (endToEndDurationMs / 1000)
       : undefined;
 
   const updatedCost = estimateRequestCost(
@@ -1469,7 +1557,9 @@ async function updateUsageCountsFromResponse(
     imageCount,
     imageCostUsd,
     cacheHit: typeof usageCounts.cachedPromptTokens === "number" && usageCounts.cachedPromptTokens > 0,
+    ttftMs,
     tps,
+    endToEndTps,
     costUsd: updatedCost.costUsd,
     energyJoules: updatedCost.energyJoules,
     waterEvaporatedMl: updatedCost.waterEvaporatedMl,

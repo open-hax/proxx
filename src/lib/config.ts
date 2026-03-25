@@ -100,6 +100,9 @@ export interface ProxyConfig {
   /** OAuth client secret used for OpenAI token exchange/refresh (optional). */
   readonly openaiOauthClientSecret?: string;
 
+  /** Preserve non-loopback OpenAI browser OAuth callbacks instead of forcing localhost callback topology. */
+  readonly openaiOauthAllowHostRoutedCallbacks?: boolean;
+
   /** Max concurrent OAuth refreshes allowed during background/manual refresh work. */
   readonly oauthRefreshMaxConcurrency: number;
 
@@ -112,6 +115,8 @@ export interface ProxyConfig {
 
 export const DEFAULT_MODELS: readonly string[] = [
   "gpt-5.4",
+  "gpt-5.4-mini",
+  "gpt-5.4-nano",
   "gpt-5.2-codex",
   "gpt-5.1-codex",
   "gpt-5.1-codex-max",
@@ -131,7 +136,11 @@ export const DEFAULT_MODELS: readonly string[] = [
   "Kimi-K2.5",
   "gemini-3.1-pro-preview",
   "qwen3.5:4b-q8_0",
-  "qwen3.5:2b-bf16"
+  "qwen3.5:2b-bf16",
+  "auto:cheapest",
+  "auto:fastest",
+  "auto:smartest",
+  "auto:healthiest",
 ];
 
 function numberFromEnvAliases(names: readonly string[], fallback: number): number {
@@ -458,6 +467,7 @@ export function loadConfig(cwd: string = process.cwd()): ProxyConfig {
   const openaiOauthClientSecret = openaiOauthClientSecretRaw.length > 0
     ? openaiOauthClientSecretRaw
     : undefined;
+  const openaiOauthAllowHostRoutedCallbacks = booleanFromEnvAliases(["OPENAI_OAUTH_ALLOW_HOST_ROUTED_CALLBACKS"], false);
 
   const oauthRefreshMaxConcurrency = numberFromEnvAliases(["OAUTH_REFRESH_MAX_CONCURRENCY"], 32);
   const oauthRefreshBackgroundIntervalMs = numberFromEnvAliases(["OAUTH_REFRESH_BACKGROUND_INTERVAL_MS"], 15_000);
@@ -527,6 +537,7 @@ export function loadConfig(cwd: string = process.cwd()): ProxyConfig {
     openaiOauthClientId,
     openaiOauthIssuer,
     openaiOauthClientSecret,
+    openaiOauthAllowHostRoutedCallbacks,
     oauthRefreshMaxConcurrency,
     oauthRefreshBackgroundIntervalMs,
     oauthRefreshProactiveWindowMs,
