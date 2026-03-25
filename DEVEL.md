@@ -25,7 +25,7 @@ OpenAI-compatible proxy server with provider-scoped account rotation.
 ## Setup
 
 1. Provide credentials through `keys.json`, `PROXY_KEYS_JSON` / `UPSTREAM_KEYS_JSON`, or SQL via `DATABASE_URL`.
-2. Optionally create `models.json` from `models.example.json` (preferences only; discovery is canonical).
+2. Optionally create `models.json` from `models.example.json` (preferences plus optional declared static model IDs; discovery is still canonical).
 3. Set `PROXY_AUTH_TOKEN` (required by default).
 4. Start the server.
 
@@ -171,6 +171,23 @@ Backward compatibility is preserved for legacy single-provider formats:
 - `["legacy-key-1", "legacy-key-2"]`
 
 Those legacy formats map to `UPSTREAM_PROVIDER_ID`.
+
+## `models.json` Preferences
+
+`models.json` is preference metadata layered on top of provider discovery. It can also declare static model IDs for upstreams that do not expose a reliable catalog.
+
+Supported uses:
+
+- declare static model IDs with `models`
+- prioritize discovered models with `preferred`
+- disable models with `disabled`
+- alias friendly names to real model IDs with `aliases`
+
+Notes:
+
+- Preferred models only reorder discovered models; they do not invent new upstream models.
+- Aliases only apply when the target exists in the discovered or declared catalog.
+- See `examples/blongs-definately-legit-model/` for a ready-made alias example targeting `http://185.255.121.4:8080`.
 
 ## OpenAI OAuth Routing Through Chat-Completions
 

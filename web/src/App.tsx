@@ -9,6 +9,7 @@ import { HostsPage } from "./pages/HostsPage";
 import { ToolsPage } from "./pages/ToolsPage";
 import { ImagesPage } from "./pages/ImagesPage";
 import { AnalyticsPage } from "./pages/AnalyticsPage";
+import { FederationPage } from "./pages/FederationPage";
 
 function navClass(isActive: boolean): string {
   return isActive ? "nav-link nav-link-active" : "nav-link";
@@ -134,6 +135,9 @@ export function App(): JSX.Element {
         <NavLink to="/credentials" className={({ isActive }) => navClass(isActive)}>
           Credentials
         </NavLink>
+        <NavLink to="/federation" className={({ isActive }) => navClass(isActive)}>
+          Federation
+        </NavLink>
         <NavLink to="/tools" className={({ isActive }) => navClass(isActive)}>
           Tools + MCP
         </NavLink>
@@ -147,6 +151,7 @@ export function App(): JSX.Element {
           <Route path="/hosts" element={<HostsPage />} />
           <Route path="/images" element={<ImagesPage />} />
           <Route path="/credentials" element={<CredentialsPage />} />
+          <Route path="/federation" element={<FederationPage />} />
           <Route path="/tools" element={<ToolsPage />} />
           <Route path="*" element={<DashboardPage />} />
         </Routes>

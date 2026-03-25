@@ -1,0 +1,10 @@
+{
+  "models": [
+    "model-f16.gguf"
+  ],
+  "preferred": [],
+  "disabled": [],
+  "aliases": {
+    "blongs-definately-legit-model": "model-f16.gguf"
+  }
+}
