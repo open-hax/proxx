@@ -9,6 +9,7 @@ import type { Factory4xxDiagnostics, RequestLogStore } from "../request-log-stor
 import type { ResolvedRequestAuth } from "../request-auth.js";
 import { estimateRequestCost } from "../model-pricing.js";
 import type { PolicyEngine } from "../policy/index.js";
+import type { AccountHealthStore } from "../db/account-health-store.js";
 import { orderAccountsByPolicy } from "../provider-policy.js";
 import {
   responsesEventStreamToChatCompletion,
@@ -83,10 +84,13 @@ function shouldCooldownCredentialOnAuthFailure(providerId: string, status: numbe
 }
 
 /**
- * For API-key providers (vivgrid, ollama-cloud, openrouter, requesty, etc.),
+ * For most API-key providers (vivgrid, ollama-cloud, openrouter, etc.),
  * a 402 or 403 means the key has been disabled or the account was suspended.
  * These should be treated as permanent failures — the key will not recover
  * without manual intervention.
+ *
+ * Requesty is an exception: 403 is also used for model/provider policy rejections,
+ * so it must not permanently disable the account on status alone.
  *
  * OAuth accounts are excluded: 402/403 may be transient (plan changes,
  * temporary holds) and the token can be refreshed.
@@ -97,7 +101,16 @@ function shouldPermanentlyDisableCredential(credential: ProviderCredential, stat
   if (credential.authType !== "api_key") {
     return false;
   }
-  return status === 402 || status === 403;
+
+  if (status === 402) {
+    return true;
+  }
+
+  if (status === 403) {
+    return credential.providerId !== "requesty";
+  }
+
+  return false;
 }
 
 function reorderCandidatesForAffinity<T extends { readonly providerId: string; readonly account: ProviderCredential }>(
@@ -321,8 +334,9 @@ function providerAccountsForRequestWithPolicy(
     localOllama: boolean;
     explicitOllama: boolean;
   },
+  healthStore?: AccountHealthStore,
 ): ProviderCredential[] {
-  return orderAccountsByPolicy(policy, providerId, accounts, routedModel, context);
+  return orderAccountsByPolicy(policy, providerId, accounts, routedModel, context, healthStore);
 }
 
 function providerUsesOpenAiChatCompletions(providerId: string): boolean {

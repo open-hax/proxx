@@ -142,7 +142,7 @@ export async function executeProviderFallback(
             openAiPrefixed: context.openAiPrefixed,
             localOllama: context.localOllama,
             explicitOllama: context.explicitOllama,
-          })
+          }, healthStore)
         : providerAccountsForRequest(rawAccounts, route.providerId, context.routedModel);
     } catch {
       continue;

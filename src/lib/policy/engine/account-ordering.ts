@@ -66,11 +66,17 @@ export function createAccountOrdering(
   const orderingRule = rule?.accountOrdering ?? config.modelRouting.defaultAccountOrdering;
   const constraints = config.accountPreferences.modelConstraints[model.routedModel];
 
+  // Filter out quota-exhausted accounts first - they should never be used
+  const availableAccounts = accounts.filter((account) => !account.isQuotaExhausted);
+
+  // If all accounts are quota-exhausted, fall back to using them (better than nothing)
+  const accountsToOrder = availableAccounts.length > 0 ? availableAccounts : accounts;
+
   if (constraints?.requiresPlan?.length) {
     const requiredPlans = new Set(constraints.requiresPlan);
-    const hasMatchingAccount = accounts.some((account) => requiredPlans.has(account.planType));
+    const hasMatchingAccount = accountsToOrder.some((account) => requiredPlans.has(account.planType));
     if (hasMatchingAccount) {
-      const qualified = accounts.filter((account) => requiredPlans.has(account.planType));
+      const qualified = accountsToOrder.filter((account) => requiredPlans.has(account.planType));
       return {
         ordered: applyAccountOrdering(qualified, orderingRule),
         appliesConstraint: true,
@@ -81,7 +87,7 @@ export function createAccountOrdering(
 
   if (constraints?.excludesPlan?.length) {
     const excludedPlans = new Set(constraints.excludesPlan);
-    const filtered = accounts.filter((account) => !excludedPlans.has(account.planType));
+    const filtered = accountsToOrder.filter((account) => !excludedPlans.has(account.planType));
     if (filtered.length > 0) {
       return {
         ordered: applyAccountOrdering(filtered, orderingRule),
@@ -92,7 +98,10 @@ export function createAccountOrdering(
   }
 
   return {
-    ordered: applyAccountOrdering(accounts, orderingRule),
-    appliesConstraint: false,
+    ordered: applyAccountOrdering(accountsToOrder, orderingRule),
+    appliesConstraint: availableAccounts.length !== accounts.length,
+    constraintReason: availableAccounts.length !== accounts.length
+      ? `${accounts.length - availableAccounts.length} account(s) excluded due to quota exhaustion`
+      : undefined,
   };
 }
