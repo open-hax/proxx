@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 import { Readable } from "node:stream";
 
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
+import fastifySwagger from "@fastify/swagger";
+import fastifySwaggerUi from "@fastify/swagger-ui";
 
 import { DEFAULT_MODELS, type ProxyConfig } from "./lib/config.js";
 import { KeyPool, type ProviderCredential } from "./lib/key-pool.js";
@@ -51,6 +53,7 @@ import { PromptAffinityStore } from "./lib/prompt-affinity-store.js";
 import { ProxySettingsStore } from "./lib/proxy-settings-store.js";
 import { QuotaMonitor } from "./lib/quota-monitor.js";
 import { registerUiRoutes } from "./lib/ui-routes.js";
+import { registerApiV1Routes } from "./routes/api/v1/index.js";
 import {
   ensureOllamaContextFits,
 } from "./lib/ollama-context.js";
@@ -352,6 +355,31 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
   const app = Fastify({
     logger: true,
     bodyLimit: 300 * 1024 * 1024
+  });
+
+  await app.register(fastifySwagger, {
+    openapi: {
+      info: {
+        title: "Proxx API",
+        description: "OpenAI-compatible proxy with provider account rotation",
+        version: "1.0.0",
+      },
+      servers: [{ url: `/` }],
+    },
+  });
+
+  await app.register(fastifySwaggerUi, {
+    routePrefix: "/docs",
+    staticCSP: true,
+  });
+
+  app.get("/api/v1/openapi.json", async (_request, reply) => {
+    const swaggerJson = app.swagger();
+    return reply.header("content-type", "application/json").send(swaggerJson);
+  });
+
+  app.get("/api/docs", async (_request, reply) => {
+    return reply.redirect("/docs");
   });
 
   let sql: Sql | undefined;
@@ -1358,6 +1386,39 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     return [...new Set(ids)];
   }
 
+  function openAiProviderUsesCodexSurface(config: ProxyConfig): boolean {
+    const openAiBaseUrl = config.openaiBaseUrl.trim().toLowerCase();
+    const openAiResponsesPath = config.openaiResponsesPath.trim().toLowerCase();
+    const openAiChatCompletionsPath = config.openaiChatCompletionsPath.trim().toLowerCase();
+
+    return openAiBaseUrl.includes("chatgpt.com/backend-api")
+      || openAiResponsesPath.includes("/codex/")
+      || openAiChatCompletionsPath.includes("/codex/");
+  }
+
+  function providerRouteSupportsModel(config: ProxyConfig, providerId: string, modelId: string): boolean {
+    const normalizedProviderId = providerId.trim().toLowerCase();
+    const normalizedModelId = modelId.trim().toLowerCase();
+
+    if (
+      normalizedProviderId === config.openaiProviderId.trim().toLowerCase()
+      && normalizedModelId === "gpt-5.4-nano"
+      && openAiProviderUsesCodexSurface(config)
+    ) {
+      return false;
+    }
+
+    return true;
+  }
+
+  function filterProviderRoutesByModelSupport(
+    config: ProxyConfig,
+    routes: readonly ProviderRoute[],
+    modelId: string,
+  ): ProviderRoute[] {
+    return routes.filter((route) => providerRouteSupportsModel(config, route.providerId, modelId));
+  }
+
   const legacyBridgePathPrefixes = [
     "/v1/chat/completions",
     "/v1/models",
@@ -2354,6 +2415,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
           providerRoutes = resolveProviderRoutesForModel(providerRoutes, context.routedModel, resolvedModelCatalog);
         }
       }
+      providerRoutes = filterProviderRoutesByModelSupport(config, providerRoutes, context.routedModel);
       providerRoutes = filterTenantProviderRoutes(providerRoutes, proxySettings);
       providerRoutes = orderProviderRoutesByPolicy(policyEngine, providerRoutes, context.requestedModelInput, context.routedModel, {
         openAiPrefixed: context.openAiPrefixed,
@@ -2683,6 +2745,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
         providerRoutes = buildProviderRoutes(config, context.openAiPrefixed, true);
       }
 
+      providerRoutes = filterProviderRoutesByModelSupport(config, providerRoutes, context.routedModel);
       providerRoutes = filterResponsesApiRoutes(providerRoutes, config.openaiProviderId);
       providerRoutes = filterTenantProviderRoutes(providerRoutes, tenantSettings);
       providerRoutes = orderProviderRoutesByPolicy(policyEngine, providerRoutes, context.requestedModelInput, context.routedModel, {
@@ -3065,7 +3128,6 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       return;
     }
 
-    const model = typeof request.body.model === "string" ? request.body.model : "";
     const routingState = selectProviderStrategy(
       config,
       request.headers,
@@ -3203,6 +3265,20 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
   });
 
   bridgeRelay = await registerUiRoutes(app, {
+    config,
+    keyPool,
+    requestLogStore,
+    credentialStore: runtimeCredentialStore,
+    sqlCredentialStore,
+    sqlFederationStore,
+    sqlRequestUsageStore,
+    authPersistence: sqlAuthPersistence,
+    proxySettingsStore,
+    eventStore,
+    refreshOpenAiOauthAccounts,
+  });
+
+  await registerApiV1Routes(app, {
     config,
     keyPool,
     requestLogStore,

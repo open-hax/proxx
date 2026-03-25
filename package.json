@@ -24,10 +24,12 @@
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.2",
+    "@fastify/swagger": "9.5.1",
+    "@fastify/swagger-ui": "5.2.3",
     "chromadb": "^3.2.2",
     "cors": "^2.8.6",
     "express": "^5.2.1",
-    "fastify": "^4.27.0",
+    "fastify": "^5.0.0",
     "postgres": "^3.4.8",
     "ws": "^8.20.0",
     "zod": "^4.3.6"
