@@ -159,9 +159,9 @@ jobs:
       - name: assert staging live e2e suite
         if: always()
         run: |
-          core='${{ steps.live-e2e-core.conclusion }}'
-          multitenancy='${{ steps.live-e2e-multitenancy.conclusion }}'
-          federation='${{ steps.live-e2e-federation.conclusion }}'
+          core='${{ steps.live-e2e-core.outcome }}'
+          multitenancy='${{ steps.live-e2e-multitenancy.outcome }}'
+          federation='${{ steps.live-e2e-federation.outcome }}'
 
           echo "core=${core}"
           echo "multitenancy=${multitenancy}"

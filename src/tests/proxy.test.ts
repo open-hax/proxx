@@ -6586,6 +6586,30 @@ test("serves /v1/embeddings from local ollama-compatible upstream", async () => 
   );
 });
 
+test("rejects auto models for /v1/embeddings", async () => {
+  await withProxyApp(
+    {
+      keys: [],
+      upstreamHandler: async () => {
+        throw new Error("embedding upstream should not be called");
+      }
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/embeddings",
+        payload: {
+          model: "auto:cheapest",
+          input: "hello world"
+        }
+      });
+
+      assert.equal(response.statusCode, 400);
+      assert.equal(response.headers["x-open-hax-error-code"], "model_not_supported");
+    }
+  );
+});
+
 test("proxies native /api/embed and /api/embeddings to their matching upstream ollama endpoints", async () => {
   let observedPath = "";
 
@@ -8326,6 +8350,36 @@ test("serves a public landing page at root when proxy auth is enabled", async ()
       assert.match(response.body, /Open Hax OpenAI Proxy/);
       assert.match(response.body, /http:\/\/localhost:5174/);
       assert.match(response.body, /Proxy Token/);
+    }
+  );
+});
+
+test("landing page prefers forwarded host when inferring web console url", async () => {
+  await withProxyApp(
+    {
+      proxyAuthToken: "proxy-secret",
+      keys: ["key-a"],
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: {
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({ ok: true })
+      }),
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "GET",
+        url: "/",
+        headers: {
+          host: "internal-proxy:8789",
+          "x-forwarded-host": "proxy.example.com:443",
+          "x-forwarded-proto": "https",
+        },
+      });
+
+      assert.equal(response.statusCode, 200);
+      assert.match(response.body, /https:\/\/proxy\.example\.com:5174/);
     }
   );
 });

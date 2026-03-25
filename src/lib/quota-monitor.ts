@@ -1,6 +1,5 @@
 import type { CredentialStoreLike } from "./credential-store.js";
 import { fetchOpenAiQuotaSnapshots, type OpenAiQuotaAccountSnapshot } from "./openai-quota.js";
-import type { Sql } from "./db/index.js";
 import type { AccountHealthStore } from "./db/account-health-store.js";
 
 export interface QuotaMonitorConfig {
@@ -39,7 +38,6 @@ export class QuotaMonitor {
   private readonly logger: Logger;
   private readonly credentialStore: CredentialStoreLike;
   private readonly healthStore?: AccountHealthStore;
-  private readonly sql?: Sql;
   private checkTimer: ReturnType<typeof setInterval> | null = null;
   private stopped = false;
   private lastQuotaStatus = new Map<string, QuotaStatusRecord>();
@@ -50,13 +48,11 @@ export class QuotaMonitor {
     logger: Logger,
     config: Partial<QuotaMonitorConfig> = {},
     healthStore?: AccountHealthStore,
-    sql?: Sql,
   ) {
     this.config = { ...DEFAULT_QUOTA_MONITOR_CONFIG, ...config };
     this.logger = logger;
     this.credentialStore = credentialStore;
     this.healthStore = healthStore;
-    this.sql = sql;
   }
 
   public start(): void {
@@ -97,10 +93,6 @@ export class QuotaMonitor {
   }
 
   public async checkQuotas(): Promise<void> {
-    const accountIdsToCheck = this.knownExhaustedAccounts.size > 0
-      ? [...this.knownExhaustedAccounts]
-      : null;
-
     const snapshots = await fetchOpenAiQuotaSnapshots(this.credentialStore, {
       providerId: this.config.providerId,
       fetchFn: fetch,
@@ -114,10 +106,6 @@ export class QuotaMonitor {
     const newExhaustedAccounts = new Set<string>();
 
     for (const account of snapshots.accounts) {
-      if (accountIdsToCheck && !accountIdsToCheck.includes(account.accountId) && !this.knownExhaustedAccounts.has(account.accountId)) {
-        continue;
-      }
-
       const previousStatus = this.lastQuotaStatus.get(account.accountId);
       const status = this.computeQuotaStatus(account);
 

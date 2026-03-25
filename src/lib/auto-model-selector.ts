@@ -143,13 +143,6 @@ function detectCapabilities(requestBody: unknown): RequestCapabilities {
           }
         }
       }
-
-      if (message.content && typeof message.content === "string") {
-        const content = message.content.toLowerCase();
-        if (content.includes("image") || content.includes("picture") || content.includes("photo")) {
-          needsVision = true;
-        }
-      }
     }
   }
 
@@ -327,6 +320,19 @@ export function rankAutoModels(
     return [];
   }
 
+  const aggregateHealthScore = accountHealthStore
+    ? (() => {
+        const providerScores = accountHealthStore.getAllHealthScores()
+          .filter((entry) => entry.providerId === providerId);
+        if (providerScores.length === 0) {
+          return 50;
+        }
+
+        const total = providerScores.reduce((sum, entry) => sum + entry.score, 0);
+        return (total / providerScores.length) * 100;
+      })()
+    : 50;
+
   const scores: ModelScore[] = candidateModels.map((modelId) => {
     const pricing = getModelPricing(providerId, modelId);
     const costScore = pricing.inputPer1MTokens + pricing.outputPer1MTokens;
@@ -334,7 +340,7 @@ export function rankAutoModels(
     let speedScore = 50;
     let observedSpeed = false;
     if (requestLogStore) {
-      const perf = requestLogStore.getPerfSummary(providerId, modelId, modelId, "chat");
+      const perf = requestLogStore.getModelPerfSummary(providerId, modelId, "chat");
       if (perf?.ewmaTtftMs && perf.ewmaTtftMs > 0) {
         speedScore = Math.max(0, 100 - perf.ewmaTtftMs / 100);
         observedSpeed = true;
@@ -343,10 +349,7 @@ export function rankAutoModels(
 
     const intelligenceScore = getIntelligenceScore(modelId);
 
-    let healthScore = 50;
-    if (accountHealthStore) {
-      healthScore = accountHealthStore.getHealthScore(providerId, modelId) * 100;
-    }
+    const healthScore = aggregateHealthScore;
 
     let overallScore: number;
     switch (autoType) {

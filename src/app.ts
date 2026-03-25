@@ -767,7 +767,9 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
 
   function inferWebConsoleUrl(request: FastifyRequest): string {
     const forwardedHost = readSingleHeader(request.headers as Record<string, unknown>, "x-forwarded-host")?.trim();
-    const host = readSingleHeader(request.headers as Record<string, unknown>, "host")?.trim() || forwardedHost || "localhost";
+    const host = forwardedHost
+      || readSingleHeader(request.headers as Record<string, unknown>, "host")?.trim()
+      || "localhost";
     const forwardedProto = readSingleHeader(request.headers as Record<string, unknown>, "x-forwarded-proto")?.trim();
     const protocol = forwardedProto || request.protocol || "http";
     const webPort = (process.env.PROXY_WEB_PORT ?? "5174").trim() || "5174";
@@ -1235,12 +1237,11 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     },
     {
       checkIntervalMs: 20 * 60 * 1000,
-      providerId: "openai",
+      providerId: config.openaiProviderId.trim() || "openai",
       quotaWarningThreshold: 90,
       quotaCriticalThreshold: 98,
     },
     accountHealthStore,
-    sql,
   );
   quotaMonitor.start();
 
@@ -3047,6 +3048,12 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
   app.post<{ Body: Record<string, unknown> }>("/v1/embeddings", async (request, reply) => {
     if (!isRecord(request.body)) {
       sendOpenAiError(reply, 400, "Request body must be a JSON object", "invalid_request_error", "invalid_body");
+      return;
+    }
+
+    const model = typeof request.body.model === "string" ? request.body.model : "";
+    if (isAutoModel(model)) {
+      sendOpenAiError(reply, 400, "Auto models are not supported for embeddings requests.", "invalid_request_error", "model_not_supported");
       return;
     }
 

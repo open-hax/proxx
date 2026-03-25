@@ -1211,6 +1211,58 @@ export class RequestLogStore {
     return entry ? { ...entry } : undefined;
   }
 
+  public getModelPerfSummary(
+    providerId: string,
+    model: string,
+    upstreamMode: string,
+  ): RequestLogPerfSummary | undefined {
+    const matchingEntries = [...this.perfIndex.values()]
+      .filter((entry) => entry.providerId === providerId)
+      .filter((entry) => entry.model === model)
+      .filter((entry) => entry.upstreamMode === upstreamMode);
+
+    if (matchingEntries.length === 0) {
+      return undefined;
+    }
+
+    const totalSamples = matchingEntries.reduce((sum, entry) => sum + Math.max(entry.sampleCount, 1), 0);
+    const weightedAverage = (selector: (entry: RequestLogPerfSummary) => number): number => {
+      const weightedTotal = matchingEntries.reduce(
+        (sum, entry) => sum + selector(entry) * Math.max(entry.sampleCount, 1),
+        0,
+      );
+      return weightedTotal / totalSamples;
+    };
+    const weightedNullableAverage = (selector: (entry: RequestLogPerfSummary) => number | null): number | null => {
+      const candidates = matchingEntries
+        .map((entry) => ({
+          weight: Math.max(entry.sampleCount, 1),
+          value: selector(entry),
+        }))
+        .filter((entry): entry is { readonly weight: number; readonly value: number } => entry.value !== null);
+
+      if (candidates.length === 0) {
+        return null;
+      }
+
+      const totalWeight = candidates.reduce((sum, entry) => sum + entry.weight, 0);
+      const weightedTotal = candidates.reduce((sum, entry) => sum + entry.value * entry.weight, 0);
+      return weightedTotal / totalWeight;
+    };
+
+    return {
+      providerId,
+      accountId: "*",
+      model,
+      upstreamMode,
+      sampleCount: totalSamples,
+      ewmaTtftMs: weightedAverage((entry) => entry.ewmaTtftMs),
+      ewmaTps: weightedNullableAverage((entry) => entry.ewmaTps),
+      ewmaEndToEndTps: weightedNullableAverage((entry) => entry.ewmaEndToEndTps),
+      updatedAt: matchingEntries.reduce((max, entry) => Math.max(max, entry.updatedAt), 0),
+    };
+  }
+
   public async close(): Promise<void> {
     this.closed = true;
     if (this.persistTimer) {
