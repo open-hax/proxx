@@ -105,6 +105,16 @@ export function nativeChatToOpenAiRequest(body: Record<string, unknown>): Record
     stream: body["stream"] === true,
   };
 
+  const reasoningEffort = asString(body["reasoning_effort"]);
+  if (reasoningEffort) {
+    payload["reasoning_effort"] = reasoningEffort;
+  }
+
+  const reasoning = isRecord(body["reasoning"]) ? body["reasoning"] : null;
+  if (reasoning) {
+    payload["reasoning"] = reasoning;
+  }
+
   if (Array.isArray(body["tools"])) {
     payload["tools"] = body["tools"];
   }

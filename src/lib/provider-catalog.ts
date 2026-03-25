@@ -24,8 +24,22 @@ interface CachedCatalog {
   readonly resolved: ResolvedCatalogWithPreferences;
 }
 
-function providerModelCatalogPaths(providerId: string): string[] {
+function providerModelCatalogPaths(config: ProxyConfig, providerId: string): string[] {
   const normalizedProviderId = providerId.trim().toLowerCase();
+
+  if (normalizedProviderId === config.openaiProviderId.trim().toLowerCase()) {
+    const openAiBaseUrl = config.openaiBaseUrl.trim().toLowerCase();
+    const openAiResponsesPath = config.openaiResponsesPath.trim().toLowerCase();
+    const openAiChatCompletionsPath = config.openaiChatCompletionsPath.trim().toLowerCase();
+    const usesCodexSurface = openAiBaseUrl.includes("chatgpt.com/backend-api")
+      || openAiResponsesPath.includes("/codex/")
+      || openAiChatCompletionsPath.includes("/codex/");
+
+    if (usesCodexSurface) {
+      return [];
+    }
+  }
+
   if (normalizedProviderId === "zai") {
     return ["/models"];
   }
@@ -113,7 +127,7 @@ export class ProviderCatalogStore {
     const discoveredModels: string[] = [];
 
     for (const route of this.routes) {
-      const sourceEndpoints = providerModelCatalogPaths(route.providerId);
+      const sourceEndpoints = providerModelCatalogPaths(this.config, route.providerId);
       const providerModels = await this.fetchProviderModelCatalog(route, sourceEndpoints);
       if (providerModels.length > 0) {
         providerCatalogs[route.providerId] = {

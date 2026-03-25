@@ -8497,6 +8497,108 @@ test("publishes declared static and synthetic models from models JSON alongside 
   );
 });
 
+test("routes declared alias models without requiring provider catalog discovery", async () => {
+  const observedModels: string[] = [];
+
+  await withProxyApp(
+    {
+      keys: ["key-a"],
+      models: {
+        models: ["model-f16.gguf"],
+        preferred: [],
+        disabled: [],
+        aliases: {
+          "blongs-definately-legit-model": "model-f16.gguf",
+        },
+      },
+      keysPayload: {
+        providers: {
+          vivgrid: ["key-a"],
+        },
+      },
+      configOverrides: {
+        upstreamProviderId: "vivgrid",
+        upstreamFallbackProviderIds: [],
+      },
+      upstreamHandler: async (request, body) => {
+        if (request.method === "POST" && request.url === "/v1/chat/completions") {
+          const parsedBody = JSON.parse(body);
+          assert.ok(isRecord(parsedBody));
+          observedModels.push(typeof parsedBody.model === "string" ? parsedBody.model : "");
+
+          return {
+            status: 200,
+            headers: {
+              "content-type": "application/json"
+            },
+            body: JSON.stringify({
+              id: "chatcmpl-blongs",
+              object: "chat.completion",
+              model: "model-f16.gguf",
+              choices: [
+                {
+                  index: 0,
+                  message: {
+                    role: "assistant",
+                    content: "blongs-ok"
+                  },
+                  finish_reason: "stop"
+                }
+              ]
+            })
+          };
+        }
+
+        return {
+          status: 404,
+          headers: {
+            "content-type": "application/json"
+          },
+          body: JSON.stringify({ error: { message: "catalog not configured" } })
+        };
+      }
+    },
+    async ({ app }) => {
+      const listResponse = await app.inject({ method: "GET", url: "/v1/models" });
+      assert.equal(listResponse.statusCode, 200);
+      const listPayload: unknown = listResponse.json();
+      assert.ok(isRecord(listPayload));
+      assert.ok(Array.isArray(listPayload.data));
+      const modelIds = listPayload.data
+        .filter((entry): entry is Record<string, unknown> => isRecord(entry))
+        .map((entry) => entry.id)
+        .filter((entry): entry is string => typeof entry === "string");
+
+      assert.ok(modelIds.includes("model-f16.gguf"));
+      assert.ok(modelIds.includes("blongs-definately-legit-model"));
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json"
+        },
+        payload: {
+          model: "blongs-definately-legit-model",
+          messages: [{ role: "user", content: "hello" }],
+          stream: false
+        }
+      });
+
+      assert.equal(response.statusCode, 200);
+      assert.equal(response.headers["x-open-hax-model-alias"], "blongs-definately-legit-model->model-f16.gguf");
+      assert.deepEqual(observedModels, ["model-f16.gguf"]);
+
+      const payload: unknown = response.json();
+      assert.ok(isRecord(payload));
+      assert.ok(Array.isArray(payload.choices));
+      assert.ok(isRecord(payload.choices[0]));
+      assert.ok(isRecord(payload.choices[0].message));
+      assert.equal(payload.choices[0].message.content, "blongs-ok");
+    }
+  );
+});
+
 test("auto:cheapest falls through to the next ranked model when the cheapest priced candidate fails", async () => {
   const observedModels: string[] = [];
 

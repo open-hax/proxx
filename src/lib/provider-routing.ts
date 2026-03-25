@@ -29,6 +29,20 @@ function asString(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
+function looksLikeHostedOpenAiFamily(model: string): boolean {
+  const lowered = model.toLowerCase();
+  return lowered.startsWith("gpt-")
+    || lowered.startsWith("openai/")
+    || lowered.startsWith("openai:")
+    || lowered.startsWith("chatgpt-")
+    || lowered === "o1"
+    || lowered === "o3"
+    || lowered === "o4"
+    || lowered.startsWith("o1-")
+    || lowered.startsWith("o3-")
+    || lowered.startsWith("o4-");
+}
+
 export function stripModelPrefix(model: string, prefixes: readonly string[]): string {
   const loweredModel = model.toLowerCase();
 
@@ -54,6 +68,10 @@ export function hasModelPrefix(model: string, prefixes: readonly string[]): bool
 }
 
 export function shouldUseLocalOllama(model: string, patterns: readonly string[]): boolean {
+  if (looksLikeHostedOpenAiFamily(model)) {
+    return false;
+  }
+
   const lowered = model.toLowerCase();
   for (const pattern of patterns) {
     const normalizedPattern = pattern.toLowerCase();

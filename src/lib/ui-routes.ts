@@ -32,7 +32,7 @@ import type { SqlAuthPersistence } from "./auth/sql-persistence.js";
 import { DEFAULT_TENANT_ID, normalizeTenantId } from "./tenant-api-key.js";
 import { createFederationBridgeRelay, type FederationBridgeRelay } from "./federation/bridge-relay.js";
 
-interface UiRouteDependencies {
+export interface UiRouteDependencies {
   readonly config: ProxyConfig;
   readonly keyPool: KeyPool;
   readonly requestLogStore: RequestLogStore;
@@ -175,7 +175,7 @@ interface UsageScope {
   readonly keyId?: string;
 }
 
-function toUsageWindow(value: unknown): UsageWindow {
+export function toUsageWindow(value: unknown): UsageWindow {
   if (value === "weekly" || value === "monthly" || value === "daily") {
     return value;
   }
@@ -296,7 +296,7 @@ function parseOptionalProviderIds(value: unknown): readonly string[] | null | un
   return normalized.length > 0 ? normalized : null;
 }
 
-function getResolvedAuth(request: { readonly openHaxAuth?: unknown }): ResolvedRequestAuth | undefined {
+export function getResolvedAuth(request: { readonly openHaxAuth?: unknown }): ResolvedRequestAuth | undefined {
   const auth = request.openHaxAuth;
   return typeof auth === "object" && auth !== null ? auth as ResolvedRequestAuth : undefined;
 }
@@ -472,7 +472,10 @@ async function buildFederationAccountKnowledge(
   for (const provider of providers) {
     for (const account of provider.accounts) {
       const key = accountKnowledgeKey(provider.id, account.id);
-      if (!includeAllLocalAccounts && account.subject !== requestedOwnerSubject && !projectedAccountKeys.has(key)) {
+      const accountHasSubject = typeof account.subject === "string" && account.subject.length > 0;
+      const hasNoOwner = !accountHasSubject;
+      const matchesOwner = accountHasSubject && account.subject === requestedOwnerSubject;
+      if (!includeAllLocalAccounts && !hasNoOwner && !matchesOwner && !projectedAccountKeys.has(key)) {
         continue;
       }
 
@@ -700,7 +703,7 @@ function toChatRole(value: unknown): ChatRole {
   return "user";
 }
 
-function toSafeLimit(value: unknown, fallback: number, max: number): number {
+export function toSafeLimit(value: unknown, fallback: number, max: number): number {
   if (typeof value === "number" && Number.isFinite(value)) {
     return Math.max(1, Math.min(Math.floor(value), max));
   }
@@ -765,7 +768,7 @@ function entryMatchesUsageScope(entry: {
   return true;
 }
 
-async function resolveUsageScopeFromAuth(input: {
+export async function resolveUsageScopeFromAuth(input: {
   readonly auth: ResolvedRequestAuth;
   readonly tenantId?: string;
   readonly issuer?: string;
@@ -817,15 +820,18 @@ function resolveUsageWindowConfig(window: UsageWindow, now: number): {
   readonly bucketMs: number;
   readonly bucketCount: number;
   readonly bucketWindowStart: number;
+  readonly entryWindowStart: number;
 } {
   const bucketMs = window === "daily" ? 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
   const bucketCount = window === "monthly" ? 30 : window === "weekly" ? 7 : 24;
   const bucketWindowStart = bucketStart(now - (bucketCount - 1) * bucketMs, bucketMs);
+  const entryWindowStart = now - bucketCount * bucketMs;
 
   return {
     bucketMs,
     bucketCount,
     bucketWindowStart,
+    entryWindowStart,
   };
 }
 
@@ -845,8 +851,8 @@ async function buildUsageOverviewFromEntries(
   const allAccountStatuses: Record<string, readonly KeyPoolAccountStatus[]> = await keyPool.getAllAccountStatuses().catch(() => ({}));
   const credentialProviders = await credentialStore.listProviders(false).catch(() => []);
   const providerById = new Map(credentialProviders.map((provider) => [provider.id, provider]));
-  const { bucketMs, bucketCount, bucketWindowStart } = resolveUsageWindowConfig(window, now);
-  const recentLogs = entries.filter((entry) => entry.timestamp >= bucketWindowStart);
+  const { bucketMs, bucketCount, bucketWindowStart, entryWindowStart } = resolveUsageWindowConfig(window, now);
+  const recentLogs = entries.filter((entry) => entry.timestamp >= entryWindowStart);
 
   const bucketAgg = new Map<number, {
     requests: number;
@@ -1262,7 +1268,7 @@ async function buildUsageOverviewFromEntries(
   };
 }
 
-async function buildUsageOverview(
+export async function buildUsageOverview(
   requestLogStore: RequestLogStore,
   keyPool: KeyPool,
   credentialStore: CredentialStoreLike,
@@ -1272,11 +1278,11 @@ async function buildUsageOverview(
   sqlRequestUsageStore?: SqlRequestUsageStore,
 ): Promise<UsageOverviewResponse> {
   const now = Date.now();
-  const { bucketWindowStart: sharedBucketWindowStart } = resolveUsageWindowConfig(window, now);
+  const { bucketWindowStart: _sharedBucketWindowStart, entryWindowStart: sharedEntryWindowStart } = resolveUsageWindowConfig(window, now);
 
   if (sqlRequestUsageStore) {
     const [entries, coverage] = await Promise.all([
-      sqlRequestUsageStore.listEntriesSince(sharedBucketWindowStart, scope),
+      sqlRequestUsageStore.listEntriesSince(sharedEntryWindowStart, scope),
       sqlRequestUsageStore.getCoverage(scope),
     ]);
 
@@ -1301,9 +1307,9 @@ async function buildUsageOverview(
   const allAccountStatuses: Record<string, readonly KeyPoolAccountStatus[]> = await keyPool.getAllAccountStatuses().catch(() => ({}));
   const credentialProviders = await credentialStore.listProviders(false).catch(() => []);
   const providerById = new Map(credentialProviders.map((provider) => [provider.id, provider]));
-  const { bucketMs, bucketCount, bucketWindowStart } = resolveUsageWindowConfig(window, now);
+  const { bucketMs, bucketCount, bucketWindowStart, entryWindowStart } = resolveUsageWindowConfig(window, now);
 
-  const recentLogs = allLogs.filter((entry) => entry.timestamp >= bucketWindowStart);
+  const recentLogs = allLogs.filter((entry) => entry.timestamp >= entryWindowStart);
   const recentModelBuckets = requestLogStore.snapshotDailyModelBuckets(bucketWindowStart);
   const recentAccountBuckets = window === "daily"
     ? undefined
@@ -1841,8 +1847,8 @@ function buildProviderModelAnalyticsFromEntries(
     readonly maxRetainedEntries: number;
   },
 ): ProviderModelAnalyticsResponse {
-  const { bucketWindowStart } = resolveUsageWindowConfig(window, now);
-  const relevantEntries = entries.filter((entry) => entry.timestamp >= bucketWindowStart);
+  const { bucketWindowStart, entryWindowStart } = resolveUsageWindowConfig(window, now);
+  const relevantEntries = entries.filter((entry) => entry.timestamp >= entryWindowStart);
   const pairAgg = new Map<string, MutableAnalyticsAgg>();
 
   const upsertPair = (providerId: string, model: string): MutableAnalyticsAgg => {
@@ -2039,7 +2045,7 @@ function buildProviderModelAnalyticsFromEntries(
   };
 }
 
-async function buildProviderModelAnalytics(
+export async function buildProviderModelAnalytics(
   requestLogStore: RequestLogStore,
   window: UsageWindow = "weekly",
   sort?: string,
@@ -2047,11 +2053,11 @@ async function buildProviderModelAnalytics(
   sqlRequestUsageStore?: SqlRequestUsageStore,
 ): Promise<ProviderModelAnalyticsResponse> {
   const now = Date.now();
-  const { bucketWindowStart } = resolveUsageWindowConfig(window, now);
+  const { bucketWindowStart, entryWindowStart } = resolveUsageWindowConfig(window, now);
 
   if (sqlRequestUsageStore) {
     const [entries, coverage] = await Promise.all([
-      sqlRequestUsageStore.listEntriesSince(bucketWindowStart, scope),
+      sqlRequestUsageStore.listEntriesSince(entryWindowStart, scope),
       sqlRequestUsageStore.getCoverage(scope),
     ]);
     return buildProviderModelAnalyticsFromEntries(entries, window, sort, now, {
@@ -2070,7 +2076,7 @@ async function buildProviderModelAnalytics(
     });
   }
 
-  const { bucketWindowStart: optimizedBucketWindowStart } = resolveUsageWindowConfig(window, now);
+  const { bucketWindowStart: optimizedBucketWindowStart, entryWindowStart: optimizedEntryWindowStart } = resolveUsageWindowConfig(window, now);
   const pairAgg = new Map<string, MutableAnalyticsAgg>();
 
   const upsertPair = (providerId: string, model: string): MutableAnalyticsAgg => {
@@ -2109,7 +2115,7 @@ async function buildProviderModelAnalytics(
   };
 
   if (window === "daily") {
-    for (const entry of requestLogStore.snapshot().filter((item) => item.timestamp >= optimizedBucketWindowStart)) {
+    for (const entry of requestLogStore.snapshot().filter((item) => item.timestamp >= optimizedEntryWindowStart)) {
       const agg = upsertPair(entry.providerId, entry.model);
       agg.requestCount += 1;
       if (entry.status >= 400 || typeof entry.error === "string") {
@@ -3390,6 +3396,99 @@ export async function registerUiRoutes(app: FastifyInstance, deps: UiRouteDepend
     });
 
     reply.send({ account });
+  });
+
+  app.post<{
+    Body: { readonly sourcePeerId?: string; readonly providerId?: string };
+  }>("/api/ui/federation/projected-accounts/import-all", async (request, reply) => {
+    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
+    if (!authCanManageFederation(auth)) {
+      reply.code(auth ? 403 : 401).send({ error: auth ? "forbidden" : "unauthorized" });
+      return;
+    }
+
+    if (!deps.sqlFederationStore || !deps.credentialStore) {
+      reply.code(503).send({ error: "federation_store_not_supported" });
+      return;
+    }
+
+    const sourcePeerId = typeof request.body?.sourcePeerId === "string" ? request.body.sourcePeerId.trim() : "";
+    const providerId = typeof request.body?.providerId === "string" ? request.body.providerId.trim() : "";
+
+    if (!sourcePeerId || !providerId) {
+      reply.code(400).send({ error: "source_peer_id_and_provider_id_required" });
+      return;
+    }
+
+    const peer = await deps.sqlFederationStore.getPeer(sourcePeerId);
+    const credential = peer ? extractPeerCredential(peer.auth) : undefined;
+    if (!peer || !credential) {
+      reply.code(400).send({ error: "peer_or_credential_not_found" });
+      return;
+    }
+
+    const controlBaseUrl = peer.controlBaseUrl ?? peer.baseUrl;
+    const projectedAccounts = await deps.sqlFederationStore.listProjectedAccounts(undefined);
+    const filteredAccounts = sourcePeerId 
+      ? projectedAccounts.filter(a => a.sourcePeerId === sourcePeerId && (!providerId || a.providerId === providerId))
+      : (providerId ? projectedAccounts.filter(a => a.providerId === providerId) : projectedAccounts);
+
+    let imported = 0;
+    let failed = 0;
+    const errors: string[] = [];
+
+    for (const account of filteredAccounts) {
+      if (account.availabilityState === "imported") {
+        continue;
+      }
+
+      try {
+        const remoteExport = await fetchFederationJson<{ readonly account: FederationCredentialExport }>({
+          url: `${controlBaseUrl}/api/ui/federation/accounts/export`,
+          credential,
+          timeoutMs: federationRequestTimeoutMs,
+          method: "POST",
+          body: {
+            providerId: account.providerId,
+            accountId: account.accountId,
+          },
+        });
+
+        if (remoteExport.account.authType === "oauth_bearer") {
+          await deps.credentialStore.upsertOAuthAccount(
+            remoteExport.account.providerId,
+            remoteExport.account.accountId,
+            remoteExport.account.secret,
+            remoteExport.account.refreshToken,
+            remoteExport.account.expiresAt,
+            remoteExport.account.chatgptAccountId,
+            remoteExport.account.email,
+            remoteExport.account.subject,
+            remoteExport.account.planType,
+          );
+        } else {
+          await deps.credentialStore.upsertApiKeyAccount(
+            remoteExport.account.providerId,
+            remoteExport.account.accountId,
+            remoteExport.account.secret,
+          );
+        }
+
+        await deps.sqlFederationStore.markProjectedAccountImported({
+          sourcePeerId,
+          providerId: account.providerId,
+          accountId: account.accountId,
+        });
+        imported++;
+      } catch (error) {
+        failed++;
+        errors.push(`${account.accountId}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    await deps.keyPool.warmup().catch(() => undefined);
+
+    reply.send({ imported, failed, errors: errors.slice(0, 10) });
   });
 
   app.get<{
