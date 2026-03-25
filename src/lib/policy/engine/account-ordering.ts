@@ -66,42 +66,61 @@ export function createAccountOrdering(
   const orderingRule = rule?.accountOrdering ?? config.modelRouting.defaultAccountOrdering;
   const constraints = config.accountPreferences.modelConstraints[model.routedModel];
 
-  // Filter out quota-exhausted accounts first - they should never be used
-  const availableAccounts = accounts.filter((account) => !account.isQuotaExhausted);
-
-  // If all accounts are quota-exhausted, fall back to using them (better than nothing)
-  const accountsToOrder = availableAccounts.length > 0 ? availableAccounts : accounts;
+  // Step 1: Apply model constraints first (requiresPlan, excludesPlan)
+  let qualifiedAccounts = accounts;
 
   if (constraints?.requiresPlan?.length) {
     const requiredPlans = new Set(constraints.requiresPlan);
-    const hasMatchingAccount = accountsToOrder.some((account) => requiredPlans.has(account.planType));
-    if (hasMatchingAccount) {
-      const qualified = accountsToOrder.filter((account) => requiredPlans.has(account.planType));
-      return {
-        ordered: applyAccountOrdering(qualified, orderingRule),
-        appliesConstraint: true,
-        constraintReason: `Model ${model.routedModel} requires ${constraints.requiresPlan.join(" or ")} plan`,
-      };
+    const matchingAccounts = accounts.filter((account) => requiredPlans.has(account.planType));
+    if (matchingAccounts.length > 0) {
+      qualifiedAccounts = matchingAccounts;
     }
   }
 
-  if (constraints?.excludesPlan?.length) {
+  if (constraints?.excludesPlan?.length && qualifiedAccounts.length > 0) {
     const excludedPlans = new Set(constraints.excludesPlan);
-    const filtered = accountsToOrder.filter((account) => !excludedPlans.has(account.planType));
+    const filtered = qualifiedAccounts.filter((account) => !excludedPlans.has(account.planType));
     if (filtered.length > 0) {
-      return {
-        ordered: applyAccountOrdering(filtered, orderingRule),
-        appliesConstraint: true,
-        constraintReason: `Model ${model.routedModel} excludes ${constraints.excludesPlan.join(", ")} plans`,
-      };
+      qualifiedAccounts = filtered;
     }
   }
+
+  // Step 2: Filter out quota-exhausted accounts from the qualified set
+  const availableAccounts = qualifiedAccounts.filter((account) => !account.isQuotaExhausted);
+
+  // If all qualified accounts are quota-exhausted, fall back to using them (better than nothing)
+  const accountsToOrder = availableAccounts.length > 0 ? availableAccounts : qualifiedAccounts;
+
+  // Track whether policy constraints caused exclusions (not quota)
+  const constraintRequiresPlan = constraints?.requiresPlan?.length ?? 0;
+  const constraintExcludesPlan = constraints?.excludesPlan?.length ?? 0;
+  const hadRequiresPlan = constraintRequiresPlan > 0;
+  const hadExcludesPlan = constraintExcludesPlan > 0;
+  
+  const policyConstraintCausedExclusion = 
+    (hadRequiresPlan && qualifiedAccounts !== accounts) ||
+    (hadExcludesPlan && qualifiedAccounts.length < accounts.length);
+
+  if (policyConstraintCausedExclusion) {
+    const reason = hadRequiresPlan
+      ? `Model ${model.routedModel} requires ${constraints!.requiresPlan!.join(" or ")} plan`
+      : `Model ${model.routedModel} excludes ${constraints!.excludesPlan!.join(", ")} plans`;
+
+    return {
+      ordered: applyAccountOrdering(accountsToOrder, orderingRule),
+      appliesConstraint: true,
+      constraintReason: reason,
+    };
+  }
+
+  // Only set constraint info if quota caused exclusions (for logging/visibility)
+  const quotaCausedExclusion = availableAccounts.length < qualifiedAccounts.length;
 
   return {
     ordered: applyAccountOrdering(accountsToOrder, orderingRule),
-    appliesConstraint: availableAccounts.length !== accounts.length,
-    constraintReason: availableAccounts.length !== accounts.length
-      ? `${accounts.length - availableAccounts.length} account(s) excluded due to quota exhaustion`
+    appliesConstraint: false,
+    constraintReason: quotaCausedExclusion
+      ? `${qualifiedAccounts.length - availableAccounts.length} qualified account(s) excluded due to quota exhaustion`
       : undefined,
   };
 }
