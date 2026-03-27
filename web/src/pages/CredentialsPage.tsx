@@ -419,6 +419,15 @@ export function CredentialsPage(): JSX.Element {
     }
   }, []);
 
+  const refreshPromptCacheAudit = useCallback(async () => {
+    try {
+      const nextAudit = await getOpenAiPromptCacheAudit(40);
+      setPromptCacheAudit(nextAudit);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+    }
+  }, []);
+
   useEffect(() => {
     void refreshCredentials().catch((nextError) => {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
@@ -438,7 +447,8 @@ export function CredentialsPage(): JSX.Element {
 
     hasLoadedQuotaRef.current = true;
     void refreshQuota();
-  }, [providers.length, refreshQuota]);
+    void refreshPromptCacheAudit();
+  }, [providers.length, refreshPromptCacheAudit, refreshQuota]);
 
   useEffect(() => {
     return () => {
@@ -1007,6 +1017,7 @@ export function CredentialsPage(): JSX.Element {
       const result = await probeOpenAiCredentialAccount(accountId);
       setAccountProbeResults((current) => ({ ...current, [stateKey]: result }));
       await refreshQuota();
+      await refreshPromptCacheAudit();
     } catch (probeError) {
       const message = probeError instanceof Error ? probeError.message : String(probeError);
       setAccountProbeResults((current) => ({
@@ -1027,7 +1038,7 @@ export function CredentialsPage(): JSX.Element {
     } finally {
       setAccountProbeLoading((current) => ({ ...current, [stateKey]: false }));
     }
-  }, [refreshQuota]);
+  }, [refreshPromptCacheAudit, refreshQuota]);
 
   const renderQuotaRow = (label: string, window: CredentialQuotaWindow | null) => {
     const remainingPercent = window?.remainingPercent ?? null;
@@ -1294,7 +1305,7 @@ export function CredentialsPage(): JSX.Element {
               <option value="domain">Email domain</option>
             </select>
           </label>
-          <button type="button" onClick={() => void refreshQuota()} disabled={quotaLoading}>
+          <button type="button" onClick={() => void Promise.all([refreshQuota(), refreshPromptCacheAudit()])} disabled={quotaLoading}>
             {quotaLoading ? "Refreshing Codex quotas..." : "Refresh Codex quotas"}
           </button>
           <button
@@ -1379,6 +1390,66 @@ export function CredentialsPage(): JSX.Element {
             <p className="credentials-pool-meta">
               Combined pool is computed from live remaining percentages across OpenAI OAuth accounts with quota data.
             </p>
+          </article>
+        )}
+
+        {promptCacheAudit && (
+          <article className="credentials-card credentials-pool-card">
+            <header className="credentials-provider-header">
+              <div>
+                <h3>Prompt cache affinity audit</h3>
+                <p>
+                  {promptCacheAudit.crossAccountHashCount} cross-account hash(es)
+                  {" · "}
+                  {promptCacheAudit.distinctHashCount} distinct hash(es)
+                  {" · "}
+                  scanned {promptCacheAudit.scannedEntryCount} recent OpenAI OAuth request(s)
+                </p>
+              </div>
+            </header>
+
+            {promptCacheAudit.rows.length > 0 ? (
+              <div className="credentials-audit-table">
+                <div className="credentials-audit-header">
+                  <span>Hash</span>
+                  <span>Accounts</span>
+                  <span>Requests</span>
+                  <span>Cache</span>
+                  <span>Last seen</span>
+                </div>
+                {promptCacheAudit.rows.map((row) => {
+                  const cacheRate = row.promptTokens > 0 ? (row.cachedPromptTokens / row.promptTokens) * 100 : null;
+                  return (
+                    <div key={row.promptCacheKeyHash} className="credentials-audit-row">
+                      <div>
+                        <strong>{row.promptCacheKeyHash}</strong>
+                        {row.latestModel && <small>{row.providerId} · {row.latestModel}</small>}
+                      </div>
+                      <div>
+                        <span className={`credentials-badge ${row.accountCount > 1 ? "credentials-badge-warning" : "credentials-badge-accent"}`}>
+                          {row.accountCount} account{row.accountCount === 1 ? "" : "s"}
+                        </span>
+                        <small>{row.accountIds.join(", ")}</small>
+                      </div>
+                      <div>
+                        <strong>{row.requestCount}</strong>
+                        <small>{row.cacheHitCount} hit{row.cacheHitCount === 1 ? "" : "s"}</small>
+                      </div>
+                      <div>
+                        <strong>{formatAggregatePercent(cacheRate)}</strong>
+                        <small>{row.cachedPromptTokens.toLocaleString()} / {row.promptTokens.toLocaleString()} prompt tokens</small>
+                      </div>
+                      <div>
+                        <strong>{row.lastSeenAt ? formatQuotaTimestamp(row.lastSeenAt) : "Never"}</strong>
+                        <small>{row.firstSeenAt ? `first ${formatQuotaTimestamp(row.firstSeenAt)}` : ""}</small>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="credentials-pool-meta">No prompt-cache hashes have been recorded in recent OpenAI OAuth request logs yet.</p>
+            )}
           </article>
         )}
 
