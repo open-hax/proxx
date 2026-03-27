@@ -1,30 +1,37 @@
-# Π Snapshot: Proxx final audit-style residue cleanup
+# Π Snapshot: Proxx federation bridge + prompt-cache audit residue
 
 - **Repo:** `open-hax/proxx`
 - **Branch:** `fix/ci-live-e2e-aggregate-conclusion`
-- **Pre-snapshot HEAD:** `fb08bf9`
-- **Previous tag:** `Π/2026-03-27/044115`
-- **Intended Π tag:** `Π/2026-03-27/044308`
-- **Generated:** `2026-03-27T04:43:08Z`
+- **Pre-snapshot HEAD:** `23e6ecd`
+- **Previous tag:** `Π/2026-03-27/044308`
+- **Intended Π tag:** `Π/2026-03-27/045033`
+- **Generated:** `2026-03-27T04:50:33Z`
 
 ## What this snapshot preserves
 
-This final follow-up Π handoff captures the remaining credentials-audit stylesheet diff so the Proxx repository is genuinely clean.
+This follow-up Π handoff captures the remaining dirty Proxx diffs after the earlier control-plane and UI cleanup snapshots.
 
-Included work category:
-- credentials audit table styles in `web/src/styles.css`
+Included work categories:
+- federation bridge route extraction from `src/lib/ui-routes.ts` into `src/routes/federation/ui.ts`
+- federation route export/context updates in `src/routes/federation/index.ts`
+- prompt-cache audit regression coverage in `src/tests/proxy.test.ts`
 
 ## Dirty state before commit
 
 ### Modified
-- `web/src/styles.css`
+- `src/lib/ui-routes.ts`
+- `src/routes/federation/index.ts`
+- `src/routes/federation/ui.ts`
+- `src/tests/proxy.test.ts`
 
 ## Verification
 
+- Typecheck: `pnpm run typecheck` ✅
+- Test suite: `pnpm test` ❌ (`419/420`)
+  - failing test: `groups prompt cache audit rows by hash and distinct accounts touched`
+  - observed failure: expected `crossAccountHashCount === 1`, got `0`
 - Web build: `pnpm run web:build` ✅
-- Prior typecheck: snapshot `Π/2026-03-27/044115` recorded `pnpm run typecheck` ✅
-- Prior full suite: snapshot `Π/2026-03-27/043215` recorded `pnpm test` ✅ (`419/419`)
 
 ## Operator note
 
-This follow-up snapshot exists only to eliminate the last residual UI stylesheet diff before the workspace superproject advances its submodule pointer.
+This snapshot intentionally preserves a known-red regression state so the workspace superproject can point at the exact current Proxx branch state without losing the unfinished audit/bridge extraction work.

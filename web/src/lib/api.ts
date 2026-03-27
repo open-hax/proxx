@@ -709,7 +709,7 @@ export async function getUsageOverview(sort?: string, window?: "daily" | "weekly
     query.set("window", window.trim());
   }
   const suffix = query.size > 0 ? `?${query.toString()}` : "";
-  return requestJson<UsageOverview>(`/api/ui/dashboard/overview${suffix}`);
+  return requestJson<UsageOverview>(`/api/v1/dashboard/overview${suffix}`);
 }
 
 export async function getHostsOverview(): Promise<HostsOverview> {
@@ -725,7 +725,7 @@ export async function getProviderModelAnalytics(sort?: string, window?: "daily" 
     query.set("window", window.trim());
   }
   const suffix = query.size > 0 ? `?${query.toString()}` : "";
-  return requestJson<ProviderModelAnalytics>(`/api/ui/analytics/provider-model${suffix}`);
+  return requestJson<ProviderModelAnalytics>(`/api/v1/analytics/provider-model${suffix}`);
 }
 
 export async function getProxyUiSettings(): Promise<ProxyUiSettings> {
@@ -897,17 +897,17 @@ export async function listRequestLogs(filters: {
   }
 
   const suffix = query.toString().length > 0 ? `?${query.toString()}` : "";
-  const payload = await requestJson<{ readonly entries: RequestLogEntry[] }>(`/api/ui/request-logs${suffix}`);
+  const payload = await requestJson<{ readonly entries: RequestLogEntry[] }>(`/api/v1/request-logs${suffix}`);
   return payload.entries;
 }
 
 export async function listToolSeeds(model: string): Promise<ToolSeed[]> {
-  const payload = await requestJson<{ readonly tools: ToolSeed[] }>(`/api/ui/tools?model=${encodeURIComponent(model)}`);
+  const payload = await requestJson<{ readonly tools: ToolSeed[] }>(`/api/v1/tools?model=${encodeURIComponent(model)}`);
   return payload.tools;
 }
 
 export async function listMcpSeeds(): Promise<McpServerSeed[]> {
-  const payload = await requestJson<{ readonly servers: McpServerSeed[] }>("/api/ui/mcp-servers");
+  const payload = await requestJson<{ readonly servers: McpServerSeed[] }>("/api/v1/mcp-servers");
   return payload.servers;
 }
 

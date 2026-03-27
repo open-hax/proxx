@@ -6467,6 +6467,106 @@ test("reassigns openai oauth codex prompt_cache_key affinity when the pinned gpt
   );
 });
 
+test("groups prompt cache audit rows by hash and distinct accounts touched", async () => {
+  let openAiAAttempts = 0;
+
+  await withProxyApp(
+    {
+      keys: [],
+      keysPayload: {
+        providers: {
+          openai: {
+            auth: "oauth_bearer",
+            accounts: [
+              { id: "openai-a", access_token: "oa-token-a", chatgpt_account_id: "chatgpt-a", plan_type: "plus" },
+              { id: "openai-b", access_token: "oa-token-b", chatgpt_account_id: "chatgpt-b", plan_type: "plus" },
+            ]
+          }
+        }
+      },
+      configOverrides: {
+        upstreamProviderId: "openai",
+        upstreamFallbackProviderIds: [],
+      },
+      upstreamHandler: async (request) => {
+        const auth = typeof request.headers.authorization === "string"
+          ? request.headers.authorization.replace(/^Bearer\s+/i, "")
+          : undefined;
+
+        if (auth === "oa-token-a") {
+          openAiAAttempts += 1;
+          if (openAiAAttempts >= 2) {
+            const headers: Record<string, string> = {
+              "content-type": "application/json",
+              "retry-after": "1",
+            };
+            return {
+              status: 429,
+              headers,
+              body: JSON.stringify({ error: { message: "rate limit" } }),
+            };
+          }
+        }
+
+        const headers: Record<string, string> = { "content-type": "application/json" };
+        return {
+          status: 200,
+          headers,
+          body: JSON.stringify({
+            id: crypto.randomUUID(),
+            object: "response",
+            created_at: 1772516810,
+            model: "gpt-5.4",
+            output: [
+              {
+                id: crypto.randomUUID(),
+                type: "message",
+                role: "assistant",
+                content: [{ type: "output_text", text: "OK" }],
+              },
+            ],
+            usage: {
+              input_tokens: 11,
+              output_tokens: 5,
+              total_tokens: 16,
+              input_tokens_details: {
+                cached_tokens: auth === "oa-token-b" ? 9 : 0,
+              },
+            },
+          }),
+        };
+      },
+    },
+    async ({ app }) => {
+      const payload = {
+        model: "gpt-5.4",
+        messages: [{ role: "user", content: "Reply with exactly: OK" }],
+        prompt_cache_key: "sticky-gpt-oauth-audit-1",
+        stream: false,
+      };
+
+      assert.equal((await app.inject({ method: "POST", url: "/v1/chat/completions", headers: { "content-type": "application/json" }, payload })).statusCode, 200);
+      assert.equal((await app.inject({ method: "POST", url: "/v1/chat/completions", headers: { "content-type": "application/json" }, payload })).statusCode, 200);
+
+      const auditResponse = await app.inject({
+        method: "GET",
+        url: "/api/v1/credentials/openai/prompt-cache-audit?limit=10&scanLimit=100",
+      });
+
+      assert.equal(auditResponse.statusCode, 200);
+      const payloadJson: unknown = auditResponse.json();
+      assert.ok(isRecord(payloadJson));
+      assert.equal(payloadJson.crossAccountHashCount, 1);
+      assert.ok(Array.isArray(payloadJson.rows));
+      assert.equal(payloadJson.rows.length, 1);
+      assert.ok(isRecord(payloadJson.rows[0]));
+      assert.equal(payloadJson.rows[0].accountCount, 2);
+      assert.deepEqual(payloadJson.rows[0].accountIds, ["openai-a", "openai-b"]);
+      assert.equal(payloadJson.rows[0].requestCount, 3);
+    }
+  );
+});
+
 test("injects instructions for gpt-5.2 routed through openai oauth (regression: codex instructions required)", async () => {
   let observedPath = "";
   let observedBody: Record<string, unknown> | undefined;

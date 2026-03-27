@@ -51,10 +51,16 @@ const API_V1_ENDPOINTS = {
     status: "planned",
     description: "Event store query and tag endpoints migrating from the legacy UI surface.",
   },
+  observability: {
+    path: "/api/v1/dashboard",
+    legacyPath: "/api/ui/dashboard",
+    status: "implemented",
+    description: "Dashboard, analytics, request-log, tool, and MCP seed endpoints migrating from the legacy UI surface.",
+  },
   mcp: {
     path: "/api/v1/mcp",
     legacyPath: "/api/ui/mcp-servers",
-    status: "planned",
+    status: "implemented",
     description: "MCP discovery endpoints migrating from the legacy UI surface.",
   },
 } as const satisfies Record<string, ApiV1EndpointDescriptor>;
@@ -75,6 +81,7 @@ export async function registerApiV1Routes(
     (await import("../../hosts/index.js")).registerHostRoutes,
     (await import("../../events/index.js")).registerEventRoutes,
     (await import("../../mcp/index.js")).registerMcpRoutes,
+    (await import("../../observability/index.js")).registerCanonicalObservabilityRoutes,
   ] as const;
 
   for (const registerRoute of registerRoutes) {

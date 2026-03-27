@@ -2344,58 +2344,7 @@ export async function registerUiRoutes(app: FastifyInstance, deps: UiRouteDepend
 
   await registerSettingsUiRoutes(app, deps);
   await registerSessionUiRoutes(app, deps, sessionContext);
-  await registerFederationUiRoutes(app, deps);
-
-  app.get("/api/ui/federation/bridge/ws", async (request, reply) => {
-    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
-    if (!authCanManageFederation(auth)) {
-      reply.code(auth ? 403 : 401).send({ error: auth ? "forbidden" : "unauthorized" });
-      return;
-    }
-
-    reply.code(426).header("upgrade", "websocket").send({ error: "websocket_upgrade_required" });
-  });
-
-  app.get("/api/ui/federation/bridges", async (request, reply) => {
-    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
-    if (!authCanManageFederation(auth)) {
-      reply.code(auth ? 403 : 401).send({ error: auth ? "forbidden" : "unauthorized" });
-      return;
-    }
-
-    // Scope bridge sessions to the authenticated tenant for non-global admins.
-    // legacy_admin has global visibility; ui_session users see only their tenant's sessions.
-    const isGlobalAdmin = auth?.kind === "legacy_admin";
-    const allSessions = bridgeRelay.listSessions();
-    const sessions = isGlobalAdmin
-      ? allSessions
-      : allSessions.filter((session) => session.tenantId === auth?.tenantId);
-
-    reply.send({ sessions });
-  });
-
-  app.get<{ Params: { readonly sessionId: string } }>("/api/ui/federation/bridges/:sessionId", async (request, reply) => {
-    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
-    if (!authCanManageFederation(auth)) {
-      reply.code(auth ? 403 : 401).send({ error: auth ? "forbidden" : "unauthorized" });
-      return;
-    }
-
-    const session = bridgeRelay.getSession(request.params.sessionId);
-    if (!session) {
-      reply.code(404).send({ error: "bridge_session_not_found" });
-      return;
-    }
-
-    // Scope single session access to authenticated tenant
-    const isGlobalAdmin = auth?.kind === "legacy_admin";
-    if (!isGlobalAdmin && session.tenantId !== auth?.tenantId) {
-      reply.code(404).send({ error: "bridge_session_not_found" });
-      return;
-    }
-
-    reply.send({ session });
-  });
+  await registerFederationUiRoutes(app, deps, { bridgeRelay });
 
   app.get<{
     Querystring: { readonly ownerSubject?: string; readonly afterSeq?: string; readonly limit?: string };

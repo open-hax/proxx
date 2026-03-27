@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import type { FederationBridgeRelay } from "../../lib/federation/bridge-relay.js";
 
 import {
   authCanManageFederation,
@@ -12,7 +13,30 @@ import {
   normalizeTenantProviderTrustTier,
 } from "../../lib/tenant-provider-policy.js";
 
-export async function registerFederationUiRoutes(app: FastifyInstance, deps: UiRouteDependencies): Promise<void> {
+export interface FederationUiRouteContext {
+  readonly bridgeRelay?: FederationBridgeRelay;
+}
+
+function toSafeLimit(value: unknown, fallback: number, max: number): number {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return Math.max(1, Math.min(Math.floor(value), max));
+  }
+
+  if (typeof value === "string") {
+    const parsed = Number.parseInt(value.trim(), 10);
+    if (Number.isFinite(parsed)) {
+      return Math.max(1, Math.min(parsed, max));
+    }
+  }
+
+  return fallback;
+}
+
+export async function registerFederationUiRoutes(
+  app: FastifyInstance,
+  deps: UiRouteDependencies,
+  context: FederationUiRouteContext = {},
+): Promise<void> {
   app.get<{
     Querystring: { readonly ownerSubject?: string };
   }>("/api/ui/federation/peers", async (request, reply) => {
@@ -115,6 +139,92 @@ export async function registerFederationUiRoutes(app: FastifyInstance, deps: UiR
     });
 
     reply.code(201).send({ peer });
+  });
+
+  app.get("/api/ui/federation/bridge/ws", async (request, reply) => {
+    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
+    if (!authCanManageFederation(auth)) {
+      reply.code(auth ? 403 : 401).send({ error: auth ? "forbidden" : "unauthorized" });
+      return;
+    }
+
+    reply.code(426).header("upgrade", "websocket").send({ error: "websocket_upgrade_required" });
+  });
+
+  app.get("/api/ui/federation/bridges", async (request, reply) => {
+    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
+    if (!authCanManageFederation(auth)) {
+      reply.code(auth ? 403 : 401).send({ error: auth ? "forbidden" : "unauthorized" });
+      return;
+    }
+
+    const bridgeRelay = context.bridgeRelay;
+    if (!bridgeRelay) {
+      reply.code(503).send({ error: "federation_bridge_not_supported" });
+      return;
+    }
+
+    const isGlobalAdmin = auth?.kind === "legacy_admin";
+    const allSessions = bridgeRelay.listSessions();
+    const sessions = isGlobalAdmin
+      ? allSessions
+      : allSessions.filter((session) => session.tenantId === auth?.tenantId);
+
+    reply.send({ sessions });
+  });
+
+  app.get<{ Params: { readonly sessionId: string } }>("/api/ui/federation/bridges/:sessionId", async (request, reply) => {
+    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
+    if (!authCanManageFederation(auth)) {
+      reply.code(auth ? 403 : 401).send({ error: auth ? "forbidden" : "unauthorized" });
+      return;
+    }
+
+    const bridgeRelay = context.bridgeRelay;
+    if (!bridgeRelay) {
+      reply.code(503).send({ error: "federation_bridge_not_supported" });
+      return;
+    }
+
+    const session = bridgeRelay.getSession(request.params.sessionId);
+    if (!session) {
+      reply.code(404).send({ error: "bridge_session_not_found" });
+      return;
+    }
+
+    const isGlobalAdmin = auth?.kind === "legacy_admin";
+    if (!isGlobalAdmin && session.tenantId !== auth?.tenantId) {
+      reply.code(404).send({ error: "bridge_session_not_found" });
+      return;
+    }
+
+    reply.send({ session });
+  });
+
+  app.get<{
+    Querystring: { readonly ownerSubject?: string; readonly afterSeq?: string; readonly limit?: string };
+  }>("/api/ui/federation/diff-events", async (request, reply) => {
+    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
+    if (!authCanManageFederation(auth)) {
+      reply.code(auth ? 403 : 401).send({ error: auth ? "forbidden" : "unauthorized" });
+      return;
+    }
+
+    if (!deps.sqlFederationStore) {
+      reply.code(503).send({ error: "federation_store_not_supported" });
+      return;
+    }
+
+    const ownerSubject = typeof request.query.ownerSubject === "string" ? request.query.ownerSubject.trim() : "";
+    if (!ownerSubject) {
+      reply.code(400).send({ error: "owner_subject_required" });
+      return;
+    }
+
+    const afterSeq = typeof request.query.afterSeq === "string" ? Number.parseInt(request.query.afterSeq, 10) : undefined;
+    const limit = toSafeLimit(request.query.limit, 200, 500);
+    const events = await deps.sqlFederationStore.listDiffEvents({ ownerSubject, afterSeq, limit });
+    reply.send({ ownerSubject, events });
   });
 
   app.get<{
