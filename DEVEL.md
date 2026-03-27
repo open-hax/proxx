@@ -20,11 +20,11 @@ OpenAI-compatible proxy server with provider-scoped account rotation.
 - Auto-aliases tagged Ollama families to the largest variant (for example `qwen3.5` -> `qwen3.5:397b`).
 - Provider-scoped account rotation when upstream returns rate limits (`429`, plus `403/503` with `retry-after`).
 - Cross-provider fallback for shared models (for example `vivgrid` <-> `ollama-cloud`) when one provider's keys or upstream path fails.
-- Flexible `keys.json` supports both API-key and OAuth bearer accounts, with multiple accounts per provider.
+- Optional `keys.json` seeds support both API-key and OAuth bearer accounts, with multiple accounts per provider.
 
 ## Setup
 
-1. Provide credentials through `keys.json`, `PROXY_KEYS_JSON` / `UPSTREAM_KEYS_JSON`, or SQL via `DATABASE_URL`.
+1. Prefer credentials in SQL via `DATABASE_URL` or provider env vars; use `keys.json` / `PROXY_KEYS_JSON` only as optional bootstrap seeds.
 2. Optionally create `models.json` from `models.example.json` (preferences plus optional declared static model IDs; discovery is still canonical).
 3. Set `PROXY_AUTH_TOKEN` (required by default).
 4. Start the server.
@@ -80,7 +80,7 @@ docker compose logs -f
 
 Notes:
 
-- upstream credentials are still required for proxying, but they can come from SQL, inline JSON env, or `keys.json`.
+- upstream credentials are still required for proxying, but DB-backed runtimes should treat SQL and provider env vars as authoritative and use `keys.json` only as an optional seed.
 - `data/` under `services/proxx` stays bind-mounted for request logs and session history.
 - The compose stack now defaults `OLLAMA_BASE_URL` to `http://ollama:11434` when attached to the shared `ai-infra` network; `CHROMA_URL` still defaults to `host.docker.internal` unless you also containerize Chroma on a shared network.
 - The web companion is exposed on `${PROXY_WEB_PORT:-5174}`.
@@ -93,11 +93,11 @@ Notes:
 
 - `PROXY_HOST` (default: `127.0.0.1`)
 - `PROXY_PORT` (default: `8789`; falls back to `PORT` for Render-style runtimes)
-- `UPSTREAM_PROVIDER_ID` (default: `vivgrid`; provider key in `keys.json`)
+- `UPSTREAM_PROVIDER_ID` (default: `vivgrid`; provider id to target for routing; if you still use seed files, it also names the legacy default file provider)
 - `UPSTREAM_FALLBACK_PROVIDER_IDS` (default: auto `ollama-cloud` when primary is `vivgrid`, or `vivgrid` when primary is `ollama-cloud`; comma-separated)
 - `UPSTREAM_BASE_URL` (optional override; when unset or blank, the proxy derives it from `UPSTREAM_PROVIDER_ID` / `UPSTREAM_PROVIDER_BASE_URLS`)
 - `UPSTREAM_PROVIDER_BASE_URLS` (optional mapping: `provider=url,provider=url`; defaults include `vivgrid=https://api.vivgrid.com`, `ollama-cloud=https://ollama.com`, `ob1=https://dashboard.openblocklabs.com/api`, `openrouter=https://openrouter.ai/api/v1`, and `requesty=https://router.requesty.ai/v1`)
-- `OPENAI_PROVIDER_ID` (default: `openai`; provider key in `keys.json`)
+- `OPENAI_PROVIDER_ID` (default: `openai`; provider id for OpenAI-routed accounts)
 - `OPENAI_BASE_URL` (default: `https://chatgpt.com/backend-api`)
 - `OLLAMA_BASE_URL` (default: `http://127.0.0.1:11434`)
 - `UPSTREAM_CHAT_COMPLETIONS_PATH` (default: `/v1/chat/completions`)
@@ -111,7 +111,7 @@ Notes:
 - `OPENAI_MODEL_PREFIXES` (default: `openai/,openai:`; comma-separated prefixes)
 - `OLLAMA_CHAT_PATH` (default: `/api/chat`)
 - `OLLAMA_MODEL_PREFIXES` (default: `ollama/,ollama:`; comma-separated prefixes)
-- `PROXY_KEYS_FILE` (default: `./keys.json`, fallback: `VIVGRID_KEYS_FILE`)
+- `PROXY_KEYS_FILE` (optional seed file path; DB-backed runtimes do not need it)
 - `PROXY_MODELS_FILE` (default: `./models.json`, fallback: `VIVGRID_MODELS_FILE`)
 - `PROXY_REQUEST_LOGS_FILE` (default: `./data/request-logs.jsonl`)
 - `PROXY_KEY_RELOAD_MS` (default: `5000`, fallback: `VIVGRID_KEY_RELOAD_MS`)
@@ -119,7 +119,7 @@ Notes:
 - `UPSTREAM_REQUEST_TIMEOUT_MS` (default: `180000`)
 - `PROXY_AUTH_TOKEN` (required unless `PROXY_ALLOW_UNAUTHENTICATED=true`)
 - `PROXY_ALLOW_UNAUTHENTICATED` (default: `false`; use `true` only for local debugging)
-- `PROXY_KEYS_JSON` / `UPSTREAM_KEYS_JSON` (optional inline JSON credential payload; useful on Render when not mounting `keys.json`)
+- `PROXY_KEYS_JSON` / `UPSTREAM_KEYS_JSON` (optional inline JSON seed payload; useful when you intentionally want to bootstrap from JSON rather than DB)
 - `DISABLED_PROVIDER_IDS` (optional comma-separated provider ids to remove from routing without deleting stored credentials)
 - `CHROMA_URL` (optional; default: `http://127.0.0.1:8000`)
 - `CHROMA_COLLECTION` (optional; default: `open_hax_proxy_sessions`)
@@ -139,7 +139,7 @@ ollama pull nomic-embed-text:latest
 
 The proxy will use Ollama's `/api/embed` endpoint when available, and fall back to `/api/embeddings` for older Ollama builds.
 
-## `keys.json` Format
+## Optional `keys.json` Seed Format
 
 ```json
 {
@@ -196,7 +196,7 @@ Route requests to OpenAI by prefixing model names:
 - `"model": "openai/gpt-5"`
 - `"model": "openai:gpt-5"`
 
-The prefix is stripped before upstream dispatch, and accounts are selected from `keys.json.providers[OPENAI_PROVIDER_ID]`.
+The prefix is stripped before upstream dispatch, and accounts are selected from the active credential store for `OPENAI_PROVIDER_ID` (SQL in DB-backed runtimes; optional `keys.json` only if you intentionally bootstrap from a seed file).
 
 For migrated legacy OAuth accounts, the `openai` provider is treated as a ChatGPT Codex upstream, not the OpenAI Platform API. Those accounts require `chatgpt_account_id` metadata and are sent to `/codex/responses` by default.
 
