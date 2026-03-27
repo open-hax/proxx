@@ -197,6 +197,7 @@ At minimum, neutral route dependency types must move out of `src/lib/ui-routes.t
 - ✅ `registerApiV1Routes(...)` now registers route modules sequentially instead of with `Promise.all(...)`, preserving deterministic route registration order.
 - ✅ canonical `/api/v1/settings*` and `/api/v1/sessions*` routes now exist via prefix-aware modular route registration rather than living only under `/api/ui/*`.
 - ✅ canonical `/api/v1/credentials*` routes now exist via prefix-aware modular route registration, with shared credential OAuth context reused across legacy and canonical registrations.
+- ✅ canonical `/api/v1/request-logs`, `/api/v1/dashboard/overview`, `/api/v1/analytics/provider-model`, `/api/v1/tools`, and `/api/v1/mcp-servers` now exist through a dedicated observability route module.
 - 🚧 `/api/v1/openapi.json` still serves the app swagger bundle rather than a control-plane-filtered spec.
 
 ## Risks

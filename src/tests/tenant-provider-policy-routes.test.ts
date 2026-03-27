@@ -10,6 +10,7 @@ import Fastify, { type FastifyRequest } from "fastify";
 
 import { type ProxyConfig } from "../lib/config.js";
 import { CredentialStore } from "../lib/credential-store.js";
+import type { FederationDiffEventRecord } from "../lib/db/sql-federation-store.js";
 import { type TenantProviderPolicyRecord } from "../lib/tenant-provider-policy.js";
 import { KeyPool } from "../lib/key-pool.js";
 import { ProxySettingsStore } from "../lib/proxy-settings-store.js";
@@ -261,6 +262,144 @@ test("tenant provider policy routes list and upsert policies", async () => {
     const listedPayload = listResponse.json() as { readonly policies: readonly TenantProviderPolicyRecord[] };
     assert.equal(listedPayload.policies.length, 1);
     assert.equal(listedPayload.policies[0]?.providerKind, "peer_proxx");
+  } finally {
+    await app.close();
+    await new Promise<void>((resolve, reject) => {
+      upstream.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve();
+      });
+    });
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("federation diff-events route validates ownerSubject and forwards parsed filters", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "proxx-federation-diff-events-routes-"));
+  const keysPath = path.join(tempDir, "keys.json");
+  const modelsPath = path.join(tempDir, "models.json");
+  const requestLogsPath = path.join(tempDir, "request-logs.jsonl");
+  const promptAffinityPath = path.join(tempDir, "prompt-affinity.json");
+  const settingsPath = path.join(tempDir, "proxy-settings.json");
+
+  await writeFile(keysPath, JSON.stringify({ keys: ["test-key-1"] }, null, 2), "utf8");
+  await writeFile(modelsPath, JSON.stringify({ object: "list", data: [{ id: "gpt-5.2" }] }, null, 2), "utf8");
+
+  const upstream: Server = createServer((_request, response) => {
+    response.statusCode = 200;
+    response.setHeader("content-type", "application/json");
+    response.end(JSON.stringify({ ok: true }));
+  });
+  upstream.listen(0, "127.0.0.1");
+  await once(upstream, "listening");
+  const upstreamAddress = upstream.address();
+  if (!upstreamAddress || typeof upstreamAddress === "string") {
+    throw new Error("failed to resolve upstream address");
+  }
+
+  const config = buildConfig({
+    upstreamPort: upstreamAddress.port,
+    paths: { keysPath, modelsPath, requestLogsPath, promptAffinityPath, settingsPath },
+    proxyAuthToken: "bridge-admin-token",
+  });
+
+  const app = Fastify({ logger: true });
+  app.decorateRequest("openHaxAuth", null);
+
+  app.addHook("onRequest", async (request) => {
+    const mutableRequest = request as FastifyRequest & { openHaxAuth?: unknown };
+    const authorization = typeof request.headers.authorization === "string"
+      ? request.headers.authorization.trim()
+      : "";
+
+    if (authorization === "Bearer bridge-admin-token") {
+      mutableRequest.openHaxAuth = {
+        kind: "legacy_admin",
+        tenantId: "default",
+        role: "owner",
+        source: "bearer",
+        subject: "legacy:proxy-auth-token",
+      };
+    }
+  });
+
+  const keyPool = new KeyPool({
+    keysFilePath: keysPath,
+    reloadIntervalMs: 50,
+    defaultCooldownMs: 10_000,
+    defaultProviderId: config.upstreamProviderId,
+  });
+  await keyPool.warmup();
+
+  const credentialStore = new CredentialStore(keysPath, config.upstreamProviderId);
+  const requestLogStore = new RequestLogStore(requestLogsPath, 1000, 0);
+  await requestLogStore.warmup();
+  const proxySettingsStore = new ProxySettingsStore(settingsPath);
+  await proxySettingsStore.warmup();
+
+  const capturedRequests: Array<{ ownerSubject: string; afterSeq?: number; limit?: number }> = [];
+  const sqlFederationStore = {
+    listDiffEvents: async (input: { readonly ownerSubject: string; readonly afterSeq?: number; readonly limit?: number }) => {
+      capturedRequests.push({
+        ownerSubject: input.ownerSubject,
+        afterSeq: input.afterSeq,
+        limit: input.limit,
+      });
+
+      const events: FederationDiffEventRecord[] = [
+        {
+          seq: 6,
+          ownerSubject: input.ownerSubject,
+          entityType: "peer",
+          entityKey: "peer-1",
+          op: "upsert",
+          payload: { label: "Peer 1" },
+          createdAt: "2026-03-27T00:00:00.000Z",
+        },
+      ];
+      return events;
+    },
+  };
+
+  await registerUiRoutes(app, {
+    config,
+    keyPool,
+    requestLogStore,
+    credentialStore,
+    proxySettingsStore,
+    sqlFederationStore: sqlFederationStore as never,
+  });
+
+  await app.listen({ host: "127.0.0.1", port: 0 });
+
+  try {
+    const missingOwnerResponse = await app.inject({
+      method: "GET",
+      url: "/api/ui/federation/diff-events",
+      headers: { authorization: "Bearer bridge-admin-token" },
+    });
+
+    assert.equal(missingOwnerResponse.statusCode, 400);
+    assert.deepEqual(missingOwnerResponse.json(), { error: "owner_subject_required" });
+
+    const listResponse = await app.inject({
+      method: "GET",
+      url: "/api/ui/federation/diff-events?ownerSubject=did:plc:test-owner&afterSeq=5&limit=2",
+      headers: { authorization: "Bearer bridge-admin-token" },
+    });
+
+    assert.equal(listResponse.statusCode, 200);
+    const listedPayload = listResponse.json() as {
+      readonly ownerSubject: string;
+      readonly events: readonly FederationDiffEventRecord[];
+    };
+    assert.equal(listedPayload.ownerSubject, "did:plc:test-owner");
+    assert.equal(listedPayload.events.length, 1);
+    assert.equal(listedPayload.events[0]?.seq, 6);
+    assert.deepEqual(capturedRequests, [{ ownerSubject: "did:plc:test-owner", afterSeq: 5, limit: 2 }]);
   } finally {
     await app.close();
     await new Promise<void>((resolve, reject) => {

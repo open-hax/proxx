@@ -117,6 +117,16 @@ This slice includes dashboard/analytics, request logs, hosts, tools, MCP seed li
 - MCP and event route tests still pass
 - frontend builds with `/api/v1/*` path changes
 
+## Implementation status
+- ✅ Canonical `/api/v1/request-logs`, `/api/v1/dashboard/overview`, `/api/v1/analytics/provider-model`, `/api/v1/tools`, and `/api/v1/mcp-servers` now exist via a dedicated observability route module.
+- ✅ `/api/v1` migration summary now marks `observability` and `mcp` as `implemented`.
+- ✅ `web/src/lib/api.ts` now uses `/api/v1/*` for usage overview, provider-model analytics, request logs, tool seeds, and MCP seed listing.
+- ✅ Canonical route tests now cover `/api/v1/request-logs`, `/api/v1/dashboard/overview`, `/api/v1/analytics/provider-model`, and `/api/v1/tools`.
+- ✅ Backend validation passed with `pnpm run build && node --test --test-concurrency=1 dist/tests/proxy.test.js`.
+- ✅ Frontend validation passed with `pnpm web:build` after the client path switch.
+- 🚧 host inventory routes still live only under `/api/ui/hosts/*`.
+- 🚧 event query/tag routes still live only under `/api/ui/events*`.
+
 ## Risks
 - aggregation helpers are large and easy to partially migrate incorrectly
 - request-log repository work may overlap with this slice and must be coordinated
