@@ -63,11 +63,11 @@ test("keeps ollama-cloud available for gpt-oss provider ordering", () => {
   const policy = createPolicyEngine(DEFAULT_POLICY_CONFIG);
 
   const ordered = policy.orderProviders(
-    ["vivgrid", "ollama-cloud", "openai"],
+    ["vivgrid", "ollama-cloud", "openai", "factory"],
     createModelInfo("gpt-oss-120b"),
   );
 
-  assert.deepEqual(ordered, ["openai", "ollama-cloud", "vivgrid"]);
+  assert.equal(ordered[0], "ollama-cloud");
 });
 
 test("filters excluded provider routes for gpt models", () => {

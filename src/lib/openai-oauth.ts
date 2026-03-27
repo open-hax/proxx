@@ -175,6 +175,8 @@ interface OpenAiOAuthManagerOptions {
   readonly browserStateTtlMs?: number;
   readonly browserCompletionTtlMs?: number;
   readonly deviceStateTtlMs?: number;
+  /** Preserve non-loopback browser callbacks instead of forcing Codex-style localhost topology. */
+  readonly allowHostRoutedCallbacks?: boolean;
   /** OAuth scopes used for the browser authorization URL. */
   readonly oauthScopes?: string;
   /** OAuth client ID (defaults to the bundled ChatGPT/Codex CLI client id). */
@@ -334,14 +336,18 @@ function buildAuthorizationUrl(redirectUri: string, pkce: PkceCodes, state: stri
     code_challenge_method: "S256",
     id_token_add_organizations: "true",
     codex_cli_simplified_flow: "true",
-    originator: "open-hax-openai-proxy",
+    originator: "codex_cli_rs",
     state,
   });
 
   return `${issuer}/oauth/authorize?${params.toString()}`;
 }
 
-function normalizeBrowserRedirectBaseUrl(redirectBaseUrl: string): string {
+function normalizeBrowserRedirectBaseUrl(redirectBaseUrl: string, allowHostRoutedCallbacks: boolean): string {
+  if (!allowHostRoutedCallbacks) {
+    return `http://localhost:${OPENAI_BROWSER_CALLBACK_PORT}/`;
+  }
+
   const url = new URL(redirectBaseUrl);
   const hostname = url.hostname.trim().toLowerCase();
   const isLoopbackHost = hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
@@ -415,6 +421,7 @@ export class OpenAiOAuthManager {
   private readonly browserStateTtlMs: number;
   private readonly browserCompletionTtlMs: number;
   private readonly deviceStateTtlMs: number;
+  private readonly allowHostRoutedCallbacks: boolean;
   private readonly oauthScopes: string;
   private readonly clientId: string;
   private readonly issuer: string;
@@ -426,6 +433,7 @@ export class OpenAiOAuthManager {
     this.browserStateTtlMs = options.browserStateTtlMs ?? DEFAULT_BROWSER_STATE_TTL_MS;
     this.browserCompletionTtlMs = options.browserCompletionTtlMs ?? DEFAULT_BROWSER_COMPLETION_TTL_MS;
     this.deviceStateTtlMs = options.deviceStateTtlMs ?? DEFAULT_DEVICE_STATE_TTL_MS;
+    this.allowHostRoutedCallbacks = options.allowHostRoutedCallbacks ?? false;
     this.oauthScopes = (options.oauthScopes ?? "openid profile email offline_access").trim() || "openid profile email offline_access";
     this.clientId = (options.clientId ?? DEFAULT_OPENAI_CLIENT_ID).trim() || DEFAULT_OPENAI_CLIENT_ID;
     this.issuer = (options.issuer ?? DEFAULT_OPENAI_ISSUER).trim() || DEFAULT_OPENAI_ISSUER;
@@ -435,7 +443,7 @@ export class OpenAiOAuthManager {
   public async startBrowserFlow(redirectBaseUrl: string): Promise<BrowserAuthStartResponse> {
     const pkce = await generatePkce();
     const state = generateState();
-    const normalizedBaseUrl = normalizeBrowserRedirectBaseUrl(redirectBaseUrl);
+    const normalizedBaseUrl = normalizeBrowserRedirectBaseUrl(redirectBaseUrl, this.allowHostRoutedCallbacks);
     const redirectUri = new URL("/auth/callback", normalizedBaseUrl).toString();
 
     this.browserPending.set(state, {

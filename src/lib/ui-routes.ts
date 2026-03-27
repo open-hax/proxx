@@ -32,7 +32,7 @@ import type { SqlAuthPersistence } from "./auth/sql-persistence.js";
 import { DEFAULT_TENANT_ID, normalizeTenantId } from "./tenant-api-key.js";
 import { createFederationBridgeRelay, type FederationBridgeRelay } from "./federation/bridge-relay.js";
 
-interface UiRouteDependencies {
+export interface UiRouteDependencies {
   readonly config: ProxyConfig;
   readonly keyPool: KeyPool;
   readonly requestLogStore: RequestLogStore;
@@ -69,8 +69,10 @@ interface UsageAccountSummary {
   readonly waterEvaporatedMl: number;
   readonly cacheHitCount: number;
   readonly cacheKeyUseCount: number;
+  readonly avgDecodeTps: number | null;
   readonly avgTtftMs: number | null;
   readonly avgTps: number | null;
+  readonly avgEndToEndTps: number | null;
   readonly healthScore: number | null;
   readonly transientDebuff: number | null;
   readonly lastUsedAt: string | null;
@@ -144,7 +146,9 @@ interface AnalyticsRowResponse {
   readonly cachedPromptTokens: number;
   readonly cacheHitRate: number;
   readonly avgTtftMs: number | null;
+  readonly avgDecodeTps: number | null;
   readonly avgTps: number | null;
+  readonly avgEndToEndTps: number | null;
   readonly costUsd: number;
   readonly energyJoules: number;
   readonly waterEvaporatedMl: number;
@@ -171,7 +175,7 @@ interface UsageScope {
   readonly keyId?: string;
 }
 
-function toUsageWindow(value: unknown): UsageWindow {
+export function toUsageWindow(value: unknown): UsageWindow {
   if (value === "weekly" || value === "monthly" || value === "daily") {
     return value;
   }
@@ -292,7 +296,7 @@ function parseOptionalProviderIds(value: unknown): readonly string[] | null | un
   return normalized.length > 0 ? normalized : null;
 }
 
-function getResolvedAuth(request: { readonly openHaxAuth?: unknown }): ResolvedRequestAuth | undefined {
+export function getResolvedAuth(request: { readonly openHaxAuth?: unknown }): ResolvedRequestAuth | undefined {
   const auth = request.openHaxAuth;
   return typeof auth === "object" && auth !== null ? auth as ResolvedRequestAuth : undefined;
 }
@@ -468,7 +472,10 @@ async function buildFederationAccountKnowledge(
   for (const provider of providers) {
     for (const account of provider.accounts) {
       const key = accountKnowledgeKey(provider.id, account.id);
-      if (!includeAllLocalAccounts && account.subject !== requestedOwnerSubject && !projectedAccountKeys.has(key)) {
+      const accountHasSubject = typeof account.subject === "string" && account.subject.length > 0;
+      const hasNoOwner = !accountHasSubject;
+      const matchesOwner = accountHasSubject && account.subject === requestedOwnerSubject;
+      if (!includeAllLocalAccounts && !hasNoOwner && !matchesOwner && !projectedAccountKeys.has(key)) {
         continue;
       }
 
@@ -696,7 +703,7 @@ function toChatRole(value: unknown): ChatRole {
   return "user";
 }
 
-function toSafeLimit(value: unknown, fallback: number, max: number): number {
+export function toSafeLimit(value: unknown, fallback: number, max: number): number {
   if (typeof value === "number" && Number.isFinite(value)) {
     return Math.max(1, Math.min(Math.floor(value), max));
   }
@@ -727,6 +734,29 @@ function percentage(part: number, total: number): number {
   }
 
   return Number(((part / total) * 100).toFixed(2));
+}
+
+function isRequestLogError(entry: {
+  readonly status: number;
+  readonly error?: string;
+}): boolean {
+  return entry.status >= 400 || typeof entry.error === "string";
+}
+
+function cacheKeyUseCountForEntry(entry: {
+  readonly promptCacheKeyUsed?: boolean;
+  readonly status: number;
+  readonly error?: string;
+}): number {
+  return entry.promptCacheKeyUsed === true && !isRequestLogError(entry) ? 1 : 0;
+}
+
+function cacheHitCountForEntry(entry: {
+  readonly cacheHit?: boolean;
+  readonly status: number;
+  readonly error?: string;
+}): number {
+  return entry.cacheHit === true && !isRequestLogError(entry) ? 1 : 0;
 }
 
 function bucketStart(timestamp: number, bucketMs: number): number {
@@ -761,7 +791,7 @@ function entryMatchesUsageScope(entry: {
   return true;
 }
 
-async function resolveUsageScopeFromAuth(input: {
+export async function resolveUsageScopeFromAuth(input: {
   readonly auth: ResolvedRequestAuth;
   readonly tenantId?: string;
   readonly issuer?: string;
@@ -813,15 +843,18 @@ function resolveUsageWindowConfig(window: UsageWindow, now: number): {
   readonly bucketMs: number;
   readonly bucketCount: number;
   readonly bucketWindowStart: number;
+  readonly entryWindowStart: number;
 } {
   const bucketMs = window === "daily" ? 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
   const bucketCount = window === "monthly" ? 30 : window === "weekly" ? 7 : 24;
   const bucketWindowStart = bucketStart(now - (bucketCount - 1) * bucketMs, bucketMs);
+  const entryWindowStart = now - bucketCount * bucketMs;
 
   return {
     bucketMs,
     bucketCount,
     bucketWindowStart,
+    entryWindowStart,
   };
 }
 
@@ -841,8 +874,8 @@ async function buildUsageOverviewFromEntries(
   const allAccountStatuses: Record<string, readonly KeyPoolAccountStatus[]> = await keyPool.getAllAccountStatuses().catch(() => ({}));
   const credentialProviders = await credentialStore.listProviders(false).catch(() => []);
   const providerById = new Map(credentialProviders.map((provider) => [provider.id, provider]));
-  const { bucketMs, bucketCount, bucketWindowStart } = resolveUsageWindowConfig(window, now);
-  const recentLogs = entries.filter((entry) => entry.timestamp >= bucketWindowStart);
+  const { bucketMs, bucketCount, bucketWindowStart, entryWindowStart } = resolveUsageWindowConfig(window, now);
+  const recentLogs = entries.filter((entry) => entry.timestamp >= entryWindowStart);
 
   const bucketAgg = new Map<number, {
     requests: number;
@@ -884,12 +917,16 @@ async function buildUsageOverviewFromEntries(
     ttftCount: number;
     tpsSum: number;
     tpsCount: number;
+    endToEndTpsSum: number;
+    endToEndTpsCount: number;
     lastUsedAtMs: number;
   }>();
   const shortAgg = new Map<string, { ttftSum: number; ttftCount: number; tpsSum: number; tpsCount: number }>();
   const shortWindowMs = 2 * 60 * 1000;
 
   for (const entry of recentLogs) {
+    const cacheHits = cacheHitCountForEntry(entry);
+    const cacheKeyUses = cacheKeyUseCountForEntry(entry);
     const seriesBucket = bucketAgg.get(bucketStart(entry.timestamp, bucketMs)) ?? {
       requests: 0,
       tokens: 0,
@@ -918,13 +955,9 @@ async function buildUsageOverviewFromEntries(
     seriesBucket.costUsd += usageCount(entry.costUsd);
     seriesBucket.energyJoules += usageCount(entry.energyJoules);
     seriesBucket.waterEvaporatedMl += usageCount(entry.waterEvaporatedMl);
-    if (entry.cacheHit) {
-      seriesBucket.cacheHits += 1;
-    }
-    if (entry.promptCacheKeyUsed) {
-      seriesBucket.cacheKeyUses += 1;
-    }
-    if (entry.status >= 400 || typeof entry.error === "string") {
+    seriesBucket.cacheHits += cacheHits;
+    seriesBucket.cacheKeyUses += cacheKeyUses;
+    if (isRequestLogError(entry)) {
       seriesBucket.errors += 1;
     }
     if (entry.serviceTierSource === "fast_mode") {
@@ -960,6 +993,8 @@ async function buildUsageOverviewFromEntries(
       ttftCount: 0,
       tpsSum: 0,
       tpsCount: 0,
+      endToEndTpsSum: 0,
+      endToEndTpsCount: 0,
       lastUsedAtMs: 0,
     };
     account.requestCount += 1;
@@ -972,12 +1007,8 @@ async function buildUsageOverviewFromEntries(
     account.costUsd += usageCount(entry.costUsd);
     account.energyJoules += usageCount(entry.energyJoules);
     account.waterEvaporatedMl += usageCount(entry.waterEvaporatedMl);
-    if (entry.cacheHit) {
-      account.cacheHitCount += 1;
-    }
-    if (entry.promptCacheKeyUsed) {
-      account.cacheKeyUseCount += 1;
-    }
+    account.cacheHitCount += cacheHits;
+    account.cacheKeyUseCount += cacheKeyUses;
     if (typeof entry.ttftMs === "number" && Number.isFinite(entry.ttftMs)) {
       account.ttftSum += entry.ttftMs;
       account.ttftCount += 1;
@@ -985,6 +1016,10 @@ async function buildUsageOverviewFromEntries(
     if (typeof entry.tps === "number" && Number.isFinite(entry.tps)) {
       account.tpsSum += entry.tps;
       account.tpsCount += 1;
+    }
+    if (typeof entry.endToEndTps === "number" && Number.isFinite(entry.endToEndTps)) {
+      account.endToEndTpsSum += entry.endToEndTps;
+      account.endToEndTpsCount += 1;
     }
     account.lastUsedAtMs = Math.max(account.lastUsedAtMs, entry.timestamp);
     accountAgg.set(accountKey, account);
@@ -1013,13 +1048,16 @@ async function buildUsageOverviewFromEntries(
     ttftCount: number;
     tpsSum: number;
     tpsCount: number;
+    endToEndTpsSum: number;
+    endToEndTpsCount: number;
   }, status: "healthy" | "cooldown" | "idle") => {
     if (status === "cooldown") {
-      return { score: 0, debuff: 1, avgTtftMs: null, avgTps: null };
+      return { score: 0, debuff: 1, avgTtftMs: null, avgTps: null, avgEndToEndTps: null };
     }
 
     const avgTtftMs = account.ttftCount > 0 ? account.ttftSum / account.ttftCount : null;
     const avgTps = account.tpsCount > 0 ? account.tpsSum / account.tpsCount : null;
+    const avgEndToEndTps = account.endToEndTpsCount > 0 ? account.endToEndTpsSum / account.endToEndTpsCount : null;
     const recent = shortAgg.get(`${account.providerId}\0${account.accountId}`);
     const recentTtft = recent && recent.ttftCount > 0 ? recent.ttftSum / recent.ttftCount : null;
     const recentTps = recent && recent.tpsCount > 0 ? recent.tpsSum / recent.tpsCount : null;
@@ -1040,6 +1078,7 @@ async function buildUsageOverviewFromEntries(
       debuff,
       avgTtftMs,
       avgTps,
+      avgEndToEndTps,
     };
   };
 
@@ -1068,6 +1107,8 @@ async function buildUsageOverviewFromEntries(
           ttftCount: 0,
           tpsSum: 0,
           tpsCount: 0,
+          endToEndTpsSum: 0,
+          endToEndTpsCount: 0,
           lastUsedAtMs: 0,
         });
       }
@@ -1104,8 +1145,10 @@ async function buildUsageOverviewFromEntries(
       waterEvaporatedMl: account.waterEvaporatedMl,
       cacheHitCount: account.cacheHitCount,
       cacheKeyUseCount: account.cacheKeyUseCount,
+      avgDecodeTps: health.avgTps,
       avgTtftMs: health.avgTtftMs,
       avgTps: health.avgTps,
+      avgEndToEndTps: health.avgEndToEndTps,
       healthScore: health.score,
       transientDebuff: health.debuff,
       lastUsedAt: isoFromTimestamp(account.lastUsedAtMs),
@@ -1217,9 +1260,16 @@ async function buildUsageOverviewFromEntries(
           if (leftValue !== rightValue) return leftValue - rightValue;
           return byTokens();
         }
-        case "tps": {
+        case "tps":
+        case "decode-tps": {
           const leftValue = a.avgTps ?? Number.NEGATIVE_INFINITY;
           const rightValue = b.avgTps ?? Number.NEGATIVE_INFINITY;
+          if (leftValue !== rightValue) return rightValue - leftValue;
+          return byTokens();
+        }
+        case "e2e-tps": {
+          const leftValue = a.avgEndToEndTps ?? Number.NEGATIVE_INFINITY;
+          const rightValue = b.avgEndToEndTps ?? Number.NEGATIVE_INFINITY;
           if (leftValue !== rightValue) return rightValue - leftValue;
           return byTokens();
         }
@@ -1235,7 +1285,7 @@ async function buildUsageOverviewFromEntries(
   };
 }
 
-async function buildUsageOverview(
+export async function buildUsageOverview(
   requestLogStore: RequestLogStore,
   keyPool: KeyPool,
   credentialStore: CredentialStoreLike,
@@ -1245,11 +1295,11 @@ async function buildUsageOverview(
   sqlRequestUsageStore?: SqlRequestUsageStore,
 ): Promise<UsageOverviewResponse> {
   const now = Date.now();
-  const { bucketWindowStart: sharedBucketWindowStart } = resolveUsageWindowConfig(window, now);
+  const { bucketWindowStart: sharedBucketWindowStart, entryWindowStart: sharedEntryWindowStart } = resolveUsageWindowConfig(window, now);
 
   if (sqlRequestUsageStore) {
     const [entries, coverage] = await Promise.all([
-      sqlRequestUsageStore.listEntriesSince(sharedBucketWindowStart, scope),
+      sqlRequestUsageStore.listEntriesSince(sharedEntryWindowStart, scope),
       sqlRequestUsageStore.getCoverage(scope),
     ]);
 
@@ -1270,13 +1320,27 @@ async function buildUsageOverview(
   }
 
   const allLogs = requestLogStore.snapshot();
+  const hasPersistedNonDailyRollups = window !== "daily" && (
+    requestLogStore.snapshotDailyBuckets(sharedBucketWindowStart).length > 0
+    || requestLogStore.snapshotDailyModelBuckets(sharedBucketWindowStart).length > 0
+    || requestLogStore.snapshotDailyAccountBuckets(sharedBucketWindowStart).length > 0
+  );
+
+  if (allLogs.length > 0 && !hasPersistedNonDailyRollups) {
+    return buildUsageOverviewFromEntries(allLogs, keyPool, credentialStore, sort, window, now, {
+      coverageStartMs: allLogs.reduce<number | null>((current, entry) => current === null ? entry.timestamp : Math.min(current, entry.timestamp), null),
+      retainedEntryCount: allLogs.length,
+      maxRetainedEntries: requestLogStore.getCoverage().maxEntries,
+    });
+  }
+
   const _allStatuses: Record<string, Awaited<ReturnType<KeyPool["getStatus"]>>> = await keyPool.getAllStatuses().catch(() => ({}));
   const allAccountStatuses: Record<string, readonly KeyPoolAccountStatus[]> = await keyPool.getAllAccountStatuses().catch(() => ({}));
   const credentialProviders = await credentialStore.listProviders(false).catch(() => []);
   const providerById = new Map(credentialProviders.map((provider) => [provider.id, provider]));
-  const { bucketMs, bucketCount, bucketWindowStart } = resolveUsageWindowConfig(window, now);
+  const { bucketMs, bucketCount, bucketWindowStart, entryWindowStart } = resolveUsageWindowConfig(window, now);
 
-  const recentLogs = allLogs.filter((entry) => entry.timestamp >= bucketWindowStart);
+  const recentLogs = allLogs.filter((entry) => entry.timestamp >= entryWindowStart);
   const recentModelBuckets = requestLogStore.snapshotDailyModelBuckets(bucketWindowStart);
   const recentAccountBuckets = window === "daily"
     ? undefined
@@ -1327,6 +1391,8 @@ async function buildUsageOverview(
     ttftCount: number;
     tpsSum: number;
     tpsCount: number;
+    endToEndTpsSum: number;
+    endToEndTpsCount: number;
     lastUsedAtMs: number;
   };
 
@@ -1357,6 +1423,8 @@ async function buildUsageOverview(
         ttftCount: 0,
         tpsSum: 0,
         tpsCount: 0,
+        endToEndTpsSum: 0,
+        endToEndTpsCount: 0,
         lastUsedAtMs: 0,
       };
 
@@ -1379,6 +1447,10 @@ async function buildUsageOverview(
       if (typeof entry.tps === "number" && Number.isFinite(entry.tps)) {
         existing.tpsSum += entry.tps;
         existing.tpsCount += 1;
+      }
+      if (typeof entry.endToEndTps === "number" && Number.isFinite(entry.endToEndTps)) {
+        existing.endToEndTpsSum += entry.endToEndTps;
+        existing.endToEndTpsCount += 1;
       }
       existing.lastUsedAtMs = Math.max(existing.lastUsedAtMs, entry.timestamp);
       accountAgg.set(mapKey, existing);
@@ -1406,6 +1478,8 @@ async function buildUsageOverview(
         ttftCount: acc.ttftCount,
         tpsSum: acc.tpsSum,
         tpsCount: acc.tpsCount,
+        endToEndTpsSum: acc.endToEndTpsSum,
+        endToEndTpsCount: acc.endToEndTpsCount,
         lastUsedAtMs: acc.lastUsedAtMs,
       });
     }
@@ -1442,13 +1516,14 @@ async function buildUsageOverview(
   const accountStats = new Map<string, UsageAccountSummary>();
 
   const clamp01 = (value: number): number => Math.max(0, Math.min(1, value));
-  const healthScoreFor = (agg: AccountAgg, status: "healthy" | "cooldown" | "idle"): { score: number | null; debuff: number | null; avgTtftMs: number | null; avgTps: number | null } => {
+  const healthScoreFor = (agg: AccountAgg, status: "healthy" | "cooldown" | "idle"): { score: number | null; debuff: number | null; avgTtftMs: number | null; avgTps: number | null; avgEndToEndTps: number | null } => {
     if (status === "cooldown") {
-      return { score: 0, debuff: 1, avgTtftMs: null, avgTps: null };
+      return { score: 0, debuff: 1, avgTtftMs: null, avgTps: null, avgEndToEndTps: null };
     }
 
     const avgTtftMs = agg.ttftCount > 0 ? agg.ttftSum / agg.ttftCount : null;
     const avgTps = agg.tpsCount > 0 ? agg.tpsSum / agg.tpsCount : null;
+    const avgEndToEndTps = agg.endToEndTpsCount > 0 ? agg.endToEndTpsSum / agg.endToEndTpsCount : null;
 
     const recent = shortAgg.get(`${agg.providerId}\0${agg.accountId}`);
     const recentTtft = recent && recent.ttftCount > 0 ? recent.ttftSum / recent.ttftCount : null;
@@ -1467,7 +1542,7 @@ async function buildUsageOverview(
     const usageScore = clamp01(Math.log10(1 + agg.totalTokens) / 6);
 
     const score = clamp01(0.65 * ttftScore + 0.25 * tpsScore + 0.10 * usageScore - debuff * 0.35);
-    return { score, debuff, avgTtftMs, avgTps };
+    return { score, debuff, avgTtftMs, avgTps, avgEndToEndTps };
   };
 
   for (const [providerId, provider] of providerById.entries()) {
@@ -1495,6 +1570,8 @@ async function buildUsageOverview(
         ttftCount: 0,
         tpsSum: 0,
         tpsCount: 0,
+        endToEndTpsSum: 0,
+        endToEndTpsCount: 0,
         lastUsedAtMs: 0,
       };
 
@@ -1527,8 +1604,10 @@ async function buildUsageOverview(
         waterEvaporatedMl: agg.waterEvaporatedMl,
         cacheHitCount: agg.cacheHitCount,
         cacheKeyUseCount: agg.cacheKeyUseCount,
+        avgDecodeTps: health.avgTps,
         avgTtftMs: health.avgTtftMs,
         avgTps: health.avgTps,
+        avgEndToEndTps: health.avgEndToEndTps,
         healthScore: health.score,
         transientDebuff: health.debuff,
         lastUsedAt: isoFromTimestamp(agg.lastUsedAtMs),
@@ -1624,9 +1703,16 @@ async function buildUsageOverview(
           if (ttftA !== ttftB) return ttftA - ttftB;
           return byTokens();
         }
-        case "tps": {
+        case "tps":
+        case "decode-tps": {
           const tpsA = a.avgTps ?? Number.NEGATIVE_INFINITY;
           const tpsB = b.avgTps ?? Number.NEGATIVE_INFINITY;
+          if (tpsA !== tpsB) return tpsB - tpsA;
+          return byTokens();
+        }
+        case "e2e-tps": {
+          const tpsA = a.avgEndToEndTps ?? Number.NEGATIVE_INFINITY;
+          const tpsB = b.avgEndToEndTps ?? Number.NEGATIVE_INFINITY;
           if (tpsA !== tpsB) return tpsB - tpsA;
           return byTokens();
         }
@@ -1657,6 +1743,8 @@ type MutableAnalyticsAgg = {
   ttftCount: number;
   tpsSum: number;
   tpsCount: number;
+  endToEndTpsSum: number;
+  endToEndTpsCount: number;
   costUsd: number;
   energyJoules: number;
   waterEvaporatedMl: number;
@@ -1699,6 +1787,7 @@ function toAnalyticsRow(
 ): AnalyticsRowResponse {
   const avgTtftMs = agg.ttftCount > 0 ? agg.ttftSum / agg.ttftCount : null;
   const avgTps = agg.tpsCount > 0 ? agg.tpsSum / agg.tpsCount : null;
+  const avgEndToEndTps = agg.endToEndTpsCount > 0 ? agg.endToEndTpsSum / agg.endToEndTpsCount : null;
   const errorRate = agg.requestCount > 0 ? percentage(agg.errorCount, agg.requestCount) : 0;
   const cacheHitRate = agg.cacheKeyUseCount > 0 ? percentage(agg.cacheHitCount, agg.cacheKeyUseCount) : 0;
 
@@ -1714,7 +1803,9 @@ function toAnalyticsRow(
     cachedPromptTokens: agg.cachedPromptTokens,
     cacheHitRate,
     avgTtftMs,
+    avgDecodeTps: avgTps,
     avgTps,
+    avgEndToEndTps,
     costUsd: agg.costUsd,
     energyJoules: agg.energyJoules,
     waterEvaporatedMl: agg.waterEvaporatedMl,
@@ -1748,9 +1839,15 @@ function sortAnalyticsRows(rows: readonly AnalyticsRowResponse[], sort: string |
         const rightValue = right.avgTtftMs ?? Number.POSITIVE_INFINITY;
         return leftValue - rightValue || right.totalTokens - left.totalTokens || fallback();
       }
-      case "tps": {
+      case "tps":
+      case "decode-tps": {
         const leftValue = left.avgTps ?? Number.NEGATIVE_INFINITY;
         const rightValue = right.avgTps ?? Number.NEGATIVE_INFINITY;
+        return rightValue - leftValue || right.totalTokens - left.totalTokens || fallback();
+      }
+      case "e2e-tps": {
+        const leftValue = left.avgEndToEndTps ?? Number.NEGATIVE_INFINITY;
+        const rightValue = right.avgEndToEndTps ?? Number.NEGATIVE_INFINITY;
         return rightValue - leftValue || right.totalTokens - left.totalTokens || fallback();
       }
       case "errors":
@@ -1781,8 +1878,8 @@ function buildProviderModelAnalyticsFromEntries(
     readonly maxRetainedEntries: number;
   },
 ): ProviderModelAnalyticsResponse {
-  const { bucketWindowStart } = resolveUsageWindowConfig(window, now);
-  const relevantEntries = entries.filter((entry) => entry.timestamp >= bucketWindowStart);
+  const { bucketWindowStart, entryWindowStart } = resolveUsageWindowConfig(window, now);
+  const relevantEntries = entries.filter((entry) => entry.timestamp >= entryWindowStart);
   const pairAgg = new Map<string, MutableAnalyticsAgg>();
 
   const upsertPair = (providerId: string, model: string): MutableAnalyticsAgg => {
@@ -1807,6 +1904,8 @@ function buildProviderModelAnalyticsFromEntries(
       ttftCount: 0,
       tpsSum: 0,
       tpsCount: 0,
+      endToEndTpsSum: 0,
+      endToEndTpsCount: 0,
       costUsd: 0,
       energyJoules: 0,
       waterEvaporatedMl: 0,
@@ -1820,19 +1919,15 @@ function buildProviderModelAnalyticsFromEntries(
   for (const entry of relevantEntries) {
     const agg = upsertPair(entry.providerId, entry.model);
     agg.requestCount += 1;
-    if (entry.status >= 400 || typeof entry.error === "string") {
+    if (isRequestLogError(entry)) {
       agg.errorCount += 1;
     }
     agg.totalTokens += usageCount(entry.totalTokens);
     agg.promptTokens += usageCount(entry.promptTokens);
     agg.completionTokens += usageCount(entry.completionTokens);
     agg.cachedPromptTokens += usageCount(entry.cachedPromptTokens);
-    if (entry.cacheHit) {
-      agg.cacheHitCount += 1;
-    }
-    if (entry.promptCacheKeyUsed) {
-      agg.cacheKeyUseCount += 1;
-    }
+    agg.cacheHitCount += cacheHitCountForEntry(entry);
+    agg.cacheKeyUseCount += cacheKeyUseCountForEntry(entry);
     if (typeof entry.ttftMs === "number" && Number.isFinite(entry.ttftMs)) {
       agg.ttftSum += entry.ttftMs;
       agg.ttftCount += 1;
@@ -1840,6 +1935,10 @@ function buildProviderModelAnalyticsFromEntries(
     if (typeof entry.tps === "number" && Number.isFinite(entry.tps)) {
       agg.tpsSum += entry.tps;
       agg.tpsCount += 1;
+    }
+    if (typeof entry.endToEndTps === "number" && Number.isFinite(entry.endToEndTps)) {
+      agg.endToEndTpsSum += entry.endToEndTps;
+      agg.endToEndTpsCount += 1;
     }
     agg.costUsd += usageCount(entry.costUsd);
     agg.energyJoules += usageCount(entry.energyJoules);
@@ -1872,6 +1971,8 @@ function buildProviderModelAnalyticsFromEntries(
       ttftCount: 0,
       tpsSum: 0,
       tpsCount: 0,
+      endToEndTpsSum: 0,
+      endToEndTpsCount: 0,
       costUsd: 0,
       energyJoules: 0,
       waterEvaporatedMl: 0,
@@ -1890,6 +1991,8 @@ function buildProviderModelAnalyticsFromEntries(
     modelRow.ttftCount += pair.ttftCount;
     modelRow.tpsSum += pair.tpsSum;
     modelRow.tpsCount += pair.tpsCount;
+    modelRow.endToEndTpsSum += pair.endToEndTpsSum;
+    modelRow.endToEndTpsCount += pair.endToEndTpsCount;
     modelRow.costUsd += pair.costUsd;
     modelRow.energyJoules += pair.energyJoules;
     modelRow.waterEvaporatedMl += pair.waterEvaporatedMl;
@@ -1914,6 +2017,8 @@ function buildProviderModelAnalyticsFromEntries(
       ttftCount: 0,
       tpsSum: 0,
       tpsCount: 0,
+      endToEndTpsSum: 0,
+      endToEndTpsCount: 0,
       costUsd: 0,
       energyJoules: 0,
       waterEvaporatedMl: 0,
@@ -1932,6 +2037,8 @@ function buildProviderModelAnalyticsFromEntries(
     providerRow.ttftCount += pair.ttftCount;
     providerRow.tpsSum += pair.tpsSum;
     providerRow.tpsCount += pair.tpsCount;
+    providerRow.endToEndTpsSum += pair.endToEndTpsSum;
+    providerRow.endToEndTpsCount += pair.endToEndTpsCount;
     providerRow.costUsd += pair.costUsd;
     providerRow.energyJoules += pair.energyJoules;
     providerRow.waterEvaporatedMl += pair.waterEvaporatedMl;
@@ -1965,7 +2072,7 @@ function buildProviderModelAnalyticsFromEntries(
   };
 }
 
-async function buildProviderModelAnalytics(
+export async function buildProviderModelAnalytics(
   requestLogStore: RequestLogStore,
   window: UsageWindow = "weekly",
   sort?: string,
@@ -1973,11 +2080,11 @@ async function buildProviderModelAnalytics(
   sqlRequestUsageStore?: SqlRequestUsageStore,
 ): Promise<ProviderModelAnalyticsResponse> {
   const now = Date.now();
-  const { bucketWindowStart } = resolveUsageWindowConfig(window, now);
+  const { bucketWindowStart, entryWindowStart } = resolveUsageWindowConfig(window, now);
 
   if (sqlRequestUsageStore) {
     const [entries, coverage] = await Promise.all([
-      sqlRequestUsageStore.listEntriesSince(bucketWindowStart, scope),
+      sqlRequestUsageStore.listEntriesSince(entryWindowStart, scope),
       sqlRequestUsageStore.getCoverage(scope),
     ]);
     return buildProviderModelAnalyticsFromEntries(entries, window, sort, now, {
@@ -1996,7 +2103,16 @@ async function buildProviderModelAnalytics(
     });
   }
 
-  const { bucketWindowStart: optimizedBucketWindowStart } = resolveUsageWindowConfig(window, now);
+  const allLogs = requestLogStore.snapshot();
+  if (allLogs.length > 0) {
+    return buildProviderModelAnalyticsFromEntries(allLogs, window, sort, now, {
+      coverageStartMs: allLogs.reduce<number | null>((current, entry) => current === null ? entry.timestamp : Math.min(current, entry.timestamp), null),
+      retainedEntryCount: allLogs.length,
+      maxRetainedEntries: requestLogStore.getCoverage().maxEntries,
+    });
+  }
+
+  const { bucketWindowStart: optimizedBucketWindowStart, entryWindowStart: optimizedEntryWindowStart } = resolveUsageWindowConfig(window, now);
   const pairAgg = new Map<string, MutableAnalyticsAgg>();
 
   const upsertPair = (providerId: string, model: string): MutableAnalyticsAgg => {
@@ -2021,6 +2137,8 @@ async function buildProviderModelAnalytics(
       ttftCount: 0,
       tpsSum: 0,
       tpsCount: 0,
+      endToEndTpsSum: 0,
+      endToEndTpsCount: 0,
       costUsd: 0,
       energyJoules: 0,
       waterEvaporatedMl: 0,
@@ -2033,7 +2151,7 @@ async function buildProviderModelAnalytics(
   };
 
   if (window === "daily") {
-    for (const entry of requestLogStore.snapshot().filter((item) => item.timestamp >= optimizedBucketWindowStart)) {
+    for (const entry of requestLogStore.snapshot().filter((item) => item.timestamp >= optimizedEntryWindowStart)) {
       const agg = upsertPair(entry.providerId, entry.model);
       agg.requestCount += 1;
       if (entry.status >= 400 || typeof entry.error === "string") {
@@ -2057,6 +2175,10 @@ async function buildProviderModelAnalytics(
         agg.tpsSum += entry.tps;
         agg.tpsCount += 1;
       }
+      if (typeof entry.endToEndTps === "number" && Number.isFinite(entry.endToEndTps)) {
+        agg.endToEndTpsSum += entry.endToEndTps;
+        agg.endToEndTpsCount += 1;
+      }
       agg.costUsd += usageCount(entry.costUsd);
       agg.energyJoules += usageCount(entry.energyJoules);
       agg.waterEvaporatedMl += usageCount(entry.waterEvaporatedMl);
@@ -2078,6 +2200,8 @@ async function buildProviderModelAnalytics(
       agg.ttftCount += bucket.ttftCount;
       agg.tpsSum += bucket.tpsSum;
       agg.tpsCount += bucket.tpsCount;
+      agg.endToEndTpsSum += bucket.endToEndTpsSum;
+      agg.endToEndTpsCount += bucket.endToEndTpsCount;
       agg.costUsd += bucket.costUsd;
       agg.energyJoules += bucket.energyJoules;
       agg.waterEvaporatedMl += bucket.waterEvaporatedMl;
@@ -2110,6 +2234,8 @@ async function buildProviderModelAnalytics(
       ttftCount: 0,
       tpsSum: 0,
       tpsCount: 0,
+      endToEndTpsSum: 0,
+      endToEndTpsCount: 0,
       costUsd: 0,
       energyJoules: 0,
       waterEvaporatedMl: 0,
@@ -2128,6 +2254,8 @@ async function buildProviderModelAnalytics(
     modelRow.ttftCount += pair.ttftCount;
     modelRow.tpsSum += pair.tpsSum;
     modelRow.tpsCount += pair.tpsCount;
+    modelRow.endToEndTpsSum += pair.endToEndTpsSum;
+    modelRow.endToEndTpsCount += pair.endToEndTpsCount;
     modelRow.costUsd += pair.costUsd;
     modelRow.energyJoules += pair.energyJoules;
     modelRow.waterEvaporatedMl += pair.waterEvaporatedMl;
@@ -2152,6 +2280,8 @@ async function buildProviderModelAnalytics(
       ttftCount: 0,
       tpsSum: 0,
       tpsCount: 0,
+      endToEndTpsSum: 0,
+      endToEndTpsCount: 0,
       costUsd: 0,
       energyJoules: 0,
       waterEvaporatedMl: 0,
@@ -2170,6 +2300,8 @@ async function buildProviderModelAnalytics(
     providerRow.ttftCount += pair.ttftCount;
     providerRow.tpsSum += pair.tpsSum;
     providerRow.tpsCount += pair.tpsCount;
+    providerRow.endToEndTpsSum += pair.endToEndTpsSum;
+    providerRow.endToEndTpsCount += pair.endToEndTpsCount;
     providerRow.costUsd += pair.costUsd;
     providerRow.energyJoules += pair.energyJoules;
     providerRow.waterEvaporatedMl += pair.waterEvaporatedMl;
@@ -2298,6 +2430,7 @@ export async function registerUiRoutes(app: FastifyInstance, deps: UiRouteDepend
   });
   const credentialStore = deps.credentialStore;
   const oauthManager = new OpenAiOAuthManager({
+    allowHostRoutedCallbacks: deps.config.openaiOauthAllowHostRoutedCallbacks,
     oauthScopes: deps.config.openaiOauthScopes,
     clientId: deps.config.openaiOauthClientId,
     issuer: deps.config.openaiOauthIssuer,
@@ -3301,6 +3434,99 @@ export async function registerUiRoutes(app: FastifyInstance, deps: UiRouteDepend
     reply.send({ account });
   });
 
+  app.post<{
+    Body: { readonly sourcePeerId?: string; readonly providerId?: string };
+  }>("/api/ui/federation/projected-accounts/import-all", async (request, reply) => {
+    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
+    if (!authCanManageFederation(auth)) {
+      reply.code(auth ? 403 : 401).send({ error: auth ? "forbidden" : "unauthorized" });
+      return;
+    }
+
+    if (!deps.sqlFederationStore || !deps.credentialStore) {
+      reply.code(503).send({ error: "federation_store_not_supported" });
+      return;
+    }
+
+    const sourcePeerId = typeof request.body?.sourcePeerId === "string" ? request.body.sourcePeerId.trim() : "";
+    const providerId = typeof request.body?.providerId === "string" ? request.body.providerId.trim() : "";
+
+    if (!sourcePeerId || !providerId) {
+      reply.code(400).send({ error: "source_peer_id_and_provider_id_required" });
+      return;
+    }
+
+    const peer = await deps.sqlFederationStore.getPeer(sourcePeerId);
+    const credential = peer ? extractPeerCredential(peer.auth) : undefined;
+    if (!peer || !credential) {
+      reply.code(400).send({ error: "peer_or_credential_not_found" });
+      return;
+    }
+
+    const controlBaseUrl = peer.controlBaseUrl ?? peer.baseUrl;
+    const projectedAccounts = await deps.sqlFederationStore.listProjectedAccounts(undefined);
+    const filteredAccounts = sourcePeerId 
+      ? projectedAccounts.filter(a => a.sourcePeerId === sourcePeerId && (!providerId || a.providerId === providerId))
+      : (providerId ? projectedAccounts.filter(a => a.providerId === providerId) : projectedAccounts);
+
+    let imported = 0;
+    let failed = 0;
+    const errors: string[] = [];
+
+    for (const account of filteredAccounts) {
+      if (account.availabilityState === "imported") {
+        continue;
+      }
+
+      try {
+        const remoteExport = await fetchFederationJson<{ readonly account: FederationCredentialExport }>({
+          url: `${controlBaseUrl}/api/ui/federation/accounts/export`,
+          credential,
+          timeoutMs: federationRequestTimeoutMs,
+          method: "POST",
+          body: {
+            providerId: account.providerId,
+            accountId: account.accountId,
+          },
+        });
+
+        if (remoteExport.account.authType === "oauth_bearer") {
+          await deps.credentialStore.upsertOAuthAccount(
+            remoteExport.account.providerId,
+            remoteExport.account.accountId,
+            remoteExport.account.secret,
+            remoteExport.account.refreshToken,
+            remoteExport.account.expiresAt,
+            remoteExport.account.chatgptAccountId,
+            remoteExport.account.email,
+            remoteExport.account.subject,
+            remoteExport.account.planType,
+          );
+        } else {
+          await deps.credentialStore.upsertApiKeyAccount(
+            remoteExport.account.providerId,
+            remoteExport.account.accountId,
+            remoteExport.account.secret,
+          );
+        }
+
+        await deps.sqlFederationStore.markProjectedAccountImported({
+          sourcePeerId,
+          providerId: account.providerId,
+          accountId: account.accountId,
+        });
+        imported++;
+      } catch (error) {
+        failed++;
+        errors.push(`${account.accountId}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    await deps.keyPool.warmup().catch(() => undefined);
+
+    reply.send({ imported, failed, errors: errors.slice(0, 10) });
+  });
+
   app.get<{
     Querystring: { readonly sinceMs?: string; readonly limit?: string; readonly afterTimestampMs?: string; readonly afterId?: string };
   }>("/api/ui/federation/usage-export", async (request, reply) => {
@@ -3982,7 +4208,12 @@ export async function registerUiRoutes(app: FastifyInstance, deps: UiRouteDepend
       ? await deps.sqlRequestUsageStore.listEntries(entryFilters)
       : deps.requestLogStore.list(entryFilters);
 
-    reply.send({ entries });
+    reply.send({
+      entries: entries.map((entry) => ({
+        ...entry,
+        decodeTps: entry.tps,
+      })),
+    });
   });
 
   app.get<{
@@ -4034,7 +4265,7 @@ export async function registerUiRoutes(app: FastifyInstance, deps: UiRouteDepend
     reply.send(html);
   };
 
-  for (const path of ["/", "/chat", "/images", "/credentials", "/tools", "/hosts"] as const) {
+  for (const path of ["/chat", "/images", "/credentials", "/tools", "/hosts"] as const) {
     app.get(path, async (_request, reply) => {
       await sendUiIndex(reply);
     });

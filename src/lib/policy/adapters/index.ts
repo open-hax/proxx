@@ -1,5 +1,6 @@
 import type { ProviderCredential } from "../../key-pool.js";
 import type { ProviderRoute } from "../../provider-routing.js";
+import type { AccountHealthStore } from "../../db/account-health-store.js";
 import type { PolicyEngine, PlanType } from "../engine/index.js";
 import { toAccountInfo, toModelInfo, toPlanType } from "./model-info.js";
 
@@ -13,13 +14,15 @@ export function orderAccountsByPolicy(
     localOllama: boolean;
     explicitOllama: boolean;
   },
+  healthStore?: AccountHealthStore,
 ): ProviderCredential[] {
   if (accounts.length === 0) {
     return [];
   }
 
   const modelInfo = toModelInfo(routedModel, routedModel, context);
-  const result = policy.orderAccounts(providerId, accounts.map(toAccountInfo), modelInfo);
+  const accountInfos = accounts.map((cred) => toAccountInfo(cred, healthStore));
+  const result = policy.orderAccounts(providerId, accountInfos, modelInfo);
   const orderedIds = new Set(result.ordered.map((account) => account.accountId));
   const orderedCredentials: ProviderCredential[] = [];
 

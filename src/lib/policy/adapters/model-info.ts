@@ -1,4 +1,5 @@
 import type { ProviderCredential } from "../../key-pool.js";
+import type { AccountHealthStore } from "../../db/account-health-store.js";
 import type { AccountInfo, ModelInfo, PlanType } from "../schema.js";
 
 export function toPlanType(planType: string | undefined): PlanType {
@@ -24,7 +25,16 @@ export function toPlanType(planType: string | undefined): PlanType {
   }
 }
 
-export function toAccountInfo(credential: ProviderCredential): AccountInfo {
+export function toAccountInfo(
+  credential: ProviderCredential,
+  healthStore?: AccountHealthStore,
+): AccountInfo {
+  const quotaStatus = healthStore
+    ? healthStore.getQuotaStatus(credential.providerId, credential.accountId)
+    : undefined;
+
+  const isQuotaExhausted = quotaStatus?.exhaustedAt !== null && quotaStatus?.exhaustedAt !== undefined;
+
   return {
     providerId: credential.providerId,
     accountId: credential.accountId,
@@ -32,6 +42,8 @@ export function toAccountInfo(credential: ProviderCredential): AccountInfo {
     authType: credential.authType,
     isExpired: credential.expiresAt !== undefined && Date.now() > credential.expiresAt,
     isRateLimited: false,
+    isQuotaExhausted,
+    quotaExhaustedAt: quotaStatus?.exhaustedAt ?? null,
   };
 }
 

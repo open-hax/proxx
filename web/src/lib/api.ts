@@ -70,6 +70,10 @@ export interface RequestLogEntry {
   readonly cachedPromptTokens?: number;
   readonly imageCount?: number;
   readonly imageCostUsd?: number;
+  readonly ttftMs?: number;
+  readonly decodeTps?: number;
+  readonly tps?: number;
+  readonly endToEndTps?: number;
   readonly error?: string;
 }
 
@@ -190,7 +194,9 @@ export interface UsageAccountSummary {
   readonly cacheHitCount: number;
   readonly cacheKeyUseCount: number;
   readonly avgTtftMs: number | null;
+  readonly avgDecodeTps: number | null;
   readonly avgTps: number | null;
+  readonly avgEndToEndTps: number | null;
   readonly healthScore: number | null;
   readonly transientDebuff: number | null;
   readonly lastUsedAt: string | null;
@@ -257,7 +263,9 @@ export interface AnalyticsRow {
   readonly cachedPromptTokens: number;
   readonly cacheHitRate: number;
   readonly avgTtftMs: number | null;
+  readonly avgDecodeTps: number | null;
   readonly avgTps: number | null;
+  readonly avgEndToEndTps: number | null;
   readonly costUsd: number;
   readonly energyJoules: number;
   readonly waterEvaporatedMl: number;
@@ -302,6 +310,96 @@ export interface CredentialQuotaAccountSummary {
 export interface CredentialQuotaOverview {
   readonly generatedAt: string;
   readonly accounts: readonly CredentialQuotaAccountSummary[];
+}
+
+export interface FederationPeer {
+  readonly id: string;
+  readonly ownerSubject: string;
+  readonly peerDid?: string;
+  readonly label: string;
+  readonly baseUrl: string;
+  readonly controlBaseUrl?: string;
+  readonly authMode: "admin_key" | "at_did";
+  readonly auth: Record<string, unknown>;
+  readonly status: string;
+  readonly capabilities: Record<string, unknown>;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+export interface FederationSelf {
+  readonly nodeId: string | null;
+  readonly groupId: string | null;
+  readonly clusterId: string | null;
+  readonly peerDid: string | null;
+  readonly publicBaseUrl: string | null;
+  readonly peerCount: number;
+}
+
+export interface FederationProjectedAccount {
+  readonly sourcePeerId: string;
+  readonly ownerSubject: string;
+  readonly providerId: string;
+  readonly accountId: string;
+  readonly accountSubject?: string;
+  readonly chatgptAccountId?: string;
+  readonly email?: string;
+  readonly planType?: string;
+  readonly availabilityState: string;
+  readonly warmRequestCount: number;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+export interface FederationKnownAccount {
+  readonly providerId: string;
+  readonly accountId: string;
+  readonly displayName: string;
+  readonly authType: "api_key" | "oauth_bearer" | "local" | "none";
+  readonly planType?: string;
+  readonly chatgptAccountId?: string;
+  readonly email?: string;
+  readonly subject?: string;
+  readonly ownerSubject?: string | null;
+  readonly projectedState?: string;
+  readonly warmRequestCount?: number;
+  readonly hasCredentials: boolean;
+  readonly knowledgeSources: readonly string[];
+}
+
+export interface FederationAccountsOverview {
+  readonly ownerSubject: string | null;
+  readonly localAccounts: readonly FederationKnownAccount[];
+  readonly projectedAccounts: readonly FederationProjectedAccount[];
+  readonly knownAccounts: readonly FederationKnownAccount[];
+}
+
+export interface FederationSyncResult {
+  readonly peer: FederationPeer;
+  readonly ownerSubject: string;
+  readonly importedProjectedAccountsCount: number;
+  readonly importedUsageCount: number;
+  readonly remoteDiffCount: number;
+  readonly syncState: {
+    readonly peerId: string;
+    readonly lastPulledSeq: number;
+    readonly lastPushedSeq: number;
+    readonly lastPullAt?: string;
+    readonly lastPushAt?: string;
+    readonly lastError?: string | null;
+    readonly updatedAt: string;
+  };
+}
+
+export interface FederationBridgeSessionSummary {
+  readonly sessionId?: string;
+  readonly tenantId?: string;
+  readonly state?: string;
+  readonly peerDid?: string;
+  readonly agentId?: string;
+  readonly clusterId?: string;
+  readonly groupId?: string;
+  readonly lastError?: { readonly message?: string };
 }
 
 const AUTH_TOKEN_KEY = "open-hax-proxy.auth-token";
@@ -739,4 +837,61 @@ export async function listToolSeeds(model: string): Promise<ToolSeed[]> {
 export async function listMcpSeeds(): Promise<McpServerSeed[]> {
   const payload = await requestJson<{ readonly servers: McpServerSeed[] }>("/api/ui/mcp-servers");
   return payload.servers;
+}
+
+export async function getFederationSelf(): Promise<FederationSelf> {
+  return requestJson<FederationSelf>("/api/ui/federation/self");
+}
+
+export async function listFederationPeers(ownerSubject?: string): Promise<readonly FederationPeer[]> {
+  const suffix = ownerSubject && ownerSubject.trim().length > 0
+    ? `?ownerSubject=${encodeURIComponent(ownerSubject.trim())}`
+    : "";
+  const payload = await requestJson<{ readonly peers: readonly FederationPeer[] }>(`/api/ui/federation/peers${suffix}`);
+  return payload.peers;
+}
+
+export async function addFederationPeer(input: {
+  readonly ownerCredential: string;
+  readonly label: string;
+  readonly baseUrl: string;
+  readonly peerDid?: string;
+  readonly controlBaseUrl?: string;
+  readonly auth?: Record<string, unknown>;
+}): Promise<FederationPeer> {
+  const payload = await requestJson<{ readonly peer: FederationPeer }>("/api/ui/federation/peers", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(input),
+  });
+  return payload.peer;
+}
+
+export async function getFederationAccounts(ownerSubject?: string): Promise<FederationAccountsOverview> {
+  const suffix = ownerSubject && ownerSubject.trim().length > 0
+    ? `?ownerSubject=${encodeURIComponent(ownerSubject.trim())}`
+    : "";
+  return requestJson<FederationAccountsOverview>(`/api/ui/federation/accounts${suffix}`);
+}
+
+export async function syncFederationPeer(input: {
+  readonly peerId: string;
+  readonly ownerSubject?: string;
+  readonly sinceMs?: number;
+  readonly pullUsage?: boolean;
+}): Promise<FederationSyncResult> {
+  return requestJson<FederationSyncResult>("/api/ui/federation/sync/pull", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(input),
+  });
+}
+
+export async function listFederationBridges(): Promise<readonly FederationBridgeSessionSummary[]> {
+  const payload = await requestJson<{ readonly sessions: readonly FederationBridgeSessionSummary[] }>("/api/ui/federation/bridges");
+  return payload.sessions;
 }

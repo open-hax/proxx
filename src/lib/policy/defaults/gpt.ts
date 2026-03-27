@@ -9,12 +9,7 @@ export const DEFAULT_GPT_PROVIDER_ORDER: readonly ProviderId[] = [
 ];
 
 export const GPT_OSS_PROVIDER_ORDER: readonly ProviderId[] = [
-  "openai",
-  "factory",
   "ollama-cloud",
-  "openrouter",
-  "requesty",
-  "vivgrid",
 ];
 
 export const CLAUDE_OPUS_46_PROVIDER_ORDER: readonly ProviderId[] = [

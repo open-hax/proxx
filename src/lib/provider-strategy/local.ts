@@ -101,6 +101,7 @@ export async function executeLocalStrategy(
       context.routedModel,
       "ollama",
       context.config,
+      attemptStartedAt,
     );
     if (responseLooksLikeEventStream(upstreamResponse, strategy.mode) && context.clientWantsStream) {
       void usagePromise;
@@ -113,4 +114,3 @@ export async function executeLocalStrategy(
       baseUrl: context.config.ollamaBaseUrl
   });
 }
-

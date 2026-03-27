@@ -9,6 +9,7 @@ import type { Factory4xxDiagnostics, RequestLogStore } from "../request-log-stor
 import type { ResolvedRequestAuth } from "../request-auth.js";
 import { estimateRequestCost } from "../model-pricing.js";
 import type { PolicyEngine } from "../policy/index.js";
+import type { AccountHealthStore } from "../db/account-health-store.js";
 import { orderAccountsByPolicy } from "../provider-policy.js";
 import {
   responsesEventStreamToChatCompletion,
@@ -83,10 +84,13 @@ function shouldCooldownCredentialOnAuthFailure(providerId: string, status: numbe
 }
 
 /**
- * For API-key providers (vivgrid, ollama-cloud, openrouter, requesty, etc.),
+ * For most API-key providers (vivgrid, ollama-cloud, openrouter, etc.),
  * a 402 or 403 means the key has been disabled or the account was suspended.
  * These should be treated as permanent failures — the key will not recover
  * without manual intervention.
+ *
+ * Requesty is an exception: 403 is also used for model/provider policy rejections,
+ * so it must not permanently disable the account on status alone.
  *
  * OAuth accounts are excluded: 402/403 may be transient (plan changes,
  * temporary holds) and the token can be refreshed.
@@ -97,7 +101,16 @@ function shouldPermanentlyDisableCredential(credential: ProviderCredential, stat
   if (credential.authType !== "api_key") {
     return false;
   }
-  return status === 402 || status === 403;
+
+  if (status === 402) {
+    return true;
+  }
+
+  if (status === 403) {
+    return credential.providerId !== "requesty";
+  }
+
+  return false;
 }
 
 function reorderCandidatesForAffinity<T extends { readonly providerId: string; readonly account: ProviderCredential }>(
@@ -321,8 +334,9 @@ function providerAccountsForRequestWithPolicy(
     localOllama: boolean;
     explicitOllama: boolean;
   },
+  healthStore?: AccountHealthStore,
 ): ProviderCredential[] {
-  return orderAccountsByPolicy(policy, providerId, accounts, routedModel, context);
+  return orderAccountsByPolicy(policy, providerId, accounts, routedModel, context, healthStore);
 }
 
 function providerUsesOpenAiChatCompletions(providerId: string): boolean {
@@ -982,6 +996,11 @@ function cachedPromptTokensFromUsage(usage: Record<string, unknown>): number | u
     return direct;
   }
 
+  const cacheReadInputTokens = asNumber(usage["cache_read_input_tokens"]);
+  if (cacheReadInputTokens !== undefined) {
+    return cacheReadInputTokens;
+  }
+
   const promptDetails = isRecord(usage["prompt_tokens_details"]) ? usage["prompt_tokens_details"] : null;
   const cachedFromPromptDetails = promptDetails ? asNumber(promptDetails["cached_tokens"]) : undefined;
   if (cachedFromPromptDetails !== undefined) {
@@ -1289,6 +1308,7 @@ function extractUsageFromOpenAiChatSse(streamText: string): UsageCounts {
 function extractUsageFromAnthropicSse(streamText: string): UsageCounts {
   let inputTokens: number | undefined;
   let outputTokens: number | undefined;
+  let cachedPromptTokens: number | undefined;
 
   const chunks = streamText.split("\n\n");
   for (const chunk of chunks) {
@@ -1305,6 +1325,7 @@ function extractUsageFromAnthropicSse(streamText: string): UsageCounts {
         const usage = message && isRecord(message["usage"]) ? message["usage"] : null;
         if (usage) {
           inputTokens = asNumber(usage["input_tokens"]) ?? inputTokens;
+          cachedPromptTokens = asNumber(usage["cache_read_input_tokens"]) ?? cachedPromptTokens;
         }
       }
 
@@ -1327,7 +1348,12 @@ function extractUsageFromAnthropicSse(streamText: string): UsageCounts {
   const completionTokens = outputTokens ?? 0;
   const totalTokens = (promptTokens ?? 0) + completionTokens;
 
-  return { promptTokens, completionTokens, totalTokens };
+  return {
+    promptTokens,
+    completionTokens,
+    totalTokens,
+    ...(cachedPromptTokens !== undefined ? { cachedPromptTokens } : {}),
+  };
 }
 
 function extractUsageFromResponsesSse(streamText: string, routedModel: string): UsageCounts {
@@ -1392,29 +1418,105 @@ function responseLooksLikeEventStream(response: Response, mode: UpstreamMode): b
   return false;
 }
 
+function streamBufferLooksSubstantive(buffer: string): boolean {
+  return /(^|\n)data:\s*(?!\[DONE\])\S/imu.test(buffer);
+}
+
+async function readClonedResponseWithTiming(
+  response: Response,
+  mode: UpstreamMode,
+): Promise<{
+  readonly bodyText: string;
+  readonly completedAt: number;
+  readonly firstByteAt: number | null;
+  readonly firstContentAt: number | null;
+}> {
+  const clone = response.clone();
+  if (!clone.body) {
+    return {
+      bodyText: await clone.text(),
+      completedAt: Date.now(),
+      firstByteAt: null,
+      firstContentAt: null,
+    };
+  }
+
+  const eventStream = responseLooksLikeEventStream(response, mode);
+  const reader = clone.body.getReader();
+  const decoder = new TextDecoder();
+  let bodyText = "";
+  let firstByteAt: number | null = null;
+  let firstContentAt: number | null = null;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) {
+      bodyText += decoder.decode();
+      return {
+        bodyText,
+        completedAt: Date.now(),
+        firstByteAt,
+        firstContentAt,
+      };
+    }
+
+    if (!value || value.byteLength === 0) {
+      continue;
+    }
+
+    const now = Date.now();
+    if (firstByteAt === null) {
+      firstByteAt = now;
+    }
+
+    bodyText += decoder.decode(value, { stream: true });
+
+    if (firstContentAt === null) {
+      if (eventStream) {
+        if (streamBufferLooksSubstantive(bodyText)) {
+          firstContentAt = now;
+        }
+      } else if (bodyText.trim().length > 0) {
+        firstContentAt = now;
+      }
+    }
+  }
+}
+
 async function extractUsageCounts(
   response: Response,
   mode: UpstreamMode,
   routedModel: string,
-): Promise<UsageCounts> {
+): Promise<{
+  readonly usageCounts: UsageCounts;
+  readonly completedAt: number;
+  readonly firstByteAt: number | null;
+  readonly firstContentAt: number | null;
+}> {
   if (!response.ok) {
-    return {};
-  }
-
-  if (responseLooksLikeEventStream(response, mode)) {
-    try {
-      const streamText = await response.clone().text();
-      return extractUsageCountsFromSseText(streamText, mode, routedModel);
-    } catch {
-      return {};
-    }
+    return { usageCounts: {}, completedAt: Date.now(), firstByteAt: null, firstContentAt: null };
   }
 
   try {
-    const upstreamJson: unknown = await response.clone().json();
-    return usageCountsForMode(mode, upstreamJson, routedModel);
+    const readResult = await readClonedResponseWithTiming(response, mode);
+    if (responseLooksLikeEventStream(response, mode)) {
+      return {
+        usageCounts: extractUsageCountsFromSseText(readResult.bodyText, mode, routedModel),
+        completedAt: readResult.completedAt,
+        firstByteAt: readResult.firstByteAt,
+        firstContentAt: readResult.firstContentAt,
+      };
+    }
+
+    const upstreamJson: unknown = JSON.parse(readResult.bodyText);
+    return {
+      usageCounts: usageCountsForMode(mode, upstreamJson, routedModel),
+      completedAt: readResult.completedAt,
+      firstByteAt: readResult.firstByteAt,
+      firstContentAt: readResult.firstContentAt,
+    };
   } catch {
-    return {};
+    return { usageCounts: {}, completedAt: Date.now(), firstByteAt: null, firstContentAt: null };
   }
 }
 
@@ -1426,10 +1528,12 @@ async function updateUsageCountsFromResponse(
   routedModel: string,
   providerId: string,
   config: ProxyConfig,
+  attemptStartedAt: number,
 ): Promise<void> {
-  const readStartedAt = Date.now();
-  const usageCounts = await extractUsageCounts(response, mode, routedModel);
-  const readDurationMs = Math.max(0, Date.now() - readStartedAt);
+  const extraction = await extractUsageCounts(response, mode, routedModel);
+  const { usageCounts } = extraction;
+  const completedAt = extraction.completedAt;
+  const firstContentAt = extraction.firstContentAt ?? extraction.firstByteAt;
 
   const imageCount = typeof usageCounts.imageCount === "number" && Number.isFinite(usageCounts.imageCount)
     ? usageCounts.imageCount
@@ -1449,12 +1553,22 @@ async function updateUsageCountsFromResponse(
   }
 
   const isStream = responseLooksLikeEventStream(response, mode);
+  const decodeDurationMs = firstContentAt !== null ? Math.max(0, completedAt - firstContentAt) : 0;
+  const endToEndDurationMs = Math.max(0, completedAt - attemptStartedAt);
+  const ttftMs = firstContentAt !== null ? Math.max(0, firstContentAt - attemptStartedAt) : undefined;
   const tps = isStream
     && typeof usageCounts.completionTokens === "number"
     && Number.isFinite(usageCounts.completionTokens)
     && usageCounts.completionTokens > 0
-    && readDurationMs > 0
-      ? usageCounts.completionTokens / (readDurationMs / 1000)
+    && decodeDurationMs > 0
+      ? usageCounts.completionTokens / (decodeDurationMs / 1000)
+      : undefined;
+  const endToEndTps = isStream
+    && typeof usageCounts.completionTokens === "number"
+    && Number.isFinite(usageCounts.completionTokens)
+    && usageCounts.completionTokens > 0
+    && endToEndDurationMs > 0
+      ? usageCounts.completionTokens / (endToEndDurationMs / 1000)
       : undefined;
 
   const updatedCost = estimateRequestCost(
@@ -1469,7 +1583,9 @@ async function updateUsageCountsFromResponse(
     imageCount,
     imageCostUsd,
     cacheHit: typeof usageCounts.cachedPromptTokens === "number" && usageCounts.cachedPromptTokens > 0,
+    ttftMs,
     tps,
+    endToEndTps,
     costUsd: updatedCost.costUsd,
     energyJoules: updatedCost.energyJoules,
     waterEvaporatedMl: updatedCost.waterEvaporatedMl,

@@ -11,6 +11,8 @@ export interface AccountInfo {
   readonly isExpired?: boolean;
   readonly isRateLimited?: boolean;
   readonly rateLimitExpiresAt?: number;
+  readonly isQuotaExhausted?: boolean;
+  readonly quotaExhaustedAt?: number | null;
 }
 
 export interface ModelInfo {

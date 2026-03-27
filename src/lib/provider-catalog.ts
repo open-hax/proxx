@@ -3,7 +3,7 @@ import type { KeyPool, ProviderCredential } from "./key-pool.js";
 import type { ProviderRoute, ResolvedModelCatalog } from "./provider-routing.js";
 import { parseModelIdsFromCatalogPayload, buildLargestModelAliases, dedupeModelIds } from "./provider-routing.js";
 import { fetchWithResponseTimeout } from "./provider-utils.js";
-import { loadModelPreferences, type ModelPreferences } from "./models.js";
+import { loadDeclaredModels, loadModelPreferences, type ModelPreferences } from "./models.js";
 
 export interface ProviderCatalogEntry {
   readonly providerId: string;
@@ -24,8 +24,22 @@ interface CachedCatalog {
   readonly resolved: ResolvedCatalogWithPreferences;
 }
 
-function providerModelCatalogPaths(providerId: string): string[] {
+function providerModelCatalogPaths(config: ProxyConfig, providerId: string): string[] {
   const normalizedProviderId = providerId.trim().toLowerCase();
+
+  if (normalizedProviderId === config.openaiProviderId.trim().toLowerCase()) {
+    const openAiBaseUrl = config.openaiBaseUrl.trim().toLowerCase();
+    const openAiResponsesPath = config.openaiResponsesPath.trim().toLowerCase();
+    const openAiChatCompletionsPath = config.openaiChatCompletionsPath.trim().toLowerCase();
+    const usesCodexSurface = openAiBaseUrl.includes("chatgpt.com/backend-api")
+      || openAiResponsesPath.includes("/codex/")
+      || openAiChatCompletionsPath.includes("/codex/");
+
+    if (usesCodexSurface) {
+      return [];
+    }
+  }
+
   if (normalizedProviderId === "zai") {
     return ["/models"];
   }
@@ -108,11 +122,12 @@ export class ProviderCatalogStore {
     }
 
     const preferences = await loadModelPreferences(this.config.modelsFilePath, []);
+    const declaredModels = await loadDeclaredModels(this.config.modelsFilePath);
     const providerCatalogs: Record<string, ProviderCatalogEntry> = {};
     const discoveredModels: string[] = [];
 
     for (const route of this.routes) {
-      const sourceEndpoints = providerModelCatalogPaths(route.providerId);
+      const sourceEndpoints = providerModelCatalogPaths(this.config, route.providerId);
       const providerModels = await this.fetchProviderModelCatalog(route, sourceEndpoints);
       if (providerModels.length > 0) {
         providerCatalogs[route.providerId] = {
@@ -151,14 +166,17 @@ export class ProviderCatalogStore {
     const dedupedDiscovered = dedupeModelIds(discoveredModels);
     const disabledFiltered = filterDisabled(dedupedDiscovered, preferences.disabled);
     const preferredDiscovered = extractPreferredDiscovered(preferences.preferred, disabledFiltered);
-    const orderedModels = orderPreferredFirst(disabledFiltered, preferredDiscovered);
+    const orderedDiscoveredModels = orderPreferredFirst(disabledFiltered, preferredDiscovered);
+    const declaredFiltered = filterDisabled(declaredModels, preferences.disabled);
+    const declaredOnlyModels = declaredFiltered.filter((modelId) => !disabledFiltered.includes(modelId));
+    const orderedModels = dedupeModelIds([...orderedDiscoveredModels, ...declaredOnlyModels]);
 
     const ollamaModelIds = dedupeModelIds(
       this.ollamaRoutes.flatMap((route) => providerCatalogs[route.providerId]?.modelIds ?? [])
     );
     const aliasTargets = {
       ...buildLargestModelAliases(ollamaModelIds),
-      ...buildPreferredAliasTargets(preferences.aliases, disabledFiltered),
+      ...buildPreferredAliasTargets(preferences.aliases, orderedModels),
     };
     const aliasIds = Object.keys(aliasTargets);
     const modelIds = dedupeModelIds([...orderedModels, ...aliasIds]);
@@ -167,6 +185,7 @@ export class ProviderCatalogStore {
       modelIds,
       aliasTargets,
       dynamicOllamaModelIds: ollamaModelIds,
+      declaredModelIds: declaredFiltered,
     };
 
     const resolved = {

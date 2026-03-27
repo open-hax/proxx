@@ -22,6 +22,10 @@ interface AccountHealth {
   lastFailureAt: number | null;
   lastError: string | null;
   lastStatus: number | null;
+  quotaExhaustedAt: number | null;
+  quotaUsedPercent: number | null;
+  failureStreak: number;
+  lastCooldownUntil: number | null;
 }
 
 export interface HealthScore {
@@ -46,6 +50,10 @@ function parseHealthRow(row: HealthRow): AccountHealth {
     lastFailureAt: row.last_failure_at ? Number.parseInt(row.last_failure_at, 10) : null,
     lastError: row.last_error,
     lastStatus: row.last_status ? Number.parseInt(row.last_status, 10) : null,
+    quotaExhaustedAt: null,
+    quotaUsedPercent: null,
+    failureStreak: 0,
+    lastCooldownUntil: null,
   };
 }
 
@@ -56,9 +64,21 @@ function computeHealthScore(health: AccountHealth, expiresAt?: number): number {
     return 0.1;
   }
 
+  let quotaPenalty = 0;
+  if (health.quotaExhaustedAt) {
+    const hoursSinceQuotaExhaustion = (now - health.quotaExhaustedAt) / (1000 * 60 * 60);
+    if (hoursSinceQuotaExhaustion < 1) {
+      quotaPenalty = 0.5;
+    } else if (hoursSinceQuotaExhaustion < 6) {
+      quotaPenalty = 0.3;
+    } else if (hoursSinceQuotaExhaustion < 24) {
+      quotaPenalty = 0.15;
+    }
+  }
+
   const total = health.successCount + health.failureCount;
   if (total === 0) {
-    return 0.5;
+    return Math.max(0, 0.5 - quotaPenalty);
   }
 
   const successRate = health.successCount / total;
@@ -85,7 +105,7 @@ function computeHealthScore(health: AccountHealth, expiresAt?: number): number {
 
   const sampleSizeBonus = Math.min(total / 100, 0.05);
 
-  return Math.max(0, Math.min(1, successRate + recencyBonus - failurePenalty + sampleSizeBonus));
+  return Math.max(0, Math.min(1, successRate + recencyBonus - failurePenalty - quotaPenalty + sampleSizeBonus));
 }
 
 export class AccountHealthStore {
@@ -147,6 +167,7 @@ export class AccountHealthStore {
       existing.successCount += 1;
       existing.lastSuccessAt = now;
       existing.lastStatus = status;
+      existing.failureStreak = 0;
     } else {
       this.healthByAccount.set(key, {
         providerId: credential.providerId,
@@ -157,6 +178,10 @@ export class AccountHealthStore {
         lastFailureAt: null,
         lastError: null,
         lastStatus: status,
+        quotaExhaustedAt: null,
+        quotaUsedPercent: null,
+        failureStreak: 0,
+        lastCooldownUntil: null,
       });
     }
 
@@ -183,6 +208,7 @@ export class AccountHealthStore {
       existing.lastFailureAt = now;
       existing.lastError = error ?? null;
       existing.lastStatus = status;
+      existing.failureStreak = (existing.failureStreak || 0) + 1;
     } else {
       this.healthByAccount.set(key, {
         providerId: credential.providerId,
@@ -193,6 +219,10 @@ export class AccountHealthStore {
         lastFailureAt: now,
         lastError: error ?? null,
         lastStatus: status,
+        quotaExhaustedAt: null,
+        quotaUsedPercent: null,
+        failureStreak: 1,
+        lastCooldownUntil: null,
       });
     }
 
@@ -204,6 +234,98 @@ export class AccountHealthStore {
       status,
       error,
     });
+  }
+
+  public recordQuotaExhausted(providerId: string, accountId: string, usedPercent: number): void {
+    const key = healthKey(providerId, accountId);
+    const existing = this.healthByAccount.get(key);
+    const now = Date.now();
+
+    if (existing) {
+      existing.quotaExhaustedAt = now;
+      existing.quotaUsedPercent = usedPercent;
+    } else {
+      this.healthByAccount.set(key, {
+        providerId,
+        accountId,
+        successCount: 0,
+        failureCount: 0,
+        lastSuccessAt: null,
+        lastFailureAt: null,
+        lastError: null,
+        lastStatus: null,
+        quotaExhaustedAt: now,
+        quotaUsedPercent: usedPercent,
+        failureStreak: 0,
+        lastCooldownUntil: null,
+      });
+    }
+  }
+
+  public getQuotaStatus(providerId: string, accountId: string): { exhaustedAt: number | null; usedPercent: number | null } {
+    const key = healthKey(providerId, accountId);
+    const health = this.healthByAccount.get(key);
+    return {
+      exhaustedAt: health?.quotaExhaustedAt ?? null,
+      usedPercent: health?.quotaUsedPercent ?? null,
+    };
+  }
+
+  public isQuotaExhausted(providerId: string, accountId: string, cooldownMs: number = 300_000): boolean {
+    const status = this.getQuotaStatus(providerId, accountId);
+    if (!status.exhaustedAt) {
+      return false;
+    }
+    const now = Date.now();
+    if (status.exhaustedAt + cooldownMs > now) {
+      return true;
+    }
+    const key = healthKey(providerId, accountId);
+    const health = this.healthByAccount.get(key);
+    if (health) {
+      health.quotaExhaustedAt = null;
+      health.quotaUsedPercent = null;
+    }
+    return false;
+  }
+
+  private static readonly MAX_COOLDOWN_MS = 30 * 60 * 1000;
+  private static readonly COOLDOWN_GROWTH_FACTOR = 2;
+  private static readonly SUCCESS_RESET_STREAK_THRESHOLD = 3;
+
+  public getGrowingCooldown(providerId: string, accountId: string, baseCooldownMs: number): number {
+    const key = healthKey(providerId, accountId);
+    const health = this.healthByAccount.get(key);
+    if (!health) {
+      return baseCooldownMs;
+    }
+
+    const streak = health.failureStreak || 0;
+    if (streak === 0) {
+      return baseCooldownMs;
+    }
+
+    const grownCooldown = Math.min(
+      baseCooldownMs * Math.pow(AccountHealthStore.COOLDOWN_GROWTH_FACTOR, streak - 1),
+      AccountHealthStore.MAX_COOLDOWN_MS
+    );
+
+    const now = Date.now();
+    if (health.lastCooldownUntil && health.lastCooldownUntil > now) {
+      return Math.max(grownCooldown, health.lastCooldownUntil - now);
+    }
+
+    health.lastCooldownUntil = now + grownCooldown;
+    return grownCooldown;
+  }
+
+  public resetQuotaExhausted(providerId: string, accountId: string): void {
+    const key = healthKey(providerId, accountId);
+    const health = this.healthByAccount.get(key);
+    if (health) {
+      health.quotaExhaustedAt = null;
+      health.quotaUsedPercent = null;
+    }
   }
 
   public getHealthScore(providerId: string, accountId: string, expiresAt?: number): number {

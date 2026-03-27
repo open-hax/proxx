@@ -55,6 +55,11 @@ test("parseWaitTimeFromMessage extracts hours", () => {
   assert.equal(parseWaitTimeFromMessage("Wait 2 hours."), 7200000);
 });
 
+test("parseWaitTimeFromMessage extracts days", () => {
+  assert.equal(parseWaitTimeFromMessage("Please wait 1 day."), 86400000);
+  assert.equal(parseWaitTimeFromMessage("Wait 3 days."), 259200000);
+});
+
 test("parseWaitTimeFromMessage is case-insensitive", () => {
   assert.equal(parseWaitTimeFromMessage("PLEASE WAIT 5 SECONDS"), 5000);
   assert.equal(parseWaitTimeFromMessage("Wait 5 Seconds before making another request."), 5000);

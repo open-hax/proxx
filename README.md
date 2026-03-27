@@ -191,6 +191,7 @@ Notes:
 - `PROXY_HOST` (default: `127.0.0.1`)
 - `PROXY_PORT` (default: `8789`)
 - `OPENAI_OAUTH_CALLBACK_PORT` (default: `1455`; port used when building the browser OAuth redirect URL)
+- `OPENAI_OAUTH_ALLOW_HOST_ROUTED_CALLBACKS` (default: `false`; when `true`, preserve non-loopback browser OAuth callback hosts instead of forcing Codex-style `localhost` callback topology)
 - `STREAM_CHUNK_DELAY_MS` (optional; default: `0`; fixed delay added between synthetic SSE chunks)
 - `STREAM_CHUNK_DELAY_MS_MIN` / `STREAM_CHUNK_DELAY_MS_MAX` (optional; default: unset; random delay range between chunks)
 - `UPSTREAM_PROVIDER_ID` (default: `vivgrid`; provider key in `keys.json`)
@@ -286,6 +287,7 @@ Those legacy formats map to `UPSTREAM_PROVIDER_ID`.
 
 `models.json` is now **preference metadata**, not the source of truth. The proxy discovers models dynamically via provider `/v1/models` (and provider-specific catalog endpoints) and uses `models.json` to:
 
+- **declare** static model IDs for upstreams that do not advertise a reliable catalog
 - **prioritize** models in listings and routing
 - **disable** models (exclude from listing + routing)
 - **alias** model names (rewrite to a discovered model ID)
@@ -301,9 +303,14 @@ Example:
 ```
 
 Notes:
+- Declared `models` are useful for personal or nonstandard upstreams that serve a model but do not expose it cleanly through `/v1/models`.
 - Preferred models only **reorder** discovered models (they do **not** add undiscovered models).
 - Disabled models are excluded even if a provider advertises them.
-- Aliases only apply when the **target** model exists in the discovered catalog.
+- Aliases only apply when the **target** model exists in the discovered or declared catalog.
+
+Personal llama.cpp example:
+
+- See `examples/blongs-definately-legit-model/` for a ready-made config that aliases `blongs-definately-legit-model` -> `model-f16.gguf` against `http://185.255.121.4:8080`.
 
 ## OpenAI OAuth Routing Through Chat-Completions
 

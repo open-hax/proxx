@@ -276,8 +276,7 @@ export class OpenAiResponsesPassthroughStrategy extends BaseProviderStrategy {
   }
 
   public buildPayload(context: StrategyRequestContext): BuildPayloadResult {
-    const upstreamPayload: Record<string, unknown> = { ...context.requestBody };
-    delete upstreamPayload["open_hax"];
+    const upstreamPayload = buildRequestBodyForUpstream(context);
     stripCodexUnsupportedParams(upstreamPayload);
     upstreamPayload["store"] = false;
     upstreamPayload["stream"] = true;

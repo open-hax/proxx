@@ -1,13 +1,18 @@
+name: proxx-repo-glm5
+
 services:
-  open-hax-openai-proxy-glm5:
+  proxx-repo-glm5:
     image: open-hax-openai-proxy-open-hax-openai-proxy
+    build:
+      context: .
+      dockerfile: Dockerfile
     depends_on:
-      open-hax-openai-proxy-db:
+      proxx-repo-glm5-db:
         condition: service_healthy
         required: false
     ports:
-      - "8791:8789"
-      - "5175:5174"
+      - "${PROXY_PORT:-28791}:8789"
+      - "${PROXY_WEB_PORT:-25175}:5174"
     environment:
       NODE_ENV: production
       PROXY_HOST: 0.0.0.0
@@ -24,14 +29,21 @@ services:
       UPSTREAM_PROVIDER_BASE_URLS: "ollama-cloud=https://ollama.com"
       OPENAI_PROVIDER_ID: "ollama-cloud"
       OPENAI_BASE_URL: "https://ollama.com"
-      DATABASE_URL: "postgresql://openai_proxy@open-hax-openai-proxy-db:5432/openai_proxy"
+      DATABASE_URL: "postgresql://openai_proxy@proxx-repo-glm5-db:5432/openai_proxy"
       PGPASSWORD: "${POSTGRES_PASSWORD:-change-me}" # pragma: allowlist secret
       CHROMA_URL: "${CHROMA_URL:-http://host.docker.internal:8000}"
       CHROMA_COLLECTION: "${CHROMA_COLLECTION:-open_hax_proxy_sessions}"
       OTEL_EXPORTER_OTLP_ENDPOINT: "${OTEL_EXPORTER_OTLP_ENDPOINT:-}"
       OTEL_EXPORTER_OTLP_HEADERS: "${OTEL_EXPORTER_OTLP_HEADERS:-}"
-      OTEL_SERVICE_NAME: "${OTEL_SERVICE_NAME:-proxx-glm5}"
-      OTEL_RESOURCE_ATTRIBUTES: "${OTEL_RESOURCE_ATTRIBUTES:-service.name=proxx-glm5}"
+      OTEL_SERVICE_NAME: "${OTEL_SERVICE_NAME:-proxx-repo-glm5}"
+      OTEL_RESOURCE_ATTRIBUTES: "${OTEL_RESOURCE_ATTRIBUTES:-service.name=proxx-repo-glm5}"
+      FEDERATION_SELF_NODE_ID: "${FEDERATION_SELF_NODE_ID:-repo-glm5}"
+      FEDERATION_SELF_GROUP_ID: "${FEDERATION_SELF_GROUP_ID:-proxx-repo-glm5}"
+      FEDERATION_SELF_CLUSTER_ID: "${FEDERATION_SELF_CLUSTER_ID:-proxx-repo-cluster}"
+      FEDERATION_SELF_PEER_DID: "${FEDERATION_SELF_PEER_DID:-did:web:proxx-repo-glm5.local}"
+      FEDERATION_SELF_PUBLIC_BASE_URL: "${FEDERATION_SELF_PUBLIC_BASE_URL:-http://proxx-repo-glm5:8789}"
+      FEDERATION_DEFAULT_OWNER_SUBJECT: "${FEDERATION_DEFAULT_OWNER_SUBJECT:-did:web:proxx-repo-glm5.local}"
+      FEDERATION_REQUEST_TIMEOUT_MS: "${FEDERATION_REQUEST_TIMEOUT_MS:-30000}"
     volumes:
       - ./keys.json:/workspace/service-config/keys.json
       - ./models.json:/workspace/service-config/models.json:ro
@@ -54,7 +66,7 @@ services:
     networks:
       ai-infra: {}
 
-  open-hax-openai-proxy-db:
+  proxx-repo-glm5-db:
     image: postgres:16-bookworm
     environment:
       POSTGRES_DB: openai_proxy

@@ -1,35 +1,32 @@
 ;; Π State Snapshot
-;; Generated: 2026-03-23
+;; Generated: 2026-03-26 19:44:00 -0500
 
 (
   :repo "open-hax/proxx"
-  :branch "feat/consolidate-federation-into-staging"
-  :commit "f33516c5ea9f4b32c1929e47469ab5323c71f362"
-  :previous-tag "Π/2026-03-22/150930-6bc392a-8-gf33516c"
+  :branch "fix/ci-live-e2e-aggregate-conclusion"
+  :head-before "24ee52291af2a828da307bb1a684350a87fc9854"
+  :previous-tag "Π-2026-03-25"
+  :intended-tag "Π/2026-03-26/194400"
 
   :work-description
-  "Federation bridge implementation: WebSocket relay, agent protocol, autostart integration, and staging deployment configuration.
+  "Repository handoff snapshot for the current proxx branch state.
 
-Key components:
-- src/lib/federation/bridge-relay.ts: WebSocket relay for multi-instance federation
-- src/lib/federation/bridge-protocol.ts: Message types and wire protocol
-- src/lib/federation/bridge-agent.ts: Federation agent for inter-instance communication
-- src/lib/federation/bridge-agent-autostart.ts: Auto-start integration with app
-- specs/drafts/federation-bridge-ws-v0.md: Protocol specification
-
-- Updated src/app.ts with federation agent initialization and WebSocket routes
-- Updated src/lib/ui-routes.ts with federation status endpoints
-- Updated .github/workflows for staging deployment
-- Updated .env.example with federation environment variables
-
-Current state: Implementation complete, typecheck passes, lint has pre-existing issues in web/ and some unused vars in new code."
+Includes the full current working tree the user asked to preserve, including:
+- compose/runtime changes across docker-compose files
+- docs/notes reorganization and new research/experimental note trees
+- Fastify 5 / Swagger lockfile alignment
+- Chroma client deprecation repair (host/port/ssl instead of path)
+- weekly analytics rollup fix and tenant-scoped weekly test fixture updates
+- current proxy, quota, routing, UI, and test changes already present in the branch."
 
   :dirty-state (
-    :modified (".env.example" ".github/workflows/main-pr-gate.yml" ".github/workflows/staging-pr.yml" "package.json" "receipts.log" "src/app.ts" "src/lib/ui-routes.ts")
-    :untracked ("eslint.config.mjs" "specs/drafts/federation-bridge-ws-v0.md" "src/lib/federation/" "src/tests/federation-bridge-*.test.ts"))
+    :modified ["docker-compose.federation-e2e.yml", "docker-compose.federation-runtime.yml", "docker-compose.glm5.yml", "docker-compose.yml", "pnpm-lock.yaml", "src/app.ts", "src/lib/chroma-session-index.ts", "src/lib/config.ts", "src/lib/messages-compat.ts", "src/lib/provider-strategy/fallback.ts", "src/lib/provider-strategy/shared.ts", "src/lib/proxy.ts", "src/lib/quota-monitor.ts", "src/lib/ui-routes.ts", "src/tests/proxy-rate-limit.test.ts", "src/tests/proxy.test.ts", "web/src/pages/AnalyticsPage.tsx"]
+    :deleted ["docs/notes/2026.03.25.06.29.19.md", "docs/notes/2026.03.25.17.30.49.md", "docs/notes/2026.03.25.17.32.59.md", "docs/notes/2026.03.25.17.35.59.md", "docs/notes/2026.03.25.17.50.14.md", "docs/notes/2026.03.25.17.52.10.md"]
+    :untracked ["docs/notes/2026.03.25.21.22.13.md", "docs/notes/experimental-design/2026.03.25.06.29.19.md", "docs/notes/experimental-design/2026.03.25.17.30.49.md", "docs/notes/experimental-design/2026.03.25.17.32.59.md", "docs/notes/experimental-design/2026.03.25.17.35.59.md", "docs/notes/experimental-design/2026.03.25.17.50.14.md", "docs/notes/experimental-design/2026.03.25.17.52.10.md", "docs/notes/research-findings/2026.03.26.requesty-gpt54-reasoning-summary-failure-modes.md"])
 
   :verification (
-    :typecheck "pass"
-    :lint "143 errors (pre-existing + some unused vars in new code)"
-    :tests "not run for snapshot")
-)
+    :secret-scan "quick diff-pattern scan: no obvious credential/private-key literals detected"
+    :build "pass (pnpm run build)"
+    :proxy-suite "pass (timeout 45s node --test --test-concurrency=1 dist/tests/proxy.test.js => 131/131)"
+    :bridge-relay "pass (4/4)"
+    :bridge-autostart "pass (3/3)"))

@@ -18,7 +18,7 @@ function validateSort(value: unknown): string | undefined {
   }
 
   const normalized = value.trim().toLowerCase();
-  return ["suitability", "tokens", "requests", "ttft", "tps", "errors", "cost"].includes(normalized)
+  return ["suitability", "tokens", "requests", "ttft", "tps", "decode-tps", "e2e-tps", "errors", "cost"].includes(normalized)
     ? normalized
     : undefined;
 }
@@ -140,13 +140,13 @@ export function AnalyticsPage(): JSX.Element {
     if (providerFocus && !providerOptions.includes(providerFocus)) {
       setProviderFocus("");
     }
-  }, [providerFocus, providerOptions]);
+  }, [providerFocus, providerOptions, setProviderFocus]);
 
   useEffect(() => {
     if (modelFocus && !modelOptions.includes(modelFocus)) {
       setModelFocus("");
     }
-  }, [modelFocus, modelOptions]);
+  }, [modelFocus, modelOptions, setModelFocus]);
 
   const filteredModels = useMemo(() => {
     const query = modelSearch.trim().toLowerCase();
@@ -189,7 +189,7 @@ export function AnalyticsPage(): JSX.Element {
           <h2>Provider + model analytics</h2>
           <p>
             Explore observed performance by model, by provider, and by provider × model pair.
-            Suitability is a heuristic derived from TTFT, TPS, error rate, cache behavior, and confidence.
+            Suitability is a heuristic derived from TTFT, decode TPS, error rate, cache behavior, and confidence.
           </p>
         </div>
         <div className="analytics-hero-meta">
@@ -258,7 +258,8 @@ export function AnalyticsPage(): JSX.Element {
                 <option value="tokens">Tokens</option>
                 <option value="requests">Requests</option>
                 <option value="ttft">TTFT</option>
-                <option value="tps">TPS</option>
+                <option value="tps">Decode TPS</option>
+                <option value="e2e-tps">End-to-end TPS</option>
                 <option value="errors">Error rate</option>
                 <option value="cost">Cost</option>
               </select>
@@ -302,8 +303,11 @@ export function AnalyticsPage(): JSX.Element {
                 <th>Suitability</th>
                 <th>Confidence</th>
                 <th>Avg TTFT</th>
-                <th>Avg TPS</th>
+                <th>Decode TPS</th>
+                <th>End-to-End TPS</th>
                 <th>Error Rate</th>
+                <th>Cache Hit</th>
+                <th>Cached Tokens</th>
                 <th>Requests</th>
                 <th>Tokens</th>
                 <th>Est. Cost</th>
@@ -317,8 +321,11 @@ export function AnalyticsPage(): JSX.Element {
                   <td>{formatMaybeSuitability(row.suitabilityScore)}</td>
                   <td>{formatMaybeSuitability(row.confidenceScore)}</td>
                   <td>{formatMaybeMs(row.avgTtftMs)}</td>
-                  <td>{formatMaybeTps(row.avgTps)}</td>
+                  <td>{formatMaybeTps(row.avgDecodeTps)}</td>
+                  <td>{formatMaybeTps(row.avgEndToEndTps)}</td>
                   <td>{formatPercent(row.errorRate)}</td>
+                  <td>{formatPercent(row.cacheHitRate)}</td>
+                  <td>{formatCompactNumber(row.cachedPromptTokens)}</td>
                   <td>{formatCompactNumber(row.requestCount)}</td>
                   <td>{formatCompactNumber(row.totalTokens)}</td>
                   <td>{formatUsd(row.costUsd)}</td>
@@ -350,8 +357,11 @@ export function AnalyticsPage(): JSX.Element {
                 <th>Suitability</th>
                 <th>Confidence</th>
                 <th>Avg TTFT</th>
-                <th>Avg TPS</th>
+                <th>Decode TPS</th>
+                <th>End-to-End TPS</th>
                 <th>Error Rate</th>
+                <th>Cache Hit</th>
+                <th>Cached Tokens</th>
                 <th>Requests</th>
                 <th>Tokens</th>
                 <th>Est. Cost</th>
@@ -365,8 +375,11 @@ export function AnalyticsPage(): JSX.Element {
                   <td>{formatMaybeSuitability(row.suitabilityScore)}</td>
                   <td>{formatMaybeSuitability(row.confidenceScore)}</td>
                   <td>{formatMaybeMs(row.avgTtftMs)}</td>
-                  <td>{formatMaybeTps(row.avgTps)}</td>
+                  <td>{formatMaybeTps(row.avgDecodeTps)}</td>
+                  <td>{formatMaybeTps(row.avgEndToEndTps)}</td>
                   <td>{formatPercent(row.errorRate)}</td>
+                  <td>{formatPercent(row.cacheHitRate)}</td>
+                  <td>{formatCompactNumber(row.cachedPromptTokens)}</td>
                   <td>{formatCompactNumber(row.requestCount)}</td>
                   <td>{formatCompactNumber(row.totalTokens)}</td>
                   <td>{formatUsd(row.costUsd)}</td>
@@ -394,9 +407,11 @@ export function AnalyticsPage(): JSX.Element {
                 <th>Suitability</th>
                 <th>Confidence</th>
                 <th>Avg TTFT</th>
-                <th>Avg TPS</th>
+                <th>Decode TPS</th>
+                <th>End-to-End TPS</th>
                 <th>Error Rate</th>
                 <th>Cache Hit</th>
+                <th>Cached Tokens</th>
                 <th>Requests</th>
                 <th>Tokens</th>
                 <th>Est. Cost</th>
@@ -412,9 +427,11 @@ export function AnalyticsPage(): JSX.Element {
                   <td>{formatMaybeSuitability(row.suitabilityScore)}</td>
                   <td>{formatMaybeSuitability(row.confidenceScore)}</td>
                   <td>{formatMaybeMs(row.avgTtftMs)}</td>
-                  <td>{formatMaybeTps(row.avgTps)}</td>
+                  <td>{formatMaybeTps(row.avgDecodeTps)}</td>
+                  <td>{formatMaybeTps(row.avgEndToEndTps)}</td>
                   <td>{formatPercent(row.errorRate)}</td>
                   <td>{formatPercent(row.cacheHitRate)}</td>
+                  <td>{formatCompactNumber(row.cachedPromptTokens)}</td>
                   <td>{formatCompactNumber(row.requestCount)}</td>
                   <td>{formatCompactNumber(row.totalTokens)}</td>
                   <td>{formatUsd(row.costUsd)}</td>

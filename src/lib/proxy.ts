@@ -19,6 +19,7 @@ const BLOCKED_REQUEST_HEADERS = new Set([
   "authorization",
   "connection",
   "content-length",
+  "cookie",
   "host",
   "proxy-authenticate",
   "proxy-authorization",
@@ -27,6 +28,42 @@ const BLOCKED_REQUEST_HEADERS = new Set([
   "transfer-encoding",
   "upgrade"
 ]);
+
+const OPENAI_BROWSER_FINGERPRINT_HEADERS = new Set([
+  "accept-language",
+  "cookie",
+  "dnt",
+  "origin",
+  "priority",
+  "referer",
+  "upgrade-insecure-requests",
+  "user-agent",
+  "x-real-ip",
+  "true-client-ip",
+  "cf-connecting-ip",
+  "cf-ipcountry",
+  "cf-ray",
+  "cdn-loop",
+]);
+
+function isOpenAiBrowserFingerprintHeader(name: string): boolean {
+  const normalized = name.toLowerCase();
+  return OPENAI_BROWSER_FINGERPRINT_HEADERS.has(normalized)
+    || normalized.startsWith("sec-")
+    || normalized.startsWith("x-forwarded-");
+}
+
+function applyOpenAiCodexHeaderProfile(headers: Headers): Headers {
+  const headerNames = [...headers.keys()];
+  for (const name of headerNames) {
+    if (isOpenAiBrowserFingerprintHeader(name)) {
+      headers.delete(name);
+    }
+  }
+
+  headers.set("originator", "codex_cli_rs");
+  return headers;
+}
 
 function asHeaderValue(value: string | string[] | undefined): string | undefined {
   if (Array.isArray(value)) {
@@ -64,10 +101,14 @@ export function buildUpstreamHeaders(clientHeaders: IncomingHttpHeaders, apiKey:
 export function buildUpstreamHeadersForCredential(
   clientHeaders: IncomingHttpHeaders,
   credential: ProviderCredential,
+  options?: { readonly useOpenAiCodexHeaderProfile?: boolean },
 ): Headers {
   const headers = buildUpstreamHeaders(clientHeaders, credential.token);
   if (credential.chatgptAccountId) {
     headers.set("chatgpt-account-id", credential.chatgptAccountId);
+  }
+  if (options?.useOpenAiCodexHeaderProfile) {
+    applyOpenAiCodexHeaderProfile(headers);
   }
   return headers;
 }
@@ -110,6 +151,8 @@ export function isRateLimitResponse(response: Response): boolean {
  * - "Please wait 23.5 seconds before making another request."
  * - "Please try again in 2m30s."
  * - "Rate limit reached. Please wait 1.37s."
+ * - "Please try again in 1 hour 30 minutes."
+ * - "Rate limit reached. Please try again in 5d 12h."
  */
 export function parseWaitTimeFromMessage(message: string): number | undefined {
   if (typeof message !== "string") {
@@ -118,8 +161,33 @@ export function parseWaitTimeFromMessage(message: string): number | undefined {
 
   const lower = message.toLowerCase();
 
+  // Pattern: days hours minutes seconds (e.g., "5d 12h", "1 hour 30 minutes", "2 days 3 hours 45 minutes")
+  // Extract all duration components and sum them - check for full format first
+  const fullMatch = lower.match(/(\d+(?:\.\d+)?)\s*(d|days?|h|hours?|hrs?|m|mins?|minutes?|s|secs?|seconds?)\b/gi);
+  if (fullMatch) {
+    let totalMs = 0;
+    for (const match of fullMatch) {
+      const durationMatch = match.match(/(\d+(?:\.\d+)?)\s*(d|days?|h|hours?|hrs?|m|mins?|minutes?|s|secs?|seconds?)/i);
+      if (durationMatch) {
+        const value = parseFloat(durationMatch[1]!);
+        const unit = durationMatch[2]!.toLowerCase();
+        if (unit.startsWith('d')) {
+          totalMs += Math.ceil(value * 24 * 60 * 60 * 1000);
+        } else if (unit.startsWith('h')) {
+          totalMs += Math.ceil(value * 60 * 60 * 1000);
+        } else if (unit.startsWith('m')) {
+          totalMs += Math.ceil(value * 60 * 1000);
+        } else if (unit.startsWith('s')) {
+          totalMs += Math.ceil(value * 1000);
+        }
+      }
+    }
+    if (totalMs > 0) {
+      return totalMs;
+    }
+  }
+
   // Pattern: XmYs or Xm Ys (e.g., "2m30s", "2m 30s", "try again in 5m 0s")
-  // Must check this before single minutes pattern
   const combinedMatch = lower.match(/(\d+)\s*m\s*(\d+)\s*s/i);
   if (combinedMatch) {
     const minutes = parseInt(combinedMatch[1]!, 10);
@@ -129,8 +197,8 @@ export function parseWaitTimeFromMessage(message: string): number | undefined {
     }
   }
 
-  // Pattern: X.XX seconds or X.XXs (e.g., "23.5 seconds", "1.37s", "30s")
-  const secondsMatch = lower.match(/(\d+(?:\.\d+)?)\s*s(?:econds?)?\b/i);
+  // Pattern: X.XX seconds or X.XXs (e.g., "23.5 seconds", "1.37s", "30s", "11.054s")
+  const secondsMatch = lower.match(/(\d+(?:\.\d+)?)\s*(s(?:econds?)?|seconds?|secs?)\b/i);
   if (secondsMatch) {
     const seconds = parseFloat(secondsMatch[1]!);
     if (Number.isFinite(seconds) && seconds > 0) {
