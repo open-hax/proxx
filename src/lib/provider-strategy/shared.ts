@@ -478,6 +478,11 @@ function shortHash(value: string): string | undefined {
   return `sha256:${createHash("sha256").update(normalized).digest("hex").slice(0, 12)}`;
 }
 
+function promptCacheKeyHashFromRequestBody(requestBody: Record<string, unknown>): string | undefined {
+  const rawPromptCacheKey = asString(requestBody["prompt_cache_key"]) ?? asString(requestBody["promptCacheKey"]);
+  return rawPromptCacheKey ? shortHash(rawPromptCacheKey) : undefined;
+}
+
 function createFactoryDiagnosticAccumulator(): FactoryDiagnosticAccumulator {
   return {
     textHash: createHash("sha256"),
@@ -979,6 +984,7 @@ function recordAttempt(
     totalTokens: values.totalTokens,
     imageCount: values.imageCount,
     imageCostUsd: values.imageCostUsd,
+    promptCacheKeyHash: promptCacheKeyHashFromRequestBody(context.requestBody),
     promptCacheKeyUsed: values.promptCacheKeyUsed,
     ttftMs: values.latencyMs,
     error: values.error,

@@ -1,0 +1,99 @@
+{
+  "generatedAt": "2026-03-26T20:19:00-05:00",
+  "records": [
+    {
+      "host": "big.ussy.promethean.rest",
+      "resolvedHostname": "pve.ussy.cloud",
+      "sshTarget": "error@big.ussy.promethean.rest",
+      "runtime": {
+        "docker": { "available": true, "runningCount": 4 },
+        "podman": { "available": false, "runningCount": 0 },
+        "systemd": { "available": true, "dockerActive": true, "caddyActive": true },
+        "proxmox": { "available": true }
+      },
+      "filesystem": {
+        "root": { "size": "197G", "used": "105G", "avail": "85G", "usePercent": 56 },
+        "home": { "size": "197G", "used": "105G", "avail": "85G", "usePercent": 56 }
+      },
+      "memory": {
+        "total": "15Gi",
+        "used": "5.7Gi",
+        "free": "3.1Gi",
+        "buffCache": "7.2Gi",
+        "available": "9.9Gi",
+        "swap": "0B"
+      },
+      "deploymentTarget": {
+        "path": "/home/error/devel/services/proxx",
+        "writable": true,
+        "envPresent": true,
+        "keysPresent": false,
+        "modelsPresent": false,
+        "federationRuntimeComposePresent": false,
+        "federationSslComposePresent": false,
+        "productionSharedEdgeComposePresent": false,
+        "productionCaddyTemplatePresent": false
+      },
+      "currentRuntime": {
+        "activeComposePath": "/home/error/devel/services/cephalon-hive",
+        "containers": [
+          {
+            "name": "cephalon-hive-proxx-1",
+            "ports": ["5174/tcp->0.0.0.0:5174", "8789/tcp->0.0.0.0:8789"],
+            "status": "Up 28 hours"
+          },
+          {
+            "name": "cephalon-hive-proxx-db-1",
+            "ports": ["5432/tcp internal"],
+            "status": "Up 29 hours (healthy)"
+          },
+          {
+            "name": "openhax-eta-mu",
+            "ports": ["8790/tcp->0.0.0.0:8790"],
+            "status": "Up 2 days (healthy)"
+          },
+          {
+            "name": "openhax-eta-mu-staging",
+            "ports": ["8791/tcp->0.0.0.0:8791"],
+            "status": "Up 3 days (healthy)"
+          }
+        ]
+      },
+      "publicRouting": {
+        "hostProcessCaddy": true,
+        "http80RedirectsToHttps": true,
+        "https443Responds": true,
+        "configuredHosts": [
+          "eta.mu.promethean.rest",
+          "staging.eta-mu.promethean.rest",
+          "federation.big.ussy.promethean.rest",
+          "brethren.big.ussy.promethean.rest"
+        ],
+        "federatedProxxTargets": ["127.0.0.1:8789", "127.0.0.1:5174"]
+      },
+      "externalNetworks": {
+        "aiInfra": false,
+        "battlebussyProdDefault": false,
+        "voxxDefault": false
+      },
+      "notes": [
+        "SSH as error works; root public-key auth did not work.",
+        "Docker is healthy and the target path is writable.",
+        "The current ~/devel/services/proxx path is incomplete for the planned production deploy because keys.json and models.json are absent and the deploy/ overlays are absent before sync.",
+        "The planned production compose overlay expects external networks battlebussy-prod_default and voxx_default, but they do not currently exist on the host.",
+        "Ports 8789 and 5174 are already occupied by cephalon-hive-proxx-1, so a second proxx stack binding the same ports will conflict unless the current stack is replaced or stopped.",
+        "Ports 80 and 443 are already occupied by a host-level Caddy service, so the dockerized open-hax-openai-proxy-ssl service in deploy/docker-compose.federation.ssl.yml will conflict unless the host-level Caddy strategy is changed.",
+        "Host-level Caddy logs show NXDOMAIN retries for federation.big.ussy.promethean.rest and brethren.big.ussy.promethean.rest certificate issuance."
+      ],
+      "readyToReceiveDeployment": false,
+      "blockingIssues": [
+        "keys.json missing at deployment target path",
+        "models.json missing at deployment target path",
+        "battlebussy-prod_default network missing",
+        "voxx_default network missing",
+        "existing proxx runtime already binds 8789/5174",
+        "host-level Caddy already binds 80/443"
+      ]
+    }
+  ]
+}

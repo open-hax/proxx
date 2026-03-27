@@ -1,72 +1,116 @@
-# Π Snapshot: Current Proxx State
+# Π Snapshot: Proxx control-plane extraction + Big Ussy bundle
 
 - **Repo:** `open-hax/proxx`
 - **Branch:** `fix/ci-live-e2e-aggregate-conclusion`
-- **Pre-snapshot HEAD:** `24ee522`
-- **Previous tag:** `Π-2026-03-25`
-- **Intended Π tag:** `Π/2026-03-26/194400`
-- **Generated:** `2026-03-26T19:44:00.446886-05:00`
+- **Pre-snapshot HEAD:** `c5fba82`
+- **Previous tag:** `Π/2026-03-26/194400`
+- **Intended Π tag:** `Π/2026-03-27/043215`
+- **Generated:** `2026-03-27T04:32:15Z`
 
 ## What this snapshot preserves
 
-This Π handoff captures the full current working tree the user asked not to lose.
+This Π handoff captures the full current working tree the user asked to preserve.
 
 Included work categories:
-- Docker/compose/runtime changes
-- Notes/docs reshaping, including experimental-design and research findings
-- Fastify 5 + Swagger runtime/lockfile alignment
-- Chroma client deprecation repair
-- Analytics/dashboard weekly rollup fix
-- Tenant-scoped weekly analytics test fixture refresh
-- Current proxy/routing/quota/UI/test changes already present on the branch
+- control-plane/UI route extraction for credentials, sessions, settings, and federation
+- OAuth account identity derivation plus tenant/provider share-policy persistence
+- quota/request-log/request-usage plumbing and expanded proxy regression coverage
+- Big Ussy hub/spokes deployment compose assets, target envs, and deploy helpers
+- refactor/deprecation specs and fresh host inventory reports for the new deployment shape
 
 ## Dirty state before commit
 
 ### Modified
-- `docker-compose.federation-e2e.yml`
-- `docker-compose.federation-runtime.yml`
-- `docker-compose.glm5.yml`
-- `docker-compose.yml`
-- `pnpm-lock.yaml`
+- `scripts/deploy-remote.sh`
+- `specs/drafts/open-hax-openai-proxy-multitenancy-user-model.md`
+- `specs/drafts/tenant-federation-cloud-roadmap.md`
+- `specs/lint-complexity-reduction/ui-routes-flattening.spec.md`
 - `src/app.ts`
-- `src/lib/chroma-session-index.ts`
-- `src/lib/config.ts`
-- `src/lib/messages-compat.ts`
-- `src/lib/provider-strategy/fallback.ts`
+- `src/lib/credential-store.ts`
+- `src/lib/db/schema.ts`
+- `src/lib/db/sql-credential-store.ts`
+- `src/lib/db/sql-request-usage-store.ts`
+- `src/lib/openai-quota.ts`
 - `src/lib/provider-strategy/shared.ts`
-- `src/lib/proxy.ts`
-- `src/lib/quota-monitor.ts`
+- `src/lib/request-log-store.ts`
 - `src/lib/ui-routes.ts`
-- `src/tests/proxy-rate-limit.test.ts`
+- `src/routes/api/v1/index.ts`
+- `src/routes/credentials/index.ts`
+- `src/routes/events/index.ts`
+- `src/routes/federation/index.ts`
+- `src/routes/hosts/index.ts`
+- `src/routes/index.ts`
+- `src/routes/mcp/index.ts`
+- `src/routes/sessions/index.ts`
+- `src/routes/settings/index.ts`
+- `src/routes/ui/index.ts`
 - `src/tests/proxy.test.ts`
-- `web/src/pages/AnalyticsPage.tsx`
-
-### Deleted
-- `docs/notes/2026.03.25.06.29.19.md`
-- `docs/notes/2026.03.25.17.30.49.md`
-- `docs/notes/2026.03.25.17.32.59.md`
-- `docs/notes/2026.03.25.17.35.59.md`
-- `docs/notes/2026.03.25.17.50.14.md`
-- `docs/notes/2026.03.25.17.52.10.md`
+- `web/src/lib/api.ts`
+- `web/src/pages/CredentialsPage.tsx`
+- `web/src/styles.css`
 
 ### Untracked
-- `docs/notes/2026.03.25.21.22.13.md`
-- `docs/notes/experimental-design/2026.03.25.06.29.19.md`
-- `docs/notes/experimental-design/2026.03.25.17.30.49.md`
-- `docs/notes/experimental-design/2026.03.25.17.32.59.md`
-- `docs/notes/experimental-design/2026.03.25.17.35.59.md`
-- `docs/notes/experimental-design/2026.03.25.17.50.14.md`
-- `docs/notes/experimental-design/2026.03.25.17.52.10.md`
-- `docs/notes/research-findings/2026.03.26.requesty-gpt54-reasoning-summary-failure-modes.md`
+- `deploy/docker-compose.big-ussy.host-caddy.yml`
+- `deploy/docker-compose.big-ussy.hub-spokes.yml`
+- `deploy/targets/big-ussy-hub-spokes.env`
+- `deploy/targets/big-ussy-owned-relay.env`
+- `docs/reports/inventory/promethean-host-runtime-inventory-2026-03-26-big-ussy.json`
+- `docs/reports/inventory/promethean-host-runtime-inventory-2026-03-26-big-ussy.md`
+- `scripts/bootstrap-big-ussy-hub-spokes.sh`
+- `scripts/deploy-target.sh`
+- `specs/drafts/control-plane-api-contract-v1.md`
+- `specs/drafts/control-plane-mvc-transition-roadmap.md`
+- `specs/drafts/control-plane-slice-credentials-auth-v1.md`
+- `specs/drafts/control-plane-slice-federation-v1.md`
+- `specs/drafts/control-plane-slice-observability-v1.md`
+- `specs/drafts/control-plane-slice-settings-sessions-v1.md`
+- `specs/drafts/federated-tenant-provider-share-policies.md`
+- `specs/drafts/legacy-api-ui-deprecation.md`
+- `src/lib/account-identity.ts`
+- `src/lib/db/sql-tenant-provider-policy-store.ts`
+- `src/lib/tenant-provider-policy.ts`
+- `src/routes/credentials/account-management-ui.ts`
+- `src/routes/credentials/context.ts`
+- `src/routes/credentials/factory-browser-oauth-ui.ts`
+- `src/routes/credentials/factory-device-oauth-ui.ts`
+- `src/routes/credentials/get-credentials-ui.ts`
+- `src/routes/credentials/openai-browser-oauth-ui.ts`
+- `src/routes/credentials/openai-device-oauth-ui.ts`
+- `src/routes/credentials/openai-probe-ui.ts`
+- `src/routes/credentials/openai-quota-ui.ts`
+- `src/routes/credentials/openai-refresh-ui.ts`
+- `src/routes/credentials/prefix.ts`
+- `src/routes/credentials/ui.ts`
+- `src/routes/federation/ui.ts`
+- `src/routes/sessions/context.ts`
+- `src/routes/sessions/prefix.ts`
+- `src/routes/sessions/ui.ts`
+- `src/routes/settings/delete-tenant-api-key-ui.ts`
+- `src/routes/settings/get-me-ui.ts`
+- `src/routes/settings/get-settings-ui.ts`
+- `src/routes/settings/get-tenant-api-keys-ui.ts`
+- `src/routes/settings/get-tenants-ui.ts`
+- `src/routes/settings/post-settings-ui.ts`
+- `src/routes/settings/post-tenant-api-keys-ui.ts`
+- `src/routes/settings/post-tenant-select-ui.ts`
+- `src/routes/settings/prefix.ts`
+- `src/routes/settings/ui.ts`
+- `src/routes/shared/ui-auth.ts`
+- `src/routes/types.ts`
+- `src/tests/account-identity.test.ts`
+- `src/tests/sql-tenant-provider-policy-store.test.ts`
+- `src/tests/tenant-provider-policy-routes.test.ts`
+- `src/tests/tenant-provider-policy.test.ts`
 
 ## Verification
 
-- Secret scan: quick diff-pattern scan found no obvious private-key/API-token literals
-- Build: `pnpm run build` ✅
-- Main proxy suite: `timeout 45s node --test --test-concurrency=1 dist/tests/proxy.test.js` ✅ (`131/131`)
-- Federation bridge relay: `node --test --test-concurrency=1 dist/tests/federation-bridge-relay.test.js` ✅ (`4/4`)
-- Federation bridge autostart: `node --test --test-concurrency=1 dist/tests/federation-bridge-autostart.test.js` ✅ (`3/3`)
+- Secret scan: added-line scan found only dummy fixture placeholders (`viv-secret-a`) in tests
+- Typecheck: `pnpm run typecheck` ✅
+- Test suite: `pnpm test` ✅ (`419/419`)
+- Web build: `pnpm run web:build` ✅
+- Deploy compose validation: hub/spokes + owned-relay compose configs validated with target env files ✅
+- Deploy script syntax: `bash -n scripts/deploy-target.sh scripts/bootstrap-big-ussy-hub-spokes.sh scripts/deploy-remote.sh` ✅
 
 ## Operator note
 
-This snapshot is intended as a full preservation handoff of the current proxx branch state before anything else can be lost.
+This snapshot is intended as the clean, pushable Proxx handoff before the workspace superproject advances its submodule pointer.

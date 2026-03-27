@@ -30,6 +30,7 @@ interface RequestUsageRow {
   readonly cached_prompt_tokens: number | string | null;
   readonly image_count: number | string | null;
   readonly image_cost_usd: number | string | null;
+  readonly prompt_cache_key_hash: string | null;
   readonly prompt_cache_key_used: boolean | null;
   readonly cache_hit: boolean | null;
   readonly ttft_ms: number | string | null;
@@ -153,6 +154,7 @@ function toEntry(row: RequestUsageRow): RequestLogEntry {
     cachedPromptTokens: asOptionalNumber(row.cached_prompt_tokens),
     imageCount: asOptionalNumber(row.image_count),
     imageCostUsd: asOptionalNumber(row.image_cost_usd),
+    promptCacheKeyHash: asOptionalString(row.prompt_cache_key_hash),
     promptCacheKeyUsed: asOptionalBoolean(row.prompt_cache_key_used),
     cacheHit: asOptionalBoolean(row.cache_hit),
     ttftMs: asOptionalNumber(row.ttft_ms),
@@ -191,6 +193,7 @@ const ENTRY_COLUMNS = [
   "cached_prompt_tokens",
   "image_count",
   "image_cost_usd",
+  "prompt_cache_key_hash",
   "prompt_cache_key_used",
   "cache_hit",
   "ttft_ms",
@@ -248,6 +251,7 @@ export class SqlRequestUsageStore implements RequestLogMirror {
         cached_prompt_tokens BIGINT,
         image_count BIGINT,
         image_cost_usd DOUBLE PRECISION,
+        prompt_cache_key_hash TEXT,
         prompt_cache_key_used BOOLEAN NOT NULL DEFAULT FALSE,
         cache_hit BOOLEAN NOT NULL DEFAULT FALSE,
         ttft_ms BIGINT,
@@ -271,7 +275,9 @@ export class SqlRequestUsageStore implements RequestLogMirror {
     await this.sql.unsafe("CREATE INDEX IF NOT EXISTS idx_request_usage_entries_key_ts ON request_usage_entries(key_id, timestamp_ms DESC, id DESC);");
     await this.sql.unsafe("CREATE INDEX IF NOT EXISTS idx_request_usage_entries_provider_ts ON request_usage_entries(provider_id, timestamp_ms DESC, id DESC);");
     await this.sql.unsafe("CREATE INDEX IF NOT EXISTS idx_request_usage_entries_provider_model_ts ON request_usage_entries(provider_id, model, timestamp_ms DESC, id DESC);");
+    await this.sql.unsafe("ALTER TABLE request_usage_entries ADD COLUMN IF NOT EXISTS prompt_cache_key_hash TEXT;");
     await this.sql.unsafe("ALTER TABLE request_usage_entries ADD COLUMN IF NOT EXISTS end_to_end_tps DOUBLE PRECISION;");
+    await this.sql.unsafe("CREATE INDEX IF NOT EXISTS idx_request_usage_entries_provider_prompt_cache_hash_ts ON request_usage_entries(provider_id, prompt_cache_key_hash, timestamp_ms DESC, id DESC);");
   }
 
   public async upsertEntry(entry: RequestLogEntry): Promise<void> {
@@ -298,6 +304,7 @@ export class SqlRequestUsageStore implements RequestLogMirror {
         cached_prompt_tokens,
         image_count,
         image_cost_usd,
+        prompt_cache_key_hash,
         prompt_cache_key_used,
         cache_hit,
         ttft_ms,
@@ -333,6 +340,7 @@ export class SqlRequestUsageStore implements RequestLogMirror {
         ${entry.cachedPromptTokens ?? null},
         ${entry.imageCount ?? null},
         ${entry.imageCostUsd ?? null},
+        ${entry.promptCacheKeyHash ?? null},
         ${entry.promptCacheKeyUsed === true},
         ${entry.cacheHit === true},
         ${entry.ttftMs ?? null},
@@ -368,6 +376,7 @@ export class SqlRequestUsageStore implements RequestLogMirror {
         cached_prompt_tokens = EXCLUDED.cached_prompt_tokens,
         image_count = EXCLUDED.image_count,
         image_cost_usd = EXCLUDED.image_cost_usd,
+        prompt_cache_key_hash = EXCLUDED.prompt_cache_key_hash,
         prompt_cache_key_used = EXCLUDED.prompt_cache_key_used,
         cache_hit = EXCLUDED.cache_hit,
         ttft_ms = EXCLUDED.ttft_ms,

@@ -1,0 +1,5 @@
+services:
+  federation-nginx:
+    ports:
+      - "127.0.0.1:${BIG_USSY_API_PORT:-8789}:80"
+      - "127.0.0.1:${BIG_USSY_WEB_PORT:-5174}:80"

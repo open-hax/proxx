@@ -55,6 +55,7 @@ export interface RequestLogEntry {
   readonly cachedPromptTokens?: number;
   readonly imageCount?: number;
   readonly imageCostUsd?: number;
+  readonly promptCacheKeyHash?: string;
   readonly promptCacheKeyUsed?: boolean;
   readonly cacheHit?: boolean;
   readonly ttftMs?: number;
@@ -100,6 +101,7 @@ export interface RequestLogRecordInput {
   readonly cachedPromptTokens?: number;
   readonly imageCount?: number;
   readonly imageCostUsd?: number;
+  readonly promptCacheKeyHash?: string;
   readonly promptCacheKeyUsed?: boolean;
   readonly cacheHit?: boolean;
   readonly ttftMs?: number;
@@ -607,6 +609,7 @@ function hydrateEntry(raw: unknown): RequestLogEntry | null {
     cachedPromptTokens: sanitizeOptionalCount(asNumber(raw.cachedPromptTokens)),
     imageCount: sanitizeOptionalCount(asNumber(raw.imageCount)),
     imageCostUsd: sanitizeOptionalCost(asNumber(raw.imageCostUsd)),
+    promptCacheKeyHash: sanitizeOptionalShortString(raw.promptCacheKeyHash, 80),
     promptCacheKeyUsed: raw.promptCacheKeyUsed === true,
     cacheHit: raw.cacheHit === true,
     ttftMs: sanitizeOptionalCount(asNumber(raw.ttftMs)),
@@ -970,6 +973,7 @@ export class RequestLogStore {
       cachedPromptTokens: sanitizeOptionalCount(input.cachedPromptTokens),
       imageCount: sanitizeOptionalCount(input.imageCount),
       imageCostUsd: sanitizeOptionalCost(input.imageCostUsd),
+      promptCacheKeyHash: sanitizeOptionalShortString(input.promptCacheKeyHash, 80),
       promptCacheKeyUsed: input.promptCacheKeyUsed === true,
       cacheHit: input.cacheHit === true,
       ttftMs: sanitizeOptionalCount(input.ttftMs),
@@ -1014,6 +1018,7 @@ export class RequestLogStore {
       readonly cachedPromptTokens?: number;
       readonly imageCount?: number;
       readonly imageCostUsd?: number;
+      readonly promptCacheKeyHash?: string;
       readonly promptCacheKeyUsed?: boolean;
       readonly cacheHit?: boolean;
       readonly ttftMs?: number;
@@ -1051,6 +1056,7 @@ export class RequestLogStore {
       cachedPromptTokens: sanitizeOptionalCount(patch.cachedPromptTokens) ?? current.cachedPromptTokens,
       imageCount: sanitizeOptionalCount(patch.imageCount) ?? current.imageCount,
       imageCostUsd: sanitizeOptionalCost(patch.imageCostUsd) ?? current.imageCostUsd,
+      promptCacheKeyHash: sanitizeOptionalShortString(patch.promptCacheKeyHash, 80) ?? current.promptCacheKeyHash,
       promptCacheKeyUsed: patch.promptCacheKeyUsed ?? current.promptCacheKeyUsed,
       cacheHit: patch.cacheHit ?? current.cacheHit,
       ttftMs: sanitizeOptionalCount(patch.ttftMs) ?? current.ttftMs,

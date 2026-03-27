@@ -5,8 +5,9 @@ import type { Duplex } from "node:stream";
 
 import type { FastifyInstance } from "fastify";
 
+import type { UiRouteDependencies } from "../routes/types.js";
 import type { ProxyConfig } from "./config.js";
-import { CredentialStore, type CredentialStoreLike } from "./credential-store.js";
+import type { CredentialStoreLike } from "./credential-store.js";
 import {
   collectLocalHostDashboardSnapshot,
   fetchRemoteHostDashboardSnapshot,
@@ -16,39 +17,29 @@ import {
 } from "./host-dashboard.js";
 import { resolveRequestAuth, type ResolvedRequestAuth } from "./request-auth.js";
 import type { KeyPool, KeyPoolAccountStatus } from "./key-pool.js";
-import { OpenAiOAuthManager } from "./openai-oauth.js";
-import { FactoryOAuthManager } from "./factory-oauth.js";
-import { fetchOpenAiQuotaSnapshots } from "./openai-quota.js";
 import { RequestLogStore, type RequestLogEntry } from "./request-log-store.js";
-import { ChromaSessionIndex } from "./chroma-session-index.js";
-import { SessionStore, type ChatRole } from "./session-store.js";
+import { registerCredentialUiRoutes } from "../routes/credentials/index.js";
+import { registerFederationUiRoutes } from "../routes/federation/index.js";
+import { createSessionUiRouteContext, registerSessionUiRoutes } from "../routes/sessions/index.js";
+import { registerSettingsUiRoutes } from "../routes/settings/index.js";
+import {
+  authCanManageFederation,
+  authCanViewTenant,
+  getResolvedAuth,
+  readCookieValue,
+} from "../routes/shared/ui-auth.js";
 import { getToolSeedForModel, loadMcpSeeds } from "./tool-mcp-seed.js";
 import type { ProxySettingsStore } from "./proxy-settings-store.js";
 import type { EventStore } from "./db/event-store.js";
 import type { SqlCredentialStore } from "./db/sql-credential-store.js";
 import { shouldWarmImportProjectedAccount, type SqlFederationStore } from "./db/sql-federation-store.js";
+import type { SqlTenantProviderPolicyStore } from "./db/sql-tenant-provider-policy-store.js";
 import type { SqlRequestUsageStore } from "./db/sql-request-usage-store.js";
 import type { SqlAuthPersistence } from "./auth/sql-persistence.js";
 import { DEFAULT_TENANT_ID, normalizeTenantId } from "./tenant-api-key.js";
 import { createFederationBridgeRelay, type FederationBridgeRelay } from "./federation/bridge-relay.js";
 
-export interface UiRouteDependencies {
-  readonly config: ProxyConfig;
-  readonly keyPool: KeyPool;
-  readonly requestLogStore: RequestLogStore;
-  readonly credentialStore: CredentialStoreLike;
-  readonly sqlCredentialStore?: SqlCredentialStore;
-  readonly sqlFederationStore?: SqlFederationStore;
-  readonly sqlRequestUsageStore?: SqlRequestUsageStore;
-  readonly authPersistence?: SqlAuthPersistence;
-  readonly proxySettingsStore: ProxySettingsStore;
-  readonly eventStore?: EventStore;
-  readonly refreshOpenAiOauthAccounts?: (accountId?: string) => Promise<{
-    readonly totalAccounts: number;
-    readonly refreshedCount: number;
-    readonly failedCount: number;
-  }>;
-}
+export type { UiRouteDependencies } from "../routes/types.js";
 
 interface UsageAccountSummary {
   readonly accountId: string;
@@ -232,143 +223,6 @@ async function resolveUiAssetPath(assetPath: string): Promise<string | undefined
   return firstExistingPath(candidates);
 }
 
-function parseBoolean(value: unknown): boolean {
-  if (typeof value === "boolean") {
-    return value;
-  }
-
-  if (typeof value !== "string") {
-    return false;
-  }
-
-  const normalized = value.trim().toLowerCase();
-  return normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on";
-}
-
-function parseOptionalRequestsPerMinute(value: unknown): number | null | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
-
-  if (value === null) {
-    return null;
-  }
-
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return value > 0 ? Math.floor(value) : null;
-  }
-
-  if (typeof value === "string") {
-    const normalized = value.trim().toLowerCase();
-    if (normalized.length === 0 || normalized === "null" || normalized === "none" || normalized === "off") {
-      return null;
-    }
-
-    const parsed = Number.parseInt(normalized, 10);
-    if (Number.isFinite(parsed) && parsed > 0) {
-      return parsed;
-    }
-  }
-
-  return undefined;
-}
-
-function parseOptionalProviderIds(value: unknown): readonly string[] | null | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
-
-  if (value === null) {
-    return null;
-  }
-
-  if (!Array.isArray(value)) {
-    return undefined;
-  }
-
-  const normalized = [...new Set(
-    value
-      .filter((entry): entry is string => typeof entry === "string")
-      .map((entry) => entry.trim().toLowerCase())
-      .filter((entry) => entry.length > 0)
-  )];
-
-  return normalized.length > 0 ? normalized : null;
-}
-
-export function getResolvedAuth(request: { readonly openHaxAuth?: unknown }): ResolvedRequestAuth | undefined {
-  const auth = request.openHaxAuth;
-  return typeof auth === "object" && auth !== null ? auth as ResolvedRequestAuth : undefined;
-}
-
-function readCookieValue(cookieHeader: string | undefined, name: string): string | undefined {
-  if (!cookieHeader) {
-    return undefined;
-  }
-
-  for (const part of cookieHeader.split(";")) {
-    const trimmed = part.trim();
-    if (!trimmed.startsWith(`${name}=`)) {
-      continue;
-    }
-
-    const rawValue = trimmed.slice(name.length + 1);
-    try {
-      return decodeURIComponent(rawValue);
-    } catch {
-      return rawValue;
-    }
-  }
-
-  return undefined;
-}
-
-function toVisibleTenants(auth: ResolvedRequestAuth, fallbackTenants: readonly { id: string; name: string; status: string }[] = []): readonly { id: string; name: string; status: string }[] {
-  if (auth.kind === "legacy_admin") {
-    return fallbackTenants;
-  }
-
-  return (auth.memberships ?? []).map((membership) => ({
-    id: membership.tenantId,
-    name: membership.tenantName ?? membership.tenantId,
-    status: membership.tenantStatus ?? "active",
-  }));
-}
-
-function getMembershipForTenant(auth: ResolvedRequestAuth | undefined, tenantId: string) {
-  if (!auth) {
-    return undefined;
-  }
-
-  const normalizedTenantId = normalizeTenantId(tenantId);
-  return auth.memberships?.find((membership) => membership.tenantId === normalizedTenantId);
-}
-
-function authCanViewTenant(auth: ResolvedRequestAuth | undefined, tenantId: string): boolean {
-  if (!auth) {
-    return false;
-  }
-
-  if (auth.kind === "legacy_admin") {
-    return true;
-  }
-
-  return Boolean(getMembershipForTenant(auth, tenantId) ?? (auth.tenantId === normalizeTenantId(tenantId)));
-}
-
-function authCanManageTenantKeys(auth: ResolvedRequestAuth | undefined, tenantId: string): boolean {
-  if (!auth) {
-    return false;
-  }
-
-  if (auth.kind === "legacy_admin") {
-    return true;
-  }
-
-  const membership = getMembershipForTenant(auth, tenantId);
-  return membership?.role === "owner" || membership?.role === "admin";
-}
-
 function authCanAccessHostDashboard(auth: ResolvedRequestAuth | undefined): boolean {
   if (!auth) {
     return false;
@@ -383,18 +237,6 @@ function authCanAccessHostDashboard(auth: ResolvedRequestAuth | undefined): bool
   }
 
   return false;
-}
-
-function authCanManageFederation(auth: ResolvedRequestAuth | undefined): boolean {
-  if (!auth) {
-    return false;
-  }
-
-  if (auth.kind === "legacy_admin") {
-    return true;
-  }
-
-  return auth.kind === "ui_session" && (auth.role === "owner" || auth.role === "admin");
 }
 
 type FederationKnownAccountSummary = {
@@ -642,6 +484,7 @@ function sanitizeFederationUsageEntry(candidate: unknown): RequestLogEntry | und
     cachedPromptTokens: typeof row.cachedPromptTokens === "number" && Number.isFinite(row.cachedPromptTokens) ? row.cachedPromptTokens : undefined,
     imageCount: typeof row.imageCount === "number" && Number.isFinite(row.imageCount) ? row.imageCount : undefined,
     imageCostUsd: typeof row.imageCostUsd === "number" && Number.isFinite(row.imageCostUsd) ? row.imageCostUsd : undefined,
+    promptCacheKeyHash: typeof row.promptCacheKeyHash === "string" ? row.promptCacheKeyHash : undefined,
     promptCacheKeyUsed: row.promptCacheKeyUsed === true,
     cacheHit: row.cacheHit === true,
     ttftMs: typeof row.ttftMs === "number" && Number.isFinite(row.ttftMs) ? row.ttftMs : undefined,
@@ -693,14 +536,6 @@ async function findCredentialForFederationExport(
     subject: account.subject,
     planType: account.planType,
   };
-}
-
-function toChatRole(value: unknown): ChatRole {
-  if (value === "system" || value === "user" || value === "assistant" || value === "tool") {
-    return value;
-  }
-
-  return "user";
 }
 
 export function toSafeLimit(value: unknown, fallback: number, max: number): number {
@@ -2356,51 +2191,6 @@ export function escapeHtml(str: string): string {
     .replaceAll("'", "&#39;");
 }
 
-function htmlSuccess(message: string): string {
-  const safe = escapeHtml(message);
-  return `<!doctype html>
-<html>
-  <head>
-    <title>Open Hax OAuth Success</title>
-    <style>
-      body { font-family: "IBM Plex Sans", "Fira Sans", sans-serif; background: radial-gradient(circle at top, #12313b 0%, #0b161c 60%); color: #e9f7fb; margin: 0; min-height: 100vh; display: grid; place-items: center; }
-      .card { background: rgba(17, 33, 42, 0.86); border: 1px solid rgba(145, 212, 232, 0.35); padding: 28px; border-radius: 14px; width: min(560px, 90vw); box-shadow: 0 20px 48px rgba(0, 0, 0, 0.33); }
-      h1 { margin: 0 0 12px 0; font-size: 1.4rem; }
-      p { margin: 0; color: #bce2ec; }
-    </style>
-  </head>
-  <body>
-    <section class="card">
-      <h1>Authorization Successful</h1>
-      <p>${safe}</p>
-    </section>
-    <script>setTimeout(() => window.close(), 1500)</script>
-  </body>
-</html>`;
-}
-
-function htmlError(message: string): string {
-  const safe = escapeHtml(message);
-  return `<!doctype html>
-<html>
-  <head>
-    <title>Open Hax OAuth Failed</title>
-    <style>
-      body { font-family: "IBM Plex Sans", "Fira Sans", sans-serif; background: radial-gradient(circle at top, #381613 0%, #1a0f0e 60%); color: #ffe8e4; margin: 0; min-height: 100vh; display: grid; place-items: center; }
-      .card { background: rgba(42, 18, 16, 0.9); border: 1px solid rgba(255, 158, 143, 0.4); padding: 28px; border-radius: 14px; width: min(560px, 90vw); box-shadow: 0 20px 48px rgba(0, 0, 0, 0.33); }
-      h1 { margin: 0 0 12px 0; font-size: 1.4rem; }
-      p { margin: 0; color: #ffc6bb; }
-    </style>
-  </head>
-  <body>
-    <section class="card">
-      <h1>Authorization Failed</h1>
-      <p>${safe}</p>
-    </section>
-  </body>
-</html>`;
-}
-
 function inferBaseUrl(request: {
   readonly protocol: string;
   readonly headers: Record<string, unknown>;
@@ -2421,49 +2211,21 @@ function inferBaseUrl(request: {
 }
 
 export async function registerUiRoutes(app: FastifyInstance, deps: UiRouteDependencies): Promise<FederationBridgeRelay> {
-  const sessionStore = new SessionStore(resolve(process.cwd(), "data/sessions.json"));
-  const sessionIndex = new ChromaSessionIndex({
-    url: process.env.CHROMA_URL ?? "http://127.0.0.1:8000",
-    collectionName: process.env.CHROMA_COLLECTION ?? "open_hax_proxy_sessions",
+  const sessionContext = createSessionUiRouteContext({
     ollamaBaseUrl: deps.config.ollamaBaseUrl,
-    embeddingModel: process.env.CHROMA_EMBED_MODEL ?? "nomic-embed-text:latest",
+    warn: (error) => {
+      app.log.warn(
+        { error: error instanceof Error ? error.message : String(error) },
+        "failed to warm semantic session index from stored sessions",
+      );
+    },
   });
   const credentialStore = deps.credentialStore;
-  const oauthManager = new OpenAiOAuthManager({
-    allowHostRoutedCallbacks: deps.config.openaiOauthAllowHostRoutedCallbacks,
-    oauthScopes: deps.config.openaiOauthScopes,
-    clientId: deps.config.openaiOauthClientId,
-    issuer: deps.config.openaiOauthIssuer,
-    clientSecret: deps.config.openaiOauthClientSecret,
-  });
-  const factoryOAuthManager = new FactoryOAuthManager();
   const ecosystemsDir = await firstExistingPath([
     resolve(process.cwd(), "../../ecosystems"),
     resolve(process.cwd(), "../ecosystems"),
     resolve(process.cwd(), "ecosystems"),
   ]);
-
-  let initialSemanticIndexSync: Promise<void> | undefined;
-  const ensureInitialSemanticIndexSync = async (): Promise<void> => {
-    if (!initialSemanticIndexSync) {
-      initialSemanticIndexSync = (async () => {
-        try {
-          const existingDocuments = await sessionStore.collectSearchDocuments();
-          for (const message of existingDocuments) {
-            await sessionIndex.indexMessage(message);
-          }
-        } catch (error) {
-          app.log.warn(
-            { error: error instanceof Error ? error.message : String(error) },
-            "failed to warm semantic session index from stored sessions",
-          );
-        }
-      })();
-    }
-
-    await initialSemanticIndexSync;
-  };
-
   let mcpSeedCache: { readonly loadedAt: number; readonly seeds: Awaited<ReturnType<typeof loadMcpSeeds>> } | undefined;
   const hostDashboardTargets = loadHostDashboardTargetsFromEnv(process.env);
   const hostDashboardDockerSocketPath = process.env.HOST_DASHBOARD_DOCKER_SOCKET_PATH?.trim() || undefined;
@@ -2580,429 +2342,9 @@ export async function registerUiRoutes(app: FastifyInstance, deps: UiRouteDepend
     return seeds;
   };
 
-  app.get("/api/ui/settings", async (request, reply) => {
-    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
-    if (!auth) {
-      reply.code(401).send({ error: "unauthorized" });
-      return;
-    }
-
-    const settings = await deps.proxySettingsStore.getForTenant(auth.tenantId ?? DEFAULT_TENANT_ID);
-    reply.send(settings);
-  });
-
-  app.get("/api/ui/me", async (request, reply) => {
-    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
-    if (!auth) {
-      reply.code(401).send({ error: "unauthorized" });
-      return;
-    }
-
-    const tenants = deps.sqlCredentialStore
-      ? toVisibleTenants(
-        auth,
-        auth.kind === "legacy_admin"
-          ? await deps.sqlCredentialStore.listTenants()
-          : [],
-      )
-      : [];
-
-    reply.send({
-      auth,
-      activeTenantId: auth.tenantId ?? null,
-      memberships: auth.memberships ?? [],
-      tenants,
-    });
-  });
-
-  app.get("/api/ui/tenants", async (request, reply) => {
-    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
-    if (!auth) {
-      reply.code(401).send({ error: "unauthorized" });
-      return;
-    }
-
-    if (!deps.sqlCredentialStore) {
-      reply.code(501).send({ error: "tenant_store_not_supported" });
-      return;
-    }
-
-    const visibleTenants = toVisibleTenants(
-      auth,
-      auth.kind === "legacy_admin"
-        ? await deps.sqlCredentialStore.listTenants()
-        : [],
-    );
-
-    reply.send({ tenants: visibleTenants });
-  });
-
-  app.post<{ Params: { readonly tenantId: string } }>("/api/ui/tenants/:tenantId/select", async (request, reply) => {
-    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
-    if (!auth) {
-      reply.code(401).send({ error: "unauthorized" });
-      return;
-    }
-
-    if (!deps.authPersistence) {
-      reply.code(501).send({ error: "auth_persistence_not_supported" });
-      return;
-    }
-
-    if (auth.kind !== "ui_session") {
-      reply.code(400).send({ error: "ui_session_required" });
-      return;
-    }
-
-    const tenantId = normalizeTenantId(request.params.tenantId);
-    if (!authCanViewTenant(auth, tenantId)) {
-      reply.code(403).send({ error: "forbidden" });
-      return;
-    }
-
-    const accessToken = readCookieValue(request.headers.cookie, "proxy_auth");
-    if (!accessToken) {
-      reply.code(401).send({ error: "session_cookie_missing" });
-      return;
-    }
-
-    const storedAccessToken = await deps.authPersistence.getAccessToken(accessToken);
-    if (!storedAccessToken || storedAccessToken.subject !== auth.subject) {
-      reply.code(401).send({ error: "invalid_session" });
-      return;
-    }
-
-    const nextAccessExtra = {
-      ...(storedAccessToken.extra ?? {}),
-      activeTenantId: tenantId,
-    };
-    await deps.authPersistence.updateAccessTokenExtra(accessToken, nextAccessExtra);
-
-    const refreshToken = readCookieValue(request.headers.cookie, "proxy_refresh");
-    if (refreshToken) {
-      const storedRefreshToken = await deps.authPersistence.getRefreshToken(refreshToken);
-      if (storedRefreshToken && storedRefreshToken.subject === auth.subject) {
-        const nextRefreshExtra = {
-          ...(storedRefreshToken.extra ?? {}),
-          activeTenantId: tenantId,
-        };
-        await deps.authPersistence.updateRefreshTokenExtra(refreshToken, nextRefreshExtra);
-      }
-    }
-
-    reply.send({ ok: true, activeTenantId: tenantId });
-  });
-
-  app.get<{ Params: { readonly tenantId: string } }>("/api/ui/tenants/:tenantId/api-keys", async (request, reply) => {
-    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
-    if (!auth) {
-      reply.code(401).send({ error: "unauthorized" });
-      return;
-    }
-
-    if (!deps.sqlCredentialStore) {
-      reply.code(501).send({ error: "tenant_store_not_supported" });
-      return;
-    }
-
-    if (!authCanManageTenantKeys(auth, request.params.tenantId)) {
-      reply.code(403).send({ error: "forbidden" });
-      return;
-    }
-
-    const keys = await deps.sqlCredentialStore.listTenantApiKeys(request.params.tenantId);
-    reply.send({ tenantId: request.params.tenantId, keys });
-  });
-
-  app.post<{
-    Params: { readonly tenantId: string };
-    Body: { readonly label?: string; readonly scopes?: readonly string[] };
-  }>("/api/ui/tenants/:tenantId/api-keys", async (request, reply) => {
-    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
-    if (!auth) {
-      reply.code(401).send({ error: "unauthorized" });
-      return;
-    }
-
-    if (!deps.sqlCredentialStore) {
-      reply.code(501).send({ error: "tenant_store_not_supported" });
-      return;
-    }
-
-    if (!authCanManageTenantKeys(auth, request.params.tenantId)) {
-      reply.code(403).send({ error: "forbidden" });
-      return;
-    }
-
-    const label = typeof request.body?.label === "string" ? request.body.label.trim() : "";
-    if (label.length === 0) {
-      reply.code(400).send({ error: "label_required" });
-      return;
-    }
-
-    const scopes = Array.isArray(request.body?.scopes)
-      ? request.body.scopes.filter((scope): scope is string => typeof scope === "string")
-      : ["proxy:use"];
-
-    const created = await deps.sqlCredentialStore.createTenantApiKey(
-      request.params.tenantId,
-      label,
-      scopes,
-      deps.config.proxyTokenPepper,
-    );
-
-    reply.code(201).send(created);
-  });
-
-  app.delete<{ Params: { readonly tenantId: string; readonly keyId: string } }>("/api/ui/tenants/:tenantId/api-keys/:keyId", async (request, reply) => {
-    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
-    if (!auth) {
-      reply.code(401).send({ error: "unauthorized" });
-      return;
-    }
-
-    if (!deps.sqlCredentialStore) {
-      reply.code(501).send({ error: "tenant_store_not_supported" });
-      return;
-    }
-
-    if (!authCanManageTenantKeys(auth, request.params.tenantId)) {
-      reply.code(403).send({ error: "forbidden" });
-      return;
-    }
-
-    const revoked = await deps.sqlCredentialStore.revokeTenantApiKey(request.params.tenantId, request.params.keyId);
-    if (!revoked) {
-      reply.code(404).send({ error: "tenant_api_key_not_found" });
-      return;
-    }
-
-    reply.send({ ok: true, tenantId: request.params.tenantId, keyId: request.params.keyId });
-  });
-
-  app.post<{
-    Body: {
-      readonly fastMode?: unknown;
-      readonly requestsPerMinute?: unknown;
-      readonly allowedProviderIds?: unknown;
-      readonly disabledProviderIds?: unknown;
-    };
-  }>("/api/ui/settings", async (request, reply) => {
-    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
-    if (!auth) {
-      reply.code(401).send({ error: "unauthorized" });
-      return;
-    }
-
-    if (auth.kind === "tenant_api_key") {
-      reply.code(403).send({ error: "forbidden" });
-      return;
-    }
-
-    if (auth.kind === "ui_session" && auth.role !== "owner" && auth.role !== "admin") {
-      reply.code(403).send({ error: "forbidden" });
-      return;
-    }
-
-    const requestsPerMinute = parseOptionalRequestsPerMinute(request.body?.requestsPerMinute);
-    if (request.body?.requestsPerMinute !== undefined && requestsPerMinute === undefined) {
-      reply.code(400).send({ error: "invalid_requests_per_minute" });
-      return;
-    }
-
-    const allowedProviderIds = parseOptionalProviderIds(request.body?.allowedProviderIds);
-    if (request.body?.allowedProviderIds !== undefined && allowedProviderIds === undefined) {
-      reply.code(400).send({ error: "invalid_allowed_provider_ids" });
-      return;
-    }
-
-    const disabledProviderIds = parseOptionalProviderIds(request.body?.disabledProviderIds);
-    if (request.body?.disabledProviderIds !== undefined && disabledProviderIds === undefined) {
-      reply.code(400).send({ error: "invalid_disabled_provider_ids" });
-      return;
-    }
-
-    const tenantId = auth.tenantId ?? DEFAULT_TENANT_ID;
-    const nextSettings = await deps.proxySettingsStore.setForTenant({
-      fastMode: request.body?.fastMode === undefined ? undefined : parseBoolean(request.body?.fastMode),
-      requestsPerMinute,
-      allowedProviderIds,
-      disabledProviderIds,
-    }, tenantId);
-
-    app.log.info({ fastMode: nextSettings.fastMode, requestsPerMinute: nextSettings.requestsPerMinute, allowedProviderIds: nextSettings.allowedProviderIds, disabledProviderIds: nextSettings.disabledProviderIds, tenantId }, "updated proxy UI settings");
-    reply.send(nextSettings);
-  });
-
-  app.get("/api/ui/sessions", async (_request, reply) => {
-    const sessions = await sessionStore.listSessions();
-    reply.send({ sessions });
-  });
-
-  app.post<{ Body: { readonly title?: string } }>("/api/ui/sessions", async (request, reply) => {
-    const session = await sessionStore.createSession(request.body?.title);
-    reply.code(201).send({ session });
-  });
-
-  app.get<{ Params: { readonly sessionId: string } }>("/api/ui/sessions/:sessionId", async (request, reply) => {
-    const session = await sessionStore.getSession(request.params.sessionId);
-    if (!session) {
-      reply.code(404).send({ error: "session_not_found" });
-      return;
-    }
-
-    reply.send({ session });
-  });
-
-  app.get<{ Params: { readonly sessionId: string } }>("/api/ui/sessions/:sessionId/cache-key", async (request, reply) => {
-    const session = await sessionStore.getSession(request.params.sessionId);
-    if (!session) {
-      reply.code(404).send({ error: "session_not_found" });
-      return;
-    }
-
-    reply.send({ sessionId: session.id, promptCacheKey: session.promptCacheKey });
-  });
-
-  app.post<{
-    Params: { readonly sessionId: string };
-    Body: { readonly role?: ChatRole; readonly content?: string; readonly reasoningContent?: string; readonly model?: string };
-  }>("/api/ui/sessions/:sessionId/messages", async (request, reply) => {
-    const content = typeof request.body?.content === "string" ? request.body.content : "";
-    if (content.trim().length === 0) {
-      reply.code(400).send({ error: "message_content_required" });
-      return;
-    }
-
-    try {
-      const { session, message } = await sessionStore.appendMessage(request.params.sessionId, {
-        role: toChatRole(request.body?.role),
-        content,
-        reasoningContent: typeof request.body?.reasoningContent === "string" ? request.body.reasoningContent : undefined,
-        model: request.body?.model,
-      });
-
-      await sessionIndex.indexMessage({
-        sessionId: session.id,
-        sessionTitle: session.title,
-        messageId: message.id,
-        role: message.role,
-        content: message.content,
-        createdAt: message.createdAt,
-      });
-
-      reply.code(201).send({ message, sessionId: session.id });
-    } catch (error) {
-      reply.code(404).send({ error: "session_not_found", detail: error instanceof Error ? error.message : String(error) });
-    }
-  });
-
-  app.post<{
-    Params: { readonly sessionId: string };
-    Body: { readonly messageId?: string };
-  }>("/api/ui/sessions/:sessionId/fork", async (request, reply) => {
-    try {
-      const session = await sessionStore.forkSession(request.params.sessionId, request.body?.messageId);
-
-      for (const message of session.messages) {
-        await sessionIndex.indexMessage({
-          sessionId: session.id,
-          sessionTitle: session.title,
-          messageId: message.id,
-          role: message.role,
-          content: message.content,
-          createdAt: message.createdAt,
-        });
-      }
-
-      reply.code(201).send({ session });
-    } catch (error) {
-      reply.code(404).send({ error: "fork_failed", detail: error instanceof Error ? error.message : String(error) });
-    }
-  });
-
-  app.post<{
-    Body: { readonly query?: string; readonly limit?: number };
-  }>("/api/ui/sessions/search", async (request, reply) => {
-    await ensureInitialSemanticIndexSync();
-
-    const query = typeof request.body?.query === "string" ? request.body.query.trim() : "";
-    if (query.length === 0) {
-      reply.send({ source: "none", results: [] });
-      return;
-    }
-
-    const limit = toSafeLimit(request.body?.limit, 8, 50);
-    const semantic = await sessionIndex.search(query, limit);
-    if (semantic.length > 0) {
-      reply.send({ source: "chroma", results: semantic });
-      return;
-    }
-
-    const fallback = await sessionStore.searchLexical(query, limit);
-    reply.send({
-      source: "fallback",
-      results: fallback.map((result) => ({
-        ...result,
-        distance: 0,
-      })),
-    });
-  });
-
-  app.get<{ Querystring: { readonly reveal?: string } }>("/api/ui/credentials", async (request, reply) => {
-    const reveal = parseBoolean(request.query.reveal);
-    const providers = await credentialStore.listProviders(reveal);
-    const requestLogSummary = deps.requestLogStore.providerSummary();
-    const keyPoolStatuses = await deps.keyPool.getAllStatuses().catch(() => ({}));
-
-    reply.send({
-      providers,
-      keyPoolStatuses,
-      requestLogSummary,
-    });
-  });
-
-  app.get<{
-    Querystring: { readonly ownerSubject?: string };
-  }>("/api/ui/federation/peers", async (request, reply) => {
-    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
-    if (!authCanManageFederation(auth)) {
-      reply.code(auth ? 403 : 401).send({ error: auth ? "forbidden" : "unauthorized" });
-      return;
-    }
-
-    if (!deps.sqlFederationStore) {
-      reply.code(503).send({ error: "federation_store_not_supported" });
-      return;
-    }
-
-    const ownerSubject = typeof request.query.ownerSubject === "string" && request.query.ownerSubject.trim().length > 0
-      ? request.query.ownerSubject.trim()
-      : undefined;
-    const peers = await deps.sqlFederationStore.listPeers(ownerSubject);
-    reply.send({ peers });
-  });
-
-  app.get("/api/ui/federation/self", async (request, reply) => {
-    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
-    if (!authCanManageFederation(auth)) {
-      reply.code(auth ? 403 : 401).send({ error: auth ? "forbidden" : "unauthorized" });
-      return;
-    }
-
-    const peerCount = deps.sqlFederationStore
-      ? (await deps.sqlFederationStore.listPeers()).length
-      : 0;
-
-    reply.send({
-      nodeId: process.env.FEDERATION_SELF_NODE_ID ?? null,
-      groupId: process.env.FEDERATION_SELF_GROUP_ID ?? null,
-      clusterId: process.env.FEDERATION_SELF_CLUSTER_ID ?? null,
-      peerDid: process.env.FEDERATION_SELF_PEER_DID ?? null,
-      publicBaseUrl: process.env.FEDERATION_SELF_PUBLIC_BASE_URL ?? null,
-      peerCount,
-    });
-  });
+  await registerSettingsUiRoutes(app, deps);
+  await registerSessionUiRoutes(app, deps, sessionContext);
+  await registerFederationUiRoutes(app, deps);
 
   app.get("/api/ui/federation/bridge/ws", async (request, reply) => {
     const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
@@ -3053,68 +2395,6 @@ export async function registerUiRoutes(app: FastifyInstance, deps: UiRouteDepend
     }
 
     reply.send({ session });
-  });
-
-  app.post<{
-    Body: {
-      readonly id?: string;
-      readonly ownerCredential?: string;
-      readonly peerDid?: string;
-      readonly label?: string;
-      readonly baseUrl?: string;
-      readonly controlBaseUrl?: string;
-      readonly auth?: Record<string, unknown>;
-      readonly capabilities?: Record<string, unknown>;
-      readonly status?: string;
-    };
-  }>("/api/ui/federation/peers", async (request, reply) => {
-    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
-    if (!authCanManageFederation(auth)) {
-      reply.code(auth ? 403 : 401).send({ error: auth ? "forbidden" : "unauthorized" });
-      return;
-    }
-
-    if (!deps.sqlFederationStore) {
-      reply.code(503).send({ error: "federation_store_not_supported" });
-      return;
-    }
-
-    const ownerCredential = typeof request.body?.ownerCredential === "string" ? request.body.ownerCredential.trim() : "";
-    const label = typeof request.body?.label === "string" ? request.body.label.trim() : "";
-    const baseUrl = typeof request.body?.baseUrl === "string" ? request.body.baseUrl.trim() : "";
-
-    if (!ownerCredential || !label || !baseUrl) {
-      reply.code(400).send({ error: "owner_credential_label_and_base_url_required" });
-      return;
-    }
-
-    const peer = await deps.sqlFederationStore.upsertPeer({
-      id: request.body?.id,
-      ownerCredential,
-      peerDid: request.body?.peerDid,
-      label,
-      baseUrl,
-      controlBaseUrl: request.body?.controlBaseUrl,
-      auth: request.body?.auth,
-      capabilities: request.body?.capabilities,
-      status: request.body?.status,
-    });
-    await deps.sqlFederationStore.appendDiffEvent({
-      ownerSubject: peer.ownerSubject,
-      entityType: "peer",
-      entityKey: peer.id,
-      op: "upsert",
-      payload: {
-        peerDid: peer.peerDid,
-        label: peer.label,
-        baseUrl: peer.baseUrl,
-        controlBaseUrl: peer.controlBaseUrl,
-        authMode: peer.authMode,
-        status: peer.status,
-      },
-    });
-
-    reply.code(201).send({ peer });
   });
 
   app.get<{
@@ -3846,306 +3126,7 @@ export async function registerUiRoutes(app: FastifyInstance, deps: UiRouteDepend
     reply.send(analytics);
   });
 
-  app.get<{
-    Querystring: { readonly accountId?: string };
-  }>("/api/ui/credentials/openai/quota", async (request, reply) => {
-    const overview = await fetchOpenAiQuotaSnapshots(credentialStore as CredentialStore, {
-      providerId: deps.config.openaiProviderId,
-      accountId: typeof request.query.accountId === "string" && request.query.accountId.trim().length > 0
-        ? request.query.accountId.trim()
-        : undefined,
-      logger: app.log,
-    });
-
-    reply.send(overview);
-  });
-
-  app.post<{
-    Body: { readonly accountId?: string };
-  }>("/api/ui/credentials/openai/oauth/refresh", async (request, reply) => {
-    if (!deps.refreshOpenAiOauthAccounts) {
-      reply.code(501).send({ error: "oauth_refresh_not_supported" });
-      return;
-    }
-
-    const accountId = typeof request.body?.accountId === "string" && request.body.accountId.trim().length > 0
-      ? request.body.accountId.trim()
-      : undefined;
-
-    const result = await deps.refreshOpenAiOauthAccounts(accountId);
-    reply.send(result);
-  });
-
-  app.post<{
-    Body: { readonly providerId?: string; readonly accountId?: string; readonly credentialValue?: string; readonly apiKey?: string };
-  }>("/api/ui/credentials/api-key", async (request, reply) => {
-    const providerId = typeof request.body?.providerId === "string"
-      ? request.body.providerId
-      : deps.config.upstreamProviderId;
-    const credentialValueRaw = typeof request.body?.credentialValue === "string"
-      ? request.body.credentialValue
-      : request.body?.apiKey;
-    const apiKey = typeof credentialValueRaw === "string" ? credentialValueRaw.trim() : "";
-    if (apiKey.length === 0) {
-      reply.code(400).send({ error: "api_key_required" });
-      return;
-    }
-
-    const accountId =
-      typeof request.body?.accountId === "string" && request.body.accountId.trim().length > 0
-        ? request.body.accountId.trim()
-        : `${providerId}-${Date.now()}`;
-
-    await credentialStore.upsertApiKeyAccount(providerId, accountId, apiKey);
-    await deps.keyPool.warmup().catch(() => undefined);
-    reply.code(201).send({ ok: true, providerId, accountId });
-  });
-
-  app.delete<{
-    Body: { readonly providerId?: string; readonly accountId?: string };
-  }>("/api/ui/credentials/account", async (request, reply) => {
-    const providerId = typeof request.body?.providerId === "string" ? request.body.providerId.trim() : "";
-    const accountId = typeof request.body?.accountId === "string" ? request.body.accountId.trim() : "";
-
-    if (providerId.length === 0 || accountId.length === 0) {
-      reply.code(400).send({ error: "provider_id_and_account_id_required" });
-      return;
-    }
-
-    if (!credentialStore.removeAccount) {
-      reply.code(501).send({ error: "remove_account_not_supported" });
-      return;
-    }
-
-    const removed = await credentialStore.removeAccount(providerId, accountId);
-    if (!removed) {
-      reply.code(404).send({ error: "account_not_found" });
-      return;
-    }
-
-    await deps.keyPool.warmup().catch(() => undefined);
-    app.log.info({ providerId, accountId }, "removed credential account");
-    reply.send({ ok: true, providerId, accountId });
-  });
-
-  app.post<{
-    Body: { readonly redirectBaseUrl?: string };
-  }>("/api/ui/credentials/openai/oauth/browser/start", async (request, reply) => {
-    const requestBaseUrl = inferBaseUrl(request);
-    const redirectBaseUrl =
-      typeof request.body?.redirectBaseUrl === "string" && request.body.redirectBaseUrl.trim().length > 0
-        ? request.body.redirectBaseUrl.trim()
-        : requestBaseUrl;
-
-    if (!redirectBaseUrl) {
-      reply.code(400).send({ error: "redirect_base_url_required" });
-      return;
-    }
-
-    const payload = await oauthManager.startBrowserFlow(redirectBaseUrl);
-    reply.send(payload);
-  });
-
-  const handleOpenAiBrowserCallback = async (
-    request: { readonly query: { readonly state?: string; readonly code?: string; readonly error?: string; readonly error_description?: string } },
-    reply: { header: (name: string, value: string) => void; send: (value: unknown) => void },
-  ) => {
-    const error = request.query.error;
-    if (typeof error === "string" && error.length > 0) {
-      reply.header("content-type", "text/html");
-      reply.send(htmlError(request.query.error_description ?? error));
-      return;
-    }
-
-    const state = typeof request.query.state === "string" ? request.query.state : "";
-    const code = typeof request.query.code === "string" ? request.query.code : "";
-
-    if (state.length === 0 || code.length === 0) {
-      reply.header("content-type", "text/html");
-      reply.send(htmlError("Missing OAuth callback state or code."));
-      return;
-    }
-
-    try {
-      const tokens = await oauthManager.completeBrowserFlow(state, code);
-      await credentialStore.upsertOAuthAccount(
-        deps.config.openaiProviderId,
-        tokens.accountId,
-        tokens.accessToken,
-        tokens.refreshToken,
-        tokens.expiresAt,
-        tokens.chatgptAccountId,
-      );
-      await deps.keyPool.warmup().catch(() => undefined);
-      app.log.info({
-        providerId: deps.config.openaiProviderId,
-        accountId: tokens.accountId,
-        chatgptAccountId: tokens.chatgptAccountId,
-      }, "saved OpenAI OAuth account from browser flow");
-
-      reply.header("content-type", "text/html");
-      reply.send(htmlSuccess(`Saved OpenAI OAuth account ${tokens.chatgptAccountId ?? tokens.accountId}.`));
-    } catch (oauthError) {
-      reply.header("content-type", "text/html");
-      reply.send(htmlError(oauthError instanceof Error ? oauthError.message : String(oauthError)));
-    }
-  };
-
-  app.get<{
-    Querystring: { readonly state?: string; readonly code?: string; readonly error?: string; readonly error_description?: string };
-  }>("/api/ui/credentials/openai/oauth/browser/callback", handleOpenAiBrowserCallback);
-
-  app.get<{
-    Querystring: { readonly state?: string; readonly code?: string; readonly error?: string; readonly error_description?: string };
-  }>("/auth/callback", handleOpenAiBrowserCallback);
-
-  app.post("/api/ui/credentials/openai/oauth/device/start", async (_request, reply) => {
-    try {
-      const payload = await oauthManager.startDeviceFlow();
-      reply.send(payload);
-    } catch (error) {
-      reply.code(502).send({ error: "device_flow_start_failed", detail: error instanceof Error ? error.message : String(error) });
-    }
-  });
-
-  app.post<{
-    Body: { readonly deviceAuthId?: string; readonly userCode?: string };
-  }>("/api/ui/credentials/openai/oauth/device/poll", async (request, reply) => {
-    const deviceAuthId = typeof request.body?.deviceAuthId === "string" ? request.body.deviceAuthId : "";
-    const userCode = typeof request.body?.userCode === "string" ? request.body.userCode : "";
-
-    if (deviceAuthId.length === 0 || userCode.length === 0) {
-      reply.code(400).send({ error: "device_auth_id_and_user_code_required" });
-      return;
-    }
-
-    const result = await oauthManager.pollDeviceFlow(deviceAuthId, userCode);
-    if (result.state === "authorized") {
-      await credentialStore.upsertOAuthAccount(
-        deps.config.openaiProviderId,
-        result.tokens.accountId,
-        result.tokens.accessToken,
-        result.tokens.refreshToken,
-        result.tokens.expiresAt,
-        result.tokens.chatgptAccountId,
-      );
-      await deps.keyPool.warmup().catch(() => undefined);
-      app.log.info({
-        providerId: deps.config.openaiProviderId,
-        accountId: result.tokens.accountId,
-        chatgptAccountId: result.tokens.chatgptAccountId,
-      }, "saved OpenAI OAuth account from device flow");
-    }
-
-    reply.send(result);
-  });
-
-  // ─── Factory.ai OAuth Routes ────────────────────────────────────────────
-
-  app.post("/api/ui/credentials/factory/oauth/device/start", async (_request, reply) => {
-    try {
-      const payload = await factoryOAuthManager.startDeviceFlow();
-      reply.send(payload);
-    } catch (error) {
-      reply.code(502).send({ error: "device_flow_start_failed", detail: error instanceof Error ? error.message : String(error) });
-    }
-  });
-
-  app.post<{
-    Body: { readonly deviceAuthId?: string };
-  }>("/api/ui/credentials/factory/oauth/device/poll", async (request, reply) => {
-    const deviceAuthId = typeof request.body?.deviceAuthId === "string" ? request.body.deviceAuthId : "";
-
-    if (deviceAuthId.length === 0) {
-      reply.code(400).send({ error: "device_auth_id_required" });
-      return;
-    }
-
-    const result = await factoryOAuthManager.pollDeviceFlow(deviceAuthId);
-    if (result.state === "authorized") {
-      await credentialStore.upsertOAuthAccount(
-        "factory",
-        result.tokens.accountId,
-        result.tokens.accessToken,
-        result.tokens.refreshToken,
-        result.tokens.expiresAt,
-        undefined,
-        result.tokens.email,
-      );
-      await deps.keyPool.warmup().catch(() => undefined);
-      app.log.info({
-        providerId: "factory",
-        accountId: result.tokens.accountId,
-        email: result.tokens.email,
-      }, "saved Factory OAuth account from device flow");
-    }
-
-    reply.send(result);
-  });
-
-  app.post<{
-    Body: { readonly redirectBaseUrl?: string };
-  }>("/api/ui/credentials/factory/oauth/browser/start", async (request, reply) => {
-    const requestBaseUrl = inferBaseUrl(request);
-    const redirectBaseUrl =
-      typeof request.body?.redirectBaseUrl === "string" && request.body.redirectBaseUrl.trim().length > 0
-        ? request.body.redirectBaseUrl.trim()
-        : requestBaseUrl;
-
-    if (!redirectBaseUrl) {
-      reply.code(400).send({ error: "redirect_base_url_required" });
-      return;
-    }
-
-    const redirectUri = new URL("/auth/factory/callback", redirectBaseUrl).toString();
-    const payload = factoryOAuthManager.startBrowserFlow(redirectUri);
-    reply.send(payload);
-  });
-
-  app.get<{
-    Querystring: { readonly state?: string; readonly code?: string; readonly error?: string; readonly error_description?: string };
-  }>("/auth/factory/callback", async (request, reply) => {
-    const error = request.query.error;
-    if (typeof error === "string" && error.length > 0) {
-      reply.header("content-type", "text/html");
-      reply.send(htmlError(request.query.error_description ?? error));
-      return;
-    }
-
-    const state = typeof request.query.state === "string" ? request.query.state : "";
-    const code = typeof request.query.code === "string" ? request.query.code : "";
-
-    if (state.length === 0 || code.length === 0) {
-      reply.header("content-type", "text/html");
-      reply.send(htmlError("Missing OAuth callback state or code."));
-      return;
-    }
-
-    try {
-      const tokens = await factoryOAuthManager.completeBrowserFlow(state, code);
-      await credentialStore.upsertOAuthAccount(
-        "factory",
-        tokens.accountId,
-        tokens.accessToken,
-        tokens.refreshToken,
-        tokens.expiresAt,
-        undefined,
-        tokens.email,
-      );
-      await deps.keyPool.warmup().catch(() => undefined);
-      app.log.info({
-        providerId: "factory",
-        accountId: tokens.accountId,
-        email: tokens.email,
-      }, "saved Factory OAuth account from browser flow");
-
-      reply.header("content-type", "text/html");
-      reply.send(htmlSuccess(`Saved Factory.ai OAuth account${tokens.email ? ` (${tokens.email})` : ""}.`));
-    } catch (oauthError) {
-      reply.header("content-type", "text/html");
-      reply.send(htmlError(oauthError instanceof Error ? oauthError.message : String(oauthError)));
-    }
-  });
+  await registerCredentialUiRoutes(app, deps);
 
   app.get<{
     Querystring: {

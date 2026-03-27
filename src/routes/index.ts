@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import type { UiRouteDependencies } from "../lib/ui-routes.js";
+import type { UiRouteDependencies } from "./types.js";
 
 export interface RouteRegistrar {
   (app: FastifyInstance, deps: UiRouteDependencies): Promise<void>;

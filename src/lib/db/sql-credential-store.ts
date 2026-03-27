@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 
 import type { Sql } from "./index.js";
 import type { ProviderCredential, ProviderAuthType } from "../key-pool.js";
+import { accountDisplayName, deriveOAuthMetadataFromToken } from "../account-identity.js";
 import { normalizeEpochMilliseconds } from "../epoch.js";
 import { DEFAULT_TENANT_ID, buildTenantApiKeyPrefix, generateTenantApiKey, hashTenantApiKey, normalizeTenantId } from "../tenant-api-key.js";
 import type { CredentialAccountView, CredentialProviderView } from "../credential-store.js";
@@ -12,6 +13,8 @@ import {
   CREATE_TENANT_API_KEYS_TABLE,
   CREATE_TENANT_API_KEYS_TENANT_INDEX,
   CREATE_TENANT_API_KEYS_HASH_INDEX,
+  CREATE_TENANT_PROVIDER_POLICIES_TABLE,
+  CREATE_TENANT_PROVIDER_POLICIES_OWNER_INDEX,
   CREATE_PROVIDERS_TABLE,
   CREATE_ACCOUNTS_TABLE,
   CREATE_ACCOUNTS_INDEX,
@@ -308,6 +311,8 @@ export class SqlCredentialStore {
     await this.sql.unsafe(CREATE_TENANT_API_KEYS_TABLE);
     await this.sql.unsafe(CREATE_TENANT_API_KEYS_TENANT_INDEX);
     await this.sql.unsafe(CREATE_TENANT_API_KEYS_HASH_INDEX);
+    await this.sql.unsafe(CREATE_TENANT_PROVIDER_POLICIES_TABLE);
+    await this.sql.unsafe(CREATE_TENANT_PROVIDER_POLICIES_OWNER_INDEX);
     await this.sql.unsafe(CREATE_PROVIDERS_TABLE);
     await this.sql.unsafe(CREATE_ACCOUNTS_TABLE);
     await this.sql.unsafe(CREATE_ACCOUNTS_INDEX);
@@ -538,18 +543,27 @@ export class SqlCredentialStore {
 
     for (const row of accountRows) {
       const authType = authTypeByProvider.get(row.provider_id) ?? "api_key";
+      const derived = authType === "oauth_bearer"
+        ? deriveOAuthMetadataFromToken(row.token)
+        : {};
+      const chatgptAccountId = row.chatgpt_account_id ?? derived.chatgptAccountId;
+      const email = derived.email;
+      const subject = derived.subject;
+      const planType = row.plan_type ?? derived.planType;
       const accounts = accountsByProvider.get(row.provider_id) ?? [];
       accounts.push({
         id: row.id,
         authType,
-        displayName: row.chatgpt_account_id ?? row.id,
+        displayName: accountDisplayName({ id: row.id, email, chatgptAccountId }),
         secretPreview: maskSecret(row.token),
         secret: revealSecrets ? row.token : undefined,
         refreshTokenPreview: row.refresh_token ? maskSecret(row.refresh_token) : undefined,
         refreshToken: revealSecrets ? row.refresh_token ?? undefined : undefined,
         expiresAt: normalizeEpochMilliseconds(row.expires_at ?? undefined),
-        chatgptAccountId: row.chatgpt_account_id ?? undefined,
-        planType: row.plan_type ?? undefined,
+        chatgptAccountId,
+        email,
+        subject,
+        planType,
       });
       accountsByProvider.set(row.provider_id, accounts);
     }

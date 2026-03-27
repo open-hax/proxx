@@ -1,5 +1,7 @@
 import type { FastifyInstance } from "fastify";
-import type { UiRouteDependencies } from "../../lib/ui-routes.js";
+import type { UiRouteDependencies } from "../types.js";
+
+export { registerFederationUiRoutes } from "./ui.js";
 
 export async function registerFederationRoutes(
   _app: FastifyInstance,

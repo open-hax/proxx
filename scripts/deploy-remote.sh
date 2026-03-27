@@ -137,6 +137,7 @@ sync_repo_tree() {
   ssh "${SSH_OPTS[@]}" "$REMOTE" "mkdir -p '$DEPLOY_PATH' '$DEPLOY_PATH/data' '$DEPLOY_PATH/db-backups' '$DEPLOY_PATH/deploy'"
 
   rsync -az --delete \
+    --checksum \
     --exclude '/.git/' \
     --exclude '/node_modules/' \
     --exclude '/dist/' \
@@ -180,6 +181,9 @@ fi
 cd "$DEPLOY_PATH"
 docker network create ai-infra >/dev/null 2>&1 || true
 compose_args=()
+if [[ -f .env ]]; then
+  compose_args+=(--env-file .env)
+fi
 if [[ -n "$DEPLOY_COMPOSE_PROJECT_NAME" ]]; then
   compose_args+=(--project-name "$DEPLOY_COMPOSE_PROJECT_NAME")
 fi
@@ -215,6 +219,9 @@ if [[ "$DEPLOY_SOURCE_COMPOSE_FILES" == "__EMPTY_COMPOSE_FILES__" ]]; then
 fi
 cd "$SOURCE_PATH"
 compose_args=()
+if [[ -f .env ]]; then
+  compose_args+=(--env-file .env)
+fi
 if [[ -n "$DEPLOY_SOURCE_COMPOSE_PROJECT_NAME" ]]; then
   compose_args+=(--project-name "$DEPLOY_SOURCE_COMPOSE_PROJECT_NAME")
 fi
@@ -256,6 +263,9 @@ if [[ "$DEPLOY_COMPOSE_FILES" == "__EMPTY_COMPOSE_FILES__" ]]; then
 fi
 cd "$DEPLOY_PATH"
 compose_args=()
+if [[ -f .env ]]; then
+  compose_args+=(--env-file .env)
+fi
 if [[ -n "$DEPLOY_COMPOSE_PROJECT_NAME" ]]; then
   compose_args+=(--project-name "$DEPLOY_COMPOSE_PROJECT_NAME")
 fi
@@ -287,6 +297,9 @@ if [[ "$DEPLOY_COMPOSE_FILES" == "__EMPTY_COMPOSE_FILES__" ]]; then
 fi
 cd "$DEPLOY_PATH"
 compose_args=()
+if [[ -f .env ]]; then
+  compose_args+=(--env-file .env)
+fi
 if [[ -n "$DEPLOY_COMPOSE_PROJECT_NAME" ]]; then
   compose_args+=(--project-name "$DEPLOY_COMPOSE_PROJECT_NAME")
 fi
@@ -317,6 +330,9 @@ if [[ "$DEPLOY_COMPOSE_FILES" == "__EMPTY_COMPOSE_FILES__" ]]; then
 fi
 cd "$DEPLOY_PATH"
 compose_args=()
+if [[ -f .env ]]; then
+  compose_args+=(--env-file .env)
+fi
 if [[ -n "$DEPLOY_COMPOSE_PROJECT_NAME" ]]; then
   compose_args+=(--project-name "$DEPLOY_COMPOSE_PROJECT_NAME")
 fi
@@ -355,6 +371,9 @@ if [[ "$DEPLOY_COMPOSE_FILES" == "__EMPTY_COMPOSE_FILES__" ]]; then
 fi
 cd "$DEPLOY_PATH"
 compose_args=()
+if [[ -f .env ]]; then
+  compose_args+=(--env-file .env)
+fi
 if [[ -n "$DEPLOY_COMPOSE_PROJECT_NAME" ]]; then
   compose_args+=(--project-name "$DEPLOY_COMPOSE_PROJECT_NAME")
 fi

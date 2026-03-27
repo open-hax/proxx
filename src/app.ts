@@ -78,6 +78,7 @@ import { EventStore } from "./lib/db/event-store.js";
 import { createDefaultLabelers } from "./lib/db/event-labelers.js";
 import { SqlRequestUsageStore } from "./lib/db/sql-request-usage-store.js";
 import { SqlFederationStore, shouldWarmImportProjectedAccount, type FederationPeerRecord, type FederationProjectedAccountRecord } from "./lib/db/sql-federation-store.js";
+import { SqlTenantProviderPolicyStore } from "./lib/db/sql-tenant-provider-policy-store.js";
 import { SqlAuthPersistence } from "./lib/auth/sql-persistence.js";
 import { SqlGitHubAllowlist } from "./lib/auth/github-allowlist.js";
 import { seedFromJsonFile, seedFromJsonValue, seedFactoryAuthFromFiles, seedModelsFromFile } from "./lib/db/json-seeder.js";
@@ -89,6 +90,13 @@ import { DEFAULT_TENANT_ID } from "./lib/tenant-api-key.js";
 import { resolveRequestAuth, type ResolvedRequestAuth } from "./lib/request-auth.js";
 import { createEnvFederationBridgeAgent } from "./lib/federation/bridge-agent-autostart.js";
 import type { BridgeRelayResponseEvent, FederationBridgeRelay } from "./lib/federation/bridge-relay.js";
+import { isAtDid } from "./lib/federation/owner-credential.js";
+import {
+  shareModeAllowsRelay,
+  shareModeAllowsWarmImport,
+  tenantProviderPolicyAllowsUse,
+  type TenantProviderPolicyRecord,
+} from "./lib/tenant-provider-policy.js";
 
 interface ChatCompletionRequest {
   readonly model?: string;
@@ -390,6 +398,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
   let eventStore: EventStore | undefined;
   let sqlRequestUsageStore: SqlRequestUsageStore | undefined;
   let sqlFederationStore: SqlFederationStore | undefined;
+  let sqlTenantProviderPolicyStore: SqlTenantProviderPolicyStore | undefined;
 
   if (config.databaseUrl) {
     try {
@@ -422,6 +431,15 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       } catch (error) {
         sqlFederationStore = undefined;
         app.log.warn({ error: toErrorMessage(error) }, "failed to initialize federation store; continuing with federation disabled");
+      }
+
+      try {
+        sqlTenantProviderPolicyStore = new SqlTenantProviderPolicyStore(sql);
+        await sqlTenantProviderPolicyStore.init();
+        app.log.info("tenant provider policy store initialized");
+      } catch (error) {
+        sqlTenantProviderPolicyStore = undefined;
+        app.log.warn({ error: toErrorMessage(error) }, "failed to initialize tenant provider policy store; continuing with policy store disabled");
       }
 
       sqlAuthPersistence = new SqlAuthPersistence(sql);
@@ -942,6 +960,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
   async function noteFederatedProjectedAccountRouted(input: {
     readonly projectedAccount: FederationProjectedAccountRecord;
     readonly timeoutMs: number;
+    readonly policy?: TenantProviderPolicyRecord;
   }): Promise<{ readonly importedCredential: boolean; readonly projectedAccount: FederationProjectedAccountRecord }> {
     if (!sqlFederationStore) {
       return { importedCredential: false, projectedAccount: input.projectedAccount };
@@ -954,7 +973,9 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     }) ?? input.projectedAccount;
 
     let importedCredential = false;
-    if (shouldWarmImportProjectedAccount(projectedAccount.warmRequestCount)) {
+    const warmImportAllowed = input.policy ? shareModeAllowsWarmImport(input.policy.shareMode) : true;
+    const warmImportThreshold = input.policy?.warmImportThreshold;
+    if (warmImportAllowed && shouldWarmImportProjectedAccount(projectedAccount.warmRequestCount, warmImportThreshold)) {
       const importResult = await sqlFederationStore.withProjectedAccountImportLock({
         sourcePeerId: projectedAccount.sourcePeerId,
         providerId: projectedAccount.providerId,
@@ -1068,7 +1089,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
   async function executeFederatedRequestFallback(input: {
     readonly requestHeaders: Record<string, unknown>;
     readonly requestBody: Record<string, unknown>;
-    readonly requestAuth?: { readonly kind: "legacy_admin" | "tenant_api_key" | "ui_session" | "unauthenticated"; readonly subject?: string };
+    readonly requestAuth?: { readonly kind: "legacy_admin" | "tenant_api_key" | "ui_session" | "unauthenticated"; readonly subject?: string; readonly tenantId?: string };
     readonly providerRoutes: readonly ProviderRoute[];
     readonly upstreamPath: string;
     readonly reply: FastifyReply;
@@ -1097,6 +1118,35 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       return false;
     }
 
+    const requestedModel = normalizeRequestedModel(input.requestBody.model);
+    const subjectDid = typeof input.requestAuth?.subject === "string" && isAtDid(input.requestAuth.subject)
+      ? input.requestAuth.subject.trim()
+      : typeof input.requestAuth?.tenantId === "string" && isAtDid(input.requestAuth.tenantId)
+        ? input.requestAuth.tenantId.trim()
+        : undefined;
+
+    const resolveRelayPolicy = async (providerId: string): Promise<TenantProviderPolicyRecord | null | undefined> => {
+      if (!subjectDid || !sqlTenantProviderPolicyStore) {
+        return undefined;
+      }
+
+      const policy = await sqlTenantProviderPolicyStore.getPolicy(subjectDid, providerId);
+      if (!policy) {
+        return null;
+      }
+
+      if (!tenantProviderPolicyAllowsUse(policy, {
+        ownerSubject,
+        providerKind: "local_upstream",
+        requestedModel,
+        requiredShareMode: "relay",
+      })) {
+        return null;
+      }
+
+      return policy;
+    };
+
     const peers = await sqlFederationStore.listPeers(ownerSubject);
     const peersById = new Map(peers
       .filter((peer) => peer.status.trim().toLowerCase() === "active")
@@ -1107,18 +1157,33 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
         .flatMap((provider) => provider.accounts.map((account) => `${provider.id.trim().toLowerCase()}\0${account.id}`)),
     );
 
-    const projectedCandidates = (await sqlFederationStore.getProjectedAccountsForOwner(ownerSubject))
+    type FederatedProjectedCandidate = {
+      readonly peer: FederationPeerRecord;
+      readonly credential: string;
+      readonly projectedAccount: FederationProjectedAccountRecord;
+      readonly policy: TenantProviderPolicyRecord | undefined;
+    };
+
+    const projectedCandidates = (await Promise.all((await sqlFederationStore.getProjectedAccountsForOwner(ownerSubject))
       .filter((account) => account.availabilityState !== "imported")
       .filter((account) => localProviderIds.has(account.providerId.trim().toLowerCase()))
       .filter((account) => !localProviderAccountKeys.has(`${account.providerId.trim().toLowerCase()}\0${account.accountId}`))
-      .map((projectedAccount) => {
+      .map(async (projectedAccount) => {
         const peer = peersById.get(projectedAccount.sourcePeerId);
         const credential = peer ? extractPeerCredential(peer.auth) : undefined;
-        return peer && credential
-          ? { peer, credential, projectedAccount }
-          : undefined;
-      })
-      .filter((candidate): candidate is { readonly peer: FederationPeerRecord; readonly credential: string; readonly projectedAccount: FederationProjectedAccountRecord } => candidate !== undefined)
+        if (!peer || !credential) {
+          return undefined;
+        }
+
+        const policy = await resolveRelayPolicy(projectedAccount.providerId);
+        if (policy === null || (policy && !shareModeAllowsRelay(policy.shareMode))) {
+          return undefined;
+        }
+
+        const candidate: FederatedProjectedCandidate = { peer, credential, projectedAccount, policy: policy ?? undefined };
+        return candidate;
+      })))
+      .filter((candidate): candidate is FederatedProjectedCandidate => candidate !== undefined)
       .sort((left, right) => {
         const stateWeight = (value: FederationProjectedAccountRecord["availabilityState"]): number => value === "remote_route" ? 0 : 1;
         return stateWeight(left.projectedAccount.availabilityState) - stateWeight(right.projectedAccount.availabilityState)
@@ -1182,6 +1247,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       const routed = await noteFederatedProjectedAccountRouted({
         projectedAccount: candidate.projectedAccount,
         timeoutMs: input.timeoutMs,
+        policy: candidate.policy,
       });
 
       for (const [name, value] of remoteResponse.headers.entries()) {
@@ -1545,20 +1611,58 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     }
 
     const requestedModel = normalizeRequestedModel(input.requestBody.model);
+    const subjectDid = typeof input.requestAuth?.subject === "string" && isAtDid(input.requestAuth.subject)
+      ? input.requestAuth.subject.trim()
+      : typeof input.requestAuth?.tenantId === "string" && isAtDid(input.requestAuth.tenantId)
+        ? input.requestAuth.tenantId.trim()
+        : undefined;
+
+    const resolveBridgePolicy = async (providerId: string): Promise<TenantProviderPolicyRecord | null | undefined> => {
+      if (!subjectDid || !sqlTenantProviderPolicyStore) {
+        return undefined;
+      }
+
+      const policy = await sqlTenantProviderPolicyStore.getPolicy(subjectDid, providerId);
+      if (!policy) {
+        return null;
+      }
+
+      if (!tenantProviderPolicyAllowsUse(policy, {
+        ownerSubject,
+        providerKind: "peer_proxx",
+        requestedModel,
+        requiredShareMode: "relay",
+      })) {
+        return null;
+      }
+
+      return policy;
+    };
 
     // Filter connected sessions by advertised capability for the requested path
     const normalizedPath = input.upstreamPath.split("?")[0]!;
-    const connectedSessions = bridgeRelay.listSessions()
+    const connectedSessions = (await Promise.all(bridgeRelay.listSessions()
       .filter((session) => session.state === "connected")
       .filter((session) => session.ownerSubject === ownerSubject)
       .filter((session) => session.tenantId === tenantId)
-      .filter((session) => {
-        const hasCapability = session.capabilities.some((cap) => {
-          return bridgeCapabilitySupportsPath(cap, normalizedPath)
-            && bridgeCapabilitySupportsModel(cap, requestedModel);
-        });
-        return hasCapability;
-      });
+      .map(async (session) => {
+        for (const capability of session.capabilities) {
+          if (!bridgeCapabilitySupportsPath(capability, normalizedPath)
+            || !bridgeCapabilitySupportsModel(capability, requestedModel)) {
+            continue;
+          }
+
+          const policy = await resolveBridgePolicy(capability.providerId);
+          if (policy === null || (policy && !shareModeAllowsRelay(policy.shareMode))) {
+            continue;
+          }
+
+          return session;
+        }
+
+        return undefined;
+      })))
+      .filter((session): session is NonNullable<typeof session> => session !== undefined);
     if (connectedSessions.length === 0) {
       return false;
     }
@@ -1934,11 +2038,11 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     }
 
     const rawPath = (request.raw.url ?? request.url).split("?", 1)[0] ?? request.url;
-    const allowUnauthenticatedRoute = rawPath === "/" || rawPath === "/favicon.ico" || rawPath === "/health" || rawPath === "/api/ui/credentials/openai/oauth/browser/callback"
+    const allowUnauthenticatedRoute = rawPath === "/" || rawPath === "/favicon.ico" || rawPath === "/health" || rawPath === "/api/ui/credentials/openai/oauth/browser/callback" || rawPath === "/api/v1/credentials/openai/oauth/browser/callback"
       || rawPath === "/auth/callback" || rawPath === "/auth/factory/callback"
       || rawPath === config.githubOAuthCallbackPath || rawPath === "/auth/login"
       || rawPath === "/auth/refresh" || rawPath === "/auth/logout";
-    const allowUiSessionAuth = rawPath.startsWith("/api/ui/") || rawPath.startsWith("/auth/");
+    const allowUiSessionAuth = rawPath.startsWith("/api/ui/") || rawPath === "/api/v1" || rawPath.startsWith("/api/v1/") || rawPath.startsWith("/auth/");
 
     if (allowUnauthenticatedRoute) {
       return;
@@ -2124,6 +2228,14 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
   });
 
   app.options("/api/ui/*", async (_request, reply) => {
+    reply.code(204).send();
+  });
+
+  app.options("/api/v1", async (_request, reply) => {
+    reply.code(204).send();
+  });
+
+  app.options("/api/v1/*", async (_request, reply) => {
     reply.code(204).send();
   });
 
@@ -3280,6 +3392,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     credentialStore: runtimeCredentialStore,
     sqlCredentialStore,
     sqlFederationStore,
+    sqlTenantProviderPolicyStore,
     sqlRequestUsageStore,
     authPersistence: sqlAuthPersistence,
     proxySettingsStore,
@@ -3294,6 +3407,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     credentialStore: runtimeCredentialStore,
     sqlCredentialStore,
     sqlFederationStore,
+    sqlTenantProviderPolicyStore,
     sqlRequestUsageStore,
     authPersistence: sqlAuthPersistence,
     proxySettingsStore,

@@ -19,6 +19,7 @@ This is the promoted repo-local draft for the tenant/federation identity model. 
 - `specs/drafts/proxy-federation.md`
 - `specs/drafts/cloud-deployment.md`
 - `specs/drafts/tenant-federation-cloud-roadmap.md`
+- `specs/drafts/federated-tenant-provider-share-policies.md`
 
 ## Context (repo evidence)
 - Request auth gate is currently a single shared secret: `PROXY_AUTH_TOKEN` checked in `src/app.ts` via Bearer token or cookie (`open_hax_proxy_auth_token`).
