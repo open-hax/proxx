@@ -1,31 +1,25 @@
 ;; Π State Snapshot
-;; Generated: 2026-03-27T04:50:33Z
+;; Generated: 2026-03-27T04:56:20Z
 
 (
   :repo "open-hax/proxx"
   :branch "fix/ci-live-e2e-aggregate-conclusion"
-  :head-before "23e6ecdafee9a507a6c5af64880ea25caa8a8b4e"
-  :previous-tag "Π/2026-03-27/044308"
-  :intended-tag "Π/2026-03-27/045033"
+  :head-before "c36eb7f3aaf2000d77c248d5033df718d2f655b4"
+  :previous-tag "Π/2026-03-27/045033"
+  :intended-tag "Π/2026-03-27/045620"
   :remote "origin/fix/ci-live-e2e-aggregate-conclusion"
-  :status-digest "820d26ab55182c0c"
+  :status-digest "41f0a274085039d8"
 
   :work-description
-  "Follow-up repository handoff snapshot for the remaining federation-route extraction and prompt-cache audit test work left after the previous Proxx snapshots.
+  "Final follow-up repository handoff snapshot for the remaining proxy.test-only residue left after the earlier Proxx snapshots.
 
 Includes:
-- bridge route extraction wiring between src/lib/ui-routes.ts and src/routes/federation/ui.ts
-- federation route export/context updates
-- prompt-cache audit regression coverage in src/tests/proxy.test.ts
-- refreshed .ημ handoff artifacts recording the current known-red test state."
+- canonical observability surface assertions and migration summary expectations in src/tests/proxy.test.ts
+- refreshed .ημ handoff artifacts for the final test-only residue state."
 
   :dirty-state (
-    :modified ["src/lib/ui-routes.ts"
-               "src/routes/federation/index.ts"
-               "src/routes/federation/ui.ts"
-               "src/tests/proxy.test.ts"])
+    :modified ["src/tests/proxy.test.ts"])
 
   :verification (
     :typecheck "pass (pnpm run typecheck)"
-    :tests "fail (pnpm test => 419/420; groups prompt cache audit rows by hash and distinct accounts touched expected crossAccountHashCount 1 but got 0)"
-    :web-build "pass (pnpm run web:build)"))
+    :prior-tests "last observed test run on previous snapshot Π/2026-03-27/045033 failed 419/420 on prompt-cache audit grouping; current proxy.test-only residue preserved without rerunning the full suite"))

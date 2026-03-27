@@ -4917,13 +4917,15 @@ test("/api/v1 root labels planned migration targets separately from implemented 
       const payload: any = response.json();
       assert.equal(payload.migration.legacyPrefix, "/api/ui");
       assert.equal(payload.migration.targetPrefix, "/api/v1");
-      assert.equal(payload.summary.planned, 4);
-      assert.equal(payload.summary.implemented, 3);
+      assert.equal(payload.summary.planned, 3);
+      assert.equal(payload.summary.implemented, 5);
       assert.equal(payload.endpoints.sessions.path, "/api/v1/sessions");
       assert.equal(payload.endpoints.sessions.legacyPath, "/api/ui/sessions");
       assert.equal(payload.endpoints.sessions.status, "implemented");
       assert.equal(payload.endpoints.settings.status, "implemented");
       assert.equal(payload.endpoints.credentials.status, "implemented");
+      assert.equal(payload.endpoints.observability.status, "implemented");
+      assert.equal(payload.endpoints.mcp.status, "implemented");
       assert.equal(payload.documentation.path, "/api/v1/openapi.json");
       assert.equal(payload.documentation.status, "implemented");
     },
@@ -10312,6 +10314,111 @@ test("/api/v1/credentials summary route works on the canonical control-plane sur
   );
 });
 
+test("/api/v1/request-logs, /api/v1/dashboard/overview, and /api/v1/analytics/provider-model work on the canonical observability surface", async () => {
+  const now = Date.now();
+  await withProxyApp(
+    {
+      keys: ["key-a"],
+      requestLogsPayload: {
+        entries: [
+          {
+            id: "entry-1",
+            timestamp: now - 30_000,
+            providerId: "openai",
+            accountId: "acct-1",
+            authType: "oauth_bearer",
+            model: "gpt-5.4",
+            upstreamMode: "responses",
+            upstreamPath: "/v1/responses",
+            status: 200,
+            latencyMs: 120,
+            promptTokens: 70,
+            completionTokens: 30,
+            totalTokens: 100,
+            costUsd: 0.1,
+            energyJoules: 10,
+            waterEvaporatedMl: 0.005,
+          },
+        ],
+        hourlyBuckets: [],
+        dailyBuckets: [],
+        dailyModelBuckets: [],
+        dailyAccountBuckets: [],
+        accountAccumulators: [],
+      },
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: {
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({ ok: true })
+      })
+    },
+    async ({ app }) => {
+      const logsResponse = await app.inject({
+        method: "GET",
+        url: "/api/v1/request-logs?limit=1",
+      });
+      assert.equal(logsResponse.statusCode, 200);
+      const logsPayload: unknown = logsResponse.json();
+      assert.ok(isRecord(logsPayload));
+      assert.ok(Array.isArray(logsPayload.entries));
+      assert.ok(isRecord(logsPayload.entries[0]));
+      assert.equal(logsPayload.entries[0].providerId, "openai");
+
+      const overviewResponse = await app.inject({
+        method: "GET",
+        url: "/api/v1/dashboard/overview?window=daily",
+      });
+      assert.equal(overviewResponse.statusCode, 200);
+      const overviewPayload: unknown = overviewResponse.json();
+      assert.ok(isRecord(overviewPayload));
+      assert.ok(isRecord(overviewPayload.summary));
+      assert.equal(overviewPayload.summary.tokens24h, 100);
+      assert.equal(overviewPayload.summary.topProvider, "openai");
+
+      const analyticsResponse = await app.inject({
+        method: "GET",
+        url: "/api/v1/analytics/provider-model?window=daily",
+      });
+      assert.equal(analyticsResponse.statusCode, 200);
+      const analyticsPayload: unknown = analyticsResponse.json();
+      assert.ok(isRecord(analyticsPayload));
+      assert.ok(Array.isArray(analyticsPayload.models));
+      assert.ok(isRecord(analyticsPayload.models[0]));
+      assert.equal(analyticsPayload.models[0].model, "gpt-5.4");
+    }
+  );
+});
+
+test("/api/v1/tools returns seeded tools for the requested model", async () => {
+  await withProxyApp(
+    {
+      keys: ["key-a"],
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: {
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({ ok: true })
+      })
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "GET",
+        url: "/api/v1/tools?model=gpt-5.3-codex",
+      });
+
+      assert.equal(response.statusCode, 200);
+      const payload: unknown = response.json();
+      assert.ok(isRecord(payload));
+      assert.equal(payload.model, "gpt-5.3-codex");
+      assert.ok(Array.isArray(payload.tools));
+      assert.ok(payload.tools.length > 0);
+    },
+  );
+});
+
 test("federation self route stays wired after extraction from ui-routes monolith", async () => {
   const previous = {
     nodeId: process.env.FEDERATION_SELF_NODE_ID,
@@ -10414,6 +10521,36 @@ test("federation peer routes stay wired after extraction and report missing stor
       const createPayload: unknown = createResponse.json();
       assert.ok(isRecord(createPayload));
       assert.equal(createPayload.error, "federation_store_not_supported");
+    }
+  );
+});
+
+test("federation diff-events route stays wired after extraction and reports missing store cleanly", async () => {
+  await withProxyApp(
+    {
+      keys: ["key-a"],
+      proxyAuthToken: "ui-token",
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: {
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({ ok: true })
+      })
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "GET",
+        url: "/api/ui/federation/diff-events?ownerSubject=owner-1&afterSeq=5&limit=2",
+        headers: {
+          authorization: "Bearer ui-token"
+        }
+      });
+
+      assert.equal(response.statusCode, 503);
+      const payload: unknown = response.json();
+      assert.ok(isRecord(payload));
+      assert.equal(payload.error, "federation_store_not_supported");
     }
   );
 });

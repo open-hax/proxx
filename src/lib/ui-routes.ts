@@ -2347,32 +2347,6 @@ export async function registerUiRoutes(app: FastifyInstance, deps: UiRouteDepend
   await registerFederationUiRoutes(app, deps, { bridgeRelay });
 
   app.get<{
-    Querystring: { readonly ownerSubject?: string; readonly afterSeq?: string; readonly limit?: string };
-  }>("/api/ui/federation/diff-events", async (request, reply) => {
-    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
-    if (!authCanManageFederation(auth)) {
-      reply.code(auth ? 403 : 401).send({ error: auth ? "forbidden" : "unauthorized" });
-      return;
-    }
-
-    if (!deps.sqlFederationStore) {
-      reply.code(503).send({ error: "federation_store_not_supported" });
-      return;
-    }
-
-    const ownerSubject = typeof request.query.ownerSubject === "string" ? request.query.ownerSubject.trim() : "";
-    if (!ownerSubject) {
-      reply.code(400).send({ error: "owner_subject_required" });
-      return;
-    }
-
-    const afterSeq = typeof request.query.afterSeq === "string" ? Number.parseInt(request.query.afterSeq, 10) : undefined;
-    const limit = toSafeLimit(request.query.limit, 200, 500);
-    const events = await deps.sqlFederationStore.listDiffEvents({ ownerSubject, afterSeq, limit });
-    reply.send({ ownerSubject, events });
-  });
-
-  app.get<{
     Querystring: { readonly ownerSubject?: string };
   }>("/api/ui/federation/accounts", async (request, reply) => {
     const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
