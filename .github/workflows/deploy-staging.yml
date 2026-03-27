@@ -68,19 +68,20 @@ jobs:
           DEPLOY_CADDY_TEMPLATE: deploy/Caddyfile.federation.template
           DEPLOY_HEALTH_SERVICE: federation-nginx
           DEPLOY_RESTART_SERVICES: federation-proxx-a1,federation-proxx-a2,federation-nginx,open-hax-openai-proxy-ssl
-          DEPLOY_PUBLIC_HOST: ${{ vars.STAGING_PUBLIC_HOST || 'ussy3.promethean.rest' }}
+          DEPLOY_PUBLIC_HOST: ${{ vars.STAGING_PUBLIC_HOST || 'staging.proxx.ussy.promethean.rest' }}
           DEPLOY_ENABLE_TLS: 'true'
           DEPLOY_HEALTH_TIMEOUT_SECONDS: '240'
           DEPLOY_SYNC_RUNTIME_FROM_SOURCE: 'true'
           DEPLOY_SYNC_DB_FROM_SOURCE: 'true'
           DEPLOY_ENV_APPEND: |
             FEDERATION_CLUSTER_ID=staging
-            FEDERATION_PUBLIC_HOST_SUFFIX=${{ vars.STAGING_PUBLIC_HOST || 'ussy3.promethean.rest' }}
-            FEDERATION_DEFAULT_OWNER_SUBJECT=did:web:${{ vars.STAGING_PUBLIC_HOST || 'ussy3.promethean.rest' }}
+            FEDERATION_PUBLIC_HOST_SUFFIX=${{ vars.STAGING_PUBLIC_HOST || 'staging.proxx.ussy.promethean.rest' }}
+            FEDERATION_DEFAULT_OWNER_SUBJECT=did:web:${{ vars.STAGING_PUBLIC_HOST || 'staging.proxx.ussy.promethean.rest' }}
           DEPLOY_SOURCE_HOST: ${{ vars.STAGING_SOURCE_SSH_HOST || 'ussy.promethean.rest' }}
           DEPLOY_SOURCE_USER: ${{ vars.STAGING_SOURCE_SSH_USER || 'error' }}
           DEPLOY_SOURCE_PATH: ${{ vars.STAGING_SOURCE_DEPLOY_PATH || '~/devel/services/proxx' }}
           DEPLOY_SOURCE_COMPOSE_PROJECT_NAME: ${{ vars.STAGING_SOURCE_COMPOSE_PROJECT_NAME || 'open-hax-openai-proxy' }}
+          DEPLOY_SOURCE_COMPOSE_FILES: ${{ vars.STAGING_SOURCE_COMPOSE_FILES || 'docker-compose.federation-runtime.yml,deploy/docker-compose.federation.ssl.yml,deploy/docker-compose.production.shared-edge.yml' }}
           DEPLOY_ENV_FILE: ${{ secrets.STAGING_ENV_FILE }}
           DEPLOY_MODELS_JSON: ${{ secrets.STAGING_MODELS_JSON }}
       - name: staging deploy failure logs
@@ -133,26 +134,26 @@ jobs:
           done
           exit 1
         env:
-          DEV_PROXY_URL: ${{ vars.STAGING_BASE_URL || 'https://ussy3.promethean.rest' }}
+          DEV_PROXY_URL: ${{ vars.STAGING_BASE_URL || 'https://staging.proxx.ussy.promethean.rest' }}
           DEV_PROXY_AUTH_TOKEN: ${{ secrets.STAGING_PROXY_AUTH_TOKEN }}
       - run: pnpm install --frozen-lockfile
       - id: live-e2e-core
         continue-on-error: true
         run: ./scripts/e2e-test.sh
         env:
-          DEV_PROXY_URL: ${{ vars.STAGING_BASE_URL || 'https://ussy3.promethean.rest' }}
+          DEV_PROXY_URL: ${{ vars.STAGING_BASE_URL || 'https://staging.proxx.ussy.promethean.rest' }}
           DEV_PROXY_AUTH_TOKEN: ${{ secrets.STAGING_PROXY_AUTH_TOKEN }}
       - id: live-e2e-multitenancy
         continue-on-error: true
         run: ./scripts/e2e-multitenancy-smoke.sh
         env:
-          DEV_PROXY_URL: ${{ vars.STAGING_BASE_URL || 'https://ussy3.promethean.rest' }}
+          DEV_PROXY_URL: ${{ vars.STAGING_BASE_URL || 'https://staging.proxx.ussy.promethean.rest' }}
           DEV_PROXY_AUTH_TOKEN: ${{ secrets.STAGING_PROXY_AUTH_TOKEN }}
       - id: live-e2e-federation
         continue-on-error: true
         run: ./scripts/e2e-federation-audit.sh
         env:
-          FEDERATION_HOST_SUFFIX: ${{ vars.STAGING_PUBLIC_HOST || 'ussy3.promethean.rest' }}
+          FEDERATION_HOST_SUFFIX: ${{ vars.STAGING_PUBLIC_HOST || 'staging.proxx.ussy.promethean.rest' }}
           FEDERATION_AUTH_TOKEN: ${{ secrets.STAGING_PROXY_AUTH_TOKEN }}
           FEDERATION_SCHEME: https
           FEDERATION_RESOLVE_ADDRESS: ${{ vars.STAGING_VERIFY_RESOLVE_ADDRESS || vars.STAGING_SSH_HOST || '' }}

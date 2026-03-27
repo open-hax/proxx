@@ -5,8 +5,6 @@ export interface ApiV1RouteDependencies extends UiRouteDependencies {
   serverUrl?: string;
 }
 
-const API_V1_DEPRECIATION_MESSAGE = "This endpoint is deprecated. Use /api/v1/ equivalent instead.";
-
 export async function registerApiV1Routes(
   app: FastifyInstance,
   deps: ApiV1RouteDependencies
