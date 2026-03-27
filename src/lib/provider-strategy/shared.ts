@@ -996,6 +996,11 @@ function cachedPromptTokensFromUsage(usage: Record<string, unknown>): number | u
     return direct;
   }
 
+  const cacheReadInputTokens = asNumber(usage["cache_read_input_tokens"]);
+  if (cacheReadInputTokens !== undefined) {
+    return cacheReadInputTokens;
+  }
+
   const promptDetails = isRecord(usage["prompt_tokens_details"]) ? usage["prompt_tokens_details"] : null;
   const cachedFromPromptDetails = promptDetails ? asNumber(promptDetails["cached_tokens"]) : undefined;
   if (cachedFromPromptDetails !== undefined) {
@@ -1303,6 +1308,7 @@ function extractUsageFromOpenAiChatSse(streamText: string): UsageCounts {
 function extractUsageFromAnthropicSse(streamText: string): UsageCounts {
   let inputTokens: number | undefined;
   let outputTokens: number | undefined;
+  let cachedPromptTokens: number | undefined;
 
   const chunks = streamText.split("\n\n");
   for (const chunk of chunks) {
@@ -1319,6 +1325,7 @@ function extractUsageFromAnthropicSse(streamText: string): UsageCounts {
         const usage = message && isRecord(message["usage"]) ? message["usage"] : null;
         if (usage) {
           inputTokens = asNumber(usage["input_tokens"]) ?? inputTokens;
+          cachedPromptTokens = asNumber(usage["cache_read_input_tokens"]) ?? cachedPromptTokens;
         }
       }
 
@@ -1341,7 +1348,12 @@ function extractUsageFromAnthropicSse(streamText: string): UsageCounts {
   const completionTokens = outputTokens ?? 0;
   const totalTokens = (promptTokens ?? 0) + completionTokens;
 
-  return { promptTokens, completionTokens, totalTokens };
+  return {
+    promptTokens,
+    completionTokens,
+    totalTokens,
+    ...(cachedPromptTokens !== undefined ? { cachedPromptTokens } : {}),
+  };
 }
 
 function extractUsageFromResponsesSse(streamText: string, routedModel: string): UsageCounts {

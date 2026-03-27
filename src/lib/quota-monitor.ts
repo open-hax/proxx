@@ -18,11 +18,15 @@ export const DEFAULT_QUOTA_MONITOR_CONFIG: QuotaMonitorConfig = {
   quotaCriticalThreshold: 98,
 };
 
-interface QuotaStatusRecord {
+export interface QuotaStatusRecord {
   accountId: string;
   providerId: string;
   fiveHourUsedPercent: number | null;
   weeklyUsedPercent: number | null;
+  fiveHourResetsAt: string | null;
+  fiveHourResetAfterSeconds: number | null;
+  weeklyResetsAt: string | null;
+  weeklyResetAfterSeconds: number | null;
   isExhausted: boolean;
   fetchedAt: number;
 }
@@ -114,6 +118,10 @@ export class QuotaMonitor {
         providerId: this.config.providerId,
         fiveHourUsedPercent: status.fiveHourUsedPercent,
         weeklyUsedPercent: status.weeklyUsedPercent,
+        fiveHourResetsAt: account.fiveHour?.resetsAt ?? null,
+        fiveHourResetAfterSeconds: account.fiveHour?.resetAfterSeconds ?? null,
+        weeklyResetsAt: account.weekly?.resetsAt ?? null,
+        weeklyResetAfterSeconds: account.weekly?.resetAfterSeconds ?? null,
         isExhausted: status.isExhausted,
         fetchedAt: Date.now(),
       });
@@ -201,5 +209,35 @@ export class QuotaMonitor {
 
   public markAccountExhausted(accountId: string): void {
     this.knownExhaustedAccounts.add(accountId);
+  }
+
+  public getCooldownMs(accountId: string): number | undefined {
+    const status = this.lastQuotaStatus.get(accountId);
+    if (!status) {
+      return undefined;
+    }
+    if (status.fiveHourResetAfterSeconds !== null) {
+      return status.fiveHourResetAfterSeconds * 1000;
+    }
+    if (status.weeklyResetAfterSeconds !== null) {
+      return status.weeklyResetAfterSeconds * 1000;
+    }
+    if (status.fiveHourResetsAt) {
+      const resetTime = new Date(status.fiveHourResetsAt).getTime();
+      const now = Date.now();
+      const remaining = resetTime - now;
+      if (remaining > 0) {
+        return remaining;
+      }
+    }
+    if (status.weeklyResetsAt) {
+      const resetTime = new Date(status.weeklyResetsAt).getTime();
+      const now = Date.now();
+      const remaining = resetTime - now;
+      if (remaining > 0) {
+        return remaining;
+      }
+    }
+    return undefined;
   }
 }

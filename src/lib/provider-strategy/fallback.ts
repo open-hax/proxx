@@ -6,6 +6,7 @@ import type { ProviderCredential } from "../key-pool.js";
 import type { PolicyEngine } from "../policy/index.js";
 import type { PromptAffinityStore } from "../prompt-affinity-store.js";
 import type { RequestLogStore } from "../request-log-store.js";
+import type { QuotaMonitor } from "../quota-monitor.js";
 import { buildUpstreamHeadersForCredential, extractRateLimitCooldownMs, isRateLimitResponse } from "../proxy.js";
 import {
   responsesEventStreamToErrorPayload,
@@ -115,6 +116,7 @@ export async function executeProviderFallback(
   policy?: PolicyEngine,
   healthStore?: AccountHealthStore,
   eventStore?: EventStore,
+  quotaMonitor?: QuotaMonitor,
 ): Promise<ProviderFallbackExecutionResult> {
   const accumulator: FallbackAccumulator = {
     sawRateLimit: false,
@@ -492,8 +494,16 @@ export async function executeProviderFallback(
 
         if (isRateLimitResponse(upstreamResponse)) {
           accumulator.sawRateLimit = true;
-          // Extract cooldown from both header and body
-          const cooldownMs = await extractRateLimitCooldownMs(upstreamResponse);
+          let cooldownMs: number | undefined;
+          if (quotaMonitor) {
+            cooldownMs = quotaMonitor.getCooldownMs(candidate.account.accountId);
+          }
+          if (!cooldownMs) {
+            cooldownMs = await extractRateLimitCooldownMs(upstreamResponse);
+          }
+          if (!cooldownMs) {
+            cooldownMs = context.config.keyCooldownMs;
+          }
           keyPool.markRateLimited(candidate.account, cooldownMs);
           if (
             preferredAffinity

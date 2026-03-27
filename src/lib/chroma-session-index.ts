@@ -30,6 +30,12 @@ export interface ChromaSearchResult {
   readonly distance: number;
 }
 
+type ChromaConnectionOptions = {
+  readonly host: string;
+  readonly ssl: boolean;
+  readonly port?: number;
+};
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
@@ -50,6 +56,22 @@ function asRole(value: unknown): ChatRole {
   return "user";
 }
 
+function parseChromaConnectionOptions(rawUrl: string): ChromaConnectionOptions {
+  const parsed = new URL(rawUrl);
+  const ssl = parsed.protocol === "https:";
+
+  if (!ssl && parsed.protocol !== "http:") {
+    throw new Error(`Unsupported Chroma protocol: ${parsed.protocol}`);
+  }
+
+  const trimmedPort = parsed.port.trim();
+  return {
+    host: parsed.hostname,
+    ssl,
+    port: trimmedPort.length > 0 ? Number.parseInt(trimmedPort, 10) : undefined,
+  };
+}
+
 export class ChromaSessionIndex {
   private readonly client: ChromaClient;
   private readonly embeddingFunction: OllamaEmbeddingFunction;
@@ -58,7 +80,7 @@ export class ChromaSessionIndex {
 
   public constructor(private readonly config: ChromaSessionIndexConfig) {
     registerOllamaEmbeddingFunction();
-    this.client = new ChromaClient({ path: config.url });
+    this.client = new ChromaClient(parseChromaConnectionOptions(config.url));
     this.embeddingFunction = new OllamaEmbeddingFunction({
       url: this.config.ollamaBaseUrl,
       model: this.config.embeddingModel,

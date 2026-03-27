@@ -1,21 +1,26 @@
+# Repo development instance - for testing changes to proxx itself
+# Usage: cd orgs/open-hax/proxx && docker compose up -d
+
+name: proxx-repo
+
 services:
-  open-hax-openai-proxy:
+  proxx-repo:
     depends_on:
-      open-hax-openai-proxy-db:
+      proxx-repo-db:
         condition: service_healthy
     build:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "${PROXY_PORT:-8789}:8789"
-      - "${OPENAI_OAUTH_CALLBACK_PORT:-1455}:8789"
-      - "${PROXY_WEB_PORT:-5174}:5174"
+      - "${PROXY_PORT:-18789}:8789"
+      - "${OPENAI_OAUTH_CALLBACK_PORT:-18755}:8789"
+      - "${PROXY_WEB_PORT:-25174}:5174"
     environment:
       NODE_ENV: production
       PROXY_HOST: 0.0.0.0
       PROXY_PORT: "8789"
       PORT: "8789"
-      OPENAI_OAUTH_CALLBACK_PORT: "${OPENAI_OAUTH_CALLBACK_PORT:-1455}"
+      OPENAI_OAUTH_CALLBACK_PORT: "${OPENAI_OAUTH_CALLBACK_PORT:-18755}"
       PROXY_AUTH_TOKEN: "${PROXY_AUTH_TOKEN:-change-me-open-hax-proxy-token}"
       PROXY_KEYS_FILE: /workspace/service-config/keys.json
       PROXY_MODELS_FILE: /workspace/service-config/models.json
@@ -74,7 +79,7 @@ services:
       PROXY_KEY_COOLDOWN_MS: "${PROXY_KEY_COOLDOWN_MS:-30000}"
       UPSTREAM_REQUEST_TIMEOUT_MS: "${UPSTREAM_REQUEST_TIMEOUT_MS:-180000}"
       PROXY_ALLOW_UNAUTHENTICATED: "${PROXY_ALLOW_UNAUTHENTICATED:-false}"
-      DATABASE_URL: "${DATABASE_URL:-postgresql://openai_proxy:openai_proxy@open-hax-openai-proxy-db:5432/openai_proxy}" # pragma: allowlist secret
+      DATABASE_URL: "${DATABASE_URL:-postgresql://proxx_repo:proxx_repo@proxx-repo-db:5432/proxx_repo}" # pragma: allowlist secret
       VITE_ALLOWED_HOSTS: "${VITE_ALLOWED_HOSTS:-}"
       CHROMA_URL: "${CHROMA_URL:-http://host.docker.internal:8000}"
       CHROMA_COLLECTION: "${CHROMA_COLLECTION:-open_hax_proxy_sessions}"
@@ -86,11 +91,18 @@ services:
       HOST_DASHBOARD_REQUEST_TIMEOUT_MS: "${HOST_DASHBOARD_REQUEST_TIMEOUT_MS:-5000}"
       OTEL_EXPORTER_OTLP_ENDPOINT: "${OTEL_EXPORTER_OTLP_ENDPOINT:-}"
       OTEL_EXPORTER_OTLP_HEADERS: "${OTEL_EXPORTER_OTLP_HEADERS:-}"
-      OTEL_SERVICE_NAME: "${OTEL_SERVICE_NAME:-proxx}"
-      OTEL_RESOURCE_ATTRIBUTES: "${OTEL_RESOURCE_ATTRIBUTES:-service.name=proxx}"
+      OTEL_SERVICE_NAME: "${OTEL_SERVICE_NAME:-proxx-repo}"
+      OTEL_RESOURCE_ATTRIBUTES: "${OTEL_RESOURCE_ATTRIBUTES:-service.name=proxx-repo}"
+      FEDERATION_SELF_NODE_ID: "${FEDERATION_SELF_NODE_ID:-repo-primary}"
+      FEDERATION_SELF_GROUP_ID: "${FEDERATION_SELF_GROUP_ID:-proxx-repo}"
+      FEDERATION_SELF_CLUSTER_ID: "${FEDERATION_SELF_CLUSTER_ID:-proxx-repo-cluster}"
+      FEDERATION_SELF_PEER_DID: "${FEDERATION_SELF_PEER_DID:-did:web:proxx-repo.local}"
+      FEDERATION_SELF_PUBLIC_BASE_URL: "${FEDERATION_SELF_PUBLIC_BASE_URL:-http://proxx-repo:8789}"
+      FEDERATION_DEFAULT_OWNER_SUBJECT: "${FEDERATION_DEFAULT_OWNER_SUBJECT:-did:web:proxx-repo.local}"
+      FEDERATION_REQUEST_TIMEOUT_MS: "${FEDERATION_REQUEST_TIMEOUT_MS:-30000}"
     volumes:
-      - ./keys.json:/workspace/service-config/keys.json
-      - ./models.json:/workspace/service-config/models.json:ro
+      - ../services/proxx/keys.json:/workspace/service-config/keys.json
+      - ../services/proxx/models.json:/workspace/service-config/models.json:ro
       - ./data:/app/data
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -110,25 +122,25 @@ services:
     networks:
       ai-infra: {}
 
-  open-hax-openai-proxy-db:
+  proxx-repo-db:
     image: postgres:16-bookworm
     environment:
-      POSTGRES_DB: openai_proxy
-      POSTGRES_USER: openai_proxy
-      POSTGRES_PASSWORD: openai_proxy # pragma: allowlist secret
+      POSTGRES_DB: proxx_repo
+      POSTGRES_USER: proxx_repo
+      POSTGRES_PASSWORD: proxx_repo
     ports:
-      - "${PROXY_DB_PORT:-5432}:5432"
+      - "${PROXY_DB_PORT:-15436}:5432"
     volumes:
-      - open-hax-openai-proxy-db-data:/var/lib/postgresql/data
+      - proxx-repo-db-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U openai_proxy -d openai_proxy"]
+      test: ["CMD-SHELL", "pg_isready -U proxx_repo -d proxx_repo"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 10s
     restart: unless-stopped
     networks:
-      ai-infra: {}
+      - ai-infra
 
 networks:
   ai-infra:
@@ -136,4 +148,4 @@ networks:
     name: ai-infra
 
 volumes:
-  open-hax-openai-proxy-db-data:
+  proxx-repo-db-data:

@@ -846,6 +846,7 @@ export function messagesToChatCompletion(body: unknown, fallbackModel: string): 
   const usage = isRecord(body["usage"]) ? body["usage"] : null;
   const promptTokens = usage ? asNumber(usage["input_tokens"]) : undefined;
   const completionTokens = usage ? asNumber(usage["output_tokens"]) : undefined;
+  const cachedPromptTokens = usage ? asNumber(usage["cache_read_input_tokens"]) : undefined;
   const totalTokens =
     promptTokens !== undefined && completionTokens !== undefined
       ? promptTokens + completionTokens
@@ -867,11 +868,17 @@ export function messagesToChatCompletion(body: unknown, fallbackModel: string): 
   };
 
   if (promptTokens !== undefined && completionTokens !== undefined && totalTokens !== undefined) {
-    completion["usage"] = {
+    const mappedUsage: Record<string, unknown> = {
       prompt_tokens: promptTokens,
       completion_tokens: completionTokens,
       total_tokens: totalTokens
     };
+
+    if (cachedPromptTokens !== undefined) {
+      mappedUsage["prompt_tokens_details"] = { cached_tokens: cachedPromptTokens };
+    }
+
+    completion["usage"] = mappedUsage;
   }
 
   return completion;

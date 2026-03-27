@@ -1102,9 +1102,15 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       .filter((peer) => peer.status.trim().toLowerCase() === "active")
       .map((peer) => [peer.id, peer] as const));
 
+    const localProviderAccountKeys = new Set(
+      (await runtimeCredentialStore.listProviders(false).catch(() => []))
+        .flatMap((provider) => provider.accounts.map((account) => `${provider.id.trim().toLowerCase()}\0${account.id}`)),
+    );
+
     const projectedCandidates = (await sqlFederationStore.getProjectedAccountsForOwner(ownerSubject))
       .filter((account) => account.availabilityState !== "imported")
       .filter((account) => localProviderIds.has(account.providerId.trim().toLowerCase()))
+      .filter((account) => !localProviderAccountKeys.has(`${account.providerId.trim().toLowerCase()}\0${account.accountId}`))
       .map((projectedAccount) => {
         const peer = peersById.get(projectedAccount.sourcePeerId);
         const credential = peer ? extractPeerCredential(peer.auth) : undefined;
@@ -2517,6 +2523,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
         policyEngine,
         accountHealthStore,
         eventStore,
+        quotaMonitor,
       );
 
       if (execution.handled) {
@@ -2814,6 +2821,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
         policyEngine,
         accountHealthStore,
         eventStore,
+        quotaMonitor,
       );
 
       if (execution.handled) {
@@ -2999,6 +3007,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       policyEngine,
       accountHealthStore,
       eventStore,
+      quotaMonitor,
     );
 
     if (execution.handled) {

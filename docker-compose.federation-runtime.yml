@@ -1,3 +1,5 @@
+name: proxx-federation-runtime
+
 x-proxx-node: &proxx-node
   build:
     context: .

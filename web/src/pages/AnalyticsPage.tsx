@@ -306,6 +306,8 @@ export function AnalyticsPage(): JSX.Element {
                 <th>Decode TPS</th>
                 <th>End-to-End TPS</th>
                 <th>Error Rate</th>
+                <th>Cache Hit</th>
+                <th>Cached Tokens</th>
                 <th>Requests</th>
                 <th>Tokens</th>
                 <th>Est. Cost</th>
@@ -322,6 +324,8 @@ export function AnalyticsPage(): JSX.Element {
                   <td>{formatMaybeTps(row.avgDecodeTps)}</td>
                   <td>{formatMaybeTps(row.avgEndToEndTps)}</td>
                   <td>{formatPercent(row.errorRate)}</td>
+                  <td>{formatPercent(row.cacheHitRate)}</td>
+                  <td>{formatCompactNumber(row.cachedPromptTokens)}</td>
                   <td>{formatCompactNumber(row.requestCount)}</td>
                   <td>{formatCompactNumber(row.totalTokens)}</td>
                   <td>{formatUsd(row.costUsd)}</td>
@@ -356,6 +360,8 @@ export function AnalyticsPage(): JSX.Element {
                 <th>Decode TPS</th>
                 <th>End-to-End TPS</th>
                 <th>Error Rate</th>
+                <th>Cache Hit</th>
+                <th>Cached Tokens</th>
                 <th>Requests</th>
                 <th>Tokens</th>
                 <th>Est. Cost</th>
@@ -372,6 +378,8 @@ export function AnalyticsPage(): JSX.Element {
                   <td>{formatMaybeTps(row.avgDecodeTps)}</td>
                   <td>{formatMaybeTps(row.avgEndToEndTps)}</td>
                   <td>{formatPercent(row.errorRate)}</td>
+                  <td>{formatPercent(row.cacheHitRate)}</td>
+                  <td>{formatCompactNumber(row.cachedPromptTokens)}</td>
                   <td>{formatCompactNumber(row.requestCount)}</td>
                   <td>{formatCompactNumber(row.totalTokens)}</td>
                   <td>{formatUsd(row.costUsd)}</td>
@@ -403,6 +411,7 @@ export function AnalyticsPage(): JSX.Element {
                 <th>End-to-End TPS</th>
                 <th>Error Rate</th>
                 <th>Cache Hit</th>
+                <th>Cached Tokens</th>
                 <th>Requests</th>
                 <th>Tokens</th>
                 <th>Est. Cost</th>
@@ -422,6 +431,7 @@ export function AnalyticsPage(): JSX.Element {
                   <td>{formatMaybeTps(row.avgEndToEndTps)}</td>
                   <td>{formatPercent(row.errorRate)}</td>
                   <td>{formatPercent(row.cacheHitRate)}</td>
+                  <td>{formatCompactNumber(row.cachedPromptTokens)}</td>
                   <td>{formatCompactNumber(row.requestCount)}</td>
                   <td>{formatCompactNumber(row.totalTokens)}</td>
                   <td>{formatUsd(row.costUsd)}</td>

@@ -736,6 +736,29 @@ function percentage(part: number, total: number): number {
   return Number(((part / total) * 100).toFixed(2));
 }
 
+function isRequestLogError(entry: {
+  readonly status: number;
+  readonly error?: string;
+}): boolean {
+  return entry.status >= 400 || typeof entry.error === "string";
+}
+
+function cacheKeyUseCountForEntry(entry: {
+  readonly promptCacheKeyUsed?: boolean;
+  readonly status: number;
+  readonly error?: string;
+}): number {
+  return entry.promptCacheKeyUsed === true && !isRequestLogError(entry) ? 1 : 0;
+}
+
+function cacheHitCountForEntry(entry: {
+  readonly cacheHit?: boolean;
+  readonly status: number;
+  readonly error?: string;
+}): number {
+  return entry.cacheHit === true && !isRequestLogError(entry) ? 1 : 0;
+}
+
 function bucketStart(timestamp: number, bucketMs: number): number {
   return Math.floor(timestamp / bucketMs) * bucketMs;
 }
@@ -902,6 +925,8 @@ async function buildUsageOverviewFromEntries(
   const shortWindowMs = 2 * 60 * 1000;
 
   for (const entry of recentLogs) {
+    const cacheHits = cacheHitCountForEntry(entry);
+    const cacheKeyUses = cacheKeyUseCountForEntry(entry);
     const seriesBucket = bucketAgg.get(bucketStart(entry.timestamp, bucketMs)) ?? {
       requests: 0,
       tokens: 0,
@@ -930,13 +955,9 @@ async function buildUsageOverviewFromEntries(
     seriesBucket.costUsd += usageCount(entry.costUsd);
     seriesBucket.energyJoules += usageCount(entry.energyJoules);
     seriesBucket.waterEvaporatedMl += usageCount(entry.waterEvaporatedMl);
-    if (entry.cacheHit) {
-      seriesBucket.cacheHits += 1;
-    }
-    if (entry.promptCacheKeyUsed) {
-      seriesBucket.cacheKeyUses += 1;
-    }
-    if (entry.status >= 400 || typeof entry.error === "string") {
+    seriesBucket.cacheHits += cacheHits;
+    seriesBucket.cacheKeyUses += cacheKeyUses;
+    if (isRequestLogError(entry)) {
       seriesBucket.errors += 1;
     }
     if (entry.serviceTierSource === "fast_mode") {
@@ -986,12 +1007,8 @@ async function buildUsageOverviewFromEntries(
     account.costUsd += usageCount(entry.costUsd);
     account.energyJoules += usageCount(entry.energyJoules);
     account.waterEvaporatedMl += usageCount(entry.waterEvaporatedMl);
-    if (entry.cacheHit) {
-      account.cacheHitCount += 1;
-    }
-    if (entry.promptCacheKeyUsed) {
-      account.cacheKeyUseCount += 1;
-    }
+    account.cacheHitCount += cacheHits;
+    account.cacheKeyUseCount += cacheKeyUses;
     if (typeof entry.ttftMs === "number" && Number.isFinite(entry.ttftMs)) {
       account.ttftSum += entry.ttftMs;
       account.ttftCount += 1;
@@ -1278,7 +1295,7 @@ export async function buildUsageOverview(
   sqlRequestUsageStore?: SqlRequestUsageStore,
 ): Promise<UsageOverviewResponse> {
   const now = Date.now();
-  const { bucketWindowStart: _sharedBucketWindowStart, entryWindowStart: sharedEntryWindowStart } = resolveUsageWindowConfig(window, now);
+  const { bucketWindowStart: sharedBucketWindowStart, entryWindowStart: sharedEntryWindowStart } = resolveUsageWindowConfig(window, now);
 
   if (sqlRequestUsageStore) {
     const [entries, coverage] = await Promise.all([
@@ -1303,6 +1320,20 @@ export async function buildUsageOverview(
   }
 
   const allLogs = requestLogStore.snapshot();
+  const hasPersistedNonDailyRollups = window !== "daily" && (
+    requestLogStore.snapshotDailyBuckets(sharedBucketWindowStart).length > 0
+    || requestLogStore.snapshotDailyModelBuckets(sharedBucketWindowStart).length > 0
+    || requestLogStore.snapshotDailyAccountBuckets(sharedBucketWindowStart).length > 0
+  );
+
+  if (allLogs.length > 0 && !hasPersistedNonDailyRollups) {
+    return buildUsageOverviewFromEntries(allLogs, keyPool, credentialStore, sort, window, now, {
+      coverageStartMs: allLogs.reduce<number | null>((current, entry) => current === null ? entry.timestamp : Math.min(current, entry.timestamp), null),
+      retainedEntryCount: allLogs.length,
+      maxRetainedEntries: requestLogStore.getCoverage().maxEntries,
+    });
+  }
+
   const _allStatuses: Record<string, Awaited<ReturnType<KeyPool["getStatus"]>>> = await keyPool.getAllStatuses().catch(() => ({}));
   const allAccountStatuses: Record<string, readonly KeyPoolAccountStatus[]> = await keyPool.getAllAccountStatuses().catch(() => ({}));
   const credentialProviders = await credentialStore.listProviders(false).catch(() => []);
@@ -1888,19 +1919,15 @@ function buildProviderModelAnalyticsFromEntries(
   for (const entry of relevantEntries) {
     const agg = upsertPair(entry.providerId, entry.model);
     agg.requestCount += 1;
-    if (entry.status >= 400 || typeof entry.error === "string") {
+    if (isRequestLogError(entry)) {
       agg.errorCount += 1;
     }
     agg.totalTokens += usageCount(entry.totalTokens);
     agg.promptTokens += usageCount(entry.promptTokens);
     agg.completionTokens += usageCount(entry.completionTokens);
     agg.cachedPromptTokens += usageCount(entry.cachedPromptTokens);
-    if (entry.cacheHit) {
-      agg.cacheHitCount += 1;
-    }
-    if (entry.promptCacheKeyUsed) {
-      agg.cacheKeyUseCount += 1;
-    }
+    agg.cacheHitCount += cacheHitCountForEntry(entry);
+    agg.cacheKeyUseCount += cacheKeyUseCountForEntry(entry);
     if (typeof entry.ttftMs === "number" && Number.isFinite(entry.ttftMs)) {
       agg.ttftSum += entry.ttftMs;
       agg.ttftCount += 1;
@@ -2072,6 +2099,15 @@ export async function buildProviderModelAnalytics(
     return buildProviderModelAnalyticsFromEntries(relevantEntries, window, sort, now, {
       coverageStartMs: relevantEntries.reduce<number | null>((current, entry) => current === null ? entry.timestamp : Math.min(current, entry.timestamp), null),
       retainedEntryCount: relevantEntries.length,
+      maxRetainedEntries: requestLogStore.getCoverage().maxEntries,
+    });
+  }
+
+  const allLogs = requestLogStore.snapshot();
+  if (allLogs.length > 0) {
+    return buildProviderModelAnalyticsFromEntries(allLogs, window, sort, now, {
+      coverageStartMs: allLogs.reduce<number | null>((current, entry) => current === null ? entry.timestamp : Math.min(current, entry.timestamp), null),
+      retainedEntryCount: allLogs.length,
       maxRetainedEntries: requestLogStore.getCoverage().maxEntries,
     });
   }

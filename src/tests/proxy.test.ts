@@ -584,6 +584,216 @@ test("routes /v1/responses through requesty when REQUESTY_API_KEY is configured"
   );
 });
 
+test("requesty gpt chat requests route through /v1/responses with prefixed model and normalized reasoning summary", { concurrency: false }, async () => {
+  await withEnv(
+    {
+      OPENROUTER_API_KEY: undefined,
+      REQUESTY_API_TOKEN: "req-token-1",
+      REQUESTY_API_KEY: undefined,
+      OPENROUTER_PROVIDER_ID: undefined,
+      REQUESTY_PROVIDER_ID: undefined,
+      GEMINI_API_KEY: undefined,
+      GEMINI_PROVIDER_ID: undefined,
+    },
+    async () => {
+      let observedPath = "";
+      let observedBody: Record<string, unknown> | undefined;
+
+      await withProxyApp(
+        {
+          keys: [],
+          keysPayload: { providers: {} },
+          configOverrides: {
+            upstreamProviderId: "requesty",
+            upstreamFallbackProviderIds: [],
+          },
+          upstreamHandler: async (request, body) => {
+            if (request.url === "/api/embed" || request.url === "/api/embeddings") {
+              return {
+                status: 200,
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ embeddings: [[0.1, 0.2, 0.3]] }),
+              };
+            }
+
+            observedPath = request.url ?? "";
+            observedBody = JSON.parse(body) as Record<string, unknown>;
+
+            return {
+              status: 200,
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                id: "resp_requesty_gpt54_chat",
+                object: "response",
+                created_at: 1772516800,
+                model: "gpt-5.4",
+                output: [
+                  {
+                    id: "msg_requesty_gpt54_chat",
+                    type: "message",
+                    role: "assistant",
+                    content: [
+                      {
+                        type: "output_text",
+                        text: "requesty-gpt-chat-ok",
+                      },
+                    ],
+                  },
+                ],
+                usage: {
+                  input_tokens: 7,
+                  output_tokens: 4,
+                  total_tokens: 11,
+                },
+              }),
+            };
+          },
+        },
+        async ({ app }) => {
+          const response = await app.inject({
+            method: "POST",
+            url: "/v1/chat/completions",
+            headers: {
+              authorization: "Bearer local-test",
+              "content-type": "application/json",
+            },
+            payload: {
+              model: "gpt-5.4",
+              messages: [{ role: "user", content: "hello" }],
+              stream: false,
+              reasoningSummary: "auto",
+            },
+          });
+
+          assert.equal(response.statusCode, 200);
+          assert.equal(response.headers["x-open-hax-upstream-provider"], "requesty");
+          assert.equal(response.headers["x-open-hax-upstream-mode"], "responses");
+          assert.equal(observedPath, "/v1/responses");
+          assert.ok(isRecord(observedBody));
+          assert.equal(observedBody.model, "openai/gpt-5.4");
+          const observedReasoning = observedBody.reasoning;
+          assert.ok(isRecord(observedReasoning));
+          assert.equal(observedReasoning.summary, "auto");
+          assert.equal(observedBody.reasoning_summary, undefined);
+
+          const payload = response.json();
+          assert.ok(isRecord(payload));
+          assert.equal(payload.object, "chat.completion");
+          assert.ok(Array.isArray(payload.choices));
+          assert.ok(isRecord(payload.choices[0]));
+          assert.ok(isRecord(payload.choices[0].message));
+          assert.equal(payload.choices[0].message.content, "requesty-gpt-chat-ok");
+        },
+      );
+    },
+  );
+});
+
+test("requesty /v1/responses preserves nested reasoning summary for gpt models", { concurrency: false }, async () => {
+  await withEnv(
+    {
+      OPENROUTER_API_KEY: undefined,
+      REQUESTY_API_TOKEN: "req-token-1",
+      REQUESTY_API_KEY: undefined,
+      OPENROUTER_PROVIDER_ID: undefined,
+      REQUESTY_PROVIDER_ID: undefined,
+      GEMINI_API_KEY: undefined,
+      GEMINI_PROVIDER_ID: undefined,
+    },
+    async () => {
+      let observedPath = "";
+      let observedBody: Record<string, unknown> | undefined;
+
+      await withProxyApp(
+        {
+          keys: [],
+          keysPayload: { providers: {} },
+          configOverrides: {
+            upstreamProviderId: "requesty",
+            upstreamFallbackProviderIds: [],
+          },
+          upstreamHandler: async (request, body) => {
+            if (request.url === "/api/embed" || request.url === "/api/embeddings") {
+              return {
+                status: 200,
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ embeddings: [[0.1, 0.2, 0.3]] }),
+              };
+            }
+
+            observedPath = request.url ?? "";
+            observedBody = JSON.parse(body) as Record<string, unknown>;
+
+            return {
+              status: 200,
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                id: "resp_requesty_nested_reasoning",
+                object: "response",
+                created_at: 1772516800,
+                model: "gpt-5.4",
+                output: [
+                  {
+                    id: "msg_requesty_nested_reasoning",
+                    type: "message",
+                    role: "assistant",
+                    content: [
+                      {
+                        type: "output_text",
+                        text: "requesty-nested-reasoning-ok",
+                      },
+                    ],
+                  },
+                ],
+                usage: {
+                  input_tokens: 8,
+                  output_tokens: 4,
+                  total_tokens: 12,
+                },
+              }),
+            };
+          },
+        },
+        async ({ app }) => {
+          const response = await app.inject({
+            method: "POST",
+            url: "/v1/responses",
+            headers: {
+              authorization: "Bearer local-test",
+              "content-type": "application/json",
+            },
+            payload: {
+              model: "gpt-5.4",
+              input: "hello",
+              stream: false,
+              reasoning: {
+                summary: "auto",
+                effort: "low",
+              },
+            },
+          });
+
+          assert.equal(response.statusCode, 200);
+          assert.equal(response.headers["x-open-hax-upstream-provider"], "requesty");
+          assert.equal(response.headers["x-open-hax-upstream-mode"], "responses_passthrough");
+          assert.equal(observedPath, "/v1/responses");
+          assert.ok(isRecord(observedBody));
+          assert.equal(observedBody.model, "openai/gpt-5.4");
+          const observedReasoning = observedBody.reasoning;
+          assert.ok(isRecord(observedReasoning));
+          assert.equal(observedReasoning.summary, "auto");
+          assert.equal(observedReasoning.effort, "low");
+          assert.equal(observedBody.reasoning_summary, undefined);
+
+          const payload = response.json();
+          assert.ok(isRecord(payload));
+          assert.equal(payload.id, "resp_requesty_nested_reasoning");
+        },
+      );
+    },
+  );
+});
+
 test("routes /v1/images/generations through requesty", { concurrency: false }, async () => {
   await withEnv(
     {
@@ -4603,11 +4813,12 @@ test("provider-model analytics summarizes global models, providers, and provider
 });
 
 test("dashboard overview scopes usage to the requested tenant", async () => {
+  const now = Date.now();
   const requestLogsPayload = {
     entries: [
       {
         id: "entry-acme-openai",
-        timestamp: Date.UTC(2026, 2, 18, 12, 0, 0),
+        timestamp: now - 3 * 60 * 60 * 1000,
         tenantId: "acme",
         issuer: "local",
         keyId: "key-acme-1",
@@ -4628,7 +4839,7 @@ test("dashboard overview scopes usage to the requested tenant", async () => {
       },
       {
         id: "entry-acme-factory",
-        timestamp: Date.UTC(2026, 2, 18, 13, 0, 0),
+        timestamp: now - 2 * 60 * 60 * 1000,
         tenantId: "acme",
         issuer: "local",
         keyId: "key-acme-2",
@@ -4650,7 +4861,7 @@ test("dashboard overview scopes usage to the requested tenant", async () => {
       },
       {
         id: "entry-beta-openai",
-        timestamp: Date.UTC(2026, 2, 18, 14, 0, 0),
+        timestamp: now - 60 * 60 * 1000,
         tenantId: "beta",
         issuer: "local",
         keyId: "key-beta-1",
@@ -4709,11 +4920,12 @@ test("dashboard overview scopes usage to the requested tenant", async () => {
 });
 
 test("provider-model analytics scopes rollups to the requested tenant", async () => {
+  const now = Date.now();
   const requestLogsPayload = {
     entries: [
       {
         id: "entry-acme-openai",
-        timestamp: Date.UTC(2026, 2, 18, 12, 0, 0),
+        timestamp: now - 3 * 60 * 60 * 1000,
         tenantId: "acme",
         issuer: "local",
         keyId: "key-acme-1",
@@ -4734,7 +4946,7 @@ test("provider-model analytics scopes rollups to the requested tenant", async ()
       },
       {
         id: "entry-acme-factory",
-        timestamp: Date.UTC(2026, 2, 18, 13, 0, 0),
+        timestamp: now - 2 * 60 * 60 * 1000,
         tenantId: "acme",
         issuer: "local",
         keyId: "key-acme-2",
@@ -4756,7 +4968,7 @@ test("provider-model analytics scopes rollups to the requested tenant", async ()
       },
       {
         id: "entry-beta-openai",
-        timestamp: Date.UTC(2026, 2, 18, 14, 0, 0),
+        timestamp: now - 60 * 60 * 1000,
         tenantId: "beta",
         issuer: "local",
         keyId: "key-beta-1",
@@ -4810,6 +5022,202 @@ test("provider-model analytics scopes rollups to the requested tenant", async ()
       assert.equal(payload.providers[1].totalTokens, 500);
       assert.equal(payload.providerModels.length, 2);
       assert.ok(!payload.providerModels.some((row: any) => row.totalTokens === 900));
+    },
+  );
+});
+
+test("provider-model analytics excludes failed prompt-cache attempts from cache-hit rates", async () => {
+  const now = Date.now();
+  const requestLogsPayload = {
+    entries: [
+      {
+        id: "entry-cache-miss",
+        timestamp: now - 60_000,
+        providerId: "openai",
+        accountId: "acct-1",
+        authType: "oauth_bearer",
+        model: "gpt-5.4",
+        upstreamMode: "responses",
+        upstreamPath: "/v1/responses",
+        status: 200,
+        latencyMs: 120,
+        promptTokens: 800,
+        completionTokens: 200,
+        totalTokens: 1000,
+        promptCacheKeyUsed: true,
+        cacheHit: false,
+        cachedPromptTokens: 0,
+        ttftMs: 90,
+        tps: 10,
+        endToEndTps: 8,
+      },
+      {
+        id: "entry-cache-hit",
+        timestamp: now - 45_000,
+        providerId: "openai",
+        accountId: "acct-1",
+        authType: "oauth_bearer",
+        model: "gpt-5.4",
+        upstreamMode: "responses",
+        upstreamPath: "/v1/responses",
+        status: 200,
+        latencyMs: 110,
+        promptTokens: 700,
+        completionTokens: 300,
+        totalTokens: 1000,
+        promptCacheKeyUsed: true,
+        cacheHit: true,
+        cachedPromptTokens: 600,
+        ttftMs: 80,
+        tps: 12,
+        endToEndTps: 10,
+      },
+      {
+        id: "entry-cache-rate-limit",
+        timestamp: now - 30_000,
+        providerId: "openai",
+        accountId: "acct-1",
+        authType: "oauth_bearer",
+        model: "gpt-5.4",
+        upstreamMode: "responses",
+        upstreamPath: "/v1/responses",
+        status: 429,
+        latencyMs: 40,
+        promptCacheKeyUsed: true,
+        cacheHit: false,
+        error: "rate limit",
+      },
+    ],
+    hourlyBuckets: [],
+    dailyBuckets: [],
+    dailyModelBuckets: [],
+    dailyAccountBuckets: [],
+    accountAccumulators: [],
+  };
+
+  await withProxyApp(
+    {
+      keys: [],
+      requestLogsPayload,
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ok: true }),
+      }),
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "GET",
+        url: "/api/ui/analytics/provider-model?window=daily",
+      });
+
+      assert.equal(response.statusCode, 200);
+      const payload: any = response.json();
+      const pair = payload.providerModels.find((row: any) => row.providerId === "openai" && row.model === "gpt-5.4");
+      assert.ok(pair);
+      assert.equal(pair.requestCount, 3);
+      assert.equal(pair.errorCount, 1);
+      assert.equal(pair.cacheHitRate, 50);
+
+      const provider = payload.providers.find((row: any) => row.providerId === "openai");
+      assert.ok(provider);
+      assert.equal(provider.cacheHitRate, 50);
+
+      const model = payload.models.find((row: any) => row.model === "gpt-5.4");
+      assert.ok(model);
+      assert.equal(model.cacheHitRate, 50);
+    },
+  );
+});
+
+test("dashboard overview excludes failed prompt-cache attempts from cache-hit summary", async () => {
+  const now = Date.now();
+  const requestLogsPayload = {
+    entries: [
+      {
+        id: "entry-overview-cache-miss",
+        timestamp: now - 60_000,
+        providerId: "openai",
+        accountId: "acct-1",
+        authType: "oauth_bearer",
+        model: "gpt-5.4",
+        upstreamMode: "responses",
+        upstreamPath: "/v1/responses",
+        status: 200,
+        latencyMs: 120,
+        promptTokens: 800,
+        completionTokens: 200,
+        totalTokens: 1000,
+        promptCacheKeyUsed: true,
+        cacheHit: false,
+        cachedPromptTokens: 0,
+      },
+      {
+        id: "entry-overview-cache-hit",
+        timestamp: now - 45_000,
+        providerId: "openai",
+        accountId: "acct-1",
+        authType: "oauth_bearer",
+        model: "gpt-5.4",
+        upstreamMode: "responses",
+        upstreamPath: "/v1/responses",
+        status: 200,
+        latencyMs: 110,
+        promptTokens: 700,
+        completionTokens: 300,
+        totalTokens: 1000,
+        promptCacheKeyUsed: true,
+        cacheHit: true,
+        cachedPromptTokens: 600,
+      },
+      {
+        id: "entry-overview-cache-rate-limit",
+        timestamp: now - 30_000,
+        providerId: "openai",
+        accountId: "acct-1",
+        authType: "oauth_bearer",
+        model: "gpt-5.4",
+        upstreamMode: "responses",
+        upstreamPath: "/v1/responses",
+        status: 429,
+        latencyMs: 40,
+        promptCacheKeyUsed: true,
+        cacheHit: false,
+        error: "rate limit",
+      },
+    ],
+    hourlyBuckets: [],
+    dailyBuckets: [],
+    dailyModelBuckets: [],
+    dailyAccountBuckets: [],
+    accountAccumulators: [],
+  };
+
+  await withProxyApp(
+    {
+      keys: [],
+      requestLogsPayload,
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ok: true }),
+      }),
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "GET",
+        url: "/api/ui/dashboard/overview?window=daily",
+      });
+
+      assert.equal(response.statusCode, 200);
+      const payload: any = response.json();
+      assert.equal(payload.summary.cacheKeyUses24h, 2);
+      assert.equal(payload.summary.cacheHitRate24h, 50);
+
+      const account = payload.accounts.find((row: any) => row.providerId === "openai" && row.accountId === "acct-1");
+      assert.ok(account);
+      assert.equal(account.cacheKeyUseCount, 2);
+      assert.equal(account.cacheHitCount, 1);
     },
   );
 });
@@ -5621,6 +6029,192 @@ test("routes gpt-5.4 through responses for openai oauth accounts", async () => {
   );
 });
 
+test("reuses the same openai oauth codex account for repeated gpt prompt_cache_key requests", async () => {
+  const observedAuth: string[] = [];
+  const observedAccountIds: string[] = [];
+  const observedPromptCacheKeys: string[] = [];
+
+  await withProxyApp(
+    {
+      keys: [],
+      keysPayload: {
+        providers: {
+          openai: {
+            auth: "oauth_bearer",
+            accounts: [
+              { id: "openai-a", access_token: "oa-token-a", chatgpt_account_id: "chatgpt-a", plan_type: "plus" },
+              { id: "openai-b", access_token: "oa-token-b", chatgpt_account_id: "chatgpt-b", plan_type: "plus" },
+            ]
+          }
+        }
+      },
+      configOverrides: {
+        upstreamProviderId: "openai",
+        upstreamFallbackProviderIds: [],
+      },
+      upstreamHandler: async (request, body) => {
+        const parsedBody = JSON.parse(body) as Record<string, unknown>;
+        const auth = typeof request.headers.authorization === "string"
+          ? request.headers.authorization.replace(/^Bearer\s+/i, "")
+          : undefined;
+        const accountId = typeof request.headers["chatgpt-account-id"] === "string"
+          ? request.headers["chatgpt-account-id"]
+          : undefined;
+        const promptCacheKey = typeof parsedBody.prompt_cache_key === "string"
+          ? parsedBody.prompt_cache_key
+          : undefined;
+
+        if (auth) {
+          observedAuth.push(auth);
+        }
+        if (accountId) {
+          observedAccountIds.push(accountId);
+        }
+        if (promptCacheKey) {
+          observedPromptCacheKeys.push(promptCacheKey);
+        }
+
+        return {
+          status: 200,
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            id: crypto.randomUUID(),
+            object: "response",
+            created_at: 1772516810,
+            model: "gpt-5.4",
+            output: [
+              {
+                id: crypto.randomUUID(),
+                type: "message",
+                role: "assistant",
+                content: [{ type: "output_text", text: "OK" }]
+              }
+            ],
+            usage: { input_tokens: 11, output_tokens: 5, total_tokens: 16 }
+          })
+        };
+      }
+    },
+    async ({ app }) => {
+      for (let index = 0; index < 3; index += 1) {
+        const response = await app.inject({
+          method: "POST",
+          url: "/v1/chat/completions",
+          headers: {
+            "content-type": "application/json"
+          },
+          payload: {
+            model: "gpt-5.4",
+            messages: [{ role: "user", content: "Reply with exactly: OK" }],
+            prompt_cache_key: "sticky-gpt-oauth-1",
+            stream: false,
+          }
+        });
+
+        assert.equal(response.statusCode, 200);
+      }
+
+      assert.deepEqual(observedAuth, ["oa-token-a", "oa-token-a", "oa-token-a"]);
+      assert.deepEqual(observedAccountIds, ["chatgpt-a", "chatgpt-a", "chatgpt-a"]);
+      assert.deepEqual(observedPromptCacheKeys, ["sticky-gpt-oauth-1", "sticky-gpt-oauth-1", "sticky-gpt-oauth-1"]);
+    }
+  );
+});
+
+test("reassigns openai oauth codex prompt_cache_key affinity when the pinned gpt account becomes rate-limited", async () => {
+  const observedAuth: string[] = [];
+  const observedAccountIds: string[] = [];
+  let openAiAAttempts = 0;
+
+  await withProxyApp(
+    {
+      keys: [],
+      keysPayload: {
+        providers: {
+          openai: {
+            auth: "oauth_bearer",
+            accounts: [
+              { id: "openai-a", access_token: "oa-token-a", chatgpt_account_id: "chatgpt-a", plan_type: "plus" },
+              { id: "openai-b", access_token: "oa-token-b", chatgpt_account_id: "chatgpt-b", plan_type: "plus" },
+            ]
+          }
+        }
+      },
+      configOverrides: {
+        upstreamProviderId: "openai",
+        upstreamFallbackProviderIds: [],
+      },
+      upstreamHandler: async (request) => {
+        const auth = typeof request.headers.authorization === "string"
+          ? request.headers.authorization.replace(/^Bearer\s+/i, "")
+          : undefined;
+        const accountId = typeof request.headers["chatgpt-account-id"] === "string"
+          ? request.headers["chatgpt-account-id"]
+          : undefined;
+
+        if (auth) {
+          observedAuth.push(auth);
+        }
+        if (accountId) {
+          observedAccountIds.push(accountId);
+        }
+
+        if (auth === "oa-token-a") {
+          openAiAAttempts += 1;
+          if (openAiAAttempts >= 2) {
+            const headers: Record<string, string> = {
+              "content-type": "application/json",
+              "retry-after": "1",
+            };
+            return {
+              status: 429,
+              headers,
+              body: JSON.stringify({ error: { message: "rate limit" } })
+            };
+          }
+        }
+
+        const headers: Record<string, string> = { "content-type": "application/json" };
+
+        return {
+          status: 200,
+          headers,
+          body: JSON.stringify({
+            id: crypto.randomUUID(),
+            object: "response",
+            created_at: 1772516810,
+            model: "gpt-5.4",
+            output: [
+              {
+                id: crypto.randomUUID(),
+                type: "message",
+                role: "assistant",
+                content: [{ type: "output_text", text: "OK" }]
+              }
+            ],
+            usage: { input_tokens: 11, output_tokens: 5, total_tokens: 16 }
+          })
+        };
+      }
+    },
+    async ({ app }) => {
+      const payload = {
+        model: "gpt-5.4",
+        messages: [{ role: "user", content: "Reply with exactly: OK" }],
+        prompt_cache_key: "sticky-gpt-oauth-2",
+        stream: false,
+      };
+
+      assert.equal((await app.inject({ method: "POST", url: "/v1/chat/completions", headers: { "content-type": "application/json" }, payload })).statusCode, 200);
+      assert.equal((await app.inject({ method: "POST", url: "/v1/chat/completions", headers: { "content-type": "application/json" }, payload })).statusCode, 200);
+      assert.equal((await app.inject({ method: "POST", url: "/v1/chat/completions", headers: { "content-type": "application/json" }, payload })).statusCode, 200);
+
+      assert.deepEqual(observedAuth, ["oa-token-a", "oa-token-a", "oa-token-b", "oa-token-b"]);
+      assert.deepEqual(observedAccountIds, ["chatgpt-a", "chatgpt-a", "chatgpt-b", "chatgpt-b"]);
+    }
+  );
+});
+
 test("injects instructions for gpt-5.2 routed through openai oauth (regression: codex instructions required)", async () => {
   let observedPath = "";
   let observedBody: Record<string, unknown> | undefined;
@@ -6030,6 +6624,69 @@ test("records token usage from codex SSE responses with missing content-type (re
       assert.equal(entry.cachedPromptTokens, 30, "cachedPromptTokens must be extracted from input_tokens_details.cached_tokens");
       assert.equal(entry.cacheHit, true, "cacheHit must be true when cached_tokens > 0");
     }
+  );
+});
+
+test("extracts cached prompt tokens from messages usage cache_read_input_tokens", async () => {
+  await withProxyApp(
+    {
+      keys: ["key-a"],
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          id: "msg_cache_usage",
+          type: "message",
+          role: "assistant",
+          model: "claude-3-7-sonnet",
+          content: [
+            {
+              type: "text",
+              text: "OK",
+            },
+          ],
+          usage: {
+            input_tokens: 42,
+            output_tokens: 7,
+            cache_read_input_tokens: 28,
+            cache_creation_input_tokens: 128,
+          },
+        }),
+      }),
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: { "content-type": "application/json" },
+        payload: {
+          model: "claude-3-7-sonnet",
+          messages: [{ role: "user", content: "hello" }],
+          stream: false,
+        },
+      });
+
+      assert.equal(response.statusCode, 200);
+
+      const logsResponse = await app.inject({
+        method: "GET",
+        url: "/api/ui/request-logs?providerId=vivgrid&limit=1",
+      });
+
+      assert.equal(logsResponse.statusCode, 200);
+      const logs: unknown = logsResponse.json();
+      assert.ok(isRecord(logs));
+      assert.ok(Array.isArray(logs.entries));
+      const entry = logs.entries[0];
+      assert.ok(isRecord(entry));
+      assert.equal(entry.promptTokens, 42);
+      assert.equal(entry.completionTokens, 7);
+      assert.equal(entry.totalTokens, 49);
+      assert.equal(entry.cachedPromptTokens, 28);
+      assert.equal(entry.cacheHit, true);
+    },
   );
 });
 
