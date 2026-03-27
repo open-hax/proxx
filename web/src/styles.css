@@ -1198,6 +1198,44 @@ button:disabled {
   margin: 0;
 }
 
+.credentials-audit-table {
+  display: grid;
+  gap: 8px;
+}
+
+.credentials-audit-header,
+.credentials-audit-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.2fr) minmax(220px, 1.4fr) minmax(90px, 0.7fr) minmax(180px, 1.1fr) minmax(160px, 1fr);
+  gap: 10px;
+  align-items: start;
+}
+
+.credentials-audit-header {
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.credentials-audit-row {
+  border: 1px solid rgba(131, 185, 208, 0.16);
+  border-radius: 12px;
+  padding: 10px;
+  background: rgba(8, 22, 31, 0.62);
+}
+
+.credentials-audit-row > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.credentials-audit-row strong,
+.credentials-audit-row small {
+  overflow-wrap: anywhere;
+}
+
 .credentials-probe-note {
   margin: 0;
   color: var(--text-dim);

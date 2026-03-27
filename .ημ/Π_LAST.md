@@ -1,30 +1,30 @@
-# Π Snapshot: Proxx follow-up UI residue cleanup
+# Π Snapshot: Proxx final audit-style residue cleanup
 
 - **Repo:** `open-hax/proxx`
 - **Branch:** `fix/ci-live-e2e-aggregate-conclusion`
-- **Pre-snapshot HEAD:** `795cf72`
-- **Previous tag:** `Π/2026-03-27/043215`
-- **Intended Π tag:** `Π/2026-03-27/044115`
-- **Generated:** `2026-03-27T04:41:15Z`
+- **Pre-snapshot HEAD:** `fb08bf9`
+- **Previous tag:** `Π/2026-03-27/044115`
+- **Intended Π tag:** `Π/2026-03-27/044308`
+- **Generated:** `2026-03-27T04:43:08Z`
 
 ## What this snapshot preserves
 
-This follow-up Π handoff captures the single remaining dirty Proxx diff left after the broader control-plane and Big Ussy snapshot.
+This final follow-up Π handoff captures the remaining credentials-audit stylesheet diff so the Proxx repository is genuinely clean.
 
 Included work category:
-- restore prompt-cache audit refresh loading in `web/src/pages/CredentialsPage.tsx` so the UI fetches audit data during initial load alongside quota refresh
+- credentials audit table styles in `web/src/styles.css`
 
 ## Dirty state before commit
 
 ### Modified
-- `web/src/pages/CredentialsPage.tsx`
+- `web/src/styles.css`
 
 ## Verification
 
-- Typecheck: `pnpm run typecheck` ✅
 - Web build: `pnpm run web:build` ✅
-- Prior full suite: previous snapshot `Π/2026-03-27/043215` already recorded `pnpm test` ✅ (`419/419`)
+- Prior typecheck: snapshot `Π/2026-03-27/044115` recorded `pnpm run typecheck` ✅
+- Prior full suite: snapshot `Π/2026-03-27/043215` recorded `pnpm test` ✅ (`419/419`)
 
 ## Operator note
 
-This follow-up snapshot exists only to make the Proxx repository fully clean and pushable before the workspace superproject advances its submodule pointer.
+This follow-up snapshot exists only to eliminate the last residual UI stylesheet diff before the workspace superproject advances its submodule pointer.

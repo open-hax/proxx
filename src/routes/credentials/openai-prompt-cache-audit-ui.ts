@@ -124,7 +124,7 @@ function buildPromptCacheAudit(entries: readonly RequestLogEntry[], rowLimit: nu
     grouped.set(promptCacheKeyHash, current);
   }
 
-  const rows: PromptCacheAuditRow[] = [...grouped.values()]
+  const allRows: PromptCacheAuditRow[] = [...grouped.values()]
     .map((group) => ({
       promptCacheKeyHash: group.promptCacheKeyHash,
       providerId: group.providerId,
@@ -150,14 +150,15 @@ function buildPromptCacheAudit(entries: readonly RequestLogEntry[], rowLimit: nu
       }
 
       return right.requestCount - left.requestCount || left.promptCacheKeyHash.localeCompare(right.promptCacheKeyHash);
-    })
-    .slice(0, rowLimit);
+    });
+
+  const rows = allRows.slice(0, rowLimit);
 
   return {
     generatedAt: new Date().toISOString(),
     scannedEntryCount: entries.length,
     distinctHashCount: grouped.size,
-    crossAccountHashCount: rows.filter((row) => row.accountCount > 1).length,
+    crossAccountHashCount: allRows.filter((row) => row.accountCount > 1).length,
     rows,
   };
 }
