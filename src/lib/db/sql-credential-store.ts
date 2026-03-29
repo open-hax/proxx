@@ -671,6 +671,14 @@ export class SqlCredentialStore {
     };
   }
 
+  public async listProvidersWithBaseUrlByPrefix(prefix: string): Promise<readonly { readonly id: string; readonly baseUrl: string }[]> {
+    const rows = await this.sql.unsafe<ProviderRow[]>(
+      `SELECT id, auth_type, base_url FROM providers WHERE id LIKE $1 AND base_url IS NOT NULL AND base_url != ''`,
+      [`${prefix}%`],
+    );
+    return rows.map((row) => ({ id: row.id, baseUrl: row.base_url! }));
+  }
+
   public async upsertAccount(account: ProviderCredential): Promise<void> {
     await this.upsertProvider(account.providerId, account.authType);
     await this.sql.unsafe(INSERT_ACCOUNT, [

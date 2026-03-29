@@ -394,7 +394,7 @@ INSERT INTO providers (id, auth_type, base_url, updated_at)
 VALUES ($1, $2, $3, NOW())
 ON CONFLICT (id) DO UPDATE SET
   auth_type = EXCLUDED.auth_type,
-  base_url = EXCLUDED.base_url,
+  base_url = COALESCE(EXCLUDED.base_url, providers.base_url),
   updated_at = NOW();
 `;
 

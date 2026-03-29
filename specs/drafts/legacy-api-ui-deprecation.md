@@ -1,7 +1,71 @@
 # Legacy `/api/ui/*` deprecation plan
 
 ## Status
-Draft
+Phase B complete — both prefix families live, v1 is canonical
+
+## Progress (2026-03-29)
+
+### Completed
+- **Phase A done**: routes extracted to individual files, no inline handlers remain
+- **Phase B done**: `/api/v1/*` is now the canonical prefix, registered via `registerApiV1Routes` in `app.ts`
+- `src/lib/ui-routes.ts` reduced from ~2900 to ~309 lines (setup-only barrel)
+- All inline route handlers extracted to files under `src/routes/`:
+  - `src/routes/api/ui/analytics/usage.ts` — usage overview, provider-model analytics
+  - `src/routes/api/ui/hosts/index.ts` — host dashboard self/overview
+  - `src/routes/api/ui/events/index.ts` — event tags, create, delete
+  - `src/routes/api/ui/mcp/index.ts` — MCP seed servers
+  - `src/routes/api/ui/assets.ts` — static assets + SPA catch-all
+  - `src/routes/api/ui/ws.ts` — WebSocket upgrade handler + bridge relay
+- Each route module already supports both prefixes via `LEGACY_*_ROUTE_PREFIX` (default `/api/ui`) and `API_V1_*_ROUTE_PREFIX` (`/api/v1`)
+- `registerApiV1Routes` calls: `registerFederationRoutes`, `registerSettingsRoutes`, `registerSessionRoutes`, `registerCredentialsRoutes`, `registerHostRoutes`, `registerEventRoutes`, `registerMcpRoutes`, `registerCanonicalObservabilityRoutes`
+- `registerUiRoutes` calls legacy counterparts: `registerXxxUiRoutes` with `/api/ui` prefix
+- API route handlers extracted from `src/app.ts` (~3500 → ~1078 lines)
+
+### Remaining
+- Update `web/src/lib/api.ts` to use `/api/v1/*` exclusively (Phase C)
+- Add deprecation headers to `/api/ui/*` routes (Phase B — add `Deprecation: true` and `Link` headers)
+- Once frontend migrated, remove `registerUiRoutes` call from `app.ts` (Phase D)
+- Collapse `src/lib/ui-routes.ts` into `app.ts` or delete entirely
+
+## Route structure convention
+
+Routes live under `src/routes/` with paths that mirror the URL structure:
+
+```
+src/routes/
+├── chat.ts                          # POST /v1/chat/completions
+├── responses.ts                     # POST /v1/responses
+├── images.ts                        # POST /v1/images/generations
+├── embeddings.ts                    # POST /v1/embeddings
+├── models.ts                        # GET /v1/models
+├── websearch.ts                     # POST /api/tools/websearch
+├── native-ollama.ts                 # POST /api/chat, /api/generate, /api/embed
+├── health.ts                        # GET /health
+├── api/
+│   ├── v1/                          # canonical /api/v1/* routes
+│   │   └── index.ts
+│   └── ui/                          # legacy /api/ui/* routes (being deprecated)
+│       ├── analytics/
+│       │   └── usage.ts
+│       ├── hosts/
+│       │   └── index.ts
+│       ├── events/
+│       │   └── index.ts
+│       ├── mcp/
+│       │   └── index.ts
+│       ├── assets.ts
+│       └── ws.ts
+├── credentials/                     # /api/ui/credentials/*
+├── federation/                      # /api/ui/federation/*
+├── sessions/                        # /api/ui/sessions/*
+├── settings/                        # /api/ui/settings/*
+├── shared/
+│   └── ui-auth.ts
+└── types.ts
+```
+
+Each route file exports a `registerXxxRoutes(app, deps)` function. The main app
+or barrel file calls all registration functions. Shared helpers go in `src/lib/`.
 
 ## Summary
 Turn `/api/ui/*` from the accidental canonical operator API into an explicit compatibility layer, then remove it only after `/api/v1/*` reaches endpoint parity and all primary callsites are migrated.
