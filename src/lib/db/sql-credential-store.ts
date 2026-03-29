@@ -27,6 +27,8 @@ import {
   INSERT_VERSION,
   CHECK_VERSION_EXISTS,
   UPSERT_PROVIDER,
+  UPSERT_PROVIDER_WITH_BASE_URL,
+  SELECT_PROVIDER_BY_ID,
   UPSERT_TENANT,
   UPSERT_USER,
   SELECT_USER_BY_SUBJECT,
@@ -52,6 +54,7 @@ import {
 interface ProviderRow {
   id: string;
   auth_type: string;
+  base_url: string | null;
 }
 
 interface TenantRow {
@@ -648,7 +651,24 @@ export class SqlCredentialStore {
   }
 
   public async upsertProvider(providerId: string, authType: ProviderAuthType): Promise<void> {
-    await this.sql.unsafe(UPSERT_PROVIDER, [providerId, authType]);
+    await this.sql.unsafe(UPSERT_PROVIDER, [providerId, authType, null]);
+  }
+
+  public async upsertProviderWithBaseUrl(providerId: string, authType: ProviderAuthType, baseUrl: string): Promise<void> {
+    await this.sql.unsafe(UPSERT_PROVIDER_WITH_BASE_URL, [providerId, authType, baseUrl]);
+  }
+
+  public async getProviderById(providerId: string): Promise<{ id: string; authType: ProviderAuthType; baseUrl: string | null } | null> {
+    const rows = await this.sql.unsafe<ProviderRow[]>(SELECT_PROVIDER_BY_ID, [providerId]);
+    if (rows.length === 0) {
+      return null;
+    }
+    const row = rows[0]!;
+    return {
+      id: row.id,
+      authType: normalizeAuthType(row.auth_type),
+      baseUrl: row.base_url,
+    };
   }
 
   public async upsertAccount(account: ProviderCredential): Promise<void> {

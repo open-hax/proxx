@@ -22,7 +22,6 @@ import { initializePolicyEngine, createPolicyEngine, type PolicyEngine } from ".
 import { DEFAULT_POLICY_CONFIG } from "./lib/policy/index.js";
 import {
   buildOllamaCatalogRoutes,
-  buildProviderRoutes,
   filterResponsesApiRoutes,
   filterImagesApiRoutes,
   minMsUntilAnyProviderKeyReady,
@@ -31,6 +30,8 @@ import {
   resolveRequestRoutingState,
   type ProviderRoute,
   type ResolvedModelCatalog,
+  buildProviderRoutesWithDynamicBaseUrls,
+  createDynamicProviderBaseUrlGetter,
 } from "./lib/provider-routing.js";
 import {
   buildResponsesPassthroughContext,
@@ -507,6 +508,8 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       throw error;
     }
   }
+
+  const dynamicProviderBaseUrlGetter = createDynamicProviderBaseUrlGetter(sqlCredentialStore);
 
   const keyPool = new KeyPool({
     keysFilePath: config.keysFilePath,
@@ -1346,7 +1349,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
   quotaMonitor.start();
 
   const ollamaCatalogRoutes = buildOllamaCatalogRoutes(config);
-  const providerCatalogRoutes = buildProviderRoutes(config, false, true)
+  const providerCatalogRoutes = (await buildProviderRoutesWithDynamicBaseUrls(config, false, dynamicProviderBaseUrlGetter, true))
     .filter((route) => route.providerId !== "factory" || !config.disabledProviderIds.includes("factory"));
   const providerCatalogStore = new ProviderCatalogStore(
     config,
@@ -2524,9 +2527,10 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
           ? []
           : [{ providerId: "factory", baseUrl: factoryBaseUrl }];
       } else {
-        providerRoutes = buildProviderRoutes(
+        providerRoutes = await buildProviderRoutesWithDynamicBaseUrls(
           config,
           context.openAiPrefixed,
+          dynamicProviderBaseUrlGetter,
           !context.openAiPrefixed && strategy.mode === "responses"
         );
         if (!context.openAiPrefixed && resolvedModelCatalog) {
@@ -2812,7 +2816,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     }
 
     const autoCandidateProviderIds = filterTenantProviderRoutes(
-      filterResponsesApiRoutes(buildProviderRoutes(config, false, true), config.openaiProviderId),
+      filterResponsesApiRoutes(await buildProviderRoutesWithDynamicBaseUrls(config, false, dynamicProviderBaseUrlGetter, true), config.openaiProviderId),
       tenantSettings,
     ).map((route) => route.providerId);
     const concreteModelIds = isAutoModel(routingModelInput)
@@ -2861,7 +2865,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
           ? []
           : [{ providerId: "factory", baseUrl: factoryBaseUrl }];
       } else {
-        providerRoutes = buildProviderRoutes(config, context.openAiPrefixed, true);
+        providerRoutes = await buildProviderRoutesWithDynamicBaseUrls(config, context.openAiPrefixed, dynamicProviderBaseUrlGetter, true);
       }
 
       providerRoutes = filterProviderRoutesByModelSupport(config, providerRoutes, context.routedModel);
@@ -3085,7 +3089,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     }
 
     let providerRoutes = filterImagesApiRoutes(
-      buildProviderRoutes(config, context.openAiPrefixed, true),
+      await buildProviderRoutesWithDynamicBaseUrls(config, context.openAiPrefixed, dynamicProviderBaseUrlGetter, true),
       config.openaiProviderId,
     );
     providerRoutes = filterTenantProviderRoutes(providerRoutes, tenantSettings);

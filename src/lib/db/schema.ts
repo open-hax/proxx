@@ -19,7 +19,7 @@ CREATE INDEX IF NOT EXISTS idx_account_health_score ON account_health(
 );
 `;
 
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 6;
 
 export const CREATE_TENANTS_TABLE = `
 CREATE TABLE IF NOT EXISTS tenants (
@@ -107,6 +107,7 @@ export const CREATE_PROVIDERS_TABLE = `
 CREATE TABLE IF NOT EXISTS providers (
   id TEXT PRIMARY KEY,
   auth_type TEXT NOT NULL DEFAULT 'api_key',
+  base_url TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -253,6 +254,7 @@ export const ALL_MIGRATIONS = [
   { version: 4, sql: CREATE_TENANT_API_KEYS_HASH_INDEX },
   { version: 5, sql: CREATE_TENANT_PROVIDER_POLICIES_TABLE },
   { version: 5, sql: CREATE_TENANT_PROVIDER_POLICIES_OWNER_INDEX },
+  { version: 6, sql: "ALTER TABLE providers ADD COLUMN IF NOT EXISTS base_url TEXT;" },
 ];
 
 export const UPSERT_TENANT = `
@@ -388,11 +390,25 @@ ORDER BY owner_subject, subject_did, provider_id;
 `;
 
 export const UPSERT_PROVIDER = `
-INSERT INTO providers (id, auth_type, updated_at)
-VALUES ($1, $2, NOW())
+INSERT INTO providers (id, auth_type, base_url, updated_at)
+VALUES ($1, $2, $3, NOW())
 ON CONFLICT (id) DO UPDATE SET
   auth_type = EXCLUDED.auth_type,
+  base_url = EXCLUDED.base_url,
   updated_at = NOW();
+`;
+
+export const UPSERT_PROVIDER_WITH_BASE_URL = `
+INSERT INTO providers (id, auth_type, base_url, updated_at)
+VALUES ($1, $2, $3, NOW())
+ON CONFLICT (id) DO UPDATE SET
+  auth_type = COALESCE(EXCLUDED.auth_type, providers.auth_type),
+  base_url = COALESCE(EXCLUDED.base_url, providers.base_url),
+  updated_at = NOW();
+`;
+
+export const SELECT_PROVIDER_BY_ID = `
+SELECT id, auth_type, base_url FROM providers WHERE id = $1;
 `;
 
 export const INSERT_ACCOUNT = `
@@ -408,7 +424,7 @@ ON CONFLICT (id, provider_id) DO UPDATE SET
 `;
 
 export const SELECT_ALL_PROVIDERS = `
-SELECT id, auth_type FROM providers ORDER BY id;
+SELECT id, auth_type, base_url FROM providers ORDER BY id;
 `;
 
 export const SELECT_ACCOUNTS_BY_PROVIDER = `
