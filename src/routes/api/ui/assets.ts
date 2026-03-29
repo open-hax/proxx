@@ -76,30 +76,4 @@ export async function registerStaticAssetRoutes(app: FastifyInstance): Promise<v
       await sendUiIndex(reply);
     });
   }
-
-  // API catch-all routes that should return UI (for SPA routing)
-  const uiApiPrefixes = [
-    "/api/ui/credentials",
-    "/api/ui/sessions",
-    "/api/ui/settings",
-    "/api/ui/federation",
-    "/api/ui/dashboard",
-    "/api/ui/hosts",
-    "/api/ui/events",
-    "/api/ui/tools",
-  ];
-
-  for (const prefix of uiApiPrefixes) {
-    app.get(prefix, async (_request, reply) => {
-      await sendUiIndex(reply);
-    });
-    app.get(`${prefix}/*`, async (_request, reply) => {
-      await sendUiIndex(reply);
-    });
-  }
-
-  // Root catch-all
-  app.get("/", async (_request, reply) => {
-    await sendUiIndex(reply);
-  });
 }
