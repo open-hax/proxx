@@ -5,6 +5,7 @@ import { isRecord } from "../lib/provider-utils.js";
 import {
   resolvableConcreteModelIds,
   filterProviderRoutesByModelSupport,
+  filterProviderRoutesByCatalogAvailability,
   shouldRejectModelFromProviderCatalog,
 } from "../lib/model-routing-helpers.js";
 import {
@@ -33,7 +34,7 @@ import { requestHasExplicitNumCtx } from "../lib/ollama-compat.js";
 import { ensureOllamaContextFits } from "../lib/ollama-context.js";
 import { executeBridgeRequestFallback } from "../lib/federation/bridge-fallback.js";
 import type { AppDeps } from "../lib/app-deps.js";
-import { discoverDynamicOllamaRoutes, filterDedicatedOllamaRoutes, prependDynamicOllamaRoutes } from "../lib/dynamic-ollama-routes.js";
+import { discoverDynamicOllamaRoutes, filterDedicatedOllamaRoutes, hasDedicatedOllamaRoutes, prependDynamicOllamaRoutes } from "../lib/dynamic-ollama-routes.js";
 
 export function registerChatRoutes(deps: AppDeps, app: FastifyInstance): void {
   app.post<{ Body: ChatCompletionRequest }>("/v1/chat/completions", async (request, reply) => {
