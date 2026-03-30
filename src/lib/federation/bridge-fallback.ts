@@ -1,17 +1,11 @@
-import { Readable } from "node:stream";
-
 import type { FastifyInstance, FastifyReply } from "fastify";
 
 import type { ProxyConfig } from "../config.js";
 import {
   parseJsonIfPossible,
   normalizeRequestedModel,
-  SUPPORTED_V1_ENDPOINTS,
 } from "../request-utils.js";
 import {
-  fetchWithResponseTimeout,
-  isRecord,
-  sendOpenAiError,
   toErrorMessage,
 } from "../provider-utils.js";
 import {
@@ -21,8 +15,6 @@ import {
   decodeBridgeResponseChunk,
 } from "../bridge-helpers.js";
 import {
-  extractPeerCredential,
-  fetchFederationJson,
   resolveFederationHopCount,
   resolveFederationOwnerSubject,
 } from "./federation-helpers.js";
@@ -33,12 +25,6 @@ import {
   type TenantProviderPolicyRecord,
 } from "../tenant-provider-policy.js";
 import { applyNativeOllamaAuth } from "../native-auth.js";
-import {
-  shouldWarmImportProjectedAccount,
-  type FederationPeerRecord,
-  type FederationProjectedAccountRecord,
-} from "../db/sql-federation-store.js";
-import type { SqlFederationStore } from "../db/sql-federation-store.js";
 import type { SqlTenantProviderPolicyStore } from "../db/sql-tenant-provider-policy-store.js";
 import type { RuntimeCredentialStore } from "../runtime-credential-store.js";
 import type { KeyPool } from "../key-pool.js";
@@ -86,7 +72,7 @@ export async function executeBridgeRequestFallback(
     readonly timeoutMs: number;
   },
 ): Promise<boolean> {
-  const { bridgeRelay, app, config, sqlTenantProviderPolicyStore } = deps;
+  const { bridgeRelay, app, sqlTenantProviderPolicyStore } = deps;
 
   if (!bridgeRelay) {
     return false;

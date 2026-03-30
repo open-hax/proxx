@@ -5,6 +5,7 @@ import { isRecord } from "../lib/provider-utils.js";
 import {
   resolvableConcreteModelIds,
   filterProviderRoutesByModelSupport,
+  filterProviderRoutesByCatalogAvailability,
   shouldRejectModelFromProviderCatalog,
 } from "../lib/model-routing-helpers.js";
 import {
@@ -28,11 +29,12 @@ import { orderProviderRoutesByPolicy } from "../lib/provider-policy.js";
 import { sendOpenAiError, toErrorMessage } from "../lib/provider-utils.js";
 import { isAutoModel, rankAutoModels } from "../lib/auto-model-selector.js";
 import { isCephalonAutoModel, buildCephalonModelCandidates, reorderCephalonProviderRoutes } from "../lib/provider-strategy/strategies/cephalon.js";
+import { resolveFederationOwnerSubject } from "../lib/federation/federation-helpers.js";
 import { requestHasExplicitNumCtx } from "../lib/ollama-compat.js";
 import { ensureOllamaContextFits } from "../lib/ollama-context.js";
-import { executeFederatedRequestFallback } from "../lib/federation/federated-fallback.js";
 import { executeBridgeRequestFallback } from "../lib/federation/bridge-fallback.js";
 import type { AppDeps } from "../lib/app-deps.js";
+import { discoverDynamicOllamaRoutes, filterDedicatedOllamaRoutes, hasDedicatedOllamaRoutes, prependDynamicOllamaRoutes } from "../lib/dynamic-ollama-routes.js";
 
 export function registerChatRoutes(deps: AppDeps, app: FastifyInstance): void {
   app.post<{ Body: ChatCompletionRequest }>("/v1/chat/completions", async (request, reply) => {
@@ -133,6 +135,12 @@ export function registerChatRoutes(deps: AppDeps, app: FastifyInstance): void {
         (request as { readonly openHaxAuth?: { readonly kind: "legacy_admin" | "tenant_api_key" | "ui_session" | "unauthenticated"; readonly tenantId?: string; readonly keyId?: string; readonly subject?: string } }).openHaxAuth,
       );
       reply.header("x-open-hax-upstream-mode", strategy.mode);
+      const requestAuth = (request as { readonly openHaxAuth?: { readonly kind: "legacy_admin" | "tenant_api_key" | "ui_session" | "unauthenticated"; readonly tenantId?: string; readonly keyId?: string; readonly subject?: string } }).openHaxAuth;
+      const federationOwnerSubject = resolveFederationOwnerSubject({
+        headers: request.headers as Record<string, unknown>,
+        requestAuth,
+        hopCount: 0,
+      });
 
       let providerRoutes: ProviderRoute[];
       if (context.factoryPrefixed) {
@@ -151,8 +159,21 @@ export function registerChatRoutes(deps: AppDeps, app: FastifyInstance): void {
           providerRoutes = resolveProviderRoutesForModel(providerRoutes, context.routedModel, resolvedModelCatalog);
         }
       }
-      if (context.explicitOllama && deps.sqlCredentialStore) {
-        providerRoutes = [...providerRoutes];
+      const wantsDynamicOllamaRoutes = context.localOllama
+        || isCephalonAutoModel(requestedModelInput)
+        || isCephalonAutoModel(routingModelInput);
+      const dynamicOllamaRoutes = wantsDynamicOllamaRoutes
+        ? await discoverDynamicOllamaRoutes(deps.sqlCredentialStore, deps.sqlFederationStore, federationOwnerSubject)
+        : [];
+
+      if (context.localOllama && dynamicOllamaRoutes.length > 0) {
+        providerRoutes = prependDynamicOllamaRoutes(providerRoutes, dynamicOllamaRoutes);
+      }
+      if (context.localOllama || isCephalonAutoModel(requestedModelInput) || isCephalonAutoModel(routingModelInput)) {
+        const dedicatedOllamaRoutes = filterDedicatedOllamaRoutes(providerRoutes);
+        if (dedicatedOllamaRoutes.length > 0) {
+          providerRoutes = dedicatedOllamaRoutes;
+        }
       }
       providerRoutes = filterProviderRoutesByModelSupport(deps.config, providerRoutes, context.routedModel);
       providerRoutes = filterTenantProviderRoutes(providerRoutes, proxySettings);
@@ -163,13 +184,13 @@ export function registerChatRoutes(deps: AppDeps, app: FastifyInstance): void {
       });
 
       if (isCephalonAutoModel(requestedModelInput) || isCephalonAutoModel(routingModelInput)) {
-        const dynamicOllamaRoutes = dynamicOllamaModelIds && resolvedModelCatalog
-          ? providerRoutes.filter((route) => {
+        const prioritizedDynamicOllamaRoutes = dynamicOllamaModelIds && resolvedModelCatalog
+          ? dynamicOllamaRoutes.filter((route) => {
             const providerId = route.providerId.toLowerCase();
             return providerId.startsWith("ollama-") && providerId !== "ollama-cloud";
           })
-          : undefined;
-        providerRoutes = reorderCephalonProviderRoutes(providerRoutes, dynamicOllamaRoutes);
+          : dynamicOllamaRoutes;
+        providerRoutes = reorderCephalonProviderRoutes(providerRoutes, prioritizedDynamicOllamaRoutes);
       }
 
       if (providerRoutes.length === 0) {
@@ -189,6 +210,10 @@ export function registerChatRoutes(deps: AppDeps, app: FastifyInstance): void {
           }
           sendOpenAiError(reply, 403, `Model is disabled: ${context.routedModel}`, "invalid_request_error", "model_disabled");
           return;
+        }
+
+        if (context.localOllama || isCephalonAutoModel(requestedModelInput) || isCephalonAutoModel(routingModelInput)) {
+          providerRoutes = filterProviderRoutesByCatalogAvailability(providerRoutes, context.routedModel, catalogBundle);
         }
 
         if (shouldRejectModelFromProviderCatalog(providerRoutes, context.routedModel, catalogBundle)) {
@@ -215,7 +240,7 @@ export function registerChatRoutes(deps: AppDeps, app: FastifyInstance): void {
 
       if (strategy.mode === "ollama_chat" || strategy.mode === "local_ollama_chat") {
         const candidateRequestBody = payload.upstreamPayload;
-        if (isRecord(candidateRequestBody) && !requestHasExplicitNumCtx(requestBody)) {
+        if (isRecord(candidateRequestBody) && !requestHasExplicitNumCtx(requestBody) && !hasDedicatedOllamaRoutes(providerRoutes)) {
           const ollamaUrl = providerRoutes.length > 0 ? providerRoutes[0]!.baseUrl : deps.config.ollamaBaseUrl;
           const budget = await ensureOllamaContextFits(ollamaUrl, candidateRequestBody, Math.min(deps.config.requestTimeoutMs, 30_000));
           if (budget && budget.requiredContextTokens > budget.availableContextTokens) {
@@ -234,7 +259,7 @@ export function registerChatRoutes(deps: AppDeps, app: FastifyInstance): void {
         }
       }
 
-      if (strategy.isLocal && providerRoutes.length === 0) {
+      if (strategy.isLocal) {
         if (!tenantProviderAllowed(proxySettings, "ollama")) {
           if (hasMoreModelCandidates) {
             continue;
@@ -253,6 +278,24 @@ export function registerChatRoutes(deps: AppDeps, app: FastifyInstance): void {
 
       const availability = await inspectProviderAvailability(deps.keyPool, providerRoutes);
       const promptCacheKey = extractPromptCacheKey(requestBody);
+      const shouldPreferFederatedProjectedAccounts = dynamicOllamaRoutes.length > 0
+        && (context.localOllama || isCephalonAutoModel(requestedModelInput) || isCephalonAutoModel(routingModelInput));
+
+      if (shouldPreferFederatedProjectedAccounts) {
+        const federatedChatHandled = await deps.executeFederatedRequestFallback({
+          requestHeaders: request.headers,
+          requestBody,
+          requestAuth: requestAuth as { readonly kind: "legacy_admin" | "tenant_api_key" | "ui_session" | "unauthenticated"; readonly subject?: string },
+          providerRoutes,
+          upstreamPath: "/v1/chat/completions",
+          reply,
+          timeoutMs: context.upstreamAttemptTimeoutMs,
+        });
+        if (federatedChatHandled) {
+          return;
+        }
+      }
+
       const execution = await executeProviderFallback(
         strategy,
         reply,
@@ -277,7 +320,7 @@ export function registerChatRoutes(deps: AppDeps, app: FastifyInstance): void {
       const federatedChatHandled = await deps.executeFederatedRequestFallback({
         requestHeaders: request.headers,
         requestBody,
-        requestAuth: (request as { readonly openHaxAuth?: { readonly kind: "legacy_admin" | "tenant_api_key" | "ui_session" | "unauthenticated"; readonly subject?: string } }).openHaxAuth,
+        requestAuth: requestAuth as { readonly kind: "legacy_admin" | "tenant_api_key" | "ui_session" | "unauthenticated"; readonly subject?: string },
         providerRoutes,
         upstreamPath: "/v1/chat/completions",
         reply,

@@ -1,6 +1,4 @@
-import { Readable } from "node:stream";
-
-import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
+import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
 import fastifySwagger from "@fastify/swagger";
 import fastifySwaggerUi from "@fastify/swagger-ui";
 
@@ -8,47 +6,12 @@ import { DEFAULT_MODELS, type ProxyConfig } from "./lib/config.js";
 import {
   PROXY_AUTH_COOKIE_NAME,
   readCookieToken,
-  extractPromptCacheKey,
-  hashPromptCacheKey,
-  summarizeResponsesRequestBody,
-  joinUrl,
-  parseJsonIfPossible,
   readSingleHeader,
   escapeHtml,
-  normalizeRequestedModel,
   isTrustedLocalBridgeAddress,
-  copyInjectedResponseHeaders,
   SUPPORTED_V1_ENDPOINTS,
   SUPPORTED_NATIVE_OLLAMA_ENDPOINTS,
-  type ChatCompletionRequest,
-  type WebSearchToolRequest,
 } from "./lib/request-utils.js";
-import { extractResponseTextAndUrlCitations, extractMarkdownLinks } from "./lib/response-utils.js";
-import {
-  tenantProviderAllowed,
-  filterTenantProviderRoutes,
-  resolveExplicitTenantProviderId,
-} from "./lib/tenant-policy-helpers.js";
-import {
-  resolvableConcreteModelIds,
-  resolvableConcreteModelIdsForProviders,
-  openAiProviderUsesCodexSurface,
-  providerRouteSupportsModel,
-  filterProviderRoutesByModelSupport,
-  shouldRejectModelFromProviderCatalog,
-} from "./lib/model-routing-helpers.js";
-import {
-  bridgeCapabilitySupportsPath,
-  bridgeCapabilitySupportsModel,
-  appendBridgeResponseHeaders,
-  decodeBridgeResponseChunk,
-} from "./lib/bridge-helpers.js";
-import {
-  extractPeerCredential,
-  fetchFederationJson,
-  resolveFederationHopCount,
-  resolveFederationOwnerSubject,
-} from "./lib/federation/federation-helpers.js";
 
 import { KeyPool, type ProviderCredential } from "./lib/key-pool.js";
 import { CredentialStore } from "./lib/credential-store.js";
@@ -59,36 +22,18 @@ import {
   persistFactoryAuthV2,
   refreshFactoryOAuthToken,
 } from "./lib/factory-auth.js";
-import { toOpenAiModel } from "./lib/models.js";
-import { ProviderCatalogStore, type ResolvedCatalogWithPreferences } from "./lib/provider-catalog.js";
-import { buildForwardHeaders } from "./lib/proxy.js";
+import { ProviderCatalogStore } from "./lib/provider-catalog.js";
 import { initializePolicyEngine, createPolicyEngine, type PolicyEngine } from "./lib/policy/index.js";
 import { DEFAULT_POLICY_CONFIG } from "./lib/policy/index.js";
 import {
   buildOllamaCatalogRoutes,
-  filterResponsesApiRoutes,
-  filterImagesApiRoutes,
-  minMsUntilAnyProviderKeyReady,
   parseModelIdsFromCatalogPayload,
-  resolveProviderRoutesForModel,
-  type ProviderRoute,
   type ResolvedModelCatalog,
   buildProviderRoutesWithDynamicBaseUrls,
   createDynamicProviderBaseUrlGetter,
 } from "./lib/provider-routing.js";
-import { discoverDynamicOllamaRoutes } from "./lib/dynamic-ollama-routes.js";
+import { discoverDynamicOllamaRoutes, prependDynamicOllamaRoutes } from "./lib/dynamic-ollama-routes.js";
 import {
-  buildResponsesPassthroughContext,
-  buildImagesPassthroughContext,
-  executeLocalStrategy,
-  executeProviderFallback,
-  inspectProviderAvailability,
-  selectProviderStrategy,
-} from "./lib/provider-strategy.js";
-import { orderProviderRoutesByPolicy } from "./lib/provider-policy.js";
-import {
-  fetchWithResponseTimeout,
-  isRecord,
   sendOpenAiError,
   toErrorMessage,
 } from "./lib/provider-utils.js";
@@ -99,56 +44,28 @@ import { ProxySettingsStore } from "./lib/proxy-settings-store.js";
 import { QuotaMonitor } from "./lib/quota-monitor.js";
 import { registerUiRoutes } from "./lib/ui-routes.js";
 import { registerApiV1Routes } from "./routes/api/v1/index.js";
-import {
-  ensureOllamaContextFits,
-} from "./lib/ollama-context.js";
-import {
-  chatCompletionToNativeChat,
-  chatCompletionToNativeGenerate,
-  modelIdsToNativeTags,
-  nativeChatToOpenAiRequest,
-  nativeEmbedResponseToOpenAiEmbeddings,
-  nativeEmbedToOpenAiRequest,
-  nativeGenerateToChatRequest,
-  openAiEmbeddingsToNativeEmbed,
-  openAiEmbeddingsToNativeEmbeddings,
-} from "./lib/ollama-native.js";
-import { shouldUseResponsesUpstream } from "./lib/responses-compat.js";
-import { applyNativeOllamaAuth } from "./lib/native-auth.js";
-import { requestHasExplicitNumCtx } from "./lib/ollama-compat.js";
+import { modelIdsToNativeTags } from "./lib/ollama-native.js";
 import { createSqlConnection, closeConnection, type Sql } from "./lib/db/index.js";
 import { SqlCredentialStore } from "./lib/db/sql-credential-store.js";
 import { AccountHealthStore } from "./lib/db/account-health-store.js";
 import { EventStore } from "./lib/db/event-store.js";
 import { createDefaultLabelers } from "./lib/db/event-labelers.js";
 import { SqlRequestUsageStore } from "./lib/db/sql-request-usage-store.js";
-import { SqlFederationStore, shouldWarmImportProjectedAccount, type FederationPeerRecord, type FederationProjectedAccountRecord } from "./lib/db/sql-federation-store.js";
+import { SqlFederationStore } from "./lib/db/sql-federation-store.js";
 import { SqlTenantProviderPolicyStore } from "./lib/db/sql-tenant-provider-policy-store.js";
 import { SqlAuthPersistence } from "./lib/auth/sql-persistence.js";
-import { SqlGitHubAllowlist } from "./lib/auth/github-allowlist.js";
 import { seedFromJsonFile, seedFromJsonValue, seedFactoryAuthFromFiles, seedModelsFromFile } from "./lib/db/json-seeder.js";
-import { registerOAuthRoutes } from "./lib/oauth-routes.js";
-import { isAutoModel, rankAutoModels } from "./lib/auto-model-selector.js";
 import { RuntimeCredentialStore } from "./lib/runtime-credential-store.js";
 import { TokenRefreshManager } from "./lib/token-refresh-manager.js";
 import { DEFAULT_TENANT_ID } from "./lib/tenant-api-key.js";
 import { resolveRequestAuth, type ResolvedRequestAuth } from "./lib/request-auth.js";
 import { createEnvFederationBridgeAgent } from "./lib/federation/bridge-agent-autostart.js";
 import type { FederationBridgeRelay } from "./lib/federation/bridge-relay.js";
-import { isAtDid } from "./lib/federation/owner-credential.js";
-import {
-  shareModeAllowsRelay,
-  shareModeAllowsWarmImport,
-  tenantProviderPolicyAllowsUse,
-  type TenantProviderPolicyRecord,
-} from "./lib/tenant-provider-policy.js";
 import { type AppDeps } from "./lib/app-deps.js";
 import {
-  noteFederatedProjectedAccountRouted,
   executeFederatedRequestFallback,
 } from "./lib/federation/federated-fallback.js";
 import {
-  executeBridgeRequestFallback,
   handleBridgeRequest,
   injectNativeBridge,
 } from "./lib/federation/bridge-fallback.js";
@@ -195,7 +112,6 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
   let sql: Sql | undefined;
   let sqlCredentialStore: SqlCredentialStore | undefined;
   let sqlAuthPersistence: SqlAuthPersistence | undefined;
-  let sqlGitHubAllowlist: SqlGitHubAllowlist | undefined;
   let accountHealthStore: AccountHealthStore | undefined;
   let eventStore: EventStore | undefined;
   let sqlRequestUsageStore: SqlRequestUsageStore | undefined;
@@ -247,9 +163,6 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       sqlAuthPersistence = new SqlAuthPersistence(sql);
       await sqlAuthPersistence.init();
       app.log.info("auth persistence initialized");
-
-      sqlGitHubAllowlist = new SqlGitHubAllowlist(sql);
-      app.log.info("github allowlist initialized");
 
       if (config.keysFilePath) {
         try {
@@ -531,39 +444,8 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     }
   }
 
-  const FEDERATION_HOP_HEADER = "x-open-hax-federation-hop";
   const FEDERATION_OWNER_SUBJECT_HEADER = "x-open-hax-federation-owner-subject";
   const FEDERATION_BRIDGE_TENANT_HEADER = "x-open-hax-bridge-tenant-id";
-  const FEDERATION_FORCED_PROVIDER_HEADER = "x-open-hax-forced-provider";
-  const FEDERATION_FORCED_ACCOUNT_ID_HEADER = "x-open-hax-forced-account-id";
-  const FEDERATION_ROUTED_PEER_HEADER = "x-open-hax-federation-routed-peer";
-  const FEDERATION_ROUTED_PROVIDER_HEADER = "x-open-hax-federation-routed-provider";
-  const FEDERATION_ROUTED_ACCOUNT_HEADER = "x-open-hax-federation-routed-account";
-  const FEDERATION_IMPORTED_HEADER = "x-open-hax-federation-imported";
-  const FEDERATION_BLOCKED_RESPONSE_HEADERS = new Set([
-    "set-cookie",
-    "x-open-hax-federation-hop",
-    "x-open-hax-federation-owner-subject",
-    "x-open-hax-federation-routed-peer",
-    "x-open-hax-federation-routed-provider",
-    "x-open-hax-federation-routed-account",
-    "x-open-hax-federation-imported",
-    "x-open-hax-forced-provider",
-    "x-open-hax-forced-account-id",
-  ]);
-
-  interface FederationCredentialExport {
-    readonly providerId: string;
-    readonly accountId: string;
-    readonly authType: "api_key" | "oauth_bearer";
-    readonly secret: string;
-    readonly refreshToken?: string;
-    readonly expiresAt?: number;
-    readonly chatgptAccountId?: string;
-    readonly email?: string;
-    readonly subject?: string;
-    readonly planType?: string;
-  }
 
   function inferWebConsoleUrl(request: FastifyRequest): string {
     const forwardedHost = readSingleHeader(request.headers as Record<string, unknown>, "x-forwarded-host")?.trim();
@@ -680,9 +562,21 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
   );
   quotaMonitor.start();
 
-  const ollamaCatalogRoutes = buildOllamaCatalogRoutes(config);
-  const providerCatalogRoutes = (await buildProviderRoutesWithDynamicBaseUrls(config, false, dynamicProviderBaseUrlGetter, true))
-    .filter((route) => route.providerId !== "factory" || !config.disabledProviderIds.includes("factory"));
+  const bootstrapOwnerSubject = process.env.FEDERATION_DEFAULT_OWNER_SUBJECT?.trim() || undefined;
+  const federatedDynamicOllamaRoutes = await discoverDynamicOllamaRoutes(
+    sqlCredentialStore,
+    sqlFederationStore,
+    bootstrapOwnerSubject,
+  );
+  const ollamaCatalogRoutes = prependDynamicOllamaRoutes(
+    buildOllamaCatalogRoutes(config),
+    federatedDynamicOllamaRoutes,
+  );
+  const providerCatalogRoutes = prependDynamicOllamaRoutes(
+    (await buildProviderRoutesWithDynamicBaseUrls(config, false, dynamicProviderBaseUrlGetter, true))
+      .filter((route) => route.providerId !== "factory" || !config.disabledProviderIds.includes("factory")),
+    federatedDynamicOllamaRoutes,
+  );
   const providerCatalogStore = new ProviderCatalogStore(
     config,
     keyPool,
@@ -747,8 +641,8 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     const bridgedModels = await getBridgeAdvertisedModelIds();
     return [...new Set([...localCatalog.modelIds, ...bridgedModels])];
   }
-
-
+  const fedDeps = { app, sqlFederationStore, runtimeCredentialStore, keyPool, sqlTenantProviderPolicyStore };
+  const getBridgeDeps = () => ({ bridgeRelay, app, config, runtimeCredentialStore, keyPool, sqlTenantProviderPolicyStore });
 
   const bridgeAgent = createEnvFederationBridgeAgent({
     config,
@@ -756,12 +650,8 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     credentialStore: runtimeCredentialStore,
     logger: app.log,
     getResolvedModelCatalog: () => getResolvedModelCatalog(false),
-    handleBridgeRequest: (input) => handleBridgeRequest(bridgeDeps, input),
+    handleBridgeRequest: (input) => handleBridgeRequest(getBridgeDeps(), input),
   });
-
-
-  const fedDeps = { app, sqlFederationStore, runtimeCredentialStore, keyPool, sqlTenantProviderPolicyStore };
-  const bridgeDeps = { bridgeRelay, app, config, runtimeCredentialStore, keyPool, sqlTenantProviderPolicyStore };
 
   if (config.allowUnauthenticated) {
     app.log.warn("proxy auth disabled via PROXY_ALLOW_UNAUTHENTICATED=true");
@@ -1001,7 +891,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     refreshExpiredOAuthAccount: async (c) => await refreshExpiredOAuthAccount(c as never),
     getMergedModelIds,
     executeFederatedRequestFallback: async (input) => executeFederatedRequestFallback(fedDeps, input),
-    injectNativeBridge: async (url, payload, headers) => injectNativeBridge(bridgeDeps, url, payload, headers),
+    injectNativeBridge: async (url, payload, headers) => injectNativeBridge(getBridgeDeps(), url, payload, headers),
   };
 
   registerHealthRoutes(deps, app);
@@ -1017,7 +907,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     config,
     keyPool,
     requestLogStore,
-    credentialStore,
+    credentialStore: runtimeCredentialStore,
     sqlCredentialStore,
     sqlFederationStore,
     sqlTenantProviderPolicyStore,
@@ -1027,11 +917,14 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     refreshOpenAiOauthAccounts,
   });
 
+  bridgeRelay = uiBridgeRelay;
+  (deps as { bridgeRelay: FederationBridgeRelay | undefined }).bridgeRelay = uiBridgeRelay;
+
   await registerApiV1Routes(app, {
     config,
     keyPool,
     requestLogStore,
-    credentialStore,
+    credentialStore: runtimeCredentialStore,
     sqlCredentialStore,
     sqlFederationStore,
     sqlTenantProviderPolicyStore,
@@ -1041,6 +934,18 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     refreshOpenAiOauthAccounts,
     bridgeRelay: uiBridgeRelay,
   });
+
+  app.get("/api/tags", async (_request, reply) => {
+    try {
+      reply.send(modelIdsToNativeTags(await getMergedModelIds()));
+    } catch (error) {
+      reply.code(500).send({ error: toErrorMessage(error) });
+    }
+  });
+
+  if (bridgeAgent) {
+    await bridgeAgent.start();
+  }
 
   app.addHook("onClose", async () => {
     if (bridgeAgent) {
@@ -1073,6 +978,17 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
         reply,
         404,
         `Unsupported endpoint: ${request.method} ${path}. Supported endpoints: ${SUPPORTED_V1_ENDPOINTS.join(", ")}`,
+        "invalid_request_error",
+        "unsupported_endpoint"
+      );
+      return;
+    }
+
+    if (path.startsWith("/api/v1/")) {
+      sendOpenAiError(
+        reply,
+        404,
+        `Unsupported endpoint: ${request.method} ${path}. Supported API v1 endpoints begin with /api/v1 and are routed through the canonical control surface.`,
         "invalid_request_error",
         "unsupported_endpoint"
       );

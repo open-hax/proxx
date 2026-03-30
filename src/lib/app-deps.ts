@@ -1,4 +1,4 @@
-import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
+import type { FastifyInstance, FastifyReply } from "fastify";
 import type { ProxyConfig } from "./config.js";
 import type { KeyPool, ProviderCredential } from "./key-pool.js";
 import type { CredentialStore } from "./credential-store.js";
@@ -17,7 +17,6 @@ import type { TokenRefreshManager } from "./token-refresh-manager.js";
 import type { FederationBridgeRelay } from "./federation/bridge-relay.js";
 import type { QuotaMonitor } from "./quota-monitor.js";
 import type { ProviderRoute } from "./provider-routing.js";
-import type { ResolvedCatalogWithPreferences } from "./provider-catalog.js";
 
 export interface ExecuteFederatedRequestFallbackInput {
   readonly requestHeaders: Record<string, unknown>;

@@ -86,6 +86,25 @@ export function filterProviderRoutesByModelSupport(
   return routes.filter((route) => providerRouteSupportsModel(config, route.providerId, modelId));
 }
 
+export function filterProviderRoutesByCatalogAvailability(
+  providerRoutes: readonly ProviderRoute[],
+  routedModel: string,
+  catalogBundle: ResolvedCatalogWithPreferences,
+): ProviderRoute[] {
+  if (catalogBundle.catalog.declaredModelIds.includes(routedModel)) {
+    return [...providerRoutes];
+  }
+
+  const catalogMatchedRoutes = providerRoutes.filter((route) => {
+    const entry = catalogBundle.providerCatalogs[route.providerId];
+    return entry?.modelIds.includes(routedModel) ?? false;
+  });
+
+  return catalogMatchedRoutes.length > 0
+    ? catalogMatchedRoutes
+    : [...providerRoutes];
+}
+
 export function shouldRejectModelFromProviderCatalog(
   providerRoutes: readonly ProviderRoute[],
   routedModel: string,

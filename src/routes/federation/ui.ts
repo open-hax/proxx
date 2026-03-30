@@ -25,6 +25,7 @@ import {
 } from "./remote.js";
 import { resolveFederationRoutePath, type FederationRouteOptions } from "./prefix.js";
 import { shouldWarmImportProjectedAccount } from "../../lib/db/sql-federation-store.js";
+import type { RequestLogEntry } from "../../lib/request-log-store.js";
 
 export interface FederationUiRouteContext {
   readonly bridgeRelay?: FederationBridgeRelay;
@@ -44,6 +45,84 @@ function toSafeLimit(value: unknown, fallback: number, max: number): number {
   }
 
   return fallback;
+}
+
+function sanitizeFederationUsageEntry(candidate: unknown): RequestLogEntry | undefined {
+  if (typeof candidate !== "object" || candidate === null) {
+    return undefined;
+  }
+
+  const row = candidate as Record<string, unknown>;
+  const id = typeof row.id === "string" ? row.id.trim() : "";
+  const providerId = typeof row.providerId === "string" ? row.providerId.trim() : "";
+  const accountId = typeof row.accountId === "string" ? row.accountId.trim() : "";
+  const authType = row.authType;
+  const model = typeof row.model === "string" ? row.model.trim() : "";
+  const upstreamMode = typeof row.upstreamMode === "string" ? row.upstreamMode.trim() : "";
+  const upstreamPath = typeof row.upstreamPath === "string" ? row.upstreamPath.trim() : "";
+  const timestamp = typeof row.timestamp === "number" && Number.isFinite(row.timestamp) ? row.timestamp : undefined;
+  const status = typeof row.status === "number" && Number.isFinite(row.status) ? row.status : undefined;
+  const latencyMs = typeof row.latencyMs === "number" && Number.isFinite(row.latencyMs) ? row.latencyMs : undefined;
+  const serviceTierSource = row.serviceTierSource;
+
+  if (!id || !providerId || !accountId || !model || !upstreamMode || !upstreamPath || timestamp === undefined || status === undefined || latencyMs === undefined) {
+    return undefined;
+  }
+
+  const normalizedAuthType: RequestLogEntry["authType"] =
+    authType === "api_key" || authType === "oauth_bearer" || authType === "local" || authType === "none"
+      ? authType
+      : "none";
+
+  const normalizedRouteKind: RequestLogEntry["routeKind"] =
+    row.routeKind === "local" || row.routeKind === "federated" || row.routeKind === "bridge"
+      ? row.routeKind
+      : "local";
+
+  const normalizedServiceTierSource: RequestLogEntry["serviceTierSource"] =
+    serviceTierSource === "fast_mode" || serviceTierSource === "explicit" || serviceTierSource === "none"
+      ? serviceTierSource
+      : "none";
+
+  return {
+    id,
+    timestamp,
+    tenantId: typeof row.tenantId === "string" ? row.tenantId : undefined,
+    issuer: typeof row.issuer === "string" ? row.issuer : undefined,
+    keyId: typeof row.keyId === "string" ? row.keyId : undefined,
+    routeKind: normalizedRouteKind,
+    federationOwnerSubject: typeof row.federationOwnerSubject === "string" ? row.federationOwnerSubject : undefined,
+    routedPeerId: typeof row.routedPeerId === "string" ? row.routedPeerId : undefined,
+    routedPeerLabel: typeof row.routedPeerLabel === "string" ? row.routedPeerLabel : undefined,
+    providerId,
+    accountId,
+    authType: normalizedAuthType,
+    model,
+    upstreamMode,
+    upstreamPath,
+    status,
+    latencyMs,
+    serviceTier: typeof row.serviceTier === "string" ? row.serviceTier : undefined,
+    serviceTierSource: normalizedServiceTierSource,
+    promptTokens: typeof row.promptTokens === "number" && Number.isFinite(row.promptTokens) ? row.promptTokens : undefined,
+    completionTokens: typeof row.completionTokens === "number" && Number.isFinite(row.completionTokens) ? row.completionTokens : undefined,
+    totalTokens: typeof row.totalTokens === "number" && Number.isFinite(row.totalTokens) ? row.totalTokens : undefined,
+    cachedPromptTokens: typeof row.cachedPromptTokens === "number" && Number.isFinite(row.cachedPromptTokens) ? row.cachedPromptTokens : undefined,
+    imageCount: typeof row.imageCount === "number" && Number.isFinite(row.imageCount) ? row.imageCount : undefined,
+    imageCostUsd: typeof row.imageCostUsd === "number" && Number.isFinite(row.imageCostUsd) ? row.imageCostUsd : undefined,
+    promptCacheKeyHash: typeof row.promptCacheKeyHash === "string" ? row.promptCacheKeyHash : undefined,
+    promptCacheKeyUsed: row.promptCacheKeyUsed === true,
+    cacheHit: row.cacheHit === true,
+    ttftMs: typeof row.ttftMs === "number" && Number.isFinite(row.ttftMs) ? row.ttftMs : undefined,
+    tps: typeof row.tps === "number" && Number.isFinite(row.tps) ? row.tps : undefined,
+    error: typeof row.error === "string" ? row.error : undefined,
+    upstreamErrorCode: typeof row.upstreamErrorCode === "string" ? row.upstreamErrorCode : undefined,
+    upstreamErrorType: typeof row.upstreamErrorType === "string" ? row.upstreamErrorType : undefined,
+    upstreamErrorMessage: typeof row.upstreamErrorMessage === "string" ? row.upstreamErrorMessage : undefined,
+    costUsd: typeof row.costUsd === "number" && Number.isFinite(row.costUsd) ? row.costUsd : undefined,
+    energyJoules: typeof row.energyJoules === "number" && Number.isFinite(row.energyJoules) ? row.energyJoules : undefined,
+    waterEvaporatedMl: typeof row.waterEvaporatedMl === "number" && Number.isFinite(row.waterEvaporatedMl) ? row.waterEvaporatedMl : undefined,
+  };
 }
 
 export async function registerFederationUiRoutes(
@@ -600,6 +679,433 @@ export async function registerFederationUiRoutes(
     }
 
     reply.code(201).send({ accounts: imported });
+  });
+
+  app.post<{
+    Body: { readonly sourcePeerId?: string; readonly providerId?: string };
+  }>(resolveFederationRoutePath("/federation/projected-accounts/import-all", options), async (request, reply) => {
+    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
+    if (!authCanManageFederation(auth)) {
+      reply.code(auth ? 403 : 401).send({ error: auth ? "forbidden" : "unauthorized" });
+      return;
+    }
+
+    if (!deps.sqlFederationStore || !deps.credentialStore) {
+      reply.code(503).send({ error: "federation_store_not_supported" });
+      return;
+    }
+
+    const sourcePeerId = typeof request.body?.sourcePeerId === "string" ? request.body.sourcePeerId.trim() : "";
+    const providerId = typeof request.body?.providerId === "string" ? request.body.providerId.trim() : "";
+
+    if (!sourcePeerId || !providerId) {
+      reply.code(400).send({ error: "source_peer_id_and_provider_id_required" });
+      return;
+    }
+
+    const peer = await deps.sqlFederationStore.getPeer(sourcePeerId);
+    const credential = peer ? extractPeerCredential(peer.auth) : undefined;
+    if (!peer || !credential) {
+      reply.code(400).send({ error: "peer_or_credential_not_found" });
+      return;
+    }
+
+    const controlBaseUrl = peer.controlBaseUrl ?? peer.baseUrl;
+    const projectedAccounts = await deps.sqlFederationStore.listProjectedAccounts(undefined);
+    const filteredAccounts = projectedAccounts.filter((account) => account.sourcePeerId === sourcePeerId && account.providerId === providerId);
+
+    const now = Date.now();
+    const oauthLeaseRefreshBufferMs = 10 * 60_000;
+    const localExpiresByKey = new Map<string, number | undefined>();
+
+    try {
+      const providers = await deps.credentialStore.listProviders(false);
+      for (const provider of providers) {
+        for (const localAccount of provider.accounts) {
+          localExpiresByKey.set(`${provider.id}\0${localAccount.id}`, localAccount.expiresAt);
+        }
+      }
+    } catch {
+      // ignore local credential inspection errors
+    }
+
+    let imported = 0;
+    let failed = 0;
+    const errors: string[] = [];
+
+    for (const account of filteredAccounts) {
+      const projectedAuthType = typeof account.metadata.authType === "string"
+        ? String(account.metadata.authType)
+        : undefined;
+      const credentialMobility = typeof account.metadata.credentialMobility === "string"
+        ? String(account.metadata.credentialMobility).trim()
+        : undefined;
+      const isOauthLease = projectedAuthType === "oauth_bearer" && credentialMobility === "access_token_only";
+
+      if (account.availabilityState === "imported" && !isOauthLease) {
+        continue;
+      }
+
+      if (isOauthLease && account.availabilityState === "imported") {
+        const localExpiresAt = localExpiresByKey.get(`${account.providerId}\0${account.accountId}`);
+        if (
+          typeof localExpiresAt === "number"
+          && Number.isFinite(localExpiresAt)
+          && localExpiresAt > now + oauthLeaseRefreshBufferMs
+        ) {
+          continue;
+        }
+      }
+
+      if (!projectedAccountAllowsCredentialImport(account)) {
+        failed += 1;
+        errors.push(`${account.accountId}: credential_non_importable`);
+        continue;
+      }
+
+      try {
+        const remoteExport = await fetchFederationJson<{ readonly account: FederationCredentialExport }>({
+          url: `${controlBaseUrl}${resolveFederationRoutePath("/federation/accounts/export", options)}`,
+          credential,
+          timeoutMs: context.federationRequestTimeoutMs ?? 5000,
+          method: "POST",
+          body: {
+            providerId: account.providerId,
+            accountId: account.accountId,
+          },
+        });
+
+        if (remoteExport.account.authType === "oauth_bearer") {
+          await deps.credentialStore.upsertOAuthAccount(
+            remoteExport.account.providerId,
+            remoteExport.account.accountId,
+            remoteExport.account.secret,
+            undefined,
+            remoteExport.account.expiresAt,
+            remoteExport.account.chatgptAccountId,
+            remoteExport.account.email,
+            remoteExport.account.subject,
+            remoteExport.account.planType,
+          );
+        } else {
+          await deps.credentialStore.upsertApiKeyAccount(
+            remoteExport.account.providerId,
+            remoteExport.account.accountId,
+            remoteExport.account.secret,
+          );
+        }
+
+        const marked = await deps.sqlFederationStore.markProjectedAccountImported({
+          sourcePeerId,
+          providerId: account.providerId,
+          accountId: account.accountId,
+        });
+        if (marked) {
+          await deps.sqlFederationStore.appendDiffEvent({
+            ownerSubject: marked.ownerSubject,
+            entityType: "projected_account",
+            entityKey: `${marked.sourcePeerId}:${marked.providerId}:${marked.accountId}`,
+            op: "mark_imported",
+            payload: {
+              providerId: marked.providerId,
+              accountId: marked.accountId,
+              availabilityState: marked.availabilityState,
+              importedAt: marked.importedAt,
+            },
+          });
+        }
+
+        imported += 1;
+      } catch (error) {
+        failed += 1;
+        errors.push(`${account.accountId}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    await deps.keyPool.warmup().catch(() => undefined);
+
+    reply.send({ imported, failed, errors: errors.slice(0, 10) });
+  });
+
+  app.get<{
+    Querystring: { readonly sinceMs?: string; readonly limit?: string; readonly afterTimestampMs?: string; readonly afterId?: string };
+  }>(resolveFederationRoutePath("/federation/usage-export", options), async (request, reply) => {
+    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
+    if (!authCanManageFederation(auth)) {
+      reply.code(auth ? 403 : 401).send({ error: auth ? "forbidden" : "unauthorized" });
+      return;
+    }
+
+    const sinceMs = typeof request.query.sinceMs === "string" ? Number.parseInt(request.query.sinceMs, 10) : 0;
+    const limit = toSafeLimit(request.query.limit, 500, 5000);
+    const afterTimestampMs = typeof request.query.afterTimestampMs === "string" ? Number.parseInt(request.query.afterTimestampMs, 10) : undefined;
+    const afterId = typeof request.query.afterId === "string" && request.query.afterId.trim().length > 0
+      ? request.query.afterId.trim()
+      : undefined;
+
+    const safeSinceMs = Number.isFinite(sinceMs) ? sinceMs : 0;
+    const after = afterId && typeof afterTimestampMs === "number" && Number.isFinite(afterTimestampMs)
+      ? { timestampMs: afterTimestampMs, id: afterId }
+      : undefined;
+    const entries = deps.sqlRequestUsageStore
+      ? await deps.sqlRequestUsageStore.listEntriesSince(safeSinceMs, {}, limit, after)
+      : deps.requestLogStore.snapshotSinceWithLimit(safeSinceMs, limit, after);
+
+    reply.send({ entries });
+  });
+
+  app.post<{
+    Body: { readonly entries?: readonly unknown[] };
+  }>(resolveFederationRoutePath("/federation/usage-import", options), async (request, reply) => {
+    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
+    if (!authCanManageFederation(auth)) {
+      reply.code(auth ? 403 : 401).send({ error: auth ? "forbidden" : "unauthorized" });
+      return;
+    }
+
+    if (!deps.sqlRequestUsageStore) {
+      reply.code(503).send({ error: "request_usage_store_not_supported" });
+      return;
+    }
+
+    const rawEntries = Array.isArray(request.body?.entries) ? request.body.entries : [];
+    if (rawEntries.length === 0) {
+      reply.code(400).send({ error: "entries_required" });
+      return;
+    }
+
+    let importedCount = 0;
+    for (const candidate of rawEntries) {
+      const entry = sanitizeFederationUsageEntry(candidate);
+      if (!entry) {
+        continue;
+      }
+
+      await deps.sqlRequestUsageStore.upsertEntry(entry);
+      importedCount += 1;
+    }
+
+    reply.send({ importedCount });
+  });
+
+  app.post<{
+    Body: { readonly peerId?: string; readonly ownerSubject?: string; readonly sinceMs?: number; readonly pullUsage?: boolean };
+  }>(resolveFederationRoutePath("/federation/sync/pull", options), async (request, reply) => {
+    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
+    if (!authCanManageFederation(auth)) {
+      reply.code(auth ? 403 : 401).send({ error: auth ? "forbidden" : "unauthorized" });
+      return;
+    }
+
+    if (!deps.sqlFederationStore) {
+      reply.code(503).send({ error: "federation_store_not_supported" });
+      return;
+    }
+
+    const sqlFederationStore = deps.sqlFederationStore;
+
+    const peerId = typeof request.body?.peerId === "string" ? request.body.peerId.trim() : "";
+    if (!peerId) {
+      reply.code(400).send({ error: "peer_id_required" });
+      return;
+    }
+
+    const peer = await sqlFederationStore.getPeer(peerId);
+    if (!peer) {
+      reply.code(404).send({ error: "peer_not_found" });
+      return;
+    }
+
+    const ownerSubject = typeof request.body?.ownerSubject === "string" && request.body.ownerSubject.trim().length > 0
+      ? request.body.ownerSubject.trim()
+      : peer.ownerSubject;
+    const credential = extractPeerCredential(peer.auth);
+    if (!credential) {
+      await sqlFederationStore.upsertSyncState({ peerId, lastError: "peer auth credential missing" });
+      reply.code(400).send({ error: "peer_auth_credential_missing" });
+      return;
+    }
+
+    const controlBaseUrl = peer.controlBaseUrl ?? peer.baseUrl;
+    const syncState = await sqlFederationStore.getSyncState(peerId);
+    const afterSeq = syncState?.lastPulledSeq ?? 0;
+    const requestedSinceMs = typeof request.body?.sinceMs === "number" && Number.isFinite(request.body.sinceMs)
+      ? request.body.sinceMs
+      : syncState?.lastPullAt
+        ? Date.parse(syncState.lastPullAt)
+        : 0;
+
+    try {
+      const [remoteDiff, remoteAccounts] = await Promise.all([
+        fetchFederationJson<{ readonly ownerSubject: string; readonly events: ReadonlyArray<{ readonly seq: number }> }>({
+          url: `${controlBaseUrl}${resolveFederationRoutePath("/federation/diff-events", options)}?ownerSubject=${encodeURIComponent(ownerSubject)}&afterSeq=${afterSeq}&limit=500`,
+          credential,
+          timeoutMs: context.federationRequestTimeoutMs ?? 5000,
+        }),
+        fetchFederationJson<{ readonly localAccounts: ReadonlyArray<{
+          readonly providerId: string;
+          readonly accountId: string;
+          readonly authType?: "api_key" | "oauth_bearer";
+          readonly planType?: string;
+          readonly chatgptAccountId?: string;
+          readonly email?: string;
+          readonly subject?: string;
+          readonly ownerSubject?: string;
+          readonly hasCredentials: boolean;
+          readonly knowledgeSources: readonly string[];
+        }>; readonly projectedAccounts: ReadonlyArray<{
+          readonly sourcePeerId: string;
+          readonly ownerSubject: string;
+          readonly providerId: string;
+          readonly accountId: string;
+          readonly accountSubject?: string;
+          readonly chatgptAccountId?: string;
+          readonly email?: string;
+          readonly planType?: string;
+          readonly availabilityState: "descriptor" | "remote_route" | "imported";
+          readonly warmRequestCount: number;
+          readonly metadata: Record<string, unknown>;
+        }> }>({
+          url: `${controlBaseUrl}${resolveFederationRoutePath("/federation/accounts", options)}?ownerSubject=${encodeURIComponent(ownerSubject)}`,
+          credential,
+          timeoutMs: context.federationRequestTimeoutMs ?? 5000,
+        }),
+      ]);
+
+      const importedProjectedAccounts: Array<Awaited<ReturnType<typeof sqlFederationStore.upsertProjectedAccount>>> = [];
+      const seenProjectedKeys = new Set<string>();
+      const appendProjectedRecord = async (record: Awaited<ReturnType<typeof sqlFederationStore.upsertProjectedAccount>>): Promise<void> => {
+        const key = `${record.sourcePeerId}\0${record.providerId}\0${record.accountId}`;
+        if (seenProjectedKeys.has(key)) {
+          return;
+        }
+
+        seenProjectedKeys.add(key);
+        importedProjectedAccounts.push(record);
+        await sqlFederationStore.appendDiffEvent({
+          ownerSubject: record.ownerSubject,
+          entityType: "projected_account",
+          entityKey: `${record.sourcePeerId}:${record.providerId}:${record.accountId}`,
+          op: "upsert",
+          payload: {
+            providerId: record.providerId,
+            accountId: record.accountId,
+            availabilityState: record.availabilityState,
+            sourcePeerId: record.sourcePeerId,
+            email: record.email,
+            chatgptAccountId: record.chatgptAccountId,
+          },
+        });
+      };
+
+      for (const account of remoteAccounts.localAccounts) {
+        const authType = account.authType;
+        const record = await sqlFederationStore.upsertProjectedAccount({
+          sourcePeerId: peer.id,
+          ownerSubject,
+          providerId: account.providerId,
+          accountId: account.accountId,
+          accountSubject: account.subject,
+          chatgptAccountId: account.chatgptAccountId,
+          email: account.email,
+          planType: account.planType,
+          availabilityState: authType === "oauth_bearer" ? "remote_route" : "descriptor",
+          metadata: {
+            hasCredentials: account.hasCredentials,
+            knowledgeSources: account.knowledgeSources,
+            authType,
+            credentialMobility: authType === "oauth_bearer" ? "access_token_only" : "importable",
+            refreshAuthority: authType === "oauth_bearer" ? "owner_only" : "portable",
+          },
+        });
+        await appendProjectedRecord(record);
+      }
+
+      for (const account of remoteAccounts.projectedAccounts) {
+        const authType = typeof account.metadata.authType === "string" ? account.metadata.authType : undefined;
+        const knowledgeSources = Array.isArray(account.metadata.knowledgeSources)
+          ? account.metadata.knowledgeSources.filter((entry): entry is string => typeof entry === "string")
+          : undefined;
+        const record = await sqlFederationStore.upsertProjectedAccount({
+          sourcePeerId: peer.id,
+          ownerSubject,
+          providerId: account.providerId,
+          accountId: account.accountId,
+          accountSubject: account.accountSubject,
+          chatgptAccountId: account.chatgptAccountId,
+          email: account.email,
+          planType: account.planType,
+          availabilityState: account.availabilityState,
+          metadata: {
+            ...account.metadata,
+            authType,
+            knowledgeSources,
+          },
+        });
+        await appendProjectedRecord(record);
+      }
+
+      let importedUsageCount = 0;
+      const usagePageSize = 5000;
+      if (request.body?.pullUsage !== false && deps.sqlRequestUsageStore) {
+        let cursor: { readonly timestampMs: number; readonly id: string } | undefined;
+        while (true) {
+          const query = new URLSearchParams({
+            sinceMs: String(Number.isFinite(requestedSinceMs) ? requestedSinceMs : 0),
+            limit: String(usagePageSize),
+          });
+          if (cursor) {
+            query.set("afterTimestampMs", String(cursor.timestampMs));
+            query.set("afterId", cursor.id);
+          }
+
+          const remoteUsage = await fetchFederationJson<{ readonly entries: readonly unknown[] }>({
+            url: `${controlBaseUrl}${resolveFederationRoutePath("/federation/usage-export", options)}?${query.toString()}`,
+            credential,
+            timeoutMs: context.federationRequestTimeoutMs ?? 5000,
+          });
+
+          let lastEntry: RequestLogEntry | undefined;
+          for (const candidate of remoteUsage.entries) {
+            const entry = sanitizeFederationUsageEntry(candidate);
+            if (!entry) {
+              continue;
+            }
+
+            await deps.sqlRequestUsageStore.upsertEntry(entry);
+            importedUsageCount += 1;
+            lastEntry = entry;
+          }
+
+          if (remoteUsage.entries.length < usagePageSize || !lastEntry) {
+            break;
+          }
+
+          cursor = { timestampMs: lastEntry.timestamp, id: lastEntry.id };
+        }
+      }
+
+      const highestSeq = remoteDiff.events.reduce((current, event) => Math.max(current, event.seq), afterSeq);
+      const nextSyncState = await sqlFederationStore.upsertSyncState({
+        peerId,
+        lastPulledSeq: highestSeq,
+        lastPullAt: true,
+        lastError: null,
+      });
+
+      reply.send({
+        peer,
+        ownerSubject,
+        importedProjectedAccountsCount: importedProjectedAccounts.length,
+        importedUsageCount,
+        remoteDiffCount: remoteDiff.events.length,
+        syncState: nextSyncState,
+      });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      await sqlFederationStore.upsertSyncState({ peerId, lastError: detail });
+      reply.code(502).send({ error: "federation_pull_failed", detail });
+    }
   });
 
   app.post<{

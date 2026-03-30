@@ -11,9 +11,6 @@ import {
 import {
   selectProviderStrategy,
 } from "../lib/provider-strategy.js";
-import {
-  filterTenantProviderRoutes,
-} from "../lib/tenant-policy-helpers.js";
 import { isAutoModel } from "../lib/auto-model-selector.js";
 import { isRecord, sendOpenAiError, toErrorMessage, fetchWithResponseTimeout } from "../lib/provider-utils.js";
 

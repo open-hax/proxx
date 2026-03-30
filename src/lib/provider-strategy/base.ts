@@ -78,10 +78,22 @@ export abstract class BaseProviderStrategy implements ProviderStrategy {
           if (bodyText.length === 0) {
             return { kind: "continue", requestError: true };
           }
+
+          if (context.clientWantsStream && /(^|\n)data:\s*(?!\[DONE\])/imu.test(bodyText)) {
+            return this.handleSuccessfulProviderAttempt(reply, upstreamResponse, context);
+          }
+
           const parsed = JSON.parse(bodyText);
+          const isImagePayload =
+            this.mode === "images"
+            && typeof parsed === "object"
+            && parsed !== null
+            && Array.isArray((parsed as Record<string, unknown>)["data"]);
           if (
-            typeof parsed !== "object" || parsed === null
-            || (!("choices" in parsed) && !("object" in parsed) && !("id" in parsed))
+            !isImagePayload && (
+              typeof parsed !== "object" || parsed === null
+              || (!("choices" in parsed) && !("object" in parsed) && !("id" in parsed))
+            )
           ) {
             return { kind: "continue", requestError: true };
           }
