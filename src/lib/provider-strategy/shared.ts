@@ -1471,6 +1471,15 @@ function responseLooksLikeEventStream(response: Response, mode: UpstreamMode): b
   if (responseIsEventStream(response)) {
     return true;
   }
+
+  const contentType = (response.headers.get("content-type") ?? "").toLowerCase();
+  if (
+    (mode === "ollama_chat" || mode === "local_ollama_chat")
+    && (contentType.includes("application/x-ndjson") || contentType.includes("application/ndjson"))
+  ) {
+    return true;
+  }
+
   if (ALWAYS_SSE_MODES.has(mode)) {
     return true;
   }

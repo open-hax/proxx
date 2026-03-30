@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { createServer, type IncomingMessage, type Server } from "node:http";
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -36,6 +36,20 @@ async function readRequestBody(request: IncomingMessage): Promise<string> {
   return Buffer.concat(chunks).toString("utf8");
 }
 
+function parseSseDataPayloads(payload: string): string[] {
+  return payload
+    .replace(/\r\n/g, "\n")
+    .split("\n\n")
+    .map((block) => block.trim())
+    .filter((block) => block.length > 0)
+    .map((block) => {
+      const lines = block.split("\n");
+      assert.equal(lines.length, 1);
+      assert.ok(lines[0]?.startsWith("data: "));
+      return lines[0]!.slice("data: ".length);
+    });
+}
+
 async function withProxyApp(
   options: {
     readonly keys: readonly string[];
@@ -46,7 +60,15 @@ async function withProxyApp(
     readonly proxyAuthToken?: string;
     readonly allowUnauthenticated?: boolean;
     readonly configOverrides?: Partial<ProxyConfig>;
-    readonly upstreamHandler: (request: IncomingMessage, body: string) => Promise<{ status: number; headers?: Record<string, string>; body: string }>;
+    readonly upstreamHandler: (
+      request: IncomingMessage,
+      body: string,
+    ) => Promise<{
+      status: number;
+      headers?: Record<string, string>;
+      body?: string;
+      streamBody?: (response: ServerResponse<IncomingMessage>) => Promise<void>;
+    }>;
   },
   fn: (ctx: TestContext) => Promise<void>
 ): Promise<void> {
@@ -89,7 +111,12 @@ async function withProxyApp(
         }
       }
 
-      response.end(result.body);
+      if (result.streamBody) {
+        await result.streamBody(response);
+        return;
+      }
+
+      response.end(result.body ?? "");
     } catch (error) {
       response.statusCode = 500;
       response.setHeader("content-type", "application/json");
@@ -7402,7 +7429,7 @@ test("maps none reasoning effort to ollama think false", async () => {
   );
 });
 
-test("returns synthetic chat-completion SSE for ollama stream requests", async () => {
+test("returns true streaming chat-completion SSE for ollama stream requests", async () => {
   let observedBody: unknown;
 
   await withProxyApp(
@@ -7414,20 +7441,12 @@ test("returns synthetic chat-completion SSE for ollama stream requests", async (
         return {
           status: 200,
           headers: {
-            "content-type": "application/json"
+            "content-type": "application/x-ndjson"
           },
-          body: JSON.stringify({
-            model: "llama3.2:latest",
-            created_at: "2026-03-03T00:00:00.000Z",
-            message: {
-              role: "assistant",
-              content: "ollama-stream-ok"
-            },
-            done: true,
-            done_reason: "stop",
-            prompt_eval_count: 3,
-            eval_count: 2
-          })
+          body:
+            '{"model":"llama3.2:latest","created_at":"2026-03-03T00:00:00.000Z","message":{"role":"assistant","content":"ollama-"},"done":false}\n' +
+            '{"model":"llama3.2:latest","created_at":"2026-03-03T00:00:00.000Z","message":{"role":"assistant","content":"stream-ok"},"done":false}\n' +
+            '{"model":"llama3.2:latest","created_at":"2026-03-03T00:00:00.000Z","message":{"role":"assistant","content":""},"done":true,"done_reason":"stop","prompt_eval_count":3,"eval_count":2}\n'
         };
       }
     },
@@ -7450,12 +7469,143 @@ test("returns synthetic chat-completion SSE for ollama stream requests", async (
       assert.equal(response.headers["content-type"], "text/event-stream; charset=utf-8");
 
       assert.ok(isRecord(observedBody));
+      assert.equal(observedBody.stream, true);
       assert.ok(isRecord(observedBody.options));
       assert.equal(observedBody.options.num_ctx, 4096);
 
-      assert.ok(response.body.includes("chat.completion.chunk"));
-      assert.ok(response.body.includes("ollama-stream-ok"));
-      assert.ok(response.body.includes("data: [DONE]"));
+      const ssePayloads = parseSseDataPayloads(response.body);
+      assert.equal(ssePayloads.at(-1), "[DONE]");
+
+      const firstChunk = JSON.parse(ssePayloads[0]!);
+      const secondChunk = JSON.parse(ssePayloads[1]!);
+      const finalChunk = JSON.parse(ssePayloads[2]!);
+
+      assert.equal(firstChunk.object, "chat.completion.chunk");
+      assert.equal(firstChunk.choices[0].delta.role, "assistant");
+      assert.equal(firstChunk.choices[0].delta.content, "ollama-");
+      assert.equal(secondChunk.object, "chat.completion.chunk");
+      assert.equal(secondChunk.choices[0].delta.content, "stream-ok");
+      assert.equal(finalChunk.object, "chat.completion.chunk");
+      assert.deepEqual(finalChunk.choices[0].delta, {});
+      assert.equal(finalChunk.choices[0].finish_reason, "stop");
+      assert.equal(firstChunk.id, secondChunk.id);
+      assert.equal(secondChunk.id, finalChunk.id);
+    }
+  );
+});
+
+test("preserves ollama stream content when tool calls are present", async () => {
+  await withProxyApp(
+    {
+      keys: [],
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: {
+          "content-type": "application/x-ndjson"
+        },
+        body:
+          '{"model":"llama3.2:latest","created_at":"2026-03-03T00:00:00.000Z","message":{"role":"assistant","content":"tool-call-transcript","tool_calls":[{"function":{"name":"bash","arguments":{"command":"pwd"}}}]},"done":false}\n' +
+          '{"model":"llama3.2:latest","created_at":"2026-03-03T00:00:00.000Z","message":{"role":"assistant","content":"","tool_calls":[{"function":{"name":"bash","arguments":{"command":"pwd"}}}]},"done":true,"done_reason":"stop"}\n'
+      })
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json"
+        },
+        payload: {
+          model: "ollama:llama3.2:latest",
+          messages: [{ role: "user", content: "hello" }],
+          stream: true
+        }
+      });
+
+      assert.equal(response.statusCode, 200);
+
+      const ssePayloads = parseSseDataPayloads(response.body);
+      assert.equal(ssePayloads.at(-1), "[DONE]");
+
+      const firstChunk = JSON.parse(ssePayloads[0]!);
+      const finalChunk = JSON.parse(ssePayloads[1]!);
+
+      assert.equal(firstChunk.object, "chat.completion.chunk");
+      assert.equal(firstChunk.choices[0].delta.content, "tool-call-transcript");
+      assert.ok(Array.isArray(firstChunk.choices[0].delta.tool_calls));
+      assert.equal(finalChunk.object, "chat.completion.chunk");
+      assert.equal(finalChunk.choices[0].delta.content, null);
+      assert.ok(Array.isArray(finalChunk.choices[0].delta.tool_calls));
+      assert.equal(firstChunk.id, finalChunk.id);
+    }
+  );
+});
+
+test("streams first ollama SSE chunk before upstream completion", async () => {
+  let upstreamCompleted = false;
+
+  await withProxyApp(
+    {
+      keys: [],
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: {
+          "content-type": "application/x-ndjson"
+        },
+        streamBody: async (response) => {
+          response.write('{"model":"llama3.2:latest","created_at":"2026-03-03T00:00:00.000Z","message":{"role":"assistant","content":"ollama-"},"done":false}\n');
+          await new Promise((resolve) => setTimeout(resolve, 150));
+          response.write('{"model":"llama3.2:latest","created_at":"2026-03-03T00:00:00.000Z","message":{"role":"assistant","content":"stream-ok"},"done":false}\n');
+          response.write('{"model":"llama3.2:latest","created_at":"2026-03-03T00:00:00.000Z","message":{"role":"assistant","content":""},"done":true,"done_reason":"stop"}\n');
+          upstreamCompleted = true;
+          response.end();
+        }
+      })
+    },
+    async ({ app }) => {
+      await app.listen({ host: "127.0.0.1", port: 0 });
+      const address = app.server.address();
+      if (!address || typeof address === "string") {
+        throw new Error("Failed to resolve app address");
+      }
+
+      const response = await fetch(`http://127.0.0.1:${address.port}/v1/chat/completions`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({
+          model: "ollama:llama3.2:latest",
+          messages: [{ role: "user", content: "hello" }],
+          stream: true
+        })
+      });
+
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get("content-type"), "text/event-stream; charset=utf-8");
+      assert.ok(response.body);
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      try {
+        while (!buffer.includes("\n\n")) {
+          const { done, value } = await reader.read();
+          assert.equal(done, false);
+          buffer += decoder.decode(value, { stream: true });
+        }
+      } finally {
+        await reader.cancel();
+      }
+
+      assert.equal(upstreamCompleted, false);
+
+      const firstEvent = parseSseDataPayloads(buffer)[0];
+      assert.ok(firstEvent);
+      const firstChunk = JSON.parse(firstEvent);
+      assert.equal(firstChunk.object, "chat.completion.chunk");
+      assert.equal(firstChunk.choices[0].delta.content, "ollama-");
     }
   );
 });

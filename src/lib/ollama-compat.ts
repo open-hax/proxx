@@ -261,7 +261,7 @@ export function chatRequestToOllamaRequest(
 
   const payload: Record<string, unknown> = {
     model: ollamaModel,
-    stream: false,
+    stream: requestBody["stream"] === true,
     messages: chatMessagesToOllamaMessages(requestBody["messages"])
   };
 
@@ -420,4 +420,139 @@ export function ollamaToChatCompletion(responseBody: unknown, fallbackModel: str
   }
 
   return completion;
+}
+
+function ollamaStreamDeltaPayload(
+  responseBody: Record<string, unknown>,
+  streamId: string,
+  fallbackModel: string,
+): { readonly chunk?: Record<string, unknown>; readonly finalChunk?: Record<string, unknown> } {
+  const model = asString(responseBody["model"]) ?? fallbackModel;
+  const created = parseCreatedAt(responseBody["created_at"]);
+  const message = isRecord(responseBody["message"]) ? responseBody["message"] : null;
+  const toolCalls = mapOllamaToolCalls(message);
+  const content = asString(message?.["content"]) ?? "";
+  const reasoning = asString(message?.["thinking"]) ?? asString(responseBody["thinking"]) ?? "";
+  const delta: Record<string, unknown> = {
+    role: "assistant",
+  };
+
+  if (reasoning.length > 0) {
+    delta["reasoning_content"] = reasoning;
+  }
+
+  if (toolCalls.length > 0) {
+    delta["tool_calls"] = toolCalls;
+    delta["content"] = content.length > 0 ? content : null;
+  } else if (content.length > 0) {
+    delta["content"] = content;
+  }
+
+  const hasDeltaContent = Object.keys(delta).some((key) => key !== "role");
+  const chunk = hasDeltaContent
+    ? {
+      id: streamId,
+      object: "chat.completion.chunk",
+      created,
+      model,
+      choices: [
+        {
+          index: 0,
+          delta,
+          finish_reason: null,
+        },
+      ],
+    }
+    : undefined;
+
+  const done = responseBody["done"] === true;
+  if (!done) {
+    return { chunk };
+  }
+
+  return {
+    chunk,
+    finalChunk: {
+      id: streamId,
+      object: "chat.completion.chunk",
+      created,
+      model,
+      choices: [
+        {
+          index: 0,
+          delta: {},
+          finish_reason: resolveFinishReason(responseBody["done_reason"], toolCalls.length > 0),
+        },
+      ],
+    },
+  };
+}
+
+export async function streamOllamaNdjsonToChatCompletionSse(
+  body: ReadableStream<Uint8Array>,
+  fallbackModel: string,
+  writeFn: (data: string) => void,
+): Promise<void> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  const streamId = `chatcmpl_ollama_${Date.now()}`;
+  let buffer = "";
+  let sentDone = false;
+
+  const processLine = (line: string): void => {
+    const trimmed = line.trim();
+    if (trimmed.length === 0) {
+      return;
+    }
+
+    let payload: unknown;
+    try {
+      payload = JSON.parse(trimmed);
+    } catch {
+      return;
+    }
+
+    if (!isRecord(payload)) {
+      return;
+    }
+
+    const { chunk, finalChunk } = ollamaStreamDeltaPayload(payload, streamId, fallbackModel);
+    if (chunk) {
+      writeFn(`data: ${JSON.stringify(chunk)}\n\n`);
+    }
+    if (finalChunk) {
+      writeFn(`data: ${JSON.stringify(finalChunk)}\n\n`);
+      writeFn("data: [DONE]\n\n");
+      sentDone = true;
+    }
+  };
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      buffer += decoder.decode(value, { stream: !done });
+
+      let lineBreakIndex = buffer.indexOf("\n");
+      while (lineBreakIndex >= 0) {
+        const line = buffer.slice(0, lineBreakIndex);
+        buffer = buffer.slice(lineBreakIndex + 1);
+        processLine(line);
+        lineBreakIndex = buffer.indexOf("\n");
+      }
+
+      if (done) {
+        break;
+      }
+    }
+
+    if (buffer.trim().length > 0) {
+      processLine(buffer);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  if (!sentDone) {
+    writeFn("data: [DONE]\n\n");
+  }
 }

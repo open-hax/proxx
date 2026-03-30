@@ -1,7 +1,11 @@
 import type { FastifyReply } from "fastify";
 
 import { chatCompletionToSse } from "../../responses-compat.js";
-import { chatRequestToOllamaRequest, ollamaToChatCompletion } from "../../ollama-compat.js";
+import {
+  chatRequestToOllamaRequest,
+  ollamaToChatCompletion,
+  streamOllamaNdjsonToChatCompletionSse,
+} from "../../ollama-compat.js";
 import { sendOpenAiError, toErrorMessage } from "../../provider-utils.js";
 import { BaseProviderStrategy } from "../base.js";
 import {
@@ -37,6 +41,12 @@ export class LocalOllamaProviderStrategy extends BaseProviderStrategy {
     }
 
     if (context.clientWantsStream) {
+      const contentType = upstreamResponse.headers.get("content-type") ?? "";
+      if (contentType.toLowerCase().includes("text/event-stream") && upstreamResponse.body) {
+        await this.handleStandardLocalAttempt(reply, upstreamResponse, context);
+        return;
+      }
+
       let upstreamJson: unknown;
       try {
         upstreamJson = await upstreamResponse.json();
@@ -88,6 +98,35 @@ export class OllamaProviderStrategy extends BaseProviderStrategy {
   ): Promise<void> {
     if (!upstreamResponse.ok) {
       await this.handleStandardLocalAttempt(reply, upstreamResponse, context);
+      return;
+    }
+
+    if (context.clientWantsStream && upstreamResponse.body) {
+      reply.code(200);
+      reply.header("content-type", "text/event-stream; charset=utf-8");
+      reply.header("cache-control", "no-cache");
+      reply.header("x-accel-buffering", "no");
+      reply.hijack();
+      const rawResponse = reply.raw;
+      rawResponse.statusCode = 200;
+      for (const [name, value] of Object.entries(reply.getHeaders())) {
+        if (value !== undefined) {
+          rawResponse.setHeader(name, value as never);
+        }
+      }
+      rawResponse.flushHeaders();
+
+      try {
+        await streamOllamaNdjsonToChatCompletionSse(upstreamResponse.body, context.routedModel, (data) => rawResponse.write(data));
+      } catch (error) {
+        if (!rawResponse.writableEnded) {
+          rawResponse.write(`data: ${JSON.stringify({ error: { message: toErrorMessage(error) } })}\n\n`);
+        }
+      }
+
+      if (!rawResponse.writableEnded) {
+        rawResponse.end();
+      }
       return;
     }
 
