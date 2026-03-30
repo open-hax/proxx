@@ -1,0 +1,333 @@
+name: proxx-big-ussy-hub-spokes
+
+x-proxx-node: &proxx-node
+  image: proxx-big-ussy-hub-spokes:latest
+  build:
+    context: ..
+    dockerfile: Dockerfile
+  restart: unless-stopped
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+  healthcheck:
+    test:
+      [
+        "CMD",
+        "node",
+        "-e",
+        "Promise.all([fetch('http://127.0.0.1:8789/health',{headers:{Authorization:'Bearer '+(process.env.PROXY_AUTH_TOKEN||'')}}), fetch('http://127.0.0.1:5174')]).then(([proxyResponse, webResponse]) => { if (!proxyResponse.ok || !webResponse.ok) { process.exit(1); } }).catch(() => process.exit(1))"
+      ]
+    interval: 30s
+    timeout: 10s
+    retries: 5
+    start_period: 20s
+  networks:
+    ai-infra: {}
+
+x-proxx-env: &proxx-env
+  NODE_ENV: production
+  PROXY_HOST: 0.0.0.0
+  PROXY_PORT: "8789"
+  PORT: "8789"
+  PROXY_REQUEST_LOGS_FILE: /app/data/request-logs.jsonl
+  PROXY_REQUEST_LOGS_MAX_ENTRIES: "${PROXY_REQUEST_LOGS_MAX_ENTRIES:-100000}"
+  PROXY_REQUEST_LOGS_FLUSH_MS: "${PROXY_REQUEST_LOGS_FLUSH_MS:-1000}"
+  PROXY_PROMPT_AFFINITY_FLUSH_MS: "${PROXY_PROMPT_AFFINITY_FLUSH_MS:-250}"
+  UPSTREAM_PROVIDER_ID: "${UPSTREAM_PROVIDER_ID:-openai}"
+  UPSTREAM_FALLBACK_PROVIDER_IDS: "${UPSTREAM_FALLBACK_PROVIDER_IDS:-ollama-cloud,requesty}"
+  DISABLED_PROVIDER_IDS: "${DISABLED_PROVIDER_IDS:-}"
+  UPSTREAM_BASE_URL: "${UPSTREAM_BASE_URL:-}"
+  UPSTREAM_PROVIDER_BASE_URLS: "${UPSTREAM_PROVIDER_BASE_URLS:-ollama-cloud=https://ollama.com,ob1=https://dashboard.openblocklabs.com/api,openai=https://chatgpt.com/backend-api,openrouter=https://openrouter.ai/api/v1,requesty=https://router.requesty.ai/v1,vivgrid=https://api.vivgrid.com,zen=https://opencode.ai/zen/v1,ollama-stealth=http://host.docker.internal:11434,ollama-big-ussy=http://10.0.0.2:11434}"
+  REQUESTY_API_TOKEN: "${REQUESTY_API_TOKEN:-}"
+  REQUESTY_API_KEY: "${REQUESTY_API_KEY:-}"
+  ZEN_API_KEY: "${ZEN_API_KEY:-}"
+  ZENMUX_API_KEY: "${ZENMUX_API_KEY:-}"
+  ZEN_BASE_URL: "${ZEN_BASE_URL:-https://opencode.ai/zen/v1}"
+  ZENMUX_BASE_URL: "${ZENMUX_BASE_URL:-https://zenmux.ai/api/v1}"
+  OLLAMA_STEALTH_BASE_URL: "${OLLAMA_STEALTH_BASE_URL:-http://host.docker.internal:11434}"
+  OLLAMA_BIG_USSY_BASE_URL: "${OLLAMA_BIG_USSY_BASE_URL:-http://10.0.0.2:11434}"
+  OPENAI_PROVIDER_ID: "${OPENAI_PROVIDER_ID:-openai}"
+  OPENAI_BASE_URL: "${OPENAI_BASE_URL:-https://chatgpt.com/backend-api}"
+  OPENAI_API_BASE_URL: "${OPENAI_API_BASE_URL:-https://api.openai.com}"
+  GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
+  OPENAI_IMAGES_UPSTREAM_MODE: "${OPENAI_IMAGES_UPSTREAM_MODE:-auto}"
+  OPENAI_OAUTH_CLIENT_ID: "${OPENAI_OAUTH_CLIENT_ID:-app_EMoamEEZ73f0CkXaXp7hrann}"
+  OPENAI_OAUTH_CLIENT_SECRET: "${OPENAI_OAUTH_CLIENT_SECRET:-}"
+  OPENAI_OAUTH_ISSUER: "${OPENAI_OAUTH_ISSUER:-https://auth.openai.com}"
+  OPENAI_OAUTH_SCOPES: "${OPENAI_OAUTH_SCOPES:-openid profile email offline_access}"
+  OPENAI_IMAGES_GENERATIONS_PATHS: "${OPENAI_IMAGES_GENERATIONS_PATHS:-}"
+  IMAGE_COST_USD_DEFAULT: "${IMAGE_COST_USD_DEFAULT:-0}"
+  IMAGE_COST_USD_BY_PROVIDER: "${IMAGE_COST_USD_BY_PROVIDER:-}"
+  OLLAMA_BASE_URL: "${OLLAMA_BASE_URL:-http://host.docker.internal:11434}"
+  ZAI_API_KEY: "${ZAI_API_KEY:-}"
+  ZHIPU_API_KEY: "${ZHIPU_API_KEY:-}"
+  ZAI_PROVIDER_ID: "${ZAI_PROVIDER_ID:-zai}"
+  ZHIPU_PROVIDER_ID: "${ZHIPU_PROVIDER_ID:-}"
+  ZAI_BASE_URL: "${ZAI_BASE_URL:-https://api.z.ai/api/paas/v4}"
+  ZHIPU_BASE_URL: "${ZHIPU_BASE_URL:-}"
+  UPSTREAM_CHAT_COMPLETIONS_PATH: "${UPSTREAM_CHAT_COMPLETIONS_PATH:-/v1/chat/completions}"
+  OPENAI_CHAT_COMPLETIONS_PATH: "${OPENAI_CHAT_COMPLETIONS_PATH:-/codex/responses/compact}"
+  UPSTREAM_MESSAGES_PATH: "${UPSTREAM_MESSAGES_PATH:-/v1/messages}"
+  UPSTREAM_MESSAGES_MODEL_PREFIXES: "${UPSTREAM_MESSAGES_MODEL_PREFIXES:-claude-}"
+  UPSTREAM_MESSAGES_INTERLEAVED_THINKING_BETA: "${UPSTREAM_MESSAGES_INTERLEAVED_THINKING_BETA:-interleaved-thinking-2025-05-14}"
+  UPSTREAM_RESPONSES_PATH: "${UPSTREAM_RESPONSES_PATH:-/v1/responses}"
+  OPENAI_RESPONSES_PATH: "${OPENAI_RESPONSES_PATH:-/codex/responses}"
+  UPSTREAM_RESPONSES_MODEL_PREFIXES: "${UPSTREAM_RESPONSES_MODEL_PREFIXES:-gpt-}"
+  OPENAI_MODEL_PREFIXES: "${OPENAI_MODEL_PREFIXES:-openai/,openai:}"
+  OLLAMA_CHAT_PATH: "${OLLAMA_CHAT_PATH:-/api/chat}"
+  OLLAMA_MODEL_PREFIXES: "${OLLAMA_MODEL_PREFIXES:-ollama/,ollama:}"
+  PROXY_KEY_RELOAD_MS: "${PROXY_KEY_RELOAD_MS:-5000}"
+  PROXY_KEY_COOLDOWN_MS: "${PROXY_KEY_COOLDOWN_MS:-30000}"
+  UPSTREAM_REQUEST_TIMEOUT_MS: "${UPSTREAM_REQUEST_TIMEOUT_MS:-180000}"
+  UPSTREAM_STREAM_BOOTSTRAP_TIMEOUT_MS: "${UPSTREAM_STREAM_BOOTSTRAP_TIMEOUT_MS:-180000}"
+  PROXY_ALLOW_UNAUTHENTICATED: "${PROXY_ALLOW_UNAUTHENTICATED:-false}"
+  VITE_ALLOWED_HOSTS: "${VITE_ALLOWED_HOSTS:-127.0.0.1,localhost,federation.big.ussy.promethean.rest,brethren.big.ussy.promethean.rest}"
+  CHROMA_URL: "${CHROMA_URL:-http://host.docker.internal:8000}"
+  CHROMA_COLLECTION: "${CHROMA_COLLECTION:-open_hax_proxy_sessions}"
+  CHROMA_EMBED_MODEL: "${CHROMA_EMBED_MODEL:-nomic-embed-text:latest}"
+  HOST_DASHBOARD_SELF_ID: "${HOST_DASHBOARD_SELF_ID:-}"
+  HOST_DASHBOARD_TARGETS_JSON: "${HOST_DASHBOARD_TARGETS_JSON:-}"
+  HOST_DASHBOARD_DOCKER_SOCKET_PATH: "${HOST_DASHBOARD_DOCKER_SOCKET_PATH:-/var/run/docker.sock}"
+  HOST_DASHBOARD_RUNTIME_ROOT: "${HOST_DASHBOARD_RUNTIME_ROOT:-/workspace/runtime-repo}"
+  HOST_DASHBOARD_REQUEST_TIMEOUT_MS: "${HOST_DASHBOARD_REQUEST_TIMEOUT_MS:-5000}"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "${OTEL_EXPORTER_OTLP_ENDPOINT:-}"
+  OTEL_EXPORTER_OTLP_HEADERS: "${OTEL_EXPORTER_OTLP_HEADERS:-}"
+  FEDERATION_REQUEST_TIMEOUT_MS: "${FEDERATION_REQUEST_TIMEOUT_MS:-30000}"
+  FEDERATION_SELF_CLUSTER_ID: "${BIG_USSY_CLUSTER_ID:-big-ussy-hub-spokes}"
+  FEDERATION_DEFAULT_OWNER_SUBJECT: "${FEDERATION_DEFAULT_OWNER_SUBJECT:-did:web:big.ussy.promethean.rest}"
+
+services:
+  open-hax-openai-proxy-db:
+    image: postgres:16-bookworm
+    ports:
+      - "127.0.0.1:${PROXY_DB_PORT:-15432}:5432"
+    environment:
+      POSTGRES_DB: openai_proxy
+      POSTGRES_USER: openai_proxy
+      POSTGRES_PASSWORD: openai_proxy
+    volumes:
+      - open-hax-openai-proxy-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U openai_proxy -d openai_proxy"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      ai-infra:
+        aliases:
+          - open-hax-openai-proxy-db
+
+  proxx:
+    <<: *proxx-node
+    depends_on:
+      open-hax-openai-proxy-db:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${PROXY_PORT:-8789}:8789"
+      - "127.0.0.1:${OPENAI_OAUTH_CALLBACK_PORT:-1455}:8789"
+      - "127.0.0.1:${PROXY_WEB_PORT:-5174}:5174"
+    environment:
+      <<: *proxx-env
+      PROXY_AUTH_TOKEN: "${PROXY_AUTH_TOKEN:-change-me-open-hax-proxy-token}"
+      PROXY_MODELS_FILE: /workspace/service-config/models.json
+      DATABASE_URL: "${DATABASE_URL:-postgresql://openai_proxy:openai_proxy@open-hax-openai-proxy-db:5432/openai_proxy}"
+      OTEL_SERVICE_NAME: "${OTEL_SERVICE_NAME:-proxx-big-ussy-core}"
+      OTEL_RESOURCE_ATTRIBUTES: "${OTEL_RESOURCE_ATTRIBUTES:-service.name=proxx-big-ussy-core}"
+      FEDERATION_SELF_NODE_ID: "${FEDERATION_SELF_NODE_ID:-big-ussy-canonical}"
+      FEDERATION_SELF_GROUP_ID: "${FEDERATION_SELF_GROUP_ID:-canonical-core}"
+      FEDERATION_SELF_PEER_DID: "${BIG_USSY_CORE_PEER_DID:-did:web:federation.big.ussy.promethean.rest}"
+      FEDERATION_SELF_PUBLIC_BASE_URL: "${FEDERATION_SELF_PUBLIC_BASE_URL:-https://federation.big.ussy.promethean.rest}"
+    volumes:
+      - ../models.json:/workspace/service-config/models.json:ro
+      - proxx-data:/app/data
+      - ../:/workspace/runtime-repo:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      ai-infra:
+        aliases:
+          - proxx
+          - big-ussy-canonical-proxx
+
+  proxx-federation-peer-db:
+    image: postgres:16-bookworm
+    ports:
+      - "127.0.0.1:${FEDERATION_DB_PORT:-15434}:5432"
+    environment:
+      POSTGRES_DB: federation_proxy
+      POSTGRES_USER: federation_proxy
+      POSTGRES_PASSWORD: federation_proxy
+    volumes:
+      - proxx-federation-peer-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U federation_proxy -d federation_proxy"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      ai-infra:
+        aliases:
+          - proxx-federation-peer-db
+
+  proxx-federation-peer:
+    <<: *proxx-node
+    depends_on:
+      proxx-federation-peer-db:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${FEDERATION_PROXY_PORT:-18792}:8789"
+      - "127.0.0.1:${FEDERATION_OAUTH_CALLBACK_PORT:-18756}:8789"
+      - "127.0.0.1:${FEDERATION_WEB_PORT:-15175}:5174"
+    environment:
+      <<: *proxx-env
+      OPENAI_OAUTH_CALLBACK_PORT: "${FEDERATION_OAUTH_CALLBACK_PORT:-18756}"
+      PROXY_AUTH_TOKEN: "${FEDERATION_PROXY_AUTH_TOKEN:-big-ussy-federation-spoke-token}"
+      PROXY_MODELS_FILE: /workspace/service-config/models.json
+      DATABASE_URL: "${FEDERATION_DATABASE_URL:-postgresql://federation_proxy:federation_proxy@proxx-federation-peer-db:5432/federation_proxy}"
+      OTEL_SERVICE_NAME: "${FEDERATION_OTEL_SERVICE_NAME:-proxx-big-ussy-federation-peer}"
+      OTEL_RESOURCE_ATTRIBUTES: "${FEDERATION_OTEL_RESOURCE_ATTRIBUTES:-service.name=proxx-big-ussy-federation-peer}"
+      FEDERATION_SELF_NODE_ID: "${FEDERATION_SELF_NODE_ID_FEDERATION:-federation-peer-1}"
+      FEDERATION_SELF_GROUP_ID: "${FEDERATION_SELF_GROUP_ID_FEDERATION:-federation-spoke}"
+      FEDERATION_SELF_PEER_DID: "${BIG_USSY_FEDERATION_PEER_DID:-did:web:big.ussy.promethean.rest:spokes:federation}"
+      FEDERATION_SELF_PUBLIC_BASE_URL: "${FEDERATION_SELF_PUBLIC_BASE_URL_FEDERATION:-http://proxx-federation-peer:8789}"
+    volumes:
+      - ../models.json:/workspace/service-config/models.json:ro
+      - proxx-federation-peer-data:/app/data
+      - ../:/workspace/runtime-repo:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      ai-infra:
+        aliases:
+          - proxx-federation-peer
+          - open-hax-federation-peer
+
+  proxx-blongs-db:
+    image: postgres:16-bookworm
+    ports:
+      - "127.0.0.1:${BLONGS_DB_PORT:-15433}:5432"
+    environment:
+      POSTGRES_DB: blongs_proxy
+      POSTGRES_USER: blongs_proxy
+      POSTGRES_PASSWORD: blongs_proxy
+    volumes:
+      - proxx-blongs-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U blongs_proxy -d blongs_proxy"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      ai-infra:
+        aliases:
+          - proxx-blongs-db
+
+  proxx-blongs:
+    <<: *proxx-node
+    depends_on:
+      proxx-blongs-db:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${BLONGS_PROXY_PORT:-5277}:8789"
+      - "127.0.0.1:${BLONGS_OAUTH_CALLBACK_PORT:-2456}:8789"
+      - "127.0.0.1:${BLONGS_WEB_PORT:-8793}:5174"
+    environment:
+      <<: *proxx-env
+      OPENAI_OAUTH_CALLBACK_PORT: "${BLONGS_OAUTH_CALLBACK_PORT:-2456}"
+      PROXY_AUTH_TOKEN: "${BLONGS_PROXY_AUTH_TOKEN:-big-ussy-blongs-spoke-token}"
+      PROXY_MODELS_FILE: /workspace/service-config/models.json
+      DATABASE_URL: "${BLONGS_DATABASE_URL:-postgresql://blongs_proxy:blongs_proxy@proxx-blongs-db:5432/blongs_proxy}"
+      OTEL_SERVICE_NAME: "${BLONGS_OTEL_SERVICE_NAME:-proxx-big-ussy-blongs}"
+      OTEL_RESOURCE_ATTRIBUTES: "${BLONGS_OTEL_RESOURCE_ATTRIBUTES:-service.name=proxx-big-ussy-blongs}"
+      FEDERATION_SELF_NODE_ID: "${FEDERATION_SELF_NODE_ID_BLONGS:-blongs}"
+      FEDERATION_SELF_GROUP_ID: "${FEDERATION_SELF_GROUP_ID_BLONGS:-blongs-spoke}"
+      FEDERATION_SELF_PEER_DID: "${BIG_USSY_BLONGS_PEER_DID:-did:web:big.ussy.promethean.rest:spokes:blongs}"
+      FEDERATION_SELF_PUBLIC_BASE_URL: "${FEDERATION_SELF_PUBLIC_BASE_URL_BLONGS:-http://proxx-blongs:8789}"
+    volumes:
+      - ../models.json:/workspace/service-config/models.json:ro
+      - proxx-blongs-data:/app/data
+      - ../:/workspace/runtime-repo:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      ai-infra:
+        aliases:
+          - proxx-blongs
+
+  cephalon-hive-proxx-db:
+    image: postgres:16-bookworm
+    ports:
+      - "127.0.0.1:${CEPHALON_PROXX_DB_PORT:-15435}:5432"
+    environment:
+      POSTGRES_DB: cephalon_proxx
+      POSTGRES_USER: cephalon_proxx
+      POSTGRES_PASSWORD: cephalon_proxx
+    volumes:
+      - cephalon-hive-proxx-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cephalon_proxx -d cephalon_proxx"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      ai-infra:
+        aliases:
+          - cephalon-hive-proxx-db
+          - proxx-db
+
+  cephalon-hive-proxx:
+    <<: *proxx-node
+    depends_on:
+      cephalon-hive-proxx-db:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${CEPHALON_PROXX_PORT:-18779}:8789"
+      - "127.0.0.1:${CEPHALON_PROXX_OAUTH_PORT:-12455}:8789"
+      - "127.0.0.1:${CEPHALON_PROXX_WEB_PORT:-15274}:5174"
+    environment:
+      <<: *proxx-env
+      OPENAI_OAUTH_CALLBACK_PORT: "${CEPHALON_PROXX_OAUTH_PORT:-12455}"
+      PROXY_AUTH_TOKEN: "${PROXX_PROXY_AUTH_TOKEN:-big-ussy-cephalon-spoke-token}"
+      PROXY_MODELS_FILE: /workspace/service-config/models.json
+      DATABASE_URL: "${PROXX_DATABASE_URL:-postgresql://cephalon_proxx:cephalon_proxx@cephalon-hive-proxx-db:5432/cephalon_proxx}"
+      UPSTREAM_PROVIDER_ID: "${PROXX_UPSTREAM_PROVIDER_ID:-ollama-cloud}"
+      UPSTREAM_FALLBACK_PROVIDER_IDS: "${PROXX_UPSTREAM_FALLBACK_PROVIDER_IDS:-}"
+      OLLAMA_BASE_URL: "${PROXX_OLLAMA_BASE_URL:-https://ollama.com}"
+      OLLAMA_CHAT_PATH: "${PROXX_OLLAMA_CHAT_PATH:-/api/chat}"
+      OLLAMA_MODEL_PREFIXES: "${PROXX_OLLAMA_MODEL_PREFIXES:-ollama/,ollama:}"
+      CHROMA_URL: "${PROXX_CHROMA_URL:-http://host.docker.internal:8000}"
+      CHROMA_COLLECTION: "${PROXX_CHROMA_COLLECTION:-open_hax_proxy_sessions}"
+      CHROMA_EMBED_MODEL: "${PROXX_CHROMA_EMBED_MODEL:-nomic-embed-text:latest}"
+      OTEL_SERVICE_NAME: "${CEPHALON_OTEL_SERVICE_NAME:-proxx-big-ussy-cephalon}"
+      OTEL_RESOURCE_ATTRIBUTES: "${CEPHALON_OTEL_RESOURCE_ATTRIBUTES:-service.name=proxx-big-ussy-cephalon}"
+      FEDERATION_SELF_NODE_ID: "${PROXX_FEDERATION_SELF_NODE_ID:-big-ussy-cephalon}"
+      FEDERATION_SELF_GROUP_ID: "${PROXX_FEDERATION_SELF_GROUP_ID:-cephalon-spoke}"
+      FEDERATION_SELF_PEER_DID: "${BIG_USSY_CEPHALON_PEER_DID:-did:web:big.ussy.promethean.rest:spokes:cephalon}"
+      FEDERATION_SELF_PUBLIC_BASE_URL: "${PROXX_FEDERATION_SELF_PUBLIC_BASE_URL:-http://cephalon-hive-proxx:8789}"
+    volumes:
+      - ../models.json:/workspace/service-config/models.json:ro
+      - cephalon-hive-proxx-data:/app/data
+    networks:
+      ai-infra:
+        aliases:
+          - cephalon-hive-proxx
+          - proxx-cephalon
+
+volumes:
+  open-hax-openai-proxy-db-data:
+  proxx-data:
+  proxx-federation-peer-db-data:
+  proxx-federation-peer-data:
+  proxx-blongs-db-data:
+  proxx-blongs-data:
+  cephalon-hive-proxx-db-data:
+  cephalon-hive-proxx-data:
+
+networks:
+  ai-infra:
+    external: true
+    name: ai-infra

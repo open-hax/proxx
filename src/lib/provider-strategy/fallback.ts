@@ -23,13 +23,14 @@ import { selectRemoteProviderStrategyForRoute } from "./registry.js";
 import {
   PERMANENT_DISABLE_COOLDOWN_MS,
   buildCodexResponsesImagesBody,
+  buildFactory4xxDiagnostics,
   extractImagesFromCodexEventStream,
   extractImagesFromCodexResponse,
   joinUrl,
   providerAccountsForRequest,
   providerAccountsForRequestWithPolicy,
   reorderAccountsForLatency,
-  reorderCandidatesForAffinity,
+  reorderCandidatesForAffinities,
   responseLooksLikeEventStream,
   shouldCooldownCredentialOnAuthFailure,
   shouldPermanentlyDisableCredential,
@@ -70,6 +71,8 @@ const REQUESTY_MODEL_PREFIXES: ReadonlyArray<readonly [string, string]> = [
   ["kimi-", "moonshotai"],
   ["qwen", "qwen"],
 ];
+
+const MAX_STICKY_TRANSPORT_FAILURE_CANDIDATES = 4;
 
 function requestyModelPrefix(model: string): string {
   const lower = model.toLowerCase();
@@ -167,10 +170,14 @@ export async function executeProviderFallback(
     }
   }
 
-  const preferredAffinity = promptCacheKey
-    ? await promptAffinityStore.get(promptCacheKey).then((record) => record
-      ? { providerId: record.providerId, accountId: record.accountId }
-      : undefined)
+  const affinityRecord = promptCacheKey
+    ? await promptAffinityStore.get(promptCacheKey)
+    : undefined;
+  const preferredAffinity = affinityRecord
+    ? { providerId: affinityRecord.providerId, accountId: affinityRecord.accountId }
+    : undefined;
+  const provisionalAffinity = affinityRecord?.provisionalProviderId && affinityRecord?.provisionalAccountId
+    ? { providerId: affinityRecord.provisionalProviderId, accountId: affinityRecord.provisionalAccountId }
     : undefined;
 
   const allCandidates = providerRoutes.flatMap((route) => candidatesByProvider[route.providerId] ?? []);
@@ -206,7 +213,10 @@ export async function executeProviderFallback(
     return 0;
   });
 
-  const candidates = reorderCandidatesForAffinity(sortedCandidates, preferredAffinity);
+  const candidates = reorderCandidatesForAffinities(
+    sortedCandidates,
+    [preferredAffinity, provisionalAffinity].filter((value): value is { readonly providerId: string; readonly accountId: string } => Boolean(value)),
+  );
 
   if (candidates.length === 0) {
     return {
@@ -219,6 +229,9 @@ export async function executeProviderFallback(
   let preferredReassignmentAllowed = preferredAffinity === undefined || candidates.every(
     (candidate) => candidate.providerId !== preferredAffinity.providerId || candidate.account.accountId !== preferredAffinity.accountId,
   );
+  const hasStickyAffinity = Boolean(promptCacheKey && (preferredAffinity || provisionalAffinity));
+  let stickyTransportFailureCandidates = 0;
+  let abortRemainingCandidatesForStickyTransportFailure = false;
 
   for (const [candidateIndex, candidate] of candidates.entries()) {
     const candidateStrategy = selectRemoteProviderStrategyForRoute(context, candidate.providerId);
@@ -392,6 +405,7 @@ export async function executeProviderFallback(
             latencyMs,
             serviceTier: candidatePayload.serviceTier,
             serviceTierSource: candidatePayload.serviceTierSource,
+            factoryDiagnostics: buildFactory4xxDiagnostics(candidatePayload.upstreamPayload, promptCacheKey),
             error: toErrorMessage(error)
           }, candidateStrategy.mode);
 
@@ -400,6 +414,12 @@ export async function executeProviderFallback(
               error: toErrorMessage(error),
               logEntryId,
             }, { latencyMs });
+          }
+          if (hasStickyAffinity) {
+            stickyTransportFailureCandidates += 1;
+            if (stickyTransportFailureCandidates >= MAX_STICKY_TRANSPORT_FAILURE_CANDIDATES) {
+              abortRemainingCandidatesForStickyTransportFailure = true;
+            }
           }
           break;
         }
@@ -417,6 +437,7 @@ export async function executeProviderFallback(
           latencyMs,
           serviceTier: candidatePayload.serviceTier,
           serviceTierSource: candidatePayload.serviceTierSource,
+          factoryDiagnostics: buildFactory4xxDiagnostics(candidatePayload.upstreamPayload, promptCacheKey),
           promptCacheKeyUsed: Boolean(promptCacheKey),
         }, candidateStrategy.mode);
 
@@ -652,7 +673,7 @@ export async function executeProviderFallback(
               || (candidate.providerId === preferredAffinity.providerId && candidate.account.accountId === preferredAffinity.accountId)
             )
           ) {
-            await promptAffinityStore.upsert(promptCacheKey, candidate.providerId, candidate.account.accountId);
+            await promptAffinityStore.noteSuccess(promptCacheKey, candidate.providerId, candidate.account.accountId);
           }
           releaseInFlight();
           return {
@@ -721,6 +742,7 @@ export async function executeProviderFallback(
                 latencyMs: refreshedLatencyMs,
                 serviceTier: candidatePayload.serviceTier,
                 serviceTierSource: candidatePayload.serviceTierSource,
+                factoryDiagnostics: buildFactory4xxDiagnostics(candidatePayload.upstreamPayload, promptCacheKey),
                 promptCacheKeyUsed: Boolean(promptCacheKey),
               }, candidateStrategy.mode);
               const refreshedDiagnosticsPromise = updateFailedAttemptDiagnostics(
@@ -816,7 +838,7 @@ export async function executeProviderFallback(
                     || (candidate.providerId === preferredAffinity.providerId && refreshedCredential.accountId === preferredAffinity.accountId)
                   )
                 ) {
-                  await promptAffinityStore.upsert(promptCacheKey, candidate.providerId, refreshedCredential.accountId);
+                  await promptAffinityStore.noteSuccess(promptCacheKey, candidate.providerId, refreshedCredential.accountId);
                 }
 
                 releaseInFlight();
@@ -888,6 +910,10 @@ export async function executeProviderFallback(
     }
 
     releaseInFlight();
+
+    if (abortRemainingCandidatesForStickyTransportFailure) {
+      break;
+    }
   }
 
   return {

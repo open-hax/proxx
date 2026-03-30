@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
 import type { ProviderAuthType } from "./key-pool.js";
+import { accountDisplayName, deriveOAuthMetadataFromToken } from "./account-identity.js";
 import { normalizeEpochMilliseconds } from "./epoch.js";
 
 interface NormalizedAccount {
@@ -145,56 +146,6 @@ function maskSecret(secret: string): string {
   }
 
   return `${secret.slice(0, 4)}...${secret.slice(-4)}`;
-}
-
-function parseJwtClaims(token: string): Record<string, unknown> | undefined {
-  const parts = token.split(".");
-  if (parts.length !== 3) {
-    return undefined;
-  }
-
-  try {
-    const parsed = JSON.parse(Buffer.from(parts[1] ?? "", "base64url").toString("utf8"));
-    return isRecord(parsed) ? parsed : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function deriveOAuthMetadataFromToken(token: string): {
-  readonly email?: string;
-  readonly subject?: string;
-  readonly chatgptAccountId?: string;
-  readonly planType?: string;
-} {
-  const claims = parseJwtClaims(token);
-  if (!claims) {
-    return {};
-  }
-
-  const profile = isRecord(claims["https://api.openai.com/profile"])
-    ? claims["https://api.openai.com/profile"]
-    : undefined;
-  const auth = isRecord(claims["https://api.openai.com/auth"])
-    ? claims["https://api.openai.com/auth"]
-    : undefined;
-
-  const email = (asString(claims.email) ?? asString(profile?.email))?.trim().toLowerCase();
-  const subject = asString(claims.sub)?.trim();
-  const chatgptAccountId = (asString(claims.chatgpt_account_id)
-    ?? asString(auth?.chatgpt_account_id))?.trim();
-  const planType = asString(auth?.chatgpt_plan_type)?.trim().toLowerCase();
-
-  return {
-    email: email && email.length > 0 ? email : undefined,
-    subject: subject && subject.length > 0 ? subject : undefined,
-    chatgptAccountId: chatgptAccountId && chatgptAccountId.length > 0 ? chatgptAccountId : undefined,
-    planType: planType && planType.length > 0 ? planType : undefined,
-  };
-}
-
-function accountDisplayName(account: Pick<NormalizedAccount, "email" | "chatgptAccountId" | "id">): string {
-  return account.email ?? account.chatgptAccountId ?? account.id;
 }
 
 function normalizeAccounts(

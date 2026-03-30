@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 
 import type { Sql } from "./index.js";
 import type { ProviderCredential, ProviderAuthType } from "../key-pool.js";
+import { accountDisplayName, deriveOAuthMetadataFromToken } from "../account-identity.js";
 import { normalizeEpochMilliseconds } from "../epoch.js";
 import { DEFAULT_TENANT_ID, buildTenantApiKeyPrefix, generateTenantApiKey, hashTenantApiKey, normalizeTenantId } from "../tenant-api-key.js";
 import type { CredentialAccountView, CredentialProviderView } from "../credential-store.js";
@@ -12,6 +13,8 @@ import {
   CREATE_TENANT_API_KEYS_TABLE,
   CREATE_TENANT_API_KEYS_TENANT_INDEX,
   CREATE_TENANT_API_KEYS_HASH_INDEX,
+  CREATE_TENANT_PROVIDER_POLICIES_TABLE,
+  CREATE_TENANT_PROVIDER_POLICIES_OWNER_INDEX,
   CREATE_PROVIDERS_TABLE,
   CREATE_ACCOUNTS_TABLE,
   CREATE_ACCOUNTS_INDEX,
@@ -24,6 +27,8 @@ import {
   INSERT_VERSION,
   CHECK_VERSION_EXISTS,
   UPSERT_PROVIDER,
+  UPSERT_PROVIDER_WITH_BASE_URL,
+  SELECT_PROVIDER_BY_ID,
   UPSERT_TENANT,
   UPSERT_USER,
   SELECT_USER_BY_SUBJECT,
@@ -49,6 +54,7 @@ import {
 interface ProviderRow {
   id: string;
   auth_type: string;
+  base_url: string | null;
 }
 
 interface TenantRow {
@@ -308,6 +314,8 @@ export class SqlCredentialStore {
     await this.sql.unsafe(CREATE_TENANT_API_KEYS_TABLE);
     await this.sql.unsafe(CREATE_TENANT_API_KEYS_TENANT_INDEX);
     await this.sql.unsafe(CREATE_TENANT_API_KEYS_HASH_INDEX);
+    await this.sql.unsafe(CREATE_TENANT_PROVIDER_POLICIES_TABLE);
+    await this.sql.unsafe(CREATE_TENANT_PROVIDER_POLICIES_OWNER_INDEX);
     await this.sql.unsafe(CREATE_PROVIDERS_TABLE);
     await this.sql.unsafe(CREATE_ACCOUNTS_TABLE);
     await this.sql.unsafe(CREATE_ACCOUNTS_INDEX);
@@ -538,18 +546,27 @@ export class SqlCredentialStore {
 
     for (const row of accountRows) {
       const authType = authTypeByProvider.get(row.provider_id) ?? "api_key";
+      const derived = authType === "oauth_bearer"
+        ? deriveOAuthMetadataFromToken(row.token)
+        : {};
+      const chatgptAccountId = row.chatgpt_account_id ?? derived.chatgptAccountId;
+      const email = derived.email;
+      const subject = derived.subject;
+      const planType = row.plan_type ?? derived.planType;
       const accounts = accountsByProvider.get(row.provider_id) ?? [];
       accounts.push({
         id: row.id,
         authType,
-        displayName: row.chatgpt_account_id ?? row.id,
+        displayName: accountDisplayName({ id: row.id, email, chatgptAccountId }),
         secretPreview: maskSecret(row.token),
         secret: revealSecrets ? row.token : undefined,
         refreshTokenPreview: row.refresh_token ? maskSecret(row.refresh_token) : undefined,
         refreshToken: revealSecrets ? row.refresh_token ?? undefined : undefined,
         expiresAt: normalizeEpochMilliseconds(row.expires_at ?? undefined),
-        chatgptAccountId: row.chatgpt_account_id ?? undefined,
-        planType: row.plan_type ?? undefined,
+        chatgptAccountId,
+        email,
+        subject,
+        planType,
       });
       accountsByProvider.set(row.provider_id, accounts);
     }
@@ -634,7 +651,32 @@ export class SqlCredentialStore {
   }
 
   public async upsertProvider(providerId: string, authType: ProviderAuthType): Promise<void> {
-    await this.sql.unsafe(UPSERT_PROVIDER, [providerId, authType]);
+    await this.sql.unsafe(UPSERT_PROVIDER, [providerId, authType, null]);
+  }
+
+  public async upsertProviderWithBaseUrl(providerId: string, authType: ProviderAuthType, baseUrl: string): Promise<void> {
+    await this.sql.unsafe(UPSERT_PROVIDER_WITH_BASE_URL, [providerId, authType, baseUrl]);
+  }
+
+  public async getProviderById(providerId: string): Promise<{ id: string; authType: ProviderAuthType; baseUrl: string | null } | null> {
+    const rows = await this.sql.unsafe<ProviderRow[]>(SELECT_PROVIDER_BY_ID, [providerId]);
+    if (rows.length === 0) {
+      return null;
+    }
+    const row = rows[0]!;
+    return {
+      id: row.id,
+      authType: normalizeAuthType(row.auth_type),
+      baseUrl: row.base_url,
+    };
+  }
+
+  public async listProvidersWithBaseUrlByPrefix(prefix: string): Promise<readonly { readonly id: string; readonly baseUrl: string }[]> {
+    const rows = await this.sql.unsafe<ProviderRow[]>(
+      `SELECT id, auth_type, base_url FROM providers WHERE id LIKE $1 AND base_url IS NOT NULL AND base_url != ''`,
+      [`${prefix}%`],
+    );
+    return rows.map((row) => ({ id: row.id, baseUrl: row.base_url! }));
   }
 
   public async upsertAccount(account: ProviderCredential): Promise<void> {

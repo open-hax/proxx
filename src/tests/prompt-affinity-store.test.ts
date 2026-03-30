@@ -44,3 +44,54 @@ test("prompt affinity close flushes batched writes", async () => {
     assert.equal(typeof persisted.records[1]?.updatedAt, "number");
   });
 });
+
+test("prompt affinity promotes fallback only after repeated successful use", async () => {
+  await withTempDir(async (tempDir) => {
+    const filePath = path.join(tempDir, "prompt-affinity.json");
+    const store = new PromptAffinityStore(filePath, 60_000);
+    await store.warmup();
+
+    await store.noteSuccess("cache-key-1", "openai", "acct-a");
+    let record = await store.get("cache-key-1");
+    assert.equal(record?.providerId, "openai");
+    assert.equal(record?.accountId, "acct-a");
+    assert.equal(record?.provisionalProviderId, undefined);
+
+    await store.noteSuccess("cache-key-1", "openai", "acct-b");
+    record = await store.get("cache-key-1");
+    assert.equal(record?.providerId, "openai");
+    assert.equal(record?.accountId, "acct-a");
+    assert.equal(record?.provisionalProviderId, "openai");
+    assert.equal(record?.provisionalAccountId, "acct-b");
+    assert.equal(record?.provisionalSuccessCount, 1);
+
+    await store.noteSuccess("cache-key-1", "openai", "acct-b");
+    record = await store.get("cache-key-1");
+    assert.equal(record?.providerId, "openai");
+    assert.equal(record?.accountId, "acct-b");
+    assert.equal(record?.provisionalProviderId, undefined);
+    assert.equal(record?.provisionalAccountId, undefined);
+
+    await store.noteSuccess("cache-key-1", "openai", "acct-b");
+    record = await store.get("cache-key-1");
+    assert.equal(record?.providerId, "openai");
+    assert.equal(record?.accountId, "acct-b");
+    assert.equal(record?.provisionalProviderId, undefined);
+
+    await store.noteSuccess("cache-key-1", "openai", "acct-a");
+    record = await store.get("cache-key-1");
+    assert.equal(record?.providerId, "openai");
+    assert.equal(record?.accountId, "acct-b");
+    assert.equal(record?.provisionalProviderId, "openai");
+    assert.equal(record?.provisionalAccountId, "acct-a");
+    assert.equal(record?.provisionalSuccessCount, 1);
+
+    await store.noteSuccess("cache-key-1", "openai", "acct-b");
+    record = await store.get("cache-key-1");
+    assert.equal(record?.providerId, "openai");
+    assert.equal(record?.accountId, "acct-b");
+    assert.equal(record?.provisionalProviderId, undefined);
+
+    await store.close();
+  });
+});

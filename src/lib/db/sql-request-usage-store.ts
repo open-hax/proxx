@@ -14,6 +14,10 @@ interface RequestUsageRow {
   readonly tenant_id: string | null;
   readonly issuer: string | null;
   readonly key_id: string | null;
+  readonly route_kind: string | null;
+  readonly federation_owner_subject: string | null;
+  readonly routed_peer_id: string | null;
+  readonly routed_peer_label: string | null;
   readonly provider_id: string;
   readonly account_id: string;
   readonly auth_type: string;
@@ -30,6 +34,7 @@ interface RequestUsageRow {
   readonly cached_prompt_tokens: number | string | null;
   readonly image_count: number | string | null;
   readonly image_cost_usd: number | string | null;
+  readonly prompt_cache_key_hash: string | null;
   readonly prompt_cache_key_used: boolean | null;
   readonly cache_hit: boolean | null;
   readonly ttft_ms: number | string | null;
@@ -137,6 +142,10 @@ function toEntry(row: RequestUsageRow): RequestLogEntry {
     tenantId: asOptionalString(row.tenant_id),
     issuer: asOptionalString(row.issuer),
     keyId: asOptionalString(row.key_id),
+    routeKind: row.route_kind === "federated" || row.route_kind === "bridge" ? row.route_kind : "local",
+    federationOwnerSubject: asOptionalString(row.federation_owner_subject),
+    routedPeerId: asOptionalString(row.routed_peer_id),
+    routedPeerLabel: asOptionalString(row.routed_peer_label),
     providerId: row.provider_id,
     accountId: row.account_id,
     authType: normalizeAuthType(row.auth_type),
@@ -153,6 +162,7 @@ function toEntry(row: RequestUsageRow): RequestLogEntry {
     cachedPromptTokens: asOptionalNumber(row.cached_prompt_tokens),
     imageCount: asOptionalNumber(row.image_count),
     imageCostUsd: asOptionalNumber(row.image_cost_usd),
+    promptCacheKeyHash: asOptionalString(row.prompt_cache_key_hash),
     promptCacheKeyUsed: asOptionalBoolean(row.prompt_cache_key_used),
     cacheHit: asOptionalBoolean(row.cache_hit),
     ttftMs: asOptionalNumber(row.ttft_ms),
@@ -175,6 +185,10 @@ const ENTRY_COLUMNS = [
   "tenant_id",
   "issuer",
   "key_id",
+  "route_kind",
+  "federation_owner_subject",
+  "routed_peer_id",
+  "routed_peer_label",
   "provider_id",
   "account_id",
   "auth_type",
@@ -191,6 +205,7 @@ const ENTRY_COLUMNS = [
   "cached_prompt_tokens",
   "image_count",
   "image_cost_usd",
+  "prompt_cache_key_hash",
   "prompt_cache_key_used",
   "cache_hit",
   "ttft_ms",
@@ -232,6 +247,10 @@ export class SqlRequestUsageStore implements RequestLogMirror {
         tenant_id TEXT,
         issuer TEXT,
         key_id TEXT,
+        route_kind TEXT NOT NULL DEFAULT 'local',
+        federation_owner_subject TEXT,
+        routed_peer_id TEXT,
+        routed_peer_label TEXT,
         provider_id TEXT NOT NULL,
         account_id TEXT NOT NULL,
         auth_type TEXT NOT NULL,
@@ -248,6 +267,7 @@ export class SqlRequestUsageStore implements RequestLogMirror {
         cached_prompt_tokens BIGINT,
         image_count BIGINT,
         image_cost_usd DOUBLE PRECISION,
+        prompt_cache_key_hash TEXT,
         prompt_cache_key_used BOOLEAN NOT NULL DEFAULT FALSE,
         cache_hit BOOLEAN NOT NULL DEFAULT FALSE,
         ttft_ms BIGINT,
@@ -269,9 +289,16 @@ export class SqlRequestUsageStore implements RequestLogMirror {
     await this.sql.unsafe("CREATE INDEX IF NOT EXISTS idx_request_usage_entries_account_ts ON request_usage_entries(account_id, timestamp_ms DESC, id DESC);");
     await this.sql.unsafe("CREATE INDEX IF NOT EXISTS idx_request_usage_entries_issuer_ts ON request_usage_entries(issuer, timestamp_ms DESC, id DESC);");
     await this.sql.unsafe("CREATE INDEX IF NOT EXISTS idx_request_usage_entries_key_ts ON request_usage_entries(key_id, timestamp_ms DESC, id DESC);");
+    await this.sql.unsafe("ALTER TABLE request_usage_entries ADD COLUMN IF NOT EXISTS route_kind TEXT NOT NULL DEFAULT 'local';");
+    await this.sql.unsafe("ALTER TABLE request_usage_entries ADD COLUMN IF NOT EXISTS federation_owner_subject TEXT;");
+    await this.sql.unsafe("ALTER TABLE request_usage_entries ADD COLUMN IF NOT EXISTS routed_peer_id TEXT;");
+    await this.sql.unsafe("ALTER TABLE request_usage_entries ADD COLUMN IF NOT EXISTS routed_peer_label TEXT;");
+    await this.sql.unsafe("ALTER TABLE request_usage_entries ADD COLUMN IF NOT EXISTS prompt_cache_key_hash TEXT;");
+    await this.sql.unsafe("ALTER TABLE request_usage_entries ADD COLUMN IF NOT EXISTS end_to_end_tps DOUBLE PRECISION;");
+    await this.sql.unsafe("CREATE INDEX IF NOT EXISTS idx_request_usage_entries_route_ts ON request_usage_entries(route_kind, timestamp_ms DESC, id DESC);");
     await this.sql.unsafe("CREATE INDEX IF NOT EXISTS idx_request_usage_entries_provider_ts ON request_usage_entries(provider_id, timestamp_ms DESC, id DESC);");
     await this.sql.unsafe("CREATE INDEX IF NOT EXISTS idx_request_usage_entries_provider_model_ts ON request_usage_entries(provider_id, model, timestamp_ms DESC, id DESC);");
-    await this.sql.unsafe("ALTER TABLE request_usage_entries ADD COLUMN IF NOT EXISTS end_to_end_tps DOUBLE PRECISION;");
+    await this.sql.unsafe("CREATE INDEX IF NOT EXISTS idx_request_usage_entries_provider_prompt_cache_hash_ts ON request_usage_entries(provider_id, prompt_cache_key_hash, timestamp_ms DESC, id DESC);");
   }
 
   public async upsertEntry(entry: RequestLogEntry): Promise<void> {
@@ -282,6 +309,10 @@ export class SqlRequestUsageStore implements RequestLogMirror {
         tenant_id,
         issuer,
         key_id,
+        route_kind,
+        federation_owner_subject,
+        routed_peer_id,
+        routed_peer_label,
         provider_id,
         account_id,
         auth_type,
@@ -298,6 +329,7 @@ export class SqlRequestUsageStore implements RequestLogMirror {
         cached_prompt_tokens,
         image_count,
         image_cost_usd,
+        prompt_cache_key_hash,
         prompt_cache_key_used,
         cache_hit,
         ttft_ms,
@@ -317,6 +349,10 @@ export class SqlRequestUsageStore implements RequestLogMirror {
         ${entry.tenantId ?? null},
         ${entry.issuer ?? null},
         ${entry.keyId ?? null},
+        ${entry.routeKind},
+        ${entry.federationOwnerSubject ?? null},
+        ${entry.routedPeerId ?? null},
+        ${entry.routedPeerLabel ?? null},
         ${entry.providerId},
         ${entry.accountId},
         ${entry.authType},
@@ -333,6 +369,7 @@ export class SqlRequestUsageStore implements RequestLogMirror {
         ${entry.cachedPromptTokens ?? null},
         ${entry.imageCount ?? null},
         ${entry.imageCostUsd ?? null},
+        ${entry.promptCacheKeyHash ?? null},
         ${entry.promptCacheKeyUsed === true},
         ${entry.cacheHit === true},
         ${entry.ttftMs ?? null},
@@ -352,6 +389,10 @@ export class SqlRequestUsageStore implements RequestLogMirror {
         tenant_id = EXCLUDED.tenant_id,
         issuer = EXCLUDED.issuer,
         key_id = EXCLUDED.key_id,
+        route_kind = EXCLUDED.route_kind,
+        federation_owner_subject = EXCLUDED.federation_owner_subject,
+        routed_peer_id = EXCLUDED.routed_peer_id,
+        routed_peer_label = EXCLUDED.routed_peer_label,
         provider_id = EXCLUDED.provider_id,
         account_id = EXCLUDED.account_id,
         auth_type = EXCLUDED.auth_type,
@@ -368,6 +409,7 @@ export class SqlRequestUsageStore implements RequestLogMirror {
         cached_prompt_tokens = EXCLUDED.cached_prompt_tokens,
         image_count = EXCLUDED.image_count,
         image_cost_usd = EXCLUDED.image_cost_usd,
+        prompt_cache_key_hash = EXCLUDED.prompt_cache_key_hash,
         prompt_cache_key_used = EXCLUDED.prompt_cache_key_used,
         cache_hit = EXCLUDED.cache_hit,
         ttft_ms = EXCLUDED.ttft_ms,

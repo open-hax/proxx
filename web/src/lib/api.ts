@@ -54,6 +54,13 @@ export interface CredentialProvider {
 export interface RequestLogEntry {
   readonly id: string;
   readonly timestamp: number;
+  readonly tenantId?: string;
+  readonly issuer?: string;
+  readonly keyId?: string;
+  readonly routeKind: "local" | "federated" | "bridge";
+  readonly federationOwnerSubject?: string;
+  readonly routedPeerId?: string;
+  readonly routedPeerLabel?: string;
   readonly providerId: string;
   readonly accountId: string;
   readonly authType: "api_key" | "oauth_bearer" | "local" | "none";
@@ -70,11 +77,43 @@ export interface RequestLogEntry {
   readonly cachedPromptTokens?: number;
   readonly imageCount?: number;
   readonly imageCostUsd?: number;
+  readonly promptCacheKeyHash?: string;
   readonly ttftMs?: number;
   readonly decodeTps?: number;
   readonly tps?: number;
   readonly endToEndTps?: number;
   readonly error?: string;
+}
+
+export interface PromptCacheAuditRow {
+  readonly promptCacheKeyHash: string;
+  readonly providerId: string;
+  readonly requestCount: number;
+  readonly accountCount: number;
+  readonly accountIds: readonly string[];
+  readonly successfulRequestCount: number;
+  readonly failedRequestCount: number;
+  readonly successfulAccountCount: number;
+  readonly successfulAccountIds: readonly string[];
+  readonly failedAccountCount: number;
+  readonly failedAccountIds: readonly string[];
+  readonly shapeFingerprintCount: number;
+  readonly shapeFingerprints: readonly string[];
+  readonly cacheHitCount: number;
+  readonly cachedPromptTokens: number;
+  readonly promptTokens: number;
+  readonly latestModel?: string;
+  readonly firstSeenAt: string | null;
+  readonly lastSeenAt: string | null;
+}
+
+export interface PromptCacheAuditOverview {
+  readonly generatedAt: string;
+  readonly scannedEntryCount: number;
+  readonly distinctHashCount: number;
+  readonly crossAccountHashCount: number;
+  readonly crossSuccessfulAccountHashCount: number;
+  readonly rows: readonly PromptCacheAuditRow[];
 }
 
 export interface KeyPoolStatus {
@@ -229,6 +268,13 @@ export interface UsageOverview {
     readonly topModel: string | null;
     readonly topProvider: string | null;
     readonly activeAccounts: number;
+    readonly routingRequests24h: {
+      readonly local: number;
+      readonly federated: number;
+      readonly bridge: number;
+      readonly distinctPeers: number;
+      readonly topPeer: string | null;
+    };
     readonly serviceTierRequests24h: {
       readonly fastMode: number;
       readonly priority: number;
@@ -291,6 +337,14 @@ export interface CredentialQuotaWindow {
   readonly remainingPercent: number | null;
   readonly resetsAt: string | null;
   readonly resetAfterSeconds: number | null;
+  readonly limitWindowSeconds: number | null;
+}
+
+export interface CredentialQuotaRateLimit {
+  readonly allowed: boolean | null;
+  readonly limitReached: boolean | null;
+  readonly primaryWindow: CredentialQuotaWindow | null;
+  readonly secondaryWindow: CredentialQuotaWindow | null;
 }
 
 export interface CredentialQuotaAccountSummary {
@@ -304,12 +358,33 @@ export interface CredentialQuotaAccountSummary {
   readonly fetchedAt: string;
   readonly fiveHour: CredentialQuotaWindow | null;
   readonly weekly: CredentialQuotaWindow | null;
+  readonly rateLimit: CredentialQuotaRateLimit | null;
+  readonly codeReviewRateLimit: CredentialQuotaRateLimit | null;
   readonly error?: string;
 }
 
 export interface CredentialQuotaOverview {
   readonly generatedAt: string;
   readonly accounts: readonly CredentialQuotaAccountSummary[];
+}
+
+export interface OpenAiAccountProbeResult {
+  readonly providerId: string;
+  readonly accountId: string;
+  readonly displayName: string;
+  readonly email?: string;
+  readonly planType?: string;
+  readonly chatgptAccountId?: string;
+  readonly testedAt: string;
+  readonly model: string;
+  readonly expectedText: string;
+  readonly status: "ok" | "error";
+  readonly ok: boolean;
+  readonly matchesExpectedOutput: boolean;
+  readonly outputText?: string;
+  readonly upstreamStatus?: number;
+  readonly errorCode?: string;
+  readonly message: string;
 }
 
 export interface FederationPeer {
@@ -548,12 +623,12 @@ export function getApiOrigin(): string {
 }
 
 export async function listSessions(): Promise<SessionListItem[]> {
-  const payload = await requestJson<{ readonly sessions: SessionListItem[] }>("/api/ui/sessions");
+  const payload = await requestJson<{ readonly sessions: SessionListItem[] }>("/api/v1/sessions");
   return payload.sessions;
 }
 
 export async function createSession(title?: string): Promise<SessionRecord> {
-  const payload = await requestJson<{ readonly session: SessionRecord }>("/api/ui/sessions", {
+  const payload = await requestJson<{ readonly session: SessionRecord }>("/api/v1/sessions", {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -564,12 +639,12 @@ export async function createSession(title?: string): Promise<SessionRecord> {
 }
 
 export async function getSession(sessionId: string): Promise<SessionRecord> {
-  const payload = await requestJson<{ readonly session: SessionRecord }>(`/api/ui/sessions/${sessionId}`);
+  const payload = await requestJson<{ readonly session: SessionRecord }>(`/api/v1/sessions/${sessionId}`);
   return payload.session;
 }
 
 export async function getSessionPromptCacheKey(sessionId: string): Promise<string> {
-  const payload = await requestJson<{ readonly promptCacheKey: string }>(`/api/ui/sessions/${sessionId}/cache-key`);
+  const payload = await requestJson<{ readonly promptCacheKey: string }>(`/api/v1/sessions/${sessionId}/cache-key`);
   return payload.promptCacheKey;
 }
 
@@ -582,7 +657,7 @@ export async function addSessionMessage(
     readonly model?: string;
   },
 ): Promise<SessionMessage> {
-  const payload = await requestJson<{ readonly message: SessionMessage }>(`/api/ui/sessions/${sessionId}/messages`, {
+  const payload = await requestJson<{ readonly message: SessionMessage }>(`/api/v1/sessions/${sessionId}/messages`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -593,7 +668,7 @@ export async function addSessionMessage(
 }
 
 export async function forkSession(sessionId: string, messageId?: string): Promise<SessionRecord> {
-  const payload = await requestJson<{ readonly session: SessionRecord }>(`/api/ui/sessions/${sessionId}/fork`, {
+  const payload = await requestJson<{ readonly session: SessionRecord }>(`/api/v1/sessions/${sessionId}/fork`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -604,7 +679,7 @@ export async function forkSession(sessionId: string, messageId?: string): Promis
 }
 
 export async function searchSessionHistory(query: string, limit: number): Promise<{ readonly source: string; readonly results: SearchResult[] }> {
-  return requestJson<{ readonly source: string; readonly results: SearchResult[] }>("/api/ui/sessions/search", {
+  return requestJson<{ readonly source: string; readonly results: SearchResult[] }>("/api/v1/sessions/search", {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -657,11 +732,11 @@ export async function getUsageOverview(sort?: string, window?: "daily" | "weekly
     query.set("window", window.trim());
   }
   const suffix = query.size > 0 ? `?${query.toString()}` : "";
-  return requestJson<UsageOverview>(`/api/ui/dashboard/overview${suffix}`);
+  return requestJson<UsageOverview>(`/api/v1/dashboard/overview${suffix}`);
 }
 
 export async function getHostsOverview(): Promise<HostsOverview> {
-  return requestJson<HostsOverview>("/api/ui/hosts/overview");
+  return requestJson<HostsOverview>("/api/v1/hosts/overview");
 }
 
 export async function getProviderModelAnalytics(sort?: string, window?: "daily" | "weekly" | "monthly"): Promise<ProviderModelAnalytics> {
@@ -673,15 +748,15 @@ export async function getProviderModelAnalytics(sort?: string, window?: "daily" 
     query.set("window", window.trim());
   }
   const suffix = query.size > 0 ? `?${query.toString()}` : "";
-  return requestJson<ProviderModelAnalytics>(`/api/ui/analytics/provider-model${suffix}`);
+  return requestJson<ProviderModelAnalytics>(`/api/v1/analytics/provider-model${suffix}`);
 }
 
 export async function getProxyUiSettings(): Promise<ProxyUiSettings> {
-  return requestJson<ProxyUiSettings>("/api/ui/settings");
+  return requestJson<ProxyUiSettings>("/api/v1/settings");
 }
 
 export async function saveProxyUiSettings(settings: ProxyUiSettings): Promise<ProxyUiSettings> {
-  return requestJson<ProxyUiSettings>("/api/ui/settings", {
+  return requestJson<ProxyUiSettings>("/api/v1/settings", {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -696,21 +771,26 @@ export async function listCredentials(reveal: boolean): Promise<{
   readonly requestLogSummary: Record<string, ProviderRequestLogSummary>;
 }> {
   const query = reveal ? "?reveal=1" : "";
-  return requestJson(`/api/ui/credentials${query}`);
+  return requestJson(`/api/v1/credentials${query}`);
 }
 
-export async function addApiKeyCredential(providerId: string, accountId: string, apiKey: string): Promise<void> {
-  await requestJson("/api/ui/credentials/api-key", {
+export async function addApiKeyCredential(providerId: string, apiKey: string, accountId?: string): Promise<void> {
+  const payload: Record<string, unknown> = { providerId, apiKey };
+  if (typeof accountId === "string" && accountId.trim().length > 0) {
+    payload.accountId = accountId.trim();
+  }
+
+  await requestJson("/api/v1/credentials/api-key", {
     method: "POST",
     headers: {
       "content-type": "application/json",
     },
-    body: JSON.stringify({ providerId, accountId, apiKey }),
+    body: JSON.stringify(payload),
   });
 }
 
 export async function removeCredential(providerId: string, accountId: string): Promise<void> {
-  await requestJson("/api/ui/credentials/account", {
+  await requestJson("/api/v1/credentials/account", {
     method: "DELETE",
     headers: {
       "content-type": "application/json",
@@ -726,18 +806,38 @@ export async function getOpenAiCredentialQuota(accountId?: string): Promise<Cred
   }
 
   const suffix = query.size > 0 ? `?${query.toString()}` : "";
-  return requestJson<CredentialQuotaOverview>(`/api/ui/credentials/openai/quota${suffix}`);
+  return requestJson<CredentialQuotaOverview>(`/api/v1/credentials/openai/quota${suffix}`);
 }
 
-export async function startOpenAiBrowserOAuth(redirectBaseUrl: string): Promise<{
-  readonly authorizeUrl: string;
-}> {
-  return requestJson("/api/ui/credentials/openai/oauth/browser/start", {
+export async function getOpenAiPromptCacheAudit(limit?: number): Promise<PromptCacheAuditOverview> {
+  const query = new URLSearchParams();
+  if (typeof limit === "number" && Number.isFinite(limit) && limit > 0) {
+    query.set("limit", String(Math.floor(limit)));
+  }
+
+  const suffix = query.size > 0 ? `?${query.toString()}` : "";
+  return requestJson<PromptCacheAuditOverview>(`/api/v1/credentials/openai/prompt-cache-audit${suffix}`);
+}
+
+export async function probeOpenAiCredentialAccount(accountId: string): Promise<OpenAiAccountProbeResult> {
+  return requestJson<OpenAiAccountProbeResult>("/api/v1/credentials/openai/probe", {
     method: "POST",
     headers: {
       "content-type": "application/json",
     },
-    body: JSON.stringify({ redirectBaseUrl }),
+    body: JSON.stringify({ accountId }),
+  });
+}
+
+export async function startOpenAiBrowserOAuth(redirectBaseUrl: string, accountId?: string): Promise<{
+  readonly authorizeUrl: string;
+}> {
+  return requestJson("/api/v1/credentials/openai/oauth/browser/start", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ redirectBaseUrl, accountId }),
   });
 }
 
@@ -747,7 +847,7 @@ export async function startOpenAiDeviceOAuth(): Promise<{
   readonly deviceAuthId: string;
   readonly intervalMs: number;
 }> {
-  return requestJson("/api/ui/credentials/openai/oauth/device/start", {
+  return requestJson("/api/v1/credentials/openai/oauth/device/start", {
     method: "POST",
   });
 }
@@ -756,7 +856,7 @@ export async function pollOpenAiDeviceOAuth(deviceAuthId: string, userCode: stri
   readonly state: "pending" | "authorized" | "failed";
   readonly reason?: string;
 }> {
-  return requestJson("/api/ui/credentials/openai/oauth/device/poll", {
+  return requestJson("/api/v1/credentials/openai/oauth/device/poll", {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -771,7 +871,7 @@ export async function startFactoryBrowserOAuth(redirectBaseUrl: string): Promise
   readonly authorizeUrl: string;
   readonly state: string;
 }> {
-  return requestJson("/api/ui/credentials/factory/oauth/browser/start", {
+  return requestJson("/api/v1/credentials/factory/oauth/browser/start", {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -786,7 +886,7 @@ export async function startFactoryDeviceOAuth(): Promise<{
   readonly deviceAuthId: string;
   readonly intervalMs: number;
 }> {
-  return requestJson("/api/ui/credentials/factory/oauth/device/start", {
+  return requestJson("/api/v1/credentials/factory/oauth/device/start", {
     method: "POST",
   });
 }
@@ -795,7 +895,7 @@ export async function pollFactoryDeviceOAuth(deviceAuthId: string): Promise<{
   readonly state: "pending" | "authorized" | "failed";
   readonly reason?: string;
 }> {
-  return requestJson("/api/ui/credentials/factory/oauth/device/poll", {
+  return requestJson("/api/v1/credentials/factory/oauth/device/poll", {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -825,29 +925,29 @@ export async function listRequestLogs(filters: {
   }
 
   const suffix = query.toString().length > 0 ? `?${query.toString()}` : "";
-  const payload = await requestJson<{ readonly entries: RequestLogEntry[] }>(`/api/ui/request-logs${suffix}`);
+  const payload = await requestJson<{ readonly entries: RequestLogEntry[] }>(`/api/v1/request-logs${suffix}`);
   return payload.entries;
 }
 
 export async function listToolSeeds(model: string): Promise<ToolSeed[]> {
-  const payload = await requestJson<{ readonly tools: ToolSeed[] }>(`/api/ui/tools?model=${encodeURIComponent(model)}`);
+  const payload = await requestJson<{ readonly tools: ToolSeed[] }>(`/api/v1/tools?model=${encodeURIComponent(model)}`);
   return payload.tools;
 }
 
 export async function listMcpSeeds(): Promise<McpServerSeed[]> {
-  const payload = await requestJson<{ readonly servers: McpServerSeed[] }>("/api/ui/mcp-servers");
+  const payload = await requestJson<{ readonly servers: McpServerSeed[] }>("/api/v1/mcp-servers");
   return payload.servers;
 }
 
 export async function getFederationSelf(): Promise<FederationSelf> {
-  return requestJson<FederationSelf>("/api/ui/federation/self");
+  return requestJson<FederationSelf>("/api/v1/federation/self");
 }
 
 export async function listFederationPeers(ownerSubject?: string): Promise<readonly FederationPeer[]> {
   const suffix = ownerSubject && ownerSubject.trim().length > 0
     ? `?ownerSubject=${encodeURIComponent(ownerSubject.trim())}`
     : "";
-  const payload = await requestJson<{ readonly peers: readonly FederationPeer[] }>(`/api/ui/federation/peers${suffix}`);
+  const payload = await requestJson<{ readonly peers: readonly FederationPeer[] }>(`/api/v1/federation/peers${suffix}`);
   return payload.peers;
 }
 
@@ -859,7 +959,7 @@ export async function addFederationPeer(input: {
   readonly controlBaseUrl?: string;
   readonly auth?: Record<string, unknown>;
 }): Promise<FederationPeer> {
-  const payload = await requestJson<{ readonly peer: FederationPeer }>("/api/ui/federation/peers", {
+  const payload = await requestJson<{ readonly peer: FederationPeer }>("/api/v1/federation/peers", {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -873,7 +973,7 @@ export async function getFederationAccounts(ownerSubject?: string): Promise<Fede
   const suffix = ownerSubject && ownerSubject.trim().length > 0
     ? `?ownerSubject=${encodeURIComponent(ownerSubject.trim())}`
     : "";
-  return requestJson<FederationAccountsOverview>(`/api/ui/federation/accounts${suffix}`);
+  return requestJson<FederationAccountsOverview>(`/api/v1/federation/accounts${suffix}`);
 }
 
 export async function syncFederationPeer(input: {
@@ -892,6 +992,6 @@ export async function syncFederationPeer(input: {
 }
 
 export async function listFederationBridges(): Promise<readonly FederationBridgeSessionSummary[]> {
-  const payload = await requestJson<{ readonly sessions: readonly FederationBridgeSessionSummary[] }>("/api/ui/federation/bridges");
+  const payload = await requestJson<{ readonly sessions: readonly FederationBridgeSessionSummary[] }>("/api/v1/federation/bridges");
   return payload.sessions;
 }

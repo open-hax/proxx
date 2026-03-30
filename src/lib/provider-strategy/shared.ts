@@ -117,21 +117,42 @@ function reorderCandidatesForAffinity<T extends { readonly providerId: string; r
   candidates: readonly T[],
   preferred: PreferredAffinity | undefined,
 ): T[] {
-  if (!preferred) {
+  return reorderCandidatesForAffinities(candidates, preferred ? [preferred] : []);
+}
+
+export function reorderCandidatesForAffinities<T extends { readonly providerId: string; readonly account: ProviderCredential }>(
+  candidates: readonly T[],
+  preferred: readonly { readonly providerId: string; readonly accountId: string }[],
+): T[] {
+  if (preferred.length === 0) {
     return [...candidates];
   }
 
-  const preferredCandidates = candidates.filter(
-    (candidate) => candidate.providerId === preferred.providerId && candidate.account.accountId === preferred.accountId,
-  );
-  if (preferredCandidates.length === 0) {
+  const used = new Set<string>();
+  const ordered: T[] = [];
+
+  for (const preference of preferred) {
+    for (const candidate of candidates) {
+      if (candidate.providerId !== preference.providerId || candidate.account.accountId !== preference.accountId) {
+        continue;
+      }
+
+      const key = `${candidate.providerId}\0${candidate.account.accountId}`;
+      if (used.has(key)) {
+        continue;
+      }
+
+      used.add(key);
+      ordered.push(candidate);
+    }
+  }
+
+  if (ordered.length === 0) {
     return [...candidates];
   }
 
-  const remaining = candidates.filter(
-    (candidate) => candidate.providerId !== preferred.providerId || candidate.account.accountId !== preferred.accountId,
-  );
-  return [...preferredCandidates, ...remaining];
+  const remaining = candidates.filter((candidate) => !used.has(`${candidate.providerId}\0${candidate.account.accountId}`));
+  return [...ordered, ...remaining];
 }
 
 type UpstreamMode =
@@ -341,7 +362,7 @@ function providerAccountsForRequestWithPolicy(
 
 function providerUsesOpenAiChatCompletions(providerId: string): boolean {
   const normalized = providerId.trim().toLowerCase();
-  return normalized === "ob1" || normalized === "openrouter" || normalized === "requesty";
+  return normalized === "ob1" || normalized === "openrouter" || normalized === "requesty" || normalized === "zen";
 }
 
 function planCostTier(planType: string | undefined): number {
@@ -465,6 +486,34 @@ type MutableFactory4xxDiagnostics = {
   -readonly [K in keyof Factory4xxDiagnostics]: Factory4xxDiagnostics[K];
 };
 
+function buildRequestShapeFingerprint(diagnostics: {
+  readonly requestFormat: string;
+  readonly hasInstructions?: boolean;
+  readonly hasReasoning?: boolean;
+  readonly systemMessageCount?: number;
+  readonly userMessageCount?: number;
+  readonly assistantMessageCount?: number;
+  readonly toolMessageCount?: number;
+  readonly functionCallCount?: number;
+  readonly functionCallOutputCount?: number;
+  readonly imageInputCount?: number;
+}): string | undefined {
+  const shapeSummary = {
+    requestFormat: diagnostics.requestFormat,
+    hasInstructions: diagnostics.hasInstructions === true,
+    hasReasoning: diagnostics.hasReasoning === true,
+    hasSystemMessages: (diagnostics.systemMessageCount ?? 0) > 0,
+    hasUserMessages: (diagnostics.userMessageCount ?? 0) > 0,
+    hasAssistantMessages: (diagnostics.assistantMessageCount ?? 0) > 0,
+    hasToolMessages: (diagnostics.toolMessageCount ?? 0) > 0,
+    hasFunctionCalls: (diagnostics.functionCallCount ?? 0) > 0,
+    hasFunctionCallOutputs: (diagnostics.functionCallOutputCount ?? 0) > 0,
+    hasImageInputs: (diagnostics.imageInputCount ?? 0) > 0,
+  };
+
+  return shortHash(JSON.stringify(shapeSummary));
+}
+
 function normalizeDiagnosticText(value: string): string {
   return value.replace(/\s+/g, " ").trim();
 }
@@ -476,6 +525,11 @@ function shortHash(value: string): string | undefined {
   }
 
   return `sha256:${createHash("sha256").update(normalized).digest("hex").slice(0, 12)}`;
+}
+
+function promptCacheKeyHashFromRequestBody(requestBody: Record<string, unknown>): string | undefined {
+  const rawPromptCacheKey = asString(requestBody["prompt_cache_key"]) ?? asString(requestBody["promptCacheKey"]);
+  return rawPromptCacheKey ? shortHash(rawPromptCacheKey) : undefined;
 }
 
 function createFactoryDiagnosticAccumulator(): FactoryDiagnosticAccumulator {
@@ -563,7 +617,7 @@ function finalizeDiagnosticFingerprint(accumulator: FactoryDiagnosticAccumulator
   return `sha256:${accumulator.textHash.digest("hex").slice(0, 12)}`;
 }
 
-function buildFactory4xxDiagnostics(
+export function buildFactory4xxDiagnostics(
   upstreamPayload: Record<string, unknown>,
   promptCacheKey?: string,
 ): Factory4xxDiagnostics {
@@ -571,6 +625,7 @@ function buildFactory4xxDiagnostics(
   const diagnostics: MutableFactory4xxDiagnostics = {
     requestFormat: "unknown",
     promptCacheKeyHash: promptCacheKey ? shortHash(promptCacheKey) : undefined,
+    shapeFingerprint: undefined,
     messageCount: 0,
     inputItemCount: 0,
     systemMessageCount: 0,
@@ -702,6 +757,7 @@ function buildFactory4xxDiagnostics(
   diagnostics.hasOpencodeMarkers = accumulator.hasOpencodeMarkers;
   diagnostics.hasAgentProtocolMarkers = accumulator.hasAgentProtocolMarkers;
   diagnostics.textFingerprint = finalizeDiagnosticFingerprint(accumulator);
+  diagnostics.shapeFingerprint = buildRequestShapeFingerprint(diagnostics);
 
   return diagnostics;
 }
@@ -947,6 +1003,7 @@ function recordAttempt(
     readonly promptCacheKeyUsed?: boolean;
     readonly imageCount?: number;
     readonly imageCostUsd?: number;
+    readonly factoryDiagnostics?: Factory4xxDiagnostics;
     readonly error?: string;
   },
   mode: UpstreamMode
@@ -979,8 +1036,10 @@ function recordAttempt(
     totalTokens: values.totalTokens,
     imageCount: values.imageCount,
     imageCostUsd: values.imageCostUsd,
+    promptCacheKeyHash: promptCacheKeyHashFromRequestBody(context.requestBody),
     promptCacheKeyUsed: values.promptCacheKeyUsed,
     ttftMs: values.latencyMs,
+    factoryDiagnostics: values.factoryDiagnostics,
     error: values.error,
     costUsd: cost.costUsd,
     energyJoules: cost.energyJoules,

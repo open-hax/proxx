@@ -394,6 +394,14 @@ function readProvidersFromEnv(): Map<string, ProviderState> {
     );
   }
 
+  const zenKey = (process.env.ZEN_API_KEY ?? process.env.ZENMUX_API_KEY ?? "").trim();
+  if (zenKey) {
+    providers.set(
+      normalizeProviderId(process.env.ZEN_PROVIDER_ID ?? "zen"),
+      createEnvProviderState(process.env.ZEN_PROVIDER_ID ?? "zen", zenKey),
+    );
+  }
+
   return providers;
 }
 

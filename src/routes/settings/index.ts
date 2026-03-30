@@ -1,9 +1,13 @@
 import type { FastifyInstance } from "fastify";
-import type { UiRouteDependencies } from "../../lib/ui-routes.js";
+import type { UiRouteDependencies } from "../types.js";
+
+export { registerSettingsUiRoutes } from "./ui.js";
+import { API_V1_SETTINGS_ROUTE_PREFIX } from "./prefix.js";
+import { registerSettingsUiRoutes } from "./ui.js";
 
 export async function registerSettingsRoutes(
-  _app: FastifyInstance,
-  _deps: UiRouteDependencies
+  app: FastifyInstance,
+  deps: UiRouteDependencies
 ): Promise<void> {
-  // Routes will be migrated from lib/ui-routes.ts
+  await registerSettingsUiRoutes(app, deps, { prefix: API_V1_SETTINGS_ROUTE_PREFIX });
 }

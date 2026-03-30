@@ -4,6 +4,7 @@ import {
   addApiKeyCredential,
   getApiOrigin,
   getOpenAiCredentialQuota,
+  getOpenAiPromptCacheAudit,
   listCredentials,
   listRequestLogs,
   pollFactoryDeviceOAuth,
@@ -11,18 +12,22 @@ import {
   type CredentialAccount,
   type CredentialProvider,
   type CredentialQuotaAccountSummary,
+  type CredentialQuotaRateLimit,
   type CredentialQuotaOverview,
   type CredentialQuotaWindow,
   type KeyPoolStatus,
+  type OpenAiAccountProbeResult,
+  type PromptCacheAuditOverview,
   type ProviderRequestLogSummary,
   type RequestLogEntry,
+  probeOpenAiCredentialAccount,
   removeCredential,
   startFactoryBrowserOAuth,
   startFactoryDeviceOAuth,
   startOpenAiBrowserOAuth,
   startOpenAiDeviceOAuth,
 } from "../lib/api";
-import { formatAuthType } from "../lib/format";
+import { formatAuthType, formatRequestOrigin } from "../lib/format";
 import { useStoredState } from "../lib/use-stored-state";
 
 interface DeviceAuthState {
@@ -72,6 +77,11 @@ interface AccountEntry {
   readonly providerId: string;
   readonly providerAuthType: CredentialProvider["authType"];
   readonly account: CredentialAccount;
+}
+
+interface AccountDiagnostics {
+  readonly needsReauth: boolean;
+  readonly duplicateCount: number;
 }
 
 function compactMiddle(value: string, head: number = 8, tail: number = 6): string {
@@ -140,6 +150,90 @@ function formatResetSummary(window: CredentialQuotaWindow | null): string | null
   return `resets in ${minutes}m`;
 }
 
+function formatQuotaWindowLabel(window: CredentialQuotaWindow | null, fallback: string): string {
+  const seconds = window?.limitWindowSeconds ?? null;
+  if (seconds === null || seconds <= 0) {
+    return fallback;
+  }
+
+  if (seconds % 86400 === 0) {
+    const days = Math.round(seconds / 86400);
+    return `${days}d window`;
+  }
+
+  if (seconds % 3600 === 0) {
+    const hours = Math.round(seconds / 3600);
+    return `${hours}h window`;
+  }
+
+  if (seconds % 60 === 0) {
+    const minutes = Math.round(seconds / 60);
+    return `${minutes}m window`;
+  }
+
+  return `${seconds}s window`;
+}
+
+function formatQuotaRateLimitStatus(rateLimit: CredentialQuotaRateLimit | null): string {
+  if (!rateLimit) {
+    return "Unknown";
+  }
+
+  if (rateLimit.allowed === true) {
+    return "Allowed";
+  }
+
+  if (rateLimit.allowed === false || rateLimit.limitReached === true) {
+    return "Blocked";
+  }
+
+  return "Unknown";
+}
+
+function quotaRateLimitBadgeClass(rateLimit: CredentialQuotaRateLimit | null): string {
+  if (rateLimit?.allowed === true) {
+    return "credentials-badge-accent";
+  }
+
+  if (rateLimit?.allowed === false || rateLimit?.limitReached === true) {
+    return "credentials-badge-danger";
+  }
+
+  return "credentials-badge-muted";
+}
+
+function probeBadgeClass(result: OpenAiAccountProbeResult | undefined): string {
+  if (!result) {
+    return "credentials-badge-muted";
+  }
+
+  return result.ok ? "credentials-badge-accent" : "credentials-badge-danger";
+}
+
+function formatAggregatePercent(value: number | null): string {
+  if (value === null || !Number.isFinite(value)) {
+    return "No data";
+  }
+
+  return value >= 10 ? `${Math.round(value)}%` : `${value.toFixed(1)}%`;
+}
+
+function quotaBadgeClassFromPercent(value: number | null): string {
+  if (value === null || !Number.isFinite(value)) {
+    return "credentials-badge-muted";
+  }
+
+  if (value <= 15) {
+    return "credentials-badge-danger";
+  }
+
+  if (value <= 40) {
+    return "credentials-badge-warning";
+  }
+
+  return "credentials-badge-accent";
+}
+
 function quotaToneClass(remainingPercent: number | null): string {
   if (remainingPercent === null) {
     return "credentials-quota-fill-neutral";
@@ -170,6 +264,15 @@ function formatServiceTier(entry: RequestLogEntry): string {
   }
 
   return entry.serviceTier.replace(/[_-]+/g, " ");
+}
+
+function formatRouteLabel(entry: RequestLogEntry): string {
+  if (entry.routeKind === "local") {
+    return "local";
+  }
+
+  const peer = entry.routedPeerLabel ?? entry.routedPeerId ?? "unknown-peer";
+  return `${entry.routeKind} → ${peer}`;
 }
 
 function sortAccounts(accounts: readonly CredentialAccount[]): CredentialAccount[] {
@@ -217,6 +320,52 @@ function accountSearchBlob(entry: AccountEntry): string {
     .toLowerCase();
 }
 
+function hasRefreshToken(account: CredentialAccount): boolean {
+  const visibleRefreshToken = account.refreshToken ?? account.refreshTokenPreview;
+  return typeof visibleRefreshToken === "string" && visibleRefreshToken.trim().length > 0;
+}
+
+function errorSuggestsReauth(error?: string): boolean {
+  const normalized = error?.trim().toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+
+  return normalized.includes("provided authentication token is expired")
+    || normalized.includes("please try signing in again")
+    || normalized.includes("refresh token has already been used")
+    || normalized.includes("refresh token expired")
+    || normalized.includes("refresh_token_expired")
+    || normalized.includes("refresh_token_reused")
+    || normalized.includes("signing in again");
+}
+
+function humanIdentityKey(entry: AccountEntry): string | null {
+  const subject = entry.account.subject?.trim();
+  if (subject) {
+    return `${entry.providerId}:subject:${subject}`;
+  }
+
+  const email = entry.account.email?.trim().toLowerCase();
+  if (email) {
+    return `${entry.providerId}:email:${email}`;
+  }
+
+  return null;
+}
+
+function humanIdentityLabel(entry: AccountEntry): string | null {
+  if (entry.account.email) {
+    return entry.account.email;
+  }
+
+  if (entry.account.subject) {
+    return compactMiddle(entry.account.subject, 12, 8);
+  }
+
+  return null;
+}
+
 export function CredentialsPage(): JSX.Element {
   // NOTE: Persisting revealSecrets can be risky on shared machines; you asked
   // for persistence so we do it, but it will auto-load on refresh.
@@ -234,9 +383,13 @@ export function CredentialsPage(): JSX.Element {
   const [devicePolling, setDevicePolling] = useState(false);
   const [accountSearch, setAccountSearch] = useStoredState(LS_CREDENTIALS_ACCOUNT_SEARCH, "", validateString);
   const [accountGrouping, setAccountGrouping] = useStoredState<AccountGrouping>(LS_CREDENTIALS_GROUPING, "provider", validateAccountGrouping);
+  const [showReauthOnly, setShowReauthOnly] = useState(false);
   const [quotaOverview, setQuotaOverview] = useState<CredentialQuotaOverview | null>(null);
   const [quotaLoading, setQuotaLoading] = useState(false);
   const [quotaError, setQuotaError] = useState<string | null>(null);
+  const [promptCacheAudit, setPromptCacheAudit] = useState<PromptCacheAuditOverview | null>(null);
+  const [accountProbeResults, setAccountProbeResults] = useState<Record<string, OpenAiAccountProbeResult>>({});
+  const [accountProbeLoading, setAccountProbeLoading] = useState<Record<string, boolean>>({});
   const [copiedFieldKey, setCopiedFieldKey] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -275,6 +428,15 @@ export function CredentialsPage(): JSX.Element {
     }
   }, []);
 
+  const refreshPromptCacheAudit = useCallback(async () => {
+    try {
+      const nextAudit = await getOpenAiPromptCacheAudit(40);
+      setPromptCacheAudit(nextAudit);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+    }
+  }, []);
+
   useEffect(() => {
     void refreshCredentials().catch((nextError) => {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
@@ -294,7 +456,8 @@ export function CredentialsPage(): JSX.Element {
 
     hasLoadedQuotaRef.current = true;
     void refreshQuota();
-  }, [providers.length, refreshQuota]);
+    void refreshPromptCacheAudit();
+  }, [providers.length, refreshPromptCacheAudit, refreshQuota]);
 
   useEffect(() => {
     return () => {
@@ -347,15 +510,229 @@ export function CredentialsPage(): JSX.Element {
     return entries;
   }, [quotaOverview]);
 
+  const openAiQuotaPool = useMemo(() => {
+    const allOpenAiQuotaAccounts = (quotaOverview?.accounts ?? []).filter((account) => account.providerId === "openai");
+    if (allOpenAiQuotaAccounts.length === 0) {
+      return null;
+    }
+
+    const okAccounts = allOpenAiQuotaAccounts.filter((account) => account.status === "ok");
+    const errorAccounts = allOpenAiQuotaAccounts.filter((account) => account.status === "error");
+    const generalWindows = okAccounts
+      .map((account) => account.rateLimit?.primaryWindow ?? account.fiveHour)
+      .filter((window): window is CredentialQuotaWindow => window !== null);
+    const codeReviewWindows = okAccounts
+      .map((account) => account.codeReviewRateLimit?.primaryWindow)
+      .filter((window): window is CredentialQuotaWindow => window !== null);
+    const generalRemainingValues = generalWindows
+      .map((window) => window.remainingPercent)
+      .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+    const codeReviewRemainingValues = codeReviewWindows
+      .map((window) => window.remainingPercent)
+      .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+    const generalAvailableCount = okAccounts.filter((account) => account.rateLimit?.allowed === true).length;
+    const generalBlockedAccounts = okAccounts.filter((account) => account.rateLimit?.allowed === false || account.rateLimit?.limitReached === true);
+    const codeReviewAvailableCount = okAccounts.filter((account) => account.codeReviewRateLimit?.allowed === true).length;
+    const sortWindowByReset = (left: CredentialQuotaWindow, right: CredentialQuotaWindow): number => {
+      const leftReset = left.resetAfterSeconds ?? (left.resetsAt ? Math.max(0, Math.round((new Date(left.resetsAt).getTime() - Date.now()) / 1000)) : Number.POSITIVE_INFINITY);
+      const rightReset = right.resetAfterSeconds ?? (right.resetsAt ? Math.max(0, Math.round((new Date(right.resetsAt).getTime() - Date.now()) / 1000)) : Number.POSITIVE_INFINITY);
+      return leftReset - rightReset;
+    };
+
+    const nextResetWindow = [
+      ...generalBlockedAccounts
+        .map((account) => account.rateLimit?.primaryWindow ?? account.fiveHour)
+        .filter((window): window is CredentialQuotaWindow => window !== null),
+      ...okAccounts
+        .map((account) => account.rateLimit?.primaryWindow ?? account.fiveHour)
+        .filter((window): window is CredentialQuotaWindow => window !== null),
+    ].sort(sortWindowByReset)[0] ?? null;
+
+    const average = (values: readonly number[]): number | null => {
+      if (values.length === 0) {
+        return null;
+      }
+
+      return values.reduce((sum, value) => sum + value, 0) / values.length;
+    };
+
+    return {
+      totalAccounts: allOpenAiQuotaAccounts.length,
+      okAccounts: okAccounts.length,
+      errorAccounts: errorAccounts.length,
+      generalCombinedRemainingPercent: average(generalRemainingValues),
+      codeReviewCombinedRemainingPercent: average(codeReviewRemainingValues),
+      generalAvailableCount,
+      generalBlockedCount: generalBlockedAccounts.length,
+      codeReviewAvailableCount,
+      nextResetWindow,
+      windowLabel: formatQuotaWindowLabel(generalWindows[0] ?? null, "Primary window"),
+      codeReviewWindowLabel: formatQuotaWindowLabel(codeReviewWindows[0] ?? null, "Primary window"),
+    };
+  }, [quotaOverview]);
+
+  const cacheStabilityWatchRows = useMemo(() => {
+    if (!promptCacheAudit) {
+      return [];
+    }
+
+    return promptCacheAudit.rows
+      .map((row) => {
+        const cacheRate = row.promptTokens > 0 ? (row.cachedPromptTokens / row.promptTokens) * 100 : 0;
+        return {
+          ...row,
+          cacheRate,
+        };
+      })
+      .filter((row) => row.successfulAccountCount === 1)
+      .filter((row) => row.shapeFingerprintCount === 1)
+      .filter((row) => row.successfulRequestCount >= 4)
+      .filter((row) => row.promptTokens >= 10_000)
+      .sort((left, right) => {
+        if (left.cacheRate !== right.cacheRate) {
+          return left.cacheRate - right.cacheRate;
+        }
+
+        if (right.promptTokens !== left.promptTokens) {
+          return right.promptTokens - left.promptTokens;
+        }
+
+        return left.promptCacheKeyHash.localeCompare(right.promptCacheKeyHash);
+      })
+      .slice(0, 8);
+  }, [promptCacheAudit]);
+
+  const sortAccountEntries = useCallback((entries: readonly AccountEntry[]): AccountEntry[] => {
+    const now = Date.now();
+    const metricsFor = (entry: AccountEntry) => {
+      const quota = quotaByAccount.get(`${entry.providerId}:${entry.account.id}`);
+      const primaryWindow = quota?.rateLimit?.primaryWindow ?? quota?.fiveHour ?? null;
+      const hasQuota = entry.providerId === "openai" && entry.account.authType === "oauth_bearer" && quota?.status === "ok" && primaryWindow !== null;
+      const remainingPercent = primaryWindow?.remainingPercent ?? null;
+      const resetSeconds = primaryWindow?.resetAfterSeconds
+        ?? (primaryWindow?.resetsAt ? Math.max(0, Math.round((new Date(primaryWindow.resetsAt).getTime() - now) / 1000)) : Number.POSITIVE_INFINITY);
+      const allowedRank = quota?.rateLimit?.allowed === true
+        ? 0
+        : quota?.rateLimit?.allowed === false || quota?.rateLimit?.limitReached === true
+          ? 1
+          : 2;
+
+      return {
+        hasQuota,
+        remainingPercent,
+        resetSeconds,
+        allowedRank,
+      };
+    };
+
+    return [...entries].sort((left, right) => {
+      const leftMetrics = metricsFor(left);
+      const rightMetrics = metricsFor(right);
+
+      if (leftMetrics.hasQuota !== rightMetrics.hasQuota) {
+        return leftMetrics.hasQuota ? -1 : 1;
+      }
+
+      if (leftMetrics.hasQuota && rightMetrics.hasQuota) {
+        const leftRemaining = leftMetrics.remainingPercent ?? -1;
+        const rightRemaining = rightMetrics.remainingPercent ?? -1;
+        if (rightRemaining !== leftRemaining) {
+          return rightRemaining - leftRemaining;
+        }
+
+        if (leftMetrics.allowedRank !== rightMetrics.allowedRank) {
+          return leftMetrics.allowedRank - rightMetrics.allowedRank;
+        }
+
+        if (leftMetrics.resetSeconds !== rightMetrics.resetSeconds) {
+          return leftMetrics.resetSeconds - rightMetrics.resetSeconds;
+        }
+      }
+
+      const leftLabel = (left.account.email ?? left.account.displayName ?? left.account.id).toLowerCase();
+      const rightLabel = (right.account.email ?? right.account.displayName ?? right.account.id).toLowerCase();
+      return leftLabel.localeCompare(rightLabel);
+    });
+  }, [quotaByAccount]);
+
+  const accountDiagnostics = useMemo(() => {
+    const now = Date.now();
+    const identityGroups = new Map<string, { label: string; accountKeys: string[] }>();
+
+    for (const entry of flatAccounts) {
+      const identityKey = humanIdentityKey(entry);
+      const identityLabel = humanIdentityLabel(entry);
+      if (!identityKey || !identityLabel) {
+        continue;
+      }
+
+      const group = identityGroups.get(identityKey) ?? { label: identityLabel, accountKeys: [] };
+      group.accountKeys.push(`${entry.providerId}:${entry.account.id}`);
+      identityGroups.set(identityKey, group);
+    }
+
+    const duplicateCountByAccount = new Map<string, number>();
+    const duplicateGroups = [...identityGroups.values()]
+      .filter((group) => group.accountKeys.length > 1)
+      .sort((left, right) => left.label.localeCompare(right.label));
+
+    for (const group of duplicateGroups) {
+      for (const accountKey of group.accountKeys) {
+        duplicateCountByAccount.set(accountKey, group.accountKeys.length);
+      }
+    }
+
+    const diagnosticsByAccount = new Map<string, AccountDiagnostics>();
+    let reauthRequiredCount = 0;
+    let openAiOauthCount = 0;
+    let humanIdentifiedOpenAiOauthCount = 0;
+
+    for (const entry of flatAccounts) {
+      const accountKey = `${entry.providerId}:${entry.account.id}`;
+      const quota = quotaByAccount.get(accountKey);
+      const isOpenAiOauth = entry.providerId === "openai" && entry.account.authType === "oauth_bearer";
+      const tokenExpired = typeof entry.account.expiresAt === "number" && entry.account.expiresAt <= now;
+      const needsReauth = isOpenAiOauth && (errorSuggestsReauth(quota?.error) || (tokenExpired && !hasRefreshToken(entry.account)));
+
+      if (isOpenAiOauth) {
+        openAiOauthCount += 1;
+        if (entry.account.email || entry.account.subject) {
+          humanIdentifiedOpenAiOauthCount += 1;
+        }
+      }
+
+      if (needsReauth) {
+        reauthRequiredCount += 1;
+      }
+
+      diagnosticsByAccount.set(accountKey, {
+        needsReauth,
+        duplicateCount: duplicateCountByAccount.get(accountKey) ?? 0,
+      });
+    }
+
+    return {
+      byAccount: diagnosticsByAccount,
+      duplicateGroups,
+      reauthRequiredCount,
+      openAiOauthCount,
+      humanIdentifiedOpenAiOauthCount,
+    };
+  }, [flatAccounts, quotaByAccount]);
+
   const normalizedAccountSearch = accountSearch.trim().toLowerCase();
 
   const filteredAccounts = useMemo(() => {
-    if (normalizedAccountSearch.length === 0) {
-      return flatAccounts;
+    const searchFiltered = normalizedAccountSearch.length === 0
+      ? flatAccounts
+      : flatAccounts.filter((entry) => accountSearchBlob(entry).includes(normalizedAccountSearch));
+
+    if (!showReauthOnly) {
+      return searchFiltered;
     }
 
-    return flatAccounts.filter((entry) => accountSearchBlob(entry).includes(normalizedAccountSearch));
-  }, [flatAccounts, normalizedAccountSearch]);
+    return searchFiltered.filter((entry) => accountDiagnostics.byAccount.get(`${entry.providerId}:${entry.account.id}`)?.needsReauth);
+  }, [accountDiagnostics.byAccount, flatAccounts, normalizedAccountSearch, showReauthOnly]);
 
   const filteredProviders = useMemo(() => {
     const accountsByProvider = new Map<string, CredentialAccount[]>();
@@ -384,11 +761,11 @@ export function CredentialsPage(): JSX.Element {
             : `${provider.accounts.length} of ${provider.accountCount} account(s) shown`,
         badge: formatAuthType(provider.authType),
         badgeMuted: `${provider.accounts.length} shown`,
-        accounts: provider.accounts.map((account) => ({
+        accounts: sortAccountEntries(provider.accounts.map((account) => ({
           providerId: provider.id,
           providerAuthType: provider.authType,
           account,
-        })),
+        }))),
       }));
     }
 
@@ -416,11 +793,7 @@ export function CredentialsPage(): JSX.Element {
         description: `${value.accounts.length} account(s) · ${value.description}`,
         badge: accountGrouping === "plan" ? "Plan" : "Domain",
         badgeMuted: `${value.accounts.length} shown`,
-        accounts: value.accounts.sort((left, right) => {
-          const leftLabel = (left.account.email ?? left.account.displayName ?? left.account.id).toLowerCase();
-          const rightLabel = (right.account.email ?? right.account.displayName ?? right.account.id).toLowerCase();
-          return leftLabel.localeCompare(rightLabel);
-        }),
+        accounts: sortAccountEntries(value.accounts),
       }))
       .sort((left, right) => {
         if (left.title.startsWith("No ") && !right.title.startsWith("No ")) {
@@ -431,7 +804,7 @@ export function CredentialsPage(): JSX.Element {
         }
         return left.title.localeCompare(right.title);
       });
-  }, [accountGrouping, filteredAccounts, filteredProviders]);
+  }, [accountGrouping, filteredAccounts, filteredProviders, sortAccountEntries]);
 
   const providerHealth = useMemo(() => {
     const providerIds = new Set<string>([
@@ -447,6 +820,21 @@ export function CredentialsPage(): JSX.Element {
     }));
   }, [keyPoolStatuses, providers, requestLogSummary]);
 
+  const duplicateSummary = useMemo(() => {
+    if (accountDiagnostics.duplicateGroups.length === 0) {
+      return "No possible duplicate identities detected";
+    }
+
+    const preview = accountDiagnostics.duplicateGroups
+      .slice(0, 3)
+      .map((group) => `${group.label} (${group.accountKeys.length})`)
+      .join(", ");
+
+    return accountDiagnostics.duplicateGroups.length > 3
+      ? `Possible duplicates: ${preview}…`
+      : `Possible duplicates: ${preview}`;
+  }, [accountDiagnostics.duplicateGroups]);
+
   const handleApiKeySubmit = async (event: FormEvent) => {
     event.preventDefault();
     setError(null);
@@ -456,9 +844,10 @@ export function CredentialsPage(): JSX.Element {
         throw new Error("API key value is required");
       }
 
-      const accountId = apiKeyAccount.trim().length > 0 ? apiKeyAccount.trim() : `${apiKeyProvider}-manual`;
-      await addApiKeyCredential(apiKeyProvider.trim(), accountId, apiKeyValue.trim());
+      const accountId = apiKeyAccount.trim();
+      await addApiKeyCredential(apiKeyProvider.trim(), apiKeyValue.trim(), accountId.length > 0 ? accountId : undefined);
       setApiKeyValue("");
+      setApiKeyAccount("");
       setStatus("API key saved.");
       await refreshCredentials();
       await refreshQuota();
@@ -467,11 +856,11 @@ export function CredentialsPage(): JSX.Element {
     }
   };
 
-  const startBrowserOAuth = async () => {
+  const startBrowserOAuth = async (target?: AccountEntry) => {
     setError(null);
 
     try {
-      const payload = await startOpenAiBrowserOAuth(getApiOrigin());
+      const payload = await startOpenAiBrowserOAuth(getApiOrigin(), target?.account.id);
       const authWindow = window.open(payload.authorizeUrl, "_blank");
 
       if (!authWindow) {
@@ -495,10 +884,14 @@ export function CredentialsPage(): JSX.Element {
 
         void refreshCredentials();
         void refreshQuota();
-        setStatus("Browser OAuth flow finished. Credentials refreshed.");
+        setStatus(target
+          ? `OpenAI reauth finished for ${target.account.email ?? target.account.displayName}. Credentials refreshed.`
+          : "Browser OAuth flow finished. Credentials refreshed.");
       }, 750);
 
-      setStatus("Browser OAuth tab opened. Finish sign-in to save credentials.");
+      setStatus(target
+        ? `OpenAI reauth tab opened for ${target.account.email ?? target.account.displayName}. Sign into that same account to replace the old credential.`
+        : "Browser OAuth tab opened. Finish sign-in to save credentials.");
     } catch (oauthError) {
       setError(oauthError instanceof Error ? oauthError.message : String(oauthError));
     }
@@ -656,6 +1049,38 @@ export function CredentialsPage(): JSX.Element {
     }
   }, [refreshCredentials, refreshQuota]);
 
+  const handleProbeAccount = useCallback(async (providerId: string, accountId: string) => {
+    const stateKey = `${providerId}:${accountId}`;
+    setError(null);
+    setAccountProbeLoading((current) => ({ ...current, [stateKey]: true }));
+
+    try {
+      const result = await probeOpenAiCredentialAccount(accountId);
+      setAccountProbeResults((current) => ({ ...current, [stateKey]: result }));
+      await refreshQuota();
+      await refreshPromptCacheAudit();
+    } catch (probeError) {
+      const message = probeError instanceof Error ? probeError.message : String(probeError);
+      setAccountProbeResults((current) => ({
+        ...current,
+        [stateKey]: {
+          providerId,
+          accountId,
+          displayName: `${providerId}/${accountId}`,
+          testedAt: new Date().toISOString(),
+          model: "gpt-5.2",
+          expectedText: "hello",
+          status: "error",
+          ok: false,
+          matchesExpectedOutput: false,
+          message,
+        },
+      }));
+    } finally {
+      setAccountProbeLoading((current) => ({ ...current, [stateKey]: false }));
+    }
+  }, [refreshPromptCacheAudit, refreshQuota]);
+
   const renderQuotaRow = (label: string, window: CredentialQuotaWindow | null) => {
     const remainingPercent = window?.remainingPercent ?? null;
     const width = remainingPercent === null ? 0 : Math.min(100, Math.max(0, remainingPercent));
@@ -679,9 +1104,43 @@ export function CredentialsPage(): JSX.Element {
     );
   };
 
+  const renderQuotaGroup = (
+    title: string,
+    rateLimit: CredentialQuotaRateLimit | null,
+    fallbackPrimary?: CredentialQuotaWindow | null,
+    fallbackSecondary?: CredentialQuotaWindow | null,
+  ) => {
+    const primaryWindow = rateLimit?.primaryWindow ?? fallbackPrimary ?? null;
+    const secondaryWindow = rateLimit?.secondaryWindow ?? fallbackSecondary ?? null;
+
+    if (!rateLimit && !primaryWindow && !secondaryWindow) {
+      return null;
+    }
+
+    return (
+      <section key={title} className="credentials-quota-group">
+        <div className="credentials-quota-group-header">
+          <strong>{title}</strong>
+          <span className={`credentials-badge ${quotaRateLimitBadgeClass(rateLimit)}`}>
+            {formatQuotaRateLimitStatus(rateLimit)}
+          </span>
+        </div>
+        <div className="credentials-quota-list">
+          {primaryWindow && renderQuotaRow(formatQuotaWindowLabel(primaryWindow, "Primary window"), primaryWindow)}
+          {secondaryWindow && renderQuotaRow(formatQuotaWindowLabel(secondaryWindow, "Secondary window"), secondaryWindow)}
+          {!primaryWindow && !secondaryWindow && (
+            <p className="credentials-quota-note">No window data returned for this rate-limit bucket.</p>
+          )}
+        </div>
+      </section>
+    );
+  };
+
   const renderAccountTile = (entry: AccountEntry, showProviderBadge: boolean) => {
     const { account, providerId } = entry;
-    const quota = quotaByAccount.get(`${providerId}:${account.id}`);
+    const accountKey = `${providerId}:${account.id}`;
+    const quota = quotaByAccount.get(accountKey);
+    const diagnostics = accountDiagnostics.byAccount.get(accountKey);
     const planLabel = titleCasePlan(quota?.planType ?? account.planType);
     const expiryLabel = formatExpiryBadge(account.expiresAt);
     const visibleToken = revealSecrets ? account.secret : account.secretPreview;
@@ -689,6 +1148,12 @@ export function CredentialsPage(): JSX.Element {
     const workspaceCopyKey = `${providerId}:${account.id}:workspace`;
     const internalCopyKey = `${providerId}:${account.id}:internal`;
     const shouldShowQuota = (providerId === "openai" && account.authType === "oauth_bearer") || Boolean(quota);
+    const probeResult = accountProbeResults[accountKey];
+    const probeLoading = accountProbeLoading[accountKey] === true;
+    const duplicateCount = diagnostics?.duplicateCount ?? 0;
+    const needsReauth = diagnostics?.needsReauth ?? false;
+    const canReauth = providerId === "openai" && account.authType === "oauth_bearer";
+    const canProbeAccount = providerId === "openai" && account.authType === "oauth_bearer";
 
     return (
       <article key={`${providerId}:${account.id}`} className="credentials-account-tile">
@@ -701,6 +1166,8 @@ export function CredentialsPage(): JSX.Element {
           </div>
           <div className="credentials-provider-badges">
             {showProviderBadge && <span className="credentials-badge credentials-badge-muted">{providerId}</span>}
+            {needsReauth && <span className="credentials-badge credentials-badge-danger">Reauth required</span>}
+            {duplicateCount > 1 && <span className="credentials-badge credentials-badge-warning">Possible duplicate ×{duplicateCount}</span>}
             {planLabel && <span className="credentials-badge credentials-badge-accent">{planLabel}</span>}
             <span className="credentials-badge credentials-badge-muted">{formatAuthType(account.authType)}</span>
           </div>
@@ -714,6 +1181,41 @@ export function CredentialsPage(): JSX.Element {
           <span className="credentials-chip">token {account.secretPreview}</span>
         </div>
 
+        {(canReauth || canProbeAccount) && (
+          <div className="credentials-account-actions">
+            {canReauth && (
+              <button
+                type="button"
+                className="credentials-shortcut-button"
+                onClick={() => void startBrowserOAuth(entry)}
+              >
+                {needsReauth ? "Reauth now" : "Reauth"}
+              </button>
+            )}
+            {canProbeAccount && (
+              <button
+                type="button"
+                className="credentials-shortcut-button"
+                onClick={() => void handleProbeAccount(providerId, account.id)}
+                disabled={probeLoading}
+              >
+                {probeLoading ? "Testing…" : "Test live"}
+              </button>
+            )}
+            {probeResult && (
+              <span className={`credentials-badge ${probeBadgeClass(probeResult)}`}>
+                {probeResult.ok ? "Live" : "Not live"}
+              </span>
+            )}
+          </div>
+        )}
+
+        {probeResult && (
+          <p className={`credentials-probe-note ${probeResult.ok ? "" : "credentials-probe-note-error"}`.trim()}>
+            {probeResult.message} Tested {formatQuotaTimestamp(probeResult.testedAt)}.
+          </p>
+        )}
+
         {shouldShowQuota && (
           <section className="credentials-quota-card">
             <header className="credentials-quota-card-header">
@@ -722,8 +1224,8 @@ export function CredentialsPage(): JSX.Element {
             </header>
             {quota?.status === "ok" ? (
               <div className="credentials-quota-list">
-                {renderQuotaRow("Rolling 5h", quota.fiveHour)}
-                {renderQuotaRow("Weekly", quota.weekly)}
+                {renderQuotaGroup("General rate limit", quota.rateLimit, quota.fiveHour, quota.weekly)}
+                {renderQuotaGroup("Code review rate limit", quota.codeReviewRateLimit)}
               </div>
             ) : quota?.status === "error" ? (
               <p className="credentials-quota-note credentials-quota-note-error">{quota.error ?? "Quota unavailable"}</p>
@@ -769,6 +1271,12 @@ export function CredentialsPage(): JSX.Element {
               <div className="credentials-account-detail-item">
                 <dt>Quota refreshed</dt>
                 <dd>{formatQuotaTimestamp(quota.fetchedAt)}</dd>
+              </div>
+            )}
+            {account.email && (
+              <div className="credentials-account-detail-item">
+                <dt>Email</dt>
+                <dd>{account.email}</dd>
               </div>
             )}
             {account.subject && (
@@ -838,8 +1346,15 @@ export function CredentialsPage(): JSX.Element {
               <option value="domain">Email domain</option>
             </select>
           </label>
-          <button type="button" onClick={() => void refreshQuota()} disabled={quotaLoading}>
+          <button type="button" onClick={() => void Promise.all([refreshQuota(), refreshPromptCacheAudit()])} disabled={quotaLoading}>
             {quotaLoading ? "Refreshing Codex quotas..." : "Refresh Codex quotas"}
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowReauthOnly((current) => !current)}
+            disabled={!showReauthOnly && accountDiagnostics.reauthRequiredCount === 0}
+          >
+            {showReauthOnly ? "Show all accounts" : `Show reauth required (${accountDiagnostics.reauthRequiredCount})`}
           </button>
         </div>
 
@@ -850,9 +1365,197 @@ export function CredentialsPage(): JSX.Element {
           <p className="credentials-toolbar-meta">
             {quotaOverview ? `Codex quotas updated ${formatQuotaTimestamp(quotaOverview.generatedAt)}` : "Codex quotas not loaded yet"}
           </p>
+          <p className="credentials-toolbar-meta">
+            {accountDiagnostics.reauthRequiredCount === 0
+              ? "No accounts currently require reauth"
+              : `${accountDiagnostics.reauthRequiredCount} account(s) currently require reauth`}
+            {" · "}
+            OpenAI identities {accountDiagnostics.humanIdentifiedOpenAiOauthCount}/{accountDiagnostics.openAiOauthCount}
+            {" · "}
+            {duplicateSummary}
+          </p>
         </div>
 
         {quotaError && <p className="error-text">{quotaError}</p>}
+
+        {openAiQuotaPool && (
+          <article className="credentials-card credentials-pool-card">
+            <header className="credentials-provider-header">
+              <div>
+                <h3>OpenAI OAuth quota pool</h3>
+                <p>
+                  {openAiQuotaPool.okAccounts}/{openAiQuotaPool.totalAccounts} live account(s)
+                  {" · "}
+                  {openAiQuotaPool.generalAvailableCount} available now
+                  {" · "}
+                  {openAiQuotaPool.errorAccounts} needing attention
+                </p>
+              </div>
+              <div className="credentials-provider-badges">
+                <span className={`credentials-badge ${quotaBadgeClassFromPercent(openAiQuotaPool.generalCombinedRemainingPercent)}`}>
+                  {formatAggregatePercent(openAiQuotaPool.generalCombinedRemainingPercent)} combined left
+                </span>
+              </div>
+            </header>
+
+            <div className="credentials-quota-bar credentials-pool-bar">
+              <span
+                className={`credentials-quota-fill ${quotaToneClass(openAiQuotaPool.generalCombinedRemainingPercent)}`}
+                style={{ width: `${Math.max(0, Math.min(100, openAiQuotaPool.generalCombinedRemainingPercent ?? 0))}%` }}
+              />
+            </div>
+
+            <div className="credentials-pool-grid">
+              <dl className="credentials-pool-metric">
+                <dt>Combined general quota left</dt>
+                <dd>{formatAggregatePercent(openAiQuotaPool.generalCombinedRemainingPercent)}</dd>
+                <small>{openAiQuotaPool.windowLabel}</small>
+              </dl>
+              <dl className="credentials-pool-metric">
+                <dt>Combined code review left</dt>
+                <dd>{formatAggregatePercent(openAiQuotaPool.codeReviewCombinedRemainingPercent)}</dd>
+                <small>{openAiQuotaPool.codeReviewWindowLabel}</small>
+              </dl>
+              <dl className="credentials-pool-metric">
+                <dt>Available now</dt>
+                <dd>{openAiQuotaPool.generalAvailableCount}/{openAiQuotaPool.okAccounts}</dd>
+                <small>{openAiQuotaPool.generalBlockedCount} blocked · {openAiQuotaPool.codeReviewAvailableCount} code review-ready</small>
+              </dl>
+              <dl className="credentials-pool-metric">
+                <dt>Next general reset</dt>
+                <dd>{openAiQuotaPool.nextResetWindow ? (formatResetSummary(openAiQuotaPool.nextResetWindow) ?? "Unknown") : "Unknown"}</dd>
+                <small>{openAiQuotaPool.nextResetWindow ? formatQuotaWindowLabel(openAiQuotaPool.nextResetWindow, "Primary window") : "No reset window data"}</small>
+              </dl>
+            </div>
+
+            <p className="credentials-pool-meta">
+              Combined pool is computed from live remaining percentages across OpenAI OAuth accounts with quota data.
+            </p>
+          </article>
+        )}
+
+        {promptCacheAudit && (
+          <article className="credentials-card credentials-pool-card">
+            <header className="credentials-provider-header">
+              <div>
+                <h3>Prompt cache affinity audit</h3>
+                <p>
+                  {promptCacheAudit.crossSuccessfulAccountHashCount} multi-success-account hash(es)
+                  {" · "}
+                  {promptCacheAudit.crossAccountHashCount} cross-account hash(es)
+                  {" · "}
+                  {promptCacheAudit.distinctHashCount} distinct hash(es)
+                  {" · "}
+                  scanned {promptCacheAudit.scannedEntryCount} recent OpenAI OAuth request(s)
+                </p>
+              </div>
+            </header>
+
+            {promptCacheAudit.rows.length > 0 ? (
+              <div className="credentials-audit-table">
+                <div className="credentials-audit-header">
+                  <span>Hash</span>
+                  <span>Successful accounts</span>
+                  <span>Failed retries</span>
+                  <span>Requests</span>
+                  <span>Cache</span>
+                  <span>Last seen</span>
+                </div>
+                {promptCacheAudit.rows.map((row) => {
+                  const cacheRate = row.promptTokens > 0 ? (row.cachedPromptTokens / row.promptTokens) * 100 : null;
+                  return (
+                    <div key={row.promptCacheKeyHash} className="credentials-audit-row">
+                      <div>
+                        <strong>{row.promptCacheKeyHash}</strong>
+                        {row.latestModel && <small>{row.providerId} · {row.latestModel}</small>}
+                      </div>
+                      <div>
+                        <span className={`credentials-badge ${row.successfulAccountCount > 1 ? "credentials-badge-warning" : "credentials-badge-accent"}`}>
+                          {row.successfulAccountCount} successful account{row.successfulAccountCount === 1 ? "" : "s"}
+                        </span>
+                        <small>{row.successfulAccountIds.join(", ") || "None"}</small>
+                      </div>
+                      <div>
+                        <span className={`credentials-badge ${row.failedAccountCount > 0 ? "credentials-badge-danger" : "credentials-badge-muted"}`}>
+                          {row.failedAccountCount} failed account{row.failedAccountCount === 1 ? "" : "s"}
+                        </span>
+                        <small>{row.failedAccountIds.join(", ") || "None"}</small>
+                      </div>
+                      <div>
+                        <strong>{row.requestCount}</strong>
+                        <small>{row.successfulRequestCount} success · {row.failedRequestCount} failed · {row.cacheHitCount} hit{row.cacheHitCount === 1 ? "" : "s"} · {row.shapeFingerprintCount} shape{row.shapeFingerprintCount === 1 ? "" : "s"}</small>
+                      </div>
+                      <div>
+                        <strong>{formatAggregatePercent(cacheRate)}</strong>
+                        <small>{row.cachedPromptTokens.toLocaleString()} / {row.promptTokens.toLocaleString()} prompt tokens</small>
+                      </div>
+                      <div>
+                        <strong>{row.lastSeenAt ? formatQuotaTimestamp(row.lastSeenAt) : "Never"}</strong>
+                        <small>{row.firstSeenAt ? `first ${formatQuotaTimestamp(row.firstSeenAt)}` : ""}</small>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="credentials-pool-meta">No prompt-cache hashes have been recorded in recent OpenAI OAuth request logs yet.</p>
+            )}
+          </article>
+        )}
+
+        {promptCacheAudit && (
+          <article className="credentials-card credentials-pool-card">
+            <header className="credentials-provider-header">
+              <div>
+                <h3>Cache stability watchlist</h3>
+                <p>
+                  Single-success-account hashes with one stable request shape and enough traffic to judge cache reliability.
+                </p>
+              </div>
+            </header>
+
+            {cacheStabilityWatchRows.length > 0 ? (
+              <div className="credentials-watch-grid">
+                {cacheStabilityWatchRows.map((row) => (
+                  <article key={`watch-${row.promptCacheKeyHash}`} className="credentials-pool-metric credentials-watch-card">
+                    <div>
+                      <strong>{row.promptCacheKeyHash}</strong>
+                      <small>{row.providerId} · {row.latestModel ?? "unknown model"}</small>
+                    </div>
+                    <div className="credentials-provider-badges">
+                      <span className={`credentials-badge ${quotaBadgeClassFromPercent(row.cacheRate)}`}>
+                        {formatAggregatePercent(row.cacheRate)} cache
+                      </span>
+                      <span className="credentials-badge credentials-badge-muted">
+                        {row.successfulRequestCount} success
+                      </span>
+                    </div>
+                    <dl className="credentials-watch-metrics">
+                      <div>
+                        <dt>Successful account</dt>
+                        <dd>{row.successfulAccountIds[0] ?? "Unknown"}</dd>
+                      </div>
+                      <div>
+                        <dt>Prompt tokens</dt>
+                        <dd>{row.promptTokens.toLocaleString()}</dd>
+                      </div>
+                      <div>
+                        <dt>Cached prompt tokens</dt>
+                        <dd>{row.cachedPromptTokens.toLocaleString()}</dd>
+                      </div>
+                      <div>
+                        <dt>Shape fingerprints</dt>
+                        <dd>{row.shapeFingerprints.join(", ")}</dd>
+                      </div>
+                    </dl>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <p className="credentials-pool-meta">No stable same-account hashes currently look anomalous enough to flag.</p>
+            )}
+          </article>
+        )}
 
         {groupedAccountSections.length > 0 ? (
           <div className="credentials-provider-stack">
@@ -906,15 +1609,29 @@ export function CredentialsPage(): JSX.Element {
               Add Factory Key
             </button>
           </div>
-          <input
+          <select
             value={apiKeyProvider}
             onChange={(event) => setApiKeyProvider(event.currentTarget.value)}
-            placeholder="provider id"
-          />
+          >
+            <option value="vivgrid">Vivgrid</option>
+            <option value="openai">OpenAI</option>
+            <option value="ollama-cloud">Ollama Cloud</option>
+            <option value="ollama">Ollama (local)</option>
+            <option value="ollama-stealth">Ollama Stealth</option>
+            <option value="ollama-big-ussy">Ollama Big Ussy</option>
+            <option value="requesty">Requesty</option>
+            <option value="zen">Zen/ZenMux</option>
+            <option value="openrouter">OpenRouter</option>
+            <option value="gemini">Gemini</option>
+            <option value="zai">Z.ai (GLM)</option>
+            <option value="mistral">Mistral</option>
+            <option value="factory">Factory</option>
+            <option value="ob1">OB1</option>
+          </select>
           <input
             value={apiKeyAccount}
             onChange={(event) => setApiKeyAccount(event.currentTarget.value)}
-            placeholder="account id"
+            placeholder="account id (optional — auto-generated if empty)"
           />
           <input
             type="password"
@@ -1007,19 +1724,25 @@ export function CredentialsPage(): JSX.Element {
         </div>
 
         <div className="credentials-log-table">
-          {logs.map((entry) => (
-            <article key={entry.id}>
-              <header>
-                <strong>{entry.providerId}/{entry.accountId}</strong>
-                <span>{entry.status} · {entry.latencyMs}ms</span>
-              </header>
-              <p>
-                {entry.model} · {entry.upstreamMode} · {formatServiceTier(entry)} · {new Date(entry.timestamp).toLocaleString()}
-                {typeof entry.totalTokens === "number" ? ` · ${entry.totalTokens} tok` : ""}
-              </p>
-              {entry.error && <small>{entry.error}</small>}
-            </article>
-          ))}
+          {logs.map((entry) => {
+            const origin = formatRequestOrigin(entry);
+            const originPart = origin !== "unknown" && origin !== "local" ? ` · from ${origin}` : "";
+            return (
+              <article key={entry.id}>
+                <header>
+                  <strong>{entry.providerId}/{entry.accountId}</strong>
+                  <span>{entry.status} · {entry.latencyMs}ms</span>
+                </header>
+                <p>
+                  {entry.model} · {entry.upstreamMode} · {formatServiceTier(entry)} · {formatRouteLabel(entry)}
+                  {originPart}
+                  {" · "}{new Date(entry.timestamp).toLocaleString()}
+                  {typeof entry.totalTokens === "number" ? ` · ${entry.totalTokens} tok` : ""}
+                </p>
+                {entry.error && <small>{entry.error}</small>}
+              </article>
+            );
+          })}
         </div>
       </section>
     </div>

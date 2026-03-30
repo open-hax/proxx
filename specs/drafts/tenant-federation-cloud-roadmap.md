@@ -63,6 +63,7 @@ Reason:
 - `specs/drafts/cloud-deployment.md`
 - `specs/drafts/multi-tenant-proxy-foundation.md`
 - `specs/drafts/proxy-federation.md`
+- `specs/drafts/federated-tenant-provider-share-policies.md` — policy layer for owned-fleet relay demos, trust tiers, and explicit share modes across tenant DIDs and provider resources
 
 ## Proposed immediate next milestone
 Start with a narrow “platform foundation” milestone:

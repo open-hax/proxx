@@ -6,7 +6,7 @@ import { resolveRequestRoutingState } from "../provider-routing.js";
 import { PROVIDER_STRATEGIES } from "./registry.js";
 import type { ResolvedRequestAuth } from "../request-auth.js";
 import type { ProviderStrategy, StrategyRequestContext } from "./shared.js";
-import { isAutoModel, selectAutoModel } from "../auto-model-selector.js";
+import { resolveAutoModel } from "./strategies/auto.js";
 
 function selectMatchingStrategy(context: StrategyRequestContext): ProviderStrategy {
   return PROVIDER_STRATEGIES.find((entry) => entry.matches(context))
@@ -32,17 +32,12 @@ export function selectProviderStrategy(
     : config.requestTimeoutMs;
 
   let routedModel = routingState.routedModel;
-  if (isAutoModel(routedModel)) {
-    const selectedModel = selectAutoModel(
-      routedModel,
-      requestBody,
-      undefined,
-      config.upstreamProviderId,
-    );
-    if (selectedModel) {
-      routedModel = selectedModel;
-    }
-  }
+  routedModel = resolveAutoModel(
+    routedModel,
+    requestBody,
+    undefined,
+    config.upstreamProviderId,
+  );
 
   const context: StrategyRequestContext = {
     config,

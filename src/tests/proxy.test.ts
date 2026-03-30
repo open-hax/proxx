@@ -1751,13 +1751,27 @@ test("fetches live OpenAI Codex quota windows and persists refreshed OAuth token
       return new Response(JSON.stringify({
         usage: {
           rate_limit: {
+            allowed: false,
+            limit_reached: true,
             primary_window: {
               remaining_percent: 72,
+              limit_window_seconds: 18000,
               reset_after_seconds: 1800,
             },
             secondary_window: {
+              allowed: false,
               remaining_percent: 54,
+              limit_window_seconds: 604800,
               resets_at: "2030-01-01T00:00:00.000Z",
+            },
+          },
+          code_review_rate_limit: {
+            allowed: true,
+            limit_reached: false,
+            primary_window: {
+              remaining_percent: 100,
+              limit_window_seconds: 604800,
+              reset_after_seconds: 3600,
             },
           },
           plan_type: "pro",
@@ -1804,6 +1818,10 @@ test("fetches live OpenAI Codex quota windows and persists refreshed OAuth token
             },
           },
         },
+        configOverrides: {
+          openaiBaseUrl: "https://chatgpt.com/backend-api",
+          openaiResponsesPath: "/codex/responses",
+        },
         upstreamHandler: async () => ({
           status: 404,
           headers: {
@@ -1830,8 +1848,14 @@ test("fetches live OpenAI Codex quota windows and persists refreshed OAuth token
         assert.equal(payload.accounts[0].planType, "pro");
         assert.ok(isRecord(payload.accounts[0].fiveHour));
         assert.equal(payload.accounts[0].fiveHour.remainingPercent, 72);
+        assert.equal(payload.accounts[0].fiveHour.limitWindowSeconds, 18000);
         assert.ok(isRecord(payload.accounts[0].weekly));
         assert.equal(payload.accounts[0].weekly.remainingPercent, 54);
+        assert.equal(payload.accounts[0].weekly.limitWindowSeconds, 604800);
+        assert.ok(isRecord(payload.accounts[0].rateLimit));
+        assert.equal(payload.accounts[0].rateLimit.allowed, false);
+        assert.ok(isRecord(payload.accounts[0].codeReviewRateLimit));
+        assert.equal(payload.accounts[0].codeReviewRateLimit.allowed, true);
 
         const keysJson = await readFile(path.join(tempDir, "keys.json"), "utf8");
         const parsedKeys: unknown = JSON.parse(keysJson);
@@ -1845,6 +1869,121 @@ test("fetches live OpenAI Codex quota windows and persists refreshed OAuth token
         assert.equal(parsedKeys.providers.openai.accounts[0].plan_type, "pro");
       },
     );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("probes an OpenAI account with a minimal hello request", async () => {
+  const originalFetch = globalThis.fetch;
+  const observedRequests: Array<{ readonly url: string; readonly headers: Headers; readonly body: Record<string, unknown> }> = [];
+
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    if (url === "https://chatgpt.com/backend-api/codex/responses") {
+      const headers = new Headers(init?.headers);
+      const body = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+      observedRequests.push({ url, headers, body });
+
+      return new Response(
+        [
+          "event: response.completed",
+          `data: ${JSON.stringify({
+            type: "response.completed",
+            response: {
+              id: "resp_probe_hello",
+              status: "completed",
+              model: "gpt-5.2",
+              output: [{
+                type: "message",
+                role: "assistant",
+                content: [{ type: "output_text", text: "hello" }],
+              }],
+              usage: {
+                input_tokens: 5,
+                output_tokens: 1,
+                total_tokens: 6,
+              },
+            },
+          })}`,
+          "",
+          "",
+        ].join("\n"),
+        {
+          status: 200,
+          headers: {
+            "content-type": "text/event-stream",
+          },
+        },
+      );
+    }
+
+    throw new Error(`Unexpected fetch URL in probe test: ${url}`);
+  };
+
+  try {
+    await withProxyApp(
+      {
+        keys: [],
+        keysPayload: {
+          providers: {
+            openai: {
+              auth: "oauth_bearer",
+              accounts: [
+                {
+                  id: "openai-probe-a",
+                  access_token: makeJwt({
+                    "https://api.openai.com/auth": {
+                      chatgpt_account_id: "workspace-probe-a",
+                      chatgpt_plan_type: "free",
+                    },
+                    sub: "user-probe-a",
+                  }),
+                  chatgpt_account_id: "workspace-probe-a",
+                },
+              ],
+            },
+          },
+        },
+        configOverrides: {
+          openaiBaseUrl: "https://chatgpt.com/backend-api",
+          openaiResponsesPath: "/codex/responses",
+        },
+        upstreamHandler: async () => ({
+          status: 404,
+          headers: {
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({ error: "not_used" }),
+        }),
+      },
+      async ({ app }) => {
+        const response = await app.inject({
+          method: "POST",
+          url: "/api/ui/credentials/openai/probe",
+          payload: {
+            accountId: "openai-probe-a",
+          },
+        });
+
+        assert.equal(response.statusCode, 200);
+        const payload: unknown = response.json();
+        assert.ok(isRecord(payload));
+        assert.equal(payload.status, "ok");
+        assert.equal(payload.ok, true);
+        assert.equal(payload.matchesExpectedOutput, true);
+        assert.equal(payload.outputText, "hello");
+        assert.equal(payload.model, "gpt-5.2");
+      },
+    );
+
+    assert.equal(observedRequests.length, 1);
+    assert.equal(observedRequests[0]?.headers.get("chatgpt-account-id"), "workspace-probe-a");
+    assert.equal(observedRequests[0]?.headers.get("originator"), "codex_cli_rs");
+    assert.equal(observedRequests[0]?.body.model, "gpt-5.2");
+    assert.equal((observedRequests[0]?.body.reasoning as { readonly effort?: string } | undefined)?.effort, "none");
+    assert.equal(observedRequests[0]?.body.stream, true);
+    assert.equal(observedRequests[0]?.body.store, false);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -4678,6 +4817,123 @@ test("/api/ui/me exposes resolved auth context for legacy admin token", async ()
   );
 });
 
+test("/api/v1/me exposes resolved auth context for legacy admin token", async () => {
+  await withProxyApp(
+    {
+      keys: ["key-a"],
+      proxyAuthToken: "ui-token",
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ok: true }),
+      }),
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "GET",
+        url: "/api/v1/me",
+        headers: {
+          authorization: "Bearer ui-token",
+        },
+      });
+
+      assert.equal(response.statusCode, 200);
+      const payload: any = response.json();
+      assert.equal(payload.auth.kind, "legacy_admin");
+      assert.equal(payload.auth.tenantId, "default");
+      assert.equal(payload.activeTenantId, "default");
+      assert.ok(Array.isArray(payload.tenants));
+    },
+  );
+});
+
+test("/api/v1/settings round-trips settings for legacy admin token", async () => {
+  await withProxyApp(
+    {
+      keys: ["key-a"],
+      proxyAuthToken: "ui-token",
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ok: true }),
+      }),
+    },
+    async ({ app }) => {
+      const updateResponse = await app.inject({
+        method: "POST",
+        url: "/api/v1/settings",
+        headers: {
+          authorization: "Bearer ui-token",
+          "content-type": "application/json",
+        },
+        payload: {
+          fastMode: true,
+          requestsPerMinute: 5,
+        },
+      });
+
+      assert.equal(updateResponse.statusCode, 200);
+      const updatedSettings: any = updateResponse.json();
+      assert.equal(updatedSettings.fastMode, true);
+      assert.equal(updatedSettings.requestsPerMinute, 5);
+
+      const getResponse = await app.inject({
+        method: "GET",
+        url: "/api/v1/settings",
+        headers: {
+          authorization: "Bearer ui-token",
+        },
+      });
+
+      assert.equal(getResponse.statusCode, 200);
+      const fetchedSettings: any = getResponse.json();
+      assert.equal(fetchedSettings.fastMode, true);
+      assert.equal(fetchedSettings.requestsPerMinute, 5);
+    },
+  );
+});
+
+test("/api/v1 root labels planned migration targets separately from implemented documentation", async () => {
+  await withProxyApp(
+    {
+      keys: ["key-a"],
+      proxyAuthToken: "ui-token",
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ok: true }),
+      }),
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "GET",
+        url: "/api/v1",
+        headers: {
+          authorization: "Bearer ui-token",
+        },
+      });
+
+      assert.equal(response.statusCode, 200);
+      const payload: any = response.json();
+      assert.equal(payload.migration.legacyPrefix, "/api/ui");
+      assert.equal(payload.migration.targetPrefix, "/api/v1");
+      assert.equal(payload.summary.planned, 1);
+      assert.equal(payload.summary.implemented, 7);
+      assert.equal(payload.endpoints.sessions.path, "/api/v1/sessions");
+      assert.equal(payload.endpoints.sessions.legacyPath, "/api/ui/sessions");
+      assert.equal(payload.endpoints.sessions.status, "implemented");
+      assert.equal(payload.endpoints.settings.status, "implemented");
+      assert.equal(payload.endpoints.credentials.status, "implemented");
+      assert.equal(payload.endpoints.hosts.status, "implemented");
+      assert.equal(payload.endpoints.events.status, "implemented");
+      assert.equal(payload.endpoints.observability.status, "implemented");
+      assert.equal(payload.endpoints.mcp.status, "implemented");
+      assert.equal(payload.documentation.path, "/api/v1/openapi.json");
+      assert.equal(payload.documentation.status, "implemented");
+    },
+  );
+});
+
 test("provider-model analytics summarizes global models, providers, and provider-model pairs", async () => {
   const DAY_MS = 24 * 60 * 60 * 1000;
   const day0 = Math.floor((Date.now() - 5 * DAY_MS) / DAY_MS) * DAY_MS;
@@ -6211,6 +6467,198 @@ test("reassigns openai oauth codex prompt_cache_key affinity when the pinned gpt
 
       assert.deepEqual(observedAuth, ["oa-token-a", "oa-token-a", "oa-token-b", "oa-token-b"]);
       assert.deepEqual(observedAccountIds, ["chatgpt-a", "chatgpt-a", "chatgpt-b", "chatgpt-b"]);
+    }
+  );
+});
+
+test("does not immediately promote fallback affinity after one successful reassignment", async () => {
+  const observedAuth: string[] = [];
+  let openAiAAttempts = 0;
+
+  await withProxyApp(
+    {
+      keys: [],
+      keysPayload: {
+        providers: {
+          openai: {
+            auth: "oauth_bearer",
+            accounts: [
+              { id: "openai-a", access_token: "oa-token-a", chatgpt_account_id: "chatgpt-a", plan_type: "plus" },
+              { id: "openai-b", access_token: "oa-token-b", chatgpt_account_id: "chatgpt-b", plan_type: "plus" },
+            ]
+          }
+        }
+      },
+      configOverrides: {
+        upstreamProviderId: "openai",
+        upstreamFallbackProviderIds: [],
+      },
+      upstreamHandler: async (request) => {
+        const auth = typeof request.headers.authorization === "string"
+          ? request.headers.authorization.replace(/^Bearer\s+/i, "")
+          : undefined;
+        if (auth) {
+          observedAuth.push(auth);
+        }
+
+        if (auth === "oa-token-a") {
+          openAiAAttempts += 1;
+          if (openAiAAttempts === 2) {
+            const headers: Record<string, string> = {
+              "content-type": "application/json",
+              "retry-after": "1",
+            };
+            return {
+              status: 429,
+              headers,
+              body: JSON.stringify({ error: { message: "rate limit" } }),
+            };
+          }
+        }
+
+        const headers: Record<string, string> = { "content-type": "application/json" };
+        return {
+          status: 200,
+          headers,
+          body: JSON.stringify({
+            id: crypto.randomUUID(),
+            object: "response",
+            created_at: 1772516810,
+            model: "gpt-5.4",
+            output: [
+              {
+                id: crypto.randomUUID(),
+                type: "message",
+                role: "assistant",
+                content: [{ type: "output_text", text: "OK" }],
+              },
+            ],
+            usage: { input_tokens: 11, output_tokens: 5, total_tokens: 16 },
+          }),
+        };
+      }
+    },
+    async ({ app }) => {
+      const payload = {
+        model: "gpt-5.4",
+        messages: [{ role: "user", content: "Reply with exactly: OK" }],
+        prompt_cache_key: "sticky-gpt-oauth-conservative-1",
+        stream: false,
+      };
+
+      assert.equal((await app.inject({ method: "POST", url: "/v1/chat/completions", headers: { "content-type": "application/json" }, payload })).statusCode, 200);
+      assert.equal((await app.inject({ method: "POST", url: "/v1/chat/completions", headers: { "content-type": "application/json" }, payload })).statusCode, 200);
+      await new Promise((resolve) => setTimeout(resolve, 1_100));
+      assert.equal((await app.inject({ method: "POST", url: "/v1/chat/completions", headers: { "content-type": "application/json" }, payload })).statusCode, 200);
+
+      assert.deepEqual(observedAuth, ["oa-token-a", "oa-token-a", "oa-token-b", "oa-token-a"]);
+    }
+  );
+});
+
+test("groups prompt cache audit rows by hash and distinct accounts touched", async () => {
+  let openAiAAttempts = 0;
+
+  await withProxyApp(
+    {
+      keys: [],
+      keysPayload: {
+        providers: {
+          openai: {
+            auth: "oauth_bearer",
+            accounts: [
+              { id: "openai-a", access_token: "oa-token-a", chatgpt_account_id: "chatgpt-a", plan_type: "plus" },
+              { id: "openai-b", access_token: "oa-token-b", chatgpt_account_id: "chatgpt-b", plan_type: "plus" },
+            ]
+          }
+        }
+      },
+      configOverrides: {
+        upstreamProviderId: "openai",
+        upstreamFallbackProviderIds: [],
+      },
+      upstreamHandler: async (request) => {
+        const auth = typeof request.headers.authorization === "string"
+          ? request.headers.authorization.replace(/^Bearer\s+/i, "")
+          : undefined;
+
+        if (auth === "oa-token-a") {
+          openAiAAttempts += 1;
+          if (openAiAAttempts >= 2) {
+            const headers: Record<string, string> = {
+              "content-type": "application/json",
+              "retry-after": "1",
+            };
+            return {
+              status: 429,
+              headers,
+              body: JSON.stringify({ error: { message: "rate limit" } }),
+            };
+          }
+        }
+
+        const headers: Record<string, string> = { "content-type": "application/json" };
+        return {
+          status: 200,
+          headers,
+          body: JSON.stringify({
+            id: crypto.randomUUID(),
+            object: "response",
+            created_at: 1772516810,
+            model: "gpt-5.4",
+            output: [
+              {
+                id: crypto.randomUUID(),
+                type: "message",
+                role: "assistant",
+                content: [{ type: "output_text", text: "OK" }],
+              },
+            ],
+            usage: {
+              input_tokens: 11,
+              output_tokens: 5,
+              total_tokens: 16,
+              input_tokens_details: {
+                cached_tokens: auth === "oa-token-b" ? 9 : 0,
+              },
+            },
+          }),
+        };
+      },
+    },
+    async ({ app }) => {
+      const payload = {
+        model: "gpt-5.4",
+        messages: [{ role: "user", content: "Reply with exactly: OK" }],
+        prompt_cache_key: "sticky-gpt-oauth-audit-1",
+        stream: false,
+      };
+
+      assert.equal((await app.inject({ method: "POST", url: "/v1/chat/completions", headers: { "content-type": "application/json" }, payload })).statusCode, 200);
+      assert.equal((await app.inject({ method: "POST", url: "/v1/chat/completions", headers: { "content-type": "application/json" }, payload })).statusCode, 200);
+
+      const auditResponse = await app.inject({
+        method: "GET",
+        url: "/api/v1/credentials/openai/prompt-cache-audit?limit=10&scanLimit=100",
+      });
+
+      assert.equal(auditResponse.statusCode, 200);
+      const payloadJson: unknown = auditResponse.json();
+      assert.ok(isRecord(payloadJson));
+      assert.equal(payloadJson.crossAccountHashCount, 1);
+      assert.equal(payloadJson.crossSuccessfulAccountHashCount, 1);
+      assert.ok(Array.isArray(payloadJson.rows));
+      assert.equal(payloadJson.rows.length, 1);
+      assert.ok(isRecord(payloadJson.rows[0]));
+      assert.equal(payloadJson.rows[0].accountCount, 2);
+      assert.deepEqual(payloadJson.rows[0].accountIds, ["openai-a", "openai-b"]);
+      assert.equal(payloadJson.rows[0].successfulAccountCount, 2);
+      assert.deepEqual(payloadJson.rows[0].successfulAccountIds, ["openai-a", "openai-b"]);
+      assert.equal(payloadJson.rows[0].failedAccountCount, 1);
+      assert.deepEqual(payloadJson.rows[0].failedAccountIds, ["openai-a"]);
+      assert.equal(payloadJson.rows[0].successfulRequestCount, 2);
+      assert.equal(payloadJson.rows[0].failedRequestCount, 1);
+      assert.equal(payloadJson.rows[0].requestCount, 3);
     }
   );
 });
@@ -9577,6 +10025,1009 @@ test("persists stable prompt cache keys on sessions and exposes them via UI API"
       assert.ok(isRecord(getSessionPayload));
       assert.ok(isRecord(getSessionPayload.session));
       assert.equal(getSessionPayload.session.promptCacheKey, promptCacheKey);
+    }
+  );
+});
+
+test("session UI routes support append, fork, and search after extraction from ui-routes monolith", async () => {
+  await withProxyApp(
+    {
+      keys: ["key-a"],
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: {
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({ ok: true })
+      })
+    },
+    async ({ app }) => {
+      const createResponse = await app.inject({
+        method: "POST",
+        url: "/api/ui/sessions",
+        headers: {
+          "content-type": "application/json"
+        },
+        payload: {
+          title: "Session route extraction test"
+        }
+      });
+
+      assert.equal(createResponse.statusCode, 201);
+      const createPayload: unknown = createResponse.json();
+      assert.ok(isRecord(createPayload));
+      assert.ok(isRecord(createPayload.session));
+      const sessionId = typeof createPayload.session.id === "string" ? createPayload.session.id : "";
+      assert.ok(sessionId.length > 0);
+
+      const appendResponse = await app.inject({
+        method: "POST",
+        url: `/api/ui/sessions/${sessionId}/messages`,
+        headers: {
+          "content-type": "application/json"
+        },
+        payload: {
+          role: "user",
+          content: "hello extracted session routes"
+        }
+      });
+
+      assert.equal(appendResponse.statusCode, 201);
+      const appendPayload: unknown = appendResponse.json();
+      assert.ok(isRecord(appendPayload));
+      assert.equal(appendPayload.sessionId, sessionId);
+      assert.ok(isRecord(appendPayload.message));
+      assert.equal(appendPayload.message.content, "hello extracted session routes");
+
+      const forkResponse = await app.inject({
+        method: "POST",
+        url: `/api/ui/sessions/${sessionId}/fork`,
+        headers: {
+          "content-type": "application/json"
+        },
+        payload: {}
+      });
+
+      assert.equal(forkResponse.statusCode, 201);
+      const forkPayload: unknown = forkResponse.json();
+      assert.ok(isRecord(forkPayload));
+      assert.ok(isRecord(forkPayload.session));
+      assert.equal(forkPayload.session.forkedFromSessionId, sessionId);
+      assert.ok(Array.isArray(forkPayload.session.messages));
+      assert.equal(forkPayload.session.messages.length, 1);
+
+      const searchResponse = await app.inject({
+        method: "POST",
+        url: "/api/ui/sessions/search",
+        headers: {
+          "content-type": "application/json"
+        },
+        payload: {
+          query: "extracted session routes",
+          limit: 5
+        }
+      });
+
+      assert.equal(searchResponse.statusCode, 200);
+      const searchPayload: unknown = searchResponse.json();
+      assert.ok(isRecord(searchPayload));
+      assert.ok(searchPayload.source === "fallback" || searchPayload.source === "chroma");
+      assert.ok(Array.isArray(searchPayload.results));
+      assert.ok(searchPayload.results.length >= 1);
+      assert.ok(isRecord(searchPayload.results[0]));
+      assert.equal(searchPayload.results[0].sessionId, sessionId);
+    }
+  );
+});
+
+test("/api/v1/sessions persist stable prompt cache keys and expose them via canonical control-plane routes", async () => {
+  await withProxyApp(
+    {
+      keys: ["key-a"],
+      proxyAuthToken: "ui-token",
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: {
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({ ok: true })
+      })
+    },
+    async ({ app }) => {
+      const createResponse = await app.inject({
+        method: "POST",
+        url: "/api/v1/sessions",
+        headers: {
+          authorization: "Bearer ui-token",
+          "content-type": "application/json"
+        },
+        payload: {
+          title: "Canonical caching test"
+        }
+      });
+
+      assert.equal(createResponse.statusCode, 201);
+      const createdPayload: unknown = createResponse.json();
+      assert.ok(isRecord(createdPayload));
+      assert.ok(isRecord(createdPayload.session));
+      const createdSession = createdPayload.session;
+      const promptCacheKey = typeof createdSession.promptCacheKey === "string" ? createdSession.promptCacheKey : "";
+      assert.ok(promptCacheKey.length > 0);
+      const sessionId = typeof createdSession.id === "string" ? createdSession.id : "";
+      assert.ok(sessionId.length > 0);
+
+      const cacheKeyResponse = await app.inject({
+        method: "GET",
+        url: `/api/v1/sessions/${sessionId}/cache-key`,
+        headers: {
+          authorization: "Bearer ui-token",
+        },
+      });
+
+      assert.equal(cacheKeyResponse.statusCode, 200);
+      const cacheKeyPayload: unknown = cacheKeyResponse.json();
+      assert.ok(isRecord(cacheKeyPayload));
+      assert.equal(cacheKeyPayload.promptCacheKey, promptCacheKey);
+
+      const getSessionResponse = await app.inject({
+        method: "GET",
+        url: `/api/v1/sessions/${sessionId}`,
+        headers: {
+          authorization: "Bearer ui-token",
+        },
+      });
+      const getSessionPayload: unknown = getSessionResponse.json();
+      assert.ok(isRecord(getSessionPayload));
+      assert.ok(isRecord(getSessionPayload.session));
+      assert.equal(getSessionPayload.session.promptCacheKey, promptCacheKey);
+    }
+  );
+});
+
+test("/api/v1/sessions support append, fork, and search on canonical control-plane routes", async () => {
+  await withProxyApp(
+    {
+      keys: ["key-a"],
+      proxyAuthToken: "ui-token",
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: {
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({ ok: true })
+      })
+    },
+    async ({ app }) => {
+      const createResponse = await app.inject({
+        method: "POST",
+        url: "/api/v1/sessions",
+        headers: {
+          authorization: "Bearer ui-token",
+          "content-type": "application/json"
+        },
+        payload: {
+          title: "Canonical session route extraction test"
+        }
+      });
+
+      assert.equal(createResponse.statusCode, 201);
+      const createPayload: unknown = createResponse.json();
+      assert.ok(isRecord(createPayload));
+      assert.ok(isRecord(createPayload.session));
+      const sessionId = typeof createPayload.session.id === "string" ? createPayload.session.id : "";
+      assert.ok(sessionId.length > 0);
+
+      const appendResponse = await app.inject({
+        method: "POST",
+        url: `/api/v1/sessions/${sessionId}/messages`,
+        headers: {
+          authorization: "Bearer ui-token",
+          "content-type": "application/json"
+        },
+        payload: {
+          role: "user",
+          content: "hello canonical session routes"
+        }
+      });
+
+      assert.equal(appendResponse.statusCode, 201);
+      const appendPayload: unknown = appendResponse.json();
+      assert.ok(isRecord(appendPayload));
+      assert.equal(appendPayload.sessionId, sessionId);
+      assert.ok(isRecord(appendPayload.message));
+      assert.equal(appendPayload.message.content, "hello canonical session routes");
+
+      const forkResponse = await app.inject({
+        method: "POST",
+        url: `/api/v1/sessions/${sessionId}/fork`,
+        headers: {
+          authorization: "Bearer ui-token",
+          "content-type": "application/json"
+        },
+        payload: {}
+      });
+
+      assert.equal(forkResponse.statusCode, 201);
+      const forkPayload: unknown = forkResponse.json();
+      assert.ok(isRecord(forkPayload));
+      assert.ok(isRecord(forkPayload.session));
+      assert.equal(forkPayload.session.forkedFromSessionId, sessionId);
+      assert.ok(Array.isArray(forkPayload.session.messages));
+      assert.equal(forkPayload.session.messages.length, 1);
+
+      const searchResponse = await app.inject({
+        method: "POST",
+        url: "/api/v1/sessions/search",
+        headers: {
+          authorization: "Bearer ui-token",
+          "content-type": "application/json"
+        },
+        payload: {
+          query: "canonical session routes",
+          limit: 5
+        }
+      });
+
+      assert.equal(searchResponse.statusCode, 200);
+      const searchPayload: unknown = searchResponse.json();
+      assert.ok(isRecord(searchPayload));
+      assert.ok(searchPayload.source === "fallback" || searchPayload.source === "chroma");
+      assert.ok(Array.isArray(searchPayload.results));
+      assert.ok(searchPayload.results.length >= 1);
+      assert.ok(isRecord(searchPayload.results[0]));
+      assert.equal(searchPayload.results[0].sessionId, sessionId);
+    }
+  );
+});
+
+test("credential summary route works after extraction from ui-routes monolith", async () => {
+  await withProxyApp(
+    {
+      keys: [],
+      keysPayload: {
+        providers: {
+          vivgrid: {
+            auth: "api_key",
+            accounts: [
+              { id: "viv-a", api_key: "viv-secret-a" }
+            ]
+          },
+          openai: {
+            auth: "oauth_bearer",
+            accounts: [
+              { id: "openai-a", access_token: "openai-secret-a", refresh_token: "refresh-a" }
+            ]
+          }
+        }
+      },
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: {
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({ ok: true })
+      })
+    },
+    async ({ app }) => {
+      const hiddenResponse = await app.inject({
+        method: "GET",
+        url: "/api/ui/credentials"
+      });
+
+      assert.equal(hiddenResponse.statusCode, 200);
+      const hiddenPayload: unknown = hiddenResponse.json();
+      assert.ok(isRecord(hiddenPayload));
+      assert.ok(Array.isArray(hiddenPayload.providers));
+      assert.equal(hiddenPayload.providers.length, 2);
+      assert.ok(isRecord(hiddenPayload.providers[0]));
+      assert.ok(Array.isArray(hiddenPayload.providers[0].accounts));
+      assert.ok(isRecord(hiddenPayload.providers[0].accounts[0]));
+      assert.equal(hiddenPayload.providers[0].accounts[0].secret, undefined);
+      assert.equal(typeof hiddenPayload.providers[0].accounts[0].secretPreview, "string");
+      assert.ok(isRecord(hiddenPayload.keyPoolStatuses));
+      assert.ok(isRecord(hiddenPayload.requestLogSummary));
+
+      const revealResponse = await app.inject({
+        method: "GET",
+        url: "/api/ui/credentials?reveal=1"
+      });
+
+      assert.equal(revealResponse.statusCode, 200);
+      const revealPayload: unknown = revealResponse.json();
+      assert.ok(isRecord(revealPayload));
+      assert.ok(Array.isArray(revealPayload.providers));
+      const vivgridProvider = revealPayload.providers.find((provider: any) => provider?.id === "vivgrid");
+      assert.ok(vivgridProvider);
+      assert.ok(Array.isArray(vivgridProvider.accounts));
+      assert.equal(vivgridProvider.accounts[0].secret, "viv-secret-a");
+    }
+  );
+});
+
+test("/api/v1/credentials summary route works on the canonical control-plane surface", async () => {
+  await withProxyApp(
+    {
+      keys: [],
+      keysPayload: {
+        providers: {
+          vivgrid: {
+            auth: "api_key",
+            accounts: [
+              { id: "viv-a", api_key: "viv-secret-a" }
+            ]
+          },
+          openai: {
+            auth: "oauth_bearer",
+            accounts: [
+              { id: "openai-a", access_token: "openai-secret-a", refresh_token: "refresh-a" }
+            ]
+          }
+        }
+      },
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: {
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({ ok: true })
+      })
+    },
+    async ({ app }) => {
+      const hiddenResponse = await app.inject({
+        method: "GET",
+        url: "/api/v1/credentials"
+      });
+
+      assert.equal(hiddenResponse.statusCode, 200);
+      const hiddenPayload: unknown = hiddenResponse.json();
+      assert.ok(isRecord(hiddenPayload));
+      assert.ok(Array.isArray(hiddenPayload.providers));
+      assert.equal(hiddenPayload.providers.length, 2);
+      assert.ok(isRecord(hiddenPayload.providers[0]));
+      assert.ok(Array.isArray(hiddenPayload.providers[0].accounts));
+      assert.ok(isRecord(hiddenPayload.providers[0].accounts[0]));
+      assert.equal(hiddenPayload.providers[0].accounts[0].secret, undefined);
+      assert.equal(typeof hiddenPayload.providers[0].accounts[0].secretPreview, "string");
+      assert.ok(isRecord(hiddenPayload.keyPoolStatuses));
+      assert.ok(isRecord(hiddenPayload.requestLogSummary));
+
+      const revealResponse = await app.inject({
+        method: "GET",
+        url: "/api/v1/credentials?reveal=1"
+      });
+
+      assert.equal(revealResponse.statusCode, 200);
+      const revealPayload: unknown = revealResponse.json();
+      assert.ok(isRecord(revealPayload));
+      assert.ok(Array.isArray(revealPayload.providers));
+      const vivgridProvider = revealPayload.providers.find((provider: any) => provider?.id === "vivgrid");
+      assert.ok(vivgridProvider);
+      assert.ok(Array.isArray(vivgridProvider.accounts));
+      assert.equal(vivgridProvider.accounts[0].secret, "viv-secret-a");
+    }
+  );
+});
+
+test("/api/v1/request-logs, /api/v1/dashboard/overview, and /api/v1/analytics/provider-model work on the canonical observability surface", async () => {
+  const now = Date.now();
+  await withProxyApp(
+    {
+      keys: ["key-a"],
+      requestLogsPayload: {
+        entries: [
+          {
+            id: "entry-1",
+            timestamp: now - 30_000,
+            providerId: "openai",
+            accountId: "acct-1",
+            authType: "oauth_bearer",
+            model: "gpt-5.4",
+            upstreamMode: "responses",
+            upstreamPath: "/v1/responses",
+            status: 200,
+            latencyMs: 120,
+            promptTokens: 70,
+            completionTokens: 30,
+            totalTokens: 100,
+            costUsd: 0.1,
+            energyJoules: 10,
+            waterEvaporatedMl: 0.005,
+          },
+        ],
+        hourlyBuckets: [],
+        dailyBuckets: [],
+        dailyModelBuckets: [],
+        dailyAccountBuckets: [],
+        accountAccumulators: [],
+      },
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: {
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({ ok: true })
+      })
+    },
+    async ({ app }) => {
+      const logsResponse = await app.inject({
+        method: "GET",
+        url: "/api/v1/request-logs?limit=1",
+      });
+      assert.equal(logsResponse.statusCode, 200);
+      const logsPayload: unknown = logsResponse.json();
+      assert.ok(isRecord(logsPayload));
+      assert.ok(Array.isArray(logsPayload.entries));
+      assert.ok(isRecord(logsPayload.entries[0]));
+      assert.equal(logsPayload.entries[0].providerId, "openai");
+
+      const overviewResponse = await app.inject({
+        method: "GET",
+        url: "/api/v1/dashboard/overview?window=daily",
+      });
+      assert.equal(overviewResponse.statusCode, 200);
+      const overviewPayload: unknown = overviewResponse.json();
+      assert.ok(isRecord(overviewPayload));
+      assert.ok(isRecord(overviewPayload.summary));
+      assert.equal(overviewPayload.summary.tokens24h, 100);
+      assert.equal(overviewPayload.summary.topProvider, "openai");
+
+      const analyticsResponse = await app.inject({
+        method: "GET",
+        url: "/api/v1/analytics/provider-model?window=daily",
+      });
+      assert.equal(analyticsResponse.statusCode, 200);
+      const analyticsPayload: unknown = analyticsResponse.json();
+      assert.ok(isRecord(analyticsPayload));
+      assert.ok(Array.isArray(analyticsPayload.models));
+      assert.ok(isRecord(analyticsPayload.models[0]));
+      assert.equal(analyticsPayload.models[0].model, "gpt-5.4");
+    }
+  );
+});
+
+test("/api/v1/tools returns seeded tools for the requested model", async () => {
+  await withProxyApp(
+    {
+      keys: ["key-a"],
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: {
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({ ok: true })
+      })
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "GET",
+        url: "/api/v1/tools?model=gpt-5.3-codex",
+      });
+
+      assert.equal(response.statusCode, 200);
+      const payload: unknown = response.json();
+      assert.ok(isRecord(payload));
+      assert.equal(payload.model, "gpt-5.3-codex");
+      assert.ok(Array.isArray(payload.tools));
+      assert.ok(payload.tools.length > 0);
+    },
+  );
+});
+
+test("/api/v1/hosts/self and /api/v1/hosts/overview work on the canonical host dashboard surface", async () => {
+  const previousTargets = process.env.HOST_DASHBOARD_TARGETS_JSON;
+  const previousSelfId = process.env.HOST_DASHBOARD_SELF_ID;
+
+  process.env.HOST_DASHBOARD_TARGETS_JSON = JSON.stringify([
+    { id: "local", label: "Local host" },
+  ]);
+  process.env.HOST_DASHBOARD_SELF_ID = "local";
+
+  try {
+    await withProxyApp(
+      {
+        keys: ["key-a"],
+        proxyAuthToken: "ui-token",
+        upstreamHandler: async () => ({
+          status: 200,
+          headers: {
+            "content-type": "application/json"
+          },
+          body: JSON.stringify({ ok: true })
+        })
+      },
+      async ({ app }) => {
+        const selfResponse = await app.inject({
+          method: "GET",
+          url: "/api/v1/hosts/self",
+          headers: {
+            authorization: "Bearer ui-token",
+          },
+        });
+
+        assert.equal(selfResponse.statusCode, 200);
+        const selfPayload: unknown = selfResponse.json();
+        assert.ok(isRecord(selfPayload));
+        assert.equal(selfPayload.id, "local");
+        assert.equal(selfPayload.label, "Local host");
+        assert.ok(Array.isArray(selfPayload.errors));
+
+        const overviewResponse = await app.inject({
+          method: "GET",
+          url: "/api/v1/hosts/overview",
+          headers: {
+            authorization: "Bearer ui-token",
+          },
+        });
+
+        assert.equal(overviewResponse.statusCode, 200);
+        const overviewPayload: unknown = overviewResponse.json();
+        assert.ok(isRecord(overviewPayload));
+        assert.equal(overviewPayload.selfTargetId, "local");
+        assert.ok(Array.isArray(overviewPayload.hosts));
+        assert.equal(overviewPayload.hosts.length, 1);
+        assert.ok(isRecord(overviewPayload.hosts[0]));
+        assert.equal(overviewPayload.hosts[0].id, "local");
+      },
+    );
+  } finally {
+    if (previousTargets === undefined) {
+      delete process.env.HOST_DASHBOARD_TARGETS_JSON;
+    } else {
+      process.env.HOST_DASHBOARD_TARGETS_JSON = previousTargets;
+    }
+
+    if (previousSelfId === undefined) {
+      delete process.env.HOST_DASHBOARD_SELF_ID;
+    } else {
+      process.env.HOST_DASHBOARD_SELF_ID = previousSelfId;
+    }
+  }
+});
+
+test("/api/v1/events routes are wired and report missing store cleanly", async () => {
+  await withProxyApp(
+    {
+      keys: ["key-a"],
+      proxyAuthToken: "ui-token",
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: {
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({ ok: true })
+      })
+    },
+    async ({ app }) => {
+      const listResponse = await app.inject({
+        method: "GET",
+        url: "/api/v1/events",
+        headers: {
+          authorization: "Bearer ui-token",
+        },
+      });
+      assert.equal(listResponse.statusCode, 503);
+      assert.match(listResponse.body, /Event store not available/i);
+
+      const tagsResponse = await app.inject({
+        method: "GET",
+        url: "/api/v1/events/tags",
+        headers: {
+          authorization: "Bearer ui-token",
+        },
+      });
+      assert.equal(tagsResponse.statusCode, 503);
+
+      const addTagResponse = await app.inject({
+        method: "POST",
+        url: "/api/v1/events/example/tag",
+        headers: {
+          authorization: "Bearer ui-token",
+          "content-type": "application/json",
+        },
+        payload: { tag: "needs-review" },
+      });
+      assert.equal(addTagResponse.statusCode, 503);
+
+      const removeTagResponse = await app.inject({
+        method: "DELETE",
+        url: "/api/v1/events/example/tag",
+        headers: {
+          authorization: "Bearer ui-token",
+          "content-type": "application/json",
+        },
+        payload: { tag: "needs-review" },
+      });
+      assert.equal(removeTagResponse.statusCode, 503);
+    },
+  );
+});
+
+test("federation self route stays wired after extraction from ui-routes monolith", async () => {
+  const previous = {
+    nodeId: process.env.FEDERATION_SELF_NODE_ID,
+    groupId: process.env.FEDERATION_SELF_GROUP_ID,
+    clusterId: process.env.FEDERATION_SELF_CLUSTER_ID,
+    peerDid: process.env.FEDERATION_SELF_PEER_DID,
+    publicBaseUrl: process.env.FEDERATION_SELF_PUBLIC_BASE_URL,
+  };
+
+  process.env.FEDERATION_SELF_NODE_ID = "node-1";
+  process.env.FEDERATION_SELF_GROUP_ID = "group-1";
+  process.env.FEDERATION_SELF_CLUSTER_ID = "cluster-1";
+  process.env.FEDERATION_SELF_PEER_DID = "did:web:proxy.example";
+  process.env.FEDERATION_SELF_PUBLIC_BASE_URL = "https://proxy.example";
+
+  try {
+    await withProxyApp(
+      {
+        keys: ["key-a"],
+        proxyAuthToken: "ui-token",
+        upstreamHandler: async () => ({
+          status: 200,
+          headers: {
+            "content-type": "application/json"
+          },
+          body: JSON.stringify({ ok: true })
+        })
+      },
+      async ({ app }) => {
+        const response = await app.inject({
+          method: "GET",
+          url: "/api/ui/federation/self",
+          headers: {
+            authorization: "Bearer ui-token"
+          }
+        });
+
+        assert.equal(response.statusCode, 200);
+        const payload: unknown = response.json();
+        assert.ok(isRecord(payload));
+        assert.equal(payload.nodeId, "node-1");
+        assert.equal(payload.groupId, "group-1");
+        assert.equal(payload.clusterId, "cluster-1");
+        assert.equal(payload.peerDid, "did:web:proxy.example");
+        assert.equal(payload.publicBaseUrl, "https://proxy.example");
+        assert.equal(payload.peerCount, 0);
+      }
+    );
+  } finally {
+    process.env.FEDERATION_SELF_NODE_ID = previous.nodeId;
+    process.env.FEDERATION_SELF_GROUP_ID = previous.groupId;
+    process.env.FEDERATION_SELF_CLUSTER_ID = previous.clusterId;
+    process.env.FEDERATION_SELF_PEER_DID = previous.peerDid;
+    process.env.FEDERATION_SELF_PUBLIC_BASE_URL = previous.publicBaseUrl;
+  }
+});
+
+test("/api/v1/federation/self exposes canonical federation self metadata", async () => {
+  const previous = {
+    nodeId: process.env.FEDERATION_SELF_NODE_ID,
+    groupId: process.env.FEDERATION_SELF_GROUP_ID,
+    clusterId: process.env.FEDERATION_SELF_CLUSTER_ID,
+    peerDid: process.env.FEDERATION_SELF_PEER_DID,
+    publicBaseUrl: process.env.FEDERATION_SELF_PUBLIC_BASE_URL,
+  };
+
+  process.env.FEDERATION_SELF_NODE_ID = "node-1";
+  process.env.FEDERATION_SELF_GROUP_ID = "group-1";
+  process.env.FEDERATION_SELF_CLUSTER_ID = "cluster-1";
+  process.env.FEDERATION_SELF_PEER_DID = "did:web:proxy.example";
+  process.env.FEDERATION_SELF_PUBLIC_BASE_URL = "https://proxy.example";
+
+  try {
+    await withProxyApp(
+      {
+        keys: ["key-a"],
+        proxyAuthToken: "ui-token",
+        upstreamHandler: async () => ({
+          status: 200,
+          headers: {
+            "content-type": "application/json"
+          },
+          body: JSON.stringify({ ok: true })
+        })
+      },
+      async ({ app }) => {
+        const response = await app.inject({
+          method: "GET",
+          url: "/api/v1/federation/self",
+          headers: {
+            authorization: "Bearer ui-token"
+          }
+        });
+
+        assert.equal(response.statusCode, 200);
+        const payload: unknown = response.json();
+        assert.ok(isRecord(payload));
+        assert.equal(payload.nodeId, "node-1");
+        assert.equal(payload.groupId, "group-1");
+        assert.equal(payload.clusterId, "cluster-1");
+        assert.equal(payload.peerDid, "did:web:proxy.example");
+        assert.equal(payload.publicBaseUrl, "https://proxy.example");
+        assert.equal(payload.peerCount, 0);
+      }
+    );
+  } finally {
+    process.env.FEDERATION_SELF_NODE_ID = previous.nodeId;
+    process.env.FEDERATION_SELF_GROUP_ID = previous.groupId;
+    process.env.FEDERATION_SELF_CLUSTER_ID = previous.clusterId;
+    process.env.FEDERATION_SELF_PEER_DID = previous.peerDid;
+    process.env.FEDERATION_SELF_PUBLIC_BASE_URL = previous.publicBaseUrl;
+  }
+});
+
+test("federation peer routes stay wired after extraction and report missing store cleanly", async () => {
+  await withProxyApp(
+    {
+      keys: ["key-a"],
+      proxyAuthToken: "ui-token",
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: {
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({ ok: true })
+      })
+    },
+    async ({ app }) => {
+      const listResponse = await app.inject({
+        method: "GET",
+        url: "/api/ui/federation/peers?ownerSubject=owner-1",
+        headers: {
+          authorization: "Bearer ui-token"
+        }
+      });
+
+      assert.equal(listResponse.statusCode, 503);
+      const listPayload: unknown = listResponse.json();
+      assert.ok(isRecord(listPayload));
+      assert.equal(listPayload.error, "federation_store_not_supported");
+
+      const createResponse = await app.inject({
+        method: "POST",
+        url: "/api/ui/federation/peers",
+        headers: {
+          authorization: "Bearer ui-token",
+          "content-type": "application/json"
+        },
+        payload: {
+          ownerCredential: "did:web:owner.example",
+          label: "Peer 1",
+          baseUrl: "https://peer.example"
+        }
+      });
+
+      assert.equal(createResponse.statusCode, 503);
+      const createPayload: unknown = createResponse.json();
+      assert.ok(isRecord(createPayload));
+      assert.equal(createPayload.error, "federation_store_not_supported");
+    }
+  );
+});
+
+test("/api/v1/federation peer and account routes stay wired and report missing store cleanly", async () => {
+  await withProxyApp(
+    {
+      keys: ["key-a"],
+      proxyAuthToken: "ui-token",
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: {
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({ ok: true })
+      })
+    },
+    async ({ app }) => {
+      const listPeersResponse = await app.inject({
+        method: "GET",
+        url: "/api/v1/federation/peers?ownerSubject=owner-1",
+        headers: {
+          authorization: "Bearer ui-token"
+        }
+      });
+
+      assert.equal(listPeersResponse.statusCode, 503);
+      const listPeersPayload: unknown = listPeersResponse.json();
+      assert.ok(isRecord(listPeersPayload));
+      assert.equal(listPeersPayload.error, "federation_store_not_supported");
+
+      const createPeerResponse = await app.inject({
+        method: "POST",
+        url: "/api/v1/federation/peers",
+        headers: {
+          authorization: "Bearer ui-token",
+          "content-type": "application/json"
+        },
+        payload: {
+          ownerCredential: "did:web:owner.example",
+          label: "Peer 1",
+          baseUrl: "https://peer.example"
+        }
+      });
+
+      assert.equal(createPeerResponse.statusCode, 503);
+
+      const accountsResponse = await app.inject({
+        method: "GET",
+        url: "/api/v1/federation/accounts?ownerSubject=owner-1",
+        headers: {
+          authorization: "Bearer ui-token"
+        }
+      });
+
+      assert.equal(accountsResponse.statusCode, 503);
+      const accountsPayload: unknown = accountsResponse.json();
+      assert.ok(isRecord(accountsPayload));
+      assert.equal(accountsPayload.error, "federation_store_not_supported");
+    }
+  );
+});
+
+test("/api/v1/federation/bridges lists canonical bridge sessions", async () => {
+  await withProxyApp(
+    {
+      keys: ["key-a"],
+      proxyAuthToken: "ui-token",
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: {
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({ ok: true })
+      })
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "GET",
+        url: "/api/v1/federation/bridges",
+        headers: {
+          authorization: "Bearer ui-token"
+        }
+      });
+
+      assert.equal(response.statusCode, 200);
+      const payload: unknown = response.json();
+      assert.ok(isRecord(payload));
+      assert.ok(Array.isArray(payload.sessions));
+      assert.equal(payload.sessions.length, 0);
+    }
+  );
+});
+
+test("federation diff-events route stays wired after extraction and reports missing store cleanly", async () => {
+  await withProxyApp(
+    {
+      keys: ["key-a"],
+      proxyAuthToken: "ui-token",
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: {
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({ ok: true })
+      })
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "GET",
+        url: "/api/ui/federation/diff-events?ownerSubject=owner-1&afterSeq=5&limit=2",
+        headers: {
+          authorization: "Bearer ui-token"
+        }
+      });
+
+      assert.equal(response.statusCode, 503);
+      const payload: unknown = response.json();
+      assert.ok(isRecord(payload));
+      assert.equal(payload.error, "federation_store_not_supported");
+    }
+  );
+});
+
+test("federation accounts route stays wired after extraction and reports missing store cleanly", async () => {
+  await withProxyApp(
+    {
+      keys: ["key-a"],
+      proxyAuthToken: "ui-token",
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: {
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({ ok: true })
+      })
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "GET",
+        url: "/api/ui/federation/accounts?ownerSubject=owner-1",
+        headers: {
+          authorization: "Bearer ui-token"
+        }
+      });
+
+      assert.equal(response.statusCode, 503);
+      const payload: unknown = response.json();
+      assert.ok(isRecord(payload));
+      assert.equal(payload.error, "federation_store_not_supported");
+    }
+  );
+});
+
+test("federation projected-account import route stays wired after extraction and reports missing store cleanly", async () => {
+  await withProxyApp(
+    {
+      keys: ["key-a"],
+      proxyAuthToken: "ui-token",
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: {
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({ ok: true })
+      })
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/ui/federation/projected-accounts/import",
+        headers: {
+          authorization: "Bearer ui-token",
+          "content-type": "application/json"
+        },
+        payload: {
+          accounts: [
+            {
+              sourcePeerId: "peer-1",
+              ownerSubject: "did:plc:owner-1",
+              providerId: "openai",
+              accountId: "acct-1"
+            }
+          ]
+        }
+      });
+
+      assert.equal(response.statusCode, 503);
+      const payload: unknown = response.json();
+      assert.ok(isRecord(payload));
+      assert.equal(payload.error, "federation_store_not_supported");
+    }
+  );
+});
+
+test("federation projected-account imported route stays wired after extraction and reports missing store cleanly", async () => {
+  await withProxyApp(
+    {
+      keys: ["key-a"],
+      proxyAuthToken: "ui-token",
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: {
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({ ok: true })
+      })
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/ui/federation/projected-accounts/imported",
+        headers: {
+          authorization: "Bearer ui-token",
+          "content-type": "application/json"
+        },
+        payload: {
+          sourcePeerId: "peer-1",
+          providerId: "openai",
+          accountId: "acct-1"
+        }
+      });
+
+      assert.equal(response.statusCode, 503);
+      const payload: unknown = response.json();
+      assert.ok(isRecord(payload));
+      assert.equal(payload.error, "federation_store_not_supported");
     }
   );
 });

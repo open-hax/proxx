@@ -141,6 +141,10 @@ export const DEFAULT_MODELS: readonly string[] = [
   "auto:fastest",
   "auto:smartest",
   "auto:healthiest",
+  "auto:cephalon",
+  "auto:cephalon:cheapest",
+  "auto:cephalon:fastest",
+  "auto:cephalon:smartest",
 ];
 
 function numberFromEnvAliases(names: readonly string[], fallback: number): number {
@@ -326,6 +330,8 @@ function defaultProviderBaseUrl(providerId: string): string {
       return (process.env.OPENROUTER_BASE_URL ?? "https://openrouter.ai/api/v1").replace(/\/+$/, "");
     case "requesty":
       return (process.env.REQUESTY_BASE_URL ?? "https://router.requesty.ai/v1").replace(/\/+$/, "");
+    case "zen":
+      return (process.env.ZEN_BASE_URL ?? process.env.ZENMUX_BASE_URL ?? "https://opencode.ai/zen/v1").replace(/\/+$/, "");
     case "gemini":
       return (process.env.GEMINI_BASE_URL ?? "https://generativelanguage.googleapis.com/v1beta").replace(/\/+$/, "");
     case "zai":
@@ -334,6 +340,10 @@ function defaultProviderBaseUrl(providerId: string): string {
       return (process.env.MISTRAL_BASE_URL ?? "https://api.mistral.ai/v1").replace(/\/+$/, "");
     case "ollama-cloud":
       return "https://ollama.com";
+    case "ollama-stealth":
+      return (process.env.OLLAMA_STEALTH_BASE_URL ?? process.env.OLLAMA_LAPTOP_BASE_URL ?? "http://127.0.0.1:11434").replace(/\/+$/, "");
+    case "ollama-big-ussy":
+      return (process.env.OLLAMA_BIG_USSY_BASE_URL ?? "http://10.0.0.2:11434").replace(/\/+$/, "");
     case "vivgrid":
     default:
       return "https://api.vivgrid.com";
@@ -369,10 +379,13 @@ export function loadConfig(cwd: string = process.cwd()): ProxyConfig {
     ob1: defaultProviderBaseUrl("ob1"),
     openrouter: defaultProviderBaseUrl("openrouter"),
     requesty: defaultProviderBaseUrl("requesty"),
+    zen: defaultProviderBaseUrl("zen"),
     gemini: defaultProviderBaseUrl("gemini"),
     zai: defaultProviderBaseUrl("zai"),
     mistral: defaultProviderBaseUrl("mistral"),
     factory: defaultProviderBaseUrl("factory"),
+    "ollama-stealth": defaultProviderBaseUrl("ollama-stealth"),
+    "ollama-big-ussy": defaultProviderBaseUrl("ollama-big-ussy"),
   });
   upstreamProviderBaseUrls[upstreamProviderId] = upstreamBaseUrl;
   const openaiProviderId = (process.env.OPENAI_PROVIDER_ID ?? "openai").trim();

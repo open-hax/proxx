@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { UPSERT_PROVIDER } from "../lib/db/schema.js";
 import { selectLegacyOpenAiDuplicateIds } from "../lib/db/sql-credential-store.js";
 
 test("selectLegacyOpenAiDuplicateIds removes only legacy openai ids with current siblings", () => {
@@ -33,4 +34,8 @@ test("selectLegacyOpenAiDuplicateIds removes only legacy openai ids with current
   ]);
 
   assert.deepEqual(idsToDelete, ["chatgpt-acct-legacy_1a2b3c4d"]);
+});
+
+test("UPSERT_PROVIDER preserves an existing base_url when no replacement is provided", () => {
+  assert.match(UPSERT_PROVIDER, /base_url = COALESCE\(EXCLUDED\.base_url, providers\.base_url\)/);
 });

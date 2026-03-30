@@ -5,6 +5,9 @@ export interface PromptAffinityRecord {
   readonly promptCacheKey: string;
   readonly providerId: string;
   readonly accountId: string;
+  readonly provisionalProviderId?: string;
+  readonly provisionalAccountId?: string;
+  readonly provisionalSuccessCount?: number;
   readonly updatedAt: number;
 }
 
@@ -32,6 +35,11 @@ function hydrateRecord(raw: unknown): PromptAffinityRecord | null {
       : "";
   const providerId = typeof raw.providerId === "string" ? raw.providerId.trim() : "";
   const accountId = typeof raw.accountId === "string" ? raw.accountId.trim() : "";
+  const provisionalProviderId = typeof raw.provisionalProviderId === "string" ? raw.provisionalProviderId.trim() : "";
+  const provisionalAccountId = typeof raw.provisionalAccountId === "string" ? raw.provisionalAccountId.trim() : "";
+  const provisionalSuccessCount = typeof raw.provisionalSuccessCount === "number" && Number.isFinite(raw.provisionalSuccessCount)
+    ? Math.max(0, Math.floor(raw.provisionalSuccessCount))
+    : undefined;
   const updatedAt = typeof raw.updatedAt === "number" && Number.isFinite(raw.updatedAt) ? raw.updatedAt : Date.now();
 
   if (!promptCacheKey || !providerId || !accountId) {
@@ -42,9 +50,14 @@ function hydrateRecord(raw: unknown): PromptAffinityRecord | null {
     promptCacheKey,
     providerId,
     accountId,
+    provisionalProviderId: provisionalProviderId.length > 0 ? provisionalProviderId : undefined,
+    provisionalAccountId: provisionalAccountId.length > 0 ? provisionalAccountId : undefined,
+    provisionalSuccessCount,
     updatedAt,
   };
 }
+
+const PROVISIONAL_PROMOTION_SUCCESS_COUNT = 2;
 
 function hydrateDb(raw: unknown): PromptAffinityDb {
   if (!isRecord(raw) || !Array.isArray(raw.records)) {
@@ -104,6 +117,65 @@ export class PromptAffinityStore {
       } else {
         db.records.push(next);
       }
+    });
+  }
+
+  public async noteSuccess(promptCacheKey: string, providerId: string, accountId: string): Promise<void> {
+    const normalizedKey = promptCacheKey.trim();
+    const normalizedProviderId = providerId.trim();
+    const normalizedAccountId = accountId.trim();
+    if (!normalizedKey || !normalizedProviderId || !normalizedAccountId) {
+      return;
+    }
+
+    await this.mutate((db) => {
+      const now = Date.now();
+      const index = db.records.findIndex((record) => record.promptCacheKey === normalizedKey);
+      const existing = index >= 0 ? db.records[index] : undefined;
+
+      if (!existing) {
+        db.records.push({
+          promptCacheKey: normalizedKey,
+          providerId: normalizedProviderId,
+          accountId: normalizedAccountId,
+          updatedAt: now,
+        });
+        return;
+      }
+
+      const sameCanonical = existing.providerId === normalizedProviderId && existing.accountId === normalizedAccountId;
+      if (sameCanonical) {
+        db.records[index] = {
+          promptCacheKey: normalizedKey,
+          providerId: normalizedProviderId,
+          accountId: normalizedAccountId,
+          updatedAt: now,
+        };
+        return;
+      }
+
+      const sameProvisional = existing.provisionalProviderId === normalizedProviderId && existing.provisionalAccountId === normalizedAccountId;
+      const provisionalSuccessCount = sameProvisional
+        ? (existing.provisionalSuccessCount ?? 1) + 1
+        : 1;
+
+      if (provisionalSuccessCount >= PROVISIONAL_PROMOTION_SUCCESS_COUNT) {
+        db.records[index] = {
+          promptCacheKey: normalizedKey,
+          providerId: normalizedProviderId,
+          accountId: normalizedAccountId,
+          updatedAt: now,
+        };
+        return;
+      }
+
+      db.records[index] = {
+        ...existing,
+        provisionalProviderId: normalizedProviderId,
+        provisionalAccountId: normalizedAccountId,
+        provisionalSuccessCount,
+        updatedAt: now,
+      };
     });
   }
 

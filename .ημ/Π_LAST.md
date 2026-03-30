@@ -1,72 +1,30 @@
-# Π Snapshot: Current Proxx State
+# Π Snapshot: Proxx final tenant-provider-policy route test residue
 
 - **Repo:** `open-hax/proxx`
 - **Branch:** `fix/ci-live-e2e-aggregate-conclusion`
-- **Pre-snapshot HEAD:** `24ee522`
-- **Previous tag:** `Π-2026-03-25`
-- **Intended Π tag:** `Π/2026-03-26/194400`
-- **Generated:** `2026-03-26T19:44:00.446886-05:00`
+- **Pre-snapshot HEAD:** `55a5b11`
+- **Previous tag:** `Π/2026-03-27/045620`
+- **Intended Π tag:** `Π/2026-03-27/045911`
+- **Generated:** `2026-03-27T04:59:11Z`
 
 ## What this snapshot preserves
 
-This Π handoff captures the full current working tree the user asked not to lose.
+This final follow-up Π handoff captures the remaining dirty `src/tests/tenant-provider-policy-routes.test.ts` diff after the earlier Proxx snapshots.
 
-Included work categories:
-- Docker/compose/runtime changes
-- Notes/docs reshaping, including experimental-design and research findings
-- Fastify 5 + Swagger runtime/lockfile alignment
-- Chroma client deprecation repair
-- Analytics/dashboard weekly rollup fix
-- Tenant-scoped weekly analytics test fixture refresh
-- Current proxy/routing/quota/UI/test changes already present on the branch
+Included work category:
+- federation diff-events route coverage and request-filter forwarding assertions in `src/tests/tenant-provider-policy-routes.test.ts`
 
 ## Dirty state before commit
 
 ### Modified
-- `docker-compose.federation-e2e.yml`
-- `docker-compose.federation-runtime.yml`
-- `docker-compose.glm5.yml`
-- `docker-compose.yml`
-- `pnpm-lock.yaml`
-- `src/app.ts`
-- `src/lib/chroma-session-index.ts`
-- `src/lib/config.ts`
-- `src/lib/messages-compat.ts`
-- `src/lib/provider-strategy/fallback.ts`
-- `src/lib/provider-strategy/shared.ts`
-- `src/lib/proxy.ts`
-- `src/lib/quota-monitor.ts`
-- `src/lib/ui-routes.ts`
-- `src/tests/proxy-rate-limit.test.ts`
-- `src/tests/proxy.test.ts`
-- `web/src/pages/AnalyticsPage.tsx`
-
-### Deleted
-- `docs/notes/2026.03.25.06.29.19.md`
-- `docs/notes/2026.03.25.17.30.49.md`
-- `docs/notes/2026.03.25.17.32.59.md`
-- `docs/notes/2026.03.25.17.35.59.md`
-- `docs/notes/2026.03.25.17.50.14.md`
-- `docs/notes/2026.03.25.17.52.10.md`
-
-### Untracked
-- `docs/notes/2026.03.25.21.22.13.md`
-- `docs/notes/experimental-design/2026.03.25.06.29.19.md`
-- `docs/notes/experimental-design/2026.03.25.17.30.49.md`
-- `docs/notes/experimental-design/2026.03.25.17.32.59.md`
-- `docs/notes/experimental-design/2026.03.25.17.35.59.md`
-- `docs/notes/experimental-design/2026.03.25.17.50.14.md`
-- `docs/notes/experimental-design/2026.03.25.17.52.10.md`
-- `docs/notes/research-findings/2026.03.26.requesty-gpt54-reasoning-summary-failure-modes.md`
+- `src/tests/tenant-provider-policy-routes.test.ts`
 
 ## Verification
 
-- Secret scan: quick diff-pattern scan found no obvious private-key/API-token literals
-- Build: `pnpm run build` ✅
-- Main proxy suite: `timeout 45s node --test --test-concurrency=1 dist/tests/proxy.test.js` ✅ (`131/131`)
-- Federation bridge relay: `node --test --test-concurrency=1 dist/tests/federation-bridge-relay.test.js` ✅ (`4/4`)
-- Federation bridge autostart: `node --test --test-concurrency=1 dist/tests/federation-bridge-autostart.test.js` ✅ (`3/3`)
+- Typecheck: `pnpm run typecheck` ✅
+- Prior full test run: snapshot `Π/2026-03-27/045033` recorded `pnpm test` ❌ (`419/420` on prompt-cache audit grouping)
+- Current tenant-provider-policy test residue preserved without rerunning the full suite
 
 ## Operator note
 
-This snapshot is intended as a full preservation handoff of the current proxx branch state before anything else can be lost.
+This follow-up snapshot exists only to eliminate the final dirty test file so the Proxx repository ends in a clean committed state, while preserving the latest known-red full-suite observation.

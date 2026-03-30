@@ -9,7 +9,7 @@ import {
   type UsageAccountSummary,
   type UsageOverview,
 } from "../lib/api";
-import { formatAuthType } from "../lib/format";
+import { formatAuthType, formatRequestOrigin } from "../lib/format";
 import { useStoredState } from "../lib/use-stored-state";
 
 const ALL_PROVIDERS_FILTER = "__all_providers__";
@@ -97,6 +97,23 @@ function formatServiceTier(entry: RequestLogEntry): string {
   }
 
   return entry.serviceTier.replace(/[_-]+/g, " ");
+}
+
+function formatRouteLabel(entry: RequestLogEntry): string {
+  if (entry.routeKind === "local") {
+    return "local";
+  }
+
+  const peer = entry.routedPeerLabel ?? entry.routedPeerId ?? "unknown-peer";
+  return `${entry.routeKind} → ${peer}`;
+}
+
+function formatProviderRouteCell(entry: RequestLogEntry): string {
+  const base = `${entry.providerId}/${entry.accountId}`;
+  const routePart = entry.routeKind === "local" ? "" : ` · ${formatRouteLabel(entry)}`;
+  const origin = formatRequestOrigin(entry);
+  const originPart = origin !== "unknown" && origin !== "local" ? ` · from ${origin}` : "";
+  return `${base}${routePart}${originPart}`;
 }
 
 function metricTone(value: number, inverse = false): string {
@@ -385,6 +402,17 @@ export function DashboardPage(): JSX.Element {
             Top model {overview?.summary.topModel ?? "-"} · Top provider {overview?.summary.topProvider ?? "-"}
           </small>
         </article>
+        <article className={`dashboard-metric-card ${metricTone((overview?.summary.routingRequests24h.federated ?? 0) + (overview?.summary.routingRequests24h.bridge ?? 0))}`}>
+          <span>Projected / {windowLabel}</span>
+          <strong>{loading ? "..." : formatCompactNumber((overview?.summary.routingRequests24h.federated ?? 0) + (overview?.summary.routingRequests24h.bridge ?? 0))}</strong>
+          <small>
+            Federated {formatCompactNumber(overview?.summary.routingRequests24h.federated ?? 0)}
+            {" · "}
+            Bridge {formatCompactNumber(overview?.summary.routingRequests24h.bridge ?? 0)}
+            {" · "}
+            Top peer {overview?.summary.routingRequests24h.topPeer ?? "-"}
+          </small>
+        </article>
         <article className={`dashboard-metric-card ${metricTone(overview?.summary.costUsd24h ?? 0)}`}>
           <span>Est. Cost / {windowLabel}</span>
           <strong>{loading ? "..." : formatUsd(overview?.summary.costUsd24h ?? 0)}</strong>
@@ -510,7 +538,7 @@ export function DashboardPage(): JSX.Element {
           <div className="dashboard-log-table">
             <div className="dashboard-log-header">
               <span>When</span>
-              <span>Provider</span>
+              <span>Provider / Route</span>
               <span>Model</span>
               <span>Tier</span>
               <span>Status</span>
@@ -521,7 +549,7 @@ export function DashboardPage(): JSX.Element {
             ) : requestLogs.map((entry) => (
               <div key={entry.id} className="dashboard-log-row">
                 <span>{new Date(entry.timestamp).toLocaleTimeString()}</span>
-                <span>{entry.providerId}/{entry.accountId}</span>
+                <span>{formatProviderRouteCell(entry)}</span>
                 <span>{entry.model}</span>
                 <span className={`dashboard-status-pill dashboard-tier-pill dashboard-tier-${entry.serviceTierSource}`}>
                   {formatServiceTier(entry)}

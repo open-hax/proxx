@@ -7,10 +7,12 @@ import { estimateRequestCost } from "./model-pricing.js";
 
 export type RequestAuthType = "api_key" | "oauth_bearer" | "local" | "none";
 export type RequestServiceTierSource = "fast_mode" | "explicit" | "none";
+export type RequestRouteKind = "local" | "federated" | "bridge";
 
 export interface Factory4xxDiagnostics {
   readonly promptCacheKeyHash?: string;
   readonly requestFormat: "responses" | "messages" | "chat_completions" | "unknown";
+  readonly shapeFingerprint?: string;
   readonly messageCount?: number;
   readonly inputItemCount?: number;
   readonly systemMessageCount?: number;
@@ -39,6 +41,10 @@ export interface RequestLogEntry {
   readonly tenantId?: string;
   readonly issuer?: string;
   readonly keyId?: string;
+  readonly routeKind: RequestRouteKind;
+  readonly federationOwnerSubject?: string;
+  readonly routedPeerId?: string;
+  readonly routedPeerLabel?: string;
   readonly providerId: string;
   readonly accountId: string;
   readonly authType: RequestAuthType;
@@ -55,6 +61,7 @@ export interface RequestLogEntry {
   readonly cachedPromptTokens?: number;
   readonly imageCount?: number;
   readonly imageCostUsd?: number;
+  readonly promptCacheKeyHash?: string;
   readonly promptCacheKeyUsed?: boolean;
   readonly cacheHit?: boolean;
   readonly ttftMs?: number;
@@ -70,6 +77,10 @@ export interface RequestLogEntry {
   readonly waterEvaporatedMl?: number;
 }
 
+export type RequestLogEvent =
+  | { readonly type: "record"; readonly entry: RequestLogEntry }
+  | { readonly type: "update"; readonly entry: RequestLogEntry };
+
 export interface RequestLogFilters {
   readonly providerId?: string;
   readonly accountId?: string;
@@ -84,6 +95,10 @@ export interface RequestLogRecordInput {
   readonly tenantId?: string;
   readonly issuer?: string;
   readonly keyId?: string;
+  readonly routeKind?: RequestRouteKind;
+  readonly federationOwnerSubject?: string;
+  readonly routedPeerId?: string;
+  readonly routedPeerLabel?: string;
   readonly providerId: string;
   readonly accountId: string;
   readonly authType: RequestAuthType;
@@ -100,6 +115,7 @@ export interface RequestLogRecordInput {
   readonly cachedPromptTokens?: number;
   readonly imageCount?: number;
   readonly imageCostUsd?: number;
+  readonly promptCacheKeyHash?: string;
   readonly promptCacheKeyUsed?: boolean;
   readonly cacheHit?: boolean;
   readonly ttftMs?: number;
@@ -462,6 +478,7 @@ function hydrateFactoryDiagnostics(raw: unknown): Factory4xxDiagnostics | undefi
   const diagnostics: Factory4xxDiagnostics = {
     requestFormat,
     promptCacheKeyHash: sanitizeOptionalShortString(raw.promptCacheKeyHash, 80),
+    shapeFingerprint: sanitizeOptionalShortString(raw.shapeFingerprint, 80),
     messageCount: sanitizeOptionalCount(asNumber(raw.messageCount)),
     inputItemCount: sanitizeOptionalCount(asNumber(raw.inputItemCount)),
     systemMessageCount: sanitizeOptionalCount(asNumber(raw.systemMessageCount)),
@@ -485,6 +502,7 @@ function hydrateFactoryDiagnostics(raw: unknown): Factory4xxDiagnostics | undefi
   };
 
   const hasSignal = diagnostics.promptCacheKeyHash !== undefined
+    || diagnostics.shapeFingerprint !== undefined
     || diagnostics.messageCount !== undefined
     || diagnostics.inputItemCount !== undefined
     || diagnostics.systemMessageCount !== undefined
@@ -591,6 +609,10 @@ function hydrateEntry(raw: unknown): RequestLogEntry | null {
     tenantId: sanitizeOptionalShortString(raw.tenantId, 120),
     issuer: sanitizeOptionalShortString(raw.issuer, 240),
     keyId: sanitizeOptionalShortString(raw.keyId, 160),
+    routeKind: raw.routeKind === "federated" || raw.routeKind === "bridge" ? raw.routeKind : "local",
+    federationOwnerSubject: sanitizeOptionalShortString(raw.federationOwnerSubject, 240),
+    routedPeerId: sanitizeOptionalShortString(raw.routedPeerId, 160),
+    routedPeerLabel: sanitizeOptionalShortString(raw.routedPeerLabel, 240),
     providerId,
     accountId,
     authType: normalizedAuthType,
@@ -607,6 +629,7 @@ function hydrateEntry(raw: unknown): RequestLogEntry | null {
     cachedPromptTokens: sanitizeOptionalCount(asNumber(raw.cachedPromptTokens)),
     imageCount: sanitizeOptionalCount(asNumber(raw.imageCount)),
     imageCostUsd: sanitizeOptionalCost(asNumber(raw.imageCostUsd)),
+    promptCacheKeyHash: sanitizeOptionalShortString(raw.promptCacheKeyHash, 80),
     promptCacheKeyUsed: raw.promptCacheKeyUsed === true,
     cacheHit: raw.cacheHit === true,
     ttftMs: sanitizeOptionalCount(asNumber(raw.ttftMs)),
@@ -907,6 +930,7 @@ function dailyAccountBucketKey(startMs: number, providerId: string, accountId: s
 }
 
 export class RequestLogStore {
+  private readonly subscribers = new Set<(event: RequestLogEvent) => void>();
   private readonly entries: RequestLogEntry[] = [];
   private readonly hourlyBuckets = new Map<number, HourlyBucket>();
   private readonly dailyBuckets = new Map<number, DailyBucket>();
@@ -943,6 +967,27 @@ export class RequestLogStore {
     await this.warmupPromise;
   }
 
+  public subscribe(listener: (event: RequestLogEvent) => void): () => void {
+    this.subscribers.add(listener);
+    return () => {
+      this.subscribers.delete(listener);
+    };
+  }
+
+  private emit(event: RequestLogEvent): void {
+    if (this.subscribers.size === 0) {
+      return;
+    }
+
+    for (const listener of this.subscribers) {
+      try {
+        listener(event);
+      } catch {
+        // Ignore subscriber failures so observability can never take down logging.
+      }
+    }
+  }
+
   public record(input: RequestLogRecordInput): RequestLogEntry {
     if (this.closed) {
       throw new Error("request log store is closed");
@@ -954,6 +999,10 @@ export class RequestLogStore {
       tenantId: sanitizeOptionalShortString(input.tenantId, 120),
       issuer: sanitizeOptionalShortString(input.issuer, 240),
       keyId: sanitizeOptionalShortString(input.keyId, 160),
+      routeKind: input.routeKind ?? "local",
+      federationOwnerSubject: sanitizeOptionalShortString(input.federationOwnerSubject, 240),
+      routedPeerId: sanitizeOptionalShortString(input.routedPeerId, 160),
+      routedPeerLabel: sanitizeOptionalShortString(input.routedPeerLabel, 240),
       providerId: input.providerId,
       accountId: input.accountId,
       authType: input.authType,
@@ -970,6 +1019,7 @@ export class RequestLogStore {
       cachedPromptTokens: sanitizeOptionalCount(input.cachedPromptTokens),
       imageCount: sanitizeOptionalCount(input.imageCount),
       imageCostUsd: sanitizeOptionalCost(input.imageCostUsd),
+      promptCacheKeyHash: sanitizeOptionalShortString(input.promptCacheKeyHash, 80),
       promptCacheKeyUsed: input.promptCacheKeyUsed === true,
       cacheHit: input.cacheHit === true,
       ttftMs: sanitizeOptionalCount(input.ttftMs),
@@ -1002,6 +1052,8 @@ export class RequestLogStore {
     this.schedulePersist();
     this.queueMirror(entry);
 
+    this.emit({ type: "record", entry });
+
     return entry;
   }
 
@@ -1014,6 +1066,7 @@ export class RequestLogStore {
       readonly cachedPromptTokens?: number;
       readonly imageCount?: number;
       readonly imageCostUsd?: number;
+      readonly promptCacheKeyHash?: string;
       readonly promptCacheKeyUsed?: boolean;
       readonly cacheHit?: boolean;
       readonly ttftMs?: number;
@@ -1051,6 +1104,7 @@ export class RequestLogStore {
       cachedPromptTokens: sanitizeOptionalCount(patch.cachedPromptTokens) ?? current.cachedPromptTokens,
       imageCount: sanitizeOptionalCount(patch.imageCount) ?? current.imageCount,
       imageCostUsd: sanitizeOptionalCost(patch.imageCostUsd) ?? current.imageCostUsd,
+      promptCacheKeyHash: sanitizeOptionalShortString(patch.promptCacheKeyHash, 80) ?? current.promptCacheKeyHash,
       promptCacheKeyUsed: patch.promptCacheKeyUsed ?? current.promptCacheKeyUsed,
       cacheHit: patch.cacheHit ?? current.cacheHit,
       ttftMs: sanitizeOptionalCount(patch.ttftMs) ?? current.ttftMs,
@@ -1076,6 +1130,8 @@ export class RequestLogStore {
     this.pendingJournalEntries.push(next);
     this.schedulePersist();
     this.queueMirror(next);
+
+    this.emit({ type: "update", entry: next });
     return next;
   }
 

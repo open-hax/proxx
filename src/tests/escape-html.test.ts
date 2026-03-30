@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { escapeHtml } from "../lib/ui-routes.js";
+import { escapeHtml } from "../lib/request-utils.js";
 
 // ─── Basic escaping ─────────────────────────────────────────────────────────
 

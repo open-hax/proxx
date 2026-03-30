@@ -1,5 +1,3 @@
-import { createHash } from "node:crypto";
-import { access } from "node:fs/promises";
 import { Readable } from "node:stream";
 
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
@@ -7,6 +5,51 @@ import fastifySwagger from "@fastify/swagger";
 import fastifySwaggerUi from "@fastify/swagger-ui";
 
 import { DEFAULT_MODELS, type ProxyConfig } from "./lib/config.js";
+import {
+  PROXY_AUTH_COOKIE_NAME,
+  readCookieToken,
+  extractPromptCacheKey,
+  hashPromptCacheKey,
+  summarizeResponsesRequestBody,
+  joinUrl,
+  parseJsonIfPossible,
+  readSingleHeader,
+  escapeHtml,
+  normalizeRequestedModel,
+  isTrustedLocalBridgeAddress,
+  copyInjectedResponseHeaders,
+  SUPPORTED_V1_ENDPOINTS,
+  SUPPORTED_NATIVE_OLLAMA_ENDPOINTS,
+  type ChatCompletionRequest,
+  type WebSearchToolRequest,
+} from "./lib/request-utils.js";
+import { extractResponseTextAndUrlCitations, extractMarkdownLinks } from "./lib/response-utils.js";
+import {
+  tenantProviderAllowed,
+  filterTenantProviderRoutes,
+  resolveExplicitTenantProviderId,
+} from "./lib/tenant-policy-helpers.js";
+import {
+  resolvableConcreteModelIds,
+  resolvableConcreteModelIdsForProviders,
+  openAiProviderUsesCodexSurface,
+  providerRouteSupportsModel,
+  filterProviderRoutesByModelSupport,
+  shouldRejectModelFromProviderCatalog,
+} from "./lib/model-routing-helpers.js";
+import {
+  bridgeCapabilitySupportsPath,
+  bridgeCapabilitySupportsModel,
+  appendBridgeResponseHeaders,
+  decodeBridgeResponseChunk,
+} from "./lib/bridge-helpers.js";
+import {
+  extractPeerCredential,
+  fetchFederationJson,
+  resolveFederationHopCount,
+  resolveFederationOwnerSubject,
+} from "./lib/federation/federation-helpers.js";
+
 import { KeyPool, type ProviderCredential } from "./lib/key-pool.js";
 import { CredentialStore } from "./lib/credential-store.js";
 import { OpenAiOAuthManager, isTerminalOpenAiRefreshError, type OAuthTokens } from "./lib/openai-oauth.js";
@@ -23,16 +66,17 @@ import { initializePolicyEngine, createPolicyEngine, type PolicyEngine } from ".
 import { DEFAULT_POLICY_CONFIG } from "./lib/policy/index.js";
 import {
   buildOllamaCatalogRoutes,
-  buildProviderRoutes,
   filterResponsesApiRoutes,
   filterImagesApiRoutes,
   minMsUntilAnyProviderKeyReady,
   parseModelIdsFromCatalogPayload,
   resolveProviderRoutesForModel,
-  resolveRequestRoutingState,
   type ProviderRoute,
   type ResolvedModelCatalog,
+  buildProviderRoutesWithDynamicBaseUrls,
+  createDynamicProviderBaseUrlGetter,
 } from "./lib/provider-routing.js";
+import { discoverDynamicOllamaRoutes } from "./lib/dynamic-ollama-routes.js";
 import {
   buildResponsesPassthroughContext,
   buildImagesPassthroughContext,
@@ -79,6 +123,7 @@ import { EventStore } from "./lib/db/event-store.js";
 import { createDefaultLabelers } from "./lib/db/event-labelers.js";
 import { SqlRequestUsageStore } from "./lib/db/sql-request-usage-store.js";
 import { SqlFederationStore, shouldWarmImportProjectedAccount, type FederationPeerRecord, type FederationProjectedAccountRecord } from "./lib/db/sql-federation-store.js";
+import { SqlTenantProviderPolicyStore } from "./lib/db/sql-tenant-provider-policy-store.js";
 import { SqlAuthPersistence } from "./lib/auth/sql-persistence.js";
 import { SqlGitHubAllowlist } from "./lib/auth/github-allowlist.js";
 import { seedFromJsonFile, seedFromJsonValue, seedFactoryAuthFromFiles, seedModelsFromFile } from "./lib/db/json-seeder.js";
@@ -89,268 +134,32 @@ import { TokenRefreshManager } from "./lib/token-refresh-manager.js";
 import { DEFAULT_TENANT_ID } from "./lib/tenant-api-key.js";
 import { resolveRequestAuth, type ResolvedRequestAuth } from "./lib/request-auth.js";
 import { createEnvFederationBridgeAgent } from "./lib/federation/bridge-agent-autostart.js";
-import type { BridgeRelayResponseEvent, FederationBridgeRelay } from "./lib/federation/bridge-relay.js";
-
-interface ChatCompletionRequest {
-  readonly model?: string;
-  readonly messages?: unknown;
-  readonly stream?: boolean;
-  readonly [key: string]: unknown;
-}
-
-interface WebSearchToolRequest {
-  readonly query?: unknown;
-  readonly numResults?: unknown;
-  readonly searchContextSize?: unknown;
-  readonly allowedDomains?: unknown;
-  readonly model?: unknown;
-}
-
-const PROXY_AUTH_COOKIE_NAME = "open_hax_proxy_auth_token";
-
-function readCookieToken(cookieHeader: string | undefined, name: string): string | undefined {
-  if (!cookieHeader) {
-    return undefined;
-  }
-
-  for (const part of cookieHeader.split(";")) {
-    const trimmed = part.trim();
-    if (!trimmed.startsWith(`${name}=`)) {
-      continue;
-    }
-
-    const rawValue = trimmed.slice(name.length + 1);
-    try {
-      return decodeURIComponent(rawValue);
-    } catch {
-      return rawValue;
-    }
-  }
-
-  return undefined;
-}
-
-function extractPromptCacheKey(body: Record<string, unknown>): string | undefined {
-  const raw = typeof body.prompt_cache_key === "string"
-    ? body.prompt_cache_key
-    : typeof body.promptCacheKey === "string"
-      ? body.promptCacheKey
-      : undefined;
-  const normalized = raw?.trim();
-  return normalized && normalized.length > 0 ? normalized : undefined;
-}
-
-function hashPromptCacheKey(promptCacheKey: string): string {
-  const trimmed = promptCacheKey.trim();
-  if (trimmed.length === 0) {
-    return "<REDACTED>";
-  }
-
-  const digest = createHash("sha256").update(trimmed).digest("hex").slice(0, 12);
-  return `sha256:${digest}`;
-}
-
-function summarizeResponsesRequestBody(body: Record<string, unknown>): Record<string, unknown> {
-  const summary: Record<string, unknown> = {};
-
-  if (typeof body.model === "string" && body.model.trim().length > 0) {
-    summary.model = body.model;
-  }
-
-  if (typeof body.stream === "boolean") {
-    summary.stream = body.stream;
-  }
-
-  if (typeof body.max_output_tokens === "number" && Number.isFinite(body.max_output_tokens)) {
-    summary.max_output_tokens = body.max_output_tokens;
-  }
-
-  const input = body.input;
-  if (typeof input === "string") {
-    summary.input = { kind: "text", length: input.length, preview: input.slice(0, 200) };
-    return summary;
-  }
-
-  if (!Array.isArray(input)) {
-    summary.input = { kind: typeof input };
-    return summary;
-  }
-
-  let textChars = 0;
-  let firstTextPreview: string | undefined;
-  let imageCount = 0;
-
-  for (const item of input) {
-    if (!isRecord(item)) {
-      continue;
-    }
-
-    const content = item.content;
-    if (typeof content === "string") {
-      textChars += content.length;
-      if (firstTextPreview === undefined && content.length > 0) {
-        firstTextPreview = content.slice(0, 200);
-      }
-      continue;
-    }
-
-    if (!Array.isArray(content)) {
-      continue;
-    }
-
-    for (const part of content) {
-      if (!isRecord(part)) {
-        continue;
-      }
-
-      const partType = typeof part.type === "string" ? part.type.toLowerCase() : "";
-      const text = typeof part.text === "string" ? part.text : undefined;
-
-      if (text) {
-        textChars += text.length;
-        if (firstTextPreview === undefined && text.length > 0) {
-          firstTextPreview = text.slice(0, 200);
-        }
-      }
-
-      if (partType.includes("image") || part.image_url !== undefined || part.imageUrl !== undefined) {
-        imageCount += 1;
-      }
-    }
-  }
-
-  summary.input = {
-    kind: "structured",
-    itemCount: input.length,
-    textChars,
-    textPreview: firstTextPreview,
-    imageCount,
-  };
-
-  return summary;
-}
-
-function joinUrl(baseUrl: string, path: string): string {
-  const normalizedBase = baseUrl.replace(/\/+$/, "");
-  let normalizedPath = path.startsWith("/") ? path : `/${path}`;
-
-  // Avoid accidental `/v1/v1/...` joins when the provider base URL already includes the OpenAI version segment.
-  const baseLower = normalizedBase.toLowerCase();
-  const pathLower = normalizedPath.toLowerCase();
-  if (pathLower.startsWith("/v1/") && baseLower.endsWith("/v1")) {
-    normalizedPath = normalizedPath.slice(3);
-  }
-
-  return `${normalizedBase}${normalizedPath}`;
-}
-
-function parseJsonIfPossible(body: string): unknown {
-  if (body.trim().length === 0) {
-    return undefined;
-  }
-
-  try {
-    return JSON.parse(body);
-  } catch {
-    return undefined;
-  }
-}
-
-function extractResponseTextAndUrlCitations(payload: unknown): {
-  readonly text: string;
-  readonly citations: Array<{ readonly url: string; readonly title?: string }>;
-  readonly responseId?: string;
-} {
-  if (!isRecord(payload)) {
-    return { text: "", citations: [] };
-  }
-
-  const responseId = typeof payload.id === "string" ? payload.id : undefined;
-  const output = Array.isArray(payload.output) ? payload.output : [];
-  const texts: string[] = [];
-  const citations = new Map<string, { url: string; title?: string }>();
-
-  for (const item of output) {
-    if (!isRecord(item) || item.type !== "message") {
-      continue;
-    }
-    if (typeof item.role === "string" && item.role !== "assistant") {
-      continue;
-    }
-    const content = Array.isArray(item.content) ? item.content : [];
-    for (const part of content) {
-      if (!isRecord(part) || part.type !== "output_text") {
-        continue;
-      }
-
-      const text = typeof part.text === "string" ? part.text : "";
-      if (text.length > 0) {
-        texts.push(text);
-      }
-
-      const annotations = Array.isArray(part.annotations) ? part.annotations : [];
-      for (const ann of annotations) {
-        if (!isRecord(ann)) {
-          continue;
-        }
-        if (ann.type !== "url_citation") {
-          continue;
-        }
-        const url = typeof ann.url === "string" ? ann.url : "";
-        if (!url) {
-          continue;
-        }
-        if (!citations.has(url)) {
-          const title = typeof ann.title === "string" && ann.title.trim().length > 0 ? ann.title.trim() : undefined;
-          citations.set(url, { url, ...(title ? { title } : {}) });
-        }
-      }
-    }
-  }
-
-  const combined = texts.join("\n\n").trim();
-  return { text: combined, citations: Array.from(citations.values()), responseId };
-}
-
-function extractMarkdownLinks(text: string): Array<{ readonly url: string; readonly title?: string }> {
-  const citations = new Map<string, { url: string; title?: string }>();
-  const regex = /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g;
-  for (const match of text.matchAll(regex)) {
-    const title = (match[1] ?? "").trim();
-    const url = (match[2] ?? "").trim();
-    if (!url) continue;
-    if (citations.has(url)) continue;
-    citations.set(url, { url, ...(title ? { title } : {}) });
-  }
-  return Array.from(citations.values());
-}
-
-function copyInjectedResponseHeaders(reply: FastifyReply, headers: Record<string, string | string[] | undefined>): void {
-  for (const [name, value] of Object.entries(headers)) {
-    if (typeof value === "undefined" || name.toLowerCase() === "content-length") {
-      continue;
-    }
-
-    reply.header(name, value);
-  }
-}
-
-const SUPPORTED_V1_ENDPOINTS = [
-  "POST /v1/chat/completions",
-  "POST /v1/responses",
-  "POST /v1/images/generations",
-  "POST /v1/embeddings",
-  "GET /v1/models",
-  "GET /v1/models/:model"
-] as const;
-
-const SUPPORTED_NATIVE_OLLAMA_ENDPOINTS = [
-  "POST /api/chat",
-  "POST /api/generate",
-  "POST /api/embed",
-  "POST /api/embeddings",
-  "GET /api/tags"
-] as const;
+import type { FederationBridgeRelay } from "./lib/federation/bridge-relay.js";
+import { isAtDid } from "./lib/federation/owner-credential.js";
+import {
+  shareModeAllowsRelay,
+  shareModeAllowsWarmImport,
+  tenantProviderPolicyAllowsUse,
+  type TenantProviderPolicyRecord,
+} from "./lib/tenant-provider-policy.js";
+import { type AppDeps } from "./lib/app-deps.js";
+import {
+  noteFederatedProjectedAccountRouted,
+  executeFederatedRequestFallback,
+} from "./lib/federation/federated-fallback.js";
+import {
+  executeBridgeRequestFallback,
+  handleBridgeRequest,
+  injectNativeBridge,
+} from "./lib/federation/bridge-fallback.js";
+import { registerChatRoutes } from "./routes/chat.js";
+import { registerResponsesRoutes } from "./routes/responses.js";
+import { registerImagesRoutes } from "./routes/images.js";
+import { registerWebsearchRoutes } from "./routes/websearch.js";
+import { registerModelsRoutes } from "./routes/models.js";
+import { registerEmbeddingsRoutes } from "./routes/embeddings.js";
+import { registerNativeOllamaRoutes } from "./routes/native-ollama.js";
+import { registerHealthRoutes } from "./routes/health.js";
 
 export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
   const app = Fastify({
@@ -391,6 +200,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
   let eventStore: EventStore | undefined;
   let sqlRequestUsageStore: SqlRequestUsageStore | undefined;
   let sqlFederationStore: SqlFederationStore | undefined;
+  let sqlTenantProviderPolicyStore: SqlTenantProviderPolicyStore | undefined;
 
   if (config.databaseUrl) {
     try {
@@ -425,6 +235,15 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
         app.log.warn({ error: toErrorMessage(error) }, "failed to initialize federation store; continuing with federation disabled");
       }
 
+      try {
+        sqlTenantProviderPolicyStore = new SqlTenantProviderPolicyStore(sql);
+        await sqlTenantProviderPolicyStore.init();
+        app.log.info("tenant provider policy store initialized");
+      } catch (error) {
+        sqlTenantProviderPolicyStore = undefined;
+        app.log.warn({ error: toErrorMessage(error) }, "failed to initialize tenant provider policy store; continuing with policy store disabled");
+      }
+
       sqlAuthPersistence = new SqlAuthPersistence(sql);
       await sqlAuthPersistence.init();
       app.log.info("auth persistence initialized");
@@ -434,18 +253,12 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
 
       if (config.keysFilePath) {
         try {
-          await access(config.keysFilePath);
           const seedResult = await seedFromJsonFile(sql, config.keysFilePath, config.upstreamProviderId, {
             skipExistingProviders: true,
           });
           app.log.info({ providers: seedResult.providers, accounts: seedResult.accounts }, "seeded credentials from json file");
         } catch (error) {
-          const message = toErrorMessage(error).toLowerCase();
-          if (message.includes("enoent") || message.includes("no such file")) {
-            app.log.info({ keysFilePath: config.keysFilePath }, "credential seed file missing; continuing with database and env-backed providers only");
-          } else {
-            app.log.warn({ error: toErrorMessage(error) }, "failed to seed credentials from json file; continuing with existing data");
-          }
+          app.log.warn({ error: toErrorMessage(error) }, "failed to seed credentials from json file; continuing with existing data");
         }
       }
 
@@ -497,6 +310,8 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     }
   }
 
+  const dynamicProviderBaseUrlGetter = createDynamicProviderBaseUrlGetter(sqlCredentialStore);
+
   const keyPool = new KeyPool({
     keysFilePath: config.keysFilePath,
     reloadIntervalMs: config.keyReloadMs,
@@ -524,36 +339,6 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
   await promptAffinityStore.warmup();
   const proxySettingsStore = new ProxySettingsStore(config.settingsFilePath, sql);
   await proxySettingsStore.warmup();
-
-  const tenantProviderAllowed = (settings: { readonly allowedProviderIds: readonly string[] | null; readonly disabledProviderIds: readonly string[] | null }, providerId: string): boolean => {
-    const normalizedProviderId = providerId.trim().toLowerCase();
-    if (settings.allowedProviderIds && !settings.allowedProviderIds.includes(normalizedProviderId)) {
-      return false;
-    }
-
-    if (settings.disabledProviderIds?.includes(normalizedProviderId)) {
-      return false;
-    }
-
-    return true;
-  };
-
-  const filterTenantProviderRoutes = (routes: readonly ProviderRoute[], settings: { readonly allowedProviderIds: readonly string[] | null; readonly disabledProviderIds: readonly string[] | null }): ProviderRoute[] => {
-    return routes.filter((route) => tenantProviderAllowed(settings, route.providerId));
-  };
-
-  const resolveExplicitTenantProviderId = (model: string, settings: { readonly allowedProviderIds: readonly string[] | null; readonly disabledProviderIds: readonly string[] | null }): string | undefined => {
-    const routingState = resolveRequestRoutingState(config, model);
-    const providerId = routingState.factoryPrefixed
-      ? "factory"
-      : routingState.openAiPrefixed
-        ? config.openaiProviderId
-        : routingState.explicitOllama || routingState.localOllama
-          ? "ollama"
-          : undefined;
-
-    return providerId && !tenantProviderAllowed(settings, providerId) ? providerId : undefined;
-  };
 
   let policyEngine: PolicyEngine;
   try {
@@ -780,26 +565,6 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     readonly planType?: string;
   }
 
-  function readSingleHeader(headers: Record<string, unknown>, name: string): string | undefined {
-    const raw = headers[name];
-    if (typeof raw === "string") {
-      return raw;
-    }
-    if (Array.isArray(raw)) {
-      return raw.find((value) => typeof value === "string" && value.length > 0);
-    }
-    return undefined;
-  }
-
-  function escapeHtml(value: string): string {
-    return value
-      .replaceAll("&", "&amp;")
-      .replaceAll("<", "&lt;")
-      .replaceAll(">", "&gt;")
-      .replaceAll('"', "&quot;")
-      .replaceAll("'", "&#39;");
-  }
-
   function inferWebConsoleUrl(request: FastifyRequest): string {
     const forwardedHost = readSingleHeader(request.headers as Record<string, unknown>, "x-forwarded-host")?.trim();
     const host = forwardedHost
@@ -854,378 +619,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
 </html>`;
   }
 
-  function isTrustedLocalBridgeAddress(remoteAddress: string | undefined): boolean {
-    if (!remoteAddress) {
-      return false;
-    }
 
-    return remoteAddress === "127.0.0.1"
-      || remoteAddress === "::1"
-      || remoteAddress === "::ffff:127.0.0.1";
-  }
-
-  function normalizeRequestedModel(value: unknown): string | undefined {
-    if (typeof value !== "string") {
-      return undefined;
-    }
-
-    const normalized = value.trim();
-    return normalized.length > 0 ? normalized : undefined;
-  }
-
-  function resolveFederationHopCount(headers: Record<string, unknown>): number {
-    const raw = readSingleHeader(headers, FEDERATION_HOP_HEADER)?.trim();
-    if (!raw) {
-      return 0;
-    }
-
-    const parsed = Number.parseInt(raw, 10);
-    return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
-  }
-
-  function resolveFederationOwnerSubject(input: {
-    readonly headers: Record<string, unknown>;
-    readonly requestAuth?: Pick<ResolvedRequestAuth, "kind" | "subject">;
-    readonly hopCount?: number;
-  }): string | undefined {
-    const explicitHeader = readSingleHeader(input.headers, FEDERATION_OWNER_SUBJECT_HEADER)?.trim();
-    if (explicitHeader && ((input.hopCount ?? 0) > 0 || input.requestAuth?.kind === "legacy_admin")) {
-      return explicitHeader;
-    }
-
-    const authSubject = input.requestAuth?.subject?.trim();
-    if (authSubject && authSubject !== "legacy:proxy-auth-token") {
-      return authSubject;
-    }
-
-    if (input.requestAuth?.kind === "legacy_admin") {
-      const defaultOwnerSubject = process.env.FEDERATION_DEFAULT_OWNER_SUBJECT?.trim();
-      if (defaultOwnerSubject) {
-        return defaultOwnerSubject;
-      }
-    }
-
-    return undefined;
-  }
-
-  function extractPeerCredential(auth: Record<string, unknown>): string | undefined {
-    const direct = typeof auth.credential === "string" ? auth.credential.trim() : "";
-    if (direct.length > 0) {
-      return direct;
-    }
-
-    const bearer = typeof auth.bearer === "string" ? auth.bearer.trim() : "";
-    return bearer.length > 0 ? bearer : undefined;
-  }
-
-  async function fetchFederationJson<T>(input: {
-    readonly url: string;
-    readonly credential?: string;
-    readonly timeoutMs: number;
-    readonly method?: "GET" | "POST";
-    readonly body?: Record<string, unknown>;
-  }): Promise<T> {
-    const headers = new Headers();
-    headers.set("content-type", "application/json");
-    if (input.credential && input.credential.length > 0) {
-      headers.set("authorization", `Bearer ${input.credential}`);
-    }
-
-    const response = await fetchWithResponseTimeout(input.url, {
-      method: input.method ?? "GET",
-      headers,
-      body: input.body ? JSON.stringify(input.body) : undefined,
-    }, input.timeoutMs);
-
-    const text = await response.text();
-    const parsed = text.length > 0 ? JSON.parse(text) as T & { readonly error?: string } : {} as T & { readonly error?: string };
-    if (!response.ok) {
-      throw new Error(typeof parsed.error === "string" ? parsed.error : `request failed with ${response.status}`);
-    }
-
-    return parsed as T;
-  }
-
-  async function noteFederatedProjectedAccountRouted(input: {
-    readonly projectedAccount: FederationProjectedAccountRecord;
-    readonly timeoutMs: number;
-  }): Promise<{ readonly importedCredential: boolean; readonly projectedAccount: FederationProjectedAccountRecord }> {
-    if (!sqlFederationStore) {
-      return { importedCredential: false, projectedAccount: input.projectedAccount };
-    }
-
-    let projectedAccount = await sqlFederationStore.noteProjectedAccountRouted({
-      sourcePeerId: input.projectedAccount.sourcePeerId,
-      providerId: input.projectedAccount.providerId,
-      accountId: input.projectedAccount.accountId,
-    }) ?? input.projectedAccount;
-
-    let importedCredential = false;
-    if (shouldWarmImportProjectedAccount(projectedAccount.warmRequestCount)) {
-      const importResult = await sqlFederationStore.withProjectedAccountImportLock({
-        sourcePeerId: projectedAccount.sourcePeerId,
-        providerId: projectedAccount.providerId,
-        accountId: projectedAccount.accountId,
-      }, async (tx) => {
-        const latest = await sqlFederationStore.getProjectedAccount({
-          sourcePeerId: projectedAccount.sourcePeerId,
-          providerId: projectedAccount.providerId,
-          accountId: projectedAccount.accountId,
-        }, tx);
-        if (!latest) {
-          return undefined;
-        }
-        if (latest.availabilityState === "imported") {
-          return { importedCredential: false, projectedAccount: latest };
-        }
-
-        const peer = await sqlFederationStore.getPeer(latest.sourcePeerId, tx);
-        const credential = peer ? extractPeerCredential(peer.auth) : undefined;
-        if (!peer || !credential) {
-          return { importedCredential: false, projectedAccount: latest };
-        }
-
-        try {
-          const remoteExport = await fetchFederationJson<{ readonly account: FederationCredentialExport }>({
-            url: `${peer.controlBaseUrl ?? peer.baseUrl}/api/ui/federation/accounts/export`,
-            credential,
-            timeoutMs: input.timeoutMs,
-            method: "POST",
-            body: {
-              providerId: latest.providerId,
-              accountId: latest.accountId,
-            },
-          });
-
-          if (remoteExport.account.authType === "oauth_bearer") {
-            await runtimeCredentialStore.upsertOAuthAccount(
-              remoteExport.account.providerId,
-              remoteExport.account.accountId,
-              remoteExport.account.secret,
-              remoteExport.account.refreshToken,
-              remoteExport.account.expiresAt,
-              remoteExport.account.chatgptAccountId,
-              remoteExport.account.email,
-              remoteExport.account.subject,
-              remoteExport.account.planType,
-            );
-          } else {
-            await runtimeCredentialStore.upsertApiKeyAccount(
-              remoteExport.account.providerId,
-              remoteExport.account.accountId,
-              remoteExport.account.secret,
-            );
-          }
-
-          await keyPool.warmup().catch(() => undefined);
-
-          const imported = await sqlFederationStore.markProjectedAccountImported({
-            sourcePeerId: latest.sourcePeerId,
-            providerId: latest.providerId,
-            accountId: latest.accountId,
-          }, tx);
-          return {
-            importedCredential: true,
-            projectedAccount: imported ?? latest,
-          };
-        } catch (error) {
-          app.log.warn({
-            error: toErrorMessage(error),
-            sourcePeerId: latest.sourcePeerId,
-            providerId: latest.providerId,
-            accountId: latest.accountId,
-          }, "failed warm federation credential import during request routing");
-          return { importedCredential: false, projectedAccount: latest };
-        }
-      });
-
-      if (importResult) {
-        projectedAccount = importResult.projectedAccount;
-        importedCredential = importResult.importedCredential;
-      } else {
-        const latest = await sqlFederationStore.getProjectedAccount({
-          sourcePeerId: projectedAccount.sourcePeerId,
-          providerId: projectedAccount.providerId,
-          accountId: projectedAccount.accountId,
-        });
-        if (latest) {
-          projectedAccount = latest;
-          importedCredential = latest.availabilityState === "imported";
-        }
-      }
-    }
-
-    await sqlFederationStore.appendDiffEvent({
-      ownerSubject: projectedAccount.ownerSubject,
-      entityType: "projected_account",
-      entityKey: `${projectedAccount.sourcePeerId}:${projectedAccount.providerId}:${projectedAccount.accountId}`,
-      op: "note_routed",
-      payload: {
-        providerId: projectedAccount.providerId,
-        accountId: projectedAccount.accountId,
-        availabilityState: projectedAccount.availabilityState,
-        warmRequestCount: projectedAccount.warmRequestCount,
-        importedCredential,
-      },
-    });
-
-    return { importedCredential, projectedAccount };
-  }
-
-  async function executeFederatedRequestFallback(input: {
-    readonly requestHeaders: Record<string, unknown>;
-    readonly requestBody: Record<string, unknown>;
-    readonly requestAuth?: { readonly kind: "legacy_admin" | "tenant_api_key" | "ui_session" | "unauthenticated"; readonly subject?: string };
-    readonly providerRoutes: readonly ProviderRoute[];
-    readonly upstreamPath: string;
-    readonly reply: FastifyReply;
-    readonly timeoutMs: number;
-  }): Promise<boolean> {
-    if (!sqlFederationStore) {
-      return false;
-    }
-
-    const hopCount = resolveFederationHopCount(input.requestHeaders);
-    if (hopCount >= 1) {
-      return false;
-    }
-
-    const ownerSubject = resolveFederationOwnerSubject({
-      headers: input.requestHeaders,
-      requestAuth: input.requestAuth,
-      hopCount,
-    });
-    if (!ownerSubject) {
-      return false;
-    }
-
-    const localProviderIds = new Set(input.providerRoutes.map((route) => route.providerId.trim().toLowerCase()));
-    if (localProviderIds.size === 0) {
-      return false;
-    }
-
-    const peers = await sqlFederationStore.listPeers(ownerSubject);
-    const peersById = new Map(peers
-      .filter((peer) => peer.status.trim().toLowerCase() === "active")
-      .map((peer) => [peer.id, peer] as const));
-
-    const localProviderAccountKeys = new Set(
-      (await runtimeCredentialStore.listProviders(false).catch(() => []))
-        .flatMap((provider) => provider.accounts.map((account) => `${provider.id.trim().toLowerCase()}\0${account.id}`)),
-    );
-
-    const projectedCandidates = (await sqlFederationStore.getProjectedAccountsForOwner(ownerSubject))
-      .filter((account) => account.availabilityState !== "imported")
-      .filter((account) => localProviderIds.has(account.providerId.trim().toLowerCase()))
-      .filter((account) => !localProviderAccountKeys.has(`${account.providerId.trim().toLowerCase()}\0${account.accountId}`))
-      .map((projectedAccount) => {
-        const peer = peersById.get(projectedAccount.sourcePeerId);
-        const credential = peer ? extractPeerCredential(peer.auth) : undefined;
-        return peer && credential
-          ? { peer, credential, projectedAccount }
-          : undefined;
-      })
-      .filter((candidate): candidate is { readonly peer: FederationPeerRecord; readonly credential: string; readonly projectedAccount: FederationProjectedAccountRecord } => candidate !== undefined)
-      .sort((left, right) => {
-        const stateWeight = (value: FederationProjectedAccountRecord["availabilityState"]): number => value === "remote_route" ? 0 : 1;
-        return stateWeight(left.projectedAccount.availabilityState) - stateWeight(right.projectedAccount.availabilityState)
-          || right.projectedAccount.warmRequestCount - left.projectedAccount.warmRequestCount
-          || left.projectedAccount.providerId.localeCompare(right.projectedAccount.providerId)
-          || left.projectedAccount.accountId.localeCompare(right.projectedAccount.accountId)
-          || left.projectedAccount.sourcePeerId.localeCompare(right.projectedAccount.sourcePeerId);
-      });
-
-    if (projectedCandidates.length === 0) {
-      return false;
-    }
-
-    const bodyText = JSON.stringify(input.requestBody);
-
-    for (const candidate of projectedCandidates) {
-      const headers = buildForwardHeaders(input.requestHeaders as never);
-      headers.set("authorization", `Bearer ${candidate.credential}`);
-      headers.set(FEDERATION_HOP_HEADER, String(hopCount + 1));
-      headers.set(FEDERATION_OWNER_SUBJECT_HEADER, ownerSubject);
-      headers.set(FEDERATION_FORCED_PROVIDER_HEADER, candidate.projectedAccount.providerId);
-      headers.set(FEDERATION_FORCED_ACCOUNT_ID_HEADER, candidate.projectedAccount.accountId);
-
-      let remoteResponse: Response;
-      try {
-        remoteResponse = await fetchWithResponseTimeout(
-          `${candidate.peer.baseUrl}${input.upstreamPath}`,
-          {
-            method: "POST",
-            headers,
-            body: bodyText,
-          },
-          input.timeoutMs,
-        );
-      } catch (error) {
-        app.log.warn({
-          error: toErrorMessage(error),
-          peerId: candidate.peer.id,
-          upstreamPath: input.upstreamPath,
-          providerId: candidate.projectedAccount.providerId,
-          accountId: candidate.projectedAccount.accountId,
-        }, "federated request attempt failed before response");
-        continue;
-      }
-
-      if (!remoteResponse.ok) {
-        try {
-          await remoteResponse.arrayBuffer();
-        } catch {
-          // ignore response drain failure while trying the next candidate
-        }
-        app.log.warn({
-          peerId: candidate.peer.id,
-          status: remoteResponse.status,
-          providerId: candidate.projectedAccount.providerId,
-          accountId: candidate.projectedAccount.accountId,
-        }, "federated request attempt returned non-success response");
-        continue;
-      }
-
-      const routed = await noteFederatedProjectedAccountRouted({
-        projectedAccount: candidate.projectedAccount,
-        timeoutMs: input.timeoutMs,
-      });
-
-      for (const [name, value] of remoteResponse.headers.entries()) {
-        if (FEDERATION_BLOCKED_RESPONSE_HEADERS.has(name.toLowerCase())) {
-          continue;
-        }
-        input.reply.header(name, value);
-      }
-      input.reply.header(FEDERATION_OWNER_SUBJECT_HEADER, ownerSubject);
-      input.reply.header(FEDERATION_ROUTED_PEER_HEADER, candidate.peer.id);
-      input.reply.header(FEDERATION_ROUTED_PROVIDER_HEADER, candidate.projectedAccount.providerId);
-      input.reply.header(FEDERATION_ROUTED_ACCOUNT_HEADER, candidate.projectedAccount.accountId);
-      if (routed.importedCredential) {
-        input.reply.header(FEDERATION_IMPORTED_HEADER, "true");
-      }
-
-      input.reply.code(remoteResponse.status);
-      const contentType = remoteResponse.headers.get("content-type") ?? "";
-      const isEventStream = contentType.toLowerCase().includes("text/event-stream");
-
-      if (!remoteResponse.body) {
-        input.reply.send(await remoteResponse.text());
-        return true;
-      }
-
-      if (isEventStream) {
-        input.reply.removeHeader("content-length");
-        input.reply.send(Readable.fromWeb(remoteResponse.body as never));
-        return true;
-      }
-
-      input.reply.send(Buffer.from(await remoteResponse.arrayBuffer()));
-      return true;
-    }
-
-    return false;
-  }
 
   async function refreshOpenAiOauthAccounts(accountId?: string): Promise<{
     readonly totalAccounts: number;
@@ -1287,7 +681,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
   quotaMonitor.start();
 
   const ollamaCatalogRoutes = buildOllamaCatalogRoutes(config);
-  const providerCatalogRoutes = buildProviderRoutes(config, false, true)
+  const providerCatalogRoutes = (await buildProviderRoutesWithDynamicBaseUrls(config, false, dynamicProviderBaseUrlGetter, true))
     .filter((route) => route.providerId !== "factory" || !config.disabledProviderIds.includes("factory"));
   const providerCatalogStore = new ProviderCatalogStore(
     config,
@@ -1354,518 +748,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     return [...new Set([...localCatalog.modelIds, ...bridgedModels])];
   }
 
-  function resolvableConcreteModelIds(catalog: ResolvedModelCatalog | null): string[] | undefined {
-    if (!catalog) {
-      return undefined;
-    }
 
-    return catalog.modelIds.filter((modelId) => !isAutoModel(modelId) && catalog.aliasTargets[modelId] === undefined);
-  }
-
-  function resolvableConcreteModelIdsForProviders(
-    catalogBundle: ResolvedCatalogWithPreferences | null,
-    providerIds: readonly string[],
-    includeDeclaredModel?: (modelId: string) => boolean,
-  ): string[] | undefined {
-    if (!catalogBundle) {
-      return undefined;
-    }
-
-    const ids: string[] = [];
-    for (const modelId of catalogBundle.catalog.declaredModelIds) {
-      if (
-        isAutoModel(modelId)
-        || catalogBundle.catalog.aliasTargets[modelId] !== undefined
-        || (includeDeclaredModel && !includeDeclaredModel(modelId))
-      ) {
-        continue;
-      }
-      ids.push(modelId);
-    }
-
-    for (const providerId of providerIds) {
-      const entry = catalogBundle.providerCatalogs[providerId];
-      if (!entry) {
-        continue;
-      }
-      for (const modelId of entry.modelIds) {
-        if (isAutoModel(modelId) || catalogBundle.catalog.aliasTargets[modelId] !== undefined) {
-          continue;
-        }
-        ids.push(modelId);
-      }
-    }
-
-    return [...new Set(ids)];
-  }
-
-  function openAiProviderUsesCodexSurface(config: ProxyConfig): boolean {
-    const openAiBaseUrl = config.openaiBaseUrl.trim().toLowerCase();
-    const openAiResponsesPath = config.openaiResponsesPath.trim().toLowerCase();
-    const openAiChatCompletionsPath = config.openaiChatCompletionsPath.trim().toLowerCase();
-
-    return openAiBaseUrl.includes("chatgpt.com/backend-api")
-      || openAiResponsesPath.includes("/codex/")
-      || openAiChatCompletionsPath.includes("/codex/");
-  }
-
-  function providerRouteSupportsModel(config: ProxyConfig, providerId: string, modelId: string): boolean {
-    const normalizedProviderId = providerId.trim().toLowerCase();
-    const normalizedModelId = modelId.trim().toLowerCase();
-
-    if (
-      normalizedProviderId === config.openaiProviderId.trim().toLowerCase()
-      && normalizedModelId === "gpt-5.4-nano"
-      && openAiProviderUsesCodexSurface(config)
-    ) {
-      return false;
-    }
-
-    return true;
-  }
-
-  function filterProviderRoutesByModelSupport(
-    config: ProxyConfig,
-    routes: readonly ProviderRoute[],
-    modelId: string,
-  ): ProviderRoute[] {
-    return routes.filter((route) => providerRouteSupportsModel(config, route.providerId, modelId));
-  }
-
-  const legacyBridgePathPrefixes = [
-    "/v1/chat/completions",
-    "/v1/models",
-    "/v1/responses",
-    "/v1/embeddings",
-    "/v1/images/generations",
-  ] as const;
-
-  function bridgeCapabilitySupportsPath(capability: {
-    readonly paths?: readonly string[];
-    readonly routes?: readonly string[];
-    readonly supportsModelsList?: boolean;
-    readonly supportsChatCompletions?: boolean;
-    readonly supportsResponses?: boolean;
-  }, normalizedPath: string): boolean {
-    const advertisedRoutes = [...(capability.paths ?? []), ...(capability.routes ?? [])]
-      .filter((entry): entry is string => typeof entry === "string")
-      .map((entry) => entry.trim())
-      .filter((entry) => entry.length > 0);
-
-    if (advertisedRoutes.length > 0) {
-      return advertisedRoutes.some((prefix) => normalizedPath.startsWith(prefix));
-    }
-
-    if (normalizedPath.startsWith("/v1/models")) {
-      return capability.supportsModelsList === true;
-    }
-    if (normalizedPath.startsWith("/v1/chat/completions")) {
-      return capability.supportsChatCompletions === true;
-    }
-    if (normalizedPath.startsWith("/v1/responses")) {
-      return capability.supportsResponses === true;
-    }
-
-    const hasStructuredCapabilityHints = capability.supportsModelsList !== undefined
-      || capability.supportsChatCompletions !== undefined
-      || capability.supportsResponses !== undefined;
-
-    return !hasStructuredCapabilityHints
-      && legacyBridgePathPrefixes.some((prefix) => normalizedPath.startsWith(prefix));
-  }
-
-  function bridgeCapabilitySupportsModel(capability: {
-    readonly models?: readonly string[];
-    readonly modelPrefixes?: readonly string[];
-  }, requestedModel: string | undefined): boolean {
-    if (!requestedModel) {
-      return true;
-    }
-
-    const normalizedModel = requestedModel.trim();
-    if (normalizedModel.length === 0) {
-      return true;
-    }
-
-    const advertisedModels = (capability.models ?? [])
-      .filter((entry): entry is string => typeof entry === "string")
-      .map((entry) => entry.trim())
-      .filter((entry) => entry.length > 0);
-    if (advertisedModels.includes(normalizedModel)) {
-      return true;
-    }
-
-    const advertisedPrefixes = (capability.modelPrefixes ?? [])
-      .filter((entry): entry is string => typeof entry === "string")
-      .map((entry) => entry.trim())
-      .filter((entry) => entry.length > 0);
-    return advertisedPrefixes.some((prefix) => normalizedModel.startsWith(prefix));
-  }
-
-  function appendBridgeResponseHeaders(reply: FastifyReply, headers: Readonly<Record<string, string>>): void {
-    for (const [name, value] of Object.entries(headers)) {
-      if (name.toLowerCase() === "content-length") {
-        continue;
-      }
-      reply.header(name, value);
-    }
-  }
-
-  function decodeBridgeResponseChunk(event: Extract<BridgeRelayResponseEvent, { readonly type: "response_chunk" }>): Buffer {
-    return event.encoding === "base64"
-      ? Buffer.from(event.chunk, "base64")
-      : Buffer.from(event.chunk, "utf8");
-  }
-
-  async function executeBridgeRequestFallback(input: {
-    readonly requestHeaders: Record<string, unknown>;
-    readonly requestBody: Record<string, unknown>;
-    readonly requestAuth?: Pick<ResolvedRequestAuth, "kind" | "subject" | "tenantId">;
-    readonly upstreamPath: string;
-    readonly reply: FastifyReply;
-    readonly timeoutMs: number;
-  }): Promise<boolean> {
-    if (!bridgeRelay) {
-      return false;
-    }
-
-    // Reject multi-hop bridge routing to prevent request loops
-    const hopCount = resolveFederationHopCount(input.requestHeaders);
-    if (hopCount >= 1) {
-      app.log.warn({ hopCount, upstreamPath: input.upstreamPath }, "bridge request rejected: hop limit exceeded");
-      return false;
-    }
-
-    const ownerSubject = resolveFederationOwnerSubject({
-      headers: input.requestHeaders,
-      requestAuth: input.requestAuth,
-      hopCount,
-    });
-    if (!ownerSubject) {
-      return false;
-    }
-
-    const tenantId = input.requestAuth?.tenantId
-      ?? (input.requestAuth?.kind === "legacy_admin" ? DEFAULT_TENANT_ID : undefined);
-    if (!tenantId) {
-      return false;
-    }
-
-    const requestedModel = normalizeRequestedModel(input.requestBody.model);
-
-    // Filter connected sessions by advertised capability for the requested path
-    const normalizedPath = input.upstreamPath.split("?")[0]!;
-    const connectedSessions = bridgeRelay.listSessions()
-      .filter((session) => session.state === "connected")
-      .filter((session) => session.ownerSubject === ownerSubject)
-      .filter((session) => session.tenantId === tenantId)
-      .filter((session) => {
-        const hasCapability = session.capabilities.some((cap) => {
-          return bridgeCapabilitySupportsPath(cap, normalizedPath)
-            && bridgeCapabilitySupportsModel(cap, requestedModel);
-        });
-        return hasCapability;
-      });
-    if (connectedSessions.length === 0) {
-      return false;
-    }
-
-    const bodyText = JSON.stringify(input.requestBody);
-
-    for (const session of connectedSessions) {
-      let responseStarted = false;
-      let rawResponse: typeof input.reply.raw | undefined;
-      try {
-        const responseEvents = bridgeRelay.requestStream(session.sessionId, {
-          method: "POST",
-          path: input.upstreamPath,
-          timeoutMs: input.timeoutMs,
-          headers: {
-            accept: typeof input.requestHeaders.accept === "string" ? input.requestHeaders.accept : "application/json",
-            "content-type": "application/json",
-          },
-          body: bodyText,
-          requestContext: { tenantId },
-          routingIntent: requestedModel ? { model: requestedModel } : undefined,
-        });
-
-        let sawHead = false;
-        let isStreaming = false;
-        let responseHeaders: Readonly<Record<string, string>> = {};
-        const bufferedChunks: Buffer[] = [];
-
-        for await (const event of responseEvents) {
-          switch (event.type) {
-            case "response_head": {
-              sawHead = true;
-              responseStarted = true;
-              responseHeaders = event.headers;
-              appendBridgeResponseHeaders(input.reply, event.headers);
-              input.reply.header(FEDERATION_OWNER_SUBJECT_HEADER, ownerSubject);
-              input.reply.header(FEDERATION_ROUTED_PEER_HEADER, `bridge:${session.clusterId}:${session.agentId}`);
-              input.reply.code(event.status);
-
-              const contentType = event.headers["content-type"] ?? event.headers["Content-Type"] ?? "";
-              isStreaming = typeof contentType === "string" && contentType.toLowerCase().includes("text/event-stream");
-              if (isStreaming) {
-                input.reply.removeHeader("content-length");
-                input.reply.header("cache-control", "no-cache");
-                input.reply.header("x-accel-buffering", "no");
-                input.reply.header("content-type", "text/event-stream; charset=utf-8");
-                input.reply.hijack();
-                rawResponse = input.reply.raw;
-                rawResponse.statusCode = event.status;
-                for (const [name, value] of Object.entries(input.reply.getHeaders())) {
-                  if (value !== undefined) {
-                    rawResponse.setHeader(name, value as never);
-                  }
-                }
-                rawResponse.flushHeaders();
-              }
-              break;
-            }
-            case "response_chunk": {
-              if (!sawHead) {
-                sawHead = true;
-                responseStarted = true;
-                input.reply.header(FEDERATION_OWNER_SUBJECT_HEADER, ownerSubject);
-                input.reply.header(FEDERATION_ROUTED_PEER_HEADER, `bridge:${session.clusterId}:${session.agentId}`);
-                input.reply.code(200);
-              }
-
-              const chunk = decodeBridgeResponseChunk(event);
-              if (isStreaming && rawResponse) {
-                rawResponse.write(chunk);
-              } else {
-                bufferedChunks.push(chunk);
-              }
-              break;
-            }
-            case "response_end":
-              break;
-            default:
-              break;
-          }
-        }
-
-        if (isStreaming && rawResponse) {
-          if (!rawResponse.writableEnded) {
-            rawResponse.end();
-          }
-          return true;
-        }
-
-        const responseBody = Buffer.concat(bufferedChunks).toString("utf8");
-        const contentType = responseHeaders["content-type"] ?? responseHeaders["Content-Type"] ?? "";
-        const parsed = typeof contentType === "string" && contentType.toLowerCase().includes("application/json")
-          ? parseJsonIfPossible(responseBody)
-          : undefined;
-        if (parsed !== undefined) {
-          input.reply.send(parsed);
-        } else {
-          input.reply.send(responseBody);
-        }
-        return true;
-      } catch (error) {
-        if (rawResponse && !rawResponse.writableEnded) {
-          rawResponse.end();
-        }
-        app.log.warn({ error: toErrorMessage(error), sessionId: session.sessionId, upstreamPath: input.upstreamPath }, "bridged request attempt failed");
-        if (responseStarted) {
-          return true;
-        }
-      }
-    }
-
-    return false;
-  }
-
-  const handleBridgeRequest = async (input: {
-    readonly method: string;
-    readonly path: string;
-    readonly headers: Readonly<Record<string, string>>;
-    readonly bodyText: string;
-    readonly ownerSubject: string;
-    readonly tenantId?: string;
-  }): ReturnType<NonNullable<Parameters<typeof createEnvFederationBridgeAgent>[0]["handleBridgeRequest"]>> => {
-    // Security: restrict bridge requests to allowed API paths only.
-    // This prevents the bridge from acting as a privileged generic proxy
-    // that could access internal routes like /api/ui/federation/accounts.
-    const allowedBridgePaths = [
-      "/v1/chat/completions",
-      "/v1/models",
-      "/v1/responses",
-      "/v1/embeddings",
-      "/v1/images/generations",
-    ];
-    const normalizedPath = input.path.split("?")[0]!;
-    if (!allowedBridgePaths.some((prefix) => normalizedPath.startsWith(prefix))) {
-      app.log.warn({ path: input.path, ownerSubject: input.ownerSubject }, "bridge request rejected: path not in allowed list");
-      return {
-        status: 403,
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ error: { message: "Bridge requests are restricted to model API paths", type: "invalid_request_error" } }),
-        servedByClusterId: process.env.FEDERATION_SELF_CLUSTER_ID?.trim(),
-        servedByGroupId: process.env.FEDERATION_SELF_GROUP_ID?.trim(),
-        servedByNodeId: process.env.FEDERATION_SELF_NODE_ID?.trim(),
-      };
-    }
-
-    const headers: Record<string, string> = {
-      accept: input.headers.accept ?? "application/json",
-      // Use a dedicated bridge identity header instead of the global admin token.
-      // This prevents the bridge from becoming a privileged proxy with admin access.
-      "x-open-hax-bridge-auth": "internal",
-      [FEDERATION_HOP_HEADER]: "1",
-      [FEDERATION_OWNER_SUBJECT_HEADER]: input.ownerSubject,
-    };
-    if (typeof input.tenantId === "string" && input.tenantId.trim().length > 0) {
-      headers[FEDERATION_BRIDGE_TENANT_HEADER] = input.tenantId.trim();
-    }
-    if (typeof input.headers["content-type"] === "string") {
-      headers["content-type"] = input.headers["content-type"];
-    }
-
-    const appAddress = app.server.address();
-    if (appAddress && typeof appAddress !== "string") {
-      const response = await fetch(`http://127.0.0.1:${appAddress.port}${input.path}`, {
-        method: input.method,
-        headers,
-        body: input.bodyText.length > 0 ? input.bodyText : undefined,
-      });
-
-      return (async function* () {
-        const responseHeaders: Record<string, string> = {};
-        for (const [name, value] of response.headers.entries()) {
-          responseHeaders[name] = value;
-        }
-
-        const providerId = responseHeaders["x-open-hax-upstream-provider"];
-        const servedByClusterId = process.env.FEDERATION_SELF_CLUSTER_ID?.trim();
-        const servedByGroupId = process.env.FEDERATION_SELF_GROUP_ID?.trim();
-        const servedByNodeId = process.env.FEDERATION_SELF_NODE_ID?.trim();
-
-        yield {
-          type: "response_head" as const,
-          status: response.status,
-          headers: responseHeaders,
-          servedByClusterId,
-          servedByGroupId,
-          servedByNodeId,
-          providerId,
-        };
-
-        if (!response.body) {
-          yield {
-            type: "response_end" as const,
-            servedByClusterId,
-            servedByGroupId,
-            servedByNodeId,
-            providerId,
-          };
-          return;
-        }
-
-        const contentType = (response.headers.get("content-type") ?? "").trim().toLowerCase();
-        const encodeAsUtf8 = contentType.length === 0
-          || contentType.startsWith("text/")
-          || contentType.includes("json")
-          || contentType.includes("xml")
-          || contentType.includes("javascript")
-          || contentType.includes("event-stream");
-        const decoder = encodeAsUtf8 ? new TextDecoder("utf8") : undefined;
-        const reader = response.body.getReader();
-
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) {
-            break;
-          }
-          if (!value || value.length === 0) {
-            continue;
-          }
-
-          if (decoder) {
-            const chunk = decoder.decode(value, { stream: true });
-            if (chunk.length > 0) {
-              yield {
-                type: "response_chunk" as const,
-                chunk,
-                encoding: "utf8" as const,
-                servedByClusterId,
-                servedByGroupId,
-                servedByNodeId,
-                providerId,
-              };
-            }
-            continue;
-          }
-
-          yield {
-            type: "response_chunk" as const,
-            chunk: Buffer.from(value).toString("base64"),
-            encoding: "base64" as const,
-            servedByClusterId,
-            servedByGroupId,
-            servedByNodeId,
-            providerId,
-          };
-        }
-
-        if (decoder) {
-          const tail = decoder.decode();
-          if (tail.length > 0) {
-            yield {
-              type: "response_chunk" as const,
-              chunk: tail,
-              encoding: "utf8" as const,
-              servedByClusterId,
-              servedByGroupId,
-              servedByNodeId,
-              providerId,
-            };
-          }
-        }
-
-        yield {
-          type: "response_end" as const,
-          servedByClusterId,
-          servedByGroupId,
-          servedByNodeId,
-          providerId,
-        };
-      })();
-    }
-
-    const injected = await app.inject({
-      method: input.method as "GET" | "POST",
-      url: input.path,
-      headers,
-      payload: input.bodyText.length > 0 ? input.bodyText : undefined,
-    });
-
-    const responseHeaders: Record<string, string> = {};
-    for (const [name, value] of Object.entries(injected.headers)) {
-      if (typeof value === "string") {
-        responseHeaders[name] = value;
-      }
-    }
-
-    const provenance = {
-      servedByClusterId: process.env.FEDERATION_SELF_CLUSTER_ID?.trim(),
-      servedByGroupId: process.env.FEDERATION_SELF_GROUP_ID?.trim(),
-      servedByNodeId: process.env.FEDERATION_SELF_NODE_ID?.trim(),
-      providerId: responseHeaders["x-open-hax-upstream-provider"],
-    };
-
-    return {
-      status: injected.statusCode,
-      headers: responseHeaders,
-      body: injected.body,
-      encoding: "utf8",
-      ...provenance,
-    };
-  };
 
   const bridgeAgent = createEnvFederationBridgeAgent({
     config,
@@ -1873,49 +756,12 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     credentialStore: runtimeCredentialStore,
     logger: app.log,
     getResolvedModelCatalog: () => getResolvedModelCatalog(false),
-    handleBridgeRequest,
+    handleBridgeRequest: (input) => handleBridgeRequest(bridgeDeps, input),
   });
 
-  function shouldRejectModelFromProviderCatalog(
-    providerRoutes: readonly ProviderRoute[],
-    routedModel: string,
-    catalogBundle: ResolvedCatalogWithPreferences,
-  ): boolean {
-    if (catalogBundle.catalog.declaredModelIds.includes(routedModel)) {
-      return false;
-    }
 
-    let sawCatalogForCandidate = false;
-
-    for (const route of providerRoutes) {
-      const entry = catalogBundle.providerCatalogs[route.providerId];
-      if (!entry) {
-        return false;
-      }
-
-      sawCatalogForCandidate = true;
-      if (entry.modelIds.includes(routedModel)) {
-        return false;
-      }
-    }
-
-    return sawCatalogForCandidate;
-  }
-
-  async function injectNativeBridge(
-    url: string,
-    payload: Record<string, unknown>,
-    requestHeaders: Record<string, unknown>,
-  ) {
-    return app.inject({
-      method: "POST",
-      url,
-      headers: {
-        ...applyNativeOllamaAuth({ headers: requestHeaders } as never, config),
-      },
-      payload,
-    });
-  }
+  const fedDeps = { app, sqlFederationStore, runtimeCredentialStore, keyPool, sqlTenantProviderPolicyStore };
+  const bridgeDeps = { bridgeRelay, app, config, runtimeCredentialStore, keyPool, sqlTenantProviderPolicyStore };
 
   if (config.allowUnauthenticated) {
     app.log.warn("proxy auth disabled via PROXY_ALLOW_UNAUTHENTICATED=true");
@@ -1941,11 +787,11 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     }
 
     const rawPath = (request.raw.url ?? request.url).split("?", 1)[0] ?? request.url;
-    const allowUnauthenticatedRoute = rawPath === "/" || rawPath === "/favicon.ico" || rawPath === "/health" || rawPath === "/api/ui/credentials/openai/oauth/browser/callback"
+    const allowUnauthenticatedRoute = rawPath === "/" || rawPath === "/favicon.ico" || rawPath === "/health" || rawPath === "/api/ui/credentials/openai/oauth/browser/callback" || rawPath === "/api/v1/credentials/openai/oauth/browser/callback"
       || rawPath === "/auth/callback" || rawPath === "/auth/factory/callback"
       || rawPath === config.githubOAuthCallbackPath || rawPath === "/auth/login"
       || rawPath === "/auth/refresh" || rawPath === "/auth/logout";
-    const allowUiSessionAuth = rawPath.startsWith("/api/ui/") || rawPath.startsWith("/auth/");
+    const allowUiSessionAuth = rawPath.startsWith("/api/ui/") || rawPath === "/api/v1" || rawPath.startsWith("/api/v1/") || rawPath.startsWith("/auth/");
 
     if (allowUnauthenticatedRoute) {
       return;
@@ -2134,1160 +980,47 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     reply.code(204).send();
   });
 
-  app.get("/health", async () => {
-    let keyPoolStatus: unknown;
-    let keyPoolProviders: unknown;
-    try {
-      const status = await keyPool.getStatus(config.upstreamProviderId);
-      keyPoolStatus = {
-        providerId: status.providerId,
-        authType: status.authType,
-        totalKeys: status.totalAccounts,
-        availableKeys: status.availableAccounts,
-        cooldownKeys: status.cooldownAccounts,
-        nextReadyInMs: status.nextReadyInMs
-      };
-
-      const allStatuses = await keyPool.getAllStatuses();
-      keyPoolProviders = Object.fromEntries(
-        Object.entries(allStatuses).map(([providerId, providerStatus]) => [
-          providerId,
-          {
-            providerId: providerStatus.providerId,
-            authType: providerStatus.authType,
-            totalAccounts: providerStatus.totalAccounts,
-            availableAccounts: providerStatus.availableAccounts,
-            cooldownAccounts: providerStatus.cooldownAccounts,
-            nextReadyInMs: providerStatus.nextReadyInMs
-          }
-        ])
-      );
-    } catch (error) {
-      keyPoolStatus = { error: toErrorMessage(error) };
-      keyPoolProviders = {};
-    }
-
-    return {
-      ok: true,
-      service: "open-hax-openai-proxy",
-      authMode: config.proxyAuthToken ? "token" : "unauthenticated",
-      keyPool: keyPoolStatus,
-      keyPoolProviders
-    };
+  app.options("/api/v1", async (_request, reply) => {
+    reply.code(204).send();
   });
 
-  app.get("/v1/models", async (_request, reply) => {
-    const modelIds = await getMergedModelIds();
-    reply.send({
-      object: "list",
-      data: modelIds.map(toOpenAiModel)
-    });
+  app.options("/api/v1/*", async (_request, reply) => {
+    reply.code(204).send();
   });
 
-  app.get<{ Params: { model: string } }>("/v1/models/:model", async (request, reply) => {
-    const modelIds = await getMergedModelIds();
-    const model = modelIds.find((entry) => entry === request.params.model);
-    if (!model) {
-      sendOpenAiError(reply, 404, `Model not found: ${request.params.model}`, "invalid_request_error", "model_not_found");
-      return;
-    }
-
-    reply.send(toOpenAiModel(model));
-  });
-
-  app.get("/api/tags", async (_request, reply) => {
-    const modelIds = await getMergedModelIds();
-    reply.send(modelIdsToNativeTags(modelIds));
-  });
-
-  app.post<{ Body: WebSearchToolRequest }>("/api/tools/websearch", async (request, reply) => {
-    if (!isRecord(request.body)) {
-      reply.code(400).send({ error: "invalid_body" });
-      return;
-    }
-
-    const query = typeof request.body.query === "string" ? request.body.query.trim() : "";
-    if (query.length === 0) {
-      reply.code(400).send({ error: "query_required" });
-      return;
-    }
-
-    const rawNumResults = typeof request.body.numResults === "number" ? request.body.numResults : Number.NaN;
-    const numResults = Number.isFinite(rawNumResults)
-      ? Math.max(1, Math.min(20, Math.trunc(rawNumResults)))
-      : 8;
-
-    const searchContextSize = typeof request.body.searchContextSize === "string"
-      ? request.body.searchContextSize.trim().toLowerCase()
-      : "";
-    const contextSize = (searchContextSize === "low" || searchContextSize === "medium" || searchContextSize === "high")
-      ? searchContextSize
-      : undefined;
-
-    const allowedDomains = Array.isArray(request.body.allowedDomains)
-      ? request.body.allowedDomains
-        .filter((entry): entry is string => typeof entry === "string")
-        .map((entry) => entry.trim())
-        .filter((entry) => entry.length > 0)
-        .slice(0, 50)
-      : [];
-
-    const requestedModel = typeof request.body.model === "string" ? request.body.model.trim() : "";
-
-    const fallbackModel = process.env.OPEN_HAX_WEBSEARCH_FALLBACK_MODEL?.trim() || "gpt-5.2";
-    const candidateModels = [requestedModel, fallbackModel]
-      .map((entry) => entry.trim())
-      .filter((entry) => entry.length > 0);
-    const uniqueModels: string[] = [];
-    for (const entry of candidateModels) {
-      if (!uniqueModels.includes(entry)) {
-        uniqueModels.push(entry);
-      }
-    }
-
-    const authHeaders: Record<string, string> = {
-      "content-type": "application/json",
-      ...(config.proxyAuthToken ? { authorization: `Bearer ${config.proxyAuthToken}` } : {}),
-    };
-
-    const baseTool: Record<string, unknown> = {
-      type: "web_search",
-      external_web_access: true,
-      ...(contextSize ? { search_context_size: contextSize } : {}),
-    };
-
-    const buildUserText = (withDomainsHint: boolean) => {
-      const domainHint = withDomainsHint && allowedDomains.length > 0
-        ? `\n\nRestrict sources to these domains when possible:\n${allowedDomains.map((d) => `- ${d}`).join("\n")}`
-        : "";
-      return [
-        `Query: ${query}`,
-        `Return up to ${numResults} results as a Markdown list. Each bullet must include a Markdown link and a 1-2 sentence snippet.`,
-        `Do not fabricate URLs; every link must be backed by web_search citations.`,
-        domainHint,
-      ].join("\n");
-    };
-
-    const attemptPayload = async (model: string, includeDomainsInTool: boolean) => {
-      const tool = includeDomainsInTool && allowedDomains.length > 0
-        ? { ...baseTool, allowed_domains: allowedDomains }
-        : baseTool;
-
-      return app.inject({
-        method: "POST",
-        url: "/v1/responses",
-        headers: authHeaders,
-        payload: {
-          model,
-          instructions: "You are a web search helper. Use the web_search tool to gather sources and answer with citations.",
-          input: [
-            {
-              role: "user",
-              content: [{ type: "input_text", text: buildUserText(!includeDomainsInTool) }],
-            },
-          ],
-          tools: [tool],
-          tool_choice: "auto",
-          store: false,
-          stream: false,
-        },
-      });
-    };
-
-    let lastErrorPayload: unknown;
-
-    for (const model of uniqueModels) {
-      // Try the most structured tool payload first; fall back to hint-only if upstream rejects unknown fields.
-      for (const includeDomainsInTool of [true, false]) {
-        const injected = await attemptPayload(model, includeDomainsInTool);
-        if (injected.statusCode !== 200) {
-          lastErrorPayload = parseJsonIfPossible(injected.body) ?? injected.body;
-          continue;
-        }
-
-        const json = parseJsonIfPossible(injected.body);
-        const extracted = extractResponseTextAndUrlCitations(json);
-
-        const output = extracted.text;
-        const sources = extracted.citations.length > 0
-          ? extracted.citations
-          : extractMarkdownLinks(output);
-
-        reply.send({
-          output,
-          sources: sources.slice(0, numResults),
-          responseId: extracted.responseId,
-          model,
-        });
-        return;
-      }
-    }
-
-    reply.code(502).send({
-      error: "websearch_failed",
-      details: lastErrorPayload,
-    });
-  });
-
-  app.post<{ Body: ChatCompletionRequest }>("/v1/chat/completions", async (request, reply) => {
-    if (!isRecord(request.body)) {
-      sendOpenAiError(reply, 400, "Request body must be a JSON object", "invalid_request_error", "invalid_body");
-      return;
-    }
-
-    const proxySettings = await proxySettingsStore.getForTenant(
-      ((request as { readonly openHaxAuth?: { readonly tenantId?: string } }).openHaxAuth?.tenantId) ?? DEFAULT_TENANT_ID,
-    );
-    const requestBody = proxySettings.fastMode
-      ? {
-        open_hax: {
-          fast_mode: true,
-          ...(isRecord(request.body.open_hax) ? request.body.open_hax : {}),
-        },
-        ...request.body,
-      }
-      : request.body;
-
-    if (proxySettings.fastMode) {
-      reply.header("x-open-hax-fast-mode", "priority");
-    }
-
-    const requestedModelInput = typeof requestBody.model === "string" ? requestBody.model : "";
-    const explicitlyBlockedProviderId = resolveExplicitTenantProviderId(requestedModelInput, proxySettings);
-    if (explicitlyBlockedProviderId) {
-      sendOpenAiError(reply, 403, `Provider is disabled for this tenant: ${explicitlyBlockedProviderId}`, "invalid_request_error", "provider_not_allowed");
-      return;
-    }
-
-    let routingModelInput = requestedModelInput;
-    let resolvedModelCatalog: ResolvedModelCatalog | null = null;
-    try {
-      const catalogBundle = await providerCatalogStore.getCatalog();
-      const catalog = catalogBundle.catalog;
-      resolvedModelCatalog = catalog;
-      const disabledModelSet = new Set(catalogBundle.preferences.disabled);
-      if (disabledModelSet.has(requestedModelInput) || disabledModelSet.has(catalog.aliasTargets[requestedModelInput] ?? "")) {
-        sendOpenAiError(reply, 403, `Model is disabled: ${requestedModelInput}`, "invalid_request_error", "model_disabled");
-        return;
-      }
-      const aliasTarget = catalog.aliasTargets[requestedModelInput];
-      if (typeof aliasTarget === "string" && aliasTarget.length > 0) {
-        routingModelInput = aliasTarget;
-        reply.header("x-open-hax-model-alias", `${requestedModelInput}->${aliasTarget}`);
-      }
-    } catch (error) {
-      request.log.warn({ error: toErrorMessage(error) }, "failed to resolve dynamic model aliases; using requested model as-is");
-    }
-
-    const concreteModelIds = resolvableConcreteModelIds(resolvedModelCatalog);
-    const routingModelCandidates = isAutoModel(routingModelInput)
-      ? rankAutoModels(
-          routingModelInput,
-          requestBody,
-          concreteModelIds,
-          config.upstreamProviderId,
-          requestLogStore,
-          accountHealthStore,
-        ).map((entry) => entry.modelId)
-      : [routingModelInput];
-
-    if (routingModelCandidates.length === 0) {
-      sendOpenAiError(reply, 404, `Model not found: ${requestedModelInput}`, "invalid_request_error", "model_not_found");
-      return;
-    }
-
-    if (isAutoModel(routingModelInput)) {
-      reply.header("x-open-hax-auto-model-candidates", routingModelCandidates.slice(0, 12).join(","));
-    }
-
-    for (const [candidateIndex, candidateRoutingModel] of routingModelCandidates.entries()) {
-      const hasMoreModelCandidates = candidateIndex < routingModelCandidates.length - 1;
-      const { strategy, context } = selectProviderStrategy(
-        config,
-        request.headers,
-        requestBody,
-        requestedModelInput,
-        candidateRoutingModel,
-        (request as { readonly openHaxAuth?: { readonly kind: "legacy_admin" | "tenant_api_key" | "ui_session" | "unauthenticated"; readonly tenantId?: string; readonly keyId?: string; readonly subject?: string } }).openHaxAuth,
-      );
-      reply.header("x-open-hax-upstream-mode", strategy.mode);
-
-      let providerRoutes: ProviderRoute[];
-      if (context.factoryPrefixed) {
-        const factoryBaseUrl = config.upstreamProviderBaseUrls["factory"] ?? "https://api.factory.ai";
-        providerRoutes = config.disabledProviderIds.includes("factory")
-          ? []
-          : [{ providerId: "factory", baseUrl: factoryBaseUrl }];
-      } else {
-        providerRoutes = buildProviderRoutes(
-          config,
-          context.openAiPrefixed,
-          !context.openAiPrefixed && strategy.mode === "responses"
-        );
-        if (!context.openAiPrefixed && resolvedModelCatalog) {
-          providerRoutes = resolveProviderRoutesForModel(providerRoutes, context.routedModel, resolvedModelCatalog);
-        }
-      }
-      providerRoutes = filterProviderRoutesByModelSupport(config, providerRoutes, context.routedModel);
-      providerRoutes = filterTenantProviderRoutes(providerRoutes, proxySettings);
-      providerRoutes = orderProviderRoutesByPolicy(policyEngine, providerRoutes, context.requestedModelInput, context.routedModel, {
-        openAiPrefixed: context.openAiPrefixed,
-        localOllama: context.localOllama,
-        explicitOllama: context.explicitOllama,
-      });
-
-      if (providerRoutes.length === 0) {
-        if (hasMoreModelCandidates) {
-          continue;
-        }
-        sendOpenAiError(reply, 403, "No upstream providers are allowed for this tenant and request.", "invalid_request_error", "provider_not_allowed");
-        return;
-      }
-
-      try {
-        const catalogBundle = await providerCatalogStore.getCatalog();
-        const disabledSet = new Set(catalogBundle.preferences.disabled);
-        if (disabledSet.has(context.routedModel)) {
-          if (hasMoreModelCandidates) {
-            continue;
-          }
-          sendOpenAiError(reply, 403, `Model is disabled: ${context.routedModel}`, "invalid_request_error", "model_disabled");
-          return;
-        }
-
-        if (shouldRejectModelFromProviderCatalog(providerRoutes, context.routedModel, catalogBundle)) {
-          if (hasMoreModelCandidates) {
-            continue;
-          }
-          sendOpenAiError(reply, 404, `Model not found: ${context.routedModel}`, "invalid_request_error", "model_not_found");
-          return;
-        }
-      } catch (error) {
-        request.log.warn({ error: toErrorMessage(error) }, "failed to verify provider model catalog; continuing without gating");
-      }
-
-      let payload: ReturnType<typeof strategy.buildPayload>;
-      try {
-        payload = strategy.buildPayload(context);
-      } catch (error) {
-        if (hasMoreModelCandidates) {
-          continue;
-        }
-        sendOpenAiError(reply, 400, toErrorMessage(error), "invalid_request_error", "invalid_provider_options");
-        return;
-      }
-
-      if (strategy.mode === "ollama_chat" || strategy.mode === "local_ollama_chat") {
-        const candidateRequestBody = payload.upstreamPayload;
-        if (isRecord(candidateRequestBody) && !requestHasExplicitNumCtx(requestBody)) {
-          const budget = await ensureOllamaContextFits(config.ollamaBaseUrl, candidateRequestBody, Math.min(config.requestTimeoutMs, 30_000));
-          if (budget && budget.requiredContextTokens > budget.availableContextTokens) {
-            if (hasMoreModelCandidates) {
-              continue;
-            }
-            sendOpenAiError(
-              reply,
-              400,
-              `Request exceeds model context window for ${budget.model}. Estimated input tokens: ${budget.estimatedInputTokens}, requested output tokens: ${budget.requestedOutputTokens}, required total: ${budget.requiredContextTokens}, available: ${budget.availableContextTokens}. Reduce input size or request a larger context/model.`,
-              "invalid_request_error",
-              "ollama_context_overflow"
-            );
-            return;
-          }
-        }
-      }
-
-      if (strategy.isLocal) {
-        if (!tenantProviderAllowed(proxySettings, "ollama")) {
-          if (hasMoreModelCandidates) {
-            continue;
-          }
-          sendOpenAiError(reply, 403, "Provider is disabled for this tenant: ollama", "invalid_request_error", "provider_not_allowed");
-          return;
-        }
-
-        await executeLocalStrategy(strategy, reply, requestLogStore, context, payload);
-        return;
-      }
-
-      for (const providerId of new Set(providerRoutes.map((route) => route.providerId))) {
-        await ensureFreshAccounts(providerId);
-      }
-
-      const availability = await inspectProviderAvailability(keyPool, providerRoutes);
-      const promptCacheKey = extractPromptCacheKey(requestBody);
-      const execution = await executeProviderFallback(
-        strategy,
-        reply,
-        requestLogStore,
-        promptAffinityStore,
-        keyPool,
-        providerRoutes,
-        context,
-        payload,
-        promptCacheKey,
-        refreshExpiredOAuthAccount,
-        policyEngine,
-        accountHealthStore,
-        eventStore,
-        quotaMonitor,
-      );
-
-      if (execution.handled) {
-        return;
-      }
-
-      const federatedChatHandled = await executeFederatedRequestFallback({
-        requestHeaders: request.headers,
-        requestBody,
-        requestAuth: (request as { readonly openHaxAuth?: { readonly kind: "legacy_admin" | "tenant_api_key" | "ui_session" | "unauthenticated"; readonly subject?: string } }).openHaxAuth,
-        providerRoutes,
-        upstreamPath: "/v1/chat/completions",
-        reply,
-        timeoutMs: context.upstreamAttemptTimeoutMs,
-      });
-      if (federatedChatHandled) {
-        return;
-      }
-
-      const bridgedChatHandled = await executeBridgeRequestFallback({
-        requestHeaders: request.headers,
-        requestBody,
-        requestAuth: (request as { readonly openHaxAuth?: { readonly kind: "legacy_admin" | "tenant_api_key" | "ui_session" | "unauthenticated"; readonly subject?: string } }).openHaxAuth,
-        upstreamPath: "/v1/chat/completions",
-        reply,
-        timeoutMs: context.upstreamAttemptTimeoutMs,
-      });
-      if (bridgedChatHandled) {
-        return;
-      }
-
-      if (hasMoreModelCandidates) {
-        continue;
-      }
-
-      if (execution.candidateCount === 0) {
-        const retryInMs = await minMsUntilAnyProviderKeyReady(keyPool, providerRoutes);
-        if (retryInMs > 0) {
-          reply.header("retry-after", Math.ceil(retryInMs / 1000));
-        }
-
-        if (!availability.sawConfiguredProvider) {
-          sendOpenAiError(reply, 500, "Proxy is missing upstream account configuration", "server_error", "keys_unavailable");
-          return;
-        }
-
-        sendOpenAiError(
-          reply,
-          429,
-          "All upstream accounts are currently rate-limited. Retry after the cooldown window.",
-          "rate_limit_error",
-          "all_keys_rate_limited"
-        );
-        return;
-      }
-
-      const { summary } = execution;
-
-      if (summary.sawUpstreamInvalidRequest) {
-        app.log.warn({ providerRoutes, attempts: summary.attempts, upstreamMode: strategy.mode }, "all attempts exhausted due to upstream invalid-request responses");
-        sendOpenAiError(
-          reply,
-          400,
-          "No upstream account accepted the request payload. Check model availability and request parameters.",
-          "invalid_request_error",
-          "upstream_rejected_request"
-        );
-        return;
-      }
-
-      if (summary.sawRateLimit) {
-        const retryInMs = await minMsUntilAnyProviderKeyReady(keyPool, providerRoutes);
-        if (retryInMs > 0) {
-          reply.header("retry-after", Math.ceil(retryInMs / 1000));
-        }
-
-        app.log.warn({ providerRoutes, attempts: summary.attempts, upstreamMode: strategy.mode }, "all attempts exhausted due to upstream rate limits");
-        sendOpenAiError(
-          reply,
-          429,
-          "No upstream account succeeded. Accounts may be rate-limited, quota-exhausted, or have outstanding balances.",
-          "rate_limit_error",
-          "no_available_key"
-        );
-        return;
-      }
-
-      if (summary.sawUpstreamServerError) {
-        app.log.warn({ providerRoutes, attempts: summary.attempts, upstreamMode: strategy.mode }, "all attempts exhausted due to upstream server errors");
-        sendOpenAiError(
-          reply,
-          502,
-          "Upstream returned transient server errors across all available accounts.",
-          "server_error",
-          "upstream_server_error"
-        );
-        return;
-      }
-
-      if (summary.sawModelNotFound && !summary.sawRequestError) {
-        app.log.warn({ providerRoutes, attempts: summary.attempts, upstreamMode: strategy.mode }, "all attempts exhausted due to model-not-found responses");
-        sendOpenAiError(
-          reply,
-          404,
-          `Model not found across available upstream providers: ${context.routedModel}`,
-          "invalid_request_error",
-          "model_not_found"
-        );
-        return;
-      }
-
-      const message = summary.sawRequestError
-        ? "All upstream attempts failed due to network/transport errors."
-        : "Upstream rejected the request with no successful fallback.";
-
-      app.log.error({ providerRoutes, attempts: summary.attempts, upstreamMode: strategy.mode, sawRequestError: summary.sawRequestError }, "all upstream attempts exhausted");
-      sendOpenAiError(reply, 502, message, "server_error", "upstream_unavailable");
-      return;
-    }
-
-    sendOpenAiError(reply, 502, "Upstream rejected the request with no successful fallback.", "server_error", "upstream_unavailable");
-  });
-
-  app.post<{ Body: Record<string, unknown> }>("/v1/responses", async (request, reply) => {
-    if (!isRecord(request.body)) {
-      sendOpenAiError(reply, 400, "Request body must be a JSON object", "invalid_request_error", "invalid_body");
-      return;
-    }
-
-    const tenantSettings = await proxySettingsStore.getForTenant(
-      ((request as { readonly openHaxAuth?: { readonly tenantId?: string } }).openHaxAuth?.tenantId) ?? DEFAULT_TENANT_ID,
-    );
-    const requestBody = request.body;
-    const promptCacheKey = extractPromptCacheKey(requestBody);
-
-    app.log.info({
-      responsesBody: summarizeResponsesRequestBody(requestBody),
-      hasPromptCacheKey: Boolean(promptCacheKey),
-      promptCacheKey: promptCacheKey ? hashPromptCacheKey(promptCacheKey) : undefined,
-    }, "responses passthrough: incoming body");
-
-    const requestedModelInput = typeof requestBody.model === "string" ? requestBody.model : "";
-    if (requestedModelInput.length === 0) {
-      sendOpenAiError(reply, 400, "Missing required field: model", "invalid_request_error", "missing_model");
-      return;
-    }
-
-    const explicitlyBlockedProviderId = resolveExplicitTenantProviderId(requestedModelInput, tenantSettings);
-    if (explicitlyBlockedProviderId) {
-      sendOpenAiError(reply, 403, `Provider is disabled for this tenant: ${explicitlyBlockedProviderId}`, "invalid_request_error", "provider_not_allowed");
-      return;
-    }
-
-    let routingModelInput = requestedModelInput;
-    let resolvedModelCatalog: ResolvedModelCatalog | null = null;
-    let resolvedCatalogBundle: ResolvedCatalogWithPreferences | null = null;
-    try {
-      const catalogBundle = await providerCatalogStore.getCatalog();
-      resolvedCatalogBundle = catalogBundle;
-      const catalog = catalogBundle.catalog;
-      resolvedModelCatalog = catalog;
-      const disabledModelSet = new Set(catalogBundle.preferences.disabled);
-      if (disabledModelSet.has(requestedModelInput) || disabledModelSet.has(catalog.aliasTargets[requestedModelInput] ?? "")) {
-        sendOpenAiError(reply, 403, `Model is disabled: ${requestedModelInput}`, "invalid_request_error", "model_disabled");
-        return;
-      }
-      const aliasTarget = catalog.aliasTargets[requestedModelInput];
-      if (typeof aliasTarget === "string" && aliasTarget.length > 0) {
-        routingModelInput = aliasTarget;
-        reply.header("x-open-hax-model-alias", `${requestedModelInput}->${aliasTarget}`);
-      }
-    } catch (error) {
-      request.log.warn({ error: toErrorMessage(error) }, "failed to resolve dynamic model aliases for /v1/responses; using requested model as-is");
-    }
-
-    const autoCandidateProviderIds = filterTenantProviderRoutes(
-      filterResponsesApiRoutes(buildProviderRoutes(config, false, true), config.openaiProviderId),
-      tenantSettings,
-    ).map((route) => route.providerId);
-    const concreteModelIds = isAutoModel(routingModelInput)
-      ? resolvableConcreteModelIdsForProviders(
-          resolvedCatalogBundle,
-          autoCandidateProviderIds,
-          (modelId) => shouldUseResponsesUpstream(modelId, config.responsesModelPrefixes),
-        )
-      : resolvableConcreteModelIds(resolvedModelCatalog);
-    const routingModelCandidates = isAutoModel(routingModelInput)
-      ? rankAutoModels(
-          routingModelInput,
-          requestBody,
-          concreteModelIds,
-          config.upstreamProviderId,
-          requestLogStore,
-          accountHealthStore,
-        ).map((entry) => entry.modelId)
-      : [routingModelInput];
-
-    if (routingModelCandidates.length === 0) {
-      sendOpenAiError(reply, 404, `Model not found: ${requestedModelInput}`, "invalid_request_error", "model_not_found");
-      return;
-    }
-
-    if (isAutoModel(routingModelInput)) {
-      reply.header("x-open-hax-auto-model-candidates", routingModelCandidates.slice(0, 12).join(","));
-    }
-
-    for (const [candidateIndex, candidateRoutingModel] of routingModelCandidates.entries()) {
-      const hasMoreModelCandidates = candidateIndex < routingModelCandidates.length - 1;
-      const { strategy, context } = buildResponsesPassthroughContext(
-        config,
-        request.headers,
-        requestBody,
-        requestedModelInput,
-        candidateRoutingModel,
-        (request as { readonly openHaxAuth?: { readonly kind: "legacy_admin" | "tenant_api_key" | "ui_session" | "unauthenticated"; readonly tenantId?: string; readonly keyId?: string; readonly subject?: string } }).openHaxAuth,
-      );
-      reply.header("x-open-hax-upstream-mode", strategy.mode);
-
-      let providerRoutes: ProviderRoute[];
-      if (context.factoryPrefixed) {
-        const factoryBaseUrl = config.upstreamProviderBaseUrls["factory"] ?? "https://api.factory.ai";
-        providerRoutes = config.disabledProviderIds.includes("factory")
-          ? []
-          : [{ providerId: "factory", baseUrl: factoryBaseUrl }];
-      } else {
-        providerRoutes = buildProviderRoutes(config, context.openAiPrefixed, true);
-      }
-
-      providerRoutes = filterProviderRoutesByModelSupport(config, providerRoutes, context.routedModel);
-      providerRoutes = filterResponsesApiRoutes(providerRoutes, config.openaiProviderId);
-      providerRoutes = filterTenantProviderRoutes(providerRoutes, tenantSettings);
-      providerRoutes = orderProviderRoutesByPolicy(policyEngine, providerRoutes, context.requestedModelInput, context.routedModel, {
-        openAiPrefixed: context.openAiPrefixed,
-        localOllama: false,
-        explicitOllama: false,
-      });
-
-      if (providerRoutes.length === 0) {
-        if (hasMoreModelCandidates) {
-          continue;
-        }
-        sendOpenAiError(reply, 403, "No upstream providers are allowed for this tenant and request.", "invalid_request_error", "provider_not_allowed");
-        return;
-      }
-
-      try {
-        const catalogBundle = await providerCatalogStore.getCatalog();
-        const disabledSet = new Set(catalogBundle.preferences.disabled);
-        if (disabledSet.has(context.routedModel)) {
-          if (hasMoreModelCandidates) {
-            continue;
-          }
-          sendOpenAiError(reply, 403, `Model is disabled: ${context.routedModel}`, "invalid_request_error", "model_disabled");
-          return;
-        }
-
-        if (shouldRejectModelFromProviderCatalog(providerRoutes, context.routedModel, catalogBundle)) {
-          if (hasMoreModelCandidates) {
-            continue;
-          }
-          sendOpenAiError(reply, 404, `Model not found: ${context.routedModel}`, "invalid_request_error", "model_not_found");
-          return;
-        }
-      } catch (error) {
-        request.log.warn({ error: toErrorMessage(error) }, "failed to verify provider model catalog for /v1/responses; continuing without gating");
-      }
-
-      let payload: ReturnType<typeof strategy.buildPayload>;
-      try {
-        payload = strategy.buildPayload(context);
-      } catch (error) {
-        if (hasMoreModelCandidates) {
-          continue;
-        }
-        sendOpenAiError(reply, 400, toErrorMessage(error), "invalid_request_error", "invalid_provider_options");
-        return;
-      }
-
-      for (const providerId of new Set(providerRoutes.map((route) => route.providerId))) {
-        await ensureFreshAccounts(providerId);
-      }
-
-      const availability = await inspectProviderAvailability(keyPool, providerRoutes, promptCacheKey);
-      const execution = await executeProviderFallback(
-        strategy,
-        reply,
-        requestLogStore,
-        promptAffinityStore,
-        keyPool,
-        providerRoutes,
-        context,
-        payload,
-        availability.prompt_cache_key,
-        refreshExpiredOAuthAccount,
-        policyEngine,
-        accountHealthStore,
-        eventStore,
-        quotaMonitor,
-      );
-
-      if (execution.handled) {
-        return;
-      }
-
-      const federatedResponsesHandled = await executeFederatedRequestFallback({
-        requestHeaders: request.headers,
-        requestBody,
-        requestAuth: (request as { readonly openHaxAuth?: { readonly kind: "legacy_admin" | "tenant_api_key" | "ui_session" | "unauthenticated"; readonly subject?: string } }).openHaxAuth,
-        providerRoutes,
-        upstreamPath: "/v1/responses",
-        reply,
-        timeoutMs: context.upstreamAttemptTimeoutMs,
-      });
-      if (federatedResponsesHandled) {
-        return;
-      }
-
-      if (hasMoreModelCandidates) {
-        continue;
-      }
-
-      if (execution.candidateCount === 0) {
-        const retryInMs = await minMsUntilAnyProviderKeyReady(keyPool, providerRoutes);
-        if (retryInMs > 0) {
-          reply.header("retry-after", Math.ceil(retryInMs / 1000));
-        }
-
-        if (!availability.sawConfiguredProvider) {
-          sendOpenAiError(reply, 500, "Proxy is missing upstream account configuration for Responses API providers", "server_error", "keys_unavailable");
-          return;
-        }
-
-        sendOpenAiError(
-          reply,
-          429,
-          "All upstream accounts are currently rate-limited. Retry after the cooldown window.",
-          "rate_limit_error",
-          "all_keys_rate_limited"
-        );
-        return;
-      }
-
-      const { summary } = execution;
-
-      if (summary.sawUpstreamInvalidRequest) {
-        app.log.warn({ providerRoutes, attempts: summary.attempts, upstreamMode: strategy.mode }, "responses passthrough: all attempts exhausted due to upstream invalid-request responses");
-        sendOpenAiError(
-          reply,
-          400,
-          "No upstream account accepted the request payload. Check model availability and request parameters.",
-          "invalid_request_error",
-          "upstream_rejected_request"
-        );
-        return;
-      }
-
-      if (summary.sawRateLimit) {
-        const retryInMs = await minMsUntilAnyProviderKeyReady(keyPool, providerRoutes);
-        if (retryInMs > 0) {
-          reply.header("retry-after", Math.ceil(retryInMs / 1000));
-        }
-
-        app.log.warn({ providerRoutes, attempts: summary.attempts, upstreamMode: strategy.mode }, "responses passthrough: all attempts exhausted due to upstream rate limits");
-        sendOpenAiError(
-          reply,
-          429,
-          "No upstream account succeeded. Accounts may be rate-limited, quota-exhausted, or have outstanding balances.",
-          "rate_limit_error",
-          "no_available_key"
-        );
-        return;
-      }
-
-      if (summary.sawUpstreamServerError) {
-        app.log.warn({ providerRoutes, attempts: summary.attempts, upstreamMode: strategy.mode }, "responses passthrough: all attempts exhausted due to upstream server errors");
-        sendOpenAiError(
-          reply,
-          502,
-          "Upstream returned transient server errors across all available accounts.",
-          "server_error",
-          "upstream_server_error"
-        );
-        return;
-      }
-
-      if (summary.sawModelNotFound && !summary.sawRequestError) {
-        app.log.warn({ providerRoutes, attempts: summary.attempts, upstreamMode: strategy.mode }, "responses passthrough: all attempts exhausted due to model-not-found responses");
-        sendOpenAiError(
-          reply,
-          404,
-          `Model not found across available Responses API providers: ${context.routedModel}`,
-          "invalid_request_error",
-          "model_not_found"
-        );
-        return;
-      }
-
-      const message = summary.sawRequestError
-        ? "All upstream attempts failed due to network/transport errors."
-        : "Upstream rejected the request with no successful fallback.";
-
-      app.log.error({ providerRoutes, attempts: summary.attempts, upstreamMode: strategy.mode, sawRequestError: summary.sawRequestError }, "responses passthrough: all upstream attempts exhausted");
-      sendOpenAiError(reply, 502, message, "server_error", "upstream_unavailable");
-      return;
-    }
-
-    sendOpenAiError(reply, 502, "Upstream rejected the request with no successful fallback.", "server_error", "upstream_unavailable");
-  });
-
-  app.post<{ Body: Record<string, unknown> }>("/v1/images/generations", async (request, reply) => {
-    if (!isRecord(request.body)) {
-      sendOpenAiError(reply, 400, "Request body must be a JSON object", "invalid_request_error", "invalid_body");
-      return;
-    }
-
-    const tenantSettings = await proxySettingsStore.getForTenant(
-      ((request as { readonly openHaxAuth?: { readonly tenantId?: string } }).openHaxAuth?.tenantId) ?? DEFAULT_TENANT_ID,
-    );
-    const requestBody = request.body;
-    const model = typeof requestBody.model === "string" ? requestBody.model : "";
-    if (model.length === 0) {
-      sendOpenAiError(reply, 400, "Missing required field: model", "invalid_request_error", "missing_model");
-      return;
-    }
-
-    const explicitlyBlockedProviderId = resolveExplicitTenantProviderId(model, tenantSettings);
-    if (explicitlyBlockedProviderId) {
-      sendOpenAiError(reply, 403, `Provider is disabled for this tenant: ${explicitlyBlockedProviderId}`, "invalid_request_error", "provider_not_allowed");
-      return;
-    }
-
-    const { strategy, context } = buildImagesPassthroughContext(
-      config,
-      request.headers,
-      requestBody,
-      model,
-      (request as { readonly openHaxAuth?: { readonly kind: "legacy_admin" | "tenant_api_key" | "ui_session" | "unauthenticated"; readonly tenantId?: string; readonly keyId?: string; readonly subject?: string } }).openHaxAuth,
-    );
-    reply.header("x-open-hax-upstream-mode", strategy.mode);
-
-    let payload: ReturnType<typeof strategy.buildPayload>;
-    try {
-      payload = strategy.buildPayload(context);
-    } catch (error) {
-      sendOpenAiError(reply, 400, toErrorMessage(error), "invalid_request_error", "invalid_provider_options");
-      return;
-    }
-
-    let providerRoutes = filterImagesApiRoutes(
-      buildProviderRoutes(config, context.openAiPrefixed, true),
-      config.openaiProviderId,
-    );
-    providerRoutes = filterTenantProviderRoutes(providerRoutes, tenantSettings);
-    providerRoutes = orderProviderRoutesByPolicy(policyEngine, providerRoutes, context.requestedModelInput, context.routedModel, {
-      openAiPrefixed: context.openAiPrefixed,
-      localOllama: false,
-      explicitOllama: false,
-    });
-
-    if (providerRoutes.length === 0) {
-      sendOpenAiError(reply, 403, "No upstream providers are allowed for this tenant and request.", "invalid_request_error", "provider_not_allowed");
-      return;
-    }
-
-    for (const providerId of new Set(providerRoutes.map((route) => route.providerId))) {
-      await ensureFreshAccounts(providerId);
-    }
-
-    const availability = await inspectProviderAvailability(keyPool, providerRoutes);
-    const execution = await executeProviderFallback(
-      strategy,
-      reply,
-      requestLogStore,
-      promptAffinityStore,
-      keyPool,
-      providerRoutes,
-      context,
-      payload,
-      undefined,
-      refreshExpiredOAuthAccount,
-      policyEngine,
-      accountHealthStore,
-      eventStore,
-      quotaMonitor,
-    );
-
-    if (execution.handled) {
-      return;
-    }
-
-    const federatedImagesHandled = await executeFederatedRequestFallback({
-      requestHeaders: request.headers,
-      requestBody,
-      requestAuth: (request as { readonly openHaxAuth?: { readonly kind: "legacy_admin" | "tenant_api_key" | "ui_session" | "unauthenticated"; readonly subject?: string } }).openHaxAuth,
-      providerRoutes,
-      upstreamPath: "/v1/images/generations",
-      reply,
-      timeoutMs: context.upstreamAttemptTimeoutMs,
-    });
-    if (federatedImagesHandled) {
-      return;
-    }
-
-    if (execution.candidateCount === 0) {
-      const retryInMs = await minMsUntilAnyProviderKeyReady(keyPool, providerRoutes);
-      if (retryInMs > 0) {
-        reply.header("retry-after", Math.ceil(retryInMs / 1000));
-      }
-
-      if (!availability.sawConfiguredProvider) {
-        sendOpenAiError(reply, 500, "Proxy is missing upstream account configuration for image generation providers", "server_error", "keys_unavailable");
-        return;
-      }
-
-      sendOpenAiError(
-        reply,
-        429,
-        "All upstream accounts are currently rate-limited. Retry after the cooldown window.",
-        "rate_limit_error",
-        "all_keys_rate_limited",
-      );
-      return;
-    }
-
-    const { summary } = execution;
-
-    if (summary.sawUpstreamInvalidRequest) {
-      sendOpenAiError(
-        reply,
-        400,
-        "No upstream account accepted the image generation payload. Check model availability and request parameters.",
-        "invalid_request_error",
-        "upstream_rejected_request",
-      );
-      return;
-    }
-
-    if (summary.sawRateLimit) {
-      const retryInMs = await minMsUntilAnyProviderKeyReady(keyPool, providerRoutes);
-      if (retryInMs > 0) {
-        reply.header("retry-after", Math.ceil(retryInMs / 1000));
-      }
-
-      sendOpenAiError(
-        reply,
-        429,
-        "No upstream account succeeded. Accounts may be rate-limited, quota-exhausted, or have outstanding balances.",
-        "rate_limit_error",
-        "no_available_key",
-      );
-      return;
-    }
-
-    if (summary.sawUpstreamServerError) {
-      sendOpenAiError(
-        reply,
-        502,
-        "Upstream returned transient server errors across all available accounts.",
-        "server_error",
-        "upstream_server_error",
-      );
-      return;
-    }
-
-    if (summary.sawModelNotFound && !summary.sawRequestError) {
-      sendOpenAiError(
-        reply,
-        404,
-        `Model not found across available upstream providers: ${context.routedModel}`,
-        "invalid_request_error",
-        "model_not_found",
-      );
-      return;
-    }
-
-    if (summary.lastUpstreamAuthError) {
-      sendOpenAiError(
-        reply,
-        summary.lastUpstreamAuthError.status,
-        summary.lastUpstreamAuthError.message ?? "Upstream rejected the request due to authentication/authorization.",
-        "invalid_request_error",
-        "upstream_auth_error",
-      );
-      return;
-    }
-
-    const message = summary.sawRequestError
-      ? "All upstream attempts failed due to network/transport errors."
-      : "Upstream rejected the request with no successful fallback.";
-
-    sendOpenAiError(reply, 502, message, "server_error", "upstream_unavailable");
-  });
-
-  app.post<{ Body: Record<string, unknown> }>("/v1/embeddings", async (request, reply) => {
-    if (!isRecord(request.body)) {
-      sendOpenAiError(reply, 400, "Request body must be a JSON object", "invalid_request_error", "invalid_body");
-      return;
-    }
-
-    const model = typeof request.body.model === "string" ? request.body.model : "";
-    if (isAutoModel(model)) {
-      sendOpenAiError(reply, 400, "Auto models are not supported for embeddings requests.", "invalid_request_error", "model_not_supported");
-      return;
-    }
-
-    const tenantSettings = await proxySettingsStore.getForTenant(
-      ((request as { readonly openHaxAuth?: { readonly tenantId?: string } }).openHaxAuth?.tenantId) ?? DEFAULT_TENANT_ID,
-    );
-    if (!tenantProviderAllowed(tenantSettings, "ollama")) {
-      sendOpenAiError(reply, 403, "Provider is disabled for this tenant: ollama", "invalid_request_error", "provider_not_allowed");
-      return;
-    }
-
-    const routingState = selectProviderStrategy(
-      config,
-      request.headers,
-      {
-        model,
-        messages: [{ role: "user", content: "embed" }],
-        stream: false,
-      },
-      model,
-      model,
-      (request as { readonly openHaxAuth?: { readonly kind: "legacy_admin" | "tenant_api_key" | "ui_session" | "unauthenticated"; readonly tenantId?: string; readonly keyId?: string; readonly subject?: string } }).openHaxAuth,
-    ).context;
-
-    const routedModel = routingState.routedModel;
-    const upstreamUrl = joinUrl(config.ollamaBaseUrl, "/api/embed");
-    const embedBody = nativeEmbedToOpenAiRequest({
-      ...request.body,
-      model: routedModel,
-    });
-
-    let upstreamResponse: Response;
-    try {
-      upstreamResponse = await fetchWithResponseTimeout(upstreamUrl, {
-        method: "POST",
-        headers: buildForwardHeaders(request.headers),
-        body: JSON.stringify({
-          model: embedBody.model,
-          input: embedBody.input,
-        }),
-      }, config.requestTimeoutMs);
-    } catch (error) {
-      sendOpenAiError(
-        reply,
-        502,
-        `Embedding upstream request failed: ${toErrorMessage(error)}`,
-        "server_error",
-        "embedding_upstream_unavailable"
-      );
-      return;
-    }
-
-    if (!upstreamResponse.ok) {
-      sendOpenAiError(
-        reply,
-        upstreamResponse.status >= 500 ? 502 : upstreamResponse.status,
-        `Embedding upstream rejected the request: ${await upstreamResponse.text()}`,
-        upstreamResponse.status >= 500 ? "server_error" : "invalid_request_error",
-        "embedding_upstream_error"
-      );
-      return;
-    }
-
-    const upstreamJson = await upstreamResponse.json() as Record<string, unknown>;
-    reply.send(nativeEmbedResponseToOpenAiEmbeddings(upstreamJson, embedBody.model));
-  });
-
-  app.post<{ Body: Record<string, unknown> }>("/api/chat", async (request, reply) => {
-    const bridgeResponse = await injectNativeBridge(
-      "/v1/chat/completions",
-      nativeChatToOpenAiRequest(isRecord(request.body) ? request.body : {}),
-      request.headers,
-    );
-
-    copyInjectedResponseHeaders(reply, bridgeResponse.headers as Record<string, string | string[] | undefined>);
-    reply.code(bridgeResponse.statusCode);
-
-    const contentType = String(bridgeResponse.headers["content-type"] ?? "application/json");
-    const parsed = parseJsonIfPossible(bridgeResponse.body);
-    if (contentType.toLowerCase().includes("application/json") && isRecord(parsed) && Array.isArray(parsed["choices"])) {
-      reply.send(chatCompletionToNativeChat(parsed));
-      return;
-    }
-
-    reply.send(bridgeResponse.body);
-  });
-
-  app.post<{ Body: Record<string, unknown> }>("/api/generate", async (request, reply) => {
-    const bridgeResponse = await injectNativeBridge(
-      "/v1/chat/completions",
-      nativeGenerateToChatRequest(isRecord(request.body) ? request.body : {}),
-      request.headers,
-    );
-
-    copyInjectedResponseHeaders(reply, bridgeResponse.headers as Record<string, string | string[] | undefined>);
-    reply.code(bridgeResponse.statusCode);
-
-    const contentType = String(bridgeResponse.headers["content-type"] ?? "application/json");
-    const parsed = parseJsonIfPossible(bridgeResponse.body);
-    if (contentType.toLowerCase().includes("application/json") && isRecord(parsed) && Array.isArray(parsed["choices"])) {
-      reply.send(chatCompletionToNativeGenerate(parsed));
-      return;
-    }
-
-    reply.send(bridgeResponse.body);
-  });
-
-  app.post<{ Body: Record<string, unknown> }>("/api/embed", async (request, reply) => {
-    const bridgeResponse = await injectNativeBridge(
-      "/v1/embeddings",
-      nativeEmbedToOpenAiRequest(isRecord(request.body) ? request.body : {}),
-      request.headers,
-    );
-
-    copyInjectedResponseHeaders(reply, bridgeResponse.headers as Record<string, string | string[] | undefined>);
-    reply.code(bridgeResponse.statusCode);
-
-    const contentType = String(bridgeResponse.headers["content-type"] ?? "application/json");
-    const parsed = parseJsonIfPossible(bridgeResponse.body);
-    if (contentType.toLowerCase().includes("application/json") && isRecord(parsed) && Array.isArray(parsed["data"])) {
-      reply.send(openAiEmbeddingsToNativeEmbed(parsed));
-      return;
-    }
-
-    reply.send(bridgeResponse.body);
-  });
-
-  app.post<{ Body: Record<string, unknown> }>("/api/embeddings", async (request, reply) => {
-    const bridgeResponse = await injectNativeBridge(
-      "/v1/embeddings",
-      nativeEmbedToOpenAiRequest(isRecord(request.body) ? request.body : {}),
-      request.headers,
-    );
-
-    copyInjectedResponseHeaders(reply, bridgeResponse.headers as Record<string, string | string[] | undefined>);
-    reply.code(bridgeResponse.statusCode);
-
-    const contentType = String(bridgeResponse.headers["content-type"] ?? "application/json");
-    const parsed = parseJsonIfPossible(bridgeResponse.body);
-    if (contentType.toLowerCase().includes("application/json") && isRecord(parsed) && Array.isArray(parsed["data"])) {
-      reply.send(openAiEmbeddingsToNativeEmbeddings(parsed));
-      return;
-    }
-
-    reply.send(bridgeResponse.body);
-  });
-
-  bridgeRelay = await registerUiRoutes(app, {
+  const deps: AppDeps = {
+    app, config, keyPool, credentialStore, runtimeCredentialStore,
+    sqlCredentialStore, sqlFederationStore, sqlTenantProviderPolicyStore,
+    accountHealthStore, eventStore, requestLogStore, promptAffinityStore,
+    proxySettingsStore, policyEngine, providerCatalogStore, tokenRefreshManager,
+    dynamicProviderBaseUrlGetter: dynamicProviderBaseUrlGetter
+      ? async (id: string) => (await dynamicProviderBaseUrlGetter(id)) ?? undefined
+      : async () => undefined, bridgeRelay, quotaMonitor,
+    refreshFactoryAccount: async (c) => { await refreshFactoryAccount(c as never); },
+    ensureFreshAccounts,
+    refreshExpiredOAuthAccount: async (c) => await refreshExpiredOAuthAccount(c as never),
+    getMergedModelIds,
+    executeFederatedRequestFallback: async (input) => executeFederatedRequestFallback(fedDeps, input),
+    injectNativeBridge: async (url, payload, headers) => injectNativeBridge(bridgeDeps, url, payload, headers),
+  };
+
+  registerHealthRoutes(deps, app);
+  registerModelsRoutes(deps, app);
+  registerWebsearchRoutes(deps, app);
+  registerChatRoutes(deps, app);
+  registerResponsesRoutes(deps, app);
+  registerImagesRoutes(deps, app);
+  registerEmbeddingsRoutes(deps, app);
+  registerNativeOllamaRoutes(deps, app);
+
+  const uiBridgeRelay = await registerUiRoutes(app, {
     config,
     keyPool,
     requestLogStore,
-    credentialStore: runtimeCredentialStore,
+    credentialStore,
     sqlCredentialStore,
     sqlFederationStore,
-    sqlRequestUsageStore,
+    sqlTenantProviderPolicyStore,
     authPersistence: sqlAuthPersistence,
     proxySettingsStore,
     eventStore,
@@ -3298,40 +1031,16 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     config,
     keyPool,
     requestLogStore,
-    credentialStore: runtimeCredentialStore,
+    credentialStore,
     sqlCredentialStore,
     sqlFederationStore,
-    sqlRequestUsageStore,
+    sqlTenantProviderPolicyStore,
     authPersistence: sqlAuthPersistence,
     proxySettingsStore,
     eventStore,
     refreshOpenAiOauthAccounts,
+    bridgeRelay: uiBridgeRelay,
   });
-
-  if (sql && sqlAuthPersistence && sqlGitHubAllowlist && sqlCredentialStore) {
-    await registerOAuthRoutes(app, {
-      clientId: config.githubOAuthClientId,
-      clientSecret: config.githubOAuthClientSecret,
-      callbackPath: config.githubOAuthCallbackPath,
-      allowedUsers: config.githubAllowedUsers,
-      sessionSecret: config.sessionSecret,
-      upstreamProviderId: config.upstreamProviderId,
-      keysFilePath: config.keysFilePath,
-    }, {
-      sql,
-      authPersistence: sqlAuthPersistence,
-      allowlist: sqlGitHubAllowlist,
-      credentialStore: sqlCredentialStore,
-    });
-  }
-
-  if (bridgeAgent) {
-    void bridgeAgent.start().then(() => {
-      app.log.info({ snapshot: bridgeAgent.snapshot() }, "federation bridge agent connected");
-    }).catch((error) => {
-      app.log.warn({ error: toErrorMessage(error) }, "federation bridge agent initial connect failed; reconnect loop will continue in background");
-    });
-  }
 
   app.addHook("onClose", async () => {
     if (bridgeAgent) {

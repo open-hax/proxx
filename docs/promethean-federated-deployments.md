@@ -17,7 +17,6 @@ The production hostname above is the normalized default used by the workflows. I
 - promotion PRs go from `staging` into `main`
 - pushes to `main` deploy production
 - PRs labeled `testing` deploy the shared testing slot **only** when the PR author login is present in `TESTING_ALLOWED_OWNER_LOGINS`
-- the testing workflow runs on `pull_request` so the slot can be exercised before merge; the workflow still hard-gates to same-repo PR heads and the explicit owner allowlist
 
 ## Environment mapping
 
@@ -62,7 +61,6 @@ That means first-time bring-up should either:
 - concurrency group: `proxx-testing`
 - the latest qualifying PR event wins
 - do not keep multiple owner PRs labeled `testing` unless you intentionally want them to overwrite each other
-- its live gate is intentionally focused on deployability, multitenancy, and federation shape; full upstream-provider smoke remains diagnostic because the shared slot does not guarantee production-equivalent credential inventory
 
 ## Required GitHub vars and secrets
 
@@ -70,7 +68,6 @@ That means first-time bring-up should either:
 
 - `STAGING_PUBLIC_HOST`, `STAGING_BASE_URL`, `STAGING_SSH_HOST`, `STAGING_DEPLOY_PATH`, `STAGING_COMPOSE_PROJECT_NAME`
 - `TESTING_PUBLIC_HOST`, `TESTING_BASE_URL`, `TESTING_SSH_HOST`, `TESTING_DEPLOY_PATH`, `TESTING_COMPOSE_PROJECT_NAME`
-- optional `TESTING_SYNC_DB_FROM_SOURCE` (defaults to `false` for the shared testing slot; set `true` only when the source production DB is intentionally online and you want a production-state copy)
 - `PRODUCTION_PUBLIC_HOST`, `PRODUCTION_BASE_URL`, `PRODUCTION_SSH_HOST`, `PRODUCTION_DEPLOY_PATH`, `PRODUCTION_COMPOSE_PROJECT_NAME`
 - `TESTING_ALLOWED_OWNER_LOGINS` — comma/space separated GitHub logins allowed to use the shared testing slot
 - optional `*_VERIFY_RESOLVE_ADDRESS` when DNS is not ready but HTTPS validation should still pin the public hostname

@@ -116,13 +116,18 @@ export async function fetchOllamaModelContextLength(
   model: string,
   timeoutMs: number,
 ): Promise<number | null> {
-  const response = await fetchWithResponseTimeout(`${baseUrl.replace(/\/+$/, "")}/api/show`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({ model }),
-  }, timeoutMs);
+  let response: Awaited<ReturnType<typeof fetchWithResponseTimeout>>;
+  try {
+    response = await fetchWithResponseTimeout(`${baseUrl.replace(/\/+$/, "")}/api/show`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ model }),
+    }, timeoutMs);
+  } catch {
+    return null;
+  }
 
   if (!response.ok) {
     return null;

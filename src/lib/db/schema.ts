@@ -19,7 +19,7 @@ CREATE INDEX IF NOT EXISTS idx_account_health_score ON account_health(
 );
 `;
 
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 6;
 
 export const CREATE_TENANTS_TABLE = `
 CREATE TABLE IF NOT EXISTS tenants (
@@ -79,10 +79,35 @@ export const CREATE_TENANT_API_KEYS_HASH_INDEX = `
 CREATE INDEX IF NOT EXISTS idx_tenant_api_keys_hash ON tenant_api_keys(token_hash);
 `;
 
+export const CREATE_TENANT_PROVIDER_POLICIES_TABLE = `
+CREATE TABLE IF NOT EXISTS tenant_provider_policies (
+  subject_did TEXT NOT NULL,
+  provider_id TEXT NOT NULL,
+  provider_kind TEXT NOT NULL DEFAULT 'local_upstream',
+  owner_subject TEXT NOT NULL,
+  share_mode TEXT NOT NULL DEFAULT 'deny',
+  trust_tier TEXT NOT NULL DEFAULT 'less_trusted',
+  allowed_models JSONB NOT NULL DEFAULT '[]'::jsonb,
+  max_requests_per_minute INTEGER,
+  max_concurrent_requests INTEGER,
+  encrypted_channel_required BOOLEAN NOT NULL DEFAULT FALSE,
+  warm_import_threshold INTEGER,
+  notes TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (subject_did, provider_id)
+);
+`;
+
+export const CREATE_TENANT_PROVIDER_POLICIES_OWNER_INDEX = `
+CREATE INDEX IF NOT EXISTS idx_tenant_provider_policies_owner_subject ON tenant_provider_policies(owner_subject, subject_did);
+`;
+
 export const CREATE_PROVIDERS_TABLE = `
 CREATE TABLE IF NOT EXISTS providers (
   id TEXT PRIMARY KEY,
   auth_type TEXT NOT NULL DEFAULT 'api_key',
+  base_url TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -227,6 +252,9 @@ export const ALL_MIGRATIONS = [
   { version: 4, sql: CREATE_TENANT_API_KEYS_TABLE },
   { version: 4, sql: CREATE_TENANT_API_KEYS_TENANT_INDEX },
   { version: 4, sql: CREATE_TENANT_API_KEYS_HASH_INDEX },
+  { version: 5, sql: CREATE_TENANT_PROVIDER_POLICIES_TABLE },
+  { version: 5, sql: CREATE_TENANT_PROVIDER_POLICIES_OWNER_INDEX },
+  { version: 6, sql: "ALTER TABLE providers ADD COLUMN IF NOT EXISTS base_url TEXT;" },
 ];
 
 export const UPSERT_TENANT = `
@@ -317,12 +345,70 @@ SET last_used_at = NOW()
 WHERE tenant_id = $1 AND id = $2 AND revoked_at IS NULL;
 `;
 
+export const UPSERT_TENANT_PROVIDER_POLICY = `
+INSERT INTO tenant_provider_policies (
+  subject_did,
+  provider_id,
+  provider_kind,
+  owner_subject,
+  share_mode,
+  trust_tier,
+  allowed_models,
+  max_requests_per_minute,
+  max_concurrent_requests,
+  encrypted_channel_required,
+  warm_import_threshold,
+  notes,
+  updated_at
+) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, NOW())
+ON CONFLICT (subject_did, provider_id) DO UPDATE SET
+  provider_kind = EXCLUDED.provider_kind,
+  owner_subject = EXCLUDED.owner_subject,
+  share_mode = EXCLUDED.share_mode,
+  trust_tier = EXCLUDED.trust_tier,
+  allowed_models = EXCLUDED.allowed_models,
+  max_requests_per_minute = EXCLUDED.max_requests_per_minute,
+  max_concurrent_requests = EXCLUDED.max_concurrent_requests,
+  encrypted_channel_required = EXCLUDED.encrypted_channel_required,
+  warm_import_threshold = EXCLUDED.warm_import_threshold,
+  notes = EXCLUDED.notes,
+  updated_at = NOW()
+RETURNING *;
+`;
+
+export const SELECT_TENANT_PROVIDER_POLICY = `
+SELECT *
+FROM tenant_provider_policies
+WHERE subject_did = $1 AND provider_id = $2
+LIMIT 1;
+`;
+
+export const SELECT_TENANT_PROVIDER_POLICIES = `
+SELECT *
+FROM tenant_provider_policies
+ORDER BY owner_subject, subject_did, provider_id;
+`;
+
 export const UPSERT_PROVIDER = `
-INSERT INTO providers (id, auth_type, updated_at)
-VALUES ($1, $2, NOW())
+INSERT INTO providers (id, auth_type, base_url, updated_at)
+VALUES ($1, $2, $3, NOW())
 ON CONFLICT (id) DO UPDATE SET
   auth_type = EXCLUDED.auth_type,
+  base_url = COALESCE(EXCLUDED.base_url, providers.base_url),
   updated_at = NOW();
+`;
+
+export const UPSERT_PROVIDER_WITH_BASE_URL = `
+INSERT INTO providers (id, auth_type, base_url, updated_at)
+VALUES ($1, $2, $3, NOW())
+ON CONFLICT (id) DO UPDATE SET
+  auth_type = COALESCE(EXCLUDED.auth_type, providers.auth_type),
+  base_url = COALESCE(EXCLUDED.base_url, providers.base_url),
+  updated_at = NOW();
+`;
+
+export const SELECT_PROVIDER_BY_ID = `
+SELECT id, auth_type, base_url FROM providers WHERE id = $1;
 `;
 
 export const INSERT_ACCOUNT = `
@@ -338,7 +424,7 @@ ON CONFLICT (id, provider_id) DO UPDATE SET
 `;
 
 export const SELECT_ALL_PROVIDERS = `
-SELECT id, auth_type FROM providers ORDER BY id;
+SELECT id, auth_type, base_url FROM providers ORDER BY id;
 `;
 
 export const SELECT_ACCOUNTS_BY_PROVIDER = `

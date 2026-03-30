@@ -4,15 +4,19 @@ import {
   addFederationPeer,
   getFederationAccounts,
   getFederationSelf,
+  getApiOrigin,
   listFederationBridges,
   listFederationPeers,
+  listRequestLogs,
   type FederationAccountsOverview,
   type FederationBridgeSessionSummary,
   type FederationPeer,
   type FederationSelf,
   type FederationSyncResult,
+  type RequestLogEntry,
   syncFederationPeer,
 } from "../lib/api";
+import { formatRequestOrigin } from "../lib/format";
 
 const DEFAULT_OWNER_SUBJECT = "did:web:proxx.promethean.rest:brethren";
 
@@ -34,12 +38,18 @@ function bridgeLabel(session: FederationBridgeSessionSummary, index: number): st
   return session.sessionId || session.peerDid || session.agentId || `bridge-${index + 1}`;
 }
 
+function routedRequestLabel(entry: RequestLogEntry): string {
+  const peer = entry.routedPeerLabel ?? entry.routedPeerId ?? "unknown-peer";
+  return `${entry.routeKind} → ${peer}`;
+}
+
 export function FederationPage(): JSX.Element {
   const [ownerSubject, setOwnerSubject] = useState(DEFAULT_OWNER_SUBJECT);
   const [selfState, setSelfState] = useState<FederationSelf | null>(null);
   const [accounts, setAccounts] = useState<FederationAccountsOverview | null>(null);
   const [peers, setPeers] = useState<readonly FederationPeer[]>([]);
   const [bridges, setBridges] = useState<readonly FederationBridgeSessionSummary[]>([]);
+  const [recentRequestLogs, setRecentRequestLogs] = useState<readonly RequestLogEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [syncStatus, setSyncStatus] = useState<Record<string, string>>({});
@@ -59,16 +69,18 @@ export function FederationPage(): JSX.Element {
     setLoading(true);
     setError(null);
     try {
-      const [nextSelf, nextPeers, nextAccounts, nextBridges] = await Promise.all([
+      const [nextSelf, nextPeers, nextAccounts, nextBridges, nextRequestLogs] = await Promise.all([
         getFederationSelf(),
         listFederationPeers(ownerSubject),
         getFederationAccounts(ownerSubject),
         listFederationBridges(),
+        listRequestLogs({ limit: 100 }),
       ]);
       setSelfState(nextSelf);
       setPeers(nextPeers);
       setAccounts(nextAccounts);
       setBridges(nextBridges);
+      setRecentRequestLogs(nextRequestLogs);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : String(loadError));
     } finally {
@@ -91,9 +103,99 @@ export function FederationPage(): JSX.Element {
     };
   }, [load]);
 
+  useEffect(() => {
+    const apiOrigin = getApiOrigin() || (typeof window !== "undefined" ? window.location.origin : "");
+    const wsOrigin = apiOrigin.startsWith("https://")
+      ? apiOrigin.replace(/^https:/u, "wss:")
+      : apiOrigin.startsWith("http://")
+        ? apiOrigin.replace(/^http:/u, "ws:")
+        : apiOrigin;
+
+    const params = new URLSearchParams({
+      ownerSubject: ownerSubject.trim(),
+      routeKind: "routed",
+    });
+
+    let socket: WebSocket | null = null;
+    try {
+      socket = new WebSocket(`${wsOrigin}/api/v1/federation/observability/ws?${params.toString()}`);
+    } catch {
+      socket = null;
+    }
+
+    if (!socket) {
+      return;
+    }
+
+    socket.onmessage = (event) => {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(typeof event.data === "string" ? event.data : String(event.data));
+      } catch {
+        return;
+      }
+
+      if (typeof parsed !== "object" || parsed === null) {
+        return;
+      }
+
+      const message = parsed as { readonly type?: unknown; readonly entry?: unknown };
+      if (message.type !== "request_log_record" && message.type !== "request_log_update") {
+        return;
+      }
+
+      const entry = message.entry as RequestLogEntry | undefined;
+      if (!entry || typeof entry.id !== "string") {
+        return;
+      }
+
+      setRecentRequestLogs((current) => {
+        const existingIndex = current.findIndex((candidate) => candidate.id === entry.id);
+        if (existingIndex >= 0) {
+          const next = [...current];
+          next.splice(existingIndex, 1, entry);
+          return next;
+        }
+
+        return [entry, ...current].slice(0, 200);
+      });
+    };
+
+    return () => {
+      try {
+        socket?.close();
+      } catch {
+        // ignore
+      }
+    };
+  }, [ownerSubject]);
+
   const localProviders = useMemo(() => summarizeProviders(accounts?.localAccounts ?? []), [accounts]);
   const projectedProviders = useMemo(() => summarizeProviders(accounts?.projectedAccounts ?? []), [accounts]);
   const knownProviders = useMemo(() => summarizeProviders(accounts?.knownAccounts ?? []), [accounts]);
+  const routedRequestLogs = useMemo(() =>
+    recentRequestLogs
+      .filter((entry) => entry.routeKind !== "local")
+      .filter((entry) => !entry.federationOwnerSubject || entry.federationOwnerSubject === ownerSubject),
+  [recentRequestLogs, ownerSubject]);
+  const routedRequestSummary = useMemo(() => {
+    const peerCounts = new Map<string, number>();
+    let federated = 0;
+    let bridge = 0;
+    for (const entry of routedRequestLogs) {
+      if (entry.routeKind === "federated") {
+        federated += 1;
+      } else if (entry.routeKind === "bridge") {
+        bridge += 1;
+      }
+      const peer = entry.routedPeerLabel ?? entry.routedPeerId;
+      if (peer) {
+        peerCounts.set(peer, (peerCounts.get(peer) ?? 0) + 1);
+      }
+    }
+    const topPeer = [...peerCounts.entries()].sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))[0]?.[0] ?? null;
+    return { federated, bridge, topPeer };
+  }, [routedRequestLogs]);
 
   const handleSyncPeer = async (peer: FederationPeer) => {
     setSyncStatus((current) => ({ ...current, [peer.id]: "Syncing…" }));
@@ -164,6 +266,8 @@ export function FederationPage(): JSX.Element {
           <span>known peers</span>
           <strong>{accounts?.projectedAccounts.length ?? 0}</strong>
           <span>projected accounts</span>
+          <strong>{routedRequestLogs.length}</strong>
+          <span>recent routed reqs</span>
         </div>
       </header>
 
@@ -221,6 +325,16 @@ export function FederationPage(): JSX.Element {
           )}
         </article>
 
+        <article className="federation-card panel-sheen">
+          <h3>Routing</h3>
+          <dl className="federation-kv">
+            <dt>Recent federated</dt><dd>{routedRequestSummary.federated}</dd>
+            <dt>Recent bridge</dt><dd>{routedRequestSummary.bridge}</dd>
+            <dt>Top peer</dt><dd>{routedRequestSummary.topPeer ?? "—"}</dd>
+            <dt>Tracked logs</dt><dd>{recentRequestLogs.length}</dd>
+          </dl>
+        </article>
+
         <article className="federation-card panel-sheen federation-card-wide">
           <h3>Account knowledge</h3>
           <div className="federation-account-columns">
@@ -253,6 +367,30 @@ export function FederationPage(): JSX.Element {
           ) : null}
         </article>
       </div>
+
+      <article className="federation-card panel-sheen federation-card-wide">
+        <h3>Recent routed requests</h3>
+        {routedRequestLogs.length === 0 ? (
+          <p className="federation-empty">No routed federation or bridge requests captured in the recent request log sample.</p>
+        ) : (
+          <ul className="federation-list">
+            {routedRequestLogs.slice(0, 12).map((entry) => {
+              const origin = formatRequestOrigin(entry);
+              const originPart = origin !== "unknown" && origin !== "local" ? ` · from ${origin}` : "";
+              return (
+                <li key={entry.id}>
+                  <strong>{routedRequestLabel(entry)} · {entry.model}</strong>
+                  <span>
+                    {entry.providerId}/{entry.accountId} · {entry.status === 0 ? "ERR" : entry.status} · {Math.round(entry.latencyMs)} ms
+                    {originPart}
+                  </span>
+                  <small>{new Date(entry.timestamp).toLocaleString()} · owner {entry.federationOwnerSubject ?? "—"}</small>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </article>
 
       <article className="federation-card panel-sheen federation-card-wide">
         <header className="federation-card-header">

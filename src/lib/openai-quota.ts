@@ -1,16 +1,33 @@
 import type { CredentialAccountView, CredentialStoreLike } from "./credential-store.js";
+import {
+  chatRequestToResponsesRequest,
+  extractTerminalResponseFromEventStream,
+  responsesEventStreamToErrorPayload,
+  responsesToChatCompletion,
+} from "./responses-compat.js";
 
 const OPENAI_TOKEN_URL = "https://auth.openai.com/oauth/token";
 const OPENAI_USAGE_URL = "https://chatgpt.com/backend-api/wham/usage";
 const OPENAI_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
 const OPENAI_REFRESH_BUFFER_MS = 60 * 1000;
 const OPENAI_USAGE_TIMEOUT_MS = 15_000;
+const OPENAI_PROBE_TIMEOUT_MS = 30_000;
+const DEFAULT_OPENAI_PROBE_MODEL = "gpt-5.2";
+const DEFAULT_OPENAI_PROBE_EXPECTED_TEXT = "hello";
 
 export interface OpenAiQuotaWindow {
   readonly usedPercent: number | null;
   readonly remainingPercent: number | null;
   readonly resetsAt: string | null;
   readonly resetAfterSeconds: number | null;
+  readonly limitWindowSeconds: number | null;
+}
+
+export interface OpenAiQuotaRateLimit {
+  readonly allowed: boolean | null;
+  readonly limitReached: boolean | null;
+  readonly primaryWindow: OpenAiQuotaWindow | null;
+  readonly secondaryWindow: OpenAiQuotaWindow | null;
 }
 
 export interface OpenAiQuotaAccountSnapshot {
@@ -24,12 +41,33 @@ export interface OpenAiQuotaAccountSnapshot {
   readonly fetchedAt: string;
   readonly fiveHour: OpenAiQuotaWindow | null;
   readonly weekly: OpenAiQuotaWindow | null;
+  readonly rateLimit: OpenAiQuotaRateLimit | null;
+  readonly codeReviewRateLimit: OpenAiQuotaRateLimit | null;
   readonly error?: string;
 }
 
 export interface OpenAiQuotaSnapshotResponse {
   readonly generatedAt: string;
   readonly accounts: readonly OpenAiQuotaAccountSnapshot[];
+}
+
+export interface OpenAiAccountProbeResult {
+  readonly providerId: string;
+  readonly accountId: string;
+  readonly displayName: string;
+  readonly email?: string;
+  readonly planType?: string;
+  readonly chatgptAccountId?: string;
+  readonly testedAt: string;
+  readonly model: string;
+  readonly expectedText: string;
+  readonly status: "ok" | "error";
+  readonly ok: boolean;
+  readonly matchesExpectedOutput: boolean;
+  readonly outputText?: string;
+  readonly upstreamStatus?: number;
+  readonly errorCode?: string;
+  readonly message: string;
 }
 
 interface LoggerLike {
@@ -66,6 +104,10 @@ function asString(value: unknown): string | undefined {
 
 function asNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function asBoolean(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
 }
 
 function parseJwtClaims(token: string): JwtClaims | undefined {
@@ -119,12 +161,33 @@ function normalizePercent(value: number): number {
   return Math.min(100, Math.max(0, normalized));
 }
 
-function normalizeResetsAt(resetsAt: string | undefined, resetAfterSeconds: number | undefined): string | null {
-  if (resetsAt) {
-    const parsed = new Date(resetsAt);
-    if (!Number.isNaN(parsed.getTime())) {
-      return parsed.toISOString();
-    }
+function parseResetTimestampMs(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value > 1e12 ? Math.round(value) : Math.round(value * 1000);
+  }
+
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    return undefined;
+  }
+
+  const parsedNumber = Number(trimmed);
+  if (Number.isFinite(parsedNumber)) {
+    return parsedNumber > 1e12 ? Math.round(parsedNumber) : Math.round(parsedNumber * 1000);
+  }
+
+  const parsedDate = new Date(trimmed).getTime();
+  return Number.isNaN(parsedDate) ? undefined : parsedDate;
+}
+
+function normalizeResetsAt(resetsAt: unknown, resetAfterSeconds: number | undefined): string | null {
+  const resetTimestampMs = parseResetTimestampMs(resetsAt);
+  if (typeof resetTimestampMs === "number") {
+    return new Date(resetTimestampMs).toISOString();
   }
 
   if (typeof resetAfterSeconds === "number" && Number.isFinite(resetAfterSeconds)) {
@@ -134,16 +197,14 @@ function normalizeResetsAt(resetsAt: string | undefined, resetAfterSeconds: numb
   return null;
 }
 
-function normalizeResetAfterSeconds(resetsAt: string | undefined, resetAfterSeconds: number | undefined): number | null {
+function normalizeResetAfterSeconds(resetsAt: unknown, resetAfterSeconds: number | undefined): number | null {
   if (typeof resetAfterSeconds === "number" && Number.isFinite(resetAfterSeconds)) {
     return Math.max(0, Math.round(resetAfterSeconds));
   }
 
-  if (resetsAt) {
-    const parsed = new Date(resetsAt);
-    if (!Number.isNaN(parsed.getTime())) {
-      return Math.max(0, Math.round((parsed.getTime() - Date.now()) / 1000));
-    }
+  const resetTimestampMs = parseResetTimestampMs(resetsAt);
+  if (typeof resetTimestampMs === "number") {
+    return Math.max(0, Math.round((resetTimestampMs - Date.now()) / 1000));
   }
 
   return null;
@@ -177,12 +238,13 @@ function parseQuotaWindow(value: unknown): OpenAiQuotaWindow | null {
     ?? asNumber(value.total)
     ?? asNumber(value.max)
     ?? asNumber(value.maximum);
-  const rawResetsAt = asString(value.resets_at)
-    ?? asString(value.resetsAt)
-    ?? asString(value.reset_at)
-    ?? asString(value.resetAt)
-    ?? asString(value.reset);
+  const rawResetsAt = value.resets_at
+    ?? value.resetsAt
+    ?? value.reset_at
+    ?? value.resetAt
+    ?? value.reset;
   const rawResetAfterSeconds = asNumber(value.reset_after_seconds) ?? asNumber(value.resetAfterSeconds);
+  const rawLimitWindowSeconds = asNumber(value.limit_window_seconds) ?? asNumber(value.limitWindowSeconds);
 
   let usedPercent = typeof rawUsedPercent === "number" ? normalizePercent(rawUsedPercent) : null;
   let remainingPercent = typeof rawRemainingPercent === "number" ? normalizePercent(rawRemainingPercent) : null;
@@ -207,7 +269,7 @@ function parseQuotaWindow(value: unknown): OpenAiQuotaWindow | null {
   const resetsAt = normalizeResetsAt(rawResetsAt, rawResetAfterSeconds);
   const resetAfterSeconds = normalizeResetAfterSeconds(rawResetsAt, rawResetAfterSeconds);
 
-  if (usedPercent === null && remainingPercent === null && !resetsAt && resetAfterSeconds === null) {
+  if (usedPercent === null && remainingPercent === null && !resetsAt && resetAfterSeconds === null && rawLimitWindowSeconds === undefined) {
     return null;
   }
 
@@ -216,6 +278,29 @@ function parseQuotaWindow(value: unknown): OpenAiQuotaWindow | null {
     remainingPercent,
     resetsAt,
     resetAfterSeconds,
+    limitWindowSeconds: rawLimitWindowSeconds ?? null,
+  };
+}
+
+function parseQuotaRateLimit(value: unknown): OpenAiQuotaRateLimit | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const primaryWindow = parseQuotaWindow(value.primary_window ?? value.primaryWindow ?? value.primary);
+  const secondaryWindow = parseQuotaWindow(value.secondary_window ?? value.secondaryWindow ?? value.secondary);
+  const allowed = asBoolean(value.allowed) ?? null;
+  const limitReached = asBoolean(value.limit_reached) ?? asBoolean(value.limitReached) ?? null;
+
+  if (allowed === null && limitReached === null && primaryWindow === null && secondaryWindow === null) {
+    return null;
+  }
+
+  return {
+    allowed,
+    limitReached,
+    primaryWindow,
+    secondaryWindow,
   };
 }
 
@@ -315,38 +400,22 @@ async function refreshOpenAiToken(refreshToken: string, fetchFn: typeof fetch): 
   };
 }
 
-function accountNeedsRefresh(account: CredentialAccountView): boolean {
-  if (account.authType !== "oauth_bearer") {
-    return false;
-  }
-
-  if (typeof account.expiresAt !== "number") {
-    return false;
-  }
-
-  return account.expiresAt <= Date.now() + OPENAI_REFRESH_BUFFER_MS;
-}
-
-async function ensureFreshAccount(
+async function refreshAccountTokens(
   providerId: string,
   account: CredentialAccountView,
   credentialStore: CredentialStoreLike,
   fetchFn: typeof fetch,
   logger?: LoggerLike,
-): Promise<CredentialAccountView> {
-  if (!accountNeedsRefresh(account)) {
-    return account;
-  }
-
+): Promise<CredentialAccountView | null> {
   const refreshToken = account.refreshToken?.trim();
   if (!refreshToken) {
-    return account;
+    return null;
   }
 
   const refreshed = await refreshOpenAiToken(refreshToken, fetchFn);
   if (!refreshed) {
-    logger?.warn?.({ providerId, accountId: account.id }, "failed to refresh OpenAI quota token");
-    return account;
+    logger?.warn?.({ providerId, accountId: account.id }, "failed to refresh OpenAI account token");
+    return null;
   }
 
   const derived = deriveOAuthMetadataFromToken(refreshed.accessToken);
@@ -377,8 +446,35 @@ async function ensureFreshAccount(
 
   await credentialStore.flush?.();
 
-  logger?.info?.({ providerId, accountId: account.id }, "refreshed OpenAI quota token");
+  logger?.info?.({ providerId, accountId: account.id }, "refreshed OpenAI account token");
   return nextAccount;
+}
+
+function accountNeedsRefresh(account: CredentialAccountView): boolean {
+  if (account.authType !== "oauth_bearer") {
+    return false;
+  }
+
+  if (typeof account.expiresAt !== "number") {
+    return false;
+  }
+
+  return account.expiresAt <= Date.now() + OPENAI_REFRESH_BUFFER_MS;
+}
+
+async function ensureFreshAccount(
+  providerId: string,
+  account: CredentialAccountView,
+  credentialStore: CredentialStoreLike,
+  fetchFn: typeof fetch,
+  logger?: LoggerLike,
+): Promise<CredentialAccountView> {
+  if (!accountNeedsRefresh(account)) {
+    return account;
+  }
+
+  const refreshedAccount = await refreshAccountTokens(providerId, account, credentialStore, fetchFn, logger);
+  return refreshedAccount ?? account;
 }
 
 async function fetchUsagePayload(
@@ -451,23 +547,45 @@ function normalizePlanType(payload: unknown, fallback?: string): string | undefi
   return planType && planType.length > 0 ? planType : fallback;
 }
 
-function extractQuotaWindows(payload: unknown): {
+function extractQuotaDetails(payload: unknown): {
   readonly fiveHour: OpenAiQuotaWindow | null;
   readonly weekly: OpenAiQuotaWindow | null;
+  readonly rateLimit: OpenAiQuotaRateLimit | null;
+  readonly codeReviewRateLimit: OpenAiQuotaRateLimit | null;
 } {
   if (!isRecord(payload)) {
-    return { fiveHour: null, weekly: null };
+    return { fiveHour: null, weekly: null, rateLimit: null, codeReviewRateLimit: null };
   }
 
   const usage = isRecord(payload.usage) ? payload.usage : payload;
-  const rateLimit = isRecord(usage.rate_limit) ? usage.rate_limit : undefined;
-  const primaryWindow = rateLimit?.primary_window ?? usage.primary ?? usage.session ?? usage.fiveHour ?? usage.five_hour;
-  const secondaryWindow = rateLimit?.secondary_window ?? usage.secondary ?? usage.weekly ?? usage.week;
+  const rateLimit = parseQuotaRateLimit(usage.rate_limit ?? usage.rateLimit);
+  const codeReviewRateLimit = parseQuotaRateLimit(usage.code_review_rate_limit ?? usage.codeReviewRateLimit);
+  const primaryWindow = rateLimit?.primaryWindow ?? parseQuotaWindow(usage.primary ?? usage.session ?? usage.fiveHour ?? usage.five_hour);
+  const secondaryWindow = rateLimit?.secondaryWindow ?? parseQuotaWindow(usage.secondary ?? usage.weekly ?? usage.week);
 
   return {
-    fiveHour: parseQuotaWindow(primaryWindow),
-    weekly: parseQuotaWindow(secondaryWindow),
+    fiveHour: primaryWindow,
+    weekly: secondaryWindow,
+    rateLimit,
+    codeReviewRateLimit,
   };
+}
+
+async function listOpenAiOAuthAccounts(
+  credentialStore: CredentialStoreLike,
+  providerId: string,
+  accountId?: string,
+): Promise<CredentialAccountView[]> {
+  const providers = await credentialStore.listProviders(true);
+  const provider = providers.find((entry) => entry.id === providerId);
+  return (provider?.accounts ?? [])
+    .filter((account) => account.authType === "oauth_bearer")
+    .filter((account) => !accountId || account.id === accountId)
+    .sort((left, right) => {
+      const leftLabel = (left.email ?? left.displayName ?? left.id).toLowerCase();
+      const rightLabel = (right.email ?? right.displayName ?? right.id).toLowerCase();
+      return leftLabel.localeCompare(rightLabel);
+    });
 }
 
 async function fetchQuotaForAccount(
@@ -494,6 +612,8 @@ async function fetchQuotaForAccount(
         fetchedAt,
         fiveHour: null,
         weekly: null,
+        rateLimit: null,
+        codeReviewRateLimit: null,
         error: "Missing access token",
       };
     }
@@ -505,7 +625,7 @@ async function fetchQuotaForAccount(
     const payload = usageResult.payload;
     const resolvedChatgptAccountId = usageResult.resolvedChatgptAccountId;
 
-    const { fiveHour, weekly } = extractQuotaWindows(payload);
+    const { fiveHour, weekly, rateLimit, codeReviewRateLimit } = extractQuotaDetails(payload);
     const planType = normalizePlanType(payload, freshAccount.planType);
 
     const shouldPersistPlanType = Boolean(planType && planType !== freshAccount.planType);
@@ -538,6 +658,8 @@ async function fetchQuotaForAccount(
       fetchedAt,
       fiveHour,
       weekly,
+      rateLimit,
+      codeReviewRateLimit,
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -553,9 +675,155 @@ async function fetchQuotaForAccount(
       fetchedAt,
       fiveHour: null,
       weekly: null,
+      rateLimit: null,
+      codeReviewRateLimit: null,
       error: message,
     };
   }
+}
+
+function buildProbePayload(model: string): Record<string, unknown> {
+  const payload = chatRequestToResponsesRequest({
+    model,
+    messages: [{ role: "user", content: "Reply with exactly hello." }],
+    reasoning_effort: "none",
+  });
+
+  payload.instructions = "";
+  payload.store = false;
+  payload.stream = true;
+  return payload;
+}
+
+function extractCompletionText(completion: Record<string, unknown>): string {
+  const choices = Array.isArray(completion.choices) ? completion.choices : [];
+  const firstChoice = choices[0];
+  if (!isRecord(firstChoice)) {
+    return "";
+  }
+
+  const message = isRecord(firstChoice.message) ? firstChoice.message : null;
+  const content = asString(message?.content)?.trim();
+  return content ?? "";
+}
+
+async function fetchProbeResponsePayload(
+  accessToken: string,
+  chatgptAccountId: string | undefined,
+  baseUrl: string,
+  path: string,
+  model: string,
+  fetchFn: typeof fetch,
+): Promise<
+  | {
+    readonly ok: true;
+    readonly payload: unknown;
+    readonly resolvedChatgptAccountId?: string;
+    readonly upstreamStatus: number;
+  }
+  | {
+    readonly ok: false;
+    readonly status: number;
+    readonly text: string;
+    readonly errorCode?: string;
+    readonly resolvedChatgptAccountId?: string;
+  }
+> {
+  const endpoint = `${baseUrl.replace(/\/+$/, "")}${path.startsWith("/") ? path : `/${path}`}`;
+
+  const attempt = async (workspaceId: string | undefined) => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => {
+      controller.abort();
+    }, OPENAI_PROBE_TIMEOUT_MS);
+
+    try {
+      const headers: Record<string, string> = {
+        authorization: `Bearer ${accessToken}`,
+        accept: "text/event-stream, application/json",
+        "content-type": "application/json",
+        originator: "codex_cli_rs",
+      };
+      if (workspaceId && workspaceId.trim().length > 0) {
+        headers["chatgpt-account-id"] = workspaceId.trim();
+      }
+
+      const response = await fetchFn(endpoint, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(buildProbePayload(model)),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        return {
+          ok: false as const,
+          status: response.status,
+          text,
+          errorCode: quotaErrorCode(text),
+          resolvedChatgptAccountId: workspaceId,
+        };
+      }
+
+      const contentType = (response.headers.get("content-type") ?? "").toLowerCase();
+      if (contentType.includes("text/event-stream") || contentType.length === 0) {
+        const streamText = await response.text();
+        const upstreamError = responsesEventStreamToErrorPayload(streamText);
+        if (upstreamError) {
+          const text = JSON.stringify({ error: upstreamError });
+          return {
+            ok: false as const,
+            status: 400,
+            text,
+            errorCode: quotaErrorCode(text),
+            resolvedChatgptAccountId: workspaceId,
+          };
+        }
+
+        const terminalResponse = extractTerminalResponseFromEventStream(streamText);
+        if (!terminalResponse) {
+          return {
+            ok: false as const,
+            status: 502,
+            text: "OpenAI Codex probe stream completed without a terminal response.",
+            resolvedChatgptAccountId: workspaceId,
+          };
+        }
+
+        return {
+          ok: true as const,
+          payload: terminalResponse,
+          resolvedChatgptAccountId: workspaceId,
+          upstreamStatus: response.status,
+        };
+      }
+
+      return {
+        ok: true as const,
+        payload: await response.json(),
+        resolvedChatgptAccountId: workspaceId,
+        upstreamStatus: response.status,
+      };
+    } finally {
+      clearTimeout(timeout);
+    }
+  };
+
+  const primary = await attempt(chatgptAccountId);
+  if (primary.ok) {
+    return primary;
+  }
+
+  const shouldRetryWithoutWorkspace = (primary.errorCode === "deactivated_workspace" || primary.errorCode === "invalid_workspace")
+    && typeof chatgptAccountId === "string"
+    && chatgptAccountId.trim().length > 0;
+
+  if (shouldRetryWithoutWorkspace) {
+    return attempt(undefined);
+  }
+
+  return primary;
 }
 
 export async function fetchOpenAiQuotaSnapshots(
@@ -568,16 +836,7 @@ export async function fetchOpenAiQuotaSnapshots(
   },
 ): Promise<OpenAiQuotaSnapshotResponse> {
   const fetchFn = options.fetchFn ?? fetch;
-  const providers = await credentialStore.listProviders(true);
-  const provider = providers.find((entry) => entry.id === options.providerId);
-  const accounts = (provider?.accounts ?? [])
-    .filter((account) => account.authType === "oauth_bearer")
-    .filter((account) => !options.accountId || account.id === options.accountId)
-    .sort((left, right) => {
-      const leftLabel = (left.email ?? left.displayName ?? left.id).toLowerCase();
-      const rightLabel = (right.email ?? right.displayName ?? right.id).toLowerCase();
-      return leftLabel.localeCompare(rightLabel);
-    });
+  const accounts = await listOpenAiOAuthAccounts(credentialStore, options.providerId, options.accountId);
 
   const snapshots = await Promise.all(
     accounts.map((account) => fetchQuotaForAccount(options.providerId, account, credentialStore, fetchFn, options.logger)),
@@ -587,4 +846,128 @@ export async function fetchOpenAiQuotaSnapshots(
     generatedAt: new Date().toISOString(),
     accounts: snapshots,
   };
+}
+
+export async function probeOpenAiAccount(
+  credentialStore: CredentialStoreLike,
+  options: {
+    readonly providerId: string;
+    readonly accountId: string;
+    readonly openAiBaseUrl: string;
+    readonly openAiResponsesPath: string;
+    readonly model?: string;
+    readonly fetchFn?: typeof fetch;
+    readonly logger?: LoggerLike;
+  },
+): Promise<OpenAiAccountProbeResult> {
+  const fetchFn = options.fetchFn ?? fetch;
+  const testedAt = new Date().toISOString();
+  const model = options.model?.trim() || DEFAULT_OPENAI_PROBE_MODEL;
+  const expectedText = DEFAULT_OPENAI_PROBE_EXPECTED_TEXT;
+  const [account] = await listOpenAiOAuthAccounts(credentialStore, options.providerId, options.accountId);
+
+  if (!account) {
+    throw new Error(`OpenAI account not found: ${options.accountId}`);
+  }
+
+  let freshAccount = await ensureFreshAccount(options.providerId, account, credentialStore, fetchFn, options.logger);
+
+  const runProbe = async (currentAccount: CredentialAccountView) => {
+    const accessToken = currentAccount.secret?.trim();
+    if (!accessToken) {
+      return {
+        ok: false as const,
+        status: 401,
+        text: "Missing access token.",
+        resolvedChatgptAccountId: currentAccount.chatgptAccountId,
+      };
+    }
+
+    return fetchProbeResponsePayload(
+      accessToken,
+      currentAccount.chatgptAccountId?.trim() || undefined,
+      options.openAiBaseUrl,
+      options.openAiResponsesPath,
+      model,
+      fetchFn,
+    );
+  };
+
+  let probeResponse = await runProbe(freshAccount);
+
+  if (!probeResponse.ok && probeResponse.errorCode === "token_expired") {
+    const refreshedAccount = await refreshAccountTokens(options.providerId, freshAccount, credentialStore, fetchFn, options.logger);
+    if (refreshedAccount) {
+      freshAccount = refreshedAccount;
+      probeResponse = await runProbe(freshAccount);
+    }
+  }
+
+  if (!probeResponse.ok) {
+    return {
+      providerId: options.providerId,
+      accountId: freshAccount.id,
+      displayName: freshAccount.displayName,
+      email: freshAccount.email,
+      planType: freshAccount.planType,
+      chatgptAccountId: probeResponse.resolvedChatgptAccountId ?? freshAccount.chatgptAccountId,
+      testedAt,
+      model,
+      expectedText,
+      status: "error",
+      ok: false,
+      matchesExpectedOutput: false,
+      upstreamStatus: probeResponse.status,
+      errorCode: probeResponse.errorCode,
+      message: quotaErrorMessage(probeResponse.status, probeResponse.text),
+    };
+  }
+
+  try {
+    const completion = responsesToChatCompletion(probeResponse.payload, model);
+    const outputText = extractCompletionText(completion);
+    const trimmedOutput = outputText.trim();
+    const matchesExpectedOutput = trimmedOutput.toLowerCase() === expectedText;
+    const message = matchesExpectedOutput
+      ? `Live — replied with ${JSON.stringify(trimmedOutput || expectedText)}.`
+      : trimmedOutput.length > 0
+        ? `Live — replied with ${JSON.stringify(trimmedOutput)}.`
+        : "Live — request completed without assistant text.";
+
+    return {
+      providerId: options.providerId,
+      accountId: freshAccount.id,
+      displayName: freshAccount.displayName,
+      email: freshAccount.email,
+      planType: freshAccount.planType,
+      chatgptAccountId: probeResponse.resolvedChatgptAccountId ?? freshAccount.chatgptAccountId,
+      testedAt,
+      model,
+      expectedText,
+      status: "ok",
+      ok: true,
+      matchesExpectedOutput,
+      outputText: trimmedOutput || undefined,
+      upstreamStatus: probeResponse.upstreamStatus,
+      message,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      providerId: options.providerId,
+      accountId: freshAccount.id,
+      displayName: freshAccount.displayName,
+      email: freshAccount.email,
+      planType: freshAccount.planType,
+      chatgptAccountId: probeResponse.resolvedChatgptAccountId ?? freshAccount.chatgptAccountId,
+      testedAt,
+      model,
+      expectedText,
+      status: "error",
+      ok: false,
+      matchesExpectedOutput: false,
+      upstreamStatus: probeResponse.upstreamStatus,
+      message,
+    };
+  }
 }

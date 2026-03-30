@@ -150,6 +150,15 @@ function detectCapabilities(requestBody: unknown): RequestCapabilities {
     needsTools = true;
   }
 
+  if (
+    typeof body.reasoning_effort === "string"
+    || typeof body.reasoningEffort === "string"
+    || typeof body.reasoning_summary === "string"
+    || typeof body.reasoningSummary === "string"
+  ) {
+    needsThinking = true;
+  }
+
   if (body.reasoning && typeof body.reasoning === "object") {
     const reasoning = body.reasoning as Record<string, unknown>;
     if (reasoning.effort || reasoning.max_tokens) {

@@ -34,3 +34,36 @@ export function formatAuthType(authType: string): string {
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
 }
+
+export interface RequestOriginFields {
+  readonly tenantId?: string;
+  readonly issuer?: string;
+  readonly keyId?: string;
+}
+
+export function formatRequestOrigin(fields: RequestOriginFields): string {
+  const parts: string[] = [];
+
+  if (typeof fields.tenantId === "string" && fields.tenantId.trim().length > 0) {
+    parts.push(`tenant ${fields.tenantId.trim()}`);
+  }
+
+  if (typeof fields.keyId === "string" && fields.keyId.trim().length > 0) {
+    parts.push(`key ${fields.keyId.trim()}`);
+  }
+
+  const issuer = typeof fields.issuer === "string" ? fields.issuer.trim() : "";
+  if (issuer.length > 0 && issuer !== "local") {
+    parts.push(`issuer ${issuer}`);
+  }
+
+  if (parts.length > 0) {
+    return parts.join(" · ");
+  }
+
+  if (issuer.length > 0) {
+    return issuer;
+  }
+
+  return "unknown";
+}
