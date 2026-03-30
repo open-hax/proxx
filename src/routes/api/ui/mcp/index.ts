@@ -19,7 +19,7 @@ async function firstExistingPath(paths: readonly string[]): Promise<string | und
 
 export async function registerMcpSeedRoutes(
   app: FastifyInstance,
-  deps: UiRouteDependencies,
+  _deps: UiRouteDependencies,
 ): Promise<void> {
   let mcpSeedCache: { readonly loadedAt: number; readonly seeds: Awaited<ReturnType<typeof loadMcpSeeds>> } | undefined;
 
