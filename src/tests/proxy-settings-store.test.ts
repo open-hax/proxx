@@ -10,6 +10,7 @@ import { ProxySettingsStore } from "../lib/proxy-settings-store.js";
 function createMockSql(seed: Record<string, {
   fastMode: boolean;
   requestsPerMinute?: number | null;
+  allowedModels?: readonly string[] | null;
   allowedProviderIds?: readonly string[] | null;
   disabledProviderIds?: readonly string[] | null;
 }> = {}): {
@@ -17,6 +18,7 @@ function createMockSql(seed: Record<string, {
   readonly values: Map<string, {
     fastMode: boolean;
     requestsPerMinute?: number | null;
+    allowedModels?: readonly string[] | null;
     allowedProviderIds?: readonly string[] | null;
     disabledProviderIds?: readonly string[] | null;
   }>;
@@ -38,6 +40,7 @@ function createMockSql(seed: Record<string, {
         values.set(key, JSON.parse(String(params[1])) as {
           fastMode: boolean;
           requestsPerMinute?: number | null;
+          allowedModels?: readonly string[] | null;
           allowedProviderIds?: readonly string[] | null;
           disabledProviderIds?: readonly string[] | null;
         });
@@ -50,6 +53,7 @@ function createMockSql(seed: Record<string, {
       values.set(key, JSON.parse(String(params[1])) as {
         fastMode: boolean;
         requestsPerMinute?: number | null;
+        allowedModels?: readonly string[] | null;
         allowedProviderIds?: readonly string[] | null;
         disabledProviderIds?: readonly string[] | null;
       });
@@ -70,8 +74,8 @@ test("proxy settings store preserves file-backed default tenant behavior", async
   const store = new ProxySettingsStore(settingsPath);
   try {
     await store.warmup();
-    assert.deepEqual(store.get(), { fastMode: true, requestsPerMinute: null, allowedProviderIds: null, disabledProviderIds: null });
-    assert.deepEqual(await store.getForTenant("default"), { fastMode: true, requestsPerMinute: null, allowedProviderIds: null, disabledProviderIds: null });
+    assert.deepEqual(store.get(), { fastMode: true, requestsPerMinute: null, allowedModels: null, allowedProviderIds: null, disabledProviderIds: null });
+    assert.deepEqual(await store.getForTenant("default"), { fastMode: true, requestsPerMinute: null, allowedModels: null, allowedProviderIds: null, disabledProviderIds: null });
   } finally {
     await rm(tempDir, { recursive: true, force: true });
   }
@@ -80,17 +84,17 @@ test("proxy settings store preserves file-backed default tenant behavior", async
 test("proxy settings store scopes SQL-backed settings by tenant", async () => {
   const tempDir = await mkdtemp(path.join(os.tmpdir(), "proxx-settings-store-"));
   const settingsPath = path.join(tempDir, "proxy-settings.json");
-  const mock = createMockSql({ proxy_settings: { fastMode: false, requestsPerMinute: null, allowedProviderIds: null, disabledProviderIds: null } });
+  const mock = createMockSql({ proxy_settings: { fastMode: false, requestsPerMinute: null, allowedModels: null, allowedProviderIds: null, disabledProviderIds: null } });
   const store = new ProxySettingsStore(settingsPath, mock.sql);
 
   try {
     await store.warmup();
-    await store.setForTenant({ fastMode: true, requestsPerMinute: 3, allowedProviderIds: ["factory"], disabledProviderIds: ["openai"] }, "acme");
+    await store.setForTenant({ fastMode: true, requestsPerMinute: 3, allowedModels: ["ollama/gpt-oss:20b"], allowedProviderIds: ["factory"], disabledProviderIds: ["openai"] }, "acme");
 
-    assert.deepEqual(await store.getForTenant("default"), { fastMode: false, requestsPerMinute: null, allowedProviderIds: null, disabledProviderIds: null });
-    assert.deepEqual(await store.getForTenant("acme"), { fastMode: true, requestsPerMinute: 3, allowedProviderIds: ["factory"], disabledProviderIds: ["openai"] });
-    assert.deepEqual(mock.values.get("proxy_settings"), { fastMode: false, requestsPerMinute: null, allowedProviderIds: null, disabledProviderIds: null });
-    assert.deepEqual(mock.values.get("proxy_settings:acme"), { fastMode: true, requestsPerMinute: 3, allowedProviderIds: ["factory"], disabledProviderIds: ["openai"] });
+    assert.deepEqual(await store.getForTenant("default"), { fastMode: false, requestsPerMinute: null, allowedModels: null, allowedProviderIds: null, disabledProviderIds: null });
+    assert.deepEqual(await store.getForTenant("acme"), { fastMode: true, requestsPerMinute: 3, allowedModels: ["ollama/gpt-oss:20b"], allowedProviderIds: ["factory"], disabledProviderIds: ["openai"] });
+    assert.deepEqual(mock.values.get("proxy_settings"), { fastMode: false, requestsPerMinute: null, allowedModels: null, allowedProviderIds: null, disabledProviderIds: null });
+    assert.deepEqual(mock.values.get("proxy_settings:acme"), { fastMode: true, requestsPerMinute: 3, allowedModels: ["ollama/gpt-oss:20b"], allowedProviderIds: ["factory"], disabledProviderIds: ["openai"] });
   } finally {
     await rm(tempDir, { recursive: true, force: true });
   }

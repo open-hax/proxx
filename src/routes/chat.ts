@@ -4,11 +4,13 @@ import { type ChatCompletionRequest, extractPromptCacheKey } from "../lib/reques
 import { isRecord } from "../lib/provider-utils.js";
 import {
   resolvableConcreteModelIds,
+  filterProviderRoutesByCatalogAvailability,
   filterProviderRoutesByModelSupport,
   shouldRejectModelFromProviderCatalog,
 } from "../lib/model-routing-helpers.js";
 import {
   tenantProviderAllowed,
+  tenantModelAllowed,
   filterTenantProviderRoutes,
   resolveExplicitTenantProviderId,
 } from "../lib/tenant-policy-helpers.js";
@@ -34,7 +36,7 @@ import { ensureOllamaContextFits } from "../lib/ollama-context.js";
 import { executeFederatedRequestFallback } from "../lib/federation/federated-fallback.js";
 import { executeBridgeRequestFallback } from "../lib/federation/bridge-fallback.js";
 import type { AppDeps } from "../lib/app-deps.js";
-import { discoverDynamicOllamaRoutes, filterDedicatedOllamaRoutes, prependDynamicOllamaRoutes } from "../lib/dynamic-ollama-routes.js";
+import { discoverDynamicOllamaRoutes, filterDedicatedOllamaRoutes, hasDedicatedOllamaRoutes, prependDynamicOllamaRoutes } from "../lib/dynamic-ollama-routes.js";
 
 export function registerChatRoutes(deps: AppDeps, app: FastifyInstance): void {
   app.post<{ Body: ChatCompletionRequest }>("/v1/chat/completions", async (request, reply) => {
@@ -61,6 +63,10 @@ export function registerChatRoutes(deps: AppDeps, app: FastifyInstance): void {
     }
 
     const requestedModelInput = typeof requestBody.model === "string" ? requestBody.model : "";
+    if (!tenantModelAllowed(proxySettings, requestedModelInput)) {
+      sendOpenAiError(reply, 403, `Model is disabled for this tenant: ${requestedModelInput || "unknown"}`, "invalid_request_error", "model_not_allowed");
+      return;
+    }
     const explicitlyBlockedProviderId = resolveExplicitTenantProviderId(deps.config, requestedModelInput, proxySettings);
     if (explicitlyBlockedProviderId) {
       sendOpenAiError(reply, 403, `Provider is disabled for this tenant: ${explicitlyBlockedProviderId}`, "invalid_request_error", "provider_not_allowed");
@@ -194,11 +200,15 @@ export function registerChatRoutes(deps: AppDeps, app: FastifyInstance): void {
       }
 
       if (providerRoutes.length === 0) {
-        if (hasMoreModelCandidates) {
-          continue;
+        if (strategy.isLocal) {
+          // Tenant policy can intentionally clear hosted providers to force the configured local/Ollama edge path.
+        } else {
+          if (hasMoreModelCandidates) {
+            continue;
+          }
+          sendOpenAiError(reply, 403, "No upstream providers are allowed for this tenant and request.", "invalid_request_error", "provider_not_allowed");
+          return;
         }
-        sendOpenAiError(reply, 403, "No upstream providers are allowed for this tenant and request.", "invalid_request_error", "provider_not_allowed");
-        return;
       }
 
       try {

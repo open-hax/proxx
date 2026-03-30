@@ -30,7 +30,11 @@ export function resolveFederationOwnerSubject(input: {
   readonly hopCount?: number;
 }): string | undefined {
   const explicitHeader = readSingleHeader(input.headers, FEDERATION_OWNER_SUBJECT_HEADER)?.trim();
-  if (explicitHeader && ((input.hopCount ?? 0) > 0 || input.requestAuth?.kind === "legacy_admin")) {
+  if (explicitHeader && (
+    (input.hopCount ?? 0) > 0
+    || input.requestAuth?.kind === "legacy_admin"
+    || input.requestAuth?.kind === "tenant_api_key"
+  )) {
     return explicitHeader;
   }
 

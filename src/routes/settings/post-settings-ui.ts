@@ -5,6 +5,7 @@ import type { PrefixedRouteOptions, UiRouteDependencies } from "../types.js";
 import {
   getResolvedAuth,
   parseBoolean,
+  parseOptionalModelIds,
   parseOptionalProviderIds,
   parseOptionalRequestsPerMinute,
 } from "../shared/ui-auth.js";
@@ -19,6 +20,7 @@ export async function registerPostSettingsUiRoute(
     Body: {
       readonly fastMode?: unknown;
       readonly requestsPerMinute?: unknown;
+      readonly allowedModels?: unknown;
       readonly allowedProviderIds?: unknown;
       readonly disabledProviderIds?: unknown;
     };
@@ -51,6 +53,12 @@ export async function registerPostSettingsUiRoute(
       return;
     }
 
+    const allowedModels = parseOptionalModelIds(request.body?.allowedModels);
+    if (request.body?.allowedModels !== undefined && allowedModels === undefined) {
+      reply.code(400).send({ error: "invalid_allowed_models" });
+      return;
+    }
+
     const disabledProviderIds = parseOptionalProviderIds(request.body?.disabledProviderIds);
     if (request.body?.disabledProviderIds !== undefined && disabledProviderIds === undefined) {
       reply.code(400).send({ error: "invalid_disabled_provider_ids" });
@@ -61,6 +69,7 @@ export async function registerPostSettingsUiRoute(
     const nextSettings = await deps.proxySettingsStore.setForTenant({
       fastMode: request.body?.fastMode === undefined ? undefined : parseBoolean(request.body?.fastMode),
       requestsPerMinute,
+      allowedModels,
       allowedProviderIds,
       disabledProviderIds,
     }, tenantId);
@@ -68,6 +77,7 @@ export async function registerPostSettingsUiRoute(
     app.log.info({
       fastMode: nextSettings.fastMode,
       requestsPerMinute: nextSettings.requestsPerMinute,
+      allowedModels: nextSettings.allowedModels,
       allowedProviderIds: nextSettings.allowedProviderIds,
       disabledProviderIds: nextSettings.disabledProviderIds,
       tenantId,

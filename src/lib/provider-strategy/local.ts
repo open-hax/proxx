@@ -1,7 +1,7 @@
 import type { FastifyReply } from "fastify";
 
 import type { RequestLogStore } from "../request-log-store.js";
-import { buildForwardHeaders } from "../proxy.js";
+import { buildForwardHeaders, buildUpstreamHeaders } from "../proxy.js";
 import { fetchWithResponseTimeout, sendOpenAiError, toErrorMessage } from "../provider-utils.js";
 import { getTelemetry } from "../telemetry/otel.js";
 import {
@@ -24,7 +24,9 @@ export async function executeLocalStrategy(
   reply.header("x-open-hax-upstream-provider", "local-ollama");
   const upstreamPath = strategy.getUpstreamPath(context);
   const upstreamUrl = joinUrl(context.config.ollamaBaseUrl, upstreamPath);
-  const upstreamHeaders = buildForwardHeaders(context.clientHeaders);
+  const upstreamHeaders = context.config.ollamaApiKey
+    ? buildUpstreamHeaders(context.clientHeaders, context.config.ollamaApiKey)
+    : buildForwardHeaders(context.clientHeaders);
   const attemptStartedAt = Date.now();
 
   const upstreamSpan = getTelemetry().startSpan("proxy.upstream_attempt", {

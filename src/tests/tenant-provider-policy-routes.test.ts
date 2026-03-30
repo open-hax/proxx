@@ -16,6 +16,8 @@ import { KeyPool } from "../lib/key-pool.js";
 import { ProxySettingsStore } from "../lib/proxy-settings-store.js";
 import { RequestLogStore } from "../lib/request-log-store.js";
 import { registerUiRoutes } from "../lib/ui-routes.js";
+import { registerApiV1Routes } from "../routes/api/v1/index.js";
+import type { CredentialStoreLike } from "../lib/credential-store.js";
 
 function buildConfig(input: {
   readonly upstreamPort: number;
@@ -1271,6 +1273,205 @@ test("federation sync pull imports projected descriptors from aggregated peer ac
     await requestLogStore.close();
     await remoteRequestLogStore.close();
     await credentialStore.close();
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("credentials and quota routes merge runtime-visible oauth accounts with store metadata", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "proxx-visible-credentials-routes-"));
+  const keysPath = path.join(tempDir, "keys.json");
+  const modelsPath = path.join(tempDir, "models.json");
+  const requestLogsPath = path.join(tempDir, "request-logs.jsonl");
+  const promptAffinityPath = path.join(tempDir, "prompt-affinity.json");
+  const settingsPath = path.join(tempDir, "proxy-settings.json");
+
+  await writeFile(keysPath, JSON.stringify({ keys: ["test-key-1"] }, null, 2), "utf8");
+  await writeFile(modelsPath, JSON.stringify({ object: "list", data: [{ id: "gpt-5.4" }] }, null, 2), "utf8");
+
+  const upstream: Server = createServer((_request, response) => {
+    response.statusCode = 200;
+    response.setHeader("content-type", "application/json");
+    response.end(JSON.stringify({ ok: true }));
+  });
+  upstream.listen(0, "127.0.0.1");
+  await once(upstream, "listening");
+  const upstreamAddress = upstream.address();
+  if (!upstreamAddress || typeof upstreamAddress === "string") {
+    throw new Error("failed to resolve upstream address");
+  }
+
+  const config = buildConfig({
+    upstreamPort: upstreamAddress.port,
+    paths: { keysPath, modelsPath, requestLogsPath, promptAffinityPath, settingsPath },
+    proxyAuthToken: "bridge-admin-token",
+  });
+
+  const app = Fastify({ logger: true });
+  app.decorateRequest("openHaxAuth", null);
+  app.addHook("onRequest", async (request) => {
+    const mutableRequest = request as FastifyRequest & { openHaxAuth?: unknown };
+    const authorization = typeof request.headers.authorization === "string"
+      ? request.headers.authorization.trim()
+      : "";
+
+    if (authorization === "Bearer bridge-admin-token") {
+      mutableRequest.openHaxAuth = {
+        kind: "legacy_admin",
+        tenantId: "default",
+        role: "owner",
+        source: "bearer",
+        subject: "legacy:proxy-auth-token",
+      };
+    }
+  });
+
+  const keyPool = new KeyPool({
+    keysFilePath: keysPath,
+    reloadIntervalMs: 50,
+    defaultCooldownMs: 10_000,
+    defaultProviderId: config.upstreamProviderId,
+  });
+
+  const poolTokenA = "pool-token-a";
+  const poolTokenB = "pool-token-b";
+  const poolRefreshA = "pool-refresh-a";
+  const poolRefreshB = "pool-refresh-b";
+  const visibleAccounts = [
+    {
+      providerId: "openai",
+      accountId: "acct-a",
+      token: poolTokenA,
+      authType: "oauth_bearer" as const,
+      chatgptAccountId: "chatgpt-acct-a",
+      planType: "plus",
+      refreshToken: poolRefreshA,
+    },
+    {
+      providerId: "openai",
+      accountId: "acct-b",
+      token: poolTokenB,
+      authType: "oauth_bearer" as const,
+      chatgptAccountId: "chatgpt-acct-b",
+      planType: "pro",
+      refreshToken: poolRefreshB,
+    },
+  ];
+
+  (keyPool as unknown as { providers: Map<string, { authType: "oauth_bearer"; accounts: typeof visibleAccounts; nextOffset: number }> }).providers = new Map([
+    ["openai", { authType: "oauth_bearer", accounts: visibleAccounts, nextOffset: 0 }],
+  ]);
+  (keyPool as unknown as { lastReloadAt: number }).lastReloadAt = Date.now();
+
+  const credentialStore: CredentialStoreLike = {
+    async listProviders(revealSecrets: boolean) {
+      return [{
+        id: "openai",
+        authType: "oauth_bearer",
+        accountCount: 1,
+        accounts: [{
+          id: "acct-a",
+          authType: "oauth_bearer",
+          displayName: "acct-a@example.com",
+          secretPreview: "pool...a",
+          secret: revealSecrets ? poolTokenA : undefined,
+          refreshTokenPreview: revealSecrets ? "refresh...a" : undefined,
+          refreshToken: revealSecrets ? poolRefreshA : undefined,
+          chatgptAccountId: "chatgpt-acct-a",
+          email: "acct-a@example.com",
+          subject: "acct-a-subject",
+          planType: "plus",
+        }],
+      }];
+    },
+    async upsertApiKeyAccount(): Promise<void> {
+      throw new Error("not implemented in test");
+    },
+    async upsertOAuthAccount(): Promise<void> {
+      return;
+    },
+    async removeAccount(): Promise<boolean> {
+      return false;
+    },
+  };
+
+  const requestLogStore = new RequestLogStore(requestLogsPath, 1000, 0);
+  await requestLogStore.warmup();
+  const proxySettingsStore = new ProxySettingsStore(settingsPath);
+  await proxySettingsStore.warmup();
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input, init) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : String(input);
+    if (url.includes("/api/usage_limits")) {
+      const token = typeof init?.headers === "object" && init.headers && "authorization" in init.headers
+        ? String((init.headers as Record<string, string>).authorization ?? "")
+        : "";
+      const accountId = token.endsWith(poolTokenA) ? "acct-a" : token.endsWith(poolTokenB) ? "acct-b" : "unknown";
+      return new Response(JSON.stringify({
+        usage: {
+          rate_limit: {
+            primary: { used_percent: accountId === "acct-a" ? 25 : 75 },
+          },
+        },
+        plan_type: accountId === "acct-a" ? "plus" : "pro",
+        account_id: accountId === "acct-a" ? "chatgpt-acct-a" : "chatgpt-acct-b",
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    throw new Error(`unexpected fetch: ${url}`);
+  }) as typeof fetch;
+
+  await registerUiRoutes(app, {
+    config,
+    keyPool,
+    requestLogStore,
+    credentialStore,
+    proxySettingsStore,
+  });
+  await registerApiV1Routes(app, {
+    config,
+    keyPool,
+    requestLogStore,
+    credentialStore,
+    proxySettingsStore,
+  });
+
+  await app.listen({ host: "127.0.0.1", port: 0 });
+
+  try {
+    const credentialsResponse = await app.inject({
+      method: "GET",
+      url: "/api/ui/credentials?reveal=false",
+      headers: { authorization: "Bearer bridge-admin-token" },
+    });
+
+    assert.equal(credentialsResponse.statusCode, 200);
+    const credentialsPayload = credentialsResponse.json() as {
+      readonly providers: ReadonlyArray<{ readonly id: string; readonly accountCount: number; readonly accounts: ReadonlyArray<{ readonly id: string }> }>;
+    };
+    const openaiProvider = credentialsPayload.providers.find((provider) => provider.id === "openai");
+    assert.ok(openaiProvider);
+    assert.equal(openaiProvider.accountCount, 2);
+    assert.deepEqual(openaiProvider.accounts.map((account) => account.id), ["acct-a", "acct-b"]);
+
+    const quotaResponse = await app.inject({
+      method: "GET",
+      url: "/api/ui/credentials/openai/quota",
+      headers: { authorization: "Bearer bridge-admin-token" },
+    });
+
+    assert.equal(quotaResponse.statusCode, 200);
+    const quotaPayload = quotaResponse.json() as {
+      readonly accounts: ReadonlyArray<{ readonly accountId: string }>;
+    };
+    assert.deepEqual(quotaPayload.accounts.map((account) => account.accountId).sort(), ["acct-a", "acct-b"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+    await app.close();
+    await requestLogStore.close();
+    await upstream.close();
     await rm(tempDir, { recursive: true, force: true });
   }
 });

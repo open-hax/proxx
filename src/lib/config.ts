@@ -30,6 +30,7 @@ export interface ProxyConfig {
    */
   readonly openaiImagesUpstreamMode: "platform" | "chatgpt" | "auto";
   readonly ollamaBaseUrl: string;
+  readonly ollamaApiKey?: string;
   readonly localOllamaEnabled: boolean;
   readonly localOllamaModelPatterns: readonly string[];
   readonly chatCompletionsPath: string;
@@ -393,6 +394,7 @@ export function loadConfig(cwd: string = process.cwd()): ProxyConfig {
   const openaiApiBaseUrl = (process.env.OPENAI_API_BASE_URL ?? "https://api.openai.com").replace(/\/+$/, "");
   const openaiImagesUpstreamMode = openaiImagesUpstreamModeFromEnv(process.env.OPENAI_IMAGES_UPSTREAM_MODE);
   const ollamaBaseUrl = (process.env.OLLAMA_BASE_URL ?? "http://ollama:11434").replace(/\/+$/, "");
+  const ollamaApiKey = process.env.OLLAMA_API_KEY?.trim() || undefined;
   const rawMessagesInterleavedThinkingBeta = process.env.UPSTREAM_MESSAGES_INTERLEAVED_THINKING_BETA;
   const messagesInterleavedThinkingBeta = rawMessagesInterleavedThinkingBeta === undefined
     ? "interleaved-thinking-2025-05-14"
@@ -499,6 +501,7 @@ export function loadConfig(cwd: string = process.cwd()): ProxyConfig {
     openaiApiBaseUrl,
     openaiImagesUpstreamMode,
     ollamaBaseUrl,
+    ollamaApiKey,
     localOllamaEnabled,
     localOllamaModelPatterns,
     chatCompletionsPath: process.env.UPSTREAM_CHAT_COMPLETIONS_PATH ?? "/v1/chat/completions",
