@@ -8,7 +8,6 @@ import {
   resolveHostDashboardTargetToken,
 } from "../../../../lib/host-dashboard.js";
 import {
-  authCanManageFederation,
   getResolvedAuth,
 } from "../../../shared/ui-auth.js";
 
@@ -53,7 +52,7 @@ function inferBaseUrl(request: {
 
 export async function registerHostDashboardRoutes(
   app: FastifyInstance,
-  deps: UiRouteDependencies,
+  _deps: UiRouteDependencies,
 ): Promise<void> {
   const hostDashboardTargets = loadHostDashboardTargetsFromEnv(process.env);
   const hostDashboardDockerSocketPath = process.env.HOST_DASHBOARD_DOCKER_SOCKET_PATH?.trim() || undefined;
