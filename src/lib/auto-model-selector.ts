@@ -95,6 +95,7 @@ const MODEL_TOOLS_SUPPORT: ReadonlySet<string> = new Set([
   "claude-sonnet-4-5",
   "gemini-2.5-pro",
   "gemini-2.5-flash",
+  "deepseek-v3.2",
   "glm-5",
 ]);
 
