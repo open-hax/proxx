@@ -88,6 +88,7 @@ export function registerImagesRoutes(deps: AppDeps, app: FastifyInstance): void 
       reply,
       deps.requestLogStore,
       deps.promptAffinityStore,
+      deps.providerRoutePheromoneStore,
       deps.keyPool,
       providerRoutes,
       context,
@@ -97,6 +98,7 @@ export function registerImagesRoutes(deps: AppDeps, app: FastifyInstance): void 
       deps.policyEngine,
       deps.accountHealthStore,
       deps.eventStore,
+      deps.quotaMonitor,
     );
 
     if (execution.handled) {

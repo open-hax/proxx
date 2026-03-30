@@ -37,6 +37,7 @@ import { executeFederatedRequestFallback } from "../lib/federation/federated-fal
 import { executeBridgeRequestFallback } from "../lib/federation/bridge-fallback.js";
 import type { AppDeps } from "../lib/app-deps.js";
 import { discoverDynamicOllamaRoutes, filterDedicatedOllamaRoutes, hasDedicatedOllamaRoutes, prependDynamicOllamaRoutes } from "../lib/dynamic-ollama-routes.js";
+import { rankProviderRoutesWithAco } from "../lib/provider-route-aco.js";
 
 export function registerChatRoutes(deps: AppDeps, app: FastifyInstance): void {
   app.post<{ Body: ChatCompletionRequest }>("/v1/chat/completions", async (request, reply) => {
@@ -233,6 +234,24 @@ export function registerChatRoutes(deps: AppDeps, app: FastifyInstance): void {
 
         if (context.localOllama || isCephalonAutoModel(requestedModelInput) || isCephalonAutoModel(routingModelInput)) {
           providerRoutes = filterProviderRoutesByCatalogAvailability(providerRoutes, context.routedModel, catalogBundle);
+          const ranked = await rankProviderRoutesWithAco({
+            providerRoutes,
+            model: context.routedModel,
+            upstreamMode: strategy.mode,
+            keyPool: deps.keyPool,
+            requestLogStore: deps.requestLogStore,
+            healthStore: deps.accountHealthStore,
+            pheromoneStore: deps.providerRoutePheromoneStore,
+          });
+          providerRoutes = ranked.orderedRoutes;
+        }
+
+        if (providerRoutes.length === 0) {
+          if (hasMoreModelCandidates) {
+            continue;
+          }
+          sendOpenAiError(reply, 503, "No healthy Ollama nodes are currently available.", "server_error", "healthy_nodes_unavailable");
+          return;
         }
 
         if (shouldRejectModelFromProviderCatalog(providerRoutes, context.routedModel, catalogBundle)) {
@@ -320,6 +339,7 @@ export function registerChatRoutes(deps: AppDeps, app: FastifyInstance): void {
         reply,
         deps.requestLogStore,
         deps.promptAffinityStore,
+        deps.providerRoutePheromoneStore,
         deps.keyPool,
         providerRoutes,
         context,
@@ -329,7 +349,7 @@ export function registerChatRoutes(deps: AppDeps, app: FastifyInstance): void {
         deps.policyEngine,
         deps.accountHealthStore,
         deps.eventStore,
-        undefined,
+        deps.quotaMonitor,
       );
 
       if (execution.handled) {

@@ -6185,6 +6185,114 @@ test("routes openai-prefixed models with oauth account failover", async () => {
   );
 });
 
+test("openai oauth accounts stay cooled until quota reset after a quota lookup refresh", async () => {
+  let upstreamCalls = 0;
+  const quotaLookups: string[] = [];
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = async (input, init) => {
+    const url = typeof input === "string"
+      ? input
+      : input instanceof URL
+        ? input.toString()
+        : input.url;
+    if (url === "https://chatgpt.com/backend-api/wham/usage") {
+      const headers = new Headers(init?.headers);
+      const auth = headers.get("authorization");
+      quotaLookups.push(auth ?? "missing");
+
+      const resetAfterSeconds = auth === "Bearer oa-token-a" ? 7200 : 10800;
+      return new Response(JSON.stringify({
+        usage: {
+          rate_limit: {
+            allowed: false,
+            limit_reached: true,
+            primary_window: {
+              remaining_percent: 80,
+              limit_window_seconds: 18000,
+              reset_after_seconds: resetAfterSeconds,
+            },
+          },
+        },
+      }), {
+        status: 200,
+        headers: {
+          "content-type": "application/json",
+        },
+      });
+    }
+
+    return originalFetch(input, init);
+  };
+
+  try {
+    await withProxyApp(
+      {
+        keys: [],
+        keysPayload: {
+          providers: {
+            openai: {
+              auth: "oauth_bearer",
+              accounts: [
+                { id: "openai-a", access_token: "oa-token-a", chatgpt_account_id: "chatgpt-a" },
+                { id: "openai-b", access_token: "oa-token-b", chatgpt_account_id: "chatgpt-b" },
+              ],
+            },
+          },
+        },
+        upstreamHandler: async () => {
+          upstreamCalls += 1;
+
+          return {
+            status: 429,
+            headers: {
+              "content-type": "application/json",
+            },
+            body: JSON.stringify({ error: { message: "rate limit" } }),
+          };
+        },
+      },
+      async ({ app }) => {
+        const first = await app.inject({
+          method: "POST",
+          url: "/v1/chat/completions",
+          headers: {
+            "content-type": "application/json",
+          },
+          payload: {
+            model: "openai/gpt-5.3-codex",
+            messages: [{ role: "user", content: "hello" }],
+            stream: false,
+          },
+        });
+
+        assert.equal(first.statusCode, 429);
+        assert.equal(upstreamCalls, 2);
+        assert.deepEqual(quotaLookups, ["Bearer oa-token-a", "Bearer oa-token-b"]);
+
+        const second = await app.inject({
+          method: "POST",
+          url: "/v1/chat/completions",
+          headers: {
+            "content-type": "application/json",
+          },
+          payload: {
+            model: "openai/gpt-5.3-codex",
+            messages: [{ role: "user", content: "hello again" }],
+            stream: false,
+          },
+        });
+
+        assert.equal(second.statusCode, 429);
+        assert.equal(upstreamCalls, 2);
+        assert.deepEqual(quotaLookups, ["Bearer oa-token-a", "Bearer oa-token-b"]);
+      },
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("routes gpt-5.4 through responses for openai oauth accounts", async () => {
   let observedPath = "";
   let observedBody: unknown;

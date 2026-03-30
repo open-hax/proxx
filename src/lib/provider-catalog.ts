@@ -5,6 +5,8 @@ import { parseModelIdsFromCatalogPayload, buildLargestModelAliases, dedupeModelI
 import { fetchWithResponseTimeout } from "./provider-utils.js";
 import { loadDeclaredModels, loadModelPreferences, type ModelPreferences } from "./models.js";
 
+const CATALOG_ROUTE_TIMEOUT_MS = 15_000;
+
 export interface ProviderCatalogEntry {
   readonly providerId: string;
   readonly modelIds: readonly string[];
@@ -128,7 +130,7 @@ export class ProviderCatalogStore {
 
     for (const route of this.routes) {
       const sourceEndpoints = providerModelCatalogPaths(this.config, route.providerId);
-      const providerModels = await this.fetchProviderModelCatalog(route, sourceEndpoints);
+      const providerModels = await this.fetchRouteCatalogWithTimeout(route, sourceEndpoints);
       if (providerModels.length > 0) {
         providerCatalogs[route.providerId] = {
           providerId: route.providerId,
@@ -142,7 +144,7 @@ export class ProviderCatalogStore {
     }
 
     for (const route of this.ollamaRoutes) {
-      const providerModels = await this.fetchProviderModelCatalog(route, ["/v1/models", "/api/tags"]);
+      const providerModels = await this.fetchRouteCatalogWithTimeout(route, ["/v1/models", "/api/tags"]);
       if (providerModels.length > 0) {
         const existing = providerCatalogs[route.providerId];
         if (existing) {
@@ -215,9 +217,31 @@ export class ProviderCatalogStore {
     return entry.modelIds.includes(modelId);
   }
 
+  private async fetchRouteCatalogWithTimeout(
+    route: ProviderRoute,
+    candidatePaths: readonly string[],
+  ): Promise<string[]> {
+    const controller = new AbortController();
+    const timeoutHandle = setTimeout(() => controller.abort(), CATALOG_ROUTE_TIMEOUT_MS);
+    try {
+      const result = await Promise.race([
+        this.fetchProviderModelCatalog(route, candidatePaths, controller.signal),
+        new Promise<null>((resolve) => {
+          controller.signal.addEventListener("abort", () => resolve(null), { once: true });
+        }),
+      ]);
+      return result ?? [];
+    } catch {
+      return [];
+    } finally {
+      clearTimeout(timeoutHandle);
+    }
+  }
+
   private async fetchProviderModelCatalog(
     route: ProviderRoute,
     candidatePaths: readonly string[] = ["/v1/models"],
+    signal?: AbortSignal,
   ): Promise<string[]> {
     let accounts: ProviderCredential[];
     try {
@@ -231,7 +255,14 @@ export class ProviderCatalogStore {
     }
 
     for (const account of accounts) {
+      if (signal?.aborted) {
+        return [];
+      }
+
       for (const candidatePath of candidatePaths) {
+        if (signal?.aborted) {
+          return [];
+        }
         const normalizedBase = route.baseUrl.replace(/\/+$/, "");
         const normalizedPath = candidatePath.startsWith("/") ? candidatePath : `/${candidatePath}`;
         const url = `${normalizedBase}${normalizedPath}`;
@@ -243,6 +274,7 @@ export class ProviderCatalogStore {
               authorization: `Bearer ${account.token}`,
               accept: "application/json",
             },
+            signal,
           }, Math.min(this.config.requestTimeoutMs, 45_000));
         } catch {
           continue;

@@ -5,6 +5,7 @@ import type { EventStore } from "../db/event-store.js";
 import type { ProviderCredential } from "../key-pool.js";
 import type { PolicyEngine } from "../policy/index.js";
 import type { PromptAffinityStore } from "../prompt-affinity-store.js";
+import type { ProviderRoutePheromoneStore } from "../provider-route-pheromone-store.js";
 import type { RequestLogStore } from "../request-log-store.js";
 import type { QuotaMonitor } from "../quota-monitor.js";
 import { buildUpstreamHeadersForCredential, extractRateLimitCooldownMs, isRateLimitResponse } from "../proxy.js";
@@ -74,6 +75,11 @@ const REQUESTY_MODEL_PREFIXES: ReadonlyArray<readonly [string, string]> = [
 
 const MAX_STICKY_TRANSPORT_FAILURE_CANDIDATES = 4;
 
+function clampRouteQuality(latencyMs: number): number {
+  const clampedLatency = Math.min(Math.max(latencyMs, 250), 30_000);
+  return Math.max(0.05, 1 - ((clampedLatency - 250) / (30_000 - 250)));
+}
+
 function requestyModelPrefix(model: string): string {
   const lower = model.toLowerCase();
   for (const [prefix, provider] of REQUESTY_MODEL_PREFIXES) {
@@ -105,6 +111,7 @@ export async function executeProviderFallback(
   reply: FastifyReply,
   requestLogStore: RequestLogStore,
   promptAffinityStore: PromptAffinityStore,
+  providerRoutePheromoneStore: ProviderRoutePheromoneStore,
   keyPool: {
     getRequestOrder(providerId: string): Promise<ProviderCredential[]>;
     markInFlight(credential: ProviderCredential): () => void;
@@ -396,6 +403,7 @@ export async function executeProviderFallback(
           upstreamSpan.recordError(error);
           upstreamSpan.end();
           accumulator.sawRequestError = true;
+          await providerRoutePheromoneStore.noteFailure(candidate.providerId, context.routedModel);
           const logEntryId = recordAttempt(requestLogStore, providerContext, {
             providerId: candidate.providerId,
             accountId: candidate.account.accountId,
@@ -516,11 +524,19 @@ export async function executeProviderFallback(
         if (isRateLimitResponse(upstreamResponse)) {
           accumulator.sawRateLimit = true;
           let cooldownMs: number | undefined;
-          if (quotaMonitor) {
+          if (quotaMonitor?.tracksProvider(candidate.account.providerId)) {
             cooldownMs = quotaMonitor.getCooldownMs(candidate.account.accountId);
           }
           if (!cooldownMs) {
             cooldownMs = await extractRateLimitCooldownMs(upstreamResponse);
+          }
+          if (!cooldownMs && quotaMonitor?.tracksProvider(candidate.account.providerId)) {
+            try {
+              await quotaMonitor.refreshAccountQuota(candidate.account.accountId);
+            } catch {
+              // Ignore quota lookup failures and fall back to response-derived cooldowns.
+            }
+            cooldownMs = quotaMonitor.getCooldownMs(candidate.account.accountId);
           }
           if (!cooldownMs) {
             cooldownMs = context.config.keyCooldownMs;
@@ -546,13 +562,31 @@ export async function executeProviderFallback(
             : upstreamResponse.status === 402
               ? 24 * 60 * 60 * 1000
               : Math.min(context.config.keyCooldownMs, 60_000);
-          const quotaCooldownMs = healthStore
-            ? healthStore.getGrowingCooldown(candidate.account.providerId, candidate.account.accountId, baseCooldownMs)
-            : baseCooldownMs;
+          let quotaCooldownMs: number | undefined;
+          if (quotaMonitor?.tracksProvider(candidate.account.providerId)) {
+            quotaCooldownMs = quotaMonitor.getCooldownMs(candidate.account.accountId);
+            if (!quotaCooldownMs) {
+              try {
+                await quotaMonitor.refreshAccountQuota(candidate.account.accountId);
+              } catch {
+                // Ignore quota lookup failures and fall back to local cooldown heuristics.
+              }
+              quotaCooldownMs = quotaMonitor.getCooldownMs(candidate.account.accountId);
+            }
+          }
+          if (!quotaCooldownMs) {
+            quotaCooldownMs = await extractRateLimitCooldownMs(upstreamResponse);
+          }
+          if (!quotaCooldownMs) {
+            quotaCooldownMs = healthStore
+              ? healthStore.getGrowingCooldown(candidate.account.providerId, candidate.account.accountId, baseCooldownMs)
+              : baseCooldownMs;
+          }
           keyPool.markRateLimited(candidate.account, quotaCooldownMs);
           if (healthStore) {
             healthStore.recordFailure(candidate.account, upstreamResponse.status, "quota_exhausted");
           }
+          await providerRoutePheromoneStore.noteFailure(candidate.providerId, context.routedModel);
           if (
             preferredAffinity
             && candidate.providerId === preferredAffinity.providerId
@@ -596,6 +630,7 @@ export async function executeProviderFallback(
             break;
           }
           keyPool.markRateLimited(candidate.account, Math.min(context.config.keyCooldownMs, 5000));
+          await providerRoutePheromoneStore.noteFailure(candidate.providerId, context.routedModel);
           try {
             await upstreamResponse.arrayBuffer();
           } catch {
@@ -639,6 +674,11 @@ export async function executeProviderFallback(
             if (healthStore) {
               healthStore.recordSuccess(candidate.account, upstreamResponse.status);
             }
+            await providerRoutePheromoneStore.noteSuccess(
+              candidate.providerId,
+              context.routedModel,
+              clampRouteQuality(latencyMs),
+            );
             releaseInFlight();
             return { handled: true, candidateCount: candidates.length, summary: accumulator };
           }
@@ -658,6 +698,11 @@ export async function executeProviderFallback(
           if (healthStore && upstreamResponse.ok) {
             healthStore.recordSuccess(candidate.account, upstreamResponse.status);
           }
+          await providerRoutePheromoneStore.noteSuccess(
+            candidate.providerId,
+            context.routedModel,
+            clampRouteQuality(latencyMs),
+          );
           if (eventStore) {
             eventStore.emitResponse(
               attemptEntryId, candidate.providerId, candidate.account.accountId,
@@ -692,6 +737,9 @@ export async function executeProviderFallback(
           && !outcome.modelNotSupportedForAccount
         ) {
           healthStore.recordFailure(candidate.account, upstreamResponse.status);
+        }
+        if (!upstreamResponse.ok) {
+          await providerRoutePheromoneStore.noteFailure(candidate.providerId, context.routedModel);
         }
 
         accumulator.sawRateLimit ||= outcome.rateLimit === true;
@@ -811,6 +859,11 @@ export async function executeProviderFallback(
                   if (healthStore) {
                     healthStore.recordSuccess(refreshedCredential, refreshedResponse.status);
                   }
+                  await providerRoutePheromoneStore.noteSuccess(
+                    candidate.providerId,
+                    context.routedModel,
+                    clampRouteQuality(refreshedLatencyMs),
+                  );
                   releaseInFlight();
                   return { handled: true, candidateCount: candidates.length, summary: accumulator };
                 }
@@ -829,6 +882,11 @@ export async function executeProviderFallback(
                 if (healthStore && refreshedResponse.ok) {
                   healthStore.recordSuccess(refreshedCredential, refreshedResponse.status);
                 }
+                await providerRoutePheromoneStore.noteSuccess(
+                  candidate.providerId,
+                  context.routedModel,
+                  clampRouteQuality(refreshedLatencyMs),
+                );
 
                 if (
                   promptCacheKey
@@ -850,6 +908,9 @@ export async function executeProviderFallback(
               accumulator.sawUpstreamInvalidRequest ||= refreshedOutcome.upstreamInvalidRequest === true;
               accumulator.sawModelNotFound ||= refreshedOutcome.modelNotFound === true;
               accumulator.sawModelNotSupportedForAccount ||= refreshedOutcome.modelNotSupportedForAccount === true;
+              if (!refreshedResponse.ok) {
+                await providerRoutePheromoneStore.noteFailure(candidate.providerId, context.routedModel);
+              }
               if (refreshedOutcome.upstreamAuthError) {
                 accumulator.lastUpstreamAuthError = refreshedOutcome.upstreamAuthError;
               }
@@ -864,9 +925,10 @@ export async function executeProviderFallback(
               break;
             } finally {
               refreshedRelease();
+              }
             }
-          }
-          keyPool.markRateLimited(candidate.account, Math.min(context.config.keyCooldownMs, 10_000));
+            await providerRoutePheromoneStore.noteFailure(candidate.providerId, context.routedModel);
+            keyPool.markRateLimited(candidate.account, Math.min(context.config.keyCooldownMs, 10_000));
           if (preferredAffinity && candidate.providerId === preferredAffinity.providerId && candidate.account.accountId === preferredAffinity.accountId) {
             preferredReassignmentAllowed = true;
           }

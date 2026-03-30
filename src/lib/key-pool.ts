@@ -557,8 +557,12 @@ async function readProvidersFromSources(
   return merged;
 }
 
-function accountCooldownKey(credential: ProviderCredential): string {
-  return `${credential.providerId}\0${credential.token}`;
+function accountStateKeyFromIds(providerId: string, accountId: string): string {
+  return `${providerId}\0${accountId}`;
+}
+
+function accountStateKey(credential: ProviderCredential): string {
+  return accountStateKeyFromIds(credential.providerId, credential.accountId);
 }
 
 function resolveExpiryBufferMs(expiryBufferMs: unknown): number {
@@ -608,9 +612,9 @@ export class KeyPool {
         continue;
       }
 
-      const cooldownUntil = this.cooldownByAccountKey.get(accountCooldownKey(credential)) ?? 0;
+      const cooldownUntil = this.cooldownByAccountKey.get(accountStateKey(credential)) ?? 0;
       if (cooldownUntil <= now) {
-        if ((this.inFlightByAccountKey.get(accountCooldownKey(credential)) ?? 0) > 0) {
+        if ((this.inFlightByAccountKey.get(accountStateKey(credential)) ?? 0) > 0) {
           busy.push(credential);
         } else {
           idle.push(credential);
@@ -677,7 +681,7 @@ export class KeyPool {
         continue;
       }
 
-      const cooldownUntil = this.cooldownByAccountKey.get(accountCooldownKey(credential)) ?? 0;
+      const cooldownUntil = this.cooldownByAccountKey.get(accountStateKey(credential)) ?? 0;
       if (cooldownUntil > now) {
         continue;
       }
@@ -692,7 +696,7 @@ export class KeyPool {
         continue;
       }
 
-      if ((this.inFlightByAccountKey.get(accountCooldownKey(credential)) ?? 0) > 0) {
+      if ((this.inFlightByAccountKey.get(accountStateKey(credential)) ?? 0) > 0) {
         busy.push(credential);
       } else {
         idle.push(credential);
@@ -779,7 +783,7 @@ export class KeyPool {
   }
 
   public markInFlight(credential: ProviderCredential): () => void {
-    const key = accountCooldownKey(credential);
+    const key = accountStateKey(credential);
     const current = this.inFlightByAccountKey.get(key) ?? 0;
     this.inFlightByAccountKey.set(key, current + 1);
     let released = false;
@@ -799,11 +803,25 @@ export class KeyPool {
 
   public markRateLimited(credential: ProviderCredential, retryAfterMs?: number): void {
     const cooldown = Math.max(retryAfterMs ?? this.config.defaultCooldownMs, 1000);
-    this.cooldownByAccountKey.set(accountCooldownKey(credential), Date.now() + cooldown);
+    this.cooldownByAccountKey.set(accountStateKey(credential), Date.now() + cooldown);
     getTelemetry().recordMetric("proxy.key_pool.rate_limited", 1, {
       "proxy.provider_id": credential.providerId ?? this.config.defaultProviderId,
       "proxy.account_id": credential.accountId,
     });
+  }
+
+  public setAccountCooldownUntil(providerId: string, accountId: string, cooldownUntil: number): void {
+    const key = accountStateKeyFromIds(normalizeProviderId(providerId), accountId);
+    if (!Number.isFinite(cooldownUntil) || cooldownUntil <= Date.now()) {
+      this.cooldownByAccountKey.delete(key);
+      return;
+    }
+
+    this.cooldownByAccountKey.set(key, cooldownUntil);
+  }
+
+  public clearAccountCooldown(providerId: string, accountId: string): void {
+    this.cooldownByAccountKey.delete(accountStateKeyFromIds(normalizeProviderId(providerId), accountId));
   }
 
   public async msUntilAnyKeyReady(providerId: string = this.config.defaultProviderId): Promise<number> {
@@ -834,8 +852,8 @@ export class KeyPool {
     let minDelay = Number.POSITIVE_INFINITY;
 
     for (const credential of providerState.accounts) {
-      const cooldownUntil = this.cooldownByAccountKey.get(accountCooldownKey(credential)) ?? 0;
-      if ((this.inFlightByAccountKey.get(accountCooldownKey(credential)) ?? 0) > 0) {
+      const cooldownUntil = this.cooldownByAccountKey.get(accountStateKey(credential)) ?? 0;
+      if ((this.inFlightByAccountKey.get(accountStateKey(credential)) ?? 0) > 0) {
         inFlightAccounts += 1;
       }
       if (cooldownUntil <= now) {
@@ -883,7 +901,7 @@ export class KeyPool {
 
     for (const [providerId, providerState] of this.providers.entries()) {
       statuses[providerId] = providerState.accounts.map((credential) => {
-        const key = accountCooldownKey(credential);
+        const key = accountStateKey(credential);
         const cooldownUntil = this.cooldownByAccountKey.get(key);
         const inFlight = (this.inFlightByAccountKey.get(key) ?? 0) > 0;
         const available = (cooldownUntil ?? 0) <= now;
@@ -959,7 +977,7 @@ export class KeyPool {
 
     for (const providerState of this.providers.values()) {
       for (const credential of providerState.accounts) {
-        activeKeys.add(accountCooldownKey(credential));
+        activeKeys.add(accountStateKey(credential));
       }
     }
 

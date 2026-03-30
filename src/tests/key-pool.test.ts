@@ -188,6 +188,43 @@ test("prefers non-busy accounts before reusing in-flight accounts", async () => 
   );
 });
 
+test("rate-limit cooldown survives OAuth token refresh for the same account", async () => {
+  await withKeysFile(
+    {
+      providers: {
+        openai: {
+          auth: "oauth_bearer",
+          accounts: [
+            { id: "oa-1", access_token: "oa-token-old", chatgpt_account_id: "chatgpt-a" },
+          ],
+        },
+      },
+    },
+    async (keysFilePath) => {
+      const keyPool = new KeyPool({
+        keysFilePath,
+        reloadIntervalMs: 100000,
+        defaultCooldownMs: 60_000,
+        defaultProviderId: "openai",
+      });
+
+      await keyPool.warmup();
+      const credential = (await keyPool.getRequestOrder("openai"))[0]!;
+
+      keyPool.markRateLimited(credential, 60_000);
+
+      const refreshedCredential: ProviderCredential = {
+        ...credential,
+        token: "oa-token-new",
+      };
+      keyPool.updateAccountCredential("openai", credential, refreshedCredential);
+
+      const afterRefresh = await keyPool.getRequestOrder("openai");
+      assert.deepEqual(afterRefresh, []);
+    },
+  );
+});
+
 test("loads env-backed openrouter and requesty providers alongside file accounts", { concurrency: false }, async () => {
   await withEnv(
     {

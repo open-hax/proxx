@@ -335,7 +335,7 @@ export class AccountHealthStore {
       if (expiresAt && expiresAt <= Date.now()) {
         return 0.1;
       }
-      return 0.5;
+      return 1;
     }
     return computeHealthScore(health, expiresAt);
   }

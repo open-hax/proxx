@@ -1,3 +1,4 @@
+import { dirname, join } from "node:path";
 import { Readable } from "node:stream";
 
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
@@ -95,6 +96,7 @@ import {
 import { getTelemetry, type TelemetrySpan } from "./lib/telemetry/otel.js";
 import { RequestLogStore } from "./lib/request-log-store.js";
 import { PromptAffinityStore } from "./lib/prompt-affinity-store.js";
+import { ProviderRoutePheromoneStore } from "./lib/provider-route-pheromone-store.js";
 import { ProxySettingsStore } from "./lib/proxy-settings-store.js";
 import { QuotaMonitor } from "./lib/quota-monitor.js";
 import { registerUiRoutes } from "./lib/ui-routes.js";
@@ -337,6 +339,11 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     config.promptAffinityFlushMs,
   );
   await promptAffinityStore.warmup();
+  const providerRoutePheromoneStore = new ProviderRoutePheromoneStore(
+    join(dirname(config.requestLogsFilePath), "provider-route-pheromones.json"),
+    config.promptAffinityFlushMs,
+  );
+  await providerRoutePheromoneStore.warmup();
   const proxySettingsStore = new ProxySettingsStore(config.settingsFilePath, sql);
   await proxySettingsStore.warmup();
 
@@ -677,6 +684,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       quotaCriticalThreshold: 98,
     },
     accountHealthStore,
+    keyPool,
   );
   quotaMonitor.start();
 
@@ -1003,7 +1011,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
   const deps: AppDeps = {
     app, config, keyPool, credentialStore, runtimeCredentialStore,
     sqlCredentialStore, sqlFederationStore, sqlTenantProviderPolicyStore,
-    accountHealthStore, eventStore, requestLogStore, promptAffinityStore,
+    accountHealthStore, eventStore, requestLogStore, promptAffinityStore, providerRoutePheromoneStore,
     proxySettingsStore, policyEngine, providerCatalogStore, tokenRefreshManager,
     dynamicProviderBaseUrlGetter: dynamicProviderBaseUrlGetter
       ? async (id: string) => (await dynamicProviderBaseUrlGetter(id)) ?? undefined
@@ -1069,6 +1077,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     }
 
     await promptAffinityStore.close();
+    await providerRoutePheromoneStore.close();
     await requestLogStore.close();
     await credentialStore.close();
     if (sql) {
