@@ -161,6 +161,7 @@ import { registerWebsearchRoutes } from "./routes/websearch.js";
 import { registerModelsRoutes } from "./routes/models.js";
 import { registerEmbeddingsRoutes } from "./routes/embeddings.js";
 import { registerNativeOllamaRoutes } from "./routes/native-ollama.js";
+import { registerBridgeLeaseRoutes } from "./routes/bridge/lease.js";
 import { registerHealthRoutes } from "./routes/health.js";
 
 export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
@@ -1032,6 +1033,12 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
   registerImagesRoutes(deps, app);
   registerEmbeddingsRoutes(deps, app);
   registerNativeOllamaRoutes(deps, app);
+  await registerBridgeLeaseRoutes(app, {
+    config,
+    keyPool,
+    credentialStore: runtimeCredentialStore,
+    refreshOpenAiOauthAccounts,
+  });
 
   const uiBridgeRelay = await registerUiRoutes(app, {
     config,
@@ -1060,6 +1067,12 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     eventStore,
     refreshOpenAiOauthAccounts,
     bridgeRelay: uiBridgeRelay,
+  });
+
+  app.addHook("onListen", async () => {
+    if (bridgeAgent) {
+      await bridgeAgent.start();
+    }
   });
 
   app.addHook("onClose", async () => {

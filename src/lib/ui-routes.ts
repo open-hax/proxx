@@ -44,6 +44,8 @@ import { registerEventRoutes } from "../routes/api/ui/events/index.js";
 import { registerMcpSeedRoutes } from "../routes/api/ui/mcp/index.js";
 import { registerStaticAssetRoutes } from "../routes/api/ui/assets.js";
 import { registerWebSocketRoutes } from "../routes/api/ui/ws.js";
+import { registerObservabilityRoutes } from "../routes/observability/index.js";
+import { LEGACY_OBSERVABILITY_ROUTE_PREFIX } from "../routes/observability/prefix.js";
 
 
 
@@ -108,6 +110,12 @@ export async function registerUiRoutes(app: FastifyInstance, deps: UiRouteDepend
   await registerUsageAnalyticsRoutes(app, deps);
   await registerHostDashboardRoutes(app, deps);
   await registerCredentialUiRoutes(app, deps);
+  await registerObservabilityRoutes(app, deps, {
+    prefix: LEGACY_OBSERVABILITY_ROUTE_PREFIX,
+    includeDashboardOverview: false,
+    includeProviderModelAnalytics: false,
+    includeMcpServers: false,
+  });
   await registerMcpSeedRoutes(app, deps);
   await registerEventRoutes(app, deps);
   await registerStaticAssetRoutes(app);

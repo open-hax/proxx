@@ -1,9 +1,31 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { constants } from "node:fs";
+import { access, readFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
-test("big ussy bootstrap script keeps repaired local-core relay contract", async () => {
-  const scriptPath = "/home/err/devel/services/proxx/bin/project-complete-devel-stack-to-big-ussy.sh";
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const repoRoot = resolve(__dirname, "../..");
+
+function resolveBigUssyBootstrapScriptPath(): string {
+  const override = process.env.PROXX_BIG_USSY_BOOTSTRAP_SCRIPT?.trim();
+  if (override) {
+    return override;
+  }
+
+  return resolve(repoRoot, "../../../services/proxx/bin/project-complete-devel-stack-to-big-ussy.sh");
+}
+
+test("big ussy bootstrap script keeps repaired local-core relay contract", async (t) => {
+  const scriptPath = resolveBigUssyBootstrapScriptPath();
+  try {
+    await access(scriptPath, constants.R_OK);
+  } catch {
+    t.skip(`bootstrap script not present at ${scriptPath}`);
+    return;
+  }
+
   const script = await readFile(scriptPath, "utf8");
 
   assert.match(script, /REMOTE_RELAY_PORT="18790"/);

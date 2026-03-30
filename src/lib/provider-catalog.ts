@@ -5,7 +5,21 @@ import { parseModelIdsFromCatalogPayload, buildLargestModelAliases, dedupeModelI
 import { fetchWithResponseTimeout } from "./provider-utils.js";
 import { loadDeclaredModels, loadModelPreferences, type ModelPreferences } from "./models.js";
 
-const CATALOG_ROUTE_TIMEOUT_MS = 15_000;
+const DEFAULT_CATALOG_ROUTE_TIMEOUT_MS = 15_000;
+
+function resolveCatalogRouteTimeoutMs(): number {
+  const raw = process.env.PROXY_PROVIDER_CATALOG_ROUTE_TIMEOUT_MS?.trim();
+  if (!raw) {
+    return DEFAULT_CATALOG_ROUTE_TIMEOUT_MS;
+  }
+
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return DEFAULT_CATALOG_ROUTE_TIMEOUT_MS;
+  }
+
+  return parsed;
+}
 
 export interface ProviderCatalogEntry {
   readonly providerId: string;
@@ -107,6 +121,7 @@ function buildPreferredAliasTargets(preferredAliases: Readonly<Record<string, st
 export class ProviderCatalogStore {
   private cached: CachedCatalog | null = null;
   private readonly ttlMs: number;
+  private readonly routeTimeoutMs: number;
 
   constructor(
     private readonly config: ProxyConfig,
@@ -115,6 +130,7 @@ export class ProviderCatalogStore {
     private readonly ollamaRoutes: readonly ProviderRoute[],
   ) {
     this.ttlMs = Math.max(5_000, Math.min(120_000, Math.trunc(config.keyReloadMs)));
+    this.routeTimeoutMs = resolveCatalogRouteTimeoutMs();
   }
 
   public async getCatalog(forceRefresh = false): Promise<ResolvedCatalogWithPreferences> {
@@ -222,7 +238,7 @@ export class ProviderCatalogStore {
     candidatePaths: readonly string[],
   ): Promise<string[]> {
     const controller = new AbortController();
-    const timeoutHandle = setTimeout(() => controller.abort(), CATALOG_ROUTE_TIMEOUT_MS);
+    const timeoutHandle = setTimeout(() => controller.abort(), this.routeTimeoutMs);
     try {
       const result = await Promise.race([
         this.fetchProviderModelCatalog(route, candidatePaths, controller.signal),

@@ -154,7 +154,7 @@ test("tenant provider policy routes list and upsert policies", async () => {
 
   const keyPool = new KeyPool({
     keysFilePath: keysPath,
-    reloadIntervalMs: 50,
+    reloadIntervalMs: 60_000,
     defaultCooldownMs: 10_000,
     defaultProviderId: config.upstreamProviderId,
   });
@@ -1326,7 +1326,7 @@ test("credentials and quota routes merge runtime-visible oauth accounts with sto
 
   const keyPool = new KeyPool({
     keysFilePath: keysPath,
-    reloadIntervalMs: 50,
+    reloadIntervalMs: 60_000,
     defaultCooldownMs: 10_000,
     defaultProviderId: config.upstreamProviderId,
   });
@@ -1359,7 +1359,7 @@ test("credentials and quota routes merge runtime-visible oauth accounts with sto
   (keyPool as unknown as { providers: Map<string, { authType: "oauth_bearer"; accounts: typeof visibleAccounts; nextOffset: number }> }).providers = new Map([
     ["openai", { authType: "oauth_bearer", accounts: visibleAccounts, nextOffset: 0 }],
   ]);
-  (keyPool as unknown as { lastReloadAt: number }).lastReloadAt = Date.now();
+  (keyPool as unknown as { lastReloadAt: number }).lastReloadAt = Date.now() + 60_000;
 
   const credentialStore: CredentialStoreLike = {
     async listProviders(revealSecrets: boolean) {
@@ -1462,7 +1462,15 @@ test("credentials and quota routes merge runtime-visible oauth accounts with sto
     globalThis.fetch = originalFetch;
     await app.close();
     await requestLogStore.close();
-    await upstream.close();
+    await new Promise<void>((resolve, reject) => {
+      upstream.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve();
+      });
+    });
     await rm(tempDir, { recursive: true, force: true });
   }
 });

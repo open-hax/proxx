@@ -164,6 +164,8 @@ export function registerChatRoutes(deps: AppDeps, app: FastifyInstance): void {
         providerRoutes = deps.config.disabledProviderIds.includes("factory")
           ? []
           : [{ providerId: "factory", baseUrl: factoryBaseUrl }];
+      } else if (context.explicitOllama) {
+        providerRoutes = [];
       } else {
         providerRoutes = await buildProviderRoutesWithDynamicBaseUrls(
           deps.config,
@@ -247,11 +249,15 @@ export function registerChatRoutes(deps: AppDeps, app: FastifyInstance): void {
         }
 
         if (providerRoutes.length === 0) {
-          if (hasMoreModelCandidates) {
-            continue;
+          if (strategy.isLocal) {
+            // Explicit/local Ollama routes execute against config.ollamaBaseUrl without provider-route gating.
+          } else {
+            if (hasMoreModelCandidates) {
+              continue;
+            }
+            sendOpenAiError(reply, 503, "No healthy Ollama nodes are currently available.", "server_error", "healthy_nodes_unavailable");
+            return;
           }
-          sendOpenAiError(reply, 503, "No healthy Ollama nodes are currently available.", "server_error", "healthy_nodes_unavailable");
-          return;
         }
 
         if (shouldRejectModelFromProviderCatalog(providerRoutes, context.routedModel, catalogBundle)) {
