@@ -326,6 +326,8 @@ export class SqlCredentialStore {
     await this.sql.unsafe(CREATE_CONFIG_TABLE);
     await this.sql.unsafe(CREATE_VERSION_TABLE);
 
+    await this.sql.unsafe("ALTER TABLE providers ADD COLUMN IF NOT EXISTS base_url TEXT;");
+
     const versionExists = await this.sql.unsafe<Array<{ "?column?": number }>>(
       CHECK_VERSION_EXISTS,
       [SCHEMA_VERSION]

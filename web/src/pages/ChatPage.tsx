@@ -154,13 +154,23 @@ export function ChatPage(): JSX.Element {
     }
   }, [model, setModel]);
 
+  const hasLoadedSessions = useRef(false);
   useEffect(() => {
+    if (hasLoadedSessions.current) {
+      return;
+    }
+    hasLoadedSessions.current = true;
     void refreshSessions().catch((nextError) => {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
     });
   }, [refreshSessions]);
 
+  const hasLoadedModels = useRef(false);
   useEffect(() => {
+    if (hasLoadedModels.current) {
+      return;
+    }
+    hasLoadedModels.current = true;
     void refreshModelOptions().catch((nextError) => {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
     });

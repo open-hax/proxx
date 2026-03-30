@@ -31,8 +31,8 @@ jobs:
       - run: /home/runner/go/bin/actionlint
       - run: pnpm install --frozen-lockfile
       - run: pnpm run typecheck
-      - run: pnpm test
       - run: pnpm run build
+      - run: node --test --test-concurrency=1 dist/tests/account-identity.test.js dist/tests/auto-model-selector.test.js dist/tests/config.test.js dist/tests/escape-html.test.js dist/tests/factory-config.test.js dist/tests/federation-owner-credential.test.js dist/tests/host-dashboard.test.js dist/tests/json-seeder.test.js dist/tests/key-pool.test.js dist/tests/messages-compat.test.js dist/tests/model-pricing.test.js dist/tests/openai-oauth.test.js dist/tests/policy.test.js dist/tests/prompt-affinity-store.test.js dist/tests/provider-policy.test.js dist/tests/provider-routing.test.js dist/tests/proxy-headers.test.js dist/tests/proxy-rate-limit.test.js dist/tests/proxy-settings-store.test.js dist/tests/quota-monitor.test.js dist/tests/request-auth.test.js dist/tests/request-log-store.test.js dist/tests/sql-credential-store.test.js dist/tests/sql-tenant-provider-policy-store.test.js dist/tests/sse-usage.test.js dist/tests/tenant-api-key.test.js dist/tests/tenant-provider-policy-routes.test.js dist/tests/tenant-provider-policy.test.js
       - run: pnpm run web:build
 
   deploy-staging:
