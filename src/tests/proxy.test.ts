@@ -10895,6 +10895,7 @@ test("/api/v1/federation/bridges lists canonical bridge sessions", async () => {
   );
 });
 
+
 test("federation diff-events route stays wired after extraction and reports missing store cleanly", async () => {
   await withProxyApp(
     {

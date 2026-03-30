@@ -3,7 +3,7 @@ name: proxx-big-ussy-hub-spokes
 x-proxx-node: &proxx-node
   image: proxx-big-ussy-hub-spokes:latest
   build:
-    context: ..
+    context: ../../../orgs/open-hax/proxx
     dockerfile: Dockerfile
   restart: unless-stopped
   extra_hosts:
