@@ -24,7 +24,6 @@ import {
 import {
   buildProviderRoutesWithDynamicBaseUrls,
   filterResponsesApiRoutes,
-  resolveProviderRoutesForModel,
   minMsUntilAnyProviderKeyReady,
   type ProviderRoute,
 } from "../lib/provider-routing.js";

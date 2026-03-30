@@ -37,18 +37,6 @@ interface UsageAccountSummary {
   readonly lastUsedAt: string | null;
 }
 
-function parseRequestLogRouteKind(value: string | undefined): RequestLogWsSubscription["routeKind"] {
-  const normalized = value?.trim().toLowerCase();
-  if (normalized === "local" || normalized === "federated" || normalized === "bridge" || normalized === "routed" || normalized === "any") {
-    return normalized;
-  }
-  return undefined;
-}
-
-interface RequestLogWsSubscription {
-  readonly routeKind?: "local" | "federated" | "bridge" | "routed" | "any";
-}
-
 interface TrendPoint {
   readonly t: string;
   readonly v: number;
@@ -170,84 +158,6 @@ export function toUsageWindow(value: unknown): UsageWindow {
     return "weekly";
   }
   return "daily";
-}
-
-function sanitizeFederationUsageEntry(candidate: unknown): RequestLogEntry | undefined {
-  if (typeof candidate !== "object" || candidate === null) {
-    return undefined;
-  }
-
-  const row = candidate as Record<string, unknown>;
-  const id = typeof row.id === "string" ? row.id.trim() : "";
-  const providerId = typeof row.providerId === "string" ? row.providerId.trim() : "";
-  const accountId = typeof row.accountId === "string" ? row.accountId.trim() : "";
-  const authType = row.authType;
-  const model = typeof row.model === "string" ? row.model.trim() : "";
-  const upstreamMode = typeof row.upstreamMode === "string" ? row.upstreamMode.trim() : "";
-  const upstreamPath = typeof row.upstreamPath === "string" ? row.upstreamPath.trim() : "";
-  const timestamp = typeof row.timestamp === "number" && Number.isFinite(row.timestamp) ? row.timestamp : undefined;
-  const status = typeof row.status === "number" && Number.isFinite(row.status) ? row.status : undefined;
-  const latencyMs = typeof row.latencyMs === "number" && Number.isFinite(row.latencyMs) ? row.latencyMs : undefined;
-  const serviceTierSource = row.serviceTierSource;
-
-  if (!id || !providerId || !accountId || !model || !upstreamMode || !upstreamPath || timestamp === undefined || status === undefined || latencyMs === undefined) {
-    return undefined;
-  }
-
-  const normalizedAuthType: RequestLogEntry["authType"] =
-    authType === "api_key" || authType === "oauth_bearer" || authType === "local" || authType === "none"
-      ? authType
-      : "none";
-
-  const normalizedRouteKind: RequestLogEntry["routeKind"] =
-    row.routeKind === "local" || row.routeKind === "federated" || row.routeKind === "bridge"
-      ? row.routeKind
-      : "local";
-
-  const normalizedServiceTierSource: RequestLogEntry["serviceTierSource"] =
-    serviceTierSource === "fast_mode" || serviceTierSource === "explicit" || serviceTierSource === "none"
-      ? serviceTierSource
-      : "none";
-
-  return {
-    id,
-    timestamp,
-    tenantId: typeof row.tenantId === "string" ? row.tenantId : undefined,
-    issuer: typeof row.issuer === "string" ? row.issuer : undefined,
-    keyId: typeof row.keyId === "string" ? row.keyId : undefined,
-    routeKind: normalizedRouteKind,
-    federationOwnerSubject: typeof row.federationOwnerSubject === "string" ? row.federationOwnerSubject : undefined,
-    routedPeerId: typeof row.routedPeerId === "string" ? row.routedPeerId : undefined,
-    routedPeerLabel: typeof row.routedPeerLabel === "string" ? row.routedPeerLabel : undefined,
-    providerId,
-    accountId,
-    authType: normalizedAuthType,
-    model,
-    upstreamMode,
-    upstreamPath,
-    status,
-    latencyMs,
-    serviceTier: typeof row.serviceTier === "string" ? row.serviceTier : undefined,
-    serviceTierSource: normalizedServiceTierSource,
-    promptTokens: typeof row.promptTokens === "number" && Number.isFinite(row.promptTokens) ? row.promptTokens : undefined,
-    completionTokens: typeof row.completionTokens === "number" && Number.isFinite(row.completionTokens) ? row.completionTokens : undefined,
-    totalTokens: typeof row.totalTokens === "number" && Number.isFinite(row.totalTokens) ? row.totalTokens : undefined,
-    cachedPromptTokens: typeof row.cachedPromptTokens === "number" && Number.isFinite(row.cachedPromptTokens) ? row.cachedPromptTokens : undefined,
-    imageCount: typeof row.imageCount === "number" && Number.isFinite(row.imageCount) ? row.imageCount : undefined,
-    imageCostUsd: typeof row.imageCostUsd === "number" && Number.isFinite(row.imageCostUsd) ? row.imageCostUsd : undefined,
-    promptCacheKeyHash: typeof row.promptCacheKeyHash === "string" ? row.promptCacheKeyHash : undefined,
-    promptCacheKeyUsed: row.promptCacheKeyUsed === true,
-    cacheHit: row.cacheHit === true,
-    ttftMs: typeof row.ttftMs === "number" && Number.isFinite(row.ttftMs) ? row.ttftMs : undefined,
-    tps: typeof row.tps === "number" && Number.isFinite(row.tps) ? row.tps : undefined,
-    error: typeof row.error === "string" ? row.error : undefined,
-    upstreamErrorCode: typeof row.upstreamErrorCode === "string" ? row.upstreamErrorCode : undefined,
-    upstreamErrorType: typeof row.upstreamErrorType === "string" ? row.upstreamErrorType : undefined,
-    upstreamErrorMessage: typeof row.upstreamErrorMessage === "string" ? row.upstreamErrorMessage : undefined,
-    costUsd: typeof row.costUsd === "number" && Number.isFinite(row.costUsd) ? row.costUsd : undefined,
-    energyJoules: typeof row.energyJoules === "number" && Number.isFinite(row.energyJoules) ? row.energyJoules : undefined,
-    waterEvaporatedMl: typeof row.waterEvaporatedMl === "number" && Number.isFinite(row.waterEvaporatedMl) ? row.waterEvaporatedMl : undefined,
-  };
 }
 
 export function toSafeLimit(value: unknown, fallback: number, max: number): number {

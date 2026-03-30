@@ -30,7 +30,6 @@ import { isAutoModel, rankAutoModels } from "../lib/auto-model-selector.js";
 import { isCephalonAutoModel, buildCephalonModelCandidates, reorderCephalonProviderRoutes } from "../lib/provider-strategy/strategies/cephalon.js";
 import { requestHasExplicitNumCtx } from "../lib/ollama-compat.js";
 import { ensureOllamaContextFits } from "../lib/ollama-context.js";
-import { executeFederatedRequestFallback } from "../lib/federation/federated-fallback.js";
 import { executeBridgeRequestFallback } from "../lib/federation/bridge-fallback.js";
 import type { AppDeps } from "../lib/app-deps.js";
 
@@ -234,7 +233,7 @@ export function registerChatRoutes(deps: AppDeps, app: FastifyInstance): void {
         }
       }
 
-      if (strategy.isLocal && providerRoutes.length === 0) {
+      if (strategy.isLocal) {
         if (!tenantProviderAllowed(proxySettings, "ollama")) {
           if (hasMoreModelCandidates) {
             continue;
