@@ -36,9 +36,15 @@ x-proxx-env: &proxx-env
   UPSTREAM_FALLBACK_PROVIDER_IDS: "${UPSTREAM_FALLBACK_PROVIDER_IDS:-ollama-cloud,requesty}"
   DISABLED_PROVIDER_IDS: "${DISABLED_PROVIDER_IDS:-}"
   UPSTREAM_BASE_URL: "${UPSTREAM_BASE_URL:-}"
-  UPSTREAM_PROVIDER_BASE_URLS: "${UPSTREAM_PROVIDER_BASE_URLS:-ollama-cloud=https://ollama.com,ob1=https://dashboard.openblocklabs.com/api,openai=https://chatgpt.com/backend-api,openrouter=https://openrouter.ai/api/v1,requesty=https://router.requesty.ai/v1,vivgrid=https://api.vivgrid.com}"
+  UPSTREAM_PROVIDER_BASE_URLS: "${UPSTREAM_PROVIDER_BASE_URLS:-ollama-cloud=https://ollama.com,ob1=https://dashboard.openblocklabs.com/api,openai=https://chatgpt.com/backend-api,openrouter=https://openrouter.ai/api/v1,requesty=https://router.requesty.ai/v1,vivgrid=https://api.vivgrid.com,zen=https://opencode.ai/zen/v1,ollama-stealth=http://host.docker.internal:11434,ollama-big-ussy=http://10.0.0.2:11434}"
   REQUESTY_API_TOKEN: "${REQUESTY_API_TOKEN:-}"
   REQUESTY_API_KEY: "${REQUESTY_API_KEY:-}"
+  ZEN_API_KEY: "${ZEN_API_KEY:-}"
+  ZENMUX_API_KEY: "${ZENMUX_API_KEY:-}"
+  ZEN_BASE_URL: "${ZEN_BASE_URL:-https://opencode.ai/zen/v1}"
+  ZENMUX_BASE_URL: "${ZENMUX_BASE_URL:-https://zenmux.ai/api/v1}"
+  OLLAMA_STEALTH_BASE_URL: "${OLLAMA_STEALTH_BASE_URL:-http://host.docker.internal:11434}"
+  OLLAMA_BIG_USSY_BASE_URL: "${OLLAMA_BIG_USSY_BASE_URL:-http://10.0.0.2:11434}"
   OPENAI_PROVIDER_ID: "${OPENAI_PROVIDER_ID:-openai}"
   OPENAI_BASE_URL: "${OPENAI_BASE_URL:-https://chatgpt.com/backend-api}"
   OPENAI_API_BASE_URL: "${OPENAI_API_BASE_URL:-https://api.openai.com}"
@@ -124,7 +130,6 @@ services:
     environment:
       <<: *proxx-env
       PROXY_AUTH_TOKEN: "${PROXY_AUTH_TOKEN:-change-me-open-hax-proxy-token}"
-      PROXY_KEYS_FILE: /workspace/service-config/keys.json
       PROXY_MODELS_FILE: /workspace/service-config/models.json
       DATABASE_URL: "${DATABASE_URL:-postgresql://openai_proxy:openai_proxy@open-hax-openai-proxy-db:5432/openai_proxy}"
       OTEL_SERVICE_NAME: "${OTEL_SERVICE_NAME:-proxx-big-ussy-core}"
@@ -134,7 +139,6 @@ services:
       FEDERATION_SELF_PEER_DID: "${BIG_USSY_CORE_PEER_DID:-did:web:federation.big.ussy.promethean.rest}"
       FEDERATION_SELF_PUBLIC_BASE_URL: "${FEDERATION_SELF_PUBLIC_BASE_URL:-https://federation.big.ussy.promethean.rest}"
     volumes:
-      - ../keys.json:/workspace/service-config/keys.json:ro
       - ../models.json:/workspace/service-config/models.json:ro
       - proxx-data:/app/data
       - ../:/workspace/runtime-repo:ro
@@ -180,7 +184,6 @@ services:
       <<: *proxx-env
       OPENAI_OAUTH_CALLBACK_PORT: "${FEDERATION_OAUTH_CALLBACK_PORT:-18756}"
       PROXY_AUTH_TOKEN: "${FEDERATION_PROXY_AUTH_TOKEN:-big-ussy-federation-spoke-token}"
-      PROXY_KEYS_FILE: /workspace/service-config/keys.json
       PROXY_MODELS_FILE: /workspace/service-config/models.json
       DATABASE_URL: "${FEDERATION_DATABASE_URL:-postgresql://federation_proxy:federation_proxy@proxx-federation-peer-db:5432/federation_proxy}"
       OTEL_SERVICE_NAME: "${FEDERATION_OTEL_SERVICE_NAME:-proxx-big-ussy-federation-peer}"
@@ -190,7 +193,6 @@ services:
       FEDERATION_SELF_PEER_DID: "${BIG_USSY_FEDERATION_PEER_DID:-did:web:big.ussy.promethean.rest:spokes:federation}"
       FEDERATION_SELF_PUBLIC_BASE_URL: "${FEDERATION_SELF_PUBLIC_BASE_URL_FEDERATION:-http://proxx-federation-peer:8789}"
     volumes:
-      - ../keys.json:/workspace/service-config/keys.json:ro
       - ../models.json:/workspace/service-config/models.json:ro
       - proxx-federation-peer-data:/app/data
       - ../:/workspace/runtime-repo:ro
@@ -236,7 +238,6 @@ services:
       <<: *proxx-env
       OPENAI_OAUTH_CALLBACK_PORT: "${BLONGS_OAUTH_CALLBACK_PORT:-2456}"
       PROXY_AUTH_TOKEN: "${BLONGS_PROXY_AUTH_TOKEN:-big-ussy-blongs-spoke-token}"
-      PROXY_KEYS_FILE: /workspace/service-config/keys.json
       PROXY_MODELS_FILE: /workspace/service-config/models.json
       DATABASE_URL: "${BLONGS_DATABASE_URL:-postgresql://blongs_proxy:blongs_proxy@proxx-blongs-db:5432/blongs_proxy}"
       OTEL_SERVICE_NAME: "${BLONGS_OTEL_SERVICE_NAME:-proxx-big-ussy-blongs}"
@@ -246,7 +247,6 @@ services:
       FEDERATION_SELF_PEER_DID: "${BIG_USSY_BLONGS_PEER_DID:-did:web:big.ussy.promethean.rest:spokes:blongs}"
       FEDERATION_SELF_PUBLIC_BASE_URL: "${FEDERATION_SELF_PUBLIC_BASE_URL_BLONGS:-http://proxx-blongs:8789}"
     volumes:
-      - ../keys.json:/workspace/service-config/keys.json:ro
       - ../models.json:/workspace/service-config/models.json:ro
       - proxx-blongs-data:/app/data
       - ../:/workspace/runtime-repo:ro
@@ -292,9 +292,7 @@ services:
       <<: *proxx-env
       OPENAI_OAUTH_CALLBACK_PORT: "${CEPHALON_PROXX_OAUTH_PORT:-12455}"
       PROXY_AUTH_TOKEN: "${PROXX_PROXY_AUTH_TOKEN:-big-ussy-cephalon-spoke-token}"
-      PROXY_KEYS_FILE: /workspace/service-config/keys.empty.json
       PROXY_MODELS_FILE: /workspace/service-config/models.json
-      PROXY_KEYS_JSON: '${PROXX_KEYS_JSON:-{"providers":{"ollama-cloud":[]}}}'
       DATABASE_URL: "${PROXX_DATABASE_URL:-postgresql://cephalon_proxx:cephalon_proxx@cephalon-hive-proxx-db:5432/cephalon_proxx}"
       UPSTREAM_PROVIDER_ID: "${PROXX_UPSTREAM_PROVIDER_ID:-ollama-cloud}"
       UPSTREAM_FALLBACK_PROVIDER_IDS: "${PROXX_UPSTREAM_FALLBACK_PROVIDER_IDS:-}"
@@ -311,7 +309,6 @@ services:
       FEDERATION_SELF_PEER_DID: "${BIG_USSY_CEPHALON_PEER_DID:-did:web:big.ussy.promethean.rest:spokes:cephalon}"
       FEDERATION_SELF_PUBLIC_BASE_URL: "${PROXX_FEDERATION_SELF_PUBLIC_BASE_URL:-http://cephalon-hive-proxx:8789}"
     volumes:
-      - ../keys.empty.json:/workspace/service-config/keys.empty.json:ro
       - ../models.json:/workspace/service-config/models.json:ro
       - cephalon-hive-proxx-data:/app/data
     networks:

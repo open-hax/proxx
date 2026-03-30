@@ -98,7 +98,6 @@ build_runtime_payloads() {
     : "${DEPLOY_SOURCE_HOST:?DEPLOY_SOURCE_HOST is required when DEPLOY_SYNC_RUNTIME_FROM_SOURCE=true}"
     : "${DEPLOY_SOURCE_PATH:?DEPLOY_SOURCE_PATH is required when DEPLOY_SYNC_RUNTIME_FROM_SOURCE=true}"
     fetch_remote_file "$SOURCE_REMOTE" "$DEPLOY_SOURCE_PATH/.env" "$TMP_DIR/.env"
-    fetch_remote_file "$SOURCE_REMOTE" "$DEPLOY_SOURCE_PATH/keys.json" "$TMP_DIR/keys.json"
     fetch_remote_file "$SOURCE_REMOTE" "$DEPLOY_SOURCE_PATH/models.json" "$TMP_DIR/models.json"
   fi
 
@@ -113,9 +112,6 @@ build_runtime_payloads() {
 
   if [[ -n "${DEPLOY_ENV_FILE:-}" ]]; then
     printf '%s' "$DEPLOY_ENV_FILE" > "$TMP_DIR/.env"
-  fi
-  if [[ -n "${DEPLOY_KEYS_JSON:-}" ]]; then
-    printf '%s' "$DEPLOY_KEYS_JSON" > "$TMP_DIR/keys.json"
   fi
   if [[ -n "${DEPLOY_MODELS_JSON:-}" ]]; then
     printf '%s' "$DEPLOY_MODELS_JSON" > "$TMP_DIR/models.json"
@@ -142,7 +138,6 @@ sync_repo_tree() {
     --exclude '/node_modules/' \
     --exclude '/dist/' \
     --exclude '/.env' \
-    --exclude '/keys.json' \
     --exclude '/models.json' \
     --exclude '/data/' \
     --exclude '/db-backups/' \
@@ -150,9 +145,6 @@ sync_repo_tree() {
 
   if [[ -f "$TMP_DIR/.env" ]]; then
     rsync -az "$TMP_DIR/.env" "$REMOTE:$DEPLOY_PATH/.env"
-  fi
-  if [[ -f "$TMP_DIR/keys.json" ]]; then
-    rsync -az "$TMP_DIR/keys.json" "$REMOTE:$DEPLOY_PATH/keys.json"
   fi
   if [[ -f "$TMP_DIR/models.json" ]]; then
     rsync -az "$TMP_DIR/models.json" "$REMOTE:$DEPLOY_PATH/models.json"

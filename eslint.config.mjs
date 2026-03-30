@@ -105,15 +105,15 @@ export default tseslint.config(
   {
     files: ["src/routes/**/*.ts"],
     rules: {
-      "complexity": ["warn", 20],
-      "sonarjs/cognitive-complexity": ["warn", 30],
+      "complexity": ["warn", 18],
+      "sonarjs/cognitive-complexity": ["warn", 28],
       "max-lines-per-function": ["warn", {
-        "max": 100,
+        "max": 90,
         "skipBlankLines": true,
         "skipComments": true
       }],
       "max-lines": ["warn", {
-        "max": 500,
+        "max": 450,
         "skipBlankLines": true,
         "skipComments": true
       }],

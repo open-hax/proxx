@@ -27,6 +27,7 @@ import {
 import { orderProviderRoutesByPolicy } from "../lib/provider-policy.js";
 import { sendOpenAiError, toErrorMessage } from "../lib/provider-utils.js";
 import { isAutoModel, rankAutoModels } from "../lib/auto-model-selector.js";
+import { isCephalonAutoModel, buildCephalonModelCandidates, reorderCephalonProviderRoutes } from "../lib/provider-strategy/strategies/cephalon.js";
 import { requestHasExplicitNumCtx } from "../lib/ollama-compat.js";
 import { ensureOllamaContextFits } from "../lib/ollama-context.js";
 import { executeFederatedRequestFallback } from "../lib/federation/federated-fallback.js";
@@ -85,16 +86,32 @@ export function registerChatRoutes(deps: AppDeps, app: FastifyInstance): void {
     }
 
     const concreteModelIds = resolvableConcreteModelIds(resolvedModelCatalog);
-    const routingModelCandidates = isAutoModel(routingModelInput)
-      ? rankAutoModels(
+    const dynamicOllamaModelIds = resolvedModelCatalog?.dynamicOllamaModelIds;
+
+    const routingModelCandidates = (() => {
+      if (isCephalonAutoModel(routingModelInput)) {
+        return buildCephalonModelCandidates({
+          routingModelInput,
+          requestBody,
+          catalog: resolvedModelCatalog,
+          availableModels: concreteModelIds,
+          providerId: deps.config.upstreamProviderId,
+          requestLogStore: deps.requestLogStore,
+          accountHealthStore: deps.accountHealthStore,
+        });
+      }
+      if (isAutoModel(routingModelInput)) {
+        return rankAutoModels(
           routingModelInput,
           requestBody,
           concreteModelIds,
           deps.config.upstreamProviderId,
           deps.requestLogStore,
           deps.accountHealthStore,
-        ).map((entry) => entry.modelId)
-      : [routingModelInput];
+        ).map((entry) => entry.modelId);
+      }
+      return [routingModelInput];
+    })();
 
     if (routingModelCandidates.length === 0) {
       sendOpenAiError(reply, 404, `Model not found: ${requestedModelInput}`, "invalid_request_error", "model_not_found");
@@ -144,6 +161,16 @@ export function registerChatRoutes(deps: AppDeps, app: FastifyInstance): void {
         localOllama: context.localOllama,
         explicitOllama: context.explicitOllama,
       });
+
+      if (isCephalonAutoModel(requestedModelInput) || isCephalonAutoModel(routingModelInput)) {
+        const dynamicOllamaRoutes = dynamicOllamaModelIds && resolvedModelCatalog
+          ? providerRoutes.filter((route) => {
+            const providerId = route.providerId.toLowerCase();
+            return providerId.startsWith("ollama-") && providerId !== "ollama-cloud";
+          })
+          : undefined;
+        providerRoutes = reorderCephalonProviderRoutes(providerRoutes, dynamicOllamaRoutes);
+      }
 
       if (providerRoutes.length === 0) {
         if (hasMoreModelCandidates) {

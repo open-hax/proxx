@@ -23,7 +23,7 @@ DEVEL instructions live in `DEVEL.md`.
 - Auto-aliases tagged Ollama families to the largest variant (for example `qwen3.5` -> `qwen3.5:397b`).
 - Provider-scoped account rotation when upstream returns rate limits (`429`, plus `403/503` with `retry-after`).
 - Cross-provider fallback for shared models (for example `vivgrid` <-> `ollama-cloud`) when one provider's keys or upstream path fails.
-- Flexible `keys.json` supports both API-key and OAuth bearer accounts, with multiple accounts per provider.
+- Optional `keys.json` seeds support both API-key and OAuth bearer accounts, with multiple accounts per provider.
 
 ## Standalone Setup
 
@@ -32,21 +32,20 @@ git clone https://github.com/open-hax/proxx.git
 cd proxx
 pnpm install
 cp .env.example .env
-cp keys.example.json keys.json
 cp models.example.json models.json # optional preferences; discovery is canonical
 ```
 
 Required setup:
 
-- Put real provider credentials in one of: `keys.json`, `PROXY_KEYS_JSON` / `UPSTREAM_KEYS_JSON`, or the configured SQL store via `DATABASE_URL`
+- Put real provider credentials in the configured SQL store via `DATABASE_URL`, provider-specific env vars, or optional seed inputs like `keys.json` / `PROXY_KEYS_JSON` / `UPSTREAM_KEYS_JSON`
 - Set `PROXY_AUTH_TOKEN` in `.env` unless you are only doing local unauthenticated debugging
 - Adjust `UPSTREAM_*`, `OPENAI_*`, `OLLAMA_*`, optional `CHROMA_*`, and optional `OTEL_*` settings in `.env` for your environment
 - If you enable OTEL export, set your own collector endpoint and auth headers through environment variables rather than hardcoding them in tracked files
 
 Alternative credential sources:
 
-- `PROXY_KEYS_JSON` / `UPSTREAM_KEYS_JSON` can carry the same JSON payload inline when you cannot rely on a mounted `keys.json` (for example Render)
-- When `DATABASE_URL` is configured, SQL-backed credentials are also loaded and become the runtime source of truth for the proxy UI and request routing
+- `keys.json` and `PROXY_KEYS_JSON` / `UPSTREAM_KEYS_JSON` are seed-only inputs for older/manual bootstrap flows
+- When `DATABASE_URL` is configured, SQL-backed credentials become the runtime source of truth for the proxy UI and request routing
 - `DISABLED_PROVIDER_IDS` can remove providers such as `vivgrid` from live routing without deleting their stored credentials
 
 ## Shared-state federation v1
@@ -63,6 +62,8 @@ That means:
 - add an OpenAI OAuth account on one instance -> the other instances can pick it up from the same DB-backed credential store
 - usage analytics aggregate across the fleet instead of fragmenting per instance
 
+Promethean branch promotion + federated environment mapping is documented in [`docs/promethean-federated-deployments.md`](docs/promethean-federated-deployments.md).
+
 Current boundary:
 - shared in v1: operator/admin state, tenant API keys and proxy settings, provider credentials including OAuth accounts, analytics
 - still local for now: chat sessions, prompt affinity, and other convenience file state
@@ -78,7 +79,7 @@ Env-backed providers:
 
 Additional provider ids:
 
-- `ob1` is available as a standard provider id. Configure it in `keys.json` and target it with `UPSTREAM_PROVIDER_ID=ob1`.
+- `ob1` is available as a standard provider id. Seed it through `keys.json` only if you still use the file/bootstrap flow; otherwise configure/import it through the SQL-backed runtime.
 - The default base URL for `ob1` is `https://dashboard.openblocklabs.com/api`.
 
 ## Run
@@ -171,12 +172,12 @@ pnpm docker:stack logs open-hax-openai-proxy -- -f
 
 Notes:
 
-- credentials are required for upstream proxying, but they can come from `keys.json`, inline JSON env, provider-specific env vars, or SQL when `DATABASE_URL` is configured
+- credentials are required for upstream proxying, but DB-backed runtimes should treat SQL plus provider env vars as authoritative and use `keys.json` only as an optional bootstrap seed
 - `data/` still stores local fallback request logs and session history; with `DATABASE_URL` configured, shared fleet analytics are also mirrored into SQL
 - The API defaults to `127.0.0.1:8789`
 - The web companion is exposed on `${PROXY_WEB_PORT:-5174}`
 - The local compose stack now starts Postgres by default and sets `DATABASE_URL` so local runtime behavior matches Render more closely
-- `keys.json` is still required for startup.
+- `keys.json` is not required for DB-backed startup; missing seed files are ignored and the runtime continues with DB/env-backed credentials.
 - `data/` stays bind-mounted for request logs and session history.
 - include `docker-compose.host-dashboard.override.yml` only when you want local host-dashboard Docker/runtime introspection
 - If you want to mount Factory CLI auth files, include `docker-compose.factory-auth.override.yml` explicitly.
@@ -194,11 +195,11 @@ Notes:
 - `OPENAI_OAUTH_ALLOW_HOST_ROUTED_CALLBACKS` (default: `false`; when `true`, preserve non-loopback browser OAuth callback hosts instead of forcing Codex-style `localhost` callback topology)
 - `STREAM_CHUNK_DELAY_MS` (optional; default: `0`; fixed delay added between synthetic SSE chunks)
 - `STREAM_CHUNK_DELAY_MS_MIN` / `STREAM_CHUNK_DELAY_MS_MAX` (optional; default: unset; random delay range between chunks)
-- `UPSTREAM_PROVIDER_ID` (default: `vivgrid`; provider key in `keys.json`)
+- `UPSTREAM_PROVIDER_ID` (default: `vivgrid`; provider id to target for routing; if you still use seed files, it also names the legacy default file provider)
 - `UPSTREAM_FALLBACK_PROVIDER_IDS` (default: auto `ollama-cloud` when primary is `vivgrid`, or `vivgrid` when primary is `ollama-cloud`; comma-separated)
 - `UPSTREAM_BASE_URL` (default: `https://api.vivgrid.com`)
 - `UPSTREAM_PROVIDER_BASE_URLS` (optional mapping: `provider=url,provider=url`; defaults include `vivgrid=https://api.vivgrid.com`, `ollama-cloud=https://ollama.com`, `zai=https://api.z.ai/api/paas/v4`, `openrouter=https://openrouter.ai/api/v1`, `requesty=https://router.requesty.ai/v1`, `gemini=https://generativelanguage.googleapis.com/v1beta`, and `factory=https://api.factory.ai`)
-- `OPENAI_PROVIDER_ID` (default: `openai`; provider key in `keys.json`)
+- `OPENAI_PROVIDER_ID` (default: `openai`; provider id for OpenAI-routed accounts)
 - `OPENAI_BASE_URL` (default: `https://chatgpt.com/backend-api`)
 - `OLLAMA_BASE_URL` (default: `http://127.0.0.1:11434`)
 - `ZAI_BASE_URL` (optional; default: `https://api.z.ai/api/paas/v4`; alias: `ZHIPU_BASE_URL`)
@@ -217,7 +218,7 @@ Notes:
 - `OPENAI_MODEL_PREFIXES` (default: `openai/,openai:`; comma-separated prefixes)
 - `OLLAMA_CHAT_PATH` (default: `/api/chat`)
 - `OLLAMA_MODEL_PREFIXES` (default: `ollama/,ollama:`; comma-separated prefixes)
-- `PROXY_KEYS_FILE` (default: `./keys.json`, fallback: `VIVGRID_KEYS_FILE`)
+- `PROXY_KEYS_FILE` (optional seed file path; DB-backed runtimes do not need it)
 - `PROXY_MODELS_FILE` (default: `./models.json`, fallback: `VIVGRID_MODELS_FILE`)
 - `PROXY_REQUEST_LOGS_FILE` (default: `./data/request-logs.jsonl`)
 - `PROXY_REQUEST_LOGS_MAX_ENTRIES` (default: `100000`; retained raw request-log entries used for backfill/debug/recent views)
@@ -250,7 +251,7 @@ ollama pull nomic-embed-text:latest
 
 The proxy will use Ollama's `/api/embed` endpoint when available, and fall back to `/api/embeddings` for older Ollama builds.
 
-## `keys.json` Format
+## Optional `keys.json` Seed Format
 
 ```json
 {
@@ -319,7 +320,7 @@ Route requests to OpenAI by prefixing model names:
 - `"model": "openai/gpt-5"`
 - `"model": "openai:gpt-5"`
 
-The prefix is stripped before upstream dispatch, and accounts are selected from `keys.json.providers[OPENAI_PROVIDER_ID]`.
+The prefix is stripped before upstream dispatch, and accounts are selected from the active credential store for `OPENAI_PROVIDER_ID` (SQL in DB-backed runtimes; optional `keys.json` only if you intentionally bootstrap from a seed file).
 
 For migrated legacy OAuth accounts, the `openai` provider is treated as a ChatGPT Codex upstream, not the OpenAI Platform API. Those accounts require `chatgpt_account_id` metadata and are sent to `/codex/responses` by default.
 

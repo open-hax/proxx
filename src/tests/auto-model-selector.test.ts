@@ -89,3 +89,21 @@ test("auto model ranking aggregates perf and health without using model ids as a
   assert.equal(ranked[0]?.observedSpeed, true);
   assert.equal(ranked[0]?.healthScore, 80);
 });
+
+test("top-level reasoning_effort marks the request as needing thinking support", () => {
+  const ranked = rankAutoModels(
+    "auto:cheapest",
+    {
+      messages: [{ role: "user", content: "hello" }],
+      tools: [{ type: "function", function: { name: "ping", parameters: { type: "object", properties: {} } } }],
+      reasoning_effort: "medium",
+    },
+    ["gpt-5.4-nano", "gpt-5.4-mini", "deepseek-v3.2"],
+    "requesty",
+  );
+
+  assert.deepEqual(
+    ranked.map((entry) => entry.modelId).sort((left, right) => left.localeCompare(right)),
+    ["deepseek-v3.2", "gpt-5.4-mini"],
+  );
+});

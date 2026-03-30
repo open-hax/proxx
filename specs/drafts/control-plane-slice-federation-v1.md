@@ -124,6 +124,15 @@ This slice is intentionally later than settings/sessions and credentials/auth be
 - parity tests cover `/api/ui/federation/*` and `/api/v1/federation/*`
 - WebSocket upgrade authorization still rejects cross-origin/unauthorized requests correctly
 
+## Implementation status
+- ✅ Canonical `/api/v1/federation/self`, `/api/v1/federation/peers`, `/api/v1/federation/bridges`, `/api/v1/federation/bridges/:sessionId`, `/api/v1/federation/diff-events`, `/api/v1/federation/accounts`, `/api/v1/federation/accounts/export`, `/api/v1/federation/projected-accounts/import`, and `/api/v1/federation/tenant-provider-policies` now reuse the modular federation route layer with a configurable prefix.
+- ✅ Canonical `/api/v1/federation/bridges*` now receive the live `bridgeRelay` through `registerApiV1Routes(...)` instead of running without bridge context.
+- ✅ `web/src/lib/api.ts` now uses `/api/v1/federation/*` for self, peers, add-peer, accounts, and bridges.
+- ✅ Canonical federation tests now cover `/api/v1/federation/self`, `/api/v1/federation/peers`, `/api/v1/federation/accounts`, and `/api/v1/federation/bridges`.
+- ✅ Backend validation passed with targeted canonical federation tests plus typecheck and web build.
+- 🚧 `syncFederationPeer()` in `web/src/lib/api.ts` still targets legacy `/api/ui/federation/sync/pull` because the canonical sync endpoint has not been moved into the modular federation registrar yet.
+- 🚧 advanced federation routes still trapped in `src/lib/ui-routes.ts` include at least `projected-accounts/routed`, `projected-accounts/imported`, `projected-accounts/import-all`, `usage-export`, `usage-import`, and `sync/pull`.
+
 ## Risks
 - bridge upgrade handling is sensitive to lifecycle and route order changes
 - federation route handlers carry significant auth and scoping nuance

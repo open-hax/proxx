@@ -119,13 +119,19 @@ This slice includes dashboard/analytics, request logs, hosts, tools, MCP seed li
 
 ## Implementation status
 - ✅ Canonical `/api/v1/request-logs`, `/api/v1/dashboard/overview`, `/api/v1/analytics/provider-model`, `/api/v1/tools`, and `/api/v1/mcp-servers` now exist via a dedicated observability route module.
+- ✅ Canonical `/api/v1/hosts/self` and `/api/v1/hosts/overview` now exist for the host dashboard surface.
+- ✅ Canonical `/api/v1/events`, `/api/v1/events/tags`, and `/api/v1/events/:id/tag` now exist for the event query/tagging surface.
 - ✅ `/api/v1` migration summary now marks `observability` and `mcp` as `implemented`.
+- ✅ `/api/v1` migration summary now marks `hosts` as `implemented`.
+- ✅ `/api/v1` migration summary now marks `events` as `implemented`.
 - ✅ `web/src/lib/api.ts` now uses `/api/v1/*` for usage overview, provider-model analytics, request logs, tool seeds, and MCP seed listing.
+- ✅ `web/src/lib/api.ts` now uses `/api/v1/hosts/overview` for the host dashboard client surface.
 - ✅ Canonical route tests now cover `/api/v1/request-logs`, `/api/v1/dashboard/overview`, `/api/v1/analytics/provider-model`, and `/api/v1/tools`.
+- ✅ Canonical route tests now cover `/api/v1/hosts/self` and `/api/v1/hosts/overview`.
+- ✅ Canonical route tests now cover `/api/v1/events*` wiring for the missing-store path.
 - ✅ Backend validation passed with `pnpm run build && node --test --test-concurrency=1 dist/tests/proxy.test.js`.
 - ✅ Frontend validation passed with `pnpm web:build` after the client path switch.
-- 🚧 host inventory routes still live only under `/api/ui/hosts/*`.
-- 🚧 event query/tag routes still live only under `/api/ui/events*`.
+- 🚧 `web/src/lib/api.ts` still has no canonical client helpers for events because the current web console does not use them yet.
 
 ## Risks
 - aggregation helpers are large and easy to partially migrate incorrectly

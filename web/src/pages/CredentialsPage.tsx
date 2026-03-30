@@ -27,7 +27,7 @@ import {
   startOpenAiBrowserOAuth,
   startOpenAiDeviceOAuth,
 } from "../lib/api";
-import { formatAuthType } from "../lib/format";
+import { formatAuthType, formatRequestOrigin } from "../lib/format";
 import { useStoredState } from "../lib/use-stored-state";
 
 interface DeviceAuthState {
@@ -264,6 +264,15 @@ function formatServiceTier(entry: RequestLogEntry): string {
   }
 
   return entry.serviceTier.replace(/[_-]+/g, " ");
+}
+
+function formatRouteLabel(entry: RequestLogEntry): string {
+  if (entry.routeKind === "local") {
+    return "local";
+  }
+
+  const peer = entry.routedPeerLabel ?? entry.routedPeerId ?? "unknown-peer";
+  return `${entry.routeKind} → ${peer}`;
 }
 
 function sortAccounts(accounts: readonly CredentialAccount[]): CredentialAccount[] {
@@ -562,6 +571,37 @@ export function CredentialsPage(): JSX.Element {
     };
   }, [quotaOverview]);
 
+  const cacheStabilityWatchRows = useMemo(() => {
+    if (!promptCacheAudit) {
+      return [];
+    }
+
+    return promptCacheAudit.rows
+      .map((row) => {
+        const cacheRate = row.promptTokens > 0 ? (row.cachedPromptTokens / row.promptTokens) * 100 : 0;
+        return {
+          ...row,
+          cacheRate,
+        };
+      })
+      .filter((row) => row.successfulAccountCount === 1)
+      .filter((row) => row.shapeFingerprintCount === 1)
+      .filter((row) => row.successfulRequestCount >= 4)
+      .filter((row) => row.promptTokens >= 10_000)
+      .sort((left, right) => {
+        if (left.cacheRate !== right.cacheRate) {
+          return left.cacheRate - right.cacheRate;
+        }
+
+        if (right.promptTokens !== left.promptTokens) {
+          return right.promptTokens - left.promptTokens;
+        }
+
+        return left.promptCacheKeyHash.localeCompare(right.promptCacheKeyHash);
+      })
+      .slice(0, 8);
+  }, [promptCacheAudit]);
+
   const sortAccountEntries = useCallback((entries: readonly AccountEntry[]): AccountEntry[] => {
     const now = Date.now();
     const metricsFor = (entry: AccountEntry) => {
@@ -804,9 +844,10 @@ export function CredentialsPage(): JSX.Element {
         throw new Error("API key value is required");
       }
 
-      const accountId = apiKeyAccount.trim().length > 0 ? apiKeyAccount.trim() : `${apiKeyProvider}-manual`;
-      await addApiKeyCredential(apiKeyProvider.trim(), accountId, apiKeyValue.trim());
+      const accountId = apiKeyAccount.trim();
+      await addApiKeyCredential(apiKeyProvider.trim(), apiKeyValue.trim(), accountId.length > 0 ? accountId : undefined);
       setApiKeyValue("");
+      setApiKeyAccount("");
       setStatus("API key saved.");
       await refreshCredentials();
       await refreshQuota();
@@ -1399,6 +1440,8 @@ export function CredentialsPage(): JSX.Element {
               <div>
                 <h3>Prompt cache affinity audit</h3>
                 <p>
+                  {promptCacheAudit.crossSuccessfulAccountHashCount} multi-success-account hash(es)
+                  {" · "}
                   {promptCacheAudit.crossAccountHashCount} cross-account hash(es)
                   {" · "}
                   {promptCacheAudit.distinctHashCount} distinct hash(es)
@@ -1412,7 +1455,8 @@ export function CredentialsPage(): JSX.Element {
               <div className="credentials-audit-table">
                 <div className="credentials-audit-header">
                   <span>Hash</span>
-                  <span>Accounts</span>
+                  <span>Successful accounts</span>
+                  <span>Failed retries</span>
                   <span>Requests</span>
                   <span>Cache</span>
                   <span>Last seen</span>
@@ -1426,14 +1470,20 @@ export function CredentialsPage(): JSX.Element {
                         {row.latestModel && <small>{row.providerId} · {row.latestModel}</small>}
                       </div>
                       <div>
-                        <span className={`credentials-badge ${row.accountCount > 1 ? "credentials-badge-warning" : "credentials-badge-accent"}`}>
-                          {row.accountCount} account{row.accountCount === 1 ? "" : "s"}
+                        <span className={`credentials-badge ${row.successfulAccountCount > 1 ? "credentials-badge-warning" : "credentials-badge-accent"}`}>
+                          {row.successfulAccountCount} successful account{row.successfulAccountCount === 1 ? "" : "s"}
                         </span>
-                        <small>{row.accountIds.join(", ")}</small>
+                        <small>{row.successfulAccountIds.join(", ") || "None"}</small>
+                      </div>
+                      <div>
+                        <span className={`credentials-badge ${row.failedAccountCount > 0 ? "credentials-badge-danger" : "credentials-badge-muted"}`}>
+                          {row.failedAccountCount} failed account{row.failedAccountCount === 1 ? "" : "s"}
+                        </span>
+                        <small>{row.failedAccountIds.join(", ") || "None"}</small>
                       </div>
                       <div>
                         <strong>{row.requestCount}</strong>
-                        <small>{row.cacheHitCount} hit{row.cacheHitCount === 1 ? "" : "s"}</small>
+                        <small>{row.successfulRequestCount} success · {row.failedRequestCount} failed · {row.cacheHitCount} hit{row.cacheHitCount === 1 ? "" : "s"} · {row.shapeFingerprintCount} shape{row.shapeFingerprintCount === 1 ? "" : "s"}</small>
                       </div>
                       <div>
                         <strong>{formatAggregatePercent(cacheRate)}</strong>
@@ -1449,6 +1499,60 @@ export function CredentialsPage(): JSX.Element {
               </div>
             ) : (
               <p className="credentials-pool-meta">No prompt-cache hashes have been recorded in recent OpenAI OAuth request logs yet.</p>
+            )}
+          </article>
+        )}
+
+        {promptCacheAudit && (
+          <article className="credentials-card credentials-pool-card">
+            <header className="credentials-provider-header">
+              <div>
+                <h3>Cache stability watchlist</h3>
+                <p>
+                  Single-success-account hashes with one stable request shape and enough traffic to judge cache reliability.
+                </p>
+              </div>
+            </header>
+
+            {cacheStabilityWatchRows.length > 0 ? (
+              <div className="credentials-watch-grid">
+                {cacheStabilityWatchRows.map((row) => (
+                  <article key={`watch-${row.promptCacheKeyHash}`} className="credentials-pool-metric credentials-watch-card">
+                    <div>
+                      <strong>{row.promptCacheKeyHash}</strong>
+                      <small>{row.providerId} · {row.latestModel ?? "unknown model"}</small>
+                    </div>
+                    <div className="credentials-provider-badges">
+                      <span className={`credentials-badge ${quotaBadgeClassFromPercent(row.cacheRate)}`}>
+                        {formatAggregatePercent(row.cacheRate)} cache
+                      </span>
+                      <span className="credentials-badge credentials-badge-muted">
+                        {row.successfulRequestCount} success
+                      </span>
+                    </div>
+                    <dl className="credentials-watch-metrics">
+                      <div>
+                        <dt>Successful account</dt>
+                        <dd>{row.successfulAccountIds[0] ?? "Unknown"}</dd>
+                      </div>
+                      <div>
+                        <dt>Prompt tokens</dt>
+                        <dd>{row.promptTokens.toLocaleString()}</dd>
+                      </div>
+                      <div>
+                        <dt>Cached prompt tokens</dt>
+                        <dd>{row.cachedPromptTokens.toLocaleString()}</dd>
+                      </div>
+                      <div>
+                        <dt>Shape fingerprints</dt>
+                        <dd>{row.shapeFingerprints.join(", ")}</dd>
+                      </div>
+                    </dl>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <p className="credentials-pool-meta">No stable same-account hashes currently look anomalous enough to flag.</p>
             )}
           </article>
         )}
@@ -1505,15 +1609,29 @@ export function CredentialsPage(): JSX.Element {
               Add Factory Key
             </button>
           </div>
-          <input
+          <select
             value={apiKeyProvider}
             onChange={(event) => setApiKeyProvider(event.currentTarget.value)}
-            placeholder="provider id"
-          />
+          >
+            <option value="vivgrid">Vivgrid</option>
+            <option value="openai">OpenAI</option>
+            <option value="ollama-cloud">Ollama Cloud</option>
+            <option value="ollama">Ollama (local)</option>
+            <option value="ollama-stealth">Ollama Stealth</option>
+            <option value="ollama-big-ussy">Ollama Big Ussy</option>
+            <option value="requesty">Requesty</option>
+            <option value="zen">Zen/ZenMux</option>
+            <option value="openrouter">OpenRouter</option>
+            <option value="gemini">Gemini</option>
+            <option value="zai">Z.ai (GLM)</option>
+            <option value="mistral">Mistral</option>
+            <option value="factory">Factory</option>
+            <option value="ob1">OB1</option>
+          </select>
           <input
             value={apiKeyAccount}
             onChange={(event) => setApiKeyAccount(event.currentTarget.value)}
-            placeholder="account id"
+            placeholder="account id (optional — auto-generated if empty)"
           />
           <input
             type="password"
@@ -1606,19 +1724,25 @@ export function CredentialsPage(): JSX.Element {
         </div>
 
         <div className="credentials-log-table">
-          {logs.map((entry) => (
-            <article key={entry.id}>
-              <header>
-                <strong>{entry.providerId}/{entry.accountId}</strong>
-                <span>{entry.status} · {entry.latencyMs}ms</span>
-              </header>
-              <p>
-                {entry.model} · {entry.upstreamMode} · {formatServiceTier(entry)} · {new Date(entry.timestamp).toLocaleString()}
-                {typeof entry.totalTokens === "number" ? ` · ${entry.totalTokens} tok` : ""}
-              </p>
-              {entry.error && <small>{entry.error}</small>}
-            </article>
-          ))}
+          {logs.map((entry) => {
+            const origin = formatRequestOrigin(entry);
+            const originPart = origin !== "unknown" && origin !== "local" ? ` · from ${origin}` : "";
+            return (
+              <article key={entry.id}>
+                <header>
+                  <strong>{entry.providerId}/{entry.accountId}</strong>
+                  <span>{entry.status} · {entry.latencyMs}ms</span>
+                </header>
+                <p>
+                  {entry.model} · {entry.upstreamMode} · {formatServiceTier(entry)} · {formatRouteLabel(entry)}
+                  {originPart}
+                  {" · "}{new Date(entry.timestamp).toLocaleString()}
+                  {typeof entry.totalTokens === "number" ? ` · ${entry.totalTokens} tok` : ""}
+                </p>
+                {entry.error && <small>{entry.error}</small>}
+              </article>
+            );
+          })}
         </div>
       </section>
     </div>

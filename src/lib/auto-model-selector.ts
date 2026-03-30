@@ -95,6 +95,7 @@ const MODEL_TOOLS_SUPPORT: ReadonlySet<string> = new Set([
   "claude-sonnet-4-5",
   "gemini-2.5-pro",
   "gemini-2.5-flash",
+  "deepseek-v3.2",
   "glm-5",
 ]);
 
@@ -148,6 +149,15 @@ function detectCapabilities(requestBody: unknown): RequestCapabilities {
 
   if (body.tools && Array.isArray(body.tools) && body.tools.length > 0) {
     needsTools = true;
+  }
+
+  if (
+    typeof body.reasoning_effort === "string"
+    || typeof body.reasoningEffort === "string"
+    || typeof body.reasoning_summary === "string"
+    || typeof body.reasoningSummary === "string"
+  ) {
+    needsThinking = true;
   }
 
   if (body.reasoning && typeof body.reasoning === "object") {

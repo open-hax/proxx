@@ -6,7 +6,7 @@ import {
   buildUsageOverview,
   resolveUsageScopeFromAuth,
   toUsageWindow,
-} from "../../lib/ui-routes.js";
+} from "../api/ui/analytics/usage.js";
 import { loadMcpSeeds, getToolSeedForModel, type McpServerSeed } from "../../lib/tool-mcp-seed.js";
 import { normalizeTenantId } from "../../lib/tenant-api-key.js";
 import { authCanViewTenant, getResolvedAuth } from "../shared/ui-auth.js";

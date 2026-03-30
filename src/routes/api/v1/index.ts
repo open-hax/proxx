@@ -1,8 +1,10 @@
 import type { FastifyInstance } from "fastify";
 import type { UiRouteDependencies } from "../../types.js";
+import type { FederationBridgeRelay } from "../../../lib/federation/bridge-relay.js";
 
 export interface ApiV1RouteDependencies extends UiRouteDependencies {
   serverUrl?: string;
+  bridgeRelay?: FederationBridgeRelay;
 }
 
 type ApiV1EndpointStatus = "planned" | "implemented";
@@ -42,13 +44,13 @@ const API_V1_ENDPOINTS = {
   hosts: {
     path: "/api/v1/hosts",
     legacyPath: "/api/ui/hosts",
-    status: "planned",
+    status: "implemented",
     description: "Host inventory and host overview endpoints migrating from the legacy UI surface.",
   },
   events: {
     path: "/api/v1/events",
     legacyPath: "/api/ui/events",
-    status: "planned",
+    status: "implemented",
     description: "Event store query and tag endpoints migrating from the legacy UI surface.",
   },
   observability: {

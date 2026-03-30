@@ -198,6 +198,9 @@ At minimum, neutral route dependency types must move out of `src/lib/ui-routes.t
 - ✅ canonical `/api/v1/settings*` and `/api/v1/sessions*` routes now exist via prefix-aware modular route registration rather than living only under `/api/ui/*`.
 - ✅ canonical `/api/v1/credentials*` routes now exist via prefix-aware modular route registration, with shared credential OAuth context reused across legacy and canonical registrations.
 - ✅ canonical `/api/v1/request-logs`, `/api/v1/dashboard/overview`, `/api/v1/analytics/provider-model`, `/api/v1/tools`, and `/api/v1/mcp-servers` now exist through a dedicated observability route module.
+- ✅ canonical `/api/v1/hosts/self` and `/api/v1/hosts/overview` now exist through the modular host route registrar.
+- ✅ canonical `/api/v1/events*` routes now exist through the modular event route registrar.
+- ✅ canonical `/api/v1/federation/*` now exists for the primary read/admin federation surface, though some advanced sync/import routes remain in the legacy monolith.
 - 🚧 `/api/v1/openapi.json` still serves the app swagger bundle rather than a control-plane-filtered spec.
 
 ## Risks

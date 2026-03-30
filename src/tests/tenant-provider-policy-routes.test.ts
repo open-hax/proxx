@@ -414,3 +414,583 @@ test("federation diff-events route validates ownerSubject and forwards parsed fi
     await rm(tempDir, { recursive: true, force: true });
   }
 });
+
+test("federation accounts routes expose knowledge summaries, export api keys, and lease oauth access tokens without refresh", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "proxx-federation-accounts-routes-"));
+  const keysPath = path.join(tempDir, "keys.json");
+  const modelsPath = path.join(tempDir, "models.json");
+  const requestLogsPath = path.join(tempDir, "request-logs.jsonl");
+  const promptAffinityPath = path.join(tempDir, "prompt-affinity.json");
+  const settingsPath = path.join(tempDir, "proxy-settings.json");
+
+  await writeFile(keysPath, JSON.stringify({
+    providers: {
+      vivgrid: {
+        auth: "api_key",
+        accounts: [
+          { id: "viv-a", api_key: "viv-secret-a" },
+        ],
+      },
+      openai: {
+        auth: "oauth_bearer",
+        accounts: [
+          { id: "openai-a", access_token: "openai-secret-a", refresh_token: "refresh-a", email: "owner@example.com" },
+        ],
+      },
+    },
+  }, null, 2), "utf8");
+  await writeFile(modelsPath, JSON.stringify({ object: "list", data: [{ id: "gpt-5.2" }] }, null, 2), "utf8");
+
+  const upstream: Server = createServer((_request, response) => {
+    response.statusCode = 200;
+    response.setHeader("content-type", "application/json");
+    response.end(JSON.stringify({ ok: true }));
+  });
+  upstream.listen(0, "127.0.0.1");
+  await once(upstream, "listening");
+  const upstreamAddress = upstream.address();
+  if (!upstreamAddress || typeof upstreamAddress === "string") {
+    throw new Error("failed to resolve upstream address");
+  }
+
+  const config = buildConfig({
+    upstreamPort: upstreamAddress.port,
+    paths: { keysPath, modelsPath, requestLogsPath, promptAffinityPath, settingsPath },
+    proxyAuthToken: "bridge-admin-token",
+  });
+
+  const app = Fastify({ logger: true });
+  app.decorateRequest("openHaxAuth", null);
+
+  app.addHook("onRequest", async (request) => {
+    const mutableRequest = request as FastifyRequest & { openHaxAuth?: unknown };
+    const authorization = typeof request.headers.authorization === "string"
+      ? request.headers.authorization.trim()
+      : "";
+
+    if (authorization === "Bearer bridge-admin-token") {
+      mutableRequest.openHaxAuth = {
+        kind: "legacy_admin",
+        tenantId: "default",
+        role: "owner",
+        source: "bearer",
+        subject: "legacy:proxy-auth-token",
+      };
+    }
+  });
+
+  const keyPool = new KeyPool({
+    keysFilePath: keysPath,
+    reloadIntervalMs: 50,
+    defaultCooldownMs: 10_000,
+    defaultProviderId: config.upstreamProviderId,
+  });
+  await keyPool.warmup();
+
+  const credentialStore = new CredentialStore(keysPath, config.upstreamProviderId);
+  const requestLogStore = new RequestLogStore(requestLogsPath, 1000, 0);
+  await requestLogStore.warmup();
+  const proxySettingsStore = new ProxySettingsStore(settingsPath);
+  await proxySettingsStore.warmup();
+
+  const sqlFederationStore = {
+    listProjectedAccounts: async () => ([
+      {
+        sourcePeerId: "peer-1",
+        ownerSubject: "did:plc:remote-owner",
+        providerId: "factory",
+        accountId: "factory-1",
+        accountSubject: "did:plc:remote-account",
+        chatgptAccountId: undefined,
+        email: "remote@example.com",
+        planType: "pro",
+        availabilityState: "descriptor",
+        warmRequestCount: 2,
+        lastRoutedAt: undefined,
+        importedAt: undefined,
+        metadata: {},
+        createdAt: "2026-03-27T00:00:00.000Z",
+        updatedAt: "2026-03-27T00:00:00.000Z",
+      },
+    ]),
+  };
+
+  await registerUiRoutes(app, {
+    config,
+    keyPool,
+    requestLogStore,
+    credentialStore,
+    proxySettingsStore,
+    sqlFederationStore: sqlFederationStore as never,
+  });
+
+  await app.listen({ host: "127.0.0.1", port: 0 });
+
+  try {
+    const listResponse = await app.inject({
+      method: "GET",
+      url: "/api/ui/federation/accounts",
+      headers: { authorization: "Bearer bridge-admin-token" },
+    });
+
+    assert.equal(listResponse.statusCode, 200);
+    const listPayload = listResponse.json() as {
+      readonly ownerSubject: string | null;
+      readonly localAccounts: ReadonlyArray<{ readonly providerId: string; readonly accountId: string }>;
+      readonly projectedAccounts: ReadonlyArray<{ readonly providerId: string; readonly accountId: string }>;
+      readonly knownAccounts: ReadonlyArray<{ readonly providerId: string; readonly accountId: string; readonly hasCredentials: boolean }>;
+    };
+    assert.equal(listPayload.ownerSubject, null);
+    assert.equal(listPayload.localAccounts.length, 2);
+    assert.equal(listPayload.projectedAccounts.length, 1);
+    assert.equal(listPayload.knownAccounts.length, 3);
+    assert.ok(listPayload.knownAccounts.some((account) => account.providerId === "factory" && account.accountId === "factory-1" && account.hasCredentials === false));
+    assert.ok(listPayload.knownAccounts.some((account) => account.providerId === "openai" && account.accountId === "openai-a" && account.hasCredentials === true));
+
+    const exportApiKeyResponse = await app.inject({
+      method: "POST",
+      url: "/api/ui/federation/accounts/export",
+      headers: {
+        authorization: "Bearer bridge-admin-token",
+        "content-type": "application/json",
+      },
+      payload: {
+        providerId: "vivgrid",
+        accountId: "viv-a",
+      },
+    });
+
+    assert.equal(exportApiKeyResponse.statusCode, 200);
+    const exportApiKeyPayload = exportApiKeyResponse.json() as {
+      readonly account: { readonly providerId: string; readonly accountId: string; readonly authType: string; readonly secret: string };
+    };
+    assert.equal(exportApiKeyPayload.account.providerId, "vivgrid");
+    assert.equal(exportApiKeyPayload.account.accountId, "viv-a");
+    assert.equal(exportApiKeyPayload.account.authType, "api_key");
+    assert.equal(exportApiKeyPayload.account.secret, "viv-secret-a");
+
+    const exportOauthResponse = await app.inject({
+      method: "POST",
+      url: "/api/ui/federation/accounts/export",
+      headers: {
+        authorization: "Bearer bridge-admin-token",
+        "content-type": "application/json",
+      },
+      payload: {
+        providerId: "openai",
+        accountId: "openai-a",
+      },
+    });
+
+    assert.equal(exportOauthResponse.statusCode, 200);
+    const exportOauthPayload = exportOauthResponse.json() as {
+      readonly account: {
+        readonly providerId: string;
+        readonly accountId: string;
+        readonly authType: string;
+        readonly secret: string;
+        readonly refreshToken?: unknown;
+      };
+    };
+    assert.equal(exportOauthPayload.account.providerId, "openai");
+    assert.equal(exportOauthPayload.account.accountId, "openai-a");
+    assert.equal(exportOauthPayload.account.authType, "oauth_bearer");
+    assert.equal(exportOauthPayload.account.secret, "openai-secret-a");
+    assert.equal(exportOauthPayload.account.refreshToken, undefined);
+  } finally {
+    await app.close();
+    await new Promise<void>((resolve, reject) => {
+      upstream.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve();
+      });
+    });
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("federation projected-account import route validates entries and records diff events", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "proxx-federation-projected-import-routes-"));
+  const keysPath = path.join(tempDir, "keys.json");
+  const modelsPath = path.join(tempDir, "models.json");
+  const requestLogsPath = path.join(tempDir, "request-logs.jsonl");
+  const promptAffinityPath = path.join(tempDir, "prompt-affinity.json");
+  const settingsPath = path.join(tempDir, "proxy-settings.json");
+
+  await writeFile(keysPath, JSON.stringify({ keys: ["test-key-1"] }, null, 2), "utf8");
+  await writeFile(modelsPath, JSON.stringify({ object: "list", data: [{ id: "gpt-5.2" }] }, null, 2), "utf8");
+
+  const upstream: Server = createServer((_request, response) => {
+    response.statusCode = 200;
+    response.setHeader("content-type", "application/json");
+    response.end(JSON.stringify({ ok: true }));
+  });
+  upstream.listen(0, "127.0.0.1");
+  await once(upstream, "listening");
+  const upstreamAddress = upstream.address();
+  if (!upstreamAddress || typeof upstreamAddress === "string") {
+    throw new Error("failed to resolve upstream address");
+  }
+
+  const config = buildConfig({
+    upstreamPort: upstreamAddress.port,
+    paths: { keysPath, modelsPath, requestLogsPath, promptAffinityPath, settingsPath },
+    proxyAuthToken: "bridge-admin-token",
+  });
+
+  const app = Fastify({ logger: true });
+  app.decorateRequest("openHaxAuth", null);
+
+  app.addHook("onRequest", async (request) => {
+    const mutableRequest = request as FastifyRequest & { openHaxAuth?: unknown };
+    const authorization = typeof request.headers.authorization === "string"
+      ? request.headers.authorization.trim()
+      : "";
+
+    if (authorization === "Bearer bridge-admin-token") {
+      mutableRequest.openHaxAuth = {
+        kind: "legacy_admin",
+        tenantId: "default",
+        role: "owner",
+        source: "bearer",
+        subject: "legacy:proxy-auth-token",
+      };
+    }
+  });
+
+  const keyPool = new KeyPool({
+    keysFilePath: keysPath,
+    reloadIntervalMs: 50,
+    defaultCooldownMs: 10_000,
+    defaultProviderId: config.upstreamProviderId,
+  });
+  await keyPool.warmup();
+
+  const credentialStore = new CredentialStore(keysPath, config.upstreamProviderId);
+  const requestLogStore = new RequestLogStore(requestLogsPath, 1000, 0);
+  await requestLogStore.warmup();
+  const proxySettingsStore = new ProxySettingsStore(settingsPath);
+  await proxySettingsStore.warmup();
+
+  const importedRecords: Array<Record<string, unknown>> = [];
+  const diffEvents: Array<Record<string, unknown>> = [];
+  const sqlFederationStore = {
+    upsertProjectedAccount: async (input: {
+      readonly sourcePeerId: string;
+      readonly ownerSubject: string;
+      readonly providerId: string;
+      readonly accountId: string;
+      readonly accountSubject?: string;
+      readonly chatgptAccountId?: string;
+      readonly email?: string;
+      readonly planType?: string;
+      readonly availabilityState?: "descriptor" | "remote_route" | "imported";
+      readonly metadata?: Record<string, unknown>;
+    }) => {
+      const record = {
+        sourcePeerId: input.sourcePeerId,
+        ownerSubject: input.ownerSubject,
+        providerId: input.providerId,
+        accountId: input.accountId,
+        accountSubject: input.accountSubject,
+        chatgptAccountId: input.chatgptAccountId,
+        email: input.email,
+        planType: input.planType,
+        availabilityState: input.availabilityState ?? "descriptor",
+        warmRequestCount: 0,
+        lastRoutedAt: undefined,
+        importedAt: undefined,
+        metadata: input.metadata ?? {},
+        createdAt: "2026-03-27T00:00:00.000Z",
+        updatedAt: "2026-03-27T00:00:00.000Z",
+      };
+      importedRecords.push(record);
+      return record;
+    },
+    appendDiffEvent: async (input: Record<string, unknown>) => {
+      diffEvents.push(input);
+      return {
+        seq: diffEvents.length,
+        ownerSubject: input.ownerSubject,
+        entityType: input.entityType,
+        entityKey: input.entityKey,
+        op: input.op,
+        payload: input.payload ?? {},
+        createdAt: "2026-03-27T00:00:00.000Z",
+      };
+    },
+  };
+
+  await registerUiRoutes(app, {
+    config,
+    keyPool,
+    requestLogStore,
+    credentialStore,
+    proxySettingsStore,
+    sqlFederationStore: sqlFederationStore as never,
+  });
+
+  await app.listen({ host: "127.0.0.1", port: 0 });
+
+  try {
+    const missingAccountsResponse = await app.inject({
+      method: "POST",
+      url: "/api/ui/federation/projected-accounts/import",
+      headers: {
+        authorization: "Bearer bridge-admin-token",
+        "content-type": "application/json",
+      },
+      payload: {},
+    });
+
+    assert.equal(missingAccountsResponse.statusCode, 400);
+    assert.deepEqual(missingAccountsResponse.json(), { error: "accounts_required" });
+
+    const importResponse = await app.inject({
+      method: "POST",
+      url: "/api/ui/federation/projected-accounts/import",
+      headers: {
+        authorization: "Bearer bridge-admin-token",
+        "content-type": "application/json",
+      },
+      payload: {
+        accounts: [
+          {
+            sourcePeerId: "peer-1",
+            ownerSubject: "did:plc:remote-owner",
+            providerId: "openai",
+            accountId: "acct-1",
+            email: "remote@example.com",
+            availabilityState: "remote_route",
+            metadata: { source: "test" },
+          },
+        ],
+      },
+    });
+
+    assert.equal(importResponse.statusCode, 201);
+    const importPayload = importResponse.json() as {
+      readonly accounts: ReadonlyArray<{ readonly providerId: string; readonly accountId: string; readonly availabilityState: string }>;
+    };
+    assert.equal(importPayload.accounts.length, 1);
+    assert.equal(importPayload.accounts[0]?.providerId, "openai");
+    assert.equal(importPayload.accounts[0]?.accountId, "acct-1");
+    assert.equal(importPayload.accounts[0]?.availabilityState, "remote_route");
+    assert.equal(importedRecords.length, 1);
+    assert.equal(diffEvents.length, 1);
+    assert.equal(diffEvents[0]?.entityType, "projected_account");
+    assert.equal(diffEvents[0]?.op, "upsert");
+  } finally {
+    await app.close();
+    await new Promise<void>((resolve, reject) => {
+      upstream.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve();
+      });
+    });
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("federation projected-account imported route blocks non-importable accounts and marks importable accounts", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "proxx-federation-projected-imported-routes-"));
+  const keysPath = path.join(tempDir, "keys.json");
+  const modelsPath = path.join(tempDir, "models.json");
+  const requestLogsPath = path.join(tempDir, "request-logs.jsonl");
+  const promptAffinityPath = path.join(tempDir, "prompt-affinity.json");
+  const settingsPath = path.join(tempDir, "proxy-settings.json");
+
+  await writeFile(keysPath, JSON.stringify({ keys: ["test-key-1"] }, null, 2), "utf8");
+  await writeFile(modelsPath, JSON.stringify({ object: "list", data: [{ id: "gpt-5.2" }] }, null, 2), "utf8");
+
+  const upstream: Server = createServer((_request, response) => {
+    response.statusCode = 200;
+    response.setHeader("content-type", "application/json");
+    response.end(JSON.stringify({ ok: true }));
+  });
+  upstream.listen(0, "127.0.0.1");
+  await once(upstream, "listening");
+  const upstreamAddress = upstream.address();
+  if (!upstreamAddress || typeof upstreamAddress === "string") {
+    throw new Error("failed to resolve upstream address");
+  }
+
+  const config = buildConfig({
+    upstreamPort: upstreamAddress.port,
+    paths: { keysPath, modelsPath, requestLogsPath, promptAffinityPath, settingsPath },
+    proxyAuthToken: "bridge-admin-token",
+  });
+
+  const app = Fastify({ logger: true });
+  app.decorateRequest("openHaxAuth", null);
+
+  app.addHook("onRequest", async (request) => {
+    const mutableRequest = request as FastifyRequest & { openHaxAuth?: unknown };
+    const authorization = typeof request.headers.authorization === "string"
+      ? request.headers.authorization.trim()
+      : "";
+
+    if (authorization === "Bearer bridge-admin-token") {
+      mutableRequest.openHaxAuth = {
+        kind: "legacy_admin",
+        tenantId: "default",
+        role: "owner",
+        source: "bearer",
+        subject: "legacy:proxy-auth-token",
+      };
+    }
+  });
+
+  const keyPool = new KeyPool({
+    keysFilePath: keysPath,
+    reloadIntervalMs: 50,
+    defaultCooldownMs: 10_000,
+    defaultProviderId: config.upstreamProviderId,
+  });
+  await keyPool.warmup();
+
+  const credentialStore = new CredentialStore(keysPath, config.upstreamProviderId);
+  const requestLogStore = new RequestLogStore(requestLogsPath, 1000, 0);
+  await requestLogStore.warmup();
+  const proxySettingsStore = new ProxySettingsStore(settingsPath);
+  await proxySettingsStore.warmup();
+
+  const diffEvents: Array<Record<string, unknown>> = [];
+  const projectedAccounts = new Map<string, Record<string, unknown>>([
+    [
+      "peer-1\0openai\0oauth-1",
+      {
+        sourcePeerId: "peer-1",
+        ownerSubject: "did:plc:remote-owner",
+        providerId: "openai",
+        accountId: "oauth-1",
+        availabilityState: "remote_route",
+        warmRequestCount: 0,
+        metadata: { authType: "oauth_bearer" },
+        createdAt: "2026-03-27T00:00:00.000Z",
+        updatedAt: "2026-03-27T00:00:00.000Z",
+      },
+    ],
+    [
+      "peer-1\0openai\0api-1",
+      {
+        sourcePeerId: "peer-1",
+        ownerSubject: "did:plc:remote-owner",
+        providerId: "openai",
+        accountId: "api-1",
+        availabilityState: "remote_route",
+        warmRequestCount: 1,
+        metadata: { authType: "api_key" },
+        createdAt: "2026-03-27T00:00:00.000Z",
+        updatedAt: "2026-03-27T00:00:00.000Z",
+      },
+    ],
+  ]);
+
+  const sqlFederationStore = {
+    getProjectedAccount: async (input: { readonly sourcePeerId: string; readonly providerId: string; readonly accountId: string }) => {
+      const key = `${input.sourcePeerId}\0${input.providerId}\0${input.accountId}`;
+      const record = projectedAccounts.get(key);
+      return record ? { ...record } : undefined;
+    },
+    markProjectedAccountImported: async (input: { readonly sourcePeerId: string; readonly providerId: string; readonly accountId: string }) => {
+      const key = `${input.sourcePeerId}\0${input.providerId}\0${input.accountId}`;
+      const current = projectedAccounts.get(key);
+      if (!current) {
+        return undefined;
+      }
+      const next = {
+        ...current,
+        availabilityState: "imported",
+        importedAt: "2026-03-27T01:00:00.000Z",
+        updatedAt: "2026-03-27T01:00:00.000Z",
+      };
+      projectedAccounts.set(key, next);
+      return next;
+    },
+    appendDiffEvent: async (input: Record<string, unknown>) => {
+      diffEvents.push(input);
+      return {
+        seq: diffEvents.length,
+        ownerSubject: input.ownerSubject,
+        entityType: input.entityType,
+        entityKey: input.entityKey,
+        op: input.op,
+        payload: input.payload ?? {},
+        createdAt: "2026-03-27T00:00:00.000Z",
+      };
+    },
+  };
+
+  await registerUiRoutes(app, {
+    config,
+    keyPool,
+    requestLogStore,
+    credentialStore,
+    proxySettingsStore,
+    sqlFederationStore: sqlFederationStore as never,
+  });
+
+  await app.listen({ host: "127.0.0.1", port: 0 });
+
+  try {
+    const blockedResponse = await app.inject({
+      method: "POST",
+      url: "/api/ui/federation/projected-accounts/imported",
+      headers: {
+        authorization: "Bearer bridge-admin-token",
+        "content-type": "application/json",
+      },
+      payload: {
+        sourcePeerId: "peer-1",
+        providerId: "openai",
+        accountId: "oauth-1",
+      },
+    });
+
+    assert.equal(blockedResponse.statusCode, 409);
+    const blockedPayload = blockedResponse.json() as { readonly error: string };
+    assert.equal(blockedPayload.error, "credential_non_importable");
+
+    const importedResponse = await app.inject({
+      method: "POST",
+      url: "/api/ui/federation/projected-accounts/imported",
+      headers: {
+        authorization: "Bearer bridge-admin-token",
+        "content-type": "application/json",
+      },
+      payload: {
+        sourcePeerId: "peer-1",
+        providerId: "openai",
+        accountId: "api-1",
+      },
+    });
+
+    assert.equal(importedResponse.statusCode, 200);
+    const importedPayload = importedResponse.json() as {
+      readonly account: { readonly availabilityState: string; readonly importedAt?: string };
+    };
+    assert.equal(importedPayload.account.availabilityState, "imported");
+    assert.equal(importedPayload.account.importedAt, "2026-03-27T01:00:00.000Z");
+    assert.equal(diffEvents.length, 1);
+    assert.equal(diffEvents[0]?.op, "mark_imported");
+  } finally {
+    await app.close();
+    await new Promise<void>((resolve, reject) => {
+      upstream.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve();
+      });
+    });
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});

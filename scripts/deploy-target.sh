@@ -31,7 +31,7 @@ append_env_line_if_set() {
   fi
 }
 
-for required in .env keys.json models.json; do
+for required in .env models.json; do
   if [[ ! -f "$SOURCE_RUNTIME_DIR/$required" ]]; then
     echo "missing required runtime file: $SOURCE_RUNTIME_DIR/$required" >&2
     exit 1
@@ -88,7 +88,6 @@ EOF
 fi
 
 DEPLOY_ENV_FILE="$(cat "$SOURCE_RUNTIME_DIR/.env")"
-DEPLOY_KEYS_JSON="$(cat "$SOURCE_RUNTIME_DIR/keys.json")"
 DEPLOY_MODELS_JSON="$(cat "$SOURCE_RUNTIME_DIR/models.json")"
 DEPLOY_ENV_APPEND=$'\n'
 DEPLOY_ENV_APPEND+=$'FEDERATION_CLUSTER_ID=big-ussy\n'
@@ -107,7 +106,7 @@ fi
 
 export DEPLOY_HOST DEPLOY_USER DEPLOY_PATH DEPLOY_COMPOSE_PROJECT_NAME DEPLOY_COMPOSE_FILES
 export DEPLOY_HEALTH_SERVICE DEPLOY_RESTART_SERVICES DEPLOY_ENABLE_TLS
-export DEPLOY_ENV_FILE DEPLOY_KEYS_JSON DEPLOY_MODELS_JSON DEPLOY_ENV_APPEND
+export DEPLOY_ENV_FILE DEPLOY_MODELS_JSON DEPLOY_ENV_APPEND
 export BIG_USSY_API_PORT BIG_USSY_WEB_PORT
 
 "$ROOT_DIR/scripts/deploy-remote.sh" "$@"

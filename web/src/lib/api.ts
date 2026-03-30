@@ -54,6 +54,13 @@ export interface CredentialProvider {
 export interface RequestLogEntry {
   readonly id: string;
   readonly timestamp: number;
+  readonly tenantId?: string;
+  readonly issuer?: string;
+  readonly keyId?: string;
+  readonly routeKind: "local" | "federated" | "bridge";
+  readonly federationOwnerSubject?: string;
+  readonly routedPeerId?: string;
+  readonly routedPeerLabel?: string;
   readonly providerId: string;
   readonly accountId: string;
   readonly authType: "api_key" | "oauth_bearer" | "local" | "none";
@@ -84,6 +91,14 @@ export interface PromptCacheAuditRow {
   readonly requestCount: number;
   readonly accountCount: number;
   readonly accountIds: readonly string[];
+  readonly successfulRequestCount: number;
+  readonly failedRequestCount: number;
+  readonly successfulAccountCount: number;
+  readonly successfulAccountIds: readonly string[];
+  readonly failedAccountCount: number;
+  readonly failedAccountIds: readonly string[];
+  readonly shapeFingerprintCount: number;
+  readonly shapeFingerprints: readonly string[];
   readonly cacheHitCount: number;
   readonly cachedPromptTokens: number;
   readonly promptTokens: number;
@@ -97,6 +112,7 @@ export interface PromptCacheAuditOverview {
   readonly scannedEntryCount: number;
   readonly distinctHashCount: number;
   readonly crossAccountHashCount: number;
+  readonly crossSuccessfulAccountHashCount: number;
   readonly rows: readonly PromptCacheAuditRow[];
 }
 
@@ -252,6 +268,13 @@ export interface UsageOverview {
     readonly topModel: string | null;
     readonly topProvider: string | null;
     readonly activeAccounts: number;
+    readonly routingRequests24h: {
+      readonly local: number;
+      readonly federated: number;
+      readonly bridge: number;
+      readonly distinctPeers: number;
+      readonly topPeer: string | null;
+    };
     readonly serviceTierRequests24h: {
       readonly fastMode: number;
       readonly priority: number;
@@ -713,7 +736,7 @@ export async function getUsageOverview(sort?: string, window?: "daily" | "weekly
 }
 
 export async function getHostsOverview(): Promise<HostsOverview> {
-  return requestJson<HostsOverview>("/api/ui/hosts/overview");
+  return requestJson<HostsOverview>("/api/v1/hosts/overview");
 }
 
 export async function getProviderModelAnalytics(sort?: string, window?: "daily" | "weekly" | "monthly"): Promise<ProviderModelAnalytics> {
@@ -751,13 +774,18 @@ export async function listCredentials(reveal: boolean): Promise<{
   return requestJson(`/api/v1/credentials${query}`);
 }
 
-export async function addApiKeyCredential(providerId: string, accountId: string, apiKey: string): Promise<void> {
+export async function addApiKeyCredential(providerId: string, apiKey: string, accountId?: string): Promise<void> {
+  const payload: Record<string, unknown> = { providerId, apiKey };
+  if (typeof accountId === "string" && accountId.trim().length > 0) {
+    payload.accountId = accountId.trim();
+  }
+
   await requestJson("/api/v1/credentials/api-key", {
     method: "POST",
     headers: {
       "content-type": "application/json",
     },
-    body: JSON.stringify({ providerId, accountId, apiKey }),
+    body: JSON.stringify(payload),
   });
 }
 
@@ -912,14 +940,14 @@ export async function listMcpSeeds(): Promise<McpServerSeed[]> {
 }
 
 export async function getFederationSelf(): Promise<FederationSelf> {
-  return requestJson<FederationSelf>("/api/ui/federation/self");
+  return requestJson<FederationSelf>("/api/v1/federation/self");
 }
 
 export async function listFederationPeers(ownerSubject?: string): Promise<readonly FederationPeer[]> {
   const suffix = ownerSubject && ownerSubject.trim().length > 0
     ? `?ownerSubject=${encodeURIComponent(ownerSubject.trim())}`
     : "";
-  const payload = await requestJson<{ readonly peers: readonly FederationPeer[] }>(`/api/ui/federation/peers${suffix}`);
+  const payload = await requestJson<{ readonly peers: readonly FederationPeer[] }>(`/api/v1/federation/peers${suffix}`);
   return payload.peers;
 }
 
@@ -931,7 +959,7 @@ export async function addFederationPeer(input: {
   readonly controlBaseUrl?: string;
   readonly auth?: Record<string, unknown>;
 }): Promise<FederationPeer> {
-  const payload = await requestJson<{ readonly peer: FederationPeer }>("/api/ui/federation/peers", {
+  const payload = await requestJson<{ readonly peer: FederationPeer }>("/api/v1/federation/peers", {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -945,7 +973,7 @@ export async function getFederationAccounts(ownerSubject?: string): Promise<Fede
   const suffix = ownerSubject && ownerSubject.trim().length > 0
     ? `?ownerSubject=${encodeURIComponent(ownerSubject.trim())}`
     : "";
-  return requestJson<FederationAccountsOverview>(`/api/ui/federation/accounts${suffix}`);
+  return requestJson<FederationAccountsOverview>(`/api/v1/federation/accounts${suffix}`);
 }
 
 export async function syncFederationPeer(input: {
@@ -964,6 +992,6 @@ export async function syncFederationPeer(input: {
 }
 
 export async function listFederationBridges(): Promise<readonly FederationBridgeSessionSummary[]> {
-  const payload = await requestJson<{ readonly sessions: readonly FederationBridgeSessionSummary[] }>("/api/ui/federation/bridges");
+  const payload = await requestJson<{ readonly sessions: readonly FederationBridgeSessionSummary[] }>("/api/v1/federation/bridges");
   return payload.sessions;
 }

@@ -11,6 +11,14 @@ interface PromptCacheAuditRow {
   readonly requestCount: number;
   readonly accountCount: number;
   readonly accountIds: readonly string[];
+  readonly successfulRequestCount: number;
+  readonly failedRequestCount: number;
+  readonly successfulAccountCount: number;
+  readonly successfulAccountIds: readonly string[];
+  readonly failedAccountCount: number;
+  readonly failedAccountIds: readonly string[];
+  readonly shapeFingerprintCount: number;
+  readonly shapeFingerprints: readonly string[];
   readonly cacheHitCount: number;
   readonly cachedPromptTokens: number;
   readonly promptTokens: number;
@@ -24,6 +32,7 @@ interface PromptCacheAuditOverview {
   readonly scannedEntryCount: number;
   readonly distinctHashCount: number;
   readonly crossAccountHashCount: number;
+  readonly crossSuccessfulAccountHashCount: number;
   readonly rows: readonly PromptCacheAuditRow[];
 }
 
@@ -32,6 +41,11 @@ type MutablePromptCacheAuditAccumulator = {
   providerId: string;
   requestCount: number;
   accountIds: Set<string>;
+  successfulRequestCount: number;
+  failedRequestCount: number;
+  successfulAccountIds: Set<string>;
+  failedAccountIds: Set<string>;
+  shapeFingerprints: Set<string>;
   cacheHitCount: number;
   cachedPromptTokens: number;
   promptTokens: number;
@@ -101,6 +115,11 @@ function buildPromptCacheAudit(entries: readonly RequestLogEntry[], rowLimit: nu
       providerId: entry.providerId,
       requestCount: 0,
       accountIds: new Set<string>(),
+      successfulRequestCount: 0,
+      failedRequestCount: 0,
+      successfulAccountIds: new Set<string>(),
+      failedAccountIds: new Set<string>(),
+      shapeFingerprints: new Set<string>(),
       cacheHitCount: 0,
       cachedPromptTokens: 0,
       promptTokens: 0,
@@ -111,6 +130,17 @@ function buildPromptCacheAudit(entries: readonly RequestLogEntry[], rowLimit: nu
 
     current.requestCount += 1;
     current.accountIds.add(entry.accountId);
+    if (entry.status >= 200 && entry.status < 300) {
+      current.successfulRequestCount += 1;
+      current.successfulAccountIds.add(entry.accountId);
+    } else if (entry.status >= 400 || typeof entry.error === "string") {
+      current.failedRequestCount += 1;
+      current.failedAccountIds.add(entry.accountId);
+    }
+    const shapeFingerprint = entry.factoryDiagnostics?.shapeFingerprint?.trim();
+    if (shapeFingerprint) {
+      current.shapeFingerprints.add(shapeFingerprint);
+    }
     current.cacheHitCount += entry.cacheHit === true ? 1 : 0;
     current.cachedPromptTokens += typeof entry.cachedPromptTokens === "number" && Number.isFinite(entry.cachedPromptTokens)
       ? entry.cachedPromptTokens
@@ -131,6 +161,14 @@ function buildPromptCacheAudit(entries: readonly RequestLogEntry[], rowLimit: nu
       requestCount: group.requestCount,
       accountCount: group.accountIds.size,
       accountIds: [...group.accountIds].sort((left, right) => left.localeCompare(right)),
+      successfulRequestCount: group.successfulRequestCount,
+      failedRequestCount: group.failedRequestCount,
+      successfulAccountCount: group.successfulAccountIds.size,
+      successfulAccountIds: [...group.successfulAccountIds].sort((left, right) => left.localeCompare(right)),
+      failedAccountCount: group.failedAccountIds.size,
+      failedAccountIds: [...group.failedAccountIds].sort((left, right) => left.localeCompare(right)),
+      shapeFingerprintCount: group.shapeFingerprints.size,
+      shapeFingerprints: [...group.shapeFingerprints].sort((left, right) => left.localeCompare(right)),
       cacheHitCount: group.cacheHitCount,
       cachedPromptTokens: group.cachedPromptTokens,
       promptTokens: group.promptTokens,
@@ -139,6 +177,10 @@ function buildPromptCacheAudit(entries: readonly RequestLogEntry[], rowLimit: nu
       lastSeenAt: toIso(group.lastSeenAtMs),
     }))
     .sort((left, right) => {
+      if (right.successfulAccountCount !== left.successfulAccountCount) {
+        return right.successfulAccountCount - left.successfulAccountCount;
+      }
+
       if (right.accountCount !== left.accountCount) {
         return right.accountCount - left.accountCount;
       }
@@ -159,6 +201,7 @@ function buildPromptCacheAudit(entries: readonly RequestLogEntry[], rowLimit: nu
     scannedEntryCount: entries.length,
     distinctHashCount: grouped.size,
     crossAccountHashCount: allRows.filter((row) => row.accountCount > 1).length,
+    crossSuccessfulAccountHashCount: allRows.filter((row) => row.successfulAccountCount > 1).length,
     rows,
   };
 }

@@ -1198,6 +1198,45 @@ button:disabled {
   margin: 0;
 }
 
+.credentials-watch-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 10px;
+}
+
+.credentials-watch-card {
+  gap: 10px;
+}
+
+.credentials-watch-card strong,
+.credentials-watch-card small,
+.credentials-watch-card dd {
+  overflow-wrap: anywhere;
+}
+
+.credentials-watch-metrics {
+  margin: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.credentials-watch-metrics div {
+  display: grid;
+  gap: 2px;
+}
+
+.credentials-watch-metrics dt {
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.credentials-watch-metrics dd {
+  margin: 0;
+  font-size: 0.82rem;
+}
+
 .credentials-audit-table {
   display: grid;
   gap: 8px;
@@ -1206,7 +1245,7 @@ button:disabled {
 .credentials-audit-header,
 .credentials-audit-row {
   display: grid;
-  grid-template-columns: minmax(180px, 1.2fr) minmax(220px, 1.4fr) minmax(90px, 0.7fr) minmax(180px, 1.1fr) minmax(160px, 1fr);
+  grid-template-columns: minmax(180px, 1.1fr) minmax(220px, 1.2fr) minmax(220px, 1.2fr) minmax(120px, 0.8fr) minmax(180px, 1.1fr) minmax(160px, 1fr);
   gap: 10px;
   align-items: start;
 }
