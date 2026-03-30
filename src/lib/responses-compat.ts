@@ -615,6 +615,22 @@ function responsesInputToChatMessages(input: unknown, instructions: unknown): un
     return messages;
   }
 
+  const hasInstructions = instructionsText && instructionsText.length > 0;
+  let pendingToolCalls: unknown[] = [];
+
+  const flushPendingToolCalls = (): void => {
+    if (pendingToolCalls.length === 0) {
+      return;
+    }
+
+    messages.push({
+      role: "assistant",
+      content: "",
+      tool_calls: pendingToolCalls
+    });
+    pendingToolCalls = [];
+  };
+
   for (const entry of input) {
     if (!isRecord(entry)) {
       continue;
@@ -622,6 +638,7 @@ function responsesInputToChatMessages(input: unknown, instructions: unknown): un
 
     const itemType = asString(entry["type"]);
     if (itemType === "function_call_output") {
+      flushPendingToolCalls();
       const callId = asString(entry["call_id"]);
       if (!callId) {
         continue;
@@ -641,25 +658,25 @@ function responsesInputToChatMessages(input: unknown, instructions: unknown): un
         continue;
       }
 
-      messages.push({
-        role: "assistant",
-        content: "",
-        tool_calls: [
-          {
-            id: asString(entry["call_id"]) ?? asString(entry["id"]) ?? `call_${messages.length}`,
-            type: "function",
-            function: {
-              name: functionName,
-              arguments: normalizeToolCallArguments(entry["arguments"])
-            }
-          }
-        ]
+      pendingToolCalls.push({
+        id: asString(entry["call_id"]) ?? asString(entry["id"]) ?? `call_${messages.length}`,
+        type: "function",
+        function: {
+          name: functionName,
+          arguments: normalizeToolCallArguments(entry["arguments"])
+        }
       });
       continue;
     }
 
+    flushPendingToolCalls();
+
     const role = asString(entry["role"]);
     if (!role || !SUPPORTED_CHAT_MESSAGE_ROLES.has(role)) {
+      continue;
+    }
+
+    if (hasInstructions && (role === "system" || role === "developer")) {
       continue;
     }
 
@@ -668,6 +685,8 @@ function responsesInputToChatMessages(input: unknown, instructions: unknown): un
       content: normalizeResponsesContentForChat(entry["content"] ?? "")
     });
   }
+
+  flushPendingToolCalls();
 
   return messages;
 }
@@ -778,6 +797,7 @@ export function responsesRequestToChatRequest(requestBody: Record<string, unknow
     "service_tier",
     "truncation",
     "prompt_cache_key",
+    "text",
     "open_hax"
   ];
 
@@ -1611,9 +1631,11 @@ function completionToStreamDelta(completion: Record<string, unknown>): {
       .filter((entry): entry is StreamToolCall => entry !== null);
 
     delta["tool_calls"] = mapped;
-  } else {
+  }
+
+  if (toolCalls.length === 0 || typeof message["content"] === "string") {
     const content = message["content"];
-    delta["content"] = typeof content === "string" ? content : "";
+    delta["content"] = typeof content === "string" && content.length > 0 ? content : "";
   }
 
   return {
