@@ -165,12 +165,12 @@ export function registerResponsesRoutes(deps: AppDeps, app: FastifyInstance): vo
       request.log.warn({ error: toErrorMessage(error) }, "failed to resolve dynamic model aliases for /v1/responses; using requested model as-is");
     }
 
-    if (requestedModelIsExplicitOllama(requestedModelInput)) {
+    if (requestedModelIsExplicitOllama(requestedModelInput) || requestedModelIsExplicitOllama(routingModelInput)) {
       await handleOllamaResponsesCompatibility(
         deps,
         request.headers as Record<string, unknown>,
         requestBody,
-        requestedModelInput,
+        requestedModelIsExplicitOllama(routingModelInput) ? routingModelInput : requestedModelInput,
         reply,
       );
       return;

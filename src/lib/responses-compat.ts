@@ -1211,7 +1211,7 @@ export function responsesEventStreamToChatCompletion(streamText: string, fallbac
     return responsesToChatCompletion(terminalResponse, fallbackModel);
   }
 
-  if (textDeltas.length > 0) {
+  if (textDeltas.length > 0 || reasoningDeltas.length > 0) {
     return responsesToChatCompletion({
       ...(latestResponse ?? {}),
       output: [
@@ -1224,16 +1224,18 @@ export function responsesEventStreamToChatCompletion(streamText: string, fallbac
               }]
             }]
           : []),
-        {
-          type: "message",
-          role: "assistant",
-          content: [
-            {
-              type: "output_text",
-              text: textDeltas.join("")
-            }
-          ]
-        }
+        ...(textDeltas.length > 0
+          ? [{
+              type: "message",
+              role: "assistant",
+              content: [
+                {
+                  type: "output_text",
+                  text: textDeltas.join("")
+                }
+              ]
+            }]
+          : [])
       ]
     }, fallbackModel);
   }

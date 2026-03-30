@@ -6997,6 +6997,10 @@ test("ollama-prefixed /v1/responses requests bridge through chat completions and
       assert.equal(payload.model, "llama3.2:latest");
       assert.ok(Array.isArray(payload.output));
       assert.ok((payload.output as any[]).some((item) => isRecord(item) && item.type === "message"));
+      const reasoningItem = (payload.output as any[]).find((item) => isRecord(item) && item.type === "reasoning");
+      assert.ok(reasoningItem, "expected reasoning output item");
+      assert.ok(Array.isArray(reasoningItem.summary));
+      assert.ok(reasoningItem.summary.some((s: any) => isRecord(s) && typeof s.text === "string" && s.text.includes("ollama-responses-thinking")));
       assert.ok(isRecord(payload.usage));
       assert.equal(payload.usage.input_tokens, 12);
       assert.equal(payload.usage.output_tokens, 6);
