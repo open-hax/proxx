@@ -160,6 +160,11 @@ export async function executeProviderFallback(
       continue;
     }
 
+    // Skip accounts the quota monitor already knows are exhausted (pre-flight check).
+    if (quotaMonitor?.tracksProvider(route.providerId)) {
+      routeAccounts = routeAccounts.filter((account) => !quotaMonitor.isAccountExhausted(account.accountId));
+    }
+
     routeAccounts = reorderAccountsForLatency(requestLogStore, route.providerId, routeAccounts, context.routedModel, strategy.mode);
 
     if (forcedCredentialSelection.accountId) {
@@ -551,7 +556,7 @@ export async function executeProviderFallback(
             } catch {
               // Ignore quota lookup failures and fall back to response-derived cooldowns.
             }
-            cooldownMs = quotaMonitor.getCooldownMs(candidate.account.accountId);
+            cooldownMs = quotaMonitor.getCooldownMsFromQuota(candidate.account.accountId);
           }
           if (!cooldownMs) {
             cooldownMs = context.config.keyCooldownMs;

@@ -272,6 +272,23 @@ export class QuotaMonitor {
     if (!status || !status.isExhausted) {
       return undefined;
     }
+    return this.getCooldownMsFromQuotaStatus(status);
+  }
+
+  /**
+   * Return the quota-derived cooldown for an account regardless of exhaustion status.
+   * Use this when the account is already known to be rate-limited (e.g. 429 response)
+   * and we need the quota data to determine *how long* to wait.
+   */
+  public getCooldownMsFromQuota(accountId: string): number | undefined {
+    const status = this.lastQuotaStatus.get(accountId);
+    if (!status) {
+      return undefined;
+    }
+    return this.getCooldownMsFromQuotaStatus(status);
+  }
+
+  private getCooldownMsFromQuotaStatus(status: QuotaStatusRecord): number | undefined {
     if (status.fiveHourResetAfterSeconds !== null) {
       return status.fiveHourResetAfterSeconds * 1000;
     }
