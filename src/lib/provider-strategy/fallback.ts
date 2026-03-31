@@ -925,7 +925,6 @@ export async function executeProviderFallback(
               break;
             } finally {
               refreshedRelease();
-              }
             }
           } else {
             await providerRoutePheromoneStore.noteFailure(candidate.providerId, context.routedModel);
@@ -934,7 +933,7 @@ export async function executeProviderFallback(
               preferredReassignmentAllowed = true;
             }
           }
-        if (!upstreamResponse.ok && outcome.requestError === true && (upstreamResponse.status === 401 || upstreamResponse.status === 402 || upstreamResponse.status === 403)) {
+        } else if (!upstreamResponse.ok && outcome.requestError === true && (upstreamResponse.status === 401 || upstreamResponse.status === 402 || upstreamResponse.status === 403)) {
           if (shouldCooldownCredentialOnAuthFailure(candidate.providerId, upstreamResponse.status) || shouldPermanentlyDisableCredential(candidate.account, upstreamResponse.status)) {
             const cooldownMs = shouldPermanentlyDisableCredential(candidate.account, upstreamResponse.status)
               ? PERMANENT_DISABLE_COOLDOWN_MS
