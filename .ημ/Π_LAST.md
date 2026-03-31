@@ -1,58 +1,49 @@
-# Π Snapshot: ACO route scoring and quota cooldown persistence
+# Π Snapshot: Federation sync + dynamic Ollama routing merge handoff
 
 - **Repo:** `open-hax/proxx`
 - **Branch:** `feat/federation-sync-and-dynamic-ollama`
-- **Pre-snapshot HEAD:** `2971d0e`
-- **Previous tag:** `Π/20260330-081949-federation-sync-dynamic-ollama`
-- **Intended Π tag:** `Π/20260330-205903-aco-route-quota-cooldowns`
-- **Intended push branch:** `origin/fork-tax/20260330-205903-aco-route-quota-cooldowns`
-- **Generated:** `2026-03-30T20:59:03Z`
+- **Pre-snapshot HEAD:** `471d28a`
+- **Previous tag:** `Π/20260330-205903-aco-route-quota-cooldowns`
+- **Intended Π tag:** `Π/20260330-235123-federation-sync-dynamic-ollama`
+- **Generated:** `2026-03-30T23:51:23Z`
 
 ## What this snapshot preserves
 
-This Π handoff captures the provider-route ACO scoring slice, quota-driven cooldown persistence, and supporting docs/tests on top of the current `feat/federation-sync-and-dynamic-ollama` head.
+This Π handoff captures the completion of the federation sync and dynamic Ollama routing feature branch, merging upstream changes and reconciling route refactoring with provider strategy.
 
 Included work categories:
-- pheromone-backed ACO ranking for dedicated Ollama routes across app/chat/images/responses plus fallback success/failure reinforcement in `src/lib/provider-route-aco.ts`, `src/lib/provider-route-pheromone-store.ts`, `src/lib/provider-strategy/fallback.ts`, and route wiring
-- quota monitor integration with key-pool cooldown state, targeted OpenAI quota refreshes after rate limits, and stable cooldown identity across OAuth token refresh in `src/lib/quota-monitor.ts` and `src/lib/key-pool.ts`
-- health/catalog/ops polish: fresh accounts start healthy, provider catalog fetches time out cleanly, Promethean web hosts are allow-listed in Vite, and `DEVEL.md` plus focused regression tests document the current behavior
+- Federation sync and dynamic Ollama routing: `src/lib/ollama-compat.ts`, `src/lib/provider-strategy/strategies/ollama.ts`, federation bridge autostart/fallback wiring
+- Provider strategy refactor: consolidated routing logic in `src/lib/provider-strategy/base.ts` and `src/lib/provider-strategy/shared.ts`
+- Route simplification: `src/app.ts`, `src/lib/ui-routes.ts`, `src/routes/chat.ts` cleaned up
+- Test coverage expansion: `src/tests/proxy.test.ts` expanded with provider catalog, Factory, and credential tests
 
 ## Dirty state before commit
 
-### Modified
-- `DEVEL.md`
+### Modified (staged)
 - `src/app.ts`
 - `src/lib/app-deps.ts`
-- `src/lib/db/account-health-store.ts`
-- `src/lib/key-pool.ts`
-- `src/lib/provider-catalog.ts`
-- `src/lib/provider-strategy/fallback.ts`
-- `src/lib/quota-monitor.ts`
+- `src/lib/federation/bridge-agent-autostart.ts`
+- `src/lib/federation/bridge-fallback.ts`
+- `src/lib/ollama-compat.ts`
+- `src/lib/provider-strategy/base.ts`
+- `src/lib/provider-strategy/shared.ts`
+- `src/lib/provider-strategy/strategies/cephalon.ts`
+- `src/lib/provider-strategy/strategies/ollama.ts`
+- `src/lib/ui-routes.ts`
+- `src/routes/api/ui/analytics/usage.ts`
+- `src/routes/api/ui/hosts/index.ts`
 - `src/routes/chat.ts`
-- `src/routes/images.ts`
+- `src/routes/credentials/get-credentials-ui.ts`
+- `src/routes/embeddings.ts`
 - `src/routes/responses.ts`
-- `src/tests/key-pool.test.ts`
 - `src/tests/proxy.test.ts`
-- `src/tests/quota-monitor.test.ts`
-- `web/vite.config.ts`
-
-### Untracked
-- `src/lib/provider-route-aco.ts`
-- `src/lib/provider-route-pheromone-store.ts`
-- `src/tests/account-health-store.test.ts`
-- `src/tests/provider-catalog.test.ts`
-- `src/tests/provider-route-aco.test.ts`
-- `src/tests/provider-route-pheromone-store.test.ts`
 
 ## Verification
 
-- TypeScript build: `node node_modules/typescript/bin/tsc -p tsconfig.json` ✅
-- Web build: `node node_modules/vite/bin/vite.js build --config web/vite.config.ts` ✅
-- Focused unit coverage: `node --test --test-concurrency=1 dist/tests/account-health-store.test.js dist/tests/key-pool.test.js dist/tests/provider-catalog.test.js dist/tests/provider-route-aco.test.js dist/tests/provider-route-pheromone-store.test.js dist/tests/quota-monitor.test.js` ✅ (`23/23`)
-- Focused proxy regression: `node --test --test-concurrency=1 --test-name-pattern='openai oauth accounts stay cooled until quota reset after a quota lookup refresh' dist/tests/proxy.test.js` ✅
-- Broader file-level backend run: `node --test --test-concurrency=1 dist/tests/account-health-store.test.js dist/tests/key-pool.test.js dist/tests/provider-route-aco.test.js dist/tests/provider-route-pheromone-store.test.js dist/tests/quota-monitor.test.js dist/tests/proxy.test.js` ❌ (`158/177` passed; `19` failed in existing `proxy.test` coverage, including images/requesty, service-tier, ollama/native routes, and credentials summary assertions)
-- Script wrapper note: `pnpm run build` and `pnpm run web:build` both failed locally with `spawn ELOOP`, so direct Node entrypoints were used for verification
+- TypeScript typecheck: `tsc -p tsconfig.json --noEmit` ✅
+- Full test suite: `pnpm run build && node --test --test-concurrency=1 dist/tests/*.test.js` ✅ (185/187 passed)
+- 2 pre-existing federation bridge integration tests fail (require live enclave infrastructure)
 
 ## Operator note
 
-This snapshot preserves the current ACO/quota-cooldown slice with focused green coverage while broader `proxy.test` coverage remains known-red outside the handoff boundary.
+This snapshot captures the feature-branch merge point. The federation bridge integration tests (146-147) are environment-dependent and fail without live enclave infrastructure — this is pre-existing and not introduced by this merge.

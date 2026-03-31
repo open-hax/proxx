@@ -541,6 +541,419 @@ export function chatRequestToResponsesRequest(requestBody: Record<string, unknow
   return payload;
 }
 
+function normalizeResponsesContentPartForChat(part: unknown): unknown {
+  if (typeof part === "string") {
+    return part;
+  }
+
+  if (!isRecord(part)) {
+    return part;
+  }
+
+  const type = asString(part["type"]);
+  if (type === "text" || type === "input_text" || type === "output_text") {
+    return {
+      type: "text",
+      text: asString(part["text"]) ?? ""
+    };
+  }
+
+  if (type === "refusal") {
+    return {
+      type: "text",
+      text: asString(part["refusal"]) ?? ""
+    };
+  }
+
+  if (type === "input_image") {
+    const imageUrl = asString(part["image_url"]);
+    if (imageUrl) {
+      const detail = asString(part["detail"]);
+      return {
+        type: "image_url",
+        image_url: detail ? { url: imageUrl, detail } : { url: imageUrl }
+      };
+    }
+  }
+
+  return part;
+}
+
+function normalizeResponsesContentForChat(content: unknown): unknown {
+  if (typeof content === "string") {
+    return content;
+  }
+
+  if (!Array.isArray(content)) {
+    return content;
+  }
+
+  return content
+    .map((part) => normalizeResponsesContentPartForChat(part))
+    .filter((part) => part !== null);
+}
+
+function responsesInputToChatMessages(input: unknown, instructions: unknown): unknown[] {
+  const messages: unknown[] = [];
+  const instructionsText = asString(instructions)?.trim();
+  if (instructionsText && instructionsText.length > 0) {
+    messages.push({
+      role: "system",
+      content: instructionsText
+    });
+  }
+
+  if (typeof input === "string") {
+    messages.push({
+      role: "user",
+      content: input
+    });
+    return messages;
+  }
+
+  if (!Array.isArray(input)) {
+    return messages;
+  }
+
+  const hasInstructions = instructionsText && instructionsText.length > 0;
+  let pendingToolCalls: unknown[] = [];
+
+  const flushPendingToolCalls = (): void => {
+    if (pendingToolCalls.length === 0) {
+      return;
+    }
+
+    const lastMessage = messages.length > 0 && isRecord(messages[messages.length - 1])
+      ? messages[messages.length - 1] as Record<string, unknown>
+      : null;
+
+    if (lastMessage && asString(lastMessage["role"]) === "assistant" && !Array.isArray(lastMessage["tool_calls"])) {
+      lastMessage["tool_calls"] = pendingToolCalls;
+    } else {
+      messages.push({
+        role: "assistant",
+        content: "",
+        tool_calls: pendingToolCalls
+      });
+    }
+
+    pendingToolCalls = [];
+  };
+
+  for (const entry of input) {
+    if (!isRecord(entry)) {
+      continue;
+    }
+
+    const itemType = asString(entry["type"]);
+    if (itemType === "function_call_output") {
+      flushPendingToolCalls();
+      const callId = asString(entry["call_id"]);
+      if (!callId) {
+        continue;
+      }
+
+      messages.push({
+        role: "tool",
+        tool_call_id: callId,
+        content: contentToText(entry["output"])
+      });
+      continue;
+    }
+
+    if (itemType === "function_call") {
+      const functionName = asString(entry["name"]);
+      if (!functionName) {
+        continue;
+      }
+
+      pendingToolCalls.push({
+        id: asString(entry["call_id"]) ?? asString(entry["id"]) ?? `call_${messages.length}`,
+        type: "function",
+        function: {
+          name: functionName,
+          arguments: normalizeToolCallArguments(entry["arguments"])
+        }
+      });
+      continue;
+    }
+
+    flushPendingToolCalls();
+
+    const role = asString(entry["role"]);
+    if (!role || !SUPPORTED_CHAT_MESSAGE_ROLES.has(role)) {
+      continue;
+    }
+
+    if (hasInstructions && (role === "system" || role === "developer")) {
+      continue;
+    }
+
+    messages.push({
+      role,
+      content: normalizeResponsesContentForChat(entry["content"] ?? "")
+    });
+  }
+
+  flushPendingToolCalls();
+
+  return messages;
+}
+
+function normalizeToolsForChat(tools: unknown): unknown {
+  if (!Array.isArray(tools)) {
+    return tools;
+  }
+
+  const mapped: unknown[] = [];
+  for (const tool of tools) {
+    if (!isRecord(tool)) {
+      continue;
+    }
+
+    const type = asString(tool["type"]) ?? "function";
+    if (type !== "function") {
+      mapped.push(tool);
+      continue;
+    }
+
+    if (isRecord(tool["function"])) {
+      mapped.push(tool);
+      continue;
+    }
+
+    const name = asString(tool["name"]);
+    if (!name) {
+      continue;
+    }
+
+    const normalizedTool: Record<string, unknown> = {
+      type: "function",
+      function: {
+        name
+      }
+    };
+
+    const functionConfig = normalizedTool["function"] as Record<string, unknown>;
+    const description = asString(tool["description"]);
+    if (description) {
+      functionConfig["description"] = description;
+    }
+
+    if (tool["parameters"] !== undefined) {
+      functionConfig["parameters"] = tool["parameters"];
+    }
+
+    if (typeof tool["strict"] === "boolean") {
+      functionConfig["strict"] = tool["strict"];
+    }
+
+    mapped.push(normalizedTool);
+  }
+
+  return mapped;
+}
+
+function normalizeToolChoiceForChat(toolChoice: unknown): unknown {
+  if (!isRecord(toolChoice)) {
+    return toolChoice;
+  }
+
+  const type = asString(toolChoice["type"]);
+  if (type !== "function") {
+    return toolChoice;
+  }
+
+  if (isRecord(toolChoice["function"])) {
+    return toolChoice;
+  }
+
+  const name = asString(toolChoice["name"]);
+  if (!name) {
+    return toolChoice;
+  }
+
+  return {
+    type: "function",
+    function: {
+      name
+    }
+  };
+}
+
+export function responsesRequestToChatRequest(requestBody: Record<string, unknown>): Record<string, unknown> {
+  const payload: Record<string, unknown> = {
+    model: requestBody["model"],
+    messages: responsesInputToChatMessages(requestBody["input"], requestBody["instructions"]),
+    stream: requestBody["stream"] === true,
+  };
+
+  const maxOutputTokens = asNumber(requestBody["max_output_tokens"]);
+  if (maxOutputTokens !== undefined) {
+    payload["max_completion_tokens"] = maxOutputTokens;
+  }
+
+  const passthroughKeys = [
+    "temperature",
+    "top_p",
+    "presence_penalty",
+    "frequency_penalty",
+    "parallel_tool_calls",
+    "max_tool_calls",
+    "include",
+    "metadata",
+    "user",
+    "service_tier",
+    "truncation",
+    "prompt_cache_key",
+    "text",
+    "open_hax"
+  ];
+
+  for (const key of passthroughKeys) {
+    if (requestBody[key] !== undefined) {
+      payload[key] = requestBody[key];
+    }
+  }
+
+  if (requestBody["reasoning"] !== undefined) {
+    payload["reasoning"] = requestBody["reasoning"];
+  }
+
+  if (requestBody["tools"] !== undefined) {
+    payload["tools"] = normalizeToolsForChat(requestBody["tools"]);
+  }
+
+  if (requestBody["tool_choice"] !== undefined) {
+    payload["tool_choice"] = normalizeToolChoiceForChat(requestBody["tool_choice"]);
+  }
+
+  return payload;
+}
+
+function mapChatUsageToResponsesUsage(usage: unknown): Record<string, unknown> | undefined {
+  const usageRecord = isRecord(usage) ? usage : null;
+  if (!usageRecord) {
+    return undefined;
+  }
+
+  const promptTokens = asNumber(usageRecord["prompt_tokens"]);
+  const completionTokens = asNumber(usageRecord["completion_tokens"]);
+  const totalTokens = asNumber(usageRecord["total_tokens"]);
+  if (promptTokens === undefined || completionTokens === undefined || totalTokens === undefined) {
+    return undefined;
+  }
+
+  const mapped: Record<string, unknown> = {
+    input_tokens: promptTokens,
+    output_tokens: completionTokens,
+    total_tokens: totalTokens
+  };
+
+  const promptDetails = isRecord(usageRecord["prompt_tokens_details"]) ? usageRecord["prompt_tokens_details"] : null;
+  if (promptDetails) {
+    mapped["input_tokens_details"] = {
+      cached_tokens: asNumber(promptDetails["cached_tokens"]) ?? 0
+    };
+  }
+
+  const completionDetails = isRecord(usageRecord["completion_tokens_details"]) ? usageRecord["completion_tokens_details"] : null;
+  if (completionDetails) {
+    mapped["output_tokens_details"] = {
+      reasoning_tokens: asNumber(completionDetails["reasoning_tokens"]) ?? 0
+    };
+  }
+
+  return mapped;
+}
+
+function chatMessageToResponsesOutput(message: Record<string, unknown>, responseId: string): unknown[] {
+  const output: unknown[] = [];
+
+  const reasoningContent = asString(message["reasoning_content"]) ?? asString(message["reasoning"]);
+  if (reasoningContent && reasoningContent.length > 0) {
+    output.push({
+      id: `rs_${responseId}`,
+      type: "reasoning",
+      summary: [
+        {
+          type: "summary_text",
+          text: reasoningContent
+        }
+      ]
+    });
+  }
+
+  const content = asString(message["content"]);
+  if (content && content.length > 0) {
+    output.push({
+      id: `msg_${responseId}`,
+      type: "message",
+      role: "assistant",
+      status: "completed",
+      content: [
+        {
+          type: "output_text",
+          text: content
+        }
+      ]
+    });
+  }
+
+  const toolCalls = Array.isArray(message["tool_calls"]) ? message["tool_calls"] : [];
+  for (const [index, entry] of toolCalls.entries()) {
+    if (!isRecord(entry)) {
+      continue;
+    }
+
+    const functionData = isRecord(entry["function"]) ? entry["function"] : null;
+    const functionName = functionData ? asString(functionData["name"]) : undefined;
+    if (!functionName) {
+      continue;
+    }
+
+    output.push({
+      id: `fc_${responseId}_${index}`,
+      type: "function_call",
+      call_id: asString(entry["id"]) ?? `call_${index}`,
+      name: functionName,
+      arguments: normalizeToolCallArguments(functionData ? functionData["arguments"] : undefined),
+      status: "completed"
+    });
+  }
+
+  return output;
+}
+
+export function chatCompletionToResponsesResponse(completionBody: unknown): Record<string, unknown> {
+  if (!isRecord(completionBody)) {
+    throw new Error("Invalid upstream chat completion payload");
+  }
+
+  const id = asString(completionBody["id"]) ?? `resp_${Date.now()}`;
+  const createdAt = asNumber(completionBody["created"]) ?? Math.floor(Date.now() / 1000);
+  const model = asString(completionBody["model"]) ?? "";
+  const choices = Array.isArray(completionBody["choices"]) ? completionBody["choices"] : [];
+  const firstChoice = choices.length > 0 && isRecord(choices[0]) ? choices[0] : {};
+  const message = isRecord(firstChoice["message"]) ? firstChoice["message"] : { role: "assistant", content: "" };
+
+  const response: Record<string, unknown> = {
+    id,
+    object: "response",
+    created_at: createdAt,
+    model,
+    status: "completed",
+    output: chatMessageToResponsesOutput(message, id)
+  };
+
+  const mappedUsage = mapChatUsageToResponsesUsage(completionBody["usage"]);
+  if (mappedUsage) {
+    response["usage"] = mappedUsage;
+  }
+
+  return response;
+}
+
 function responsesOutputToChatMessage(output: unknown): {
   readonly content: string | null;
   readonly reasoningContent: string;
@@ -715,6 +1128,24 @@ export function responsesToChatCompletion(responseBody: unknown, fallbackModel: 
   return completion;
 }
 
+function extractResponsesReasoningDeltaText(payload: Record<string, unknown>): string {
+  const directDelta = payload["delta"];
+  if (typeof directDelta === "string") {
+    return directDelta;
+  }
+
+  if (isRecord(directDelta)) {
+    return asString(directDelta["text"])
+      ?? asString(directDelta["reasoning"])
+      ?? asString(directDelta["summary"])
+      ?? "";
+  }
+
+  return asString(payload["text"])
+    ?? asString(payload["reasoning"])
+    ?? "";
+}
+
 function parseResponsesSsePayloads(streamText: string): Array<Record<string, unknown>> {
   const blocks = streamText.split(/\r?\n\r?\n/);
   const payloads: Array<Record<string, unknown>> = [];
@@ -771,6 +1202,7 @@ export function responsesEventStreamToChatCompletion(streamText: string, fallbac
   let terminalResponse: Record<string, unknown> | undefined;
   let latestResponse: Record<string, unknown> | undefined;
   const textDeltas: string[] = [];
+  const reasoningDeltas: string[] = [];
 
   for (const payload of payloads) {
     const type = asString(payload["type"]);
@@ -786,6 +1218,19 @@ export function responsesEventStreamToChatCompletion(streamText: string, fallbac
       }
     }
 
+    if (
+      type === "response.reasoning.delta"
+      || type === "response.reasoning_text.delta"
+      || type === "response.reasoning_summary.delta"
+      || type === "response.reasoning_summary_text.delta"
+      || type === "response.reasoning_summary_part.delta"
+    ) {
+      const delta = extractResponsesReasoningDeltaText(payload);
+      if (delta.length > 0) {
+        reasoningDeltas.push(delta);
+      }
+    }
+
     if ((type === "response.completed" || type === "response.incomplete") && response) {
       terminalResponse = response;
     }
@@ -795,25 +1240,360 @@ export function responsesEventStreamToChatCompletion(streamText: string, fallbac
     return responsesToChatCompletion(terminalResponse, fallbackModel);
   }
 
-  if (textDeltas.length > 0) {
+  if (textDeltas.length > 0 || reasoningDeltas.length > 0) {
     return responsesToChatCompletion({
       ...(latestResponse ?? {}),
       output: [
-        {
-          type: "message",
-          role: "assistant",
-          content: [
-            {
-              type: "output_text",
-              text: textDeltas.join("")
-            }
-          ]
-        }
+        ...(reasoningDeltas.length > 0
+          ? [{
+              type: "reasoning",
+              summary: [{
+                type: "summary_text",
+                text: reasoningDeltas.join("")
+              }]
+            }]
+          : []),
+        ...(textDeltas.length > 0
+          ? [{
+              type: "message",
+              role: "assistant",
+              content: [
+                {
+                  type: "output_text",
+                  text: textDeltas.join("")
+                }
+              ]
+            }]
+          : [])
       ]
     }, fallbackModel);
   }
 
   throw new Error("Invalid upstream responses event-stream payload");
+}
+
+function parseChatCompletionSsePayloads(streamText: string): Array<Record<string, unknown>> {
+  const blocks = streamText.split(/\r?\n\r?\n/);
+  const payloads: Array<Record<string, unknown>> = [];
+
+  for (const block of blocks) {
+    const dataLines = block
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.startsWith("data:"))
+      .map((line) => line.slice(5).trim());
+
+    if (dataLines.length === 0) {
+      continue;
+    }
+
+    const data = dataLines.join("\n").trim();
+    if (data.length === 0 || data === "[DONE]") {
+      continue;
+    }
+
+    try {
+      const parsed: unknown = JSON.parse(data);
+      if (isRecord(parsed)) {
+        payloads.push(parsed);
+      }
+    } catch {
+      // Ignore malformed SSE payloads and keep parsing the stream.
+    }
+  }
+
+  return payloads;
+}
+
+function synthesizeChatCompletionFromStreamPayloads(
+  payloads: readonly Record<string, unknown>[],
+  fallbackModel: string,
+): Record<string, unknown> {
+  let id = `chatcmpl_${Date.now()}`;
+  let created = Math.floor(Date.now() / 1000);
+  let model = fallbackModel;
+  let finishReason = "stop";
+  let usage: Record<string, unknown> | undefined;
+  const contentParts: string[] = [];
+  const reasoningParts: string[] = [];
+  const toolCalls = new Map<number, { id: string; name: string; arguments: string }>();
+
+  for (const payload of payloads) {
+    id = asString(payload["id"]) ?? id;
+    created = asNumber(payload["created"]) ?? created;
+    model = asString(payload["model"]) ?? model;
+
+    if (isRecord(payload["usage"])) {
+      usage = payload["usage"];
+    }
+
+    const choices = Array.isArray(payload["choices"]) ? payload["choices"] : [];
+    const firstChoice = choices.length > 0 && isRecord(choices[0]) ? choices[0] : null;
+    if (!firstChoice) {
+      continue;
+    }
+
+    const delta = isRecord(firstChoice["delta"]) ? firstChoice["delta"] : null;
+    if (delta) {
+      const content = asString(delta["content"]);
+      if (content && content.length > 0) {
+        contentParts.push(content);
+      }
+
+      const reasoning = asString(delta["reasoning_content"]);
+      if (reasoning && reasoning.length > 0) {
+        reasoningParts.push(reasoning);
+      }
+
+      const deltaToolCalls = Array.isArray(delta["tool_calls"]) ? delta["tool_calls"] : [];
+      for (const [fallbackIndex, entry] of deltaToolCalls.entries()) {
+        if (!isRecord(entry)) {
+          continue;
+        }
+
+        const toolCallIndex = asNumber(entry["index"]) ?? fallbackIndex;
+        const existing = toolCalls.get(toolCallIndex) ?? {
+          id: asString(entry["id"]) ?? `call_${toolCallIndex}`,
+          name: "",
+          arguments: ""
+        };
+
+        const functionData = isRecord(entry["function"]) ? entry["function"] : null;
+        const functionName = functionData ? asString(functionData["name"]) : undefined;
+        if (functionName) {
+          existing.name = functionName;
+        }
+
+        const functionArguments = functionData ? asString(functionData["arguments"]) : undefined;
+        if (functionArguments && functionArguments.length > 0) {
+          existing.arguments += functionArguments;
+        }
+
+        toolCalls.set(toolCallIndex, existing);
+      }
+    }
+
+    finishReason = asString(firstChoice["finish_reason"]) ?? finishReason;
+  }
+
+  const orderedToolCalls = [...toolCalls.entries()]
+    .sort(([leftIndex], [rightIndex]) => leftIndex - rightIndex)
+    .map(([, entry]) => ({
+      id: entry.id,
+      type: "function",
+      function: {
+        name: entry.name,
+        arguments: entry.arguments
+      }
+    }));
+
+  const content = contentParts.join("");
+  const reasoning = reasoningParts.join("");
+  const message: Record<string, unknown> = {
+    role: "assistant",
+    content: orderedToolCalls.length > 0
+      ? (content.length > 0 ? content : null)
+      : content
+  };
+
+  if (reasoning.length > 0) {
+    message["reasoning_content"] = reasoning;
+  }
+
+  if (orderedToolCalls.length > 0) {
+    message["tool_calls"] = orderedToolCalls;
+  }
+
+  const completion: Record<string, unknown> = {
+    id,
+    object: "chat.completion",
+    created,
+    model,
+    choices: [
+      {
+        index: 0,
+        message,
+        finish_reason: finishReason
+      }
+    ]
+  };
+
+  if (usage) {
+    completion["usage"] = usage;
+  }
+
+  return completion;
+}
+
+export function chatCompletionEventStreamToResponsesEventStream(streamText: string, fallbackModel: string): string {
+  const payloads = parseChatCompletionSsePayloads(streamText);
+  if (payloads.length === 0) {
+    throw new Error("Invalid upstream chat completion event-stream payload");
+  }
+
+  const completion = synthesizeChatCompletionFromStreamPayloads(payloads, fallbackModel);
+  const response = chatCompletionToResponsesResponse(completion);
+  const responseId = asString(response["id"]) ?? `resp_${Date.now()}`;
+  const createdAt = asNumber(response["created_at"]) ?? Math.floor(Date.now() / 1000);
+  const model = asString(response["model"]) ?? fallbackModel;
+  const events: string[] = [];
+  const responseOutput = Array.isArray(response["output"]) ? response["output"] : [];
+  const outputIndexById = new Map<string, number>();
+  const functionCallOutputByCallId = new Map<string, { readonly itemId: string; readonly outputIndex: number }>();
+  for (const [index, item] of responseOutput.entries()) {
+    if (!isRecord(item)) {
+      continue;
+    }
+
+    const itemId = asString(item["id"]);
+    if (itemId) {
+      outputIndexById.set(itemId, index);
+
+      if (asString(item["type"]) === "function_call") {
+        const callId = asString(item["call_id"]);
+        if (callId) {
+          functionCallOutputByCallId.set(callId, { itemId, outputIndex: index });
+        }
+      }
+    }
+  }
+
+  let messageOutputIndex: number | undefined;
+  let reasoningOutputIndex: number | undefined;
+  const toolCallState = new Map<number, { readonly itemId: string; readonly callId: string; readonly outputIndex: number }>();
+
+  const emitEvent = (type: string, payload: Record<string, unknown>): void => {
+    events.push(`event: ${type}\ndata: ${JSON.stringify({ type, ...payload })}\n\n`);
+  };
+
+  emitEvent("response.created", {
+    response: {
+      id: responseId,
+      object: "response",
+      created_at: createdAt,
+      model,
+      status: "in_progress",
+      output: []
+    }
+  });
+
+  const ensureReasoningItem = (): number => {
+    if (reasoningOutputIndex !== undefined) {
+      return reasoningOutputIndex;
+    }
+
+    reasoningOutputIndex = outputIndexById.get(`rs_${responseId}`) ?? 0;
+    emitEvent("response.output_item.added", {
+      output_index: reasoningOutputIndex,
+      item: {
+        id: `rs_${responseId}`,
+        type: "reasoning",
+        status: "in_progress",
+        summary: []
+      }
+    });
+    return reasoningOutputIndex;
+  };
+
+  const ensureMessageItem = (): number => {
+    if (messageOutputIndex !== undefined) {
+      return messageOutputIndex;
+    }
+
+    messageOutputIndex = outputIndexById.get(`msg_${responseId}`) ?? 0;
+    emitEvent("response.output_item.added", {
+      output_index: messageOutputIndex,
+      item: {
+        id: `msg_${responseId}`,
+        type: "message",
+        role: "assistant",
+        status: "in_progress",
+        content: []
+      }
+    });
+    return messageOutputIndex;
+  };
+
+  for (const payload of payloads) {
+    const choices = Array.isArray(payload["choices"]) ? payload["choices"] : [];
+    const firstChoice = choices.length > 0 && isRecord(choices[0]) ? choices[0] : null;
+    if (!firstChoice) {
+      continue;
+    }
+
+    const delta = isRecord(firstChoice["delta"]) ? firstChoice["delta"] : null;
+    if (!delta) {
+      continue;
+    }
+
+    const reasoning = asString(delta["reasoning_content"]);
+    if (reasoning && reasoning.length > 0) {
+      emitEvent("response.reasoning.delta", {
+        item_id: `rs_${responseId}`,
+        output_index: ensureReasoningItem(),
+        content_index: 0,
+        delta: reasoning
+      });
+    }
+
+    const content = asString(delta["content"]);
+    if (content && content.length > 0) {
+      emitEvent("response.output_text.delta", {
+        item_id: `msg_${responseId}`,
+        output_index: ensureMessageItem(),
+        content_index: 0,
+        delta: content
+      });
+    }
+
+    const deltaToolCalls = Array.isArray(delta["tool_calls"]) ? delta["tool_calls"] : [];
+    for (const [fallbackIndex, entry] of deltaToolCalls.entries()) {
+      if (!isRecord(entry)) {
+        continue;
+      }
+
+      const toolCallIndex = asNumber(entry["index"]) ?? fallbackIndex;
+      const functionData = isRecord(entry["function"]) ? entry["function"] : null;
+      const functionName = functionData ? asString(functionData["name"]) : undefined;
+      const functionArguments = functionData ? asString(functionData["arguments"]) : undefined;
+
+      let state = toolCallState.get(toolCallIndex);
+      if (!state) {
+        const callId = asString(entry["id"]) ?? `call_${toolCallIndex}`;
+        const mappedOutput = functionCallOutputByCallId.get(callId);
+        const itemId = mappedOutput?.itemId ?? `fc_${responseId}_${toolCallIndex}`;
+        state = {
+          itemId,
+          callId,
+          outputIndex: mappedOutput?.outputIndex ?? outputIndexById.get(itemId) ?? 0
+        };
+        toolCallState.set(toolCallIndex, state);
+        emitEvent("response.output_item.added", {
+          output_index: state.outputIndex,
+          item: {
+            id: state.itemId,
+            type: "function_call",
+            status: "in_progress",
+            call_id: state.callId,
+            name: functionName ?? "",
+            arguments: ""
+          }
+        });
+      }
+
+      if (functionArguments && functionArguments.length > 0) {
+        emitEvent("response.function_call_arguments.delta", {
+          item_id: state.itemId,
+          output_index: state.outputIndex,
+          call_id: state.callId,
+          delta: functionArguments
+        });
+      }
+    }
+  }
+
+  emitEvent("response.completed", { response });
+  return events.join("");
 }
 
 interface StreamToolCall {
@@ -879,9 +1659,23 @@ function completionToStreamDelta(completion: Record<string, unknown>): {
       .filter((entry): entry is StreamToolCall => entry !== null);
 
     delta["tool_calls"] = mapped;
-  } else {
+  }
+
+  if (toolCalls.length === 0 || typeof message["content"] === "string") {
     const content = message["content"];
-    delta["content"] = typeof content === "string" ? content : "";
+    if (typeof content === "string") {
+      delta["content"] = content.length > 0 ? content : "";
+    } else if (Array.isArray(content)) {
+      if (content.length > 0) {
+        delta["content"] = content;
+      }
+    } else if (isRecord(content)) {
+      if (Object.keys(content).length > 0) {
+        delta["content"] = content;
+      }
+    } else if (toolCalls.length === 0) {
+      delta["content"] = "";
+    }
   }
 
   return {
@@ -1292,10 +2086,14 @@ export async function streamResponsesSseToChatCompletionChunks(
     }
 
     // Reasoning/summary text deltas
-    if (type === "response.reasoning_summary_text.delta"
-      || type === "response.reasoning.delta"
-      || type === "response.reasoning_summary_part.delta") {
-      const delta = typeof payload["delta"] === "string" ? payload["delta"] : undefined;
+    if (
+      type === "response.reasoning.delta"
+      || type === "response.reasoning_text.delta"
+      || type === "response.reasoning_summary.delta"
+      || type === "response.reasoning_summary_text.delta"
+      || type === "response.reasoning_summary_part.delta"
+    ) {
+      const delta = extractResponsesReasoningDeltaText(payload);
       if (delta) {
         const d: Record<string, unknown> = { reasoning_content: delta };
         if (isFirstChunk) {
@@ -1410,8 +2208,12 @@ export async function streamResponsesSseToChatCompletionChunks(
   const SSE_BLOCK_SEP = /\r?\n\r?\n/;
 
   function drainBuffer(): void {
-    let match: RegExpMatchArray | null;
-    while ((match = SSE_BLOCK_SEP.exec(buffer)) !== null) {
+    while (true) {
+      const match = SSE_BLOCK_SEP.exec(buffer);
+      if (match === null) {
+        break;
+      }
+
       const sepIdx = match.index ?? 0;
       const block = buffer.slice(0, sepIdx);
       buffer = buffer.slice(sepIdx + match[0].length);

@@ -117,7 +117,10 @@ export class OllamaProviderStrategy extends BaseProviderStrategy {
       rawResponse.flushHeaders();
 
       try {
-        await streamOllamaNdjsonToChatCompletionSse(upstreamResponse.body, context.routedModel, (data) => rawResponse.write(data));
+        await streamOllamaNdjsonToChatCompletionSse(upstreamResponse.body, context.routedModel, (data) => {
+          rawResponse.write(data);
+          (rawResponse as { flush?: () => void }).flush?.();
+        });
       } catch (error) {
         if (!rawResponse.writableEnded) {
           rawResponse.write(`data: ${JSON.stringify({ error: { message: toErrorMessage(error) } })}\n\n`);

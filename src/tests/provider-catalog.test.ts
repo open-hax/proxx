@@ -97,11 +97,24 @@ function buildTestAccount(providerId: string, token = "test-token"): ProviderCre
   };
 }
 
+async function withCatalogRouteTimeoutMs<T>(timeoutMs: number, fn: () => Promise<T>): Promise<T> {
+  const previous = process.env.PROXY_PROVIDER_CATALOG_ROUTE_TIMEOUT_MS;
+  process.env.PROXY_PROVIDER_CATALOG_ROUTE_TIMEOUT_MS = String(timeoutMs);
+  try {
+    return await fn();
+  } finally {
+    if (previous === undefined) {
+      delete process.env.PROXY_PROVIDER_CATALOG_ROUTE_TIMEOUT_MS;
+    } else {
+      process.env.PROXY_PROVIDER_CATALOG_ROUTE_TIMEOUT_MS = previous;
+    }
+  }
+}
+
 test("getCatalog completes within timeout when a route endpoint is unresponsive", async () => {
   // Regression: a dead federation peer at federation.big.ussy.promethean.rest caused
   // getCatalog() to block all /v1/chat/completions and /v1/responses requests for
   // ~38 minutes (45s per-account timeout × 51 ollama-cloud accounts).
-  // Each test here intentionally hangs a server, so expect ~15s per test (CATALOG_ROUTE_TIMEOUT_MS).
   const tempDir = await mkdtemp(path.join(os.tmpdir(), "catalog-test-"));
 
   const modelsPath = path.join(tempDir, "models.json");
@@ -152,32 +165,34 @@ test("getCatalog completes within timeout when a route endpoint is unresponsive"
       ["responsive-provider", [buildTestAccount("responsive-provider")]],
     ]);
 
-    const config = buildMinimalConfig({ modelsFilePath: modelsPath });
-    const keyPool = buildMockKeyPool(accounts);
+    await withCatalogRouteTimeoutMs(200, async () => {
+      const config = buildMinimalConfig({ modelsFilePath: modelsPath, requestTimeoutMs: 5_000 });
+      const keyPool = buildMockKeyPool(accounts);
 
-    const store = new ProviderCatalogStore(config, keyPool, [hangingRoute, responsiveRoute], []);
+      const store = new ProviderCatalogStore(config, keyPool, [hangingRoute, responsiveRoute], []);
 
-    const start = Date.now();
-    const catalog = await store.getCatalog(true);
-    const elapsed = Date.now() - start;
+      const start = Date.now();
+      const catalog = await store.getCatalog(true);
+      const elapsed = Date.now() - start;
 
-    assert.ok(
-      elapsed < 20_000,
-      `getCatalog should complete within 20s despite hanging route, took ${elapsed}ms`,
-    );
+      assert.ok(
+        elapsed < 2_000,
+        `getCatalog should complete within 2s despite hanging route, took ${elapsed}ms`,
+      );
 
-    assert.ok(
-      catalog.providerCatalogs["responsive-provider"],
-      "responsive provider should appear in catalog",
-    );
-    assert.deepEqual(
-      [...catalog.providerCatalogs["responsive-provider"].modelIds],
-      ["responsive-model"],
-    );
-    assert.ok(
-      !catalog.providerCatalogs["hanging-provider"],
-      "hanging provider should NOT appear in catalog",
-    );
+      assert.ok(
+        catalog.providerCatalogs["responsive-provider"],
+        "responsive provider should appear in catalog",
+      );
+      assert.deepEqual(
+        [...catalog.providerCatalogs["responsive-provider"].modelIds],
+        ["responsive-model"],
+      );
+      assert.ok(
+        !catalog.providerCatalogs["hanging-provider"],
+        "hanging provider should NOT appear in catalog",
+      );
+    });
   } finally {
     hangingServer.closeAllConnections();
     await new Promise<void>((resolve, reject) => {
@@ -220,25 +235,27 @@ test("getCatalog returns empty catalog when all routes time out", async () => {
       ["slow-provider", [buildTestAccount("slow-provider")]],
     ]);
 
-    const config = buildMinimalConfig({ modelsFilePath: modelsPath });
-    const keyPool = buildMockKeyPool(accounts);
+    await withCatalogRouteTimeoutMs(200, async () => {
+      const config = buildMinimalConfig({ modelsFilePath: modelsPath, requestTimeoutMs: 5_000 });
+      const keyPool = buildMockKeyPool(accounts);
 
-    const store = new ProviderCatalogStore(config, keyPool, [slowRoute], []);
+      const store = new ProviderCatalogStore(config, keyPool, [slowRoute], []);
 
-    const start = Date.now();
-    const catalog = await store.getCatalog(true);
-    const elapsed = Date.now() - start;
+      const start = Date.now();
+      const catalog = await store.getCatalog(true);
+      const elapsed = Date.now() - start;
 
-    assert.ok(
-      elapsed < 20_000,
-      `getCatalog should complete within 20s even when all routes hang, took ${elapsed}ms`,
-    );
+      assert.ok(
+        elapsed < 2_000,
+        `getCatalog should complete within 2s even when all routes hang, took ${elapsed}ms`,
+      );
 
-    assert.ok(
-      !catalog.providerCatalogs["slow-provider"],
-      "slow provider should NOT appear in catalog",
-    );
-    assert.equal(catalog.catalog.modelIds.length, 0, "catalog should have no discovered models");
+      assert.ok(
+        !catalog.providerCatalogs["slow-provider"],
+        "slow provider should NOT appear in catalog",
+      );
+      assert.equal(catalog.catalog.modelIds.length, 0, "catalog should have no discovered models");
+    });
   } finally {
     slowServer.closeAllConnections();
     await new Promise<void>((resolve, reject) => {

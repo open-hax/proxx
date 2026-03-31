@@ -27,6 +27,13 @@ export function tenantModelAllowed(settings: TenantSettings, ...models: Array<st
     return true;
   }
 
+  const allowed = new Set<string>();
+  for (const allowedModel of settings.allowedModels) {
+    for (const variant of normalizeModelVariants(allowedModel)) {
+      allowed.add(variant);
+    }
+  }
+
   const candidates = new Set<string>();
   for (const model of models) {
     if (typeof model !== "string") {
@@ -42,13 +49,7 @@ export function tenantModelAllowed(settings: TenantSettings, ...models: Array<st
     return false;
   }
 
-  const allowedVariants = new Set<string>();
-  for (const allowed of settings.allowedModels!) {
-    for (const variant of normalizeModelVariants(allowed)) {
-      allowedVariants.add(variant);
-    }
-  }
-  return [...candidates].some((candidate) => allowedVariants.has(candidate));
+  return [...candidates].some((candidate) => allowed.has(candidate));
 }
 
 export function tenantProviderAllowed(settings: TenantSettings, providerId: string): boolean {

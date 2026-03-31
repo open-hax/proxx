@@ -1,9 +1,10 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply } from "fastify";
 
 import {
   extractPromptCacheKey,
   summarizeResponsesRequestBody,
   hashPromptCacheKey,
+  copyInjectedResponseHeaders,
 } from "../lib/request-utils.js";
 import { isRecord } from "../lib/provider-utils.js";
 import {
@@ -33,10 +34,84 @@ import { discoverDynamicOllamaRoutes, prependDynamicOllamaRoutes } from "../lib/
 import { orderProviderRoutesByPolicy } from "../lib/provider-policy.js";
 import { sendOpenAiError, toErrorMessage } from "../lib/provider-utils.js";
 import { isAutoModel, rankAutoModels } from "../lib/auto-model-selector.js";
-import { shouldUseResponsesUpstream } from "../lib/responses-compat.js";
+import {
+  chatCompletionToSse,
+  chatCompletionEventStreamToResponsesEventStream,
+  chatCompletionToResponsesResponse,
+  responsesRequestToChatRequest,
+  shouldUseResponsesUpstream,
+} from "../lib/responses-compat.js";
 
 import type { AppDeps } from "../lib/app-deps.js";
 import type { ResolvedCatalogWithPreferences } from "../lib/provider-catalog.js";
+
+function requestedModelIsExplicitOllama(model: string): boolean {
+  const normalized = model.trim().toLowerCase();
+  return normalized.startsWith("ollama/") || normalized.startsWith("ollama:");
+}
+
+async function handleOllamaResponsesCompatibility(
+  deps: AppDeps,
+  requestHeaders: Record<string, unknown>,
+  requestBody: Record<string, unknown>,
+  requestedModelInput: string,
+  reply: FastifyReply,
+): Promise<void> {
+  const bridgePayload = {
+    ...responsesRequestToChatRequest(requestBody),
+    stream: false,
+  };
+  const bridgeResponse = await deps.injectNativeBridge(
+    "/v1/chat/completions",
+    bridgePayload,
+    requestHeaders,
+  );
+
+  copyInjectedResponseHeaders(reply, bridgeResponse.headers as Record<string, string | string[] | undefined>);
+
+  if (bridgeResponse.statusCode >= 400) {
+    reply.code(bridgeResponse.statusCode);
+    reply.send(bridgeResponse.body ?? "");
+    return;
+  }
+
+  let parsedBody: unknown;
+  try {
+    parsedBody = JSON.parse(bridgeResponse.body ?? "null");
+  } catch {
+    sendOpenAiError(reply, 502, "Failed to parse proxied Ollama chat completion response", "server_error", "responses_translation_failed");
+    return;
+  }
+
+  if (!isRecord(parsedBody) || !Array.isArray(parsedBody["choices"])) {
+    sendOpenAiError(reply, 502, "Invalid proxied Ollama chat completion response", "server_error", "responses_translation_failed");
+    return;
+  }
+
+  if (requestBody["stream"] === true) {
+    let translatedStream: string;
+    try {
+      translatedStream = chatCompletionEventStreamToResponsesEventStream(
+        chatCompletionToSse(parsedBody),
+        requestedModelInput,
+      );
+    } catch (error) {
+      sendOpenAiError(reply, 502, toErrorMessage(error), "server_error", "responses_stream_translation_failed");
+      return;
+    }
+
+    reply.code(200);
+    reply.header("content-type", "text/event-stream; charset=utf-8");
+    reply.header("cache-control", "no-cache");
+    reply.header("x-accel-buffering", "no");
+    reply.send(translatedStream);
+    return;
+  }
+
+  reply.code(200);
+  reply.header("content-type", "application/json");
+  reply.send(chatCompletionToResponsesResponse(parsedBody));
+}
 
 export function registerResponsesRoutes(deps: AppDeps, app: FastifyInstance): void {
   app.post<{ Body: Record<string, unknown> }>("/v1/responses", async (request, reply) => {
@@ -94,6 +169,17 @@ export function registerResponsesRoutes(deps: AppDeps, app: FastifyInstance): vo
       }
     } catch (error) {
       request.log.warn({ error: toErrorMessage(error) }, "failed to resolve dynamic model aliases for /v1/responses; using requested model as-is");
+    }
+
+    if (requestedModelIsExplicitOllama(requestedModelInput) || requestedModelIsExplicitOllama(routingModelInput)) {
+      await handleOllamaResponsesCompatibility(
+        deps,
+        request.headers as Record<string, unknown>,
+        requestBody,
+        requestedModelIsExplicitOllama(routingModelInput) ? routingModelInput : requestedModelInput,
+        reply,
+      );
+      return;
     }
 
     const autoCandidateProviderIds = filterTenantProviderRoutes(

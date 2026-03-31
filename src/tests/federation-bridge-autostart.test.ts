@@ -506,6 +506,17 @@ test("relay /v1/chat/completions can bridge a real completion request to an atta
             && session.capabilities.length > 0;
         });
 
+        await waitFor(async () => {
+          const response = await relayApp!.inject({
+            method: "GET",
+            url: "/v1/models",
+            headers: { authorization: "Bearer bridge-admin-token" },
+          });
+          const payload = response.json() as { readonly data: ReadonlyArray<{ readonly id?: string }> };
+          const modelIds = payload.data.map((entry) => entry.id).filter((entry): entry is string => typeof entry === "string");
+          return modelIds.includes("gpt-5.2");
+        }, 10_000);
+
         const chatResponse = await relayApp!.inject({
           method: "POST",
           url: "/v1/chat/completions",

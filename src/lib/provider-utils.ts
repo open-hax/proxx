@@ -115,9 +115,39 @@ export function streamPayloadHasReasoningTrace(payload: string): boolean {
 
 export function streamPayloadHasSubstantiveChunks(payload: string): boolean {
   for (const data of extractSseDataLines(payload)) {
-    if (data !== "[DONE]") {
+    if (data === "[DONE]") {
+      continue;
+    }
+
+    try {
+      const parsed: unknown = JSON.parse(data);
+      if (!isRecord(parsed)) {
+        return true;
+      }
+
+      const type = asString(parsed["type"]);
+      if (
+        type === "response.reasoning.delta"
+        || type === "response.reasoning_text.delta"
+        || type === "response.reasoning_summary.delta"
+        || type === "response.reasoning_summary_text.delta"
+        || type === "response.reasoning_summary_part.delta"
+      ) {
+        const delta = parsed["delta"];
+        if (typeof delta === "string" && delta.length > 0) {
+          return true;
+        }
+
+        if (isRecord(delta) && typeof delta["text"] === "string" && delta["text"].length > 0) {
+          return true;
+        }
+        continue;
+      }
+    } catch {
       return true;
     }
+
+    return true;
   }
   return false;
 }

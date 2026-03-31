@@ -79,21 +79,18 @@ export abstract class BaseProviderStrategy implements ProviderStrategy {
             return { kind: "continue", requestError: true };
           }
 
-          if (context.clientWantsStream && /(^|\n)data:\s*(?!\[DONE\])/imu.test(bodyText)) {
+          if (context.clientWantsStream && streamPayloadHasSubstantiveChunks(stripSseCommentLines(bodyText))) {
             return this.handleSuccessfulProviderAttempt(reply, upstreamResponse, context);
           }
 
           const parsed = JSON.parse(bodyText);
-          const isImagePayload =
-            this.mode === "images"
-            && typeof parsed === "object"
-            && parsed !== null
-            && Array.isArray((parsed as Record<string, unknown>)["data"]);
+          const looksLikeImagesPayload = context.imagesPassthrough === true
+            && isRecord(parsed)
+            && Array.isArray(parsed["data"]);
           if (
-            !isImagePayload && (
-              typeof parsed !== "object" || parsed === null
-              || (!("choices" in parsed) && !("object" in parsed) && !("id" in parsed))
-            )
+            ((typeof parsed !== "object" || parsed === null)
+            || (!("choices" in parsed) && !("object" in parsed) && !("id" in parsed)))
+            && !looksLikeImagesPayload
           ) {
             return { kind: "continue", requestError: true };
           }
@@ -230,158 +227,6 @@ export abstract class BaseProviderStrategy implements ProviderStrategy {
     reply.send(bytes);
   }
 
-  private startValidatedStreamReply(
-    reply: FastifyReply,
-    upstreamResponse: Response,
-    context: ProviderAttemptContext,
-  ): FastifyReply["raw"] {
-    reply.header("x-open-hax-upstream-provider", context.providerId);
-    reply.code(upstreamResponse.status);
-    copyUpstreamHeaders(reply, upstreamResponse.headers);
-    reply.removeHeader("content-length");
-    reply.header("cache-control", "no-cache");
-    reply.header("x-accel-buffering", "no");
-    reply.header("content-type", "text/event-stream; charset=utf-8");
-    reply.hijack();
-    const rawResponse = reply.raw;
-    rawResponse.statusCode = upstreamResponse.status;
-    for (const [name, value] of Object.entries(reply.getHeaders())) {
-      if (value !== undefined) {
-        rawResponse.setHeader(name, value as never);
-      }
-    }
-    rawResponse.flushHeaders();
-    return rawResponse;
-  }
-
-  private async relayValidatedStreamResponse(
-    reply: FastifyReply,
-    upstreamResponse: Response,
-    context: ProviderAttemptContext,
-  ): Promise<ProviderAttemptOutcome | null> {
-    if (!upstreamResponse.body || context.needsReasoningTrace) {
-      return null;
-    }
-
-    const reader = upstreamResponse.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-    let bufferedChunks = "";
-    let sawSubstantiveChunk = false;
-    let rawResponse: FastifyReply["raw"] | null = null;
-
-    const flushBufferedChunks = (): void => {
-      if (bufferedChunks.length === 0) {
-        return;
-      }
-
-      rawResponse ??= this.startValidatedStreamReply(reply, upstreamResponse, context);
-      rawResponse.write(bufferedChunks);
-      bufferedChunks = "";
-    };
-
-    const processEvent = (eventText: string): ProviderAttemptOutcome | null => {
-      const normalizedChunk = stripSseCommentLines(eventText).trim();
-      if (normalizedChunk.length === 0) {
-        return null;
-      }
-
-      const serializedChunk = `${normalizedChunk}\n\n`;
-      const hasSubstantiveChunk = streamPayloadHasSubstantiveChunks(serializedChunk);
-      if (!sawSubstantiveChunk) {
-        if (streamPayloadIndicatesQuotaError(serializedChunk) && context.hasMoreCandidates) {
-          return {
-            kind: "continue",
-            rateLimit: true,
-          };
-        }
-
-        if (!hasSubstantiveChunk) {
-          bufferedChunks += serializedChunk;
-          return null;
-        }
-
-        sawSubstantiveChunk = true;
-      }
-
-      bufferedChunks += serializedChunk;
-      flushBufferedChunks();
-      return null;
-    };
-
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        buffer += decoder.decode(value, { stream: !done }).replace(/\r\n/g, "\n");
-
-        let separatorIndex = buffer.indexOf("\n\n");
-        while (separatorIndex >= 0) {
-          const eventText = buffer.slice(0, separatorIndex);
-          buffer = buffer.slice(separatorIndex + 2);
-          const outcome = processEvent(eventText);
-          if (outcome) {
-            void reader.cancel();
-            return outcome;
-          }
-          separatorIndex = buffer.indexOf("\n\n");
-        }
-
-        if (done) {
-          break;
-        }
-      }
-
-      if (buffer.trim().length > 0) {
-        const outcome = processEvent(buffer);
-        if (outcome) {
-          return outcome;
-        }
-      }
-    } catch (error) {
-      try {
-        await reader.cancel();
-      } catch {
-        // ignore cleanup errors
-      }
-
-      const destroyableResponse = rawResponse as (FastifyReply["raw"] & {
-        readonly writableEnded?: boolean;
-        readonly destroyed?: boolean;
-        destroy?: (error?: Error) => void;
-      }) | null;
-      if (destroyableResponse && destroyableResponse.writableEnded !== true && destroyableResponse.destroyed !== true) {
-        destroyableResponse.destroy?.(error instanceof Error ? error : undefined);
-      }
-
-      throw error;
-    } finally {
-      reader.releaseLock();
-    }
-
-    if (!sawSubstantiveChunk && context.hasMoreCandidates) {
-      return {
-        kind: "continue",
-        requestError: true,
-      };
-    }
-
-    if (!rawResponse && bufferedChunks.length > 0) {
-      rawResponse = this.startValidatedStreamReply(reply, upstreamResponse, context);
-      rawResponse.write(bufferedChunks);
-      bufferedChunks = "";
-    }
-
-    if (rawResponse) {
-      rawResponse.end();
-      return { kind: "handled" };
-    }
-
-    return {
-      kind: "continue",
-      requestError: true,
-    };
-  }
-
   private async handleSuccessfulProviderAttempt(
     reply: FastifyReply,
     upstreamResponse: Response,
@@ -420,13 +265,6 @@ export abstract class BaseProviderStrategy implements ProviderStrategy {
           kind: "continue",
           requestError: true
         };
-      }
-
-      if (!context.needsReasoningTrace) {
-        const relayedOutcome = await this.relayValidatedStreamResponse(reply, upstreamResponse, context);
-        if (relayedOutcome) {
-          return relayedOutcome;
-        }
       }
 
       const streamText = stripSseCommentLines(await upstreamResponse.text());

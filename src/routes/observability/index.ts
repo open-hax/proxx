@@ -73,161 +73,171 @@ export async function registerObservabilityRoutes(
   deps: UiRouteDependencies,
   options?: ObservabilityRouteOptions,
 ): Promise<void> {
-  app.get<{
-    Querystring: {
-      readonly providerId?: string;
-      readonly accountId?: string;
-      readonly tenantId?: string;
-      readonly issuer?: string;
-      readonly keyId?: string;
-      readonly limit?: string;
-      readonly before?: string;
-    };
-  }>(resolveObservabilityRoutePath("/request-logs", options), async (request, reply) => {
-    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
-    if (!auth) {
-      reply.code(401).send({ error: "unauthorized" });
-      return;
-    }
-
-    let tenantId = typeof request.query.tenantId === "string" && request.query.tenantId.trim().length > 0
-      ? normalizeTenantId(request.query.tenantId)
-      : undefined;
-    let keyId = typeof request.query.keyId === "string" && request.query.keyId.trim().length > 0
-      ? request.query.keyId.trim()
-      : undefined;
-
-    if (auth.kind !== "legacy_admin" && auth.kind !== "unauthenticated") {
-      if (tenantId) {
-        if (!authCanViewTenant(auth, tenantId)) {
-          reply.code(403).send({ error: "forbidden" });
-          return;
-        }
-      } else if (auth.tenantId) {
-        tenantId = auth.tenantId;
+  if (options?.includeRequestLogs !== false) {
+    app.get<{
+      Querystring: {
+        readonly providerId?: string;
+        readonly accountId?: string;
+        readonly tenantId?: string;
+        readonly issuer?: string;
+        readonly keyId?: string;
+        readonly limit?: string;
+        readonly before?: string;
+      };
+    }>(resolveObservabilityRoutePath("/request-logs", options), async (request, reply) => {
+      const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
+      if (!auth) {
+        reply.code(401).send({ error: "unauthorized" });
+        return;
       }
 
-      if (auth.kind === "tenant_api_key") {
-        if (keyId && auth.keyId && keyId !== auth.keyId) {
-          reply.code(403).send({ error: "forbidden" });
-          return;
+      let tenantId = typeof request.query.tenantId === "string" && request.query.tenantId.trim().length > 0
+        ? normalizeTenantId(request.query.tenantId)
+        : undefined;
+      let keyId = typeof request.query.keyId === "string" && request.query.keyId.trim().length > 0
+        ? request.query.keyId.trim()
+        : undefined;
+
+      if (auth.kind !== "legacy_admin" && auth.kind !== "unauthenticated") {
+        if (tenantId) {
+          if (!authCanViewTenant(auth, tenantId)) {
+            reply.code(403).send({ error: "forbidden" });
+            return;
+          }
+        } else if (auth.tenantId) {
+          tenantId = auth.tenantId;
         }
-        keyId = auth.keyId;
+
+        if (auth.kind === "tenant_api_key") {
+          if (keyId && auth.keyId && keyId !== auth.keyId) {
+            reply.code(403).send({ error: "forbidden" });
+            return;
+          }
+          keyId = auth.keyId;
+        }
       }
-    }
 
-    const entryFilters = {
-      providerId: request.query.providerId,
-      accountId: request.query.accountId,
-      tenantId,
-      issuer: typeof request.query.issuer === "string" && request.query.issuer.trim().length > 0
-        ? request.query.issuer.trim()
-        : undefined,
-      keyId,
-      limit: toSafeLimit(request.query.limit, 200, 2000),
-      before: typeof request.query.before === "string" && request.query.before.length > 0
-        ? request.query.before
-        : undefined,
-    };
+      const entryFilters = {
+        providerId: request.query.providerId,
+        accountId: request.query.accountId,
+        tenantId,
+        issuer: typeof request.query.issuer === "string" && request.query.issuer.trim().length > 0
+          ? request.query.issuer.trim()
+          : undefined,
+        keyId,
+        limit: toSafeLimit(request.query.limit, 200, 2000),
+        before: typeof request.query.before === "string" && request.query.before.length > 0
+          ? request.query.before
+          : undefined,
+      };
 
-    const entries = deps.sqlRequestUsageStore
-      ? await deps.sqlRequestUsageStore.listEntries(entryFilters)
-      : deps.requestLogStore.list(entryFilters);
+      const entries = deps.sqlRequestUsageStore
+        ? await deps.sqlRequestUsageStore.listEntries(entryFilters)
+        : deps.requestLogStore.list(entryFilters);
 
-    reply.send({
-      entries: entries.map((entry) => ({
-        ...entry,
-        decodeTps: entry.tps,
-      })),
+      reply.send({
+        entries: entries.map((entry) => ({
+          ...entry,
+          decodeTps: entry.tps,
+        })),
+      });
     });
-  });
+  }
 
-  app.get<{
-    Querystring: { readonly sort?: string; readonly window?: string; readonly tenantId?: string; readonly issuer?: string; readonly keyId?: string };
-  }>(resolveObservabilityRoutePath("/dashboard/overview", options), async (request, reply) => {
-    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
-    if (!auth) {
-      reply.code(401).send({ error: "unauthorized" });
-      return;
-    }
+  if (options?.includeDashboardOverview !== false) {
+    app.get<{
+      Querystring: { readonly sort?: string; readonly window?: string; readonly tenantId?: string; readonly issuer?: string; readonly keyId?: string };
+    }>(resolveObservabilityRoutePath("/dashboard/overview", options), async (request, reply) => {
+      const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
+      if (!auth) {
+        reply.code(401).send({ error: "unauthorized" });
+        return;
+      }
 
-    const scope = await resolveUsageScopeFromAuth({
-      auth,
-      tenantId: request.query.tenantId,
-      issuer: request.query.issuer,
-      keyId: request.query.keyId,
+      const scope = await resolveUsageScopeFromAuth({
+        auth,
+        tenantId: request.query.tenantId,
+        issuer: request.query.issuer,
+        keyId: request.query.keyId,
+      });
+      if ("error" in scope) {
+        reply.code(scope.statusCode).send({ error: scope.error });
+        return;
+      }
+
+      const sort = typeof request.query.sort === "string" ? request.query.sort : undefined;
+      const window = toUsageWindow(request.query.window);
+      const overview = await buildUsageOverview(
+        deps.requestLogStore,
+        deps.keyPool,
+        deps.credentialStore,
+        sort,
+        window,
+        scope,
+        deps.sqlRequestUsageStore,
+      );
+      reply.send(overview);
     });
-    if ("error" in scope) {
-      reply.code(scope.statusCode).send({ error: scope.error });
-      return;
-    }
+  }
 
-    const sort = typeof request.query.sort === "string" ? request.query.sort : undefined;
-    const window = toUsageWindow(request.query.window);
-    const overview = await buildUsageOverview(
-      deps.requestLogStore,
-      deps.keyPool,
-      deps.credentialStore,
-      sort,
-      window,
-      scope,
-      deps.sqlRequestUsageStore,
-    );
-    reply.send(overview);
-  });
+  if (options?.includeProviderModelAnalytics !== false) {
+    app.get<{
+      Querystring: { readonly sort?: string; readonly window?: string; readonly tenantId?: string; readonly issuer?: string; readonly keyId?: string };
+    }>(resolveObservabilityRoutePath("/analytics/provider-model", options), async (request, reply) => {
+      const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
+      if (!auth) {
+        reply.code(401).send({ error: "unauthorized" });
+        return;
+      }
 
-  app.get<{
-    Querystring: { readonly sort?: string; readonly window?: string; readonly tenantId?: string; readonly issuer?: string; readonly keyId?: string };
-  }>(resolveObservabilityRoutePath("/analytics/provider-model", options), async (request, reply) => {
-    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
-    if (!auth) {
-      reply.code(401).send({ error: "unauthorized" });
-      return;
-    }
+      const scope = await resolveUsageScopeFromAuth({
+        auth,
+        tenantId: request.query.tenantId,
+        issuer: request.query.issuer,
+        keyId: request.query.keyId,
+      });
+      if ("error" in scope) {
+        reply.code(scope.statusCode).send({ error: scope.error });
+        return;
+      }
 
-    const scope = await resolveUsageScopeFromAuth({
-      auth,
-      tenantId: request.query.tenantId,
-      issuer: request.query.issuer,
-      keyId: request.query.keyId,
+      const sort = typeof request.query.sort === "string" ? request.query.sort : undefined;
+      const window = toUsageWindow(request.query.window);
+      const analytics = await buildProviderModelAnalytics(
+        deps.requestLogStore,
+        window,
+        sort,
+        scope,
+        deps.sqlRequestUsageStore,
+      );
+      reply.send(analytics);
     });
-    if ("error" in scope) {
-      reply.code(scope.statusCode).send({ error: scope.error });
-      return;
-    }
+  }
 
-    const sort = typeof request.query.sort === "string" ? request.query.sort : undefined;
-    const window = toUsageWindow(request.query.window);
-    const analytics = await buildProviderModelAnalytics(
-      deps.requestLogStore,
-      window,
-      sort,
-      scope,
-      deps.sqlRequestUsageStore,
-    );
-    reply.send(analytics);
-  });
+  if (options?.includeTools !== false) {
+    app.get<{
+      Querystring: { readonly model?: string };
+    }>(resolveObservabilityRoutePath("/tools", options), async (request, reply) => {
+      const model = typeof request.query.model === "string" && request.query.model.trim().length > 0
+        ? request.query.model.trim()
+        : "gpt-5.3-codex";
 
-  app.get<{
-    Querystring: { readonly model?: string };
-  }>(resolveObservabilityRoutePath("/tools", options), async (request, reply) => {
-    const model = typeof request.query.model === "string" && request.query.model.trim().length > 0
-      ? request.query.model.trim()
-      : "gpt-5.3-codex";
-
-    reply.send({
-      model,
-      tools: getToolSeedForModel(model),
+      reply.send({
+        model,
+        tools: getToolSeedForModel(model),
+      });
     });
-  });
+  }
 
-  app.get(resolveObservabilityRoutePath("/mcp-servers", options), async (_request, reply) => {
-    const seeds = await loadCachedMcpSeeds();
-    reply.send({
-      count: seeds.length,
-      servers: seeds,
+  if (options?.includeMcpServers !== false) {
+    app.get(resolveObservabilityRoutePath("/mcp-servers", options), async (_request, reply) => {
+      const seeds = await loadCachedMcpSeeds();
+      reply.send({
+        count: seeds.length,
+        servers: seeds,
+      });
     });
-  });
+  }
 }
 
 export async function registerCanonicalObservabilityRoutes(
