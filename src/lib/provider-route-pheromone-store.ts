@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
 const BASELINE_PHEROMONE = 0.5;
@@ -187,9 +187,13 @@ export class ProviderRoutePheromoneStore {
     }
     await this.mutationChain;
     if (this.persistPending) {
-      await this.queuePersist(true);
+      try {
+        await this.queuePersist(true);
+        await this.persistChain;
+      } catch {
+        // Best-effort persist on close — don't block shutdown.
+      }
     }
-    await this.persistChain;
   }
 
   private async readDb(): Promise<ProviderRoutePheromoneDb> {
@@ -200,13 +204,8 @@ export class ProviderRoutePheromoneStore {
     try {
       const raw = await readFile(this.filePath, "utf8");
       this.dbCache = hydrateDb(JSON.parse(raw) as unknown);
-    } catch (error) {
-      const code = isRecord(error) && typeof error.code === "string" ? error.code : "";
-      if (code === "ENOENT") {
-        this.dbCache = emptyDb();
-      } else {
-        throw error;
-      }
+    } catch {
+      this.dbCache = emptyDb();
     }
 
     return this.dbCache;
@@ -250,9 +249,15 @@ export class ProviderRoutePheromoneStore {
 
     this.persistPending = false;
     this.persistChain = this.persistChain.then(async () => {
-      const db = await this.readDb();
-      await mkdir(dirname(this.filePath), { recursive: true });
-      await writeFile(this.filePath, `${JSON.stringify(db, null, 2)}\n`, "utf8");
+      try {
+        const db = await this.readDb();
+        await mkdir(dirname(this.filePath), { recursive: true });
+        const tempPath = `${this.filePath}.tmp`;
+        await writeFile(tempPath, `${JSON.stringify(db, null, 2)}\n`, "utf8");
+        await rename(tempPath, this.filePath);
+      } catch {
+        // Best-effort — corrupt/inaccessible filesystem should not crash the proxy.
+      }
     });
     await this.persistChain;
   }

@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { resolveFederationOwnerSubject } from "../lib/federation/federation-helpers.js";
 
-test("resolveFederationOwnerSubject accepts explicit owner header for tenant api keys", () => {
+test("resolveFederationOwnerSubject uses tenant api key subject as owner (not arbitrary header)", () => {
   const resolved = resolveFederationOwnerSubject({
     headers: {
       "x-open-hax-federation-owner-subject": "did:web:big.ussy.promethean.rest",
@@ -15,7 +15,7 @@ test("resolveFederationOwnerSubject accepts explicit owner header for tenant api
     hopCount: 0,
   });
 
-  assert.equal(resolved, "did:web:big.ussy.promethean.rest");
+  assert.equal(resolved, "tenant_api_key:test-key");
 });
 
 test("resolveFederationOwnerSubject still rejects explicit owner header for unauthenticated requests", () => {
@@ -32,7 +32,7 @@ test("resolveFederationOwnerSubject still rejects explicit owner header for unau
   assert.equal(resolved, undefined);
 });
 
-test("resolveFederationOwnerSubject currently accepts any owner header for tenant api keys (cross-tenant validation is not enforced)", () => {
+test("resolveFederationOwnerSubject rejects cross-tenant owner header for tenant api keys", () => {
   const resolved = resolveFederationOwnerSubject({
     headers: {
       "x-open-hax-federation-owner-subject": "did:web:other-tenant.promethean.rest",
@@ -44,5 +44,5 @@ test("resolveFederationOwnerSubject currently accepts any owner header for tenan
     hopCount: 0,
   });
 
-  assert.equal(resolved, "did:web:other-tenant.promethean.rest");
+  assert.equal(resolved, "tenant_api_key:tenant-a");
 });

@@ -33,7 +33,6 @@ export function resolveFederationOwnerSubject(input: {
   if (explicitHeader && (
     (input.hopCount ?? 0) > 0
     || input.requestAuth?.kind === "legacy_admin"
-    || input.requestAuth?.kind === "tenant_api_key"
   )) {
     return explicitHeader;
   }
