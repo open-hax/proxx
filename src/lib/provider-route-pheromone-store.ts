@@ -186,13 +186,13 @@ export class ProviderRoutePheromoneStore {
       this.persistTimer = null;
     }
     await this.mutationChain;
-    if (this.persistPending) {
-      try {
+    try {
+      if (this.persistPending) {
         await this.queuePersist(true);
-        await this.persistChain;
-      } catch {
-        // Best-effort persist on close — don't block shutdown.
       }
+      await this.persistChain;
+    } catch {
+      // Best-effort persist on close — don't block shutdown.
     }
   }
 
