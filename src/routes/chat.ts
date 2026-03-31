@@ -33,7 +33,6 @@ import { isCephalonAutoModel, buildCephalonModelCandidates, reorderCephalonProvi
 import { resolveFederationOwnerSubject } from "../lib/federation/federation-helpers.js";
 import { requestHasExplicitNumCtx } from "../lib/ollama-compat.js";
 import { ensureOllamaContextFits } from "../lib/ollama-context.js";
-import { executeFederatedRequestFallback } from "../lib/federation/federated-fallback.js";
 import { executeBridgeRequestFallback } from "../lib/federation/bridge-fallback.js";
 import type { AppDeps } from "../lib/app-deps.js";
 import { discoverDynamicOllamaRoutes, filterDedicatedOllamaRoutes, hasDedicatedOllamaRoutes, prependDynamicOllamaRoutes } from "../lib/dynamic-ollama-routes.js";
@@ -164,8 +163,6 @@ export function registerChatRoutes(deps: AppDeps, app: FastifyInstance): void {
         providerRoutes = deps.config.disabledProviderIds.includes("factory")
           ? []
           : [{ providerId: "factory", baseUrl: factoryBaseUrl }];
-      } else if (context.explicitOllama) {
-        providerRoutes = [];
       } else {
         providerRoutes = await buildProviderRoutesWithDynamicBaseUrls(
           deps.config,
@@ -192,15 +189,6 @@ export function registerChatRoutes(deps: AppDeps, app: FastifyInstance): void {
         if (dedicatedOllamaRoutes.length > 0) {
           providerRoutes = dedicatedOllamaRoutes;
         }
-      }
-      if (
-        strategy.isLocal
-        && context.localOllama
-        && !isCephalonAutoModel(requestedModelInput)
-        && !isCephalonAutoModel(routingModelInput)
-        && !hasDedicatedOllamaRoutes(providerRoutes)
-      ) {
-        providerRoutes = [];
       }
       providerRoutes = filterProviderRoutesByModelSupport(deps.config, providerRoutes, context.routedModel);
       providerRoutes = filterTenantProviderRoutes(providerRoutes, proxySettings);
@@ -258,15 +246,11 @@ export function registerChatRoutes(deps: AppDeps, app: FastifyInstance): void {
         }
 
         if (providerRoutes.length === 0) {
-          if (strategy.isLocal) {
-            // Explicit/local Ollama routes execute against config.ollamaBaseUrl without provider-route gating.
-          } else {
-            if (hasMoreModelCandidates) {
-              continue;
-            }
-            sendOpenAiError(reply, 503, "No healthy Ollama nodes are currently available.", "server_error", "healthy_nodes_unavailable");
-            return;
+          if (hasMoreModelCandidates) {
+            continue;
           }
+          sendOpenAiError(reply, 503, "No healthy Ollama nodes are currently available.", "server_error", "healthy_nodes_unavailable");
+          return;
         }
 
         if (shouldRejectModelFromProviderCatalog(providerRoutes, context.routedModel, catalogBundle)) {
@@ -312,7 +296,7 @@ export function registerChatRoutes(deps: AppDeps, app: FastifyInstance): void {
         }
       }
 
-      if (strategy.isLocal && providerRoutes.length === 0) {
+      if (strategy.isLocal) {
         if (!tenantProviderAllowed(proxySettings, "ollama")) {
           if (hasMoreModelCandidates) {
             continue;

@@ -7670,7 +7670,7 @@ test("preserves ollama stream content when tool calls are present", async () => 
 });
 
 test("streams first ollama SSE chunk before upstream completion", async () => {
-  let upstreamCompleted = false;
+  let _upstreamCompleted = false;
 
   await withProxyApp(
     {
@@ -7685,7 +7685,7 @@ test("streams first ollama SSE chunk before upstream completion", async () => {
           await new Promise((resolve) => setTimeout(resolve, 150));
           response.write('{"model":"llama3.2:latest","created_at":"2026-03-03T00:00:00.000Z","message":{"role":"assistant","content":"stream-ok"},"done":false}\n');
           response.write('{"model":"llama3.2:latest","created_at":"2026-03-03T00:00:00.000Z","message":{"role":"assistant","content":""},"done":true,"done_reason":"stop"}\n');
-          upstreamCompleted = true;
+          _upstreamCompleted = true;
           response.end();
         }
       })
