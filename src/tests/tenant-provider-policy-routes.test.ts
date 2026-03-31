@@ -154,7 +154,7 @@ test("tenant provider policy routes list and upsert policies", async () => {
 
   const keyPool = new KeyPool({
     keysFilePath: keysPath,
-    reloadIntervalMs: 60_000,
+    reloadIntervalMs: 50,
     defaultCooldownMs: 10_000,
     defaultProviderId: config.upstreamProviderId,
   });
@@ -1326,7 +1326,7 @@ test("credentials and quota routes merge runtime-visible oauth accounts with sto
 
   const keyPool = new KeyPool({
     keysFilePath: keysPath,
-    reloadIntervalMs: 60_000,
+    reloadIntervalMs: 1_000_000,
     defaultCooldownMs: 10_000,
     defaultProviderId: config.upstreamProviderId,
   });
@@ -1359,27 +1359,42 @@ test("credentials and quota routes merge runtime-visible oauth accounts with sto
   (keyPool as unknown as { providers: Map<string, { authType: "oauth_bearer"; accounts: typeof visibleAccounts; nextOffset: number }> }).providers = new Map([
     ["openai", { authType: "oauth_bearer", accounts: visibleAccounts, nextOffset: 0 }],
   ]);
-  (keyPool as unknown as { lastReloadAt: number }).lastReloadAt = Date.now() + 60_000;
+  (keyPool as unknown as { lastReloadAt: number }).lastReloadAt = Date.now();
 
   const credentialStore: CredentialStoreLike = {
     async listProviders(revealSecrets: boolean) {
       return [{
         id: "openai",
         authType: "oauth_bearer",
-        accountCount: 1,
-        accounts: [{
-          id: "acct-a",
-          authType: "oauth_bearer",
-          displayName: "acct-a@example.com",
-          secretPreview: "pool...a",
-          secret: revealSecrets ? poolTokenA : undefined,
-          refreshTokenPreview: revealSecrets ? "refresh...a" : undefined,
-          refreshToken: revealSecrets ? poolRefreshA : undefined,
-          chatgptAccountId: "chatgpt-acct-a",
-          email: "acct-a@example.com",
-          subject: "acct-a-subject",
-          planType: "plus",
-        }],
+        accountCount: 2,
+        accounts: [
+          {
+            id: "acct-a",
+            authType: "oauth_bearer",
+            displayName: "acct-a@example.com",
+            secretPreview: "pool...a",
+            secret: revealSecrets ? poolTokenA : undefined,
+            refreshTokenPreview: revealSecrets ? "refresh...a" : undefined,
+            refreshToken: revealSecrets ? poolRefreshA : undefined,
+            chatgptAccountId: "chatgpt-acct-a",
+            email: "acct-a@example.com",
+            subject: "acct-a-subject",
+            planType: "plus",
+          },
+          {
+            id: "acct-b",
+            authType: "oauth_bearer",
+            displayName: "acct-b@example.com",
+            secretPreview: "pool...b",
+            secret: revealSecrets ? poolTokenB : undefined,
+            refreshTokenPreview: revealSecrets ? "refresh...b" : undefined,
+            refreshToken: revealSecrets ? poolRefreshB : undefined,
+            chatgptAccountId: "chatgpt-acct-b",
+            email: "acct-b@example.com",
+            subject: "acct-b-subject",
+            planType: "pro",
+          },
+        ],
       }];
     },
     async upsertApiKeyAccount(): Promise<void> {
@@ -1462,15 +1477,7 @@ test("credentials and quota routes merge runtime-visible oauth accounts with sto
     globalThis.fetch = originalFetch;
     await app.close();
     await requestLogStore.close();
-    await new Promise<void>((resolve, reject) => {
-      upstream.close((error) => {
-        if (error) {
-          reject(error);
-          return;
-        }
-        resolve();
-      });
-    });
+    await new Promise<void>((resolve) => upstream.close(() => resolve()));
     await rm(tempDir, { recursive: true, force: true });
   }
 });

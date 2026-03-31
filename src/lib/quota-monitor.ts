@@ -166,7 +166,7 @@ export class QuotaMonitor {
   }
 
   public tracksProvider(providerId: string): boolean {
-    return providerId.trim() === this.config.providerId;
+    return providerId.trim().toLowerCase() === this.config.providerId.toLowerCase();
   }
 
   private computeQuotaStatus(snapshot: OpenAiQuotaAccountSnapshot): {

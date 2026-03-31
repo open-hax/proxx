@@ -95,24 +95,22 @@ export async function executeLocalStrategy(
       serviceTierSource: payload.serviceTierSource
     }, strategy.mode);
 
-    const usagePromise = updateUsageCountsFromResponse(
-      requestLogStore,
-      requestLogEntryId,
-      upstreamResponse,
-      strategy.mode,
-      context.routedModel,
-      "ollama",
-      context.config,
-      attemptStartedAt,
-    );
-    if (responseLooksLikeEventStream(upstreamResponse, strategy.mode) && context.clientWantsStream) {
-      void usagePromise;
-    } else {
-      await usagePromise;
+    const shouldDeferUsageExtraction = responseLooksLikeEventStream(upstreamResponse, strategy.mode) && context.clientWantsStream;
+    if (!shouldDeferUsageExtraction) {
+      await updateUsageCountsFromResponse(
+        requestLogStore,
+        requestLogEntryId,
+        upstreamResponse,
+        strategy.mode,
+        context.routedModel,
+        "ollama",
+        context.config,
+        attemptStartedAt,
+      );
     }
 
     await strategy.handleLocalAttempt(reply, upstreamResponse, {
       ...context,
       baseUrl: context.config.ollamaBaseUrl
-  });
+    });
 }
