@@ -14,11 +14,11 @@ test("auto:vision preserves the configured fallback chain order when preferred m
     routingModelInput: "auto:vision",
     requestBody: { messages: [{ role: "user", content: [{ type: "image_url", image_url: { url: "data:image/png;base64,abc" } }] }] },
     catalog: null,
-    availableModels: ["gpt-5.4-mini", "glm-5", "Kimi-K2.5", "deepseek-v3.2"],
+    availableModels: ["gpt-5.4-mini", "glm-5v-turbo", "Kimi-K2.5", "deepseek-v3.2"],
     providerId: "rotussy",
   });
 
-  assert.deepEqual(candidates, ["glm-5", "Kimi-K2.5", "gpt-5.4-mini"]);
+  assert.deepEqual(candidates, ["glm-5v-turbo", "Kimi-K2.5", "gpt-5.4-mini"]);
 });
 
 test("auto:vision falls back to the full chain when catalog discovery has not surfaced the preferred models yet", () => {
@@ -30,10 +30,10 @@ test("auto:vision falls back to the full chain when catalog discovery has not su
     providerId: "rotussy",
   });
 
-  assert.deepEqual(candidates, ["glm-5", "Kimi-K2.5", "gpt-5.4-mini", "qwen3.5:4b-q8_0"]);
+  assert.deepEqual(candidates, ["glm-5v-turbo", "Kimi-K2.5", "gpt-5.4-mini", "qwen3.5:4b-q8_0"]);
 });
 
-test("auto:vision provider ordering prefers rotussy for glm-5 and ollama routes for local qwen", () => {
+test("auto:vision provider ordering prefers rotussy for GLM vision models and ollama routes for local qwen", () => {
   const routes = [
     { providerId: "openai", baseUrl: "https://openai.example" },
     { providerId: "rotussy", baseUrl: "https://rotussy.example" },
@@ -42,7 +42,12 @@ test("auto:vision provider ordering prefers rotussy for glm-5 and ollama routes 
   ];
 
   assert.deepEqual(
-    reorderVisionProviderRoutes(routes, "glm-5").map((route) => route.providerId),
+    reorderVisionProviderRoutes(routes, "glm-5v-turbo").map((route) => route.providerId),
+    ["rotussy", "openai", "ollama-cloud", "ollama-stealth"],
+  );
+
+  assert.deepEqual(
+    reorderVisionProviderRoutes(routes, "glm-4.6v").map((route) => route.providerId),
     ["rotussy", "openai", "ollama-cloud", "ollama-stealth"],
   );
 

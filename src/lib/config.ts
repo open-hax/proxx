@@ -136,6 +136,7 @@ export const DEFAULT_MODELS: readonly string[] = [
   "gpt-5-mini",
   "gemini-2.5-flash",
   "gemini-2.5-pro",
+  "glm-5v-turbo",
   "glm-5",
   "Kimi-K2.5",
   "gemini-3.1-pro-preview",

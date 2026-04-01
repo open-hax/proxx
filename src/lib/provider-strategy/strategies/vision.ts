@@ -7,13 +7,13 @@ import type { ProviderFallbackExecutionResult } from "../shared.js";
  * Vision model fallback chain.
  *
  * Priority order:
- * 1. glm-5 - z.ai's flagship via rotussy (you have $100 credits)
+ * 1. glm-5v-turbo - z.ai vision flagship via rotussy
  * 2. Kimi-K2.5 - ollama-cloud fallback
  * 3. gpt-5.4-mini - cloud fallback
  * 4. qwen3.5:4b-q8_0 - local ollama last resort
  */
 const VISION_MODEL_CHAIN: readonly string[] = [
-  "glm-5",
+  "glm-5v-turbo",
   "Kimi-K2.5",
   "gpt-5.4-mini",
   "qwen3.5:4b-q8_0",
@@ -88,7 +88,7 @@ export function shouldAdvanceVisionModelCandidate(input: {
 
 /**
  * Reorder provider routes for vision requests.
- * Prioritizes rotussy (z.ai gateway) when the model is glm-5.
+ * Prioritizes rotussy (z.ai gateway) when the model is a GLM vision model.
  * For ollama models, prioritizes ollama-cloud then local ollama.
  */
 export function reorderVisionProviderRoutes(
@@ -97,8 +97,8 @@ export function reorderVisionProviderRoutes(
 ): { readonly providerId: string; readonly baseUrl: string }[] {
   const normalized = normalizeModel(routedModel);
 
-  // For glm-5, prioritize rotussy (z.ai gateway)
-  if (normalized === "glm-5") {
+  // For GLM vision models, prioritize rotussy (z.ai gateway)
+  if (normalized === "glm-5v-turbo" || normalized === "glm-4.6v" || normalized === "glm-4.5v") {
     const rotussyRoutes: { readonly providerId: string; readonly baseUrl: string }[] = [];
     const otherRoutes: { readonly providerId: string; readonly baseUrl: string }[] = [];
 

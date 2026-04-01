@@ -7381,7 +7381,7 @@ test("extracts cached prompt tokens from messages usage cache_read_input_tokens"
   );
 });
 
-test("openai chat completions strategy converts to responses format for codex path (regression)", async () => {
+test("openai chat completions strategy converts GPT requests to responses format for codex path (regression)", async () => {
   let observedPath = "";
   let observedBody: Record<string, unknown> | undefined;
 
@@ -7398,7 +7398,7 @@ test("openai chat completions strategy converts to responses format for codex pa
           }
         }
       },
-      models: ["glm-5"],
+      models: ["gpt-5.4"],
       configOverrides: {
         upstreamProviderId: "openai",
         upstreamFallbackProviderIds: [],
@@ -7412,16 +7412,16 @@ test("openai chat completions strategy converts to responses format for codex pa
           status: 200,
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
-            id: "resp_glm5",
+            id: "resp_gpt54",
             object: "response",
             created_at: 1772516810,
-            model: "glm-5",
+            model: "gpt-5.4",
             output: [
               {
-                id: "msg_glm5",
+                id: "msg_gpt54",
                 type: "message",
                 role: "assistant",
-                content: [{ type: "output_text", text: "GLM response" }]
+                content: [{ type: "output_text", text: "GPT response" }]
               }
             ],
             usage: { input_tokens: 8, output_tokens: 3, total_tokens: 11 }
@@ -7435,7 +7435,7 @@ test("openai chat completions strategy converts to responses format for codex pa
         url: "/v1/chat/completions",
         headers: { "content-type": "application/json" },
         payload: {
-          model: "glm-5",
+          model: "gpt-5.4",
           messages: [{ role: "user", content: "hello" }],
           stream: false
         }
@@ -7454,6 +7454,208 @@ test("openai chat completions strategy converts to responses format for codex pa
       assert.ok(isRecord(payload));
       assert.equal(payload.object, "chat.completion");
     }
+  );
+});
+
+test("glm chat requests route to rotussy instead of ollama-cloud or the openai provider when rotussy is configured", { concurrency: false }, async () => {
+  await withEnv(
+    {
+      ROTUSSY_API_KEY: "rotussy-key-1", // pragma: allowlist secret
+      ROTUSSY_PROVIDER_ID: undefined,
+      REQUESTY_API_TOKEN: undefined,
+      REQUESTY_API_KEY: undefined,
+      OPENROUTER_API_KEY: undefined,
+      GEMINI_API_KEY: undefined,
+      ZAI_API_KEY: undefined,
+    },
+    async () => {
+      let observedPath = "";
+      let observedAuth: string | undefined;
+      let observedBody: Record<string, unknown> | undefined;
+
+      await withProxyApp(
+        {
+          keys: [],
+          keysPayload: {
+            providers: {
+              openai: {
+                auth: "oauth_bearer",
+                accounts: [
+                  { id: "openai-a", access_token: "oa-token-a", chatgpt_account_id: "chatgpt-a" },
+                ],
+              },
+            },
+          },
+          models: ["glm-5"],
+          configOverrides: {
+            upstreamProviderId: "openai",
+            upstreamFallbackProviderIds: ["ollama-cloud", "rotussy", "zai"],
+            localOllamaEnabled: false,
+          },
+          upstreamHandler: async (request, body) => {
+            if (request.method === "GET" && request.url === "/models") {
+              return {
+                status: 200,
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ object: "list", data: [{ id: "glm-5" }] }),
+              };
+            }
+
+            observedPath = request.url ?? "";
+            observedAuth = request.headers.authorization;
+            observedBody = JSON.parse(body) as Record<string, unknown>;
+
+            return {
+              status: 200,
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                id: "chatcmpl_rotussy_glm",
+                object: "chat.completion",
+                created: 1772516811,
+                model: "glm-5",
+                choices: [{
+                  index: 0,
+                  message: { role: "assistant", content: "rotussy-glm-routed" },
+                  finish_reason: "stop",
+                }],
+              }),
+            };
+          },
+        },
+        async ({ app }) => {
+          const response = await app.inject({
+            method: "POST",
+            url: "/v1/chat/completions",
+            headers: { "content-type": "application/json" },
+            payload: {
+              model: "glm-5",
+              messages: [{ role: "user", content: "hello" }],
+              stream: false,
+            },
+          });
+
+          assert.equal(response.statusCode, 200);
+          assert.equal(observedPath, "/v1/chat/completions");
+          assert.equal(observedAuth, "Bearer rotussy-key-1");
+          assert.ok(isRecord(observedBody));
+          assert.equal(observedBody.model, "glm-5");
+          assert.equal(response.headers["x-open-hax-upstream-provider"], "rotussy");
+
+          const payload: unknown = response.json();
+          assert.ok(isRecord(payload));
+          assert.equal((payload.choices as any)[0].message.content, "rotussy-glm-routed");
+        },
+      );
+    },
+  );
+});
+
+test("glm /v1/responses requests route through rotussy chat-completions compatibility when rotussy is configured", { concurrency: false }, async () => {
+  await withEnv(
+    {
+      ROTUSSY_API_KEY: "rotussy-key-1", // pragma: allowlist secret
+      ROTUSSY_PROVIDER_ID: undefined,
+      OPENROUTER_API_KEY: undefined,
+      GEMINI_API_KEY: undefined,
+      ZAI_API_KEY: undefined,
+      ZHIPU_API_KEY: undefined,
+      REQUESTY_API_TOKEN: undefined,
+      REQUESTY_API_KEY: undefined,
+    },
+    async () => {
+      let observedPath = "";
+      let observedAuth: string | undefined;
+      let observedBody: Record<string, unknown> | undefined;
+
+      await withProxyApp(
+        {
+          keys: [],
+          keysPayload: {
+            providers: {
+              openai: {
+                auth: "oauth_bearer",
+                accounts: [
+                  { id: "openai-a", access_token: "oa-token-a", chatgpt_account_id: "chatgpt-a" },
+                ],
+              },
+            },
+          },
+          models: ["glm-5"],
+          configOverrides: {
+            upstreamProviderId: "openai",
+            upstreamFallbackProviderIds: ["rotussy", "requesty"],
+            localOllamaEnabled: false,
+          },
+          upstreamHandler: async (request, body) => {
+            if (request.method === "GET" && request.url === "/models") {
+              return {
+                status: 200,
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ object: "list", data: [{ id: "glm-5" }] }),
+              };
+            }
+
+            observedPath = request.url ?? "";
+            observedAuth = request.headers.authorization;
+            observedBody = JSON.parse(body) as Record<string, unknown>;
+
+            return {
+              status: 200,
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                id: "chatcmpl_rotussy_glm5",
+                object: "chat.completion",
+                created: 1772516812,
+                model: "glm-5",
+                choices: [{
+                  index: 0,
+                  message: { role: "assistant", content: "rotussy-responses-routed", reasoning_content: "brief reasoning" },
+                  finish_reason: "stop",
+                }],
+                usage: {
+                  prompt_tokens: 6,
+                  completion_tokens: 3,
+                  total_tokens: 9,
+                  completion_tokens_details: { reasoning_tokens: 2 },
+                },
+              }),
+            };
+          },
+        },
+        async ({ app }) => {
+          const response = await app.inject({
+            method: "POST",
+            url: "/v1/responses",
+            headers: {
+              authorization: "Bearer local-test",
+              "content-type": "application/json",
+            },
+            payload: {
+              model: "glm-5",
+              input: [{ role: "user", content: [{ type: "input_text", text: "hello" }] }],
+              instructions: "",
+              stream: false,
+            },
+          });
+
+          assert.equal(response.statusCode, 200);
+          assert.equal(observedPath, "/v1/chat/completions");
+          assert.equal(observedAuth, "Bearer rotussy-key-1");
+          assert.ok(isRecord(observedBody));
+          assert.equal(observedBody.model, "glm-5");
+          assert.ok(Array.isArray(observedBody.messages));
+          assert.equal(response.headers["x-open-hax-upstream-provider"], "rotussy");
+          assert.equal(response.headers["x-open-hax-upstream-mode"], "chat_completions");
+
+          const payload: unknown = response.json();
+          assert.ok(isRecord(payload));
+          assert.equal(payload.object, "response");
+          assert.equal(payload.model, "glm-5");
+          assert.ok(Array.isArray(payload.output));
+          assert.equal((payload.output as any)[1].content[0].text, "rotussy-responses-routed");
+        },
+      );
+    },
   );
 });
 

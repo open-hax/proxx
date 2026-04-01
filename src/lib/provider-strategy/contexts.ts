@@ -2,7 +2,7 @@ import type { IncomingHttpHeaders } from "node:http";
 
 import type { ProxyConfig } from "../config.js";
 import { requestWantsReasoningTrace } from "../provider-utils.js";
-import { resolveRequestRoutingState } from "../provider-routing.js";
+import { looksLikeHostedOpenAiFamily, resolveRequestRoutingState } from "../provider-routing.js";
 import { PROVIDER_STRATEGIES } from "./registry.js";
 import type { ResolvedRequestAuth } from "../request-auth.js";
 import type { ProviderStrategy, StrategyRequestContext } from "./shared.js";
@@ -86,7 +86,9 @@ export function buildResponsesPassthroughContext(
     routedModel: routingState.routedModel,
     explicitOllama: false,
     openAiPrefixed: routingState.openAiPrefixed
-      || (!routingState.factoryPrefixed && config.upstreamProviderId === config.openaiProviderId),
+      || (!routingState.factoryPrefixed
+        && config.upstreamProviderId === config.openaiProviderId
+        && looksLikeHostedOpenAiFamily(routingState.routedModel)),
     factoryPrefixed: routingState.factoryPrefixed,
     localOllama: false,
     clientWantsStream,

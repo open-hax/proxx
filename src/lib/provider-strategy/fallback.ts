@@ -106,7 +106,7 @@ function resolveForcedCredentialSelection(context: StrategyRequestContext): {
   };
 }
 
-export async function executeProviderFallback(
+export async function executeProviderRoutingPlan(
   strategy: ProviderStrategy,
   reply: FastifyReply,
   requestLogStore: RequestLogStore,
@@ -1007,6 +1007,8 @@ export async function executeProviderFallback(
     summary: accumulator
   };
 }
+
+export const executeProviderFallback = executeProviderRoutingPlan;
 
 export async function inspectProviderAvailability(
   keyPool: {

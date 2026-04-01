@@ -14,7 +14,7 @@ import {
 } from "../lib/provider-policy.js";
 import {
   inspectProviderAvailability,
-  executeProviderFallback,
+  executeProviderRoutingPlan,
 } from "../lib/provider-strategy.js";
 import { buildImagesPassthroughContext } from "../lib/provider-strategy.js";
 import {
@@ -83,7 +83,7 @@ export function registerImagesRoutes(deps: AppDeps, app: FastifyInstance): void 
     }
 
     const availability = await inspectProviderAvailability(deps.keyPool, providerRoutes);
-    const execution = await executeProviderFallback(
+    const execution = await executeProviderRoutingPlan(
       strategy,
       reply,
       deps.requestLogStore,

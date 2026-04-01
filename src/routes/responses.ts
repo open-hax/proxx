@@ -20,7 +20,7 @@ import {
 } from "../lib/tenant-policy-helpers.js";
 import {
   buildResponsesPassthroughContext,
-  executeProviderFallback,
+  executeProviderRoutingPlan,
   inspectProviderAvailability,
 } from "../lib/provider-strategy.js";
 import { resolveFederationOwnerSubject } from "../lib/federation/federation-helpers.js";
@@ -305,7 +305,7 @@ export function registerResponsesRoutes(deps: AppDeps, app: FastifyInstance): vo
       }
 
       const availability = await inspectProviderAvailability(deps.keyPool, providerRoutes, promptCacheKey);
-      const execution = await executeProviderFallback(
+      const execution = await executeProviderRoutingPlan(
         strategy,
         reply,
         deps.requestLogStore,

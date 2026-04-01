@@ -17,7 +17,7 @@ import {
 } from "../lib/tenant-policy-helpers.js";
 import {
   selectProviderStrategy,
-  executeProviderFallback,
+  executeProviderRoutingPlan,
   inspectProviderAvailability,
 } from "../lib/provider-strategy.js";
 import { executeLocalStrategy } from "../lib/provider-strategy.js";
@@ -350,7 +350,7 @@ export function registerChatRoutes(deps: AppDeps, app: FastifyInstance): void {
         }
       }
 
-      const execution = await executeProviderFallback(
+      const execution = await executeProviderRoutingPlan(
         strategy,
         reply,
         deps.requestLogStore,

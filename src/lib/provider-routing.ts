@@ -29,7 +29,7 @@ function asString(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
-function looksLikeHostedOpenAiFamily(model: string): boolean {
+export function looksLikeHostedOpenAiFamily(model: string): boolean {
   const lowered = model.toLowerCase();
   return lowered.startsWith("gpt-")
     || lowered.startsWith("openai/")
@@ -461,6 +461,7 @@ export function resolveProviderRoutesForModel(
 }
 
 const OPENAI_COMPATIBLE_API_PROVIDERS = new Set(["vivgrid", "openai", "factory", "requesty", "zen"]);
+const RESPONSES_COMPATIBLE_API_PROVIDERS = new Set(["vivgrid", "openai", "factory", "requesty", "zen", "rotussy"]);
 
 function providerSupportsOpenAiCompatibleApi(providerId: string, openAiProviderId?: string): boolean {
   const normalized = providerId.trim().toLowerCase();
@@ -475,7 +476,15 @@ function providerSupportsOpenAiCompatibleApi(providerId: string, openAiProviderI
 }
 
 export function providerSupportsResponsesApi(providerId: string, openAiProviderId?: string): boolean {
-  return providerSupportsOpenAiCompatibleApi(providerId, openAiProviderId);
+  const normalized = providerId.trim().toLowerCase();
+  if (RESPONSES_COMPATIBLE_API_PROVIDERS.has(normalized)) {
+    return true;
+  }
+
+  const normalizedOpenAiProviderId = openAiProviderId?.trim().toLowerCase();
+  return typeof normalizedOpenAiProviderId === "string"
+    && normalizedOpenAiProviderId.length > 0
+    && normalized === normalizedOpenAiProviderId;
 }
 
 export function filterResponsesApiRoutes(routes: readonly ProviderRoute[], openAiProviderId?: string): ProviderRoute[] {

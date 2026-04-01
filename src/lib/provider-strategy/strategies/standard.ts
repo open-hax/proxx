@@ -5,7 +5,10 @@ import type { FastifyReply } from "fastify";
 import { copyUpstreamHeaders } from "../../proxy.js";
 import {
   chatRequestToResponsesRequest,
+  chatCompletionEventStreamToResponsesEventStream,
+  chatCompletionToResponsesResponse,
   chatCompletionToSse,
+  responsesRequestToChatRequest,
   responsesToChatCompletion,
   responsesOutputHasReasoning,
   shouldUseResponsesUpstream,
@@ -278,6 +281,94 @@ export class ResponsesPassthroughStrategy extends BaseProviderStrategy {
 
     const bytes = Buffer.from(await upstreamResponse.arrayBuffer());
     reply.send(bytes);
+    return { kind: "handled" };
+  }
+}
+
+export class ResponsesViaChatCompletionsStrategy extends BaseProviderStrategy {
+  public readonly mode = "chat_completions" as const;
+
+  public readonly isLocal = false;
+
+  public matches(context: StrategyRequestContext): boolean {
+    return context.responsesPassthrough === true && !context.openAiPrefixed;
+  }
+
+  public getUpstreamPath(context: StrategyRequestContext): string {
+    return context.config.chatCompletionsPath;
+  }
+
+  public buildPayload(context: StrategyRequestContext): BuildPayloadResult {
+    const upstreamPayload = responsesRequestToChatRequest(buildRequestBodyForUpstream(context));
+    ensureChatCompletionsUsageInStream(upstreamPayload);
+    stripTrailingAssistantPrefill(upstreamPayload);
+    return buildPayloadResult(upstreamPayload, context);
+  }
+
+  public override async handleProviderAttempt(
+    reply: FastifyReply,
+    upstreamResponse: Response,
+    context: ProviderAttemptContext,
+  ): Promise<ProviderAttemptOutcome> {
+    if (!upstreamResponse.ok) {
+      return this.handleStandardProviderAttempt(reply, upstreamResponse, context);
+    }
+
+    const contentType = upstreamResponse.headers.get("content-type") ?? "";
+    const isEventStream = contentType.toLowerCase().includes("text/event-stream");
+
+    reply.header("x-open-hax-upstream-provider", context.providerId);
+
+    if (context.clientWantsStream) {
+      let translatedStream: string;
+
+      if (isEventStream) {
+        const streamText = await upstreamResponse.text();
+        translatedStream = chatCompletionEventStreamToResponsesEventStream(streamText, context.routedModel);
+      } else {
+        let completionBody: unknown;
+        try {
+          completionBody = await upstreamResponse.json();
+        } catch {
+          return { kind: "continue", requestError: true };
+        }
+
+        if (!isRecord(completionBody)) {
+          return { kind: "continue", requestError: true };
+        }
+
+        translatedStream = chatCompletionEventStreamToResponsesEventStream(
+          chatCompletionToSse(completionBody),
+          context.routedModel,
+        );
+      }
+
+      reply.code(200);
+      reply.header("content-type", "text/event-stream; charset=utf-8");
+      reply.header("cache-control", "no-cache");
+      reply.header("x-accel-buffering", "no");
+      reply.send(translatedStream);
+      return { kind: "handled" };
+    }
+
+    if (isEventStream) {
+      return { kind: "continue", requestError: true };
+    }
+
+    let completionBody: unknown;
+    try {
+      completionBody = await upstreamResponse.json();
+    } catch {
+      return { kind: "continue", requestError: true };
+    }
+
+    if (!isRecord(completionBody)) {
+      return { kind: "continue", requestError: true };
+    }
+
+    reply.code(200);
+    reply.header("content-type", "application/json");
+    reply.send(chatCompletionToResponsesResponse(completionBody));
     return { kind: "handled" };
   }
 }
