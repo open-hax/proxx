@@ -29,7 +29,7 @@ services:
       PROXY_REQUEST_LOGS_FLUSH_MS: "${PROXY_REQUEST_LOGS_FLUSH_MS:-1000}"
       PROXY_PROMPT_AFFINITY_FLUSH_MS: "${PROXY_PROMPT_AFFINITY_FLUSH_MS:-250}"
       UPSTREAM_PROVIDER_ID: "${UPSTREAM_PROVIDER_ID:-openai}"
-      UPSTREAM_FALLBACK_PROVIDER_IDS: "${UPSTREAM_FALLBACK_PROVIDER_IDS:-ollama-cloud,requesty}"
+      UPSTREAM_FALLBACK_PROVIDER_IDS: "${UPSTREAM_FALLBACK_PROVIDER_IDS:-ollama-cloud,rotussy,zai,requesty}"
       DISABLED_PROVIDER_IDS: "${DISABLED_PROVIDER_IDS:-}"
       UPSTREAM_BASE_URL: "${UPSTREAM_BASE_URL:-}"
       UPSTREAM_PROVIDER_BASE_URLS: "${UPSTREAM_PROVIDER_BASE_URLS:-ollama-cloud=https://ollama.com,ob1=https://dashboard.openblocklabs.com/api,openai=https://chatgpt.com/backend-api,openrouter=https://openrouter.ai/api/v1,requesty=https://router.requesty.ai/v1,vivgrid=https://api.vivgrid.com}"

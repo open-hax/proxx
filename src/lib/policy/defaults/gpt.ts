@@ -21,6 +21,7 @@ export const CLAUDE_OPUS_46_PROVIDER_ORDER: readonly ProviderId[] = [
 
 export const GLM_PROVIDER_ORDER: readonly ProviderId[] = [
   "ollama-cloud",
+  "rotussy",
   "zai",
   "requesty",
   "factory",

@@ -183,8 +183,8 @@ async function withProxyApp(
     settingsFilePath: settingsPath,
     keyReloadMs: 50,
     keyCooldownMs: 10000,
-    keyCooldownJitterFactor: 0.4,
-    enableKeyRandomWalk: true,
+    keyCooldownJitterFactor: 0,
+    enableKeyRandomWalk: false,
     ollamaWeeklyCooldownMultiplier: 24,
     requestTimeoutMs: 2000,
     streamBootstrapTimeoutMs: 2000,
@@ -3670,6 +3670,91 @@ test("returns 429 when every key is rate-limited", async () => {
       assert.equal(payload.error.code, "no_available_key");
     }
   );
+});
+
+test("ollama weekly limit applies the multiplied cooldown until it expires", async () => {
+  const baseCooldownMs = 10_000;
+  const weeklyCooldownMs = baseCooldownMs * 24;
+  let upstreamCalls = 0;
+  const originalNow = Date.now;
+  let now = 1_700_000_000_000;
+  Date.now = () => now;
+
+  try {
+    await withProxyApp(
+      {
+        keys: [],
+        keysPayload: {
+          providers: {
+            "ollama-cloud": ["ollama-weekly-key"],
+          },
+        },
+        configOverrides: {
+          upstreamProviderId: "ollama-cloud",
+          upstreamFallbackProviderIds: [],
+        },
+        upstreamHandler: async () => {
+          upstreamCalls += 1;
+          return {
+            status: 429,
+            headers: {
+              "content-type": "application/json",
+            },
+            body: JSON.stringify({
+              error: "you (weekly-test) have reached your weekly usage limit, upgrade for higher limits: https://ollama.com/upgrade",
+            }),
+          };
+        },
+      },
+      async ({ app }) => {
+        const payload = {
+          model: "gemma3:12b",
+          messages: [{ role: "user", content: "hello" }],
+          stream: false,
+        };
+
+        const first = await app.inject({
+          method: "POST",
+          url: "/v1/chat/completions",
+          headers: { "content-type": "application/json" },
+          payload,
+        });
+        assert.equal(first.statusCode, 429);
+        assert.equal(upstreamCalls, 1);
+
+        const second = await app.inject({
+          method: "POST",
+          url: "/v1/chat/completions",
+          headers: { "content-type": "application/json" },
+          payload,
+        });
+        assert.equal(second.statusCode, 429);
+        assert.equal(upstreamCalls, 1, "cooled weekly-limited account should be skipped immediately");
+
+        now += weeklyCooldownMs - 1;
+        const third = await app.inject({
+          method: "POST",
+          url: "/v1/chat/completions",
+          headers: { "content-type": "application/json" },
+          payload,
+        });
+        assert.equal(third.statusCode, 429);
+        assert.equal(upstreamCalls, 1, "weekly cooldown should still block before multiplied interval expires");
+
+        now += 1;
+        const fourth = await app.inject({
+          method: "POST",
+          url: "/v1/chat/completions",
+          headers: { "content-type": "application/json" },
+          payload,
+        });
+        assert.equal(fourth.statusCode, 429);
+        assert.equal(upstreamCalls, 2, "provider should be retried once the multiplied cooldown expires");
+      },
+    );
+  } finally {
+    Date.now = originalNow;
+  }
 });
 
 test("permanently disables api_key accounts on 402 (payment required)", async () => {

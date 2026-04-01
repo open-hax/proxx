@@ -21,6 +21,7 @@
     "gemini-3.1-pro-preview",
     "qwen3.5:4b-q8_0",
     "qwen3.5:2b-bf16",
+    "auto:vision",
     "factory/minimax-m2.5",
     "factory/gemini-3-flash-preview",
     "factory/glm-4.7",

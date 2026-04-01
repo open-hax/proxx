@@ -404,6 +404,14 @@ function readProvidersFromEnv(): Map<string, ProviderState> {
     );
   }
 
+  const rotussyKey = (process.env.ROTUSSY_API_KEY ?? "").trim();
+  if (rotussyKey) {
+    providers.set(
+      normalizeProviderId(process.env.ROTUSSY_PROVIDER_ID ?? "rotussy"),
+      createEnvProviderState(process.env.ROTUSSY_PROVIDER_ID ?? "rotussy", rotussyKey),
+    );
+  }
+
   return providers;
 }
 
@@ -645,12 +653,13 @@ export class KeyPool {
     busy: ProviderCredential[],
     cooldownSoon: ProviderCredential[],
   ): ProviderCredential[] {
+    const now = Date.now();
     const jitterFactor = this.config.cooldownJitterFactor ?? 0.4;
 
     const shuffledIdle = this.weightedShuffle(idle);
     const shuffledBusy = this.weightedShuffle(busy);
 
-    const jitteredCooldown = cooldownSoon
+    const readyCooldown = cooldownSoon
       .map((cred) => ({
         cred,
         jitteredUntil: this.applyCooldownJitter(
@@ -659,9 +668,10 @@ export class KeyPool {
         ),
       }))
       .sort((a, b) => a.jitteredUntil - b.jitteredUntil)
+      .filter((entry) => entry.jitteredUntil <= now)
       .map((entry) => entry.cred);
 
-    return [...shuffledIdle, ...shuffledBusy, ...jitteredCooldown];
+    return [...shuffledIdle, ...shuffledBusy, ...readyCooldown];
   }
 
   private weightedShuffle<T>(items: T[]): T[] {
@@ -669,14 +679,12 @@ export class KeyPool {
       return [...items];
     }
 
-    const weights = items.map(() => 0.5 + this.rng());
-    const totalWeight = weights.reduce((sum, w) => sum + w, 0);
-
     const result: T[] = [];
-    const remaining = items.map((item, i) => ({ item, weight: weights[i]! / totalWeight }));
+    const remaining = items.map((item) => ({ item, weight: 0.5 + this.rng() }));
 
     while (remaining.length > 0) {
-      let target = this.rng();
+      const remainingTotal = remaining.reduce((sum, entry) => sum + entry.weight, 0);
+      const target = this.rng() * remainingTotal;
       let selectedIndex = 0;
       let cumulativeWeight = 0;
 
@@ -801,7 +809,7 @@ export class KeyPool {
       return [...ordered, ...refreshed];
     }
 
-    return [...idle, ...busy, ...cooldownSoon, ...refreshed];
+    return [...idle, ...busy, ...refreshed];
   }
 
   public isAccountExpired(credential: ProviderCredential): boolean {

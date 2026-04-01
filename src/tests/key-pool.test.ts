@@ -188,6 +188,126 @@ test("prefers non-busy accounts before reusing in-flight accounts", async () => 
   );
 });
 
+test("random walk excludes accounts that are still cooling down", async () => {
+  await withKeysFile(
+    {
+      providers: {
+        "ollama-cloud": {
+          auth: "api_key",
+          accounts: [
+            { id: "oc-a", token: "oc-token-a" },
+            { id: "oc-b", token: "oc-token-b" },
+          ],
+        },
+      },
+    },
+    async (keysFilePath) => {
+      const originalNow = Date.now;
+      let now = 1_700_000_000_000;
+      Date.now = () => now;
+
+      try {
+        const keyPool = new KeyPool({
+          keysFilePath,
+          reloadIntervalMs: 10,
+          defaultCooldownMs: 1_000,
+          defaultProviderId: "ollama-cloud",
+          cooldownJitterFactor: 0,
+          enableRandomWalk: true,
+        }, () => 0.5);
+
+        await keyPool.warmup();
+        const initial = await keyPool.getRequestOrder("ollama-cloud");
+        assert.equal(initial.length, 2);
+
+        keyPool.markRateLimited(initial[0]!, 60_000);
+
+        const duringCooldown = await keyPool.getRequestOrder("ollama-cloud");
+        assert.deepEqual(duringCooldown.map((account) => account.accountId), [initial[1]!.accountId]);
+
+        now += 60_001;
+        const afterCooldown = await keyPool.getRequestOrder("ollama-cloud");
+        assert.equal(afterCooldown.length, 2);
+      } finally {
+        Date.now = originalNow;
+      }
+    },
+  );
+});
+
+test("refresh ordering omits accounts that are still cooling down", async () => {
+  await withKeysFile(
+    {
+      providers: {
+        openai: {
+          auth: "oauth_bearer",
+          accounts: [
+            { id: "oa-a", access_token: "oa-token-a", chatgpt_account_id: "chatgpt-a" },
+            { id: "oa-b", access_token: "oa-token-b", chatgpt_account_id: "chatgpt-b" },
+          ],
+        },
+      },
+    },
+    async (keysFilePath) => {
+      const originalNow = Date.now;
+      let now = 1_700_000_000_000;
+      Date.now = () => now;
+
+      try {
+        const keyPool = new KeyPool({
+          keysFilePath,
+          reloadIntervalMs: 10,
+          defaultCooldownMs: 1_000,
+          defaultProviderId: "openai",
+        });
+
+        await keyPool.warmup();
+        const initial = await keyPool.getRequestOrder("openai");
+        assert.equal(initial.length, 2);
+
+        keyPool.markRateLimited(initial[0]!, 60_000);
+
+        const ordered = await keyPool.getRequestOrderWithRefresh("openai", async () => null);
+        assert.deepEqual(ordered.map((account) => account.accountId), [initial[1]!.accountId]);
+      } finally {
+        Date.now = originalNow;
+      }
+    },
+  );
+});
+
+test("weighted shuffle rescales remaining weight mass between picks", async () => {
+  await withKeysFile(
+    {
+      providers: {
+        "ollama-cloud": {
+          auth: "api_key",
+          accounts: [
+            { id: "oc-a", token: "oc-token-a" },
+            { id: "oc-b", token: "oc-token-b" },
+            { id: "oc-c", token: "oc-token-c" },
+          ],
+        },
+      },
+    },
+    async (keysFilePath) => {
+      const rngValues = [0, 0, 1, 0.95, 0.95, 0.95];
+      const keyPool = new KeyPool({
+        keysFilePath,
+        reloadIntervalMs: 10,
+        defaultCooldownMs: 1_000,
+        defaultProviderId: "ollama-cloud",
+        cooldownJitterFactor: 0,
+        enableRandomWalk: true,
+      }, () => rngValues.shift() ?? 0.5);
+
+      await keyPool.warmup();
+      const ordered = await keyPool.getRequestOrder("ollama-cloud");
+      assert.deepEqual(ordered.map((account) => account.accountId), ["oc-c", "oc-b", "oc-a"]);
+    },
+  );
+});
+
 test("rate-limit cooldown survives OAuth token refresh for the same account", async () => {
   await withKeysFile(
     {
@@ -347,12 +467,14 @@ test("loads env-backed gemini provider via GEMINI_API_KEY", { concurrency: false
   );
 });
 
-test("loads env-backed zai and mistral providers", { concurrency: false }, async () => {
+test("loads env-backed zai, rotussy, and mistral providers", { concurrency: false }, async () => {
   await withEnv(
     {
       ZAI_API_KEY: "zai-key-1", // pragma: allowlist secret
+      ROTUSSY_API_KEY: "rotussy-key-1", // pragma: allowlist secret
       MISTRAL_API_KEY: "mistral-key-1", // pragma: allowlist secret
       ZAI_PROVIDER_ID: undefined,
+      ROTUSSY_PROVIDER_ID: undefined,
       MISTRAL_PROVIDER_ID: undefined,
       GEMINI_API_KEY: undefined,
       OPENROUTER_API_KEY: undefined,
@@ -378,11 +500,16 @@ test("loads env-backed zai and mistral providers", { concurrency: false }, async
 
           await keyPool.warmup();
           const zaiAccounts = await keyPool.getRequestOrder("zai");
+          const rotussyAccounts = await keyPool.getRequestOrder("rotussy");
           const mistralAccounts = await keyPool.getRequestOrder("mistral");
 
           assert.equal(zaiAccounts.length, 1);
           assert.equal(zaiAccounts[0]?.providerId, "zai");
           assert.equal(zaiAccounts[0]?.token, "zai-key-1");
+
+          assert.equal(rotussyAccounts.length, 1);
+          assert.equal(rotussyAccounts[0]?.providerId, "rotussy");
+          assert.equal(rotussyAccounts[0]?.token, "rotussy-key-1");
 
           assert.equal(mistralAccounts.length, 1);
           assert.equal(mistralAccounts[0]?.providerId, "mistral");

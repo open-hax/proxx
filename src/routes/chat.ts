@@ -3,6 +3,7 @@ import type { FastifyInstance } from "fastify";
 import { type ChatCompletionRequest, extractPromptCacheKey } from "../lib/request-utils.js";
 import { isRecord } from "../lib/provider-utils.js";
 import {
+  catalogHasDynamicOllamaModel,
   resolvableConcreteModelIds,
   filterProviderRoutesByCatalogAvailability,
   filterProviderRoutesByModelSupport,
@@ -30,6 +31,7 @@ import { orderProviderRoutesByPolicy } from "../lib/provider-policy.js";
 import { sendOpenAiError, toErrorMessage } from "../lib/provider-utils.js";
 import { isAutoModel, rankAutoModels } from "../lib/auto-model-selector.js";
 import { isCephalonAutoModel, buildCephalonModelCandidates, reorderCephalonProviderRoutes } from "../lib/provider-strategy/strategies/cephalon.js";
+import { isVisionAutoModel, buildVisionModelCandidates, reorderVisionProviderRoutes } from "../lib/provider-strategy/strategies/vision.js";
 import { resolveFederationOwnerSubject } from "../lib/federation/federation-helpers.js";
 import { requestHasExplicitNumCtx } from "../lib/ollama-compat.js";
 import { ensureOllamaContextFits } from "../lib/ollama-context.js";
@@ -117,6 +119,17 @@ export function registerChatRoutes(deps: AppDeps, app: FastifyInstance): void {
           accountHealthStore: deps.accountHealthStore,
         });
       }
+      if (isVisionAutoModel(routingModelInput)) {
+        return buildVisionModelCandidates({
+          routingModelInput,
+          requestBody,
+          catalog: resolvedModelCatalog,
+          availableModels: concreteModelIds,
+          providerId: deps.config.upstreamProviderId,
+          requestLogStore: deps.requestLogStore,
+          accountHealthStore: deps.accountHealthStore,
+        });
+      }
       if (isAutoModel(routingModelInput)) {
         return rankAutoModels(
           routingModelInput,
@@ -176,15 +189,16 @@ export function registerChatRoutes(deps: AppDeps, app: FastifyInstance): void {
       }
       const wantsDynamicOllamaRoutes = context.localOllama
         || isCephalonAutoModel(requestedModelInput)
-        || isCephalonAutoModel(routingModelInput);
+        || isCephalonAutoModel(routingModelInput)
+        || catalogHasDynamicOllamaModel(resolvedModelCatalog, context.routedModel);
       const dynamicOllamaRoutes = wantsDynamicOllamaRoutes
         ? await discoverDynamicOllamaRoutes(deps.sqlCredentialStore, deps.sqlFederationStore, federationOwnerSubject)
         : [];
 
-      if (context.localOllama && dynamicOllamaRoutes.length > 0) {
+      if (wantsDynamicOllamaRoutes && dynamicOllamaRoutes.length > 0) {
         providerRoutes = prependDynamicOllamaRoutes(providerRoutes, dynamicOllamaRoutes);
       }
-      if (context.localOllama || isCephalonAutoModel(requestedModelInput) || isCephalonAutoModel(routingModelInput)) {
+      if (wantsDynamicOllamaRoutes) {
         const dedicatedOllamaRoutes = filterDedicatedOllamaRoutes(providerRoutes);
         if (dedicatedOllamaRoutes.length > 0) {
           providerRoutes = dedicatedOllamaRoutes;
@@ -206,6 +220,9 @@ export function registerChatRoutes(deps: AppDeps, app: FastifyInstance): void {
           })
           : dynamicOllamaRoutes;
         providerRoutes = reorderCephalonProviderRoutes(providerRoutes, prioritizedDynamicOllamaRoutes);
+      }
+      if (isVisionAutoModel(requestedModelInput) || isVisionAutoModel(routingModelInput)) {
+        providerRoutes = reorderVisionProviderRoutes(providerRoutes, context.routedModel);
       }
 
       if (providerRoutes.length === 0) {
@@ -231,7 +248,7 @@ export function registerChatRoutes(deps: AppDeps, app: FastifyInstance): void {
           return;
         }
 
-        if (context.localOllama || isCephalonAutoModel(requestedModelInput) || isCephalonAutoModel(routingModelInput)) {
+        if (wantsDynamicOllamaRoutes) {
           providerRoutes = filterProviderRoutesByCatalogAvailability(providerRoutes, context.routedModel, catalogBundle);
           const ranked = await rankProviderRoutesWithAco({
             providerRoutes,

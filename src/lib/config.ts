@@ -141,6 +141,7 @@ export const DEFAULT_MODELS: readonly string[] = [
   "gemini-3.1-pro-preview",
   "qwen3.5:4b-q8_0",
   "qwen3.5:2b-bf16",
+  "auto:vision",
   "auto:cheapest",
   "auto:fastest",
   "auto:smartest",
@@ -340,6 +341,8 @@ function defaultProviderBaseUrl(providerId: string): string {
       return (process.env.GEMINI_BASE_URL ?? "https://generativelanguage.googleapis.com/v1beta").replace(/\/+$/, "");
     case "zai":
       return (process.env.ZAI_BASE_URL ?? process.env.ZHIPU_BASE_URL ?? "https://api.z.ai/api/paas/v4").replace(/\/+$/, "");
+    case "rotussy":
+      return (process.env.ROTUSSY_BASE_URL ?? "https://api.ussyco.de/v1").replace(/\/+$/, "");
     case "mistral":
       return (process.env.MISTRAL_BASE_URL ?? "https://api.mistral.ai/v1").replace(/\/+$/, "");
     case "ollama-cloud":
@@ -386,6 +389,7 @@ export function loadConfig(cwd: string = process.cwd()): ProxyConfig {
     zen: defaultProviderBaseUrl("zen"),
     gemini: defaultProviderBaseUrl("gemini"),
     zai: defaultProviderBaseUrl("zai"),
+    rotussy: defaultProviderBaseUrl("rotussy"),
     mistral: defaultProviderBaseUrl("mistral"),
     factory: defaultProviderBaseUrl("factory"),
     "ollama-stealth": defaultProviderBaseUrl("ollama-stealth"),
