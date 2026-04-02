@@ -2,18 +2,16 @@ import type { FastifyInstance } from "fastify";
 
 import { type ChatCompletionRequest, extractPromptCacheKey } from "../lib/request-utils.js";
 import { isRecord } from "../lib/provider-utils.js";
+import { resolveModelRouting } from "../lib/model-routing-pipeline.js";
 import {
   catalogHasDynamicOllamaModel,
-  resolvableConcreteModelIds,
   filterProviderRoutesByCatalogAvailability,
   filterProviderRoutesByModelSupport,
   shouldRejectModelFromProviderCatalog,
 } from "../lib/model-routing-helpers.js";
 import {
   tenantProviderAllowed,
-  tenantModelAllowed,
   filterTenantProviderRoutes,
-  resolveExplicitTenantProviderId,
 } from "../lib/tenant-policy-helpers.js";
 import {
   selectProviderStrategy,
@@ -28,10 +26,9 @@ import {
 } from "../lib/provider-routing.js";
 import { orderProviderRoutesByPolicy } from "../lib/provider-policy.js";
 import { sendOpenAiError, toErrorMessage } from "../lib/provider-utils.js";
-import { isAutoModel, rankAutoModels } from "../lib/auto-model-selector.js";
 import { handleRoutingOutcome } from "../lib/routing-outcome-handler.js";
-import { isCephalonAutoModel, buildCephalonModelCandidates, reorderCephalonProviderRoutes } from "../lib/provider-strategy/strategies/cephalon.js";
-import { isVisionAutoModel, buildVisionModelCandidates, reorderVisionProviderRoutes } from "../lib/provider-strategy/strategies/vision.js";
+import { isCephalonAutoModel, reorderCephalonProviderRoutes } from "../lib/provider-strategy/strategies/cephalon.js";
+import { isVisionAutoModel, reorderVisionProviderRoutes } from "../lib/provider-strategy/strategies/vision.js";
 import { resolveFederationOwnerSubject } from "../lib/federation/federation-helpers.js";
 import { requestHasExplicitNumCtx } from "../lib/ollama-compat.js";
 import { ensureOllamaContextFits } from "../lib/ollama-context.js";
@@ -39,7 +36,6 @@ import { executeBridgeRequestFallback } from "../lib/federation/bridge-fallback.
 import type { AppDeps } from "../lib/app-deps.js";
 import { discoverDynamicOllamaRoutes, filterDedicatedOllamaRoutes, hasDedicatedOllamaRoutes, prependDynamicOllamaRoutes } from "../lib/dynamic-ollama-routes.js";
 import { rankProviderRoutesWithAco } from "../lib/provider-route-aco.js";
-import { resolveCatalogAndAlias } from "../lib/catalog-alias-resolver.js";
 
 export function registerChatRoutes(deps: AppDeps, app: FastifyInstance): void {
   app.post<{ Body: ChatCompletionRequest }>("/v1/chat/completions", async (request, reply) => {
@@ -65,76 +61,24 @@ export function registerChatRoutes(deps: AppDeps, app: FastifyInstance): void {
       reply.header("x-open-hax-fast-mode", "priority");
     }
 
-    const requestedModelInput = typeof requestBody.model === "string" ? requestBody.model : "";
-    if (!tenantModelAllowed(proxySettings, requestedModelInput)) {
-      sendOpenAiError(reply, 403, `Model is disabled for this tenant: ${requestedModelInput || "unknown"}`, "invalid_request_error", "model_not_allowed");
-      return;
-    }
-    const explicitlyBlockedProviderId = resolveExplicitTenantProviderId(deps.config, requestedModelInput, proxySettings);
-    if (explicitlyBlockedProviderId) {
-      sendOpenAiError(reply, 403, `Provider is disabled for this tenant: ${explicitlyBlockedProviderId}`, "invalid_request_error", "provider_not_allowed");
-      return;
-    }
-
-    const catalogResult = await resolveCatalogAndAlias(
-      deps.providerCatalogStore,
-      requestedModelInput,
+    const modelRouting = await resolveModelRouting(
+      {
+        config: deps.config,
+        proxySettings,
+        providerCatalogStore: deps.providerCatalogStore,
+        requestLogStore: deps.requestLogStore,
+        accountHealthStore: deps.accountHealthStore,
+      },
+      requestBody,
       reply,
       request.log,
       { preserveExplicitOllama: true },
     );
-    if (!catalogResult) {
+    if (!modelRouting) {
       return;
     }
-    const { routingModelInput, resolvedModelCatalog } = catalogResult;
-
-    const concreteModelIds = resolvableConcreteModelIds(resolvedModelCatalog);
+    const { requestedModelInput, routingModelInput, resolvedModelCatalog, routingModelCandidates } = modelRouting;
     const dynamicOllamaModelIds = resolvedModelCatalog?.dynamicOllamaModelIds;
-
-    const routingModelCandidates = (() => {
-      if (isCephalonAutoModel(routingModelInput)) {
-        return buildCephalonModelCandidates({
-          routingModelInput,
-          requestBody,
-          catalog: resolvedModelCatalog,
-          availableModels: concreteModelIds,
-          providerId: deps.config.upstreamProviderId,
-          requestLogStore: deps.requestLogStore,
-          accountHealthStore: deps.accountHealthStore,
-        });
-      }
-      if (isVisionAutoModel(routingModelInput)) {
-        return buildVisionModelCandidates({
-          routingModelInput,
-          requestBody,
-          catalog: resolvedModelCatalog,
-          availableModels: concreteModelIds,
-          providerId: deps.config.upstreamProviderId,
-          requestLogStore: deps.requestLogStore,
-          accountHealthStore: deps.accountHealthStore,
-        });
-      }
-      if (isAutoModel(routingModelInput)) {
-        return rankAutoModels(
-          routingModelInput,
-          requestBody,
-          concreteModelIds,
-          deps.config.upstreamProviderId,
-          deps.requestLogStore,
-          deps.accountHealthStore,
-        ).map((entry) => entry.modelId);
-      }
-      return [routingModelInput];
-    })();
-
-    if (routingModelCandidates.length === 0) {
-      sendOpenAiError(reply, 404, `Model not found: ${requestedModelInput}`, "invalid_request_error", "model_not_found");
-      return;
-    }
-
-    if (isAutoModel(routingModelInput)) {
-      reply.header("x-open-hax-auto-model-candidates", routingModelCandidates.slice(0, 12).join(","));
-    }
 
     for (const [candidateIndex, candidateRoutingModel] of routingModelCandidates.entries()) {
       const hasMoreModelCandidates = candidateIndex < routingModelCandidates.length - 1;
