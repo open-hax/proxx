@@ -19,7 +19,7 @@ CREATE INDEX IF NOT EXISTS idx_account_health_score ON account_health(
 );
 `;
 
-export const SCHEMA_VERSION = 6;
+export const SCHEMA_VERSION = 7;
 
 export const CREATE_TENANTS_TABLE = `
 CREATE TABLE IF NOT EXISTS tenants (
@@ -255,6 +255,7 @@ export const ALL_MIGRATIONS = [
   { version: 5, sql: CREATE_TENANT_PROVIDER_POLICIES_TABLE },
   { version: 5, sql: CREATE_TENANT_PROVIDER_POLICIES_OWNER_INDEX },
   { version: 6, sql: "ALTER TABLE providers ADD COLUMN IF NOT EXISTS base_url TEXT;" },
+  { version: 7, sql: "ALTER TABLE accounts ADD COLUMN IF NOT EXISTS disabled BOOLEAN NOT NULL DEFAULT FALSE;" },
 ];
 
 export const UPSERT_TENANT = `
@@ -428,20 +429,29 @@ SELECT id, auth_type, base_url FROM providers ORDER BY id;
 `;
 
 export const SELECT_ACCOUNTS_BY_PROVIDER = `
-SELECT id, provider_id, token, refresh_token, expires_at, chatgpt_account_id, plan_type
+SELECT id, provider_id, token, refresh_token, expires_at, chatgpt_account_id, plan_type, disabled
 FROM accounts
 WHERE provider_id = $1
 ORDER BY id;
 `;
 
 export const SELECT_ALL_ACCOUNTS = `
-SELECT id, provider_id, token, refresh_token, expires_at, chatgpt_account_id, plan_type
+SELECT id, provider_id, token, refresh_token, expires_at, chatgpt_account_id, plan_type, disabled
 FROM accounts
 ORDER BY provider_id, id;
 `;
 
 export const DELETE_ACCOUNT = `
 DELETE FROM accounts WHERE id = $1 AND provider_id = $2;
+`;
+
+export const SET_ACCOUNT_DISABLED = `
+UPDATE accounts SET disabled = $3, updated_at = NOW()
+WHERE id = $1 AND provider_id = $2;
+`;
+
+export const SELECT_ALL_DISABLED_ACCOUNTS = `
+SELECT id, provider_id FROM accounts WHERE disabled = TRUE;
 `;
 
 export const SET_COOLDOWN = `
@@ -458,6 +468,11 @@ WHERE provider_id = $1 AND account_id = $2;
 
 export const CLEAR_EXPIRED_COOLDOWNS = `
 DELETE FROM account_cooldown WHERE cooldown_until < $1;
+`;
+
+export const SELECT_ALL_ACTIVE_COOLDOWNS = `
+SELECT provider_id, account_id, cooldown_until FROM account_cooldown
+WHERE cooldown_until > $1;
 `;
 
 export const UPSERT_GITHUB_USER = `

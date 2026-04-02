@@ -10,7 +10,7 @@ export async function registerGetMeUiRoute(
   options?: PrefixedRouteOptions,
 ): Promise<void> {
   app.get(resolveSettingsRoutePath("/me", options), async (request, reply) => {
-    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
+    const auth = getResolvedAuth(request);
     if (!auth) {
       reply.code(401).send({ error: "unauthorized" });
       return;

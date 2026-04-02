@@ -4,6 +4,8 @@ import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
 import fastifySwagger from "@fastify/swagger";
 import fastifySwaggerUi from "@fastify/swagger-ui";
 
+import "./lib/fastify-types.js";
+
 import { DEFAULT_MODELS, type ProxyConfig } from "./lib/config.js";
 import {
   PROXY_AUTH_COOKIE_NAME,
@@ -39,7 +41,7 @@ import {
   sendOpenAiError,
   toErrorMessage,
 } from "./lib/provider-utils.js";
-import { getTelemetry, type TelemetrySpan } from "./lib/telemetry/otel.js";
+import { getTelemetry } from "./lib/telemetry/otel.js";
 import { RequestLogStore } from "./lib/request-log-store.js";
 import { PromptAffinityStore } from "./lib/prompt-affinity-store.js";
 import { ProviderRoutePheromoneStore } from "./lib/provider-route-pheromone-store.js";
@@ -234,6 +236,8 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     defaultCooldownMs: config.keyCooldownMs,
     defaultProviderId: config.upstreamProviderId,
     accountStore: sqlCredentialStore,
+    cooldownStore: sqlCredentialStore,
+    disabledStore: sqlCredentialStore,
     preferAccountStoreProviders: sqlCredentialStore !== undefined,
     cooldownJitterFactor: config.keyCooldownJitterFactor,
     enableRandomWalk: config.enableKeyRandomWalk,
@@ -668,15 +672,9 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     app.log.warn("proxy auth disabled via PROXY_ALLOW_UNAUTHENTICATED=true");
   }
 
-  type DecoratedAppRequest = FastifyRequest & {
-    openHaxAuth: ResolvedRequestAuth | null;
-    _otelSpan: TelemetrySpan | null;
-  };
-
   app.decorateRequest("openHaxAuth", null);
 
   app.addHook("onRequest", async (request, reply) => {
-    const decoratedRequest = request as DecoratedAppRequest;
     const origin = request.headers.origin;
     reply.header("Access-Control-Allow-Origin", origin ?? "*");
     reply.header("Vary", "Origin");
@@ -750,7 +748,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       return;
     }
 
-    decoratedRequest.openHaxAuth = resolvedAuth;
+    request.openHaxAuth = resolvedAuth;
 
     const enforceTenantQuotaRoute = request.method === "POST" && (
       rawPath === "/v1/chat/completions"
@@ -800,11 +798,11 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       "http.method": request.method,
       "http.path": (request.raw.url ?? request.url).split("?")[0],
     });
-    (request as DecoratedAppRequest)._otelSpan = span;
+    request._otelSpan = span;
   });
 
   app.addHook("onResponse", async (request, reply) => {
-    const span = (request as DecoratedAppRequest)._otelSpan;
+    const span = request._otelSpan;
     if (!span) return;
     span.setAttribute("http.status_code", reply.statusCode);
     if (reply.statusCode >= 400) span.setStatus("error", `HTTP ${reply.statusCode}`);
@@ -812,9 +810,28 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     span.end();
   });
 
-  app.options("/", async (_request, reply) => {
-    reply.code(204).send();
-  });
+  const OPTIONS_PATHS = [
+    "/",
+    "/health",
+    "/v1/chat/completions",
+    "/v1/responses",
+    "/v1/images/generations",
+    "/v1/embeddings",
+    "/v1/models",
+    "/v1/models/:model",
+    "/api/chat",
+    "/api/generate",
+    "/api/embed",
+    "/api/embeddings",
+    "/api/tags",
+    "/api/ui",
+    "/api/ui/*",
+    "/api/v1",
+    "/api/v1/*",
+  ];
+  for (const path of OPTIONS_PATHS) {
+    app.options(path, async (_request, reply) => { reply.code(204).send(); });
+  }
 
   app.get("/", async (request, reply) => {
     reply.header("content-type", "text/html; charset=utf-8");
@@ -822,70 +839,6 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
   });
 
   app.get("/favicon.ico", async (_request, reply) => {
-    reply.code(204).send();
-  });
-
-  app.options("/health", async (_request, reply) => {
-    reply.code(204).send();
-  });
-
-  app.options("/v1/chat/completions", async (_request, reply) => {
-    reply.code(204).send();
-  });
-
-  app.options("/v1/responses", async (_request, reply) => {
-    reply.code(204).send();
-  });
-
-  app.options("/v1/images/generations", async (_request, reply) => {
-    reply.code(204).send();
-  });
-
-  app.options("/v1/embeddings", async (_request, reply) => {
-    reply.code(204).send();
-  });
-
-  app.options("/v1/models", async (_request, reply) => {
-    reply.code(204).send();
-  });
-
-  app.options("/v1/models/:model", async (_request, reply) => {
-    reply.code(204).send();
-  });
-
-  app.options("/api/chat", async (_request, reply) => {
-    reply.code(204).send();
-  });
-
-  app.options("/api/generate", async (_request, reply) => {
-    reply.code(204).send();
-  });
-
-  app.options("/api/embed", async (_request, reply) => {
-    reply.code(204).send();
-  });
-
-  app.options("/api/embeddings", async (_request, reply) => {
-    reply.code(204).send();
-  });
-
-  app.options("/api/tags", async (_request, reply) => {
-    reply.code(204).send();
-  });
-
-  app.options("/api/ui", async (_request, reply) => {
-    reply.code(204).send();
-  });
-
-  app.options("/api/ui/*", async (_request, reply) => {
-    reply.code(204).send();
-  });
-
-  app.options("/api/v1", async (_request, reply) => {
-    reply.code(204).send();
-  });
-
-  app.options("/api/v1/*", async (_request, reply) => {
     reply.code(204).send();
   });
 

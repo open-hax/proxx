@@ -7,23 +7,6 @@ import { normalizeEpochMilliseconds } from "../epoch.js";
 import { DEFAULT_TENANT_ID, buildTenantApiKeyPrefix, generateTenantApiKey, hashTenantApiKey, normalizeTenantId } from "../tenant-api-key.js";
 import type { CredentialAccountView, CredentialProviderView } from "../credential-store.js";
 import {
-  CREATE_TENANTS_TABLE,
-  CREATE_USERS_TABLE,
-  CREATE_TENANT_MEMBERSHIPS_TABLE,
-  CREATE_TENANT_API_KEYS_TABLE,
-  CREATE_TENANT_API_KEYS_TENANT_INDEX,
-  CREATE_TENANT_API_KEYS_HASH_INDEX,
-  CREATE_TENANT_PROVIDER_POLICIES_TABLE,
-  CREATE_TENANT_PROVIDER_POLICIES_OWNER_INDEX,
-  CREATE_PROVIDERS_TABLE,
-  CREATE_ACCOUNTS_TABLE,
-  CREATE_ACCOUNTS_INDEX,
-  CREATE_ACCOUNT_HEALTH_TABLE,
-  CREATE_ACCOUNT_HEALTH_INDEX,
-  CREATE_COOLDOWN_TABLE,
-  CREATE_MODELS_TABLE,
-  CREATE_CONFIG_TABLE,
-  CREATE_VERSION_TABLE,
   INSERT_VERSION,
   CHECK_VERSION_EXISTS,
   UPSERT_PROVIDER,
@@ -48,7 +31,11 @@ import {
   TOUCH_TENANT_API_KEY_LAST_USED,
   SET_COOLDOWN,
   CLEAR_EXPIRED_COOLDOWNS,
+  SELECT_ALL_ACTIVE_COOLDOWNS,
+  SET_ACCOUNT_DISABLED,
+  SELECT_ALL_DISABLED_ACCOUNTS,
   SCHEMA_VERSION,
+  ALL_MIGRATIONS,
 } from "./schema.js";
 
 interface ProviderRow {
@@ -99,6 +86,7 @@ interface AccountRow {
   expires_at: number | null;
   chatgpt_account_id: string | null;
   plan_type: string | null;
+  disabled: boolean | null;
 }
 
 export interface SqlOpenAiAccountIdentityRow {
@@ -308,25 +296,12 @@ export class SqlCredentialStore {
   }
 
   private async runMigrations(): Promise<void> {
-    await this.sql.unsafe(CREATE_TENANTS_TABLE);
-    await this.sql.unsafe(CREATE_USERS_TABLE);
-    await this.sql.unsafe(CREATE_TENANT_MEMBERSHIPS_TABLE);
-    await this.sql.unsafe(CREATE_TENANT_API_KEYS_TABLE);
-    await this.sql.unsafe(CREATE_TENANT_API_KEYS_TENANT_INDEX);
-    await this.sql.unsafe(CREATE_TENANT_API_KEYS_HASH_INDEX);
-    await this.sql.unsafe(CREATE_TENANT_PROVIDER_POLICIES_TABLE);
-    await this.sql.unsafe(CREATE_TENANT_PROVIDER_POLICIES_OWNER_INDEX);
-    await this.sql.unsafe(CREATE_PROVIDERS_TABLE);
-    await this.sql.unsafe(CREATE_ACCOUNTS_TABLE);
-    await this.sql.unsafe(CREATE_ACCOUNTS_INDEX);
-    await this.sql.unsafe(CREATE_COOLDOWN_TABLE);
-    await this.sql.unsafe(CREATE_ACCOUNT_HEALTH_TABLE);
-    await this.sql.unsafe(CREATE_ACCOUNT_HEALTH_INDEX);
-    await this.sql.unsafe(CREATE_MODELS_TABLE);
-    await this.sql.unsafe(CREATE_CONFIG_TABLE);
-    await this.sql.unsafe(CREATE_VERSION_TABLE);
-
-    await this.sql.unsafe("ALTER TABLE providers ADD COLUMN IF NOT EXISTS base_url TEXT;");
+    // ALL_MIGRATIONS in schema.ts is the single source of truth for schema changes.
+    // Every migration SQL is idempotent (CREATE TABLE IF NOT EXISTS / ALTER TABLE ADD COLUMN IF NOT EXISTS),
+    // so we can safely re-run all of them on every startup.
+    for (const migration of ALL_MIGRATIONS) {
+      await this.sql.unsafe(migration.sql);
+    }
 
     const versionExists = await this.sql.unsafe<Array<{ "?column?": number }>>(
       CHECK_VERSION_EXISTS,
@@ -777,11 +752,46 @@ export class SqlCredentialStore {
     this.cooldowns.set(`${providerId}:${accountId}`, cooldownUntil);
   }
 
-  public async loadCooldowns(): Promise<void> {
+  public async clearCooldown(providerId: string, accountId: string): Promise<void> {
+    await this.sql.unsafe(
+      "DELETE FROM account_cooldown WHERE provider_id = $1 AND account_id = $2",
+      [providerId, accountId],
+    );
+    this.cooldowns.delete(`${providerId}:${accountId}`);
+  }
+
+  public async loadCooldowns(): Promise<Map<string, number>> {
     const now = Date.now();
     await this.sql.unsafe(CLEAR_EXPIRED_COOLDOWNS, [now]);
 
+    const rows = await this.sql.unsafe<Array<{ provider_id: string; account_id: string; cooldown_until: number }>>(
+      SELECT_ALL_ACTIVE_COOLDOWNS,
+      [now],
+    );
+
     this.cooldowns.clear();
+    const result = new Map<string, number>();
+    for (const row of rows) {
+      const key = `${row.provider_id}\0${row.account_id}`;
+      result.set(key, row.cooldown_until);
+      this.cooldowns.set(`${row.provider_id}:${row.account_id}`, row.cooldown_until);
+    }
+    return result;
+  }
+
+  public async loadDisabledAccounts(): Promise<Set<string>> {
+    const rows = await this.sql.unsafe<Array<{ id: string; provider_id: string }>>(
+      SELECT_ALL_DISABLED_ACCOUNTS,
+    );
+    const result = new Set<string>();
+    for (const row of rows) {
+      result.add(`${row.provider_id}\0${row.id}`);
+    }
+    return result;
+  }
+
+  public async setAccountDisabled(providerId: string, accountId: string, disabled: boolean): Promise<void> {
+    await this.sql.unsafe(SET_ACCOUNT_DISABLED, [accountId, providerId, disabled]);
   }
 
   public async loadAccountsIntoKeyPool(

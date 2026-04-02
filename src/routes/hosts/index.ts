@@ -66,7 +66,7 @@ export async function registerHostRoutes(
   const hostDashboardRequestTimeoutMs = resolveHostDashboardTimeoutMs();
 
   app.get("/api/v1/hosts/self", async (request, reply) => {
-    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
+    const auth = getResolvedAuth(request);
     if (!authCanAccessHostDashboard(auth)) {
       reply.code(auth ? 403 : 401).send({ error: auth ? "forbidden" : "unauthorized" });
       return;
@@ -94,7 +94,7 @@ export async function registerHostRoutes(
   });
 
   app.get("/api/v1/hosts/overview", async (request, reply) => {
-    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
+    const auth = getResolvedAuth(request);
     if (!authCanAccessHostDashboard(auth)) {
       reply.code(auth ? 403 : 401).send({ error: auth ? "forbidden" : "unauthorized" });
       return;

@@ -1856,7 +1856,7 @@ export async function registerUsageAnalyticsRoutes(app: FastifyInstance, deps: U
   app.get<{
     Querystring: { readonly sort?: string; readonly window?: string; readonly tenantId?: string; readonly issuer?: string; readonly keyId?: string };
   }>("/api/ui/dashboard/overview", async (request, reply) => {
-    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
+    const auth = getResolvedAuth(request);
     if (!auth) {
       reply.code(401).send({ error: "unauthorized" });
       return;
@@ -1882,7 +1882,7 @@ export async function registerUsageAnalyticsRoutes(app: FastifyInstance, deps: U
   app.get<{
     Querystring: { readonly sort?: string; readonly window?: string; readonly tenantId?: string; readonly issuer?: string; readonly keyId?: string };
   }>("/api/ui/analytics/provider-model", async (request, reply) => {
-    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
+    const auth = getResolvedAuth(request);
     if (!auth) {
       reply.code(401).send({ error: "unauthorized" });
       return;

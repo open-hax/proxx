@@ -28,7 +28,7 @@ export function registerEmbeddingsRoutes(deps: AppDeps, app: FastifyInstance): v
     }
 
     const tenantSettings = await deps.proxySettingsStore.getForTenant(
-      ((request as { readonly openHaxAuth?: { readonly tenantId?: string } }).openHaxAuth?.tenantId) ?? DEFAULT_TENANT_ID,
+      (request.openHaxAuth?.tenantId) ?? DEFAULT_TENANT_ID,
     );
     if (!tenantProviderAllowed(tenantSettings, "ollama")) {
       sendOpenAiError(reply, 403, "Provider is disabled for this tenant: ollama", "invalid_request_error", "provider_not_allowed");
@@ -45,7 +45,7 @@ export function registerEmbeddingsRoutes(deps: AppDeps, app: FastifyInstance): v
       },
       model,
       model,
-      (request as { readonly openHaxAuth?: { readonly kind: "legacy_admin" | "tenant_api_key" | "ui_session" | "unauthenticated"; readonly tenantId?: string; readonly keyId?: string; readonly subject?: string } }).openHaxAuth,
+      request.openHaxAuth ?? undefined,
     ).context;
 
     const routedModel = routingState.routedModel;

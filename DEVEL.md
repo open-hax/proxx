@@ -231,6 +231,24 @@ Example:
 }
 ```
 
+## Database Migrations
+
+Schema changes use a version-tracked, idempotent migration system. **All migration SQL lives in one place** — the `ALL_MIGRATIONS` array in `src/lib/db/schema.ts`. The migration runner in `src/lib/db/sql-credential-store.ts` iterates this array on every startup; no SQL is hardcoded in the runner.
+
+### How to add a migration
+
+1. **Bump `SCHEMA_VERSION`** in `src/lib/db/schema.ts` to the new version number.
+2. **Append to `ALL_MIGRATIONS`** with your SQL. Every statement must be idempotent:
+   - `CREATE TABLE IF NOT EXISTS ...`
+   - `ALTER TABLE ... ADD COLUMN IF NOT EXISTS ...`
+3. **Run the schema migration tests**: `npx tsx --test src/tests/schema-migration.test.ts`
+4. **Build**: `pnpm build`
+5. **Apply to running instances**: run the `ALTER TABLE` / `CREATE TABLE` SQL directly against the database before restarting the container. The migration runner re-runs all entries idempotently on boot, but a fresh column must exist before the app queries it.
+
+### Why this design
+
+Historically, the runner hardcoded SQL inline while `ALL_MIGRATIONS` was maintained separately. This dual-entry caused drift — the runner would record a schema version without applying its migration. The refactor makes `ALL_MIGRATIONS` the single source of truth; the runner simply iterates it. Tests enforce that `SCHEMA_VERSION` matches the highest entry and that all SQL is idempotent.
+
 ## Side-by-Side Rollout
 
 - Keep VivGrid proxy on `8787` and run this proxy on `8789` for parallel validation.

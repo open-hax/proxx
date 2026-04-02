@@ -50,6 +50,7 @@ import {
   type ProviderStrategy,
   type StrategyRequestContext,
 } from "./shared.js";
+import { requestyModelProvider } from "../model-family.js";
 
 function shouldUseOpenAiCodexHeaderProfile(
   providerId: string,
@@ -59,20 +60,6 @@ function shouldUseOpenAiCodexHeaderProfile(
   return providerId === openaiProviderId && account.authType === "oauth_bearer";
 }
 
-const REQUESTY_MODEL_PREFIXES: ReadonlyArray<readonly [string, string]> = [
-  ["gpt-", "openai"],
-  ["o1", "openai"],
-  ["o3", "openai"],
-  ["o4", "openai"],
-  ["chatgpt-", "openai"],
-  ["claude-", "anthropic"],
-  ["gemini-", "google"],
-  ["deepseek", "deepseek"],
-  ["glm-", "zhipu"],
-  ["kimi-", "moonshotai"],
-  ["qwen", "qwen"],
-];
-
 const MAX_STICKY_TRANSPORT_FAILURE_CANDIDATES = 4;
 
 function clampRouteQuality(latencyMs: number): number {
@@ -81,13 +68,7 @@ function clampRouteQuality(latencyMs: number): number {
 }
 
 function requestyModelPrefix(model: string): string {
-  const lower = model.toLowerCase();
-  for (const [prefix, provider] of REQUESTY_MODEL_PREFIXES) {
-    if (lower.startsWith(prefix)) {
-      return provider;
-    }
-  }
-  return "openai";
+  return requestyModelProvider(model);
 }
 
 function resolveForcedCredentialSelection(context: StrategyRequestContext): {
@@ -117,6 +98,8 @@ export async function executeProviderRoutingPlan(
     markInFlight(credential: ProviderCredential): () => void;
     markRateLimited(credential: ProviderCredential, retryAfterMs?: number): void;
     isAccountExpired?(credential: ProviderCredential): boolean;
+    clearProviderCooldowns?(providerId: string): void;
+    disableAccount?(providerId: string, accountId: string): void;
   },
   providerRoutes: readonly ProviderRoute[],
   context: StrategyRequestContext,
@@ -696,6 +679,9 @@ export async function executeProviderRoutingPlan(
             if (healthStore) {
               healthStore.recordSuccess(candidate.account, upstreamResponse.status);
             }
+            if (candidate.account.providerId === "ollama-cloud" && keyPool.clearProviderCooldowns) {
+              keyPool.clearProviderCooldowns("ollama-cloud");
+            }
             await providerRoutePheromoneStore.noteSuccess(
               candidate.providerId,
               context.routedModel,
@@ -719,6 +705,9 @@ export async function executeProviderRoutingPlan(
           upstreamSpan.end();
           if (healthStore && upstreamResponse.ok) {
             healthStore.recordSuccess(candidate.account, upstreamResponse.status);
+          }
+          if (upstreamResponse.ok && candidate.account.providerId === "ollama-cloud" && keyPool.clearProviderCooldowns) {
+            keyPool.clearProviderCooldowns("ollama-cloud");
           }
           await providerRoutePheromoneStore.noteSuccess(
             candidate.providerId,
@@ -939,6 +928,10 @@ export async function executeProviderRoutingPlan(
               if (!refreshedResponse.ok && refreshedOutcome.requestError === true && (refreshedResponse.status === 401 || refreshedResponse.status === 403)) {
                 if (shouldCooldownCredentialOnAuthFailure(candidate.providerId, refreshedResponse.status)) {
                   keyPool.markRateLimited(refreshedCredential, Math.min(context.config.keyCooldownMs, 10_000));
+                  // Disable OAuth accounts that fail auth even after successful token refresh
+                  if (refreshedCredential.authType === "oauth_bearer" && keyPool.disableAccount) {
+                    keyPool.disableAccount(refreshedCredential.providerId, refreshedCredential.accountId);
+                  }
                   if (preferredAffinity && candidate.providerId === preferredAffinity.providerId && refreshedCredential.accountId === preferredAffinity.accountId) {
                     preferredReassignmentAllowed = true;
                   }
@@ -951,16 +944,28 @@ export async function executeProviderRoutingPlan(
           } else {
             await providerRoutePheromoneStore.noteFailure(candidate.providerId, context.routedModel);
             keyPool.markRateLimited(candidate.account, Math.min(context.config.keyCooldownMs, 10_000));
+            // Disable OAuth accounts when token refresh fails
+            if (candidate.account.authType === "oauth_bearer" && keyPool.disableAccount) {
+              keyPool.disableAccount(candidate.account.providerId, candidate.account.accountId);
+            }
             if (preferredAffinity && candidate.providerId === preferredAffinity.providerId && candidate.account.accountId === preferredAffinity.accountId) {
               preferredReassignmentAllowed = true;
             }
           }
         } else if (!upstreamResponse.ok && outcome.requestError === true && (upstreamResponse.status === 401 || upstreamResponse.status === 402 || upstreamResponse.status === 403)) {
           if (shouldCooldownCredentialOnAuthFailure(candidate.providerId, upstreamResponse.status) || shouldPermanentlyDisableCredential(candidate.account, upstreamResponse.status)) {
-            const cooldownMs = shouldPermanentlyDisableCredential(candidate.account, upstreamResponse.status)
+            const permanentlyDisable = shouldPermanentlyDisableCredential(candidate.account, upstreamResponse.status);
+            const cooldownMs = permanentlyDisable
               ? PERMANENT_DISABLE_COOLDOWN_MS
               : Math.min(context.config.keyCooldownMs, 10_000);
             keyPool.markRateLimited(candidate.account, cooldownMs);
+            if (permanentlyDisable && keyPool.disableAccount) {
+              keyPool.disableAccount(candidate.account.providerId, candidate.account.accountId);
+            }
+            // Also disable OAuth accounts with 401 that have no refresh token (unrecoverable)
+            if (upstreamResponse.status === 401 && candidate.account.authType === "oauth_bearer" && !candidate.account.refreshToken && keyPool.disableAccount) {
+              keyPool.disableAccount(candidate.account.providerId, candidate.account.accountId);
+            }
             if (healthStore) {
               healthStore.recordFailure(candidate.account, upstreamResponse.status, "credential_disabled");
             }

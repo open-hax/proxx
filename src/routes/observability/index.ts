@@ -85,7 +85,7 @@ export async function registerObservabilityRoutes(
         readonly before?: string;
       };
     }>(resolveObservabilityRoutePath("/request-logs", options), async (request, reply) => {
-      const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
+      const auth = getResolvedAuth(request);
       if (!auth) {
         reply.code(401).send({ error: "unauthorized" });
         return;
@@ -148,7 +148,7 @@ export async function registerObservabilityRoutes(
     app.get<{
       Querystring: { readonly sort?: string; readonly window?: string; readonly tenantId?: string; readonly issuer?: string; readonly keyId?: string };
     }>(resolveObservabilityRoutePath("/dashboard/overview", options), async (request, reply) => {
-      const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
+      const auth = getResolvedAuth(request);
       if (!auth) {
         reply.code(401).send({ error: "unauthorized" });
         return;
@@ -184,7 +184,7 @@ export async function registerObservabilityRoutes(
     app.get<{
       Querystring: { readonly sort?: string; readonly window?: string; readonly tenantId?: string; readonly issuer?: string; readonly keyId?: string };
     }>(resolveObservabilityRoutePath("/analytics/provider-model", options), async (request, reply) => {
-      const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
+      const auth = getResolvedAuth(request);
       if (!auth) {
         reply.code(401).send({ error: "unauthorized" });
         return;

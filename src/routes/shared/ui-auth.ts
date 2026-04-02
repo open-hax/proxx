@@ -105,9 +105,9 @@ export function parseOptionalPositiveInteger(value: unknown): number | undefined
   return undefined;
 }
 
-export function getResolvedAuth(request: { readonly openHaxAuth?: unknown }): ResolvedRequestAuth | undefined {
+export function getResolvedAuth(request: { readonly openHaxAuth?: ResolvedRequestAuth | null }): ResolvedRequestAuth | undefined {
   const auth = request.openHaxAuth;
-  return typeof auth === "object" && auth !== null ? auth as ResolvedRequestAuth : undefined;
+  return typeof auth === "object" && auth !== null ? auth : undefined;
 }
 
 export function readCookieValue(cookieHeader: string | undefined, name: string): string | undefined {

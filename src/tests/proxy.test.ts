@@ -147,6 +147,7 @@ async function withProxyApp(
       gemini: `http://127.0.0.1:${address.port}`,
       zai: `http://127.0.0.1:${address.port}/api/paas/v4`,
       mistral: `http://127.0.0.1:${address.port}/v1`,
+      rotussy: `http://127.0.0.1:${address.port}/v1`,
     },
     upstreamBaseUrl: `http://127.0.0.1:${address.port}`,
     openaiProviderId: "openai",
@@ -7244,12 +7245,96 @@ test("/api/tools/websearch proxies via Responses web_search and extracts url cit
       assert.ok(Array.isArray(payload.sources));
       assert.equal(payload.responseId, "resp_ws");
       assert.equal(payload.model, "gpt-5.2");
+      assert.equal(payload.backend, "openai");
 
       const sources = payload.sources as unknown[];
       assert.ok(isRecord(sources[0]));
       assert.equal((sources[0] as any).url, "https://example.com");
     }
   );
+});
+
+test("/api/tools/websearch falls back to Exa when OpenAI fails", async () => {
+  const originalFetch = globalThis.fetch;
+  let exaCalled = false;
+
+  globalThis.fetch = (async (input: any, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input.url;
+    if (url?.includes("mcp.exa.ai")) {
+      exaCalled = true;
+      const body = init?.body ? JSON.parse(init.body as string) : {};
+      assert.equal(body.method, "tools/call");
+      assert.equal(body.params.name, "web_search_exa");
+
+      return new Response(
+        `data: ${JSON.stringify({
+          jsonrpc: "2.0",
+          result: {
+            content: [
+              {
+                type: "text",
+                text: "- [Exa Result](https://exa.example.com) — Found via Exa fallback.",
+              },
+            ],
+          },
+        })}\n\n`,
+        { status: 200, headers: { "content-type": "text/event-stream" } }
+      );
+    }
+    throw new Error(`Unexpected fetch URL: ${url}`);
+  }) as typeof fetch;
+
+  try {
+    await withProxyApp(
+      {
+        keys: [],
+        keysPayload: {
+          providers: {
+            openai: {
+              auth: "oauth_bearer",
+              accounts: [{ id: "openai-a", access_token: "oa-token-a", chatgpt_account_id: "chatgpt-a" }],
+            },
+          },
+        },
+        proxyAuthToken: "proxy-token",
+        configOverrides: {
+          upstreamProviderId: "openai",
+          upstreamFallbackProviderIds: [],
+        },
+        upstreamHandler: async () => ({
+          status: 500,
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ error: { message: "OpenAI web search unavailable" } }),
+        }),
+      },
+      async ({ app }) => {
+        const response = await app.inject({
+          method: "POST",
+          url: "/api/tools/websearch",
+          headers: {
+            authorization: "Bearer proxy-token",
+            "content-type": "application/json",
+          },
+          payload: {
+            query: "test query",
+            numResults: 5,
+          },
+        });
+
+        assert.equal(response.statusCode, 200);
+        assert.ok(exaCalled, "Exa MCP should have been called");
+
+        const payload: unknown = response.json();
+        assert.ok(isRecord(payload));
+        assert.equal(payload.backend, "exa");
+        assert.ok(typeof payload.output === "string");
+        assert.ok(payload.output.includes("Exa Result"));
+        assert.ok(Array.isArray(payload.sources));
+      }
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test("records token usage from codex SSE responses with missing content-type (regression)", async () => {

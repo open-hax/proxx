@@ -2,7 +2,10 @@ import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "re
 
 import {
   addApiKeyCredential,
+  disableAccount,
+  enableAccount,
   getApiOrigin,
+  getDisabledAccounts,
   getOpenAiCredentialQuota,
   getOpenAiPromptCacheAudit,
   listCredentials,
@@ -390,6 +393,7 @@ export function CredentialsPage(): JSX.Element {
   const [promptCacheAudit, setPromptCacheAudit] = useState<PromptCacheAuditOverview | null>(null);
   const [accountProbeResults, setAccountProbeResults] = useState<Record<string, OpenAiAccountProbeResult>>({});
   const [accountProbeLoading, setAccountProbeLoading] = useState<Record<string, boolean>>({});
+  const [disabledAccounts, setDisabledAccounts] = useState<Set<string>>(new Set());
   const [copiedFieldKey, setCopiedFieldKey] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -437,11 +441,27 @@ export function CredentialsPage(): JSX.Element {
     }
   }, []);
 
+  const refreshDisabledAccounts = useCallback(async () => {
+    try {
+      const payload = await getDisabledAccounts();
+      const disabledSet = new Set<string>();
+      for (const account of payload.disabledAccounts) {
+        disabledSet.add(`${account.providerId}:${account.accountId}`);
+      }
+      setDisabledAccounts(disabledSet);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+    }
+  }, []);
+
   useEffect(() => {
     void refreshCredentials().catch((nextError) => {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
     });
-  }, [refreshCredentials]);
+    void refreshDisabledAccounts().catch((nextError) => {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+    });
+  }, [refreshCredentials, refreshDisabledAccounts]);
 
   useEffect(() => {
     void refreshLogs().catch((nextError) => {
@@ -1081,6 +1101,34 @@ export function CredentialsPage(): JSX.Element {
     }
   }, [refreshPromptCacheAudit, refreshQuota]);
 
+  const handleDisableAccount = useCallback(async (providerId: string, accountId: string, displayName: string) => {
+    setError(null);
+
+    try {
+      await disableAccount(providerId, accountId);
+      setStatus(`Disabled account ${displayName}.`);
+      setDisabledAccounts((current) => new Set(current).add(`${providerId}:${accountId}`));
+    } catch (disableError) {
+      setError(disableError instanceof Error ? disableError.message : String(disableError));
+    }
+  }, []);
+
+  const handleEnableAccount = useCallback(async (providerId: string, accountId: string, displayName: string) => {
+    setError(null);
+
+    try {
+      await enableAccount(providerId, accountId);
+      setStatus(`Enabled account ${displayName}.`);
+      setDisabledAccounts((current) => {
+        const next = new Set(current);
+        next.delete(`${providerId}:${accountId}`);
+        return next;
+      });
+    } catch (enableError) {
+      setError(enableError instanceof Error ? enableError.message : String(enableError));
+    }
+  }, []);
+
   const renderQuotaRow = (label: string, window: CredentialQuotaWindow | null) => {
     const remainingPercent = window?.remainingPercent ?? null;
     const width = remainingPercent === null ? 0 : Math.min(100, Math.max(0, remainingPercent));
@@ -1154,6 +1202,7 @@ export function CredentialsPage(): JSX.Element {
     const needsReauth = diagnostics?.needsReauth ?? false;
     const canReauth = providerId === "openai" && account.authType === "oauth_bearer";
     const canProbeAccount = providerId === "openai" && account.authType === "oauth_bearer";
+    const isAccountDisabled = disabledAccounts.has(accountKey);
 
     return (
       <article key={`${providerId}:${account.id}`} className="credentials-account-tile">
@@ -1166,6 +1215,7 @@ export function CredentialsPage(): JSX.Element {
           </div>
           <div className="credentials-provider-badges">
             {showProviderBadge && <span className="credentials-badge credentials-badge-muted">{providerId}</span>}
+            {isAccountDisabled && <span className="credentials-badge credentials-badge-warning">Disabled</span>}
             {needsReauth && <span className="credentials-badge credentials-badge-danger">Reauth required</span>}
             {duplicateCount > 1 && <span className="credentials-badge credentials-badge-warning">Possible duplicate ×{duplicateCount}</span>}
             {planLabel && <span className="credentials-badge credentials-badge-accent">{planLabel}</span>}
@@ -1302,13 +1352,32 @@ export function CredentialsPage(): JSX.Element {
               </div>
             )}
           </dl>
-          <button
-            type="button"
-            className="credentials-remove-button"
-            onClick={() => void handleRemoveAccount(providerId, account.id, account.displayName)}
-          >
-            Remove credential
-          </button>
+          <div className="credentials-account-actions-stack">
+            {isAccountDisabled ? (
+              <button
+                type="button"
+                className="credentials-enable-button"
+                onClick={() => void handleEnableAccount(providerId, account.id, account.displayName)}
+              >
+                Enable account
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="credentials-disable-button"
+                onClick={() => void handleDisableAccount(providerId, account.id, account.displayName)}
+              >
+                Disable account
+              </button>
+            )}
+            <button
+              type="button"
+              className="credentials-remove-button"
+              onClick={() => void handleRemoveAccount(providerId, account.id, account.displayName)}
+            >
+              Remove credential
+            </button>
+          </div>
         </details>
       </article>
     );

@@ -134,7 +134,7 @@ export async function registerFederationUiRoutes(
   app.get<{
     Querystring: { readonly ownerSubject?: string };
   }>(resolveFederationRoutePath("/federation/peers", options), async (request, reply) => {
-    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
+    const auth = getResolvedAuth(request);
     if (!authCanManageFederation(auth)) {
       reply.code(auth ? 403 : 401).send({ error: auth ? "forbidden" : "unauthorized" });
       return;
@@ -153,7 +153,7 @@ export async function registerFederationUiRoutes(
   });
 
   app.get(resolveFederationRoutePath("/federation/self", options), async (request, reply) => {
-    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
+    const auth = getResolvedAuth(request);
     if (!authCanManageFederation(auth)) {
       reply.code(auth ? 403 : 401).send({ error: auth ? "forbidden" : "unauthorized" });
       return;
@@ -186,7 +186,7 @@ export async function registerFederationUiRoutes(
       readonly status?: string;
     };
   }>(resolveFederationRoutePath("/federation/peers", options), async (request, reply) => {
-    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
+    const auth = getResolvedAuth(request);
     if (!authCanManageFederation(auth)) {
       reply.code(auth ? 403 : 401).send({ error: auth ? "forbidden" : "unauthorized" });
       return;
@@ -236,7 +236,7 @@ export async function registerFederationUiRoutes(
   });
 
   app.get(resolveFederationRoutePath("/federation/bridge/ws", options), async (request, reply) => {
-    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
+    const auth = getResolvedAuth(request);
     if (!authCanManageFederation(auth)) {
       reply.code(auth ? 403 : 401).send({ error: auth ? "forbidden" : "unauthorized" });
       return;
@@ -246,7 +246,7 @@ export async function registerFederationUiRoutes(
   });
 
   app.get(resolveFederationRoutePath("/federation/observability/ws", options), async (request, reply) => {
-    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
+    const auth = getResolvedAuth(request);
     if (!authCanManageFederation(auth)) {
       reply.code(auth ? 403 : 401).send({ error: auth ? "forbidden" : "unauthorized" });
       return;
@@ -256,7 +256,7 @@ export async function registerFederationUiRoutes(
   });
 
   app.get(resolveFederationRoutePath("/federation/bridges", options), async (request, reply) => {
-    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
+    const auth = getResolvedAuth(request);
     if (!authCanManageFederation(auth)) {
       reply.code(auth ? 403 : 401).send({ error: auth ? "forbidden" : "unauthorized" });
       return;
@@ -287,7 +287,7 @@ export async function registerFederationUiRoutes(
       readonly forceApiKeys?: boolean;
     };
   }>(resolveFederationRoutePath("/federation/bridges/lease/import", options), async (request, reply) => {
-    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
+    const auth = getResolvedAuth(request);
     if (!auth) {
       reply.code(401).send({ error: "unauthorized" });
       return;
@@ -473,7 +473,7 @@ export async function registerFederationUiRoutes(
   });
 
   app.get<{ Params: { readonly sessionId: string } }>(resolveFederationRoutePath("/federation/bridges/:sessionId", options), async (request, reply) => {
-    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
+    const auth = getResolvedAuth(request);
     if (!authCanManageFederation(auth)) {
       reply.code(auth ? 403 : 401).send({ error: auth ? "forbidden" : "unauthorized" });
       return;
@@ -503,7 +503,7 @@ export async function registerFederationUiRoutes(
   app.get<{
     Querystring: { readonly ownerSubject?: string; readonly afterSeq?: string; readonly limit?: string };
   }>(resolveFederationRoutePath("/federation/diff-events", options), async (request, reply) => {
-    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
+    const auth = getResolvedAuth(request);
     if (!authCanManageFederation(auth)) {
       reply.code(auth ? 403 : 401).send({ error: auth ? "forbidden" : "unauthorized" });
       return;
@@ -529,7 +529,7 @@ export async function registerFederationUiRoutes(
   app.get<{
     Querystring: { readonly ownerSubject?: string };
   }>(resolveFederationRoutePath("/federation/accounts", options), async (request, reply) => {
-    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
+    const auth = getResolvedAuth(request);
     if (!authCanManageFederation(auth)) {
       reply.code(auth ? 403 : 401).send({ error: auth ? "forbidden" : "unauthorized" });
       return;
@@ -560,7 +560,7 @@ export async function registerFederationUiRoutes(
   app.post<{
     Body: { readonly providerId?: string; readonly accountId?: string };
   }>(resolveFederationRoutePath("/federation/accounts/export", options), async (request, reply) => {
-    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
+    const auth = getResolvedAuth(request);
     if (!authCanManageFederation(auth)) {
       reply.code(auth ? 403 : 401).send({ error: auth ? "forbidden" : "unauthorized" });
       return;
@@ -621,7 +621,7 @@ export async function registerFederationUiRoutes(
       }>;
     };
   }>(resolveFederationRoutePath("/federation/projected-accounts/import", options), async (request, reply) => {
-    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
+    const auth = getResolvedAuth(request);
     if (!authCanManageFederation(auth)) {
       reply.code(auth ? 403 : 401).send({ error: auth ? "forbidden" : "unauthorized" });
       return;
@@ -684,7 +684,7 @@ export async function registerFederationUiRoutes(
   app.post<{
     Body: { readonly sourcePeerId?: string; readonly providerId?: string };
   }>(resolveFederationRoutePath("/federation/projected-accounts/import-all", options), async (request, reply) => {
-    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
+    const auth = getResolvedAuth(request);
     if (!authCanManageFederation(auth)) {
       reply.code(auth ? 403 : 401).send({ error: auth ? "forbidden" : "unauthorized" });
       return;
@@ -830,7 +830,7 @@ export async function registerFederationUiRoutes(
   app.get<{
     Querystring: { readonly sinceMs?: string; readonly limit?: string; readonly afterTimestampMs?: string; readonly afterId?: string };
   }>(resolveFederationRoutePath("/federation/usage-export", options), async (request, reply) => {
-    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
+    const auth = getResolvedAuth(request);
     if (!authCanManageFederation(auth)) {
       reply.code(auth ? 403 : 401).send({ error: auth ? "forbidden" : "unauthorized" });
       return;
@@ -857,7 +857,7 @@ export async function registerFederationUiRoutes(
   app.post<{
     Body: { readonly entries?: readonly unknown[] };
   }>(resolveFederationRoutePath("/federation/usage-import", options), async (request, reply) => {
-    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
+    const auth = getResolvedAuth(request);
     if (!authCanManageFederation(auth)) {
       reply.code(auth ? 403 : 401).send({ error: auth ? "forbidden" : "unauthorized" });
       return;
@@ -891,7 +891,7 @@ export async function registerFederationUiRoutes(
   app.post<{
     Body: { readonly peerId?: string; readonly ownerSubject?: string; readonly sinceMs?: number; readonly pullUsage?: boolean };
   }>(resolveFederationRoutePath("/federation/sync/pull", options), async (request, reply) => {
-    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
+    const auth = getResolvedAuth(request);
     if (!authCanManageFederation(auth)) {
       reply.code(auth ? 403 : 401).send({ error: auth ? "forbidden" : "unauthorized" });
       return;
@@ -1111,7 +1111,7 @@ export async function registerFederationUiRoutes(
   app.post<{
     Body: { readonly sourcePeerId?: string; readonly providerId?: string; readonly accountId?: string };
   }>(resolveFederationRoutePath("/federation/projected-accounts/routed", options), async (request, reply) => {
-    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
+    const auth = getResolvedAuth(request);
     if (!authCanManageFederation(auth)) {
       reply.code(auth ? 403 : 401).send({ error: auth ? "forbidden" : "unauthorized" });
       return;
@@ -1234,7 +1234,7 @@ export async function registerFederationUiRoutes(
   app.post<{
     Body: { readonly sourcePeerId?: string; readonly providerId?: string; readonly accountId?: string };
   }>(resolveFederationRoutePath("/federation/projected-accounts/imported", options), async (request, reply) => {
-    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
+    const auth = getResolvedAuth(request);
     if (!authCanManageFederation(auth)) {
       reply.code(auth ? 403 : 401).send({ error: auth ? "forbidden" : "unauthorized" });
       return;
@@ -1287,7 +1287,7 @@ export async function registerFederationUiRoutes(
   app.get<{
     Querystring: { readonly ownerSubject?: string; readonly subjectDid?: string };
   }>(resolveFederationRoutePath("/federation/tenant-provider-policies", options), async (request, reply) => {
-    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
+    const auth = getResolvedAuth(request);
     if (!authCanManageFederation(auth)) {
       reply.code(auth ? 403 : 401).send({ error: auth ? "forbidden" : "unauthorized" });
       return;
@@ -1325,7 +1325,7 @@ export async function registerFederationUiRoutes(
       readonly notes?: string;
     };
   }>(resolveFederationRoutePath("/federation/tenant-provider-policies", options), async (request, reply) => {
-    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
+    const auth = getResolvedAuth(request);
     if (!authCanManageFederation(auth)) {
       reply.code(auth ? 403 : 401).send({ error: auth ? "forbidden" : "unauthorized" });
       return;

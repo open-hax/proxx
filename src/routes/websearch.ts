@@ -4,6 +4,112 @@ import type { WebSearchToolRequest } from "../lib/request-utils.js";
 import { extractResponseTextAndUrlCitations, extractMarkdownLinks } from "../lib/response-utils.js";
 import { parseJsonIfPossible } from "../lib/request-utils.js";
 
+const EXA_API_CONFIG = {
+  BASE_URL: "https://mcp.exa.ai",
+  ENDPOINT: "/mcp",
+  DEFAULT_NUM_RESULTS: 8,
+  TIMEOUT_MS: 25000,
+} as const;
+
+interface McpSearchRequest {
+  jsonrpc: "2.0";
+  id: number;
+  method: "tools/call";
+  params: {
+    name: "web_search_exa";
+    arguments: {
+      query: string;
+      numResults: number;
+      type: "auto" | "fast" | "deep";
+      livecrawl: "fallback" | "preferred";
+    };
+  };
+}
+
+interface McpSearchResponse {
+  jsonrpc: string;
+  result?: {
+    content: Array<{
+      type: string;
+      text: string;
+    }>;
+  };
+  error?: {
+    code: number;
+    message: string;
+  };
+}
+
+async function exaWebSearch(params: {
+  query: string;
+  numResults: number;
+  signal?: AbortSignal;
+}): Promise<{ output: string; sources: Array<{ url: string; title?: string }> }> {
+  const searchRequest: McpSearchRequest = {
+    jsonrpc: "2.0",
+    id: 1,
+    method: "tools/call",
+    params: {
+      name: "web_search_exa",
+      arguments: {
+        query: params.query,
+        numResults: params.numResults,
+        type: "auto",
+        livecrawl: "fallback",
+      },
+    },
+  };
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), EXA_API_CONFIG.TIMEOUT_MS);
+  const signal = params.signal
+    ? AbortSignal.any([params.signal, controller.signal])
+    : controller.signal;
+
+  try {
+    const response = await fetch(`${EXA_API_CONFIG.BASE_URL}${EXA_API_CONFIG.ENDPOINT}`, {
+      method: "POST",
+      headers: {
+        accept: "application/json, text/event-stream",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(searchRequest),
+      signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Exa search error (${response.status}): ${errorText}`);
+    }
+
+    const responseText = await response.text();
+
+    const lines = responseText.split("\n");
+    for (const line of lines) {
+      if (line.startsWith("data: ")) {
+        const data: McpSearchResponse = JSON.parse(line.slice(6));
+        if (data.error) {
+          throw new Error(`Exa MCP error: ${data.error.message}`);
+        }
+        if (data.result?.content?.[0]?.text) {
+          const output = data.result.content[0].text;
+          const sources = extractMarkdownLinks(output);
+          return { output, sources };
+        }
+      }
+    }
+
+    return {
+      output: "No search results found. Please try a different query.",
+      sources: [],
+    };
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 export function registerWebsearchRoutes(deps: AppDeps, app: FastifyInstance): void {
   app.post<{ Body: WebSearchToolRequest }>("/api/tools/websearch", async (request, reply) => {
     if (!request.body || typeof request.body !== "object" || Array.isArray(request.body)) {
@@ -104,7 +210,6 @@ export function registerWebsearchRoutes(deps: AppDeps, app: FastifyInstance): vo
     let lastErrorPayload: unknown;
 
     for (const model of uniqueModels) {
-      // Try the most structured tool payload first; fall back to hint-only if upstream rejects unknown fields.
       for (const includeDomainsInTool of [true, false]) {
         const injected = await attemptPayload(model, includeDomainsInTool);
         if (injected.statusCode !== 200) {
@@ -125,8 +230,28 @@ export function registerWebsearchRoutes(deps: AppDeps, app: FastifyInstance): vo
           sources: sources.slice(0, numResults),
           responseId: extracted.responseId,
           model,
+          backend: "openai",
         });
         return;
+      }
+    }
+
+    const exaEnabled = process.env.OPEN_HAX_WEBSEARCH_EXA_FALLBACK !== "false";
+    if (exaEnabled) {
+      try {
+        const exaResult = await exaWebSearch({
+          query,
+          numResults,
+        });
+
+        reply.send({
+          output: exaResult.output,
+          sources: exaResult.sources.slice(0, numResults),
+          backend: "exa",
+        });
+        return;
+      } catch (exaError) {
+        lastErrorPayload = exaError instanceof Error ? exaError.message : exaError;
       }
     }
 
