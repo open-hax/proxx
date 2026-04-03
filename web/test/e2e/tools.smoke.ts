@@ -476,39 +476,51 @@ async function main(): Promise<void> {
     assert.ok(content?.includes("Primary OpenAI"));
     assert.ok(content?.includes("Recent Request Log"));
 
-    await page.goto(`${BASE_URL}/hosts`, { waitUntil: "networkidle" });
+    await page.getByRole("link", { name: /Hosts/i }).click();
+    await page.waitForURL("**/hosts");
     content = await page.textContent("body");
     assert.ok(content?.includes("Promethean ussy host dashboard"));
     assert.ok(content?.includes("Host A"));
     assert.ok(content?.includes("proxx:latest"));
 
-    await page.goto(`${BASE_URL}/credentials`, { waitUntil: "networkidle" });
-    content = await page.textContent("body");
-    assert.ok(content?.includes("Credentials Manager"));
-    assert.ok(content?.includes("Primary OpenAI"));
-    assert.ok(content?.includes("Refresh Codex quotas"));
+    await page.getByRole("link", { name: /Credentials/i }).click();
+    await page.waitForURL("**/credentials");
+    await page.getByRole("heading", { name: /Credentials Manager/i }).waitFor();
+    await page.getByText("Primary OpenAI").waitFor();
+    await page.getByRole("button", { name: /Refresh Codex quotas/i }).waitFor();
 
-    await page.goto(`${BASE_URL}/tools`, { waitUntil: "networkidle" });
-    content = await page.textContent("body");
-    assert.ok(content?.includes("Tool Manager"));
-    assert.ok(content?.includes("apply_patch"));
-    assert.ok(content?.includes("Patch files safely"));
-    assert.ok(content?.includes("MCP Manager"));
-    assert.ok(content?.includes("social-publisher"));
+    const searchInput = page.getByPlaceholder("Search accounts, emails, plans, workspace IDs");
+    await searchInput.fill("alice@example.com");
+    await page.getByText("Showing 1 of 1 account(s)").waitFor();
+    await searchInput.fill("no-match-value");
+    await page.getByText("Showing 0 of 1 account(s)").waitFor();
+    await searchInput.fill("");
+    await page.getByText("Showing 1 of 1 account(s)").waitFor();
 
-    await page.goto(`${BASE_URL}/analytics`, { waitUntil: "networkidle" });
-    content = await page.textContent("body");
-    assert.ok(content?.includes("Provider + model analytics"));
-    assert.ok(content?.includes("Global Model Stats"));
-    assert.ok(content?.includes("gpt-5.3-codex"));
-    assert.ok(content?.includes("openai"));
+    await page.getByRole("button", { name: /Refresh Codex quotas/i }).click();
+    await page.getByText(/Codex quotas updated|Codex quotas not loaded yet/i).waitFor();
 
-    await page.goto(`${BASE_URL}/federation`, { waitUntil: "networkidle" });
-    content = await page.textContent("body");
-    assert.ok(content?.includes("Brethren control surface"));
-    assert.ok(content?.includes("Peer A"));
-    assert.ok(content?.includes("Bridge sessions"));
-    assert.ok(content?.includes("Account knowledge"));
+    await page.getByRole("link", { name: /Tools \+ MCP/i }).click();
+    await page.waitForURL("**/tools");
+    await page.getByRole("heading", { name: /Tool Manager/i }).waitFor();
+    await page.getByText("apply_patch", { exact: true }).waitFor();
+    await page.getByText("Patch files safely").waitFor();
+    await page.getByRole("heading", { name: /MCP Manager/i }).waitFor();
+    await page.getByText("social-publisher", { exact: true }).waitFor();
+
+    await page.getByRole("link", { name: /Analytics/i }).click();
+    await page.waitForURL("**/analytics");
+    await page.getByRole("heading", { name: /Provider \+ model analytics/i }).waitFor();
+    await page.getByRole("heading", { name: /Global Model Stats/i }).waitFor();
+    await page.getByRole("cell", { name: "gpt-5.3-codex" }).first().waitFor();
+    await page.getByRole("cell", { name: "openai" }).first().waitFor();
+
+    await page.getByRole("link", { name: /Federation/i }).click();
+    await page.waitForURL("**/federation");
+    await page.getByRole("heading", { name: /Brethren control surface/i }).waitFor();
+    await page.getByText("Peer A").waitFor();
+    await page.getByRole("heading", { name: /Bridge sessions/i }).waitFor();
+    await page.getByRole("heading", { name: /Account knowledge/i }).waitFor();
   } finally {
     await page.close();
     await browser.close();
