@@ -1170,9 +1170,9 @@ export function CredentialsPage(): JSX.Element {
       <section key={title} className="credentials-quota-group">
         <div className="credentials-quota-group-header">
           <strong>{title}</strong>
-          <span className={`credentials-badge ${quotaRateLimitBadgeClass(rateLimit)}`}>
+          <Badge variant={rateLimit?.allowed === true ? "success" : rateLimit?.allowed === false || rateLimit?.limitReached === true ? "error" : "default"}>
             {formatQuotaRateLimitStatus(rateLimit)}
-          </span>
+          </Badge>
         </div>
         <div className="credentials-quota-list">
           {primaryWindow && renderQuotaRow(formatQuotaWindowLabel(primaryWindow, "Primary window"), primaryWindow)}
@@ -1254,9 +1254,9 @@ export function CredentialsPage(): JSX.Element {
               </button>
             )}
             {probeResult && (
-              <span className={`credentials-badge ${probeBadgeClass(probeResult)}`}>
+              <Badge variant={probeResult.ok ? "success" : "error"}>
                 {probeResult.ok ? "Live" : "Not live"}
-              </span>
+              </Badge>
             )}
           </div>
         )}
@@ -1462,9 +1462,9 @@ export function CredentialsPage(): JSX.Element {
                 </p>
               </div>
               <div className="credentials-provider-badges">
-                <span className={`credentials-badge ${quotaBadgeClassFromPercent(openAiQuotaPool.generalCombinedRemainingPercent)}`}>
-                  {formatAggregatePercent(openAiQuotaPool.generalCombinedRemainingPercent)} combined left
-                </span>
+                <Badge variant={(openAiQuotaPool.generalCombinedRemainingPercent ?? 0) > 50 ? "success" : (openAiQuotaPool.generalCombinedRemainingPercent ?? 0) > 20 ? "warning" : "error"}>
+                  {formatAggregatePercent(openAiQuotaPool.generalCombinedRemainingPercent ?? 0)} combined left
+                </Badge>
               </div>
             </header>
 
@@ -1540,15 +1540,15 @@ export function CredentialsPage(): JSX.Element {
                         {row.latestModel && <small>{row.providerId} · {row.latestModel}</small>}
                       </div>
                       <div>
-                        <span className={`credentials-badge ${row.successfulAccountCount > 1 ? "credentials-badge-warning" : "credentials-badge-accent"}`}>
+                        <Badge variant={row.successfulAccountCount > 1 ? "warning" : "success"}>
                           {row.successfulAccountCount} successful account{row.successfulAccountCount === 1 ? "" : "s"}
-                        </span>
+                        </Badge>
                         <small>{row.successfulAccountIds.join(", ") || "None"}</small>
                       </div>
                       <div>
-                        <span className={`credentials-badge ${row.failedAccountCount > 0 ? "credentials-badge-danger" : "credentials-badge-muted"}`}>
+                        <Badge variant={row.failedAccountCount > 0 ? "error" : "default"}>
                           {row.failedAccountCount} failed account{row.failedAccountCount === 1 ? "" : "s"}
-                        </span>
+                        </Badge>
                         <small>{row.failedAccountIds.join(", ") || "None"}</small>
                       </div>
                       <div>
@@ -1593,12 +1593,12 @@ export function CredentialsPage(): JSX.Element {
                       <small>{row.providerId} · {row.latestModel ?? "unknown model"}</small>
                     </div>
                     <div className="credentials-provider-badges">
-                      <span className={`credentials-badge ${quotaBadgeClassFromPercent(row.cacheRate)}`}>
-                        {formatAggregatePercent(row.cacheRate)} cache
-                      </span>
-                      <span className="credentials-badge credentials-badge-muted">
+                      <Badge variant={(row.cacheRate ?? 0) > 50 ? "success" : (row.cacheRate ?? 0) > 20 ? "warning" : "default"}>
+                        {formatAggregatePercent(row.cacheRate ?? 0)} cache
+                      </Badge>
+                      <Badge variant="default">
                         {row.successfulRequestCount} success
-                      </span>
+                      </Badge>
                     </div>
                     <dl className="credentials-watch-metrics">
                       <div>
@@ -1637,8 +1637,8 @@ export function CredentialsPage(): JSX.Element {
                     <p>{section.description}</p>
                   </div>
                   <div className="credentials-provider-badges">
-                    <span className="credentials-badge credentials-badge-muted">{section.badge}</span>
-                    <span className="credentials-badge">{section.badgeMuted}</span>
+                    <Badge variant="default">{section.badge}</Badge>
+                    <Badge variant="default">{section.badgeMuted}</Badge>
                   </div>
                 </header>
 
