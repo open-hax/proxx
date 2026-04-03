@@ -1,5 +1,6 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { Badge, Card, Input, Modal, Progress, Spinner, Tabs, Tooltip, useToast } from "@devel/ui-react";
 import {
   addApiKeyCredential,
   disableAccount,
@@ -1214,12 +1215,12 @@ export function CredentialsPage(): JSX.Element {
             )}
           </div>
           <div className="credentials-provider-badges">
-            {showProviderBadge && <span className="credentials-badge credentials-badge-muted">{providerId}</span>}
-            {isAccountDisabled && <span className="credentials-badge credentials-badge-warning">Disabled</span>}
-            {needsReauth && <span className="credentials-badge credentials-badge-danger">Reauth required</span>}
-            {duplicateCount > 1 && <span className="credentials-badge credentials-badge-warning">Possible duplicate ×{duplicateCount}</span>}
-            {planLabel && <span className="credentials-badge credentials-badge-accent">{planLabel}</span>}
-            <span className="credentials-badge credentials-badge-muted">{formatAuthType(account.authType)}</span>
+            {showProviderBadge && <Badge variant="default">{providerId}</Badge>}
+            {isAccountDisabled && <Badge variant="warning">Disabled</Badge>}
+            {needsReauth && <Badge variant="error">Reauth required</Badge>}
+            {duplicateCount > 1 && <Badge variant="warning">Possible duplicate ×{duplicateCount}</Badge>}
+            {planLabel && <Badge variant="info">{planLabel}</Badge>}
+            <Badge variant="default">{formatAuthType(account.authType)}</Badge>
           </div>
         </header>
 
@@ -1249,7 +1250,7 @@ export function CredentialsPage(): JSX.Element {
                 onClick={() => void handleProbeAccount(providerId, account.id)}
                 disabled={probeLoading}
               >
-                {probeLoading ? "Testing…" : "Test live"}
+                {probeLoading ? <><Spinner size="sm" /> Testing…</> : "Test live"}
               </button>
             )}
             {probeResult && (
