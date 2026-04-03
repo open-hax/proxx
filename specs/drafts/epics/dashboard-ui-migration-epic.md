@@ -36,3 +36,4 @@ The proxx web dashboard (`web/src/`) uses hand-rolled CSS and inline styles acro
 - FederationPage: tab navigation → Tabs component (optional enhancement)
 - AnalyticsPage: richer status tokens/cards beyond current spinner/input migration
 - Global CSS cleanup: styles.css from 2267 → <500 lines
+- Repeated local dashboard shells should converge on `dashboard-patterns-to-ui-library-epic.md`
