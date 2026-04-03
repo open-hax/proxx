@@ -257,7 +257,7 @@ This avoids future churn when fast mode and similar settings become tenant-speci
 - ✅ Phase A landed: schema v4 tenant tables and default-tenant bootstrap are in place.
 - ✅ Phase B landed: request auth now resolves legacy default-tenant admin access and tenant API key bearer tokens.
 - ✅ Phase C landed: GitHub-authenticated UI sessions now upsert local user records, bootstrap the default-tenant membership, persist `activeTenantId` on access/refresh token `extra`, and expose/select tenant context through `/api/ui/me`, `/api/ui/tenants`, and `POST /api/ui/tenants/:tenantId/select`.
-- 🚧 Phase D is partially landed: list/create/revoke tenant API key routes now exist with tenant-scoped authorization checks, and live `/v1/*` usage now updates `tenant_api_keys.last_used_at`.
+- ✅ Phase D landed: list/create/revoke tenant API key routes exist with tenant-scoped authorization checks, and live `/v1/*` usage now updates `tenant_api_keys.last_used_at`.
 - ✅ Phase E landed: proxy settings now persist under tenant-scoped config keys (`proxy_settings` for `default`, `proxy_settings:<tenantId>` otherwise), `/api/ui/settings` resolves against the active tenant, and request-time fast mode now follows the authenticated tenant context.
 
 ## Definition of done
