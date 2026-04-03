@@ -1,6 +1,7 @@
 import React from "react";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 
+import { Badge, Button, Card, Input } from "@open-hax/uxx";
 import { listMcpSeeds, listToolSeeds, type McpServerSeed, type ToolSeed } from "../lib/api";
 import { useStoredState } from "../lib/use-stored-state";
 
@@ -51,23 +52,23 @@ export function ToolsPage(): JSX.Element {
         </header>
 
         <form className="tools-model-form" onSubmit={(event) => void handleModelSubmit(event)}>
-          <input
+          <Input
             value={model}
             onChange={(event) => setModel(event.currentTarget.value)}
             placeholder="model id"
           />
-          <button type="submit">Refresh</button>
+          <Button type="submit">Refresh</Button>
         </form>
 
         <div className="tools-grid">
           {tools.map((tool) => (
-            <article key={tool.id} className={tool.enabled ? "tool-card tool-card-enabled" : "tool-card tool-card-disabled"}>
-              <header>
+            <Card key={tool.id} variant={tool.enabled ? "default" : "outlined"}>
+              <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <strong>{tool.id}</strong>
-                <span>{tool.enabled ? "enabled" : "disabled"}</span>
+                <Badge variant={tool.enabled ? "success" : "warning"}>{tool.enabled ? "enabled" : "disabled"}</Badge>
               </header>
               <p>{tool.description}</p>
-            </article>
+            </Card>
           ))}
         </div>
       </section>
@@ -80,16 +81,16 @@ export function ToolsPage(): JSX.Element {
 
         <div className="mcp-grid">
           {servers.map((server) => (
-            <article key={server.id} className="mcp-card">
-              <header>
+            <Card key={server.id}>
+              <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <strong>{server.id}</strong>
-                <span>{server.running ? "running" : "seeded"}</span>
+                <Badge variant={server.running ? "success" : "default"}>{server.running ? "running" : "seeded"}</Badge>
               </header>
               <p>cwd: {server.cwd ?? "(none)"}</p>
               <p>script: {server.script}</p>
               {typeof server.port === "number" && <p>port: {server.port}</p>}
               <small>{server.sourceFile}</small>
-            </article>
+            </Card>
           ))}
         </div>
       </section>

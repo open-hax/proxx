@@ -49,7 +49,7 @@ For changes to `Dockerfile`, `docker-compose.yml`, frontend package deps, or bui
 
 ### Notes
 - `pnpm web:test` is the fast render-smoke layer.
-- `pnpm web:test:e2e` is the browser smoke layer that locks the frontend surfaces being migrated to `@devel/ui`.
+- `pnpm web:test:e2e` is the browser smoke layer that locks the frontend surfaces being migrated to `@open-hax/uxx`.
 - If a touched surface has no test yet, add at least a smoke test before calling the work complete.
 
 ## RELEVANT SKILLS

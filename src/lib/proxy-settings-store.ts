@@ -57,6 +57,14 @@ function normalizeModelIdList(value: unknown): readonly string[] | null {
 }
 
 function normalizeSettings(value: unknown): ProxySettings {
+  if (typeof value === "string") {
+    try {
+      return normalizeSettings(JSON.parse(value) as unknown);
+    } catch {
+      return { fastMode: false, requestsPerMinute: null, allowedModels: null, allowedProviderIds: null, disabledProviderIds: null };
+    }
+  }
+
   if (!isRecord(value)) {
     return { fastMode: false, requestsPerMinute: null, allowedModels: null, allowedProviderIds: null, disabledProviderIds: null };
   }

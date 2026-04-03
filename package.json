@@ -27,8 +27,7 @@
     "lint:errors": "eslint . --quiet"
   },
   "dependencies": {
-    "@devel/ui-react": "file:../../../packages/ui/react",
-    "@devel/ui-tokens": "file:../../../packages/ui/tokens",
+    "@open-hax/uxx": "0.1.0",
     "@fastify/cookie": "^11.0.2",
     "@fastify/swagger": "9.5.1",
     "@fastify/swagger-ui": "5.2.3",

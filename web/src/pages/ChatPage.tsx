@@ -1,6 +1,6 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { Button, Chat as UiChat, Input, type ChatMessage as UiChatMessage } from "@devel/ui-react";
+import { Button, Chat as UiChat, Input, PanelHeader, type ChatMessage as UiChatMessage } from "@open-hax/uxx";
 import {
   addSessionMessage,
   createSession,
@@ -322,14 +322,13 @@ export function ChatPage(): JSX.Element {
     return groupedMessages
       .filter((message) => message.role === "system" || message.role === "user" || message.role === "assistant")
       .map((message) => {
-        const content = message.reasoningContent && message.reasoningContent.trim().length > 0
-          ? `${message.content}\n\n**Reasoning trace**\n\n\`\`\`\n${message.reasoningContent}\n\`\`\``
-          : message.content;
-
         return {
           id: message.id,
           role: message.role,
-          content,
+          content: message.content,
+          reasoningContent: message.reasoningContent && message.reasoningContent.trim().length > 0
+            ? message.reasoningContent
+            : undefined,
           timestamp: typeof message.createdAt === "number" ? new Date(message.createdAt) : undefined,
           actions: [copiedMessageId === message.id ? "Copied" : "Copy", "Fork here"],
           metadata: message.model ? { model: message.model } : undefined,
@@ -407,20 +406,21 @@ export function ChatPage(): JSX.Element {
       </aside>
 
       <section className="chat-main">
-        <header className="chat-main-header">
-          <div>
-            <h2>{activeSession?.title ?? "No session selected"}</h2>
-            {activeSession?.forkedFromSessionId && (
-              <p>
-                Forked from {activeSession.forkedFromSessionId}
-              </p>
-            )}
-          </div>
-
-          <div className="chat-main-controls">
+        <PanelHeader
+          title={activeSession?.title ?? "No session selected"}
+          description={activeSession?.forkedFromSessionId ? `Forked from ${activeSession.forkedFromSessionId}` : undefined}
+          actions={<>
             <select
               value={model}
               onChange={(event) => setModel(event.currentTarget.value)}
+              style={{
+                padding: "5px 10px",
+                borderRadius: "8px",
+                border: "1px solid var(--border)",
+                backgroundColor: "var(--token-colors-surface-input)",
+                color: "var(--text-main)",
+                fontSize: "0.82rem",
+              }}
             >
               {availableModels.map((option) => (
                 <option key={option} value={option}>
@@ -442,8 +442,8 @@ export function ChatPage(): JSX.Element {
                 Fork latest
               </Button>
             </div>
-          </div>
-        </header>
+          </>}
+        />
 
         <UiChat
           messages={uiMessages}

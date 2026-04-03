@@ -1,6 +1,6 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { Badge, Card, Input, Modal, Progress, Spinner, Tabs, Tooltip, useToast } from "@devel/ui-react";
+import { Badge, Card, Input, Modal, Progress, Spinner, StatusChipStack, type StatusChipItem, Tabs, Tooltip, useToast } from "@open-hax/uxx";
 import {
   addApiKeyCredential,
   disableAccount,
@@ -1215,12 +1215,14 @@ export function CredentialsPage(): JSX.Element {
             )}
           </div>
           <div className="credentials-provider-badges">
-            {showProviderBadge && <Badge variant="default">{providerId}</Badge>}
-            {isAccountDisabled && <Badge variant="warning">Disabled</Badge>}
-            {needsReauth && <Badge variant="error">Reauth required</Badge>}
-            {duplicateCount > 1 && <Badge variant="warning">Possible duplicate ×{duplicateCount}</Badge>}
-            {planLabel && <Badge variant="info">{planLabel}</Badge>}
-            <Badge variant="default">{formatAuthType(account.authType)}</Badge>
+            <StatusChipStack items={[
+              ...(showProviderBadge ? [{ label: providerId, variant: 'default' as const }] : []),
+              ...(isAccountDisabled ? [{ label: 'Disabled', variant: 'warning' as const }] : []),
+              ...(needsReauth ? [{ label: 'Reauth required', variant: 'error' as const }] : []),
+              ...(duplicateCount > 1 ? [{ label: `Possible duplicate ×${duplicateCount}`, variant: 'warning' as const }] : []),
+              ...(planLabel ? [{ label: planLabel, variant: 'info' as const }] : []),
+              { label: formatAuthType(account.authType), variant: 'default' as const },
+            ] as StatusChipItem[]} />
           </div>
         </header>
 

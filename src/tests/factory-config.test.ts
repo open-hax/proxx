@@ -426,6 +426,70 @@ test("DB-backed KeyPool ignores keys.json and inline keys JSON at runtime", { co
   );
 });
 
+test("DB-backed KeyPool ignores env API-key providers at runtime", { concurrency: false }, async () => {
+  const accountStore: ProviderAccountStore = {
+    async getAllProviders() {
+      return new Map([
+        ["openai", { authType: "oauth_bearer" }],
+      ]);
+    },
+    async getAllAccounts() {
+      return new Map([
+        ["openai", [{
+          providerId: "openai",
+          accountId: "db-openai-1",
+          token: "db-openai-token",
+          authType: "oauth_bearer",
+        }]],
+      ]);
+    },
+  };
+
+  await withEnv(
+    {
+      ZAI_API_KEY: "zai-key-1", // pragma: allowlist secret
+      ROTUSSY_API_KEY: "rotussy-key-1", // pragma: allowlist secret
+      FACTORY_API_KEY: undefined,
+      GEMINI_API_KEY: undefined,
+      OPENROUTER_API_KEY: undefined,
+      REQUESTY_API_KEY: undefined,
+      REQUESTY_API_TOKEN: undefined,
+    },
+    async () => {
+      await withKeysFile(
+        {
+          providers: {
+            requesty: { accounts: ["file-requesty-token"] },
+          },
+        },
+        async (keysFilePath) => {
+          const keyPool = new KeyPool({
+            keysFilePath,
+            reloadIntervalMs: 10,
+            defaultCooldownMs: 1000,
+            defaultProviderId: "openai",
+            accountStore,
+            preferAccountStoreProviders: true,
+          });
+
+          await keyPool.warmup();
+
+          const openAiAccounts = await keyPool.getAllAccounts("openai");
+          const zaiAccounts = await keyPool.getAllAccounts("zai");
+          const rotussyAccounts = await keyPool.getAllAccounts("rotussy");
+          const requestyAccounts = await keyPool.getAllAccounts("requesty");
+
+          assert.equal(openAiAccounts.length, 1);
+          assert.equal(openAiAccounts[0]?.token, "db-openai-token");
+          assert.equal(zaiAccounts.length, 0);
+          assert.equal(rotussyAccounts.length, 0);
+          assert.equal(requestyAccounts.length, 0);
+        },
+      );
+    },
+  );
+});
+
 // --- VAL-AUTH-004: OAuth tokens loaded from encrypted auth.v2 ---
 
 test("decryptAuthV2 round-trips correctly with encryptAuthV2", () => {

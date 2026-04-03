@@ -1,4 +1,4 @@
-# Sub-spec: Migrate CredentialsPage to @devel/ui components
+# Sub-spec: Migrate CredentialsPage to @open-hax/uxx components
 
 **Epic:** `dashboard-ui-migration-epic.md`
 **SP:** 5
@@ -8,10 +8,10 @@
 
 ## Scope
 
-Migrate the largest and most complex page (1819 lines) using @devel/ui primitives and AI/IDE components.
+Migrate the largest and most complex page (1819 lines) using @open-hax/uxx primitives and AI/IDE components.
 
 ### Replacements
-| Current | @devel/ui Component |
+| Current | @open-hax/uxx Component |
 |---------|-------------------|
 | Credential cards | `<Card variant="outlined">` with `<Badge>` for status |
 | Account health bars | `<Progress variant="success|warning|error">` |

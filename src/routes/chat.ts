@@ -176,8 +176,8 @@ export function registerChatRoutes(deps: AppDeps, app: FastifyInstance): void {
           return;
         }
 
+        providerRoutes = filterProviderRoutesByCatalogAvailability(providerRoutes, context.routedModel, catalogBundle);
         if (wantsDynamicOllamaRoutes) {
-          providerRoutes = filterProviderRoutesByCatalogAvailability(providerRoutes, context.routedModel, catalogBundle);
           const ranked = await rankProviderRoutesWithAco({
             providerRoutes,
             model: context.routedModel,

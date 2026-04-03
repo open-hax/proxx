@@ -518,7 +518,11 @@ async function readProvidersFromSources(
   accountStore?: ProviderAccountStore,
   preferAccountStoreProviders = false,
 ): Promise<Map<string, ProviderState>> {
-  const envProviders = readProvidersFromEnv();
+  // With a DB-backed account store, env vars are bootstrap inputs only.
+  // Runtime provider state should come from the persisted account store.
+  const envProviders = accountStore && preferAccountStoreProviders
+    ? new Map<string, ProviderState>()
+    : readProvidersFromEnv();
   const inlineJsonProviders = accountStore
     ? new Map<string, ProviderState>()
     : readProvidersFromJsonEnv(defaultProviderId);

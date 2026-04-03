@@ -8,7 +8,7 @@
 
 ## Scope
 
-Replace the custom ChatPage with the @devel/ui `Chat` component and do a final CSS cleanup across all pages.
+Replace the custom ChatPage with the @open-hax/uxx `Chat` component and do a final CSS cleanup across all pages.
 
 ### ChatPage.tsx (474 lines → ~100 lines)
 Replace the entire custom chat UI with:
@@ -22,7 +22,7 @@ Replace the entire custom chat UI with:
 />
 ```
 
-The @devel/ui `Chat` component already supports:
+The @open-hax/uxx `Chat` component already supports:
 - Markdown rendering
 - Message streaming
 - Typing indicators
@@ -31,12 +31,12 @@ The @devel/ui `Chat` component already supports:
 
 ### Global CSS cleanup
 After all pages are migrated:
-- Remove all styles from `styles.css` that are now provided by @devel/ui tokens
+- Remove all styles from `styles.css` that are now provided by @open-hax/uxx tokens
 - Keep only page-specific layout overrides
 - Target: 2267 → <500 lines (78% reduction)
 
 ### Changes
-- `web/src/pages/ChatPage.tsx` — replace with @devel/ui Chat component
+- `web/src/pages/ChatPage.tsx` — replace with @open-hax/uxx Chat component
 - `web/src/styles.css` — massive cleanup pass
 - `web/src/App.tsx` — remove any remaining inline styles
 

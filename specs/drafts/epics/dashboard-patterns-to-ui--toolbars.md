@@ -3,44 +3,19 @@
 **Epic:** `dashboard-patterns-to-ui-library-epic.md`
 **SP:** 2
 **Priority:** P2
-**Status:** Draft
+**Status:** ✅ Done
 
-## Problem
-
-The dashboard repeats toolbar rows that combine filters and actions:
-- `AnalyticsPage` toolbar (window, sort, provider, model)
-- `FederationPage` owner-subject toolbar
-- `CredentialsPage` top action/meta toolbar
-- `ChatPage` model + refresh/fork action strip
-
-## Scope
-
-Add:
-1. `FilterToolbar`
-```tsx
-<FilterToolbar>
-  <Input placeholder="Search providers…" />
-  <Select ... />
-</FilterToolbar>
-```
-
-2. `ActionStrip`
-```tsx
-<ActionStrip>
-  <Button>Refresh</Button>
-  <Button variant="secondary">Default</Button>
-</ActionStrip>
-```
-
-## Target files
-- `packages/ui/contracts/filter-toolbar.edn`
-- `packages/ui/react/src/primitives/FilterToolbar.tsx`
-- `packages/ui/react/src/primitives/ActionStrip.tsx`
-
-## First adopters in proxx
-- `web/src/pages/FederationPage.tsx`
-- `web/src/pages/AnalyticsPage.tsx`
+## Result
+- `FilterToolbar` implemented in `orgs/open-hax/uxx/react/src/primitives/FilterToolbar.tsx`
+- `ActionStrip` implemented in `orgs/open-hax/uxx/react/src/primitives/ActionStrip.tsx`
+- contract added: `orgs/open-hax/uxx/contracts/filter-toolbar.edn`
+- contract added: `orgs/open-hax/uxx/contracts/action-strip.edn`
+- adopted in `web/src/pages/AnalyticsPage.tsx` (controls toolbar + search toolbar)
+- adopted in `web/src/pages/FederationPage.tsx` (owner-subject toolbar with refresh/default buttons)
 
 ## Verification
-- Toolbars collapse/wrap cleanly on mobile widths
-- 2+ proxx pages adopt the new components
+- `npm run build` in `orgs/open-hax/uxx/react` passes
+- `pnpm web:build` in `orgs/open-hax/proxx` passes
+- `pnpm web:test` in `orgs/open-hax/proxx` passes
+- toolbars wrap cleanly via flex-wrap on narrow widths
+- replaced page-local `analytics-toolbar` and `federation-toolbar-actions` divs

@@ -61,7 +61,7 @@ function providerModelCatalogPaths(config: ProxyConfig, providerId: string): str
   }
 
   if (normalizedProviderId === "rotussy") {
-    return ["/models"];
+    return ["/v1/models", "/models"];
   }
 
   return ["/v1/models"];

@@ -7635,6 +7635,112 @@ test("glm chat requests route to rotussy instead of ollama-cloud or the openai p
   );
 });
 
+test("glm chat requests skip ollama-cloud when provider catalog does not advertise the requested model", { concurrency: false }, async () => {
+  await withEnv(
+    {
+      ROTUSSY_API_KEY: "rotussy-key-1", // pragma: allowlist secret
+      ROTUSSY_PROVIDER_ID: undefined,
+      REQUESTY_API_TOKEN: undefined,
+      REQUESTY_API_KEY: undefined,
+      OPENROUTER_API_KEY: undefined,
+      GEMINI_API_KEY: undefined,
+      ZAI_API_KEY: undefined,
+    },
+    async () => {
+      const upstreamAuths: string[] = [];
+
+      await withProxyApp(
+        {
+          keys: [],
+          handleModelCatalog: true,
+          keysPayload: {
+            providers: {
+              openai: {
+                auth: "oauth_bearer",
+                accounts: [
+                  { id: "openai-a", access_token: "oa-token-a", chatgpt_account_id: "chatgpt-a" },
+                ],
+              },
+              "ollama-cloud": ["ollama-cloud-key"],
+            },
+          },
+          models: ["glm-4.7-flash"],
+          configOverrides: {
+            upstreamProviderId: "openai",
+            upstreamFallbackProviderIds: ["ollama-cloud", "rotussy", "zai"],
+            localOllamaEnabled: false,
+          },
+          upstreamHandler: async (request, body) => {
+            const auth = request.headers.authorization;
+
+            if (request.method === "GET" && (request.url === "/v1/models" || request.url === "/models")) {
+              if (auth === "Bearer ollama-cloud-key") {
+                return {
+                  status: 200,
+                  headers: { "content-type": "application/json" },
+                  body: JSON.stringify({ object: "list", data: [{ id: "Kimi-K2.5" }] }),
+                };
+              }
+
+              if (auth === "Bearer rotussy-key-1") {
+                return {
+                  status: 200,
+                  headers: { "content-type": "application/json" },
+                  body: JSON.stringify({ object: "list", data: [{ id: "glm-4.7-flash" }] }),
+                };
+              }
+
+              return {
+                status: 200,
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ object: "list", data: [{ id: "gpt-5.4" }] }),
+              };
+            }
+
+            upstreamAuths.push(auth ?? "");
+            assert.notEqual(auth, "Bearer ollama-cloud-key");
+            assert.equal(auth, "Bearer rotussy-key-1");
+            const observedBody = JSON.parse(body) as Record<string, unknown>;
+            assert.equal(observedBody.model, "glm-4.7-flash");
+
+            return {
+              status: 200,
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                id: "chatcmpl_rotussy_glm_skip_ollama",
+                object: "chat.completion",
+                created: 1772516811,
+                model: "glm-4.7-flash",
+                choices: [{
+                  index: 0,
+                  message: { role: "assistant", content: "rotussy-only" },
+                  finish_reason: "stop",
+                }],
+              }),
+            };
+          },
+        },
+        async ({ app }) => {
+          const response = await app.inject({
+            method: "POST",
+            url: "/v1/chat/completions",
+            headers: { "content-type": "application/json" },
+            payload: {
+              model: "glm-4.7-flash",
+              messages: [{ role: "user", content: "hello" }],
+              stream: false,
+            },
+          });
+
+          assert.equal(response.statusCode, 200);
+          assert.equal(response.headers["x-open-hax-upstream-provider"], "rotussy");
+          assert.deepEqual(upstreamAuths, ["Bearer rotussy-key-1"]);
+        },
+      );
+    },
+  );
+});
+
 test("glm /v1/responses requests route through rotussy chat-completions compatibility when rotussy is configured", { concurrency: false }, async () => {
   await withEnv(
     {

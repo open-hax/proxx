@@ -264,3 +264,61 @@ test("getCatalog returns empty catalog when all routes time out", async () => {
     await rm(tempDir, { recursive: true, force: true });
   }
 });
+
+test("rotussy catalog discovery falls back to /v1/models when /models is unsupported", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "catalog-test-"));
+
+  const modelsPath = path.join(tempDir, "models.json");
+  await writeFile(modelsPath, JSON.stringify({ models: [] }), "utf8");
+
+  const server = createServer((req, res) => {
+    if (req.url === "/v1/models") {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ data: [{ id: "glm-4.7-flash" }] }));
+      return;
+    }
+
+    if (req.url === "/models") {
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "unsupported" }));
+      return;
+    }
+
+    res.writeHead(404);
+    res.end();
+  });
+
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address();
+  if (!address || typeof address === "string") {
+    throw new Error("Failed to resolve rotussy catalog test server address");
+  }
+
+  try {
+    const rotussyRoute: ProviderRoute = {
+      providerId: "rotussy",
+      baseUrl: `http://127.0.0.1:${address.port}`,
+    };
+
+    const accounts = new Map<string, ProviderCredential[]>([
+      ["rotussy", [buildTestAccount("rotussy", "rotussy-test-token")]],
+    ]);
+
+    const config = buildMinimalConfig({ modelsFilePath: modelsPath, requestTimeoutMs: 5_000 });
+    const keyPool = buildMockKeyPool(accounts);
+    const store = new ProviderCatalogStore(config, keyPool, [rotussyRoute], []);
+    const catalog = await store.getCatalog(true);
+
+    assert.deepEqual(
+      [...(catalog.providerCatalogs["rotussy"]?.modelIds ?? [])],
+      ["glm-4.7-flash"],
+    );
+  } finally {
+    server.closeAllConnections();
+    await new Promise<void>((resolve, reject) => {
+      server.close((err) => (err ? reject(err) : resolve()));
+    });
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});

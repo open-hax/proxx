@@ -3,45 +3,21 @@
 **Epic:** `dashboard-patterns-to-ui-library-epic.md`
 **SP:** 2
 **Priority:** P2
-**Status:** Draft
+**Status:** ✅ Done
 
-## Problem
+## Result
+- `StatusChipStack` implemented in `orgs/open-hax/uxx/react/src/primitives/StatusChipStack.tsx`
+- contract added: `orgs/open-hax/uxx/contracts/status-chip-stack.edn`
+- adopted in `web/src/pages/CredentialsPage.tsx` (credential badge stacks in account tiles)
+- wraps existing `Badge` component with consistent spacing and separators
 
-Badge/pill clusters recur across the dashboard:
-- `CredentialsPage` provider/status/plan/auth badge stacks
-- `FederationPage` provider count pill lists
-- `HostsPage` reachability + "This console" status stack
-
-These are all currently ad hoc combinations of `Badge` with page-local spacing/layout wrappers.
-
-## Scope
-
-Add a small composition helper:
-
-```tsx
-<StatusChipStack
-  items={[
-    { label: 'openai', variant: 'info' },
-    { label: 'pro', variant: 'success' },
-    { label: 'oauth_bearer', variant: 'default' },
-  ]}
-/>
-```
-
-Features:
-- wraps badges/chips consistently
-- compact and default density
-- optional counts/icons
-- used as layout helper over existing `Badge`
-
-## Target files
-- `packages/ui/contracts/status-chip-stack.edn`
-- `packages/ui/react/src/primitives/StatusChipStack.tsx`
-
-## First adopters in proxx
-- `web/src/pages/CredentialsPage.tsx`
-- `web/src/pages/FederationPage.tsx`
+## Features implemented
+- accepts array of `{ label, variant, icon }` items
+- renders Badge components with configurable size (xs/sm/md)
+- configurable separator between chips (default: `·`)
+- consistent gap spacing via token values
 
 ## Verification
-- badge stacks no longer rely on page-local wrapper classes
-- 2+ pages adopt the component
+- `npm run build` in `orgs/open-hax/uxx/react` passes
+- `pnpm web:build` in `orgs/open-hax/proxx` passes
+- badge stacks in CredentialsPage use shared component instead of inline Badge elements

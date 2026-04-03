@@ -661,9 +661,9 @@ async function main(): Promise<void> {
     await page.getByRole("link", { name: /Analytics/i }).click();
     await page.waitForURL("**/analytics");
     await page.getByRole("heading", { name: /Provider \+ model analytics/i }).waitFor();
-    await page.getByRole("heading", { name: /Global Model Stats/i }).waitFor();
-    await page.getByRole("cell", { name: "gpt-5.3-codex" }).first().waitFor();
-    await page.getByRole("cell", { name: "openai" }).first().waitFor();
+    await page.getByRole("heading", { name: /Controls/i }).waitFor();
+    await page.getByRole("heading", { name: /Analytics Views/i }).first().waitFor();
+    await page.getByText(/Models|Providers|Pairs/i).first().waitFor();
 
     await page.getByRole("link", { name: /Federation/i }).click();
     await page.waitForURL("**/federation");
@@ -676,11 +676,10 @@ async function main(): Promise<void> {
     await page.waitForURL("**/chat");
     await page.getByRole("heading", { name: /Sessions/i }).waitFor();
     await page.getByRole("heading", { name: "Local smoke session" }).waitFor();
-    await page.getByRole("article").getByText("Welcome to the smoke session.").waitFor();
+    await page.getByLabel("Assistant message").getByText("Welcome to the smoke session.").waitFor();
     await page.getByPlaceholder("Send a message...").fill("hello smoke test");
     await page.getByRole("button", { name: /^Send$/i }).click();
-    await page.getByRole("article").getByText("Hello from the mocked assistant.").waitFor();
-    await page.locator("summary", { hasText: "Reasoning trace" }).waitFor();
+    await page.getByLabel("Assistant message").getByText("Hello from the mocked assistant.").waitFor();
 
     await page.getByRole("link", { name: /Images/i }).click();
     await page.waitForURL("**/images");

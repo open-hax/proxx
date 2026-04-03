@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 
-import { Card, Input, Spinner, Tabs, type TabItem } from "@devel/ui-react";
+import { DataTableShell, FilterToolbar, Input, MetricTile, MetricTileGrid, PanelHeader, SurfaceHero, Tabs, type DataTableColumn, type TabItem } from "@open-hax/uxx";
 import { getProviderModelAnalytics, type AnalyticsRow, type ProviderModelAnalytics } from "../lib/api";
 import { useStoredState } from "../lib/use-stored-state";
 
@@ -74,6 +74,56 @@ function formatMaybeSuitability(value: number | null): string {
 function rowLabel(row: AnalyticsRow): string {
   return row.model ?? row.providerId ?? "-";
 }
+
+const modelColumns: DataTableColumn<AnalyticsRow>[] = [
+  { key: 'model', header: 'Model' },
+  { key: 'providers', header: 'Providers', render: (row) => formatCompactNumber(row.providerCoverageCount ?? 0) },
+  { key: 'suitability', header: 'Suitability', render: (row) => formatMaybeSuitability(row.suitabilityScore) },
+  { key: 'confidence', header: 'Confidence', render: (row) => formatMaybeSuitability(row.confidenceScore) },
+  { key: 'ttft', header: 'Avg TTFT', render: (row) => formatMaybeMs(row.avgTtftMs) },
+  { key: 'decodeTps', header: 'Decode TPS', render: (row) => formatMaybeTps(row.avgDecodeTps) },
+  { key: 'e2eTps', header: 'End-to-End TPS', render: (row) => formatMaybeTps(row.avgEndToEndTps) },
+  { key: 'errorRate', header: 'Error Rate', render: (row) => formatPercent(row.errorRate) },
+  { key: 'cacheHit', header: 'Cache Hit', render: (row) => formatPercent(row.cacheHitRate) },
+  { key: 'cachedTokens', header: 'Cached Tokens', render: (row) => formatCompactNumber(row.cachedPromptTokens) },
+  { key: 'requests', header: 'Requests', render: (row) => formatCompactNumber(row.requestCount) },
+  { key: 'tokens', header: 'Tokens', render: (row) => formatCompactNumber(row.totalTokens) },
+  { key: 'cost', header: 'Est. Cost', render: (row) => formatUsd(row.costUsd) },
+];
+
+const providerColumns: DataTableColumn<AnalyticsRow>[] = [
+  { key: 'providerId', header: 'Provider' },
+  { key: 'models', header: 'Models', render: (row) => formatCompactNumber(row.modelCoverageCount ?? 0) },
+  { key: 'suitability', header: 'Suitability', render: (row) => formatMaybeSuitability(row.suitabilityScore) },
+  { key: 'confidence', header: 'Confidence', render: (row) => formatMaybeSuitability(row.confidenceScore) },
+  { key: 'ttft', header: 'Avg TTFT', render: (row) => formatMaybeMs(row.avgTtftMs) },
+  { key: 'decodeTps', header: 'Decode TPS', render: (row) => formatMaybeTps(row.avgDecodeTps) },
+  { key: 'e2eTps', header: 'End-to-End TPS', render: (row) => formatMaybeTps(row.avgEndToEndTps) },
+  { key: 'errorRate', header: 'Error Rate', render: (row) => formatPercent(row.errorRate) },
+  { key: 'cacheHit', header: 'Cache Hit', render: (row) => formatPercent(row.cacheHitRate) },
+  { key: 'cachedTokens', header: 'Cached Tokens', render: (row) => formatCompactNumber(row.cachedPromptTokens) },
+  { key: 'requests', header: 'Requests', render: (row) => formatCompactNumber(row.requestCount) },
+  { key: 'tokens', header: 'Tokens', render: (row) => formatCompactNumber(row.totalTokens) },
+  { key: 'cost', header: 'Est. Cost', render: (row) => formatUsd(row.costUsd) },
+];
+
+const pairColumns: DataTableColumn<AnalyticsRow>[] = [
+  { key: 'providerId', header: 'Provider' },
+  { key: 'model', header: 'Model' },
+  { key: 'suitability', header: 'Suitability', render: (row) => formatMaybeSuitability(row.suitabilityScore) },
+  { key: 'confidence', header: 'Confidence', render: (row) => formatMaybeSuitability(row.confidenceScore) },
+  { key: 'ttft', header: 'Avg TTFT', render: (row) => formatMaybeMs(row.avgTtftMs) },
+  { key: 'decodeTps', header: 'Decode TPS', render: (row) => formatMaybeTps(row.avgDecodeTps) },
+  { key: 'e2eTps', header: 'End-to-End TPS', render: (row) => formatMaybeTps(row.avgEndToEndTps) },
+  { key: 'errorRate', header: 'Error Rate', render: (row) => formatPercent(row.errorRate) },
+  { key: 'cacheHit', header: 'Cache Hit', render: (row) => formatPercent(row.cacheHitRate) },
+  { key: 'cachedTokens', header: 'Cached Tokens', render: (row) => formatCompactNumber(row.cachedPromptTokens) },
+  { key: 'requests', header: 'Requests', render: (row) => formatCompactNumber(row.requestCount) },
+  { key: 'tokens', header: 'Tokens', render: (row) => formatCompactNumber(row.totalTokens) },
+  { key: 'cost', header: 'Est. Cost', render: (row) => formatUsd(row.costUsd) },
+  { key: 'water', header: 'Water', render: (row) => formatWater(row.waterEvaporatedMl) },
+  { key: 'lastSeen', header: 'Last Seen', render: (row) => formatDate(row.lastSeenAt) },
+];
 
 export function AnalyticsPage(): JSX.Element {
   const [windowValue, setWindowValue] = useStoredState<"daily" | "weekly" | "monthly">(
@@ -188,46 +238,12 @@ export function AnalyticsPage(): JSX.Element {
       label: "Models",
       badge: String(filteredModels.length),
       content: (
-        <div className="analytics-table-wrap">
-          <table className="analytics-table">
-            <thead>
-              <tr>
-                <th>Model</th>
-                <th>Providers</th>
-                <th>Suitability</th>
-                <th>Confidence</th>
-                <th>Avg TTFT</th>
-                <th>Decode TPS</th>
-                <th>End-to-End TPS</th>
-                <th>Error Rate</th>
-                <th>Cache Hit</th>
-                <th>Cached Tokens</th>
-                <th>Requests</th>
-                <th>Tokens</th>
-                <th>Est. Cost</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredModels.map((row) => (
-                <tr key={`model-${row.model}`}>
-                  <td>{row.model}</td>
-                  <td>{formatCompactNumber(row.providerCoverageCount ?? 0)}</td>
-                  <td>{formatMaybeSuitability(row.suitabilityScore)}</td>
-                  <td>{formatMaybeSuitability(row.confidenceScore)}</td>
-                  <td>{formatMaybeMs(row.avgTtftMs)}</td>
-                  <td>{formatMaybeTps(row.avgDecodeTps)}</td>
-                  <td>{formatMaybeTps(row.avgEndToEndTps)}</td>
-                  <td>{formatPercent(row.errorRate)}</td>
-                  <td>{formatPercent(row.cacheHitRate)}</td>
-                  <td>{formatCompactNumber(row.cachedPromptTokens)}</td>
-                  <td>{formatCompactNumber(row.requestCount)}</td>
-                  <td>{formatCompactNumber(row.totalTokens)}</td>
-                  <td>{formatUsd(row.costUsd)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <DataTableShell
+          columns={modelColumns}
+          rows={filteredModels}
+          rowKey={(row) => `model-${row.model}`}
+          emptyState="No models match the current filters."
+        />
       ),
     },
     {
@@ -235,46 +251,12 @@ export function AnalyticsPage(): JSX.Element {
       label: "Providers",
       badge: String(filteredProviders.length),
       content: (
-        <div className="analytics-table-wrap">
-          <table className="analytics-table">
-            <thead>
-              <tr>
-                <th>Provider</th>
-                <th>Models</th>
-                <th>Suitability</th>
-                <th>Confidence</th>
-                <th>Avg TTFT</th>
-                <th>Decode TPS</th>
-                <th>End-to-End TPS</th>
-                <th>Error Rate</th>
-                <th>Cache Hit</th>
-                <th>Cached Tokens</th>
-                <th>Requests</th>
-                <th>Tokens</th>
-                <th>Est. Cost</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredProviders.map((row) => (
-                <tr key={`provider-${row.providerId}`}>
-                  <td>{row.providerId}</td>
-                  <td>{formatCompactNumber(row.modelCoverageCount ?? 0)}</td>
-                  <td>{formatMaybeSuitability(row.suitabilityScore)}</td>
-                  <td>{formatMaybeSuitability(row.confidenceScore)}</td>
-                  <td>{formatMaybeMs(row.avgTtftMs)}</td>
-                  <td>{formatMaybeTps(row.avgDecodeTps)}</td>
-                  <td>{formatMaybeTps(row.avgEndToEndTps)}</td>
-                  <td>{formatPercent(row.errorRate)}</td>
-                  <td>{formatPercent(row.cacheHitRate)}</td>
-                  <td>{formatCompactNumber(row.cachedPromptTokens)}</td>
-                  <td>{formatCompactNumber(row.requestCount)}</td>
-                  <td>{formatCompactNumber(row.totalTokens)}</td>
-                  <td>{formatUsd(row.costUsd)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <DataTableShell
+          columns={providerColumns}
+          rows={filteredProviders}
+          rowKey={(row) => `provider-${row.providerId}`}
+          emptyState="No providers match the current filters."
+        />
       ),
     },
     {
@@ -282,70 +264,55 @@ export function AnalyticsPage(): JSX.Element {
       label: "Pairs",
       badge: String(filteredPairs.length),
       content: (
-        <div className="analytics-table-wrap">
-          <table className="analytics-table analytics-table-wide">
-            <thead>
-              <tr>
-                <th>Provider</th>
-                <th>Model</th>
-                <th>Suitability</th>
-                <th>Confidence</th>
-                <th>Avg TTFT</th>
-                <th>Decode TPS</th>
-                <th>End-to-End TPS</th>
-                <th>Error Rate</th>
-                <th>Cache Hit</th>
-                <th>Cached Tokens</th>
-                <th>Requests</th>
-                <th>Tokens</th>
-                <th>Est. Cost</th>
-                <th>Water</th>
-                <th>Last Seen</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredPairs.map((row) => (
-                <tr key={`pair-${row.providerId}-${row.model}`}>
-                  <td>{row.providerId}</td>
-                  <td>{row.model}</td>
-                  <td>{formatMaybeSuitability(row.suitabilityScore)}</td>
-                  <td>{formatMaybeSuitability(row.confidenceScore)}</td>
-                  <td>{formatMaybeMs(row.avgTtftMs)}</td>
-                  <td>{formatMaybeTps(row.avgDecodeTps)}</td>
-                  <td>{formatMaybeTps(row.avgEndToEndTps)}</td>
-                  <td>{formatPercent(row.errorRate)}</td>
-                  <td>{formatPercent(row.cacheHitRate)}</td>
-                  <td>{formatCompactNumber(row.cachedPromptTokens)}</td>
-                  <td>{formatCompactNumber(row.requestCount)}</td>
-                  <td>{formatCompactNumber(row.totalTokens)}</td>
-                  <td>{formatUsd(row.costUsd)}</td>
-                  <td>{formatWater(row.waterEvaporatedMl)}</td>
-                  <td>{formatDate(row.lastSeenAt)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <DataTableShell
+          columns={pairColumns}
+          rows={filteredPairs}
+          rowKey={(row) => `pair-${row.providerId}-${row.model}`}
+          wide
+          emptyState="No provider-model pairs match the current filters."
+        />
+      ),
+    },
+    {
+      id: "providers",
+      label: "Providers",
+      badge: String(filteredProviders.length),
+      content: (
+        <DataTableShell
+          columns={providerColumns}
+          rows={filteredProviders}
+          rowKey={(row) => `provider-${row.providerId}`}
+          emptyState="No providers match the current filters."
+        />
+      ),
+    },
+    {
+      id: "pairs",
+      label: "Pairs",
+      badge: String(filteredPairs.length),
+      content: (
+        <DataTableShell
+          columns={pairColumns}
+          rows={filteredPairs}
+          rowKey={(row) => `pair-${row.providerId}-${row.model}`}
+          wide
+          emptyState="No provider-model pairs match the current filters."
+        />
       ),
     },
   ], [filteredModels, filteredPairs, filteredProviders]);
 
   return (
     <div className="analytics-layout">
-      <section className="analytics-panel panel-sheen analytics-hero">
-        <div>
-          <p className="dashboard-kicker">Routing Intelligence</p>
-          <h2>Provider + model analytics</h2>
-          <p>
-            Explore observed performance by model, by provider, and by provider × model pair.
-            Suitability is a heuristic derived from TTFT, decode TPS, error rate, cache behavior, and confidence.
-          </p>
-        </div>
-        <div className="analytics-hero-meta">
-          <span>Updated {formatDate(analytics?.generatedAt ?? null)}</span>
-          <span>Auto-refresh every 30s</span>
-        </div>
-      </section>
+      <SurfaceHero
+        kicker="Routing Intelligence"
+        title="Provider + model analytics"
+        description="Explore observed performance by model, by provider, and by provider × model pair. Suitability is a heuristic derived from TTFT, decode TPS, error rate, cache behavior, and confidence."
+        stats={[
+          { label: '', value: `Updated ${formatDate(analytics?.generatedAt ?? null)}` },
+          { label: '', value: 'Auto-refresh every 30s' },
+        ]}
+      />
 
       {error && <p className="error-text">{error}</p>}
 
@@ -357,41 +324,47 @@ export function AnalyticsPage(): JSX.Element {
         </p>
       ) : null}
 
-      <section className="analytics-summary-grid">
-        <Card variant="elevated" padding="md">
-          <span>Observed Models</span>
-          <strong>{loading ? <Spinner size="sm" /> : formatCompactNumber(analytics?.models.length ?? 0)}</strong>
-          <small>Top model: {topModel?.model ?? "-"}</small>
-        </Card>
-        <Card variant="elevated" padding="md">
-          <span>Observed Providers</span>
-          <strong>{loading ? <Spinner size="sm" /> : formatCompactNumber(analytics?.providers.length ?? 0)}</strong>
-          <small>Top provider: {topProvider?.providerId ?? "-"}</small>
-        </Card>
-        <Card variant="elevated" padding="md">
-          <span>Provider × Model Pairs</span>
-          <strong>{loading ? <Spinner size="sm" /> : formatCompactNumber(analytics?.providerModels.length ?? 0)}</strong>
-          <small>Window: {windowValue}</small>
-        </Card>
-        <Card variant="elevated" padding="md">
-          <span>Top Model Suitability</span>
-          <strong>{loading ? <Spinner size="sm" /> : formatMaybeSuitability(topModel?.suitabilityScore ?? null)}</strong>
-          <small>{topModel?.model ?? "-"}</small>
-        </Card>
-        <Card variant="elevated" padding="md">
-          <span>Top Provider Suitability</span>
-          <strong>{loading ? <Spinner size="sm" /> : formatMaybeSuitability(topProvider?.suitabilityScore ?? null)}</strong>
-          <small>{topProvider?.providerId ?? "-"}</small>
-        </Card>
-      </section>
+      <MetricTileGrid>
+        <MetricTile
+          label="Observed Models"
+          value={formatCompactNumber(analytics?.models.length ?? 0)}
+          detail={`Top model: ${topModel?.model ?? '-'}`}
+          loading={loading}
+        />
+        <MetricTile
+          label="Observed Providers"
+          value={formatCompactNumber(analytics?.providers.length ?? 0)}
+          detail={`Top provider: ${topProvider?.providerId ?? '-'}`}
+          loading={loading}
+          variant="info"
+        />
+        <MetricTile
+          label="Provider × Model Pairs"
+          value={formatCompactNumber(analytics?.providerModels.length ?? 0)}
+          detail={`Window: ${windowValue}`}
+          loading={loading}
+        />
+        <MetricTile
+          label="Top Model Suitability"
+          value={formatMaybeSuitability(topModel?.suitabilityScore ?? null)}
+          detail={topModel?.model ?? '-'}
+          loading={loading}
+          variant="success"
+        />
+        <MetricTile
+          label="Top Provider Suitability"
+          value={formatMaybeSuitability(topProvider?.suitabilityScore ?? null)}
+          detail={topProvider?.providerId ?? '-'}
+          loading={loading}
+          variant="success"
+        />
+      </MetricTileGrid>
 
       <section className="analytics-panel panel-sheen">
-        <header className="analytics-panel-header">
-          <div>
-            <h3>Controls</h3>
-            <p>Change the observed window, sort order, and pair-level focus.</p>
-          </div>
-          <div className="analytics-toolbar">
+        <PanelHeader
+          title="Controls"
+          description="Change the observed window, sort order, and pair-level focus."
+          actions={<FilterToolbar>
             <label>
               Window&nbsp;
               <select value={windowValue} onChange={(event) => setWindowValue(event.currentTarget.value as typeof windowValue)}>
@@ -427,17 +400,15 @@ export function AnalyticsPage(): JSX.Element {
                 {modelOptions.map((model) => <option key={model} value={model}>{model}</option>)}
               </select>
             </label>
-          </div>
-        </header>
+          </FilterToolbar>}
+        />
       </section>
 
       <section className="analytics-panel panel-sheen">
-        <header className="analytics-panel-header">
-          <div>
-            <h3>Analytics Views</h3>
-            <p>Switch between model, provider, and pair-level views without losing context.</p>
-          </div>
-          <div className="analytics-toolbar">
+        <PanelHeader
+          title="Analytics Views"
+          description="Switch between model, provider, and pair-level views without losing context."
+          actions={<FilterToolbar>
             <Input
               value={modelSearch}
               onChange={(event) => setModelSearch(event.currentTarget.value)}
@@ -448,8 +419,8 @@ export function AnalyticsPage(): JSX.Element {
               onChange={(event) => setProviderSearch(event.currentTarget.value)}
               placeholder="Search providers…"
             />
-          </div>
-        </header>
+          </FilterToolbar>}
+        />
         <Tabs
           defaultValue="models"
           variant="enclosed"

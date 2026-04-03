@@ -10,6 +10,7 @@ import { isRecord } from "../lib/provider-utils.js";
 import {
   resolvableConcreteModelIds,
   resolvableConcreteModelIdsForProviders,
+  filterProviderRoutesByCatalogAvailability,
   filterProviderRoutesByModelSupport,
   shouldRejectModelFromProviderCatalog,
 } from "../lib/model-routing-helpers.js";
@@ -267,6 +268,8 @@ export function registerResponsesRoutes(deps: AppDeps, app: FastifyInstance): vo
           sendOpenAiError(reply, 403, `Model is disabled: ${context.routedModel}`, "invalid_request_error", "model_disabled");
           return;
         }
+
+        providerRoutes = filterProviderRoutesByCatalogAvailability(providerRoutes, context.routedModel, catalogBundle);
 
         if (shouldRejectModelFromProviderCatalog(providerRoutes, context.routedModel, catalogBundle)) {
           if (hasMoreModelCandidates) {

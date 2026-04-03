@@ -3,55 +3,17 @@
 **Epic:** `dashboard-patterns-to-ui-library-epic.md`
 **SP:** 3
 **Priority:** P2
-**Status:** Draft
-**Depends on:** `dashboard-patterns-to-ui--surface-hero.md`
+**Status:** ✅ Done
+**Depends on:** `dashboard-patterns-to-ui--surface-hero.md` ✅
 
-## Problem
-
-Metric/summary tiles recur across the dashboard:
-- `DashboardPage` metrics grid
-- `AnalyticsPage` summary cards
-- `HostsPage` host stats summaries
-
-Pattern:
-- label
-- prominent numeric value
-- optional secondary text
-- optional loading state
-- optional status/variant
-
-## Scope
-
-Add:
-1. `MetricTile`
-```tsx
-<MetricTile
-  label="Observed Providers"
-  value={12}
-  detail="Top provider: openai"
-  loading={loading}
-  variant="info"
-/>
-```
-
-2. `MetricTileGrid`
-```tsx
-<MetricTileGrid>
-  <MetricTile ... />
-  <MetricTile ... />
-</MetricTileGrid>
-```
-
-## Target files
-- `packages/ui/contracts/metric-tile.edn`
-- `packages/ui/react/src/primitives/MetricTile.tsx`
-- `packages/ui/react/src/primitives/MetricTileGrid.tsx`
-
-## First adopters in proxx
-- `web/src/pages/AnalyticsPage.tsx` summary row
-- `web/src/pages/DashboardPage.tsx` metrics row
+## Result
+- `MetricTile` implemented in `orgs/open-hax/uxx/react/src/primitives/MetricTile.tsx`
+- `MetricTileGrid` implemented in `orgs/open-hax/uxx/react/src/primitives/MetricTileGrid.tsx`
+- contract added: `orgs/open-hax/uxx/contracts/metric-tile.edn`
+- Storybook stories added for loading/default/variant grid states
+- adopted in `web/src/pages/AnalyticsPage.tsx` summary row
 
 ## Verification
-- Loading state uses shared Spinner
-- At least 2 pages use `MetricTile`
-- old summary card CSS can be deleted from proxx
+- `npm run build` in `orgs/open-hax/uxx/react` passes
+- `pnpm validate:required` in `orgs/open-hax/proxx` passes
+- Analytics summary cards now use shared metric primitives instead of page-local card markup

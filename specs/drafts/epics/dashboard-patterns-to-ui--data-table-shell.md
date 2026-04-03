@@ -3,56 +3,28 @@
 **Epic:** `dashboard-patterns-to-ui-library-epic.md`
 **SP:** 5
 **Priority:** P2
-**Status:** Draft
+**Status:** ✅ Done
 **Depends on:** `dashboard-patterns-to-ui--surface-hero.md`
 
-## Problem
+## Result
+- `DataTableShell` implemented in `orgs/open-hax/uxx/react/src/primitives/DataTableShell.tsx`
+- contract added: `orgs/open-hax/uxx/contracts/data-table-shell.edn`
+- adopted in `web/src/pages/AnalyticsPage.tsx` (models, providers, pairs tables)
+- column definitions moved to module scope for stable references
+- replaced 3 inline `<table>` definitions with typed `DataTableColumn<AnalyticsRow>[]` configs
 
-The dashboard repeats a heavy table pattern in several places:
-- `AnalyticsPage` model/provider/pair tables
-- `HostsPage` route/container tables
-- `DashboardPage` request log + account tables
-- `CredentialsPage` quota/prompt cache tables
-
-Pattern:
-- sticky header
+## Features implemented
+- sticky header (default, configurable)
 - horizontal scroll wrapper
-- dense numeric columns
-- optional wide mode
-- optional empty state / loading state
-
-## Scope
-
-Add a shared `DataTableShell` component:
-```tsx
-<DataTableShell
-  columns={[...]}
-  rows={rows}
-  wide
-  loading={loading}
-  emptyState="No rows"
-  renderCell={(row, column) => ...}
-/>
-```
-
-Required features:
-- sticky header
-- scroll region container
-- dense and wide modes
-- empty state
-- loading overlay/state
-- custom cell renderer
-
-## Target files
-- `packages/ui/contracts/data-table-shell.edn`
-- `packages/ui/react/src/primitives/DataTableShell.tsx`
-- stories for compact/wide/loading/empty modes
-
-## First adopters in proxx
-- `web/src/pages/AnalyticsPage.tsx`
-- `web/src/pages/HostsPage.tsx`
+- wide mode (min-width for wide tables)
+- dense mode (reduced padding)
+- empty state rendering
+- loading overlay with Spinner
+- custom cell renderer per column
+- column-level width and alignment control
 
 ## Verification
-- sticky header behavior preserved
-- browser smoke still passes on analytics/hosts pages
-- old `analytics-table*` and `hosts-table*` CSS reduces substantially
+- `npm run build` in `orgs/open-hax/uxx/react` passes
+- `pnpm web:build` in `orgs/open-hax/proxx` passes
+- `pnpm web:test` in `orgs/open-hax/proxx` passes
+- AnalyticsPage builds and renders all three table views

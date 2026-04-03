@@ -1,7 +1,7 @@
 import React from "react";
 import { FormEvent, useState } from "react";
 
-import { Button, Card, Input, Spinner } from "@devel/ui-react";
+import { Button, Card, Input, Spinner, Textarea } from "@open-hax/uxx";
 import { runImageGeneration } from "../lib/api";
 import { useStoredState } from "../lib/use-stored-state";
 
@@ -100,7 +100,7 @@ export function ImagesPage(): JSX.Element {
             onChange={(event) => setModel(event.currentTarget.value)}
             placeholder="model (e.g. gpt-image-1)"
           />
-          <textarea
+          <Textarea
             value={prompt}
             onChange={(event) => setPrompt(event.currentTarget.value)}
             rows={4}
@@ -134,7 +134,7 @@ export function ImagesPage(): JSX.Element {
           <p>Rendered from the proxied upstream response (useful for debugging provider quirks).</p>
         </header>
         {sending && rawResponse.length === 0 ? <Spinner size="md" label="Waiting for image response…" /> : null}
-        <textarea readOnly value={rawResponse} rows={24} placeholder="(response will appear here)" />
+        <Textarea readOnly value={rawResponse} rows={24} placeholder="(response will appear here)" />
       </section>
     </div>
   );

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { Badge, Spinner } from "@devel/ui-react";
-import { getHostsOverview, type HostDashboardSnapshot, type HostsOverview } from "../lib/api";
+import { Badge, DataTableShell, PanelHeader, Spinner, SurfaceHero, type DataTableColumn } from "@open-hax/uxx";
+import { getHostsOverview, type HostDashboardContainerSummary, type HostDashboardRouteSummary, type HostDashboardSnapshot, type HostsOverview } from "../lib/api";
 
 function formatDate(value: string): string {
   return new Date(value).toLocaleString();
@@ -46,6 +46,23 @@ function formatRouteMatch(host: HostDashboardSnapshot, index: number): string {
 
 function hostLastError(host: HostDashboardSnapshot): string | null {
   return host.errors.length > 0 ? host.errors[host.errors.length - 1] ?? null : null;
+}
+
+function routesColumns(): DataTableColumn<HostDashboardRouteSummary>[] {
+  return [
+    { key: 'host', header: 'Host' },
+    { key: 'match', header: 'Match', render: (row) => row.matchPaths.length > 0 ? row.matchPaths.join(" ") : (row.matcher ?? "default") },
+    { key: 'upstreams', header: 'Upstream', render: (row) => row.upstreams.join(", ") },
+  ];
+}
+
+function containersColumns(): DataTableColumn<HostDashboardContainerSummary>[] {
+  return [
+    { key: 'name', header: 'Name', render: (row) => <strong>{row.name}</strong> },
+    { key: 'image', header: 'Image' },
+    { key: 'status', header: 'Status' },
+    { key: 'ports', header: 'Ports', render: (row) => formatContainerPorts(row.ports) },
+  ];
 }
 
 export function HostsPage(): JSX.Element {
@@ -107,25 +124,17 @@ export function HostsPage(): JSX.Element {
 
   return (
     <section className="hosts-page">
-      <header className="hosts-hero panel-sheen">
-        <div>
-          <p className="dashboard-kicker">Host Fleet</p>
-          <h2>Promethean ussy host dashboard</h2>
-          <p>
-            One view for container inventory and routed subdomains across the ussy hosts. Remote hosts stay visible even when
-            access or auth is broken.
-          </p>
-        </div>
-        <div className="hosts-hero-meta">
-          <strong>{totals.reachableCount}/{totals.hostCount}</strong>
-          <span>reachable hosts</span>
-          <strong>{totals.containerCount}</strong>
-          <span>containers tracked</span>
-          <strong>{totals.routeCount}</strong>
-          <span>subdomain routes parsed</span>
-          <small>{overview ? `Updated ${formatDate(overview.generatedAt)}` : "Waiting for first sample…"}</small>
-        </div>
-      </header>
+      <SurfaceHero
+        kicker="Host Fleet"
+        title="Promethean ussy host dashboard"
+        description="One view for container inventory and routed subdomains across the ussy hosts. Remote hosts stay visible even when access or auth is broken."
+        stats={[
+          { label: 'reachable hosts', value: `${totals.reachableCount}/${totals.hostCount}`, tone: 'success' },
+          { label: 'containers tracked', value: totals.containerCount },
+          { label: 'subdomain routes parsed', value: totals.routeCount },
+          { label: '', value: overview ? `Updated ${formatDate(overview.generatedAt)}` : 'Waiting for first sample…' },
+        ]}
+      />
 
       {loading && !overview ? (
         <div className="hosts-empty"><Spinner size="md" label="Loading host inventory…" /></div>
@@ -169,72 +178,47 @@ export function HostsPage(): JSX.Element {
 
               <div className="hosts-card-body">
                 <section className="hosts-section">
-                  <div className="hosts-section-header">
-                    <h4>Subdomains</h4>
-                    <small>{host.routes.length} routes</small>
-                  </div>
+                  <PanelHeader title="Subdomains" meta={<small>{host.routes.length} routes</small>} />
                   {host.routes.length === 0 ? (
                     <div className="hosts-section-empty">No routed subdomains detected.</div>
                   ) : (
-                    <div className="hosts-table-wrap">
-                      <table className="hosts-table">
-                        <thead>
-                          <tr>
-                            <th>Host</th>
-                            <th>Match</th>
-                            <th>Upstream</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {host.routes.map((route, index) => (
-                            <tr key={`${route.host}-${route.upstreams.join(",")}-${index}`}>
-                              <td>{route.host}</td>
-                              <td>{formatRouteMatch(host, index)}</td>
-                              <td>{route.upstreams.join(", ")}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
+                    <DataTableShell
+                      columns={routesColumns()}
+                      rows={host.routes}
+                      rowKey={(row, index) => `${row.host}-${row.upstreams.join(",")}-${index}`}
+                      dense
+                      stickyHeader={false}
+                    />
                   )}
                 </section>
 
                 <section className="hosts-section">
-                  <div className="hosts-section-header">
-                    <h4>Containers</h4>
-                    <small>{host.containers.length} containers</small>
-                  </div>
+                  <PanelHeader title="Containers" meta={<small>{host.containers.length} containers</small>} />
                   {host.containers.length === 0 ? (
                     <div className="hosts-section-empty">No container data available.</div>
                   ) : (
-                    <div className="hosts-table-wrap">
-                      <table className="hosts-table">
-                        <thead>
-                          <tr>
-                            <th>Name</th>
-                            <th>Image</th>
-                            <th>Status</th>
-                            <th>Ports</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {host.containers.map((container) => (
-                            <tr key={container.id}>
-                              <td>
-                                <strong>{container.name}</strong>
-                              </td>
-                              <td>{container.image}</td>
-                              <td>
-                                <span className={`hosts-container-state hosts-container-state-${container.state.toLowerCase()}`}>
-                                  {container.status}
-                                </span>
-                              </td>
-                              <td>{formatContainerPorts(container.ports)}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
+                    <DataTableShell
+                      columns={containersColumns()}
+                      rows={host.containers}
+                      rowKey={(row) => row.id}
+                      dense
+                      stickyHeader={false}
+                    />
+                  )}
+                </section>
+
+                <section className="hosts-section">
+                  <PanelHeader title="Containers" meta={<small>{host.containers.length} containers</small>} />
+                  {host.containers.length === 0 ? (
+                    <div className="hosts-section-empty">No container data available.</div>
+                  ) : (
+                    <DataTableShell
+                      columns={containersColumns()}
+                      rows={host.containers}
+                      rowKey={(row) => row.id}
+                      dense
+                      stickyHeader={false}
+                    />
                   )}
                 </section>
               </div>

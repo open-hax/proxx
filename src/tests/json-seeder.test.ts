@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { seedFromJsonValue } from "../lib/db/json-seeder.js";
+import { seedApiKeyProvidersFromEnv, seedFromJsonValue } from "../lib/db/json-seeder.js";
 
 interface ProviderRow {
   readonly id: string;
@@ -100,4 +100,56 @@ test("seedFromJsonValue does not overwrite existing DB accounts in seed-only mod
   assert.equal(fake.providers.get("openai"), "oauth_bearer");
   assert.equal(fake.accounts.get("openai:acct-1")?.token, "seed-token-a");
   assert.equal(fake.accounts.get("openai:acct-2")?.token, "seed-token-c");
+});
+
+test("seedApiKeyProvidersFromEnv seeds supported env providers into the DB", async () => {
+  const fake = createFakeSql();
+  const envNames = [
+    "GEMINI_API_KEY",
+    "GEMINI_PROVIDER_ID",
+    "ZAI_API_KEY",
+    "ZHIPU_API_KEY",
+    "ZAI_PROVIDER_ID",
+    "ZHIPU_PROVIDER_ID",
+    "ROTUSSY_API_KEY",
+    "ROTUSSY_PROVIDER_ID",
+    "MISTRAL_API_KEY",
+    "MISTRAL_PROVIDER_ID",
+    "OPENROUTER_API_KEY",
+    "OPENROUTER_PROVIDER_ID",
+    "REQUESTY_API_TOKEN",
+    "REQUESTY_API_KEY",
+    "REQUESTY_PROVIDER_ID",
+    "ZEN_API_KEY",
+    "ZENMUX_API_KEY",
+    "ZEN_PROVIDER_ID",
+  ] as const;
+  const previous = new Map(envNames.map((name) => [name, process.env[name]]));
+
+  for (const name of envNames) {
+    delete process.env[name];
+  }
+
+  process.env.ROTUSSY_API_KEY = "rotussy-seed-token"; // pragma: allowlist secret
+  process.env.ZAI_API_KEY = "zai-seed-token"; // pragma: allowlist secret
+
+  try {
+    const result = await seedApiKeyProvidersFromEnv(fake.sql as never);
+
+    assert.equal(result.providers, 2);
+    assert.equal(result.accounts, 2);
+    assert.equal(fake.providers.get("rotussy"), "api_key");
+    assert.equal(fake.providers.get("zai"), "api_key");
+    assert.equal(fake.accounts.get("rotussy:rotussy-env-seed")?.token, "rotussy-seed-token");
+    assert.equal(fake.accounts.get("zai:zai-env-seed")?.token, "zai-seed-token");
+  } finally {
+    for (const name of envNames) {
+      const value = previous.get(name);
+      if (value === undefined) {
+        delete process.env[name];
+      } else {
+        process.env[name] = value;
+      }
+    }
+  }
 });

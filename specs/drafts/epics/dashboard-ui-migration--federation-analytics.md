@@ -21,10 +21,10 @@ Replace:
 ### AnalyticsPage.tsx (448 lines → ~280 lines)
 Replace:
 - Chart cards → `<Card variant="elevated">`
-- Date range selector → `<Input type="date">` or custom with @devel/ui styling
+- Date range selector → `<Input type="date">` or custom with @open-hax/uxx styling
 - Metric badges → `<Badge variant="info">`
 - Loading states → `<Spinner size="lg">`
-- Data tables → styled with @devel/ui tokens
+- Data tables → styled with @open-hax/uxx tokens
 
 ### Changes
 - `web/src/pages/FederationPage.tsx` — replace hand-rolled components

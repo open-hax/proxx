@@ -110,10 +110,6 @@ export function filterProviderRoutesByCatalogAvailability(
   routedModel: string,
   catalogBundle: ResolvedCatalogWithPreferences,
 ): ProviderRoute[] {
-  if (catalogBundle.catalog.declaredModelIds.includes(routedModel)) {
-    return [...providerRoutes];
-  }
-
   const catalogMatchedRoutes = providerRoutes.filter((route) => {
     const entry = catalogBundle.providerCatalogs[route.providerId];
     return entry?.modelIds.includes(routedModel) ?? false;

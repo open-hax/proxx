@@ -99,3 +99,29 @@ test("proxy settings store scopes SQL-backed settings by tenant", async () => {
     await rm(tempDir, { recursive: true, force: true });
   }
 });
+
+test("proxy settings store parses stringified JSON values loaded from SQL", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "proxx-settings-store-"));
+  const settingsPath = path.join(tempDir, "proxy-settings.json");
+  const mock = createMockSql({
+    proxy_settings: JSON.parse('{"disabledProviderIds":["zai"],"fastMode":false}') as {
+      fastMode: boolean;
+      disabledProviderIds: readonly string[];
+    },
+  });
+  mock.values.set("proxy_settings", '{"disabledProviderIds":["zai"],"fastMode":false}' as never);
+  const store = new ProxySettingsStore(settingsPath, mock.sql);
+
+  try {
+    await store.warmup();
+    assert.deepEqual(await store.getForTenant("default"), {
+      fastMode: false,
+      requestsPerMinute: null,
+      allowedModels: null,
+      allowedProviderIds: null,
+      disabledProviderIds: ["zai"],
+    });
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});

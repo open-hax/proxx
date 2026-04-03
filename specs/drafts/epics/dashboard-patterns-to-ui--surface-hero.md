@@ -3,7 +3,7 @@
 **Epic:** `dashboard-patterns-to-ui-library-epic.md`
 **SP:** 3
 **Priority:** P2
-**Status:** Draft
+**Status:** ✅ Done
 
 ## Problem
 
@@ -48,17 +48,24 @@ Add two reusable library components:
 ```
 
 ## Target files
-- `packages/ui/contracts/surface-hero.edn`
-- `packages/ui/contracts/panel-header.edn`
-- `packages/ui/react/src/primitives/SurfaceHero.tsx`
-- `packages/ui/react/src/primitives/PanelHeader.tsx`
+- `orgs/open-hax/uxx/contracts/surface-hero.edn`
+- `orgs/open-hax/uxx/contracts/panel-header.edn`
+- `orgs/open-hax/uxx/react/src/primitives/SurfaceHero.tsx`
+- `orgs/open-hax/uxx/react/src/primitives/PanelHeader.tsx`
 - Storybook stories for both
 
 ## First adopters in proxx
 - `web/src/pages/FederationPage.tsx`
 - `web/src/pages/AnalyticsPage.tsx`
 
+## Result
+- `SurfaceHero` implemented and exported from `@open-hax/uxx`
+- `PanelHeader` implemented and exported from `@open-hax/uxx`
+- contracts added: `surface-hero.edn`, `panel-header.edn`
+- stories added for both components
+- adopted in 4 proxx pages: Dashboard, Hosts, Federation, Analytics
+
 ## Verification
-- Storybook stories render all hero/header variants
-- At least 2 proxx pages adopt the new components
-- `dashboard-kicker`, `*-hero-meta`, and `*-panel-header` CSS usage drops
+- `npm run build` in `orgs/open-hax/uxx/react` passes
+- `pnpm validate:required` in `orgs/open-hax/proxx` passes
+- repeated hero/header markup replaced on multiple pages

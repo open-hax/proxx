@@ -17,6 +17,6 @@ export {
   Markdown,
   CodeBlock,
   DiffViewer,
-} from "@devel/ui-react";
+} from "@open-hax/uxx";
 
-export { colors, spacing, typography, shadow, zIndex } from "@devel/ui-tokens";
+export { colors, spacing, typography, shadow, zIndex } from "@open-hax/uxx/tokens";

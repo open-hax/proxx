@@ -143,6 +143,55 @@ function parseJsonCredentials(raw: unknown, defaultProviderId: string): Map<stri
   return providers;
 }
 
+function firstNonEmptyEnv(names: readonly string[]): string | undefined {
+  for (const name of names) {
+    const value = process.env[name]?.trim();
+    if (value) {
+      return value;
+    }
+  }
+
+  return undefined;
+}
+
+const ENV_API_KEY_PROVIDER_SPECS = [
+  {
+    providerIdEnvNames: ["GEMINI_PROVIDER_ID"],
+    providerIdFallback: "gemini",
+    keyEnvNames: ["GEMINI_API_KEY"],
+  },
+  {
+    providerIdEnvNames: ["ZAI_PROVIDER_ID", "ZHIPU_PROVIDER_ID"],
+    providerIdFallback: "zai",
+    keyEnvNames: ["ZAI_API_KEY", "ZHIPU_API_KEY"],
+  },
+  {
+    providerIdEnvNames: ["ROTUSSY_PROVIDER_ID"],
+    providerIdFallback: "rotussy",
+    keyEnvNames: ["ROTUSSY_API_KEY"],
+  },
+  {
+    providerIdEnvNames: ["MISTRAL_PROVIDER_ID"],
+    providerIdFallback: "mistral",
+    keyEnvNames: ["MISTRAL_API_KEY"],
+  },
+  {
+    providerIdEnvNames: ["OPENROUTER_PROVIDER_ID"],
+    providerIdFallback: "openrouter",
+    keyEnvNames: ["OPENROUTER_API_KEY"],
+  },
+  {
+    providerIdEnvNames: ["REQUESTY_PROVIDER_ID"],
+    providerIdFallback: "requesty",
+    keyEnvNames: ["REQUESTY_API_TOKEN", "REQUESTY_API_KEY"],
+  },
+  {
+    providerIdEnvNames: ["ZEN_PROVIDER_ID"],
+    providerIdFallback: "zen",
+    keyEnvNames: ["ZEN_API_KEY", "ZENMUX_API_KEY"],
+  },
+] as const;
+
 export async function seedFromJsonFile(
   sql: Sql,
   filePath: string,
@@ -234,6 +283,40 @@ export async function seedFromJsonValue(
   }
 
   return { providers: providerCount, accounts: accountCount };
+}
+
+/**
+ * Seed env-backed API-key providers into the database.
+ * After startup, the DB remains the runtime source of truth and these env vars
+ * should no longer affect live routing directly.
+ */
+export async function seedApiKeyProvidersFromEnv(
+  sql: Sql,
+): Promise<{ providers: number; accounts: number }> {
+  const providers: Record<string, { auth: "api_key"; accounts: [{ id: string; api_key: string }] }> = {};
+
+  for (const spec of ENV_API_KEY_PROVIDER_SPECS) {
+    const apiKey = firstNonEmptyEnv(spec.keyEnvNames);
+    if (!apiKey) {
+      continue;
+    }
+
+    const providerId = (firstNonEmptyEnv(spec.providerIdEnvNames) ?? spec.providerIdFallback).trim();
+    if (!providerId) {
+      continue;
+    }
+
+    providers[providerId] = {
+      auth: "api_key",
+      accounts: [{ id: `${providerId}-env-seed`, api_key: apiKey }],
+    };
+  }
+
+  if (Object.keys(providers).length === 0) {
+    return { providers: 0, accounts: 0 };
+  }
+
+  return seedFromJsonValue(sql, { providers }, "default", { skipExistingProviders: true });
 }
 
 /**

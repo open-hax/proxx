@@ -9,10 +9,6 @@ RUN pnpm add -g pm2
 WORKDIR /app
 
 COPY orgs/open-hax/proxx/package.json orgs/open-hax/proxx/tsconfig.json ./
-COPY packages/ui/tokens/package.json /packages/ui/tokens/package.json
-COPY packages/ui/tokens/dist /packages/ui/tokens/dist
-COPY packages/ui/react/package.json /packages/ui/react/package.json
-COPY packages/ui/react/dist /packages/ui/react/dist
 
 RUN pnpm install --no-frozen-lockfile
 
