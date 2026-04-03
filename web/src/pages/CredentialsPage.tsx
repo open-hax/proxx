@@ -520,10 +520,10 @@ export function CredentialsPage(): JSX.Element {
     const errorAccounts = allOpenAiQuotaAccounts.filter((account) => account.status === "error");
     const generalWindows = okAccounts
       .map((account) => account.rateLimit?.primaryWindow ?? account.fiveHour)
-      .filter((window): window is CredentialQuotaWindow => window !== null);
+      .filter((window): window is CredentialQuotaWindow => window != null);
     const codeReviewWindows = okAccounts
       .map((account) => account.codeReviewRateLimit?.primaryWindow)
-      .filter((window): window is CredentialQuotaWindow => window !== null);
+      .filter((window): window is CredentialQuotaWindow => window != null);
     const generalRemainingValues = generalWindows
       .map((window) => window.remainingPercent)
       .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
@@ -542,10 +542,10 @@ export function CredentialsPage(): JSX.Element {
     const nextResetWindow = [
       ...generalBlockedAccounts
         .map((account) => account.rateLimit?.primaryWindow ?? account.fiveHour)
-        .filter((window): window is CredentialQuotaWindow => window !== null),
+        .filter((window): window is CredentialQuotaWindow => window != null),
       ...okAccounts
         .map((account) => account.rateLimit?.primaryWindow ?? account.fiveHour)
-        .filter((window): window is CredentialQuotaWindow => window !== null),
+        .filter((window): window is CredentialQuotaWindow => window != null),
     ].sort(sortWindowByReset)[0] ?? null;
 
     const average = (values: readonly number[]): number | null => {
