@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 
-import { Badge, Input, Spinner } from "@devel/ui-react";
+import { Card, Input, Spinner, Tabs, type TabItem } from "@devel/ui-react";
 import { getProviderModelAnalytics, type AnalyticsRow, type ProviderModelAnalytics } from "../lib/api";
 import { useStoredState } from "../lib/use-stored-state";
 
@@ -182,6 +182,154 @@ export function AnalyticsPage(): JSX.Element {
   const topModel = analytics?.models[0] ?? null;
   const topProvider = analytics?.providers[0] ?? null;
 
+  const analyticsTabs = useMemo<readonly TabItem[]>(() => [
+    {
+      id: "models",
+      label: "Models",
+      badge: String(filteredModels.length),
+      content: (
+        <div className="analytics-table-wrap">
+          <table className="analytics-table">
+            <thead>
+              <tr>
+                <th>Model</th>
+                <th>Providers</th>
+                <th>Suitability</th>
+                <th>Confidence</th>
+                <th>Avg TTFT</th>
+                <th>Decode TPS</th>
+                <th>End-to-End TPS</th>
+                <th>Error Rate</th>
+                <th>Cache Hit</th>
+                <th>Cached Tokens</th>
+                <th>Requests</th>
+                <th>Tokens</th>
+                <th>Est. Cost</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredModels.map((row) => (
+                <tr key={`model-${row.model}`}>
+                  <td>{row.model}</td>
+                  <td>{formatCompactNumber(row.providerCoverageCount ?? 0)}</td>
+                  <td>{formatMaybeSuitability(row.suitabilityScore)}</td>
+                  <td>{formatMaybeSuitability(row.confidenceScore)}</td>
+                  <td>{formatMaybeMs(row.avgTtftMs)}</td>
+                  <td>{formatMaybeTps(row.avgDecodeTps)}</td>
+                  <td>{formatMaybeTps(row.avgEndToEndTps)}</td>
+                  <td>{formatPercent(row.errorRate)}</td>
+                  <td>{formatPercent(row.cacheHitRate)}</td>
+                  <td>{formatCompactNumber(row.cachedPromptTokens)}</td>
+                  <td>{formatCompactNumber(row.requestCount)}</td>
+                  <td>{formatCompactNumber(row.totalTokens)}</td>
+                  <td>{formatUsd(row.costUsd)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ),
+    },
+    {
+      id: "providers",
+      label: "Providers",
+      badge: String(filteredProviders.length),
+      content: (
+        <div className="analytics-table-wrap">
+          <table className="analytics-table">
+            <thead>
+              <tr>
+                <th>Provider</th>
+                <th>Models</th>
+                <th>Suitability</th>
+                <th>Confidence</th>
+                <th>Avg TTFT</th>
+                <th>Decode TPS</th>
+                <th>End-to-End TPS</th>
+                <th>Error Rate</th>
+                <th>Cache Hit</th>
+                <th>Cached Tokens</th>
+                <th>Requests</th>
+                <th>Tokens</th>
+                <th>Est. Cost</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredProviders.map((row) => (
+                <tr key={`provider-${row.providerId}`}>
+                  <td>{row.providerId}</td>
+                  <td>{formatCompactNumber(row.modelCoverageCount ?? 0)}</td>
+                  <td>{formatMaybeSuitability(row.suitabilityScore)}</td>
+                  <td>{formatMaybeSuitability(row.confidenceScore)}</td>
+                  <td>{formatMaybeMs(row.avgTtftMs)}</td>
+                  <td>{formatMaybeTps(row.avgDecodeTps)}</td>
+                  <td>{formatMaybeTps(row.avgEndToEndTps)}</td>
+                  <td>{formatPercent(row.errorRate)}</td>
+                  <td>{formatPercent(row.cacheHitRate)}</td>
+                  <td>{formatCompactNumber(row.cachedPromptTokens)}</td>
+                  <td>{formatCompactNumber(row.requestCount)}</td>
+                  <td>{formatCompactNumber(row.totalTokens)}</td>
+                  <td>{formatUsd(row.costUsd)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ),
+    },
+    {
+      id: "pairs",
+      label: "Pairs",
+      badge: String(filteredPairs.length),
+      content: (
+        <div className="analytics-table-wrap">
+          <table className="analytics-table analytics-table-wide">
+            <thead>
+              <tr>
+                <th>Provider</th>
+                <th>Model</th>
+                <th>Suitability</th>
+                <th>Confidence</th>
+                <th>Avg TTFT</th>
+                <th>Decode TPS</th>
+                <th>End-to-End TPS</th>
+                <th>Error Rate</th>
+                <th>Cache Hit</th>
+                <th>Cached Tokens</th>
+                <th>Requests</th>
+                <th>Tokens</th>
+                <th>Est. Cost</th>
+                <th>Water</th>
+                <th>Last Seen</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredPairs.map((row) => (
+                <tr key={`pair-${row.providerId}-${row.model}`}>
+                  <td>{row.providerId}</td>
+                  <td>{row.model}</td>
+                  <td>{formatMaybeSuitability(row.suitabilityScore)}</td>
+                  <td>{formatMaybeSuitability(row.confidenceScore)}</td>
+                  <td>{formatMaybeMs(row.avgTtftMs)}</td>
+                  <td>{formatMaybeTps(row.avgDecodeTps)}</td>
+                  <td>{formatMaybeTps(row.avgEndToEndTps)}</td>
+                  <td>{formatPercent(row.errorRate)}</td>
+                  <td>{formatPercent(row.cacheHitRate)}</td>
+                  <td>{formatCompactNumber(row.cachedPromptTokens)}</td>
+                  <td>{formatCompactNumber(row.requestCount)}</td>
+                  <td>{formatCompactNumber(row.totalTokens)}</td>
+                  <td>{formatUsd(row.costUsd)}</td>
+                  <td>{formatWater(row.waterEvaporatedMl)}</td>
+                  <td>{formatDate(row.lastSeenAt)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ),
+    },
+  ], [filteredModels, filteredPairs, filteredProviders]);
+
   return (
     <div className="analytics-layout">
       <section className="analytics-panel panel-sheen analytics-hero">
@@ -210,31 +358,31 @@ export function AnalyticsPage(): JSX.Element {
       ) : null}
 
       <section className="analytics-summary-grid">
-        <article className="analytics-stat-card panel-sheen">
+        <Card variant="elevated" padding="md">
           <span>Observed Models</span>
           <strong>{loading ? <Spinner size="sm" /> : formatCompactNumber(analytics?.models.length ?? 0)}</strong>
           <small>Top model: {topModel?.model ?? "-"}</small>
-        </article>
-        <article className="analytics-stat-card panel-sheen">
+        </Card>
+        <Card variant="elevated" padding="md">
           <span>Observed Providers</span>
           <strong>{loading ? <Spinner size="sm" /> : formatCompactNumber(analytics?.providers.length ?? 0)}</strong>
           <small>Top provider: {topProvider?.providerId ?? "-"}</small>
-        </article>
-        <article className="analytics-stat-card panel-sheen">
+        </Card>
+        <Card variant="elevated" padding="md">
           <span>Provider × Model Pairs</span>
           <strong>{loading ? <Spinner size="sm" /> : formatCompactNumber(analytics?.providerModels.length ?? 0)}</strong>
           <small>Window: {windowValue}</small>
-        </article>
-        <article className="analytics-stat-card panel-sheen">
+        </Card>
+        <Card variant="elevated" padding="md">
           <span>Top Model Suitability</span>
           <strong>{loading ? <Spinner size="sm" /> : formatMaybeSuitability(topModel?.suitabilityScore ?? null)}</strong>
           <small>{topModel?.model ?? "-"}</small>
-        </article>
-        <article className="analytics-stat-card panel-sheen">
+        </Card>
+        <Card variant="elevated" padding="md">
           <span>Top Provider Suitability</span>
           <strong>{loading ? <Spinner size="sm" /> : formatMaybeSuitability(topProvider?.suitabilityScore ?? null)}</strong>
           <small>{topProvider?.providerId ?? "-"}</small>
-        </article>
+        </Card>
       </section>
 
       <section className="analytics-panel panel-sheen">
@@ -286,163 +434,27 @@ export function AnalyticsPage(): JSX.Element {
       <section className="analytics-panel panel-sheen">
         <header className="analytics-panel-header">
           <div>
-            <h3>Global Model Stats</h3>
-            <p>How each model performs across all observed providers.</p>
+            <h3>Analytics Views</h3>
+            <p>Switch between model, provider, and pair-level views without losing context.</p>
           </div>
-          <Input
-            value={modelSearch}
-            onChange={(event) => setModelSearch(event.currentTarget.value)}
-            placeholder="Search models…"
-          />
-        </header>
-        <div className="analytics-table-wrap">
-          <table className="analytics-table">
-            <thead>
-              <tr>
-                <th>Model</th>
-                <th>Providers</th>
-                <th>Suitability</th>
-                <th>Confidence</th>
-                <th>Avg TTFT</th>
-                <th>Decode TPS</th>
-                <th>End-to-End TPS</th>
-                <th>Error Rate</th>
-                <th>Cache Hit</th>
-                <th>Cached Tokens</th>
-                <th>Requests</th>
-                <th>Tokens</th>
-                <th>Est. Cost</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredModels.map((row) => (
-                <tr key={`model-${row.model}`}>
-                  <td>{row.model}</td>
-                  <td>{formatCompactNumber(row.providerCoverageCount ?? 0)}</td>
-                  <td>{formatMaybeSuitability(row.suitabilityScore)}</td>
-                  <td>{formatMaybeSuitability(row.confidenceScore)}</td>
-                  <td>{formatMaybeMs(row.avgTtftMs)}</td>
-                  <td>{formatMaybeTps(row.avgDecodeTps)}</td>
-                  <td>{formatMaybeTps(row.avgEndToEndTps)}</td>
-                  <td>{formatPercent(row.errorRate)}</td>
-                  <td>{formatPercent(row.cacheHitRate)}</td>
-                  <td>{formatCompactNumber(row.cachedPromptTokens)}</td>
-                  <td>{formatCompactNumber(row.requestCount)}</td>
-                  <td>{formatCompactNumber(row.totalTokens)}</td>
-                  <td>{formatUsd(row.costUsd)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <section className="analytics-panel panel-sheen">
-        <header className="analytics-panel-header">
-          <div>
-            <h3>Global Provider Stats</h3>
-            <p>How each provider performs across all observed models.</p>
+          <div className="analytics-toolbar">
+            <Input
+              value={modelSearch}
+              onChange={(event) => setModelSearch(event.currentTarget.value)}
+              placeholder="Search models…"
+            />
+            <Input
+              value={providerSearch}
+              onChange={(event) => setProviderSearch(event.currentTarget.value)}
+              placeholder="Search providers…"
+            />
           </div>
-          <Input
-            value={providerSearch}
-            onChange={(event) => setProviderSearch(event.currentTarget.value)}
-            placeholder="Search providers…"
-          />
         </header>
-        <div className="analytics-table-wrap">
-          <table className="analytics-table">
-            <thead>
-              <tr>
-                <th>Provider</th>
-                <th>Models</th>
-                <th>Suitability</th>
-                <th>Confidence</th>
-                <th>Avg TTFT</th>
-                <th>Decode TPS</th>
-                <th>End-to-End TPS</th>
-                <th>Error Rate</th>
-                <th>Cache Hit</th>
-                <th>Cached Tokens</th>
-                <th>Requests</th>
-                <th>Tokens</th>
-                <th>Est. Cost</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredProviders.map((row) => (
-                <tr key={`provider-${row.providerId}`}>
-                  <td>{row.providerId}</td>
-                  <td>{formatCompactNumber(row.modelCoverageCount ?? 0)}</td>
-                  <td>{formatMaybeSuitability(row.suitabilityScore)}</td>
-                  <td>{formatMaybeSuitability(row.confidenceScore)}</td>
-                  <td>{formatMaybeMs(row.avgTtftMs)}</td>
-                  <td>{formatMaybeTps(row.avgDecodeTps)}</td>
-                  <td>{formatMaybeTps(row.avgEndToEndTps)}</td>
-                  <td>{formatPercent(row.errorRate)}</td>
-                  <td>{formatPercent(row.cacheHitRate)}</td>
-                  <td>{formatCompactNumber(row.cachedPromptTokens)}</td>
-                  <td>{formatCompactNumber(row.requestCount)}</td>
-                  <td>{formatCompactNumber(row.totalTokens)}</td>
-                  <td>{formatUsd(row.costUsd)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <section className="analytics-panel panel-sheen">
-        <header className="analytics-panel-header">
-          <div>
-            <h3>Model Given Provider</h3>
-            <p>Observed pair-level performance: the concrete routing surface.</p>
-          </div>
-          <small>{filteredPairs.length} matching pair(s)</small>
-        </header>
-        <div className="analytics-table-wrap">
-          <table className="analytics-table analytics-table-wide">
-            <thead>
-              <tr>
-                <th>Provider</th>
-                <th>Model</th>
-                <th>Suitability</th>
-                <th>Confidence</th>
-                <th>Avg TTFT</th>
-                <th>Decode TPS</th>
-                <th>End-to-End TPS</th>
-                <th>Error Rate</th>
-                <th>Cache Hit</th>
-                <th>Cached Tokens</th>
-                <th>Requests</th>
-                <th>Tokens</th>
-                <th>Est. Cost</th>
-                <th>Water</th>
-                <th>Last Seen</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredPairs.map((row) => (
-                <tr key={`pair-${row.providerId}-${row.model}`}>
-                  <td>{row.providerId}</td>
-                  <td>{row.model}</td>
-                  <td>{formatMaybeSuitability(row.suitabilityScore)}</td>
-                  <td>{formatMaybeSuitability(row.confidenceScore)}</td>
-                  <td>{formatMaybeMs(row.avgTtftMs)}</td>
-                  <td>{formatMaybeTps(row.avgDecodeTps)}</td>
-                  <td>{formatMaybeTps(row.avgEndToEndTps)}</td>
-                  <td>{formatPercent(row.errorRate)}</td>
-                  <td>{formatPercent(row.cacheHitRate)}</td>
-                  <td>{formatCompactNumber(row.cachedPromptTokens)}</td>
-                  <td>{formatCompactNumber(row.requestCount)}</td>
-                  <td>{formatCompactNumber(row.totalTokens)}</td>
-                  <td>{formatUsd(row.costUsd)}</td>
-                  <td>{formatWater(row.waterEvaporatedMl)}</td>
-                  <td>{formatDate(row.lastSeenAt)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <Tabs
+          defaultValue="models"
+          variant="enclosed"
+          items={analyticsTabs as TabItem[]}
+        />
       </section>
     </div>
   );

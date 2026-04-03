@@ -1,6 +1,6 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { Badge, Button, Input, Spinner } from "@devel/ui-react";
+import { Badge, Button, Card, Input, Spinner, Tabs, type TabItem } from "@devel/ui-react";
 import {
   addFederationPeer,
   getFederationAccounts,
@@ -249,6 +249,48 @@ export function FederationPage(): JSX.Element {
     }
   };
 
+  const accountKnowledgeTabs = useMemo<readonly TabItem[]>(() => [
+    {
+      id: "local",
+      label: "Local",
+      badge: String(accounts?.localAccounts.length ?? 0),
+      content: (
+        <div>
+          <p>{accounts?.localAccounts.length ?? 0} accounts</p>
+          <ul className="federation-pills">
+            {localProviders.map((entry) => <li key={`local-${entry.providerId}`}><Badge variant="info">{entry.providerId}</Badge> · {entry.count}</li>)}
+          </ul>
+        </div>
+      ),
+    },
+    {
+      id: "projected",
+      label: "Projected",
+      badge: String(accounts?.projectedAccounts.length ?? 0),
+      content: (
+        <div>
+          <p>{accounts?.projectedAccounts.length ?? 0} accounts</p>
+          <ul className="federation-pills">
+            {projectedProviders.map((entry) => <li key={`projected-${entry.providerId}`}><Badge variant="warning">{entry.providerId}</Badge> · {entry.count}</li>)}
+          </ul>
+        </div>
+      ),
+    },
+    {
+      id: "known",
+      label: "Known",
+      badge: String(accounts?.knownAccounts.length ?? 0),
+      content: (
+        <div>
+          <p>{accounts?.knownAccounts.length ?? 0} accounts</p>
+          <ul className="federation-pills">
+            {knownProviders.map((entry) => <li key={`known-${entry.providerId}`}><Badge variant="success">{entry.providerId}</Badge> · {entry.count}</li>)}
+          </ul>
+        </div>
+      ),
+    },
+  ], [accounts?.knownAccounts.length, accounts?.localAccounts.length, accounts?.projectedAccounts.length, knownProviders, localProviders, projectedProviders]);
+
   return (
     <section className="federation-page">
       <header className="federation-hero panel-sheen">
@@ -299,7 +341,7 @@ export function FederationPage(): JSX.Element {
       {error ? <div className="federation-error panel-sheen">{error}</div> : null}
 
       <div className="federation-grid">
-        <article className="federation-card panel-sheen">
+        <Card variant="elevated" padding="md" style={{ minHeight: "100%" }}>
           <h3>Self</h3>
           <dl className="federation-kv">
             <dt>Node</dt><dd>{selfState?.nodeId ?? "—"}</dd>
@@ -308,9 +350,9 @@ export function FederationPage(): JSX.Element {
             <dt>Peer DID</dt><dd>{selfState?.peerDid ?? "—"}</dd>
             <dt>Public URL</dt><dd>{selfState?.publicBaseUrl ?? "—"}</dd>
           </dl>
-        </article>
+        </Card>
 
-        <article className="federation-card panel-sheen">
+        <Card variant="elevated" padding="md" style={{ minHeight: "100%" }}>
           <h3>Bridge sessions</h3>
           {bridges.length === 0 ? (
             <p className="federation-empty">No live bridge sessions reported.</p>
@@ -325,9 +367,9 @@ export function FederationPage(): JSX.Element {
               ))}
             </ul>
           )}
-        </article>
+        </Card>
 
-        <article className="federation-card panel-sheen">
+        <Card variant="elevated" padding="md" style={{ minHeight: "100%" }}>
           <h3>Routing</h3>
           <dl className="federation-kv">
             <dt>Recent federated</dt><dd>{routedRequestSummary.federated}</dd>
@@ -335,39 +377,19 @@ export function FederationPage(): JSX.Element {
             <dt>Top peer</dt><dd>{routedRequestSummary.topPeer ?? "—"}</dd>
             <dt>Tracked logs</dt><dd>{recentRequestLogs.length}</dd>
           </dl>
-        </article>
+        </Card>
 
-        <article className="federation-card panel-sheen federation-card-wide">
+        <div className="federation-card federation-card-wide">
+        <Card variant="elevated" padding="md">
           <h3>Account knowledge</h3>
-          <div className="federation-account-columns">
-            <div>
-              <h4>Local</h4>
-              <p>{accounts?.localAccounts.length ?? 0} accounts</p>
-              <ul className="federation-pills">
-                {localProviders.map((entry) => <li key={`local-${entry.providerId}`}><Badge variant="info">{entry.providerId}</Badge> · {entry.count}</li>)}
-              </ul>
-            </div>
-            <div>
-              <h4>Projected</h4>
-              <p>{accounts?.projectedAccounts.length ?? 0} accounts</p>
-              <ul className="federation-pills">
-                {projectedProviders.map((entry) => <li key={`projected-${entry.providerId}`}><Badge variant="warning">{entry.providerId}</Badge> · {entry.count}</li>)}
-              </ul>
-            </div>
-            <div>
-              <h4>Known</h4>
-              <p>{accounts?.knownAccounts.length ?? 0} accounts</p>
-              <ul className="federation-pills">
-                {knownProviders.map((entry) => <li key={`known-${entry.providerId}`}><Badge variant="success">{entry.providerId}</Badge> · {entry.count}</li>)}
-              </ul>
-            </div>
-          </div>
+          <Tabs defaultValue="local" variant="enclosed" items={accountKnowledgeTabs as TabItem[]} />
           {lastSyncResult ? (
             <div className="federation-sync-result">
               Last sync: {lastSyncResult.peer.label} · projected {lastSyncResult.importedProjectedAccountsCount} · diff {lastSyncResult.remoteDiffCount}
             </div>
           ) : null}
-        </article>
+        </Card>
+        </div>
       </div>
 
       <article className="federation-card panel-sheen federation-card-wide">
