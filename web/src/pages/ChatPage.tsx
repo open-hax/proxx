@@ -1,6 +1,6 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { Button, Card, Chat as UiChat, Input, Spinner, useToast } from "@devel/ui-react";
+import { Button, Chat as UiChat, Input, type ChatMessage as UiChatMessage } from "@devel/ui-react";
 import {
   addSessionMessage,
   createSession,
@@ -111,7 +111,6 @@ function toOpenAiMessages(messages: SessionMessage[]): Array<{ readonly role: st
 export function ChatPage(): JSX.Element {
   const [sessions, setSessions] = useState<SessionListItem[]>([]);
   const [activeSession, setActiveSession] = useState<SessionRecord | null>(null);
-  const [draft, setDraft] = useState("");
   const [model, setModel] = useStoredState(LS_CHAT_MODEL, "ollama/qwen3-vl:2b", validateString);
   const [modelOptions, setModelOptions] = useState<string[]>(DEFAULT_MODELS);
   const [sending, setSending] = useState(false);
@@ -121,7 +120,6 @@ export function ChatPage(): JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const [storedActiveSessionId, setStoredActiveSessionId] = useStoredState(LS_CHAT_ACTIVE_SESSION, "", validateString);
-  const threadRef = useRef<HTMLDivElement | null>(null);
   const copyResetTimerRef = useRef<number | null>(null);
 
   const refreshSessions = useCallback(async () => {
@@ -213,10 +211,9 @@ export function ChatPage(): JSX.Element {
     setSearchResults(payload.results);
   };
 
-  const sendMessage = async (event: FormEvent) => {
-    event.preventDefault();
-    const text = draft.trim();
-    if (text.length === 0 || sending) {
+  const sendMessage = async (text: string) => {
+    const normalized = text.trim();
+    if (normalized.length === 0 || sending) {
       return;
     }
 
@@ -232,7 +229,7 @@ export function ChatPage(): JSX.Element {
 
       await addSessionMessage(session.id, {
         role: "user",
-        content: text,
+        content: normalized,
         model,
       });
 
@@ -270,7 +267,6 @@ export function ChatPage(): JSX.Element {
       const updated = await getSession(session.id);
       setActiveSession(updated);
       setStoredActiveSessionId(updated.id);
-      setDraft("");
       await refreshSessions();
     } catch (sendError) {
       setError(sendError instanceof Error ? sendError.message : String(sendError));
@@ -312,7 +308,6 @@ export function ChatPage(): JSX.Element {
   };
 
   const groupedMessages = useMemo(() => activeSession?.messages ?? [], [activeSession]);
-  const messageCount = activeSession?.messages.length ?? 0;
   const availableModels = useMemo(() => {
     const options = [...modelOptions];
     const normalizedModel = model.trim();
@@ -323,13 +318,40 @@ export function ChatPage(): JSX.Element {
     return options;
   }, [model, modelOptions]);
 
-  useEffect(() => {
-    if (!threadRef.current || messageCount === 0) {
+  const uiMessages = useMemo<UiChatMessage[]>(() => {
+    return groupedMessages
+      .filter((message) => message.role === "system" || message.role === "user" || message.role === "assistant")
+      .map((message) => {
+        const content = message.reasoningContent && message.reasoningContent.trim().length > 0
+          ? `${message.content}\n\n**Reasoning trace**\n\n\`\`\`\n${message.reasoningContent}\n\`\`\``
+          : message.content;
+
+        return {
+          id: message.id,
+          role: message.role,
+          content,
+          timestamp: typeof message.createdAt === "number" ? new Date(message.createdAt) : undefined,
+          actions: [copiedMessageId === message.id ? "Copied" : "Copy", "Fork here"],
+          metadata: message.model ? { model: message.model } : undefined,
+        } satisfies UiChatMessage;
+      });
+  }, [copiedMessageId, groupedMessages]);
+
+  const handleUiMessageAction = useCallback((action: string, message: UiChatMessage) => {
+    const original = groupedMessages.find((candidate) => candidate.id === message.id);
+    if (!original) {
       return;
     }
 
-    threadRef.current.scrollTop = threadRef.current.scrollHeight;
-  }, [messageCount]);
+    if (action === "Copy" || action === "Copied") {
+      void handleCopy(original);
+      return;
+    }
+
+    if (action === "Fork here") {
+      void handleFork(original.id);
+    }
+  }, [groupedMessages]);
 
   return (
     <div className="chat-layout">
@@ -423,51 +445,27 @@ export function ChatPage(): JSX.Element {
           </div>
         </header>
 
-        <div className="chat-thread" ref={threadRef}>
-          {groupedMessages.map((message) => (
-            <article
-              key={message.id}
-              className={message.role === "user" ? "chat-message chat-message-user" : "chat-message chat-message-assistant"}
-            >
-              <header>
-                <strong>{message.role}</strong>
-                <div>
-                  <Button type="button" size="sm" variant="ghost" onClick={() => void handleCopy(message)}>
-                    {copiedMessageId === message.id ? "Copied" : "Copy"}
-                  </Button>
-                  <Button type="button" size="sm" variant="ghost" onClick={() => void handleFork(message.id)}>
-                    Fork here
-                  </Button>
-                </div>
-              </header>
-              <p>{message.content}</p>
-              {message.reasoningContent && message.reasoningContent.trim().length > 0 && (
-                <details className="chat-reasoning">
-                  <summary>Reasoning trace</summary>
-                  <pre>{message.reasoningContent}</pre>
-                </details>
-              )}
-            </article>
-          ))}
-        </div>
-
-        <form className="chat-input-form" onSubmit={(event) => void sendMessage(event)}>
-          <textarea
-            value={draft}
-            onChange={(event) => setDraft(event.currentTarget.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.shiftKey) {
-                event.preventDefault();
-                event.currentTarget.form?.requestSubmit();
-              }
-            }}
-            placeholder="Send a message..."
-            rows={4}
-          />
-          <Button type="submit" variant="primary" loading={sending} disabled={sending}>
-            {sending ? "Sending..." : "Send"}
-          </Button>
-        </form>
+        <UiChat
+          messages={uiMessages}
+          onSend={(message) => {
+            void sendMessage(message);
+          }}
+          placeholder="Send a message..."
+          loading={sending}
+          showTimestamps
+          allowMarkdown
+          onMessageAction={handleUiMessageAction}
+          emptyState={
+            <div className="chat-empty-state">
+              <h3>{activeSession ? "No messages yet" : "No session selected"}</h3>
+              <p>
+                {activeSession
+                  ? "Send a message to start the conversation."
+                  : "Create or select a session from the sidebar to begin chatting."}
+              </p>
+            </div>
+          }
+        />
 
         {error && <p className="chat-error">{error}</p>}
       </section>
