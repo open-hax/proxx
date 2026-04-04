@@ -114,6 +114,7 @@ export interface PromptCacheAuditOverview {
   readonly crossAccountHashCount: number;
   readonly crossSuccessfulAccountHashCount: number;
   readonly rows: readonly PromptCacheAuditRow[];
+  readonly watchRows: readonly PromptCacheAuditRow[];
 }
 
 export interface KeyPoolStatus {

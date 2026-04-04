@@ -597,30 +597,15 @@ export function CredentialsPage(): JSX.Element {
       return [];
     }
 
-    return promptCacheAudit.rows
-      .map((row) => {
-        const cacheRate = row.promptTokens > 0 ? (row.cachedPromptTokens / row.promptTokens) * 100 : 0;
-        return {
-          ...row,
-          cacheRate,
-        };
-      })
-      .filter((row) => row.successfulAccountCount === 1)
-      .filter((row) => row.shapeFingerprintCount === 1)
-      .filter((row) => row.successfulRequestCount >= 4)
-      .filter((row) => row.promptTokens >= 10_000)
-      .sort((left, right) => {
-        if (left.cacheRate !== right.cacheRate) {
-          return left.cacheRate - right.cacheRate;
-        }
+    const sourceRows = promptCacheAudit.watchRows.length > 0 ? promptCacheAudit.watchRows : promptCacheAudit.rows;
 
-        if (right.promptTokens !== left.promptTokens) {
-          return right.promptTokens - left.promptTokens;
-        }
-
-        return left.promptCacheKeyHash.localeCompare(right.promptCacheKeyHash);
-      })
-      .slice(0, 8);
+    return sourceRows.map((row) => {
+      const cacheRate = row.promptTokens > 0 ? (row.cachedPromptTokens / row.promptTokens) * 100 : 0;
+      return {
+        ...row,
+        cacheRate,
+      };
+    });
   }, [promptCacheAudit]);
 
   const sortAccountEntries = useCallback((entries: readonly AccountEntry[]): AccountEntry[] => {

@@ -6907,6 +6907,194 @@ test("groups prompt cache audit rows by hash and distinct accounts touched", asy
   );
 });
 
+test("prompt cache audit respects configured openai provider id and keeps latest model from newest entry", async () => {
+  await withProxyApp(
+    {
+      keys: [],
+      requestLogsPayload: {
+        entries: [
+          {
+            id: "custom-openai-older",
+            timestamp: Date.UTC(2026, 3, 4, 12, 0, 0),
+            providerId: "chatgpt-oauth",
+            accountId: "acct-1",
+            authType: "oauth_bearer",
+            model: "gpt-4.1",
+            upstreamMode: "responses",
+            upstreamPath: "/v1/responses",
+            status: 200,
+            latencyMs: 110,
+            promptCacheKeyHash: "sha256:custom-openai-hash",
+            promptTokens: 100,
+            completionTokens: 20,
+            totalTokens: 120,
+          },
+          {
+            id: "custom-openai-newer",
+            timestamp: Date.UTC(2026, 3, 4, 12, 5, 0),
+            providerId: "chatgpt-oauth",
+            accountId: "acct-1",
+            authType: "oauth_bearer",
+            model: "gpt-5.4",
+            upstreamMode: "responses",
+            upstreamPath: "/v1/responses",
+            status: 200,
+            latencyMs: 105,
+            promptCacheKeyHash: "sha256:custom-openai-hash",
+            promptTokens: 120,
+            completionTokens: 25,
+            totalTokens: 145,
+            cacheHit: true,
+            promptCacheKeyUsed: true,
+            cachedPromptTokens: 90,
+          },
+          {
+            id: "wrong-provider",
+            timestamp: Date.UTC(2026, 3, 4, 12, 10, 0),
+            providerId: "openai",
+            accountId: "acct-2",
+            authType: "oauth_bearer",
+            model: "gpt-5.4",
+            upstreamMode: "responses",
+            upstreamPath: "/v1/responses",
+            status: 200,
+            latencyMs: 100,
+            promptCacheKeyHash: "sha256:wrong-provider-hash",
+            promptTokens: 200,
+            completionTokens: 30,
+            totalTokens: 230,
+          },
+        ],
+        hourlyBuckets: [],
+        dailyBuckets: [],
+        dailyModelBuckets: [],
+        dailyAccountBuckets: [],
+        accountAccumulators: [],
+      },
+      configOverrides: {
+        openaiProviderId: "chatgpt-oauth",
+        upstreamProviderId: "chatgpt-oauth",
+        upstreamFallbackProviderIds: [],
+      },
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ok: true }),
+      }),
+    },
+    async ({ app }) => {
+      const auditResponse = await app.inject({
+        method: "GET",
+        url: "/api/v1/credentials/openai/prompt-cache-audit?limit=10&scanLimit=100",
+      });
+
+      assert.equal(auditResponse.statusCode, 200);
+      const payloadJson: unknown = auditResponse.json();
+      assert.ok(isRecord(payloadJson));
+      assert.ok(Array.isArray(payloadJson.rows));
+      assert.equal(payloadJson.rows.length, 1);
+      assert.ok(isRecord(payloadJson.rows[0]));
+      assert.equal(payloadJson.rows[0].providerId, "chatgpt-oauth");
+      assert.equal(payloadJson.rows[0].latestModel, "gpt-5.4");
+      assert.equal(payloadJson.rows[0].promptCacheKeyHash, "sha256:custom-openai-hash");
+    },
+  );
+});
+
+test("prompt cache audit watchlist is computed from all grouped hashes, not only truncated rows", async () => {
+  const stableEntries = Array.from({ length: 4 }, (_, index) => ({
+    id: `stable-${index}`,
+    timestamp: Date.UTC(2026, 3, 4, 13, index, 0),
+    providerId: "openai",
+    accountId: "acct-stable",
+    authType: "oauth_bearer" as const,
+    model: "gpt-5.4",
+    upstreamMode: "responses" as const,
+    upstreamPath: "/v1/responses",
+    status: 200,
+    latencyMs: 100,
+    promptCacheKeyHash: "sha256:stable-watch-hash",
+    promptTokens: 3_000,
+    completionTokens: 100,
+    totalTokens: 3_100,
+    cachedPromptTokens: index === 0 ? 0 : 150,
+    cacheHit: false,
+    promptCacheKeyUsed: true,
+    factoryDiagnostics: {
+      shapeFingerprint: "shape-stable",
+    },
+  }));
+
+  await withProxyApp(
+    {
+      keys: [],
+      requestLogsPayload: {
+        entries: [
+          {
+            id: "cross-newer",
+            timestamp: Date.UTC(2026, 3, 4, 14, 0, 0),
+            providerId: "openai",
+            accountId: "acct-a",
+            authType: "oauth_bearer",
+            model: "gpt-5.4",
+            upstreamMode: "responses",
+            upstreamPath: "/v1/responses",
+            status: 200,
+            latencyMs: 120,
+            promptCacheKeyHash: "sha256:cross-account-hash",
+            promptTokens: 500,
+            completionTokens: 50,
+            totalTokens: 550,
+          },
+          {
+            id: "cross-older",
+            timestamp: Date.UTC(2026, 3, 4, 13, 59, 0),
+            providerId: "openai",
+            accountId: "acct-b",
+            authType: "oauth_bearer",
+            model: "gpt-5.4",
+            upstreamMode: "responses",
+            upstreamPath: "/v1/responses",
+            status: 200,
+            latencyMs: 118,
+            promptCacheKeyHash: "sha256:cross-account-hash",
+            promptTokens: 500,
+            completionTokens: 50,
+            totalTokens: 550,
+          },
+          ...stableEntries,
+        ],
+        hourlyBuckets: [],
+        dailyBuckets: [],
+        dailyModelBuckets: [],
+        dailyAccountBuckets: [],
+        accountAccumulators: [],
+      },
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ok: true }),
+      }),
+    },
+    async ({ app }) => {
+      const auditResponse = await app.inject({
+        method: "GET",
+        url: "/api/v1/credentials/openai/prompt-cache-audit?limit=1&scanLimit=100",
+      });
+
+      assert.equal(auditResponse.statusCode, 200);
+      const payloadJson: unknown = auditResponse.json();
+      assert.ok(isRecord(payloadJson));
+      assert.ok(Array.isArray(payloadJson.rows));
+      assert.ok(Array.isArray(payloadJson.watchRows));
+      assert.equal(payloadJson.rows.length, 1);
+      assert.equal(payloadJson.rows[0]?.promptCacheKeyHash, "sha256:cross-account-hash");
+      assert.equal(payloadJson.watchRows.length, 1);
+      assert.equal(payloadJson.watchRows[0]?.promptCacheKeyHash, "sha256:stable-watch-hash");
+    },
+  );
+});
+
 test("injects instructions for gpt-5.2 routed through openai oauth (regression: codex instructions required)", async () => {
   let observedPath = "";
   let observedBody: Record<string, unknown> | undefined;
