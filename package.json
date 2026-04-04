@@ -27,7 +27,7 @@
     "lint:errors": "eslint . --quiet"
   },
   "dependencies": {
-    "@open-hax/uxx": "0.1.0",
+    "@open-hax/uxx": "0.1.1",
     "@fastify/cookie": "^11.0.2",
     "@fastify/swagger": "9.5.1",
     "@fastify/swagger-ui": "5.2.3",
