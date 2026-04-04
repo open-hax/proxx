@@ -44,7 +44,6 @@ import {
 } from "../lib/responses-compat.js";
 
 import type { AppDeps } from "../lib/app-deps.js";
-import type { ResolvedCatalogWithPreferences } from "../lib/provider-catalog.js";
 import { resolveCatalogAndAlias } from "../lib/catalog-alias-resolver.js";
 
 function requestedModelIsExplicitOllama(model: string): boolean {

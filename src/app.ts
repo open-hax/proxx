@@ -22,9 +22,6 @@ import { CredentialStore } from "./lib/credential-store.js";
 import { OpenAiOAuthManager } from "./lib/openai-oauth.js";
 import {
   factoryCredentialNeedsRefresh,
-  parseJwtExpiry,
-  persistFactoryAuthV2,
-  refreshFactoryOAuthToken,
 } from "./lib/factory-auth.js";
 import { ProviderCatalogStore } from "./lib/provider-catalog.js";
 import { initializePolicyEngine, createPolicyEngine, type PolicyEngine } from "./lib/policy/index.js";

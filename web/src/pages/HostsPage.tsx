@@ -27,23 +27,6 @@ function formatContainerPorts(ports: readonly string[]): string {
   return ports.join(", ");
 }
 
-function formatRouteMatch(host: HostDashboardSnapshot, index: number): string {
-  const route = host.routes[index];
-  if (!route) {
-    return "—";
-  }
-
-  if (route.matchPaths.length > 0) {
-    return route.matchPaths.join(" ");
-  }
-
-  if (route.matcher) {
-    return route.matcher;
-  }
-
-  return "default";
-}
-
 function hostLastError(host: HostDashboardSnapshot): string | null {
   return host.errors.length > 0 ? host.errors[host.errors.length - 1] ?? null : null;
 }
