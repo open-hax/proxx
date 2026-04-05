@@ -21,6 +21,7 @@
 
   --border: var(--token-colors-border-default);
   --shadow-strong: 0 24px 50px var(--token-colors-alpha-shadow);
+
   color: var(--text-main);
   background:
     radial-gradient(circle at 0% 0%, var(--token-colors-background-highlight) 0%, transparent 38%),

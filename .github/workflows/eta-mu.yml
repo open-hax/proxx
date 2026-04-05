@@ -24,9 +24,6 @@ concurrency:
 jobs:
   eta-mu:
     runs-on: ubuntu-latest
-    env:
-      ETA_MU_APP_ID: ${{ secrets.ETA_MU_APP_ID }}
-      ETA_MU_APP_PRIVATE_KEY: ${{ secrets.ETA_MU_APP_PRIVATE_KEY }}
     steps:
       - name: Checkout target repository
         uses: actions/checkout@v4
@@ -37,16 +34,21 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: open-hax/eta-mu
+          ref: 92beede072dd013e1379c9a1ba0bd160d2f9b252
           path: .eta-mu
+          persist-credentials: false
 
       - name: Create eta-mu app token
         id: eta_mu_token
-        if: ${{ env.ETA_MU_APP_ID != '' && env.ETA_MU_APP_PRIVATE_KEY != '' }}
+        if: ${{ secrets.ETA_MU_APP_ID != '' && secrets.ETA_MU_APP_PRIVATE_KEY != '' }}
         continue-on-error: true
         uses: actions/create-github-app-token@v1
+        env:
+          ETA_MU_APP_ID: ${{ secrets.ETA_MU_APP_ID }}
+          ETA_MU_APP_PRIVATE_KEY: ${{ secrets.ETA_MU_APP_PRIVATE_KEY }}
         with:
-          app-id: ${{ env.ETA_MU_APP_ID }}
-          private-key: ${{ env.ETA_MU_APP_PRIVATE_KEY }}
+          app-id: ${{ secrets.ETA_MU_APP_ID }}
+          private-key: ${{ secrets.ETA_MU_APP_PRIVATE_KEY }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
