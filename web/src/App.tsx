@@ -2,8 +2,10 @@ import React from "react";
 import { useEffect, useState } from "react";
 import { NavLink, Route, Routes, useLocation } from "react-router-dom";
 
-import { Button, Input, Modal, ToastProvider } from "@open-hax/uxx";
+import { Button, Input, Modal, ThemeProvider, ToastProvider } from "@open-hax/uxx";
+import type { ThemeName } from "@open-hax/uxx/tokens";
 import { getProxyUiSettings, getSavedAuthToken, saveAuthToken, saveProxyUiSettings } from "./lib/api";
+import { useStoredState } from "./lib/use-stored-state";
 import { ChatPage } from "./pages/ChatPage";
 import { CredentialsPage } from "./pages/CredentialsPage";
 import { DashboardPage } from "./pages/DashboardPage";
@@ -14,12 +16,18 @@ import { AnalyticsPage } from "./pages/AnalyticsPage";
 import { FederationPage } from "./pages/FederationPage";
 
 const LS_ONBOARDED = "open-hax-proxy.ui.onboarded";
+const LS_THEME = "open-hax-proxy.ui.theme";
+
+function parseThemeName(value: unknown): ThemeName | undefined {
+  return value === "monokai" || value === "night-owl" ? value : undefined;
+}
 
 function navClass(isActive: boolean): string {
   return isActive ? "nav-link nav-link-active" : "nav-link";
 }
 
 export function App(): JSX.Element {
+  const [themeName, setThemeName] = useStoredState<ThemeName>(LS_THEME, "monokai", parseThemeName);
   const [tokenInput, setTokenInput] = useState(() => getSavedAuthToken());
   const [savedToken, setSavedToken] = useState(() => getSavedAuthToken());
   const [showSaved, setShowSaved] = useState(false);
@@ -84,6 +92,7 @@ export function App(): JSX.Element {
 
   return (
     <ToastProvider position="top-right">
+    <ThemeProvider theme={themeName} as="div" className="app-theme-root" style={{ minHeight: "100vh" }}>
     <div className={`shell-root${isDashboard ? " shell-root-dashboard" : ""}`}>
       <header className="shell-header">
         <div className="shell-brand">
@@ -125,6 +134,16 @@ export function App(): JSX.Element {
                 }}
               />
               Fast mode (priority tier)
+            </label>
+            <label className="toggle-row shell-theme-row">
+              <span>Theme</span>
+              <select
+                value={themeName}
+                onChange={(event) => setThemeName(parseThemeName(event.currentTarget.value) ?? "monokai")}
+              >
+                <option value="monokai">Monokai</option>
+                <option value="night-owl">Night Owl</option>
+              </select>
             </label>
             {fastModeMessage && <small>{fastModeMessage}</small>}
           </div>
@@ -190,6 +209,7 @@ export function App(): JSX.Element {
         </div>
       </Modal>
     </div>
+    </ThemeProvider>
     </ToastProvider>
   );
 }

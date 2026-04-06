@@ -422,3 +422,10 @@ curl -s -H "Authorization: Bearer ${PROD_PROXX_AUTH_TOKEN}" \
   -d '{"model":"auto:cephalon:fastest","messages":[{"role":"user","content":"Say hello in one sentence."}],"max_tokens":100,"stream":false}' \
   "${PROD_PROXX_BASE_URL}/v1/chat/completions" 2>&1
 ```
+
+```bash
+curl -s -H "Authorization: Bearer ${PROD_PROXX_AUTH_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"gpt-5.4","messages":[{"role":"user","content":"Say hello in one sentence."}],"max_tokens":100,"stream":false}' \
+  "${PROD_PROXX_BASE_URL}/v1/chat/completions" 2>&1
+```

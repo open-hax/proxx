@@ -545,7 +545,7 @@ export function loadConfig(cwd: string = process.cwd()): ProxyConfig {
     keyCooldownJitterFactor: numberFromEnvAliases(["PROXY_KEY_COOLDOWN_JITTER_FACTOR"], 0.4),
     enableKeyRandomWalk: booleanFromEnvAliases(["PROXY_KEY_RANDOM_WALK"], true),
     ollamaWeeklyCooldownMultiplier: numberFromEnvAliases(["OLLAMA_WEEKLY_COOLDOWN_MULTIPLIER"], 24),
-    requestTimeoutMs: numberFromEnvAliases(["UPSTREAM_REQUEST_TIMEOUT_MS"], 180000),
+    requestTimeoutMs: numberFromEnvAliases(["UPSTREAM_REQUEST_TIMEOUT_MS"], 900000),
     streamBootstrapTimeoutMs: numberFromEnvAliases(["UPSTREAM_STREAM_BOOTSTRAP_TIMEOUT_MS"], 8000),
     upstreamTransientRetryCount: nonNegativeNumberFromEnvAliases(["UPSTREAM_TRANSIENT_RETRY_COUNT"], 2),
     upstreamTransientRetryBackoffMs: numberFromEnvAliases(["UPSTREAM_TRANSIENT_RETRY_BACKOFF_MS"], 350),

@@ -1,36 +1,32 @@
-# Π Snapshot: request-log cache analytics rollup fix
+# Π Snapshot: Proxx dashboard Night Owl completion
 
 - **Repo:** `open-hax/proxx`
-- **Branch:** `fork-tax/20260330-205903-aco-route-quota-cooldowns`
-- **Previous tag:** `Π/20260402-184515-migration-pipeline-routing-cleanup`
-- **Intended Π tag:** `Π/20260404-010801-request-log-cache-rollup-failure-exclusion`
-- **Generated:** `2026-04-04T01:08:01Z`
+- **Branch:** `fork-tax/20260404-033121-proxx-night-owl-dashboard-finish`
+- **Base branch:** `fix/prompt-cache-audit-followups`
+- **Previous tag:** `Π/20260404-010801-request-log-cache-rollup-failure-exclusion`
+- **Intended Π tag:** `Π/20260404-033121-proxx-night-owl-dashboard-finish`
+- **Generated:** `2026-04-04T03:31:21Z`
 
 ## What this snapshot preserves
 
-This Π handoff captures the request-log cache analytics correction for persisted rollups. The bug was that hourly/daily/model/account rollups counted `promptCacheKeyUsed` and `cacheHit` even when the request later classified as an error, so weekly/monthly dashboard-style cache hit percentages could be badly understated relative to the direct entry-based analytics path.
+This Π handoff captures the downstream Proxx integration of the published UXX theming runtime. The app now persists a theme preference, exposes a Monokai/Night Owl toggle, and themes the full dashboard surface instead of only the UXX metric cards.
 
-### Rollup accounting fix
-- `src/lib/request-log-store.ts` — added shared error-aware cache counter predicates
-- Hourly, daily, daily-model, daily-account, and account-accumulator rollups now exclude failed prompt-cache attempts
-- Delta/update paths now decrement cache counters if an entry is later reclassified as errored
+### App wiring
+- `package.json` — upgraded to `@open-hax/uxx@0.1.3`
+- `web/src/App.tsx` — `ThemeProvider` wrapper plus persisted theme toggle
 
-### Regression coverage
-- `src/tests/request-log-store.test.ts` — covers both initial failed-attempt exclusion and late reclassification removal
-- Existing proxy analytics regression tests still pass for the direct API surfaces
+### Consumer CSS alignment
+- `web/src/styles.css` — moved theme-derived aliases and page background from `:root` to `.app-theme-root`
+- This fixes the scoped-variable mismatch where UXX primitives updated but Proxx-owned panels, nav, and inputs kept default-theme values
 
-### Working-tree notes
-- Preserved tracked `receipts.log` mutation from session-mycology background activity
-- Dropped untracked accidental `package-lock.json` instead of snapshotting it into the pnpm-managed repo
+### Runtime validation
+- Local build and web build pass
+- `services/proxx` recreated successfully
+- Browser verification confirmed Night Owl across dashboard cards, panels, nav, and controls
 
 ## Verification
 
 - Build: `pnpm build` ✅
-- Focused store tests: `npx tsx --test src/tests/request-log-store.test.ts` ✅
-- Focused proxy analytics regressions: targeted `src/tests/proxy.test.ts` prompt-cache summary assertions ✅
-- Broader note: unrelated known-red remains in full filtered proxy run (`glm chat requests skip ollama-cloud when provider catalog does not advertise the requested model`)
-
-## Deferred
-
-- Rebuild live `services/proxx` request-log metadata so running weekly/monthly dashboards stop reading stale cache counters
-- Consider relabeling UI surfaces to distinguish cache hit rate vs cached token share more explicitly
+- Web build: `pnpm web:build` ✅
+- Service recreate: `docker compose up -d --build --force-recreate` ✅
+- Runtime: `docker compose ps` healthy on `http://127.0.0.1:5174` ✅

@@ -3,7 +3,9 @@
 :root {
   --font-main: "IBM Plex Sans", "Fira Sans", "Segoe UI", sans-serif;
   --font-mono: "IBM Plex Mono", "Fira Code", monospace;
+}
 
+.app-theme-root {
   --bg-deep: var(--token-colors-background-default);
   --bg-surface: var(--token-colors-background-surface);
   --bg-surface-2: var(--token-colors-background-elevated);
@@ -19,6 +21,12 @@
 
   --border: var(--token-colors-border-default);
   --shadow-strong: 0 24px 50px var(--token-colors-alpha-shadow);
+
+  color: var(--text-main);
+  background:
+    radial-gradient(circle at 0% 0%, var(--token-colors-background-highlight) 0%, transparent 38%),
+    radial-gradient(circle at 100% 10%, var(--token-colors-background-elevated) 0%, transparent 36%),
+    linear-gradient(160deg, var(--token-colors-background-default) 0%, var(--token-colors-background-surface) 100%);
 }
 
 * {
@@ -34,11 +42,6 @@ body,
 
 body {
   font-family: var(--font-main);
-  color: var(--text-main);
-  background:
-    radial-gradient(circle at 0% 0%, var(--token-colors-background-highlight) 0%, transparent 38%),
-    radial-gradient(circle at 100% 10%, var(--token-colors-background-elevated) 0%, transparent 36%),
-    linear-gradient(160deg, var(--token-colors-background-default) 0%, var(--token-colors-background-surface) 100%);
 }
 
 button,
@@ -70,7 +73,7 @@ textarea {
   padding: 8px 12px;
   border: 1px solid var(--border);
   border-radius: 12px;
-  background: linear-gradient(155deg, var(--token-colors-alpha-bg-_88), rgba(39, 40, 34, 0.86));
+  background: linear-gradient(155deg, var(--token-colors-alpha-bg-_88), var(--token-colors-alpha-bg-_88b));
   box-shadow: var(--shadow-strong);
   align-items: center;
 }
@@ -192,9 +195,21 @@ button:disabled {
   position: absolute;
   inset: 0;
   background:
-    linear-gradient(135deg, var(--token-colors-alpha-yellow-_06), rgba(230, 219, 116, 0) 40%),
-    radial-gradient(circle at top right, var(--token-colors-alpha-magenta-_08), rgba(174, 129, 255, 0) 35%);
+    linear-gradient(135deg, var(--token-colors-alpha-yellow-_06), transparent 40%),
+    radial-gradient(circle at top right, var(--token-colors-alpha-magenta-_08), transparent 35%);
   pointer-events: none;
+}
+
+.shell-theme-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.shell-theme-row select {
+  justify-self: end;
+  min-width: 130px;
 }
 
 .dashboard-coverage-note {
@@ -341,7 +356,7 @@ button:disabled {
 .dashboard-sparkbars span,
 .dashboard-sparkbars-placeholder::before {
   border-radius: 999px 999px 3px 3px;
-  background: linear-gradient(180deg, var(--token-colors-alpha-blue-_95), rgba(73, 72, 62, 0.35));
+  background: linear-gradient(180deg, var(--token-colors-alpha-blue-_95), var(--token-colors-fill-neutral-end));
 }
 
 .dashboard-sparkbars-placeholder::before {
@@ -1207,7 +1222,7 @@ button:disabled {
   border: 1px solid var(--token-colors-alpha-bg-_18);
   border-radius: 12px;
   padding: 10px;
-  background: linear-gradient(180deg, var(--token-colors-alpha-bg-_88b), rgba(30, 31, 28, 0.9));
+  background: linear-gradient(180deg, var(--token-colors-alpha-bg-_88b), var(--token-colors-alpha-bg-_90));
   display: grid;
   gap: 10px;
 }

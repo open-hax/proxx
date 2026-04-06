@@ -194,18 +194,55 @@ export function chatCompletionToNativeGenerate(response: Record<string, unknown>
 export function nativeEmbedToOpenAiRequest(body: Record<string, unknown>): {
   readonly model: string;
   readonly input: string | readonly string[];
+  readonly num_ctx?: number;
+  readonly ollama_num_ctx?: number;
 } {
   const model = asString(body["model"] ) ?? "";
   const input = body["input"] ?? body["prompt"];
+  const numCtx = normalizePositiveNumber(body["num_ctx"])
+    ?? normalizePositiveNumber(body["ollama_num_ctx"]);
 
-  if (Array.isArray(input)) {
-    return { model, input: input.filter((entry): entry is string => typeof entry === "string") };
+  const payload: {
+    readonly model: string;
+    readonly input: string | readonly string[];
+    readonly num_ctx?: number;
+    readonly ollama_num_ctx?: number;
+  } = Array.isArray(input)
+    ? { model, input: input.filter((entry): entry is string => typeof entry === "string") }
+    : {
+        model,
+        input: typeof input === "string" ? input : "",
+      };
+
+  if (numCtx !== undefined) {
+    return {
+      ...payload,
+      num_ctx: numCtx,
+      ollama_num_ctx: numCtx,
+    };
   }
 
-  return {
-    model,
-    input: typeof input === "string" ? input : "",
+  return payload;
+}
+
+export function nativeEmbedToOllamaRequest(
+  body: Record<string, unknown>,
+  defaultNumCtx?: number,
+): Record<string, unknown> {
+  const embedBody = nativeEmbedToOpenAiRequest(body);
+  const numCtx = embedBody.num_ctx ?? defaultNumCtx;
+  const payload: Record<string, unknown> = {
+    model: embedBody.model,
+    input: embedBody.input,
   };
+
+  if (numCtx !== undefined) {
+    payload["options"] = {
+      num_ctx: numCtx,
+    };
+  }
+
+  return payload;
 }
 
 function vectorizeEmbeddingData(data: unknown): number[][] {
