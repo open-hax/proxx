@@ -12,6 +12,7 @@ fi
 PASS=0
 FAIL=0
 RESTORE_SETTINGS_JSON=''
+KEY_ID=''
 
 green()  { printf "\033[32m%s\033[0m\n" "$*"; }
 red()    { printf "\033[31m%s\033[0m\n" "$*"; }
@@ -60,7 +61,15 @@ restore_settings() {
   fi
 }
 
-trap restore_settings EXIT
+cleanup_key() {
+  if [[ -n "$KEY_ID" ]]; then
+    curl -sS --max-time 30 \
+      -H "Authorization: Bearer ${AUTH_TOKEN}" \
+      -X DELETE "${BASE}/api/v1/tenants/default/api-keys/${KEY_ID}" >/dev/null || true
+  fi
+}
+
+trap 'cleanup_key; restore_settings' EXIT
 
 bold "=== Multitenancy smoke against ${BASE} ==="
 
@@ -191,6 +200,7 @@ DELETE_RESPONSE=$(curl -sS -w '\nHTTP_STATUS:%{http_code}' --max-time 30 -H "Aut
 DELETE_STATUS="${DELETE_RESPONSE##*$'\n'HTTP_STATUS:}"
 if [[ "$DELETE_STATUS" == "200" ]]; then
   pass "tenant key cleanup"
+  KEY_ID=''
 else
   fail "tenant key cleanup" "status=${DELETE_STATUS}"
 fi

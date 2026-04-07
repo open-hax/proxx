@@ -25,9 +25,6 @@ concurrency:
 jobs:
   eta-mu:
     runs-on: ubuntu-latest
-    env:
-      ETA_MU_APP_ID: ${{ secrets.ETA_MU_APP_ID }}
-      ETA_MU_APP_PRIVATE_KEY: ${{ secrets.ETA_MU_APP_PRIVATE_KEY }}
     steps:
       - name: Checkout target repository
         uses: actions/checkout@v4
@@ -42,10 +39,25 @@ jobs:
           path: .eta-mu
           persist-credentials: false
 
+      - name: Detect eta-mu app credentials
+        id: eta_mu_app_credentials
+        env:
+          ETA_MU_APP_ID: ${{ secrets.ETA_MU_APP_ID }}
+          ETA_MU_APP_PRIVATE_KEY: ${{ secrets.ETA_MU_APP_PRIVATE_KEY }}
+        run: |
+          if [[ -n "${ETA_MU_APP_ID}" && -n "${ETA_MU_APP_PRIVATE_KEY}" ]]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Create eta-mu app token
         id: eta_mu_token
-        if: ${{ env.ETA_MU_APP_ID != '' && env.ETA_MU_APP_PRIVATE_KEY != '' }}
+        if: ${{ steps.eta_mu_app_credentials.outputs.available == 'true' }}
         continue-on-error: true
+        env:
+          ETA_MU_APP_ID: ${{ secrets.ETA_MU_APP_ID }}
+          ETA_MU_APP_PRIVATE_KEY: ${{ secrets.ETA_MU_APP_PRIVATE_KEY }}
         uses: actions/create-github-app-token@v1
         with:
           app-id: ${{ env.ETA_MU_APP_ID }}

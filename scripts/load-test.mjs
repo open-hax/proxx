@@ -113,7 +113,7 @@ async function sendRequest(index) {
 
     const assistantContent = extractAssistantContent(parsed);
     const assistantRole = parsed?.choices?.[0]?.message?.role;
-    if (assistantContent.length === 0 && assistantRole !== "assistant") {
+    if (assistantRole !== "assistant" || assistantContent.length === 0) {
       return {
         ok: false,
         elapsedMs,
