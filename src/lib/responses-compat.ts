@@ -1251,7 +1251,24 @@ export function responsesEventStreamToChatCompletion(streamText: string, fallbac
   }
 
   if (terminalResponse) {
-    return responsesToChatCompletion(terminalResponse, fallbackModel);
+    const completion = responsesToChatCompletion(terminalResponse, fallbackModel);
+    const choices = Array.isArray(completion["choices"]) ? completion["choices"] : [];
+    const firstChoice = choices.length > 0 && isRecord(choices[0]) ? choices[0] : null;
+    const message = firstChoice && isRecord(firstChoice["message"]) ? firstChoice["message"] : null;
+
+    if (message) {
+      const terminalContent = asString(message["content"]);
+      if ((terminalContent === undefined || terminalContent.length === 0) && textDeltas.length > 0) {
+        message["content"] = textDeltas.join("");
+      }
+
+      const terminalReasoning = asString(message["reasoning_content"]);
+      if ((terminalReasoning === undefined || terminalReasoning.length === 0) && reasoningDeltas.length > 0) {
+        message["reasoning_content"] = reasoningDeltas.join("");
+      }
+    }
+
+    return completion;
   }
 
   if (textDeltas.length > 0 || reasoningDeltas.length > 0) {
