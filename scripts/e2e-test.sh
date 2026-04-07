@@ -262,7 +262,7 @@ bold ""
 bold "── 1b. Tenant API key lifecycle ──"
 
 if [[ -n "${DEV_PROXY_AUTH_TOKEN:-}" ]]; then
-  TENANT_KEY_PAYLOAD=$(curl_json -X POST "${BASE}/api/ui/tenants/default/api-keys" -d "{
+  TENANT_KEY_PAYLOAD=$(curl_json -X POST "${BASE}/api/v1/tenants/default/api-keys" -d "{
     \"label\": \"e2e-live-$(date +%s)\",
     \"scopes\": [\"proxy:use\"]
   }" 2>/dev/null) || TENANT_KEY_PAYLOAD=""
@@ -289,7 +289,7 @@ if [[ -n "${DEV_PROXY_AUTH_TOKEN:-}" ]]; then
         fail "tenant API key chat completion" "no response after retry"
       fi
 
-      TENANT_KEYS=$(curl_json "${BASE}/api/ui/tenants/default/api-keys" 2>/dev/null) || TENANT_KEYS=""
+      TENANT_KEYS=$(curl_json "${BASE}/api/v1/tenants/default/api-keys" 2>/dev/null) || TENANT_KEYS=""
       if [[ -n "$TENANT_KEYS" ]]; then
         TENANT_KEY_LAST_USED=$(echo "$TENANT_KEYS" | python3 -c '
 import sys, json
@@ -310,7 +310,7 @@ for item in payload.get("keys", []):
         fail "tenant API key list after use" "no response"
       fi
 
-      DELETE_STATUS=$(curl -so /dev/null -w "%{http_code}" --max-time 30 -H "Authorization: Bearer ${DEV_PROXY_AUTH_TOKEN}" -X DELETE "${BASE}/api/ui/tenants/default/api-keys/${TENANT_KEY_ID}") || DELETE_STATUS="000"
+      DELETE_STATUS=$(curl -so /dev/null -w "%{http_code}" --max-time 30 -H "Authorization: Bearer ${DEV_PROXY_AUTH_TOKEN}" -X DELETE "${BASE}/api/v1/tenants/default/api-keys/${TENANT_KEY_ID}") || DELETE_STATUS="000"
       if [[ "$DELETE_STATUS" == "200" ]]; then
         pass "tenant API key cleanup"
       else
@@ -437,7 +437,7 @@ fi
 bold ""
 bold "── 9. Factory Prefix Routing ──"
 
-FACTORY_CREDENTIALS_JSON=$(curl_json "${BASE}/api/ui/credentials" 2>/dev/null) || FACTORY_CREDENTIALS_JSON=""
+FACTORY_CREDENTIALS_JSON=$(curl_json "${BASE}/api/v1/credentials" 2>/dev/null) || FACTORY_CREDENTIALS_JSON=""
 if [[ -n "$FACTORY_CREDENTIALS_JSON" ]]; then
   FACTORY_ACCOUNT_COUNT=$(json_provider_metric_or_zero "$FACTORY_CREDENTIALS_JSON" "factory" "accountCount")
   FACTORY_AVAILABLE_COUNT=$(json_provider_metric_or_zero "$FACTORY_CREDENTIALS_JSON" "factory" "availableAccounts")
@@ -497,7 +497,7 @@ LOAD_REQUESTS="${LOAD_TEST_REQUESTS:-8}"
 LOAD_OUT=$(DEV_PROXY_URL="$BASE" \
   LOAD_TEST_CONCURRENCY="$LOAD_CONCURRENCY" \
   LOAD_TEST_REQUESTS="$LOAD_REQUESTS" \
-  LOAD_TEST_MODEL="${LOAD_TEST_MODEL:-gpt-5.4}" \
+  LOAD_TEST_MODEL="${LOAD_TEST_MODEL:-gpt-5.2}" \
   DEV_PROXY_AUTH_TOKEN="${DEV_PROXY_AUTH_TOKEN:-}" \
   node ./scripts/load-test.mjs 2>&1) || LOAD_STATUS=$?
 LOAD_STATUS=${LOAD_STATUS:-0}
