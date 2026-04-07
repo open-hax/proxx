@@ -86,7 +86,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     bodyLimit: 300 * 1024 * 1024
   });
 
-  await app.register(fastifySwagger as any, {
+  await app.register(fastifySwagger, {
     openapi: {
       info: {
         title: "Proxx API",
@@ -97,7 +97,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     },
   });
 
-  await app.register(fastifySwaggerUi as any, {
+  await app.register(fastifySwaggerUi, {
     routePrefix: "/docs",
     staticCSP: true,
   });

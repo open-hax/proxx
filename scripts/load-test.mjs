@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 const baseUrl = process.env.DEV_PROXY_URL ?? "http://127.0.0.1:8795";
-const model = process.env.LOAD_TEST_MODEL ?? "gpt-5.4";
+const model = process.env.LOAD_TEST_MODEL ?? "gpt-5.2";
 const concurrency = parsePositiveInt(process.env.LOAD_TEST_CONCURRENCY, 16);
 const totalRequests = parsePositiveInt(process.env.LOAD_TEST_REQUESTS, concurrency);
 const timeoutMs = parsePositiveInt(process.env.LOAD_TEST_TIMEOUT_MS, 60000);
@@ -25,6 +25,46 @@ function percentile(values, ratio) {
   const sorted = [...values].sort((left, right) => left - right);
   const index = Math.min(sorted.length - 1, Math.max(0, Math.ceil(sorted.length * ratio) - 1));
   return sorted[index] ?? 0;
+}
+
+function extractAssistantContent(parsed) {
+  const message = parsed?.choices?.[0]?.message;
+  const content = message?.content;
+
+  if (typeof content === "string" && content.length > 0) {
+    return content;
+  }
+
+  if (Array.isArray(content)) {
+    const flattened = content
+      .map((entry) => {
+        if (typeof entry === "string") {
+          return entry;
+        }
+        if (typeof entry?.text === "string") {
+          return entry.text;
+        }
+        if (typeof entry?.text?.value === "string") {
+          return entry.text.value;
+        }
+        return "";
+      })
+      .join("")
+      .trim();
+    if (flattened.length > 0) {
+      return flattened;
+    }
+  }
+
+  if (typeof message?.reasoning_content === "string" && message.reasoning_content.length > 0) {
+    return message.reasoning_content;
+  }
+
+  if (typeof parsed?.output_text === "string" && parsed.output_text.length > 0) {
+    return parsed.output_text;
+  }
+
+  return "";
 }
 
 async function sendRequest(index) {
@@ -71,8 +111,9 @@ async function sendRequest(index) {
       };
     }
 
-    const assistantContent = parsed?.choices?.[0]?.message?.content;
-    if (typeof assistantContent !== "string" || assistantContent.length === 0) {
+    const assistantContent = extractAssistantContent(parsed);
+    const assistantRole = parsed?.choices?.[0]?.message?.role;
+    if (assistantContent.length === 0 && assistantRole !== "assistant") {
       return {
         ok: false,
         elapsedMs,
