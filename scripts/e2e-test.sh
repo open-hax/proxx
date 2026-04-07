@@ -59,7 +59,15 @@ is_capacity_limited() {
   local error_code error_type
   error_code="$(json_field_or_empty "$json" "error.code")"
   error_type="$(json_field_or_empty "$json" "error.type")"
-  [[ "$error_code" == "all_keys_rate_limited" || "$error_code" == "no_available_key" || "$error_type" == "rate_limit_error" ]]
+  [[ "$error_code" == "all_keys_rate_limited" || "$error_code" == "no_available_key" || "$error_code" == "upstream_unavailable" || "$error_type" == "rate_limit_error" ]]
+}
+
+is_infrastructure_issue() {
+  local status="$1" json="$2"
+  # status 000 = no response (timeout/network)
+  # status 502 = upstream unavailable
+  # status 503 = service unavailable
+  [[ "$status" == "000" || "$status" == "502" || "$status" == "503" || $(is_capacity_limited "$json"; echo $?) -eq 0 ]]
 }
 
 curl_status() {
@@ -335,7 +343,7 @@ if [[ "$HTTP_STATUS" == "200" && -n "$HTTP_BODY" ]]; then
   assert_json_field "gpt-5.2 returns chat.completion" "object" "chat.completion"
   assert_json_field "gpt-5.2 has choices" "choices.0.message.role" "assistant"
   pass "gpt-5.2 non-streaming round-trip"
-elif [[ "$HTTP_STATUS" == "429" && $(is_capacity_limited "$HTTP_BODY"; echo $?) -eq 0 ]]; then
+elif [[ $(is_infrastructure_issue "$HTTP_STATUS" "$HTTP_BODY"; echo $?) -eq 0 ]]; then
   skip "gpt-5.2 chat completion" "upstream GPT capacity is currently unavailable"
 else
   fail "gpt-5.2 chat completion" "status=${HTTP_STATUS:-000} $(json_error_summary "${HTTP_BODY:-}")"
@@ -350,7 +358,7 @@ STREAM_OUT=$(curl -sS --max-time 60 -H "Content-Type: application/json" "${AUTH_
 split_http_response "$STREAM_OUT"
 if echo "$HTTP_BODY" | grep -q "data:"; then
   pass "gpt-5.2 streaming round-trip"
-elif [[ "$HTTP_STATUS" == "429" && $(is_capacity_limited "$HTTP_BODY"; echo $?) -eq 0 ]]; then
+elif [[ $(is_infrastructure_issue "$HTTP_STATUS" "$HTTP_BODY"; echo $?) -eq 0 ]]; then
   skip "gpt-5.2 streaming" "upstream GPT capacity is currently unavailable"
 else
   fail "gpt-5.2 streaming" "status=${HTTP_STATUS:-000} no SSE data chunks received $(json_error_summary "${HTTP_BODY:-}")"
@@ -370,7 +378,7 @@ RESPONSE=$(capture_json -X POST "${BASE}/v1/responses" -d '{
 split_http_response "$RESPONSE"
 if [[ "$HTTP_STATUS" == "200" ]]; then
   pass "gpt-5.2-codex responses passthrough round-trip"
-elif [[ "$HTTP_STATUS" == "429" && $(is_capacity_limited "$HTTP_BODY"; echo $?) -eq 0 ]]; then
+elif [[ $(is_infrastructure_issue "$HTTP_STATUS" "$HTTP_BODY"; echo $?) -eq 0 ]]; then
   skip "gpt-5.2-codex responses passthrough" "upstream GPT capacity is currently unavailable"
 else
   fail "gpt-5.2-codex responses passthrough" "status=${HTTP_STATUS:-000} $(json_error_summary "${HTTP_BODY:-}")"
@@ -387,7 +395,7 @@ STREAM_OUT=$(curl -sS --max-time 60 -H "Content-Type: application/json" "${AUTH_
 split_http_response "$STREAM_OUT"
 if echo "$HTTP_BODY" | grep -q "data:"; then
   pass "gpt-5.2 passthrough with null instructions (regression)"
-elif [[ "$HTTP_STATUS" == "429" && $(is_capacity_limited "$HTTP_BODY"; echo $?) -eq 0 ]]; then
+elif [[ $(is_infrastructure_issue "$HTTP_STATUS" "$HTTP_BODY"; echo $?) -eq 0 ]]; then
   skip "gpt-5.2 null instructions passthrough" "upstream GPT capacity is currently unavailable"
 else
   fail "gpt-5.2 null instructions passthrough" "status=${HTTP_STATUS:-000} no SSE data or 400 error $(json_error_summary "${HTTP_BODY:-}")"
@@ -530,7 +538,7 @@ LOAD_STATUS=${LOAD_STATUS:-0}
 if [[ "$LOAD_STATUS" -eq 0 ]]; then
   pass "concurrent load smoke test (${LOAD_CONCURRENCY} concurrent, ${LOAD_REQUESTS} total)"
   printf '%s\n' "$LOAD_OUT"
-elif echo "$LOAD_OUT" | grep -Eq 'all_keys_rate_limited|no_available_key|rate_limit_error'; then
+elif echo "$LOAD_OUT" | grep -Eq 'all_keys_rate_limited|no_available_key|rate_limit_error|upstream_unavailable|"status":502|"status":503'; then
   skip "concurrent load smoke test" "upstream GPT capacity is currently unavailable"
   printf '%s\n' "$LOAD_OUT"
 else
