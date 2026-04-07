@@ -1,10 +1,26 @@
 {
-  "name": "@workspace/open-hax-openai-proxy",
-  "version": "0.1.0",
-  "private": true,
+  "name": "@open-hax/proxx",
+  "version": "0.2.0",
   "type": "module",
-  "description": "OpenAI-compatible chat proxy with provider account rotation.",
+  "description": "OpenAI-compatible proxy with provider account rotation, federation, and websocket bridge.",
   "license": "GPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/open-hax/proxx.git"
+  },
+  "keywords": [
+    "openai",
+    "proxy",
+    "claude",
+    "federation",
+    "account-rotation",
+    "llm",
+    "chat-completions"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
+  },
   "scripts": {
     "dev": "node --env-file-if-exists=.env --import tsx src/main.ts",
     "build": "rm -rf dist && tsc -p tsconfig.json",
