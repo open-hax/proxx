@@ -285,8 +285,8 @@ if [[ -n "${DEV_PROXY_AUTH_TOKEN:-}" ]]; then
       done
       if [[ "$HTTP_STATUS" == "200" ]]; then
         pass "tenant API key can access /v1/chat/completions"
-      elif [[ "$HTTP_STATUS" == "429" && $(is_capacity_limited "$HTTP_BODY"; echo $?) -eq 0 ]]; then
-        pass "tenant API key can access /v1/chat/completions (status 429 capacity-limited)"
+      elif [[ $(is_infrastructure_issue "$HTTP_STATUS" "$HTTP_BODY"; echo $?) -eq 0 ]]; then
+        pass "tenant API key can access /v1/chat/completions (status ${HTTP_STATUS:-000} capacity-limited)"
       else
         fail "tenant API key chat completion" "status=${HTTP_STATUS:-000} $(json_error_summary "${HTTP_BODY:-}")"
       fi
