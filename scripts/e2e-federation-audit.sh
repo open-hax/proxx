@@ -267,7 +267,7 @@ CLUSTER_UNIQUE=$(printf '%s\n' "$CLUSTER_IDS" | count_unique_node_ids)
 if [[ "$CLUSTER_UNIQUE" -eq 1 && "$(printf '%s\n' "$CLUSTER_IDS" | head -n 1)" == "a1" ]]; then
   pass "cluster routing stays pinned to witness a1"
 else
-  fail "cluster routing stays pinned to witness a1" "observed nodes: $(printf '%s ' $CLUSTER_IDS | sed 's/ $//')"
+  fail "cluster routing stays pinned to witness a1" "observed nodes: $(printf '%s ' "$CLUSTER_IDS" | sed 's/ $//')"
 fi
 
 bold "── 2. peer registration and projected-state audit ──"

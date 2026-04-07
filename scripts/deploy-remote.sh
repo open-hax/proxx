@@ -130,7 +130,10 @@ build_runtime_payloads() {
 
 sync_repo_tree() {
   # shellcheck disable=SC2029
-  ssh "${SSH_OPTS[@]}" "$REMOTE" "mkdir -p $DEPLOY_PATH $DEPLOY_PATH/data $DEPLOY_PATH/db-backups $DEPLOY_PATH/deploy"
+  ssh "${SSH_OPTS[@]}" "$REMOTE" bash -s -- "$DEPLOY_PATH" "$DEPLOY_PATH/data" "$DEPLOY_PATH/db-backups" "$DEPLOY_PATH/deploy" <<'EOF'
+set -euo pipefail
+mkdir -p "$1" "$2" "$3" "$4"
+EOF
 
   rsync -az --delete \
     --checksum \
@@ -275,7 +278,10 @@ docker compose "${compose_args[@]}" exec -T open-hax-openai-proxy-db \
 EOF
 
   # shellcheck disable=SC2029
-  ssh "${SSH_OPTS[@]}" "$REMOTE" "mkdir -p $DEPLOY_PATH/db-backups"
+  ssh "${SSH_OPTS[@]}" "$REMOTE" bash -s -- "$DEPLOY_PATH/db-backups" <<'EOF'
+set -euo pipefail
+mkdir -p "$1"
+EOF
   rsync -az "$dump_file" "$REMOTE:$DEPLOY_PATH/db-backups/operational-sync.sql"
 
   ssh "${SSH_OPTS[@]}" "$REMOTE" bash -s -- "$DEPLOY_PATH" "$REMOTE_COMPOSE_PROJECT_NAME" "$REMOTE_COMPOSE_FILES" <<'EOF'
