@@ -64,10 +64,11 @@ is_capacity_limited() {
 
 is_infrastructure_issue() {
   local status="$1" json="$2"
-  # status 000 = no response (timeout/network)
+  # status empty or 000 = no response (timeout/network)
   # status 502 = upstream unavailable
   # status 503 = service unavailable
-  [[ "$status" == "000" || "$status" == "502" || "$status" == "503" || $(is_capacity_limited "$json"; echo $?) -eq 0 ]]
+  # status 429 with capacity-limited body
+  [[ -z "$status" || "$status" == "000" || "$status" == "502" || "$status" == "503" || $(is_capacity_limited "$json"; echo $?) -eq 0 ]]
 }
 
 curl_status() {
