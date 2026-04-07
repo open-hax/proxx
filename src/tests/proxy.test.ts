@@ -5809,6 +5809,62 @@ test("routes gpt chat requests to responses endpoint and maps response", async (
   );
 });
 
+test("falls back to top-level output_text when responses output message text is empty", async () => {
+  await withProxyApp(
+    {
+      keys: ["key-a"],
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: {
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({
+          id: "resp_top_level_output_text",
+          object: "response",
+          created_at: 1772516800,
+          model: "gpt-5.2",
+          output_text: "top-level-output-text-ok",
+          output: [
+            {
+              id: "msg_top_level_output_text",
+              type: "message",
+              role: "assistant",
+              content: []
+            }
+          ],
+          usage: {
+            input_tokens: 9,
+            output_tokens: 4,
+            total_tokens: 13
+          }
+        })
+      })
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json"
+        },
+        payload: {
+          model: "gpt-5.2",
+          messages: [{ role: "user", content: "hello" }],
+          stream: false
+        }
+      });
+
+      assert.equal(response.statusCode, 200);
+      const payload: unknown = response.json();
+      assert.ok(isRecord(payload));
+      assert.ok(Array.isArray(payload.choices));
+      assert.ok(isRecord(payload.choices[0]));
+      assert.ok(isRecord(payload.choices[0].message));
+      assert.equal(payload.choices[0].message.content, "top-level-output-text-ok");
+    }
+  );
+});
+
 test("preserves xhigh reasoning effort for gpt chat requests routed to responses", async () => {
   let observedBody: Record<string, unknown> = {};
 
@@ -6526,6 +6582,61 @@ test("routes gpt-5.4 through responses for openai oauth accounts", async () => {
       assert.ok(isRecord(payload));
       assert.equal(payload.object, "chat.completion");
       assert.equal(payload.model, "gpt-5.4");
+      assert.ok(Array.isArray(payload.choices));
+      assert.ok(isRecord(payload.choices[0]));
+      assert.ok(isRecord(payload.choices[0].message));
+      assert.equal(payload.choices[0].message.content, "OK");
+    }
+  );
+});
+
+test("buffers openai responses SSE deltas into chat content when the terminal response is empty", async () => {
+  await withProxyApp(
+    {
+      keys: [],
+      keysPayload: {
+        providers: {
+          openai: {
+            auth: "oauth_bearer",
+            accounts: [
+              { id: "openai-a", access_token: "oa-token-a", chatgpt_account_id: "chatgpt-a" },
+            ]
+          }
+        }
+      },
+      configOverrides: {
+        upstreamProviderId: "openai",
+        upstreamFallbackProviderIds: [],
+      },
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: {
+          "content-type": "text/event-stream; charset=utf-8"
+        },
+        body: [
+          `event: response.created\ndata: ${JSON.stringify({ type: "response.created", response: { id: "resp_empty_terminal", status: "in_progress", model: "gpt-5.2", output: [] } })}\n\n`,
+          `event: response.output_text.delta\ndata: ${JSON.stringify({ type: "response.output_text.delta", delta: "OK" })}\n\n`,
+          `event: response.completed\ndata: ${JSON.stringify({ type: "response.completed", response: { id: "resp_empty_terminal", status: "completed", model: "gpt-5.2", output: [{ type: "message", role: "assistant", content: [] }], usage: { input_tokens: 5, output_tokens: 2, total_tokens: 7 } } })}\n\n`,
+        ].join("")
+      })
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json"
+        },
+        payload: {
+          model: "gpt-5.2",
+          messages: [{ role: "user", content: "Reply with exactly: OK" }],
+          stream: false
+        }
+      });
+
+      assert.equal(response.statusCode, 200);
+      const payload: unknown = response.json();
+      assert.ok(isRecord(payload));
       assert.ok(Array.isArray(payload.choices));
       assert.ok(isRecord(payload.choices[0]));
       assert.ok(isRecord(payload.choices[0].message));
