@@ -5927,6 +5927,69 @@ test("preserves xhigh reasoning effort for gpt chat requests routed to responses
   );
 });
 
+test("normalizes xhigh reasoning effort to high for ollama-cloud provider", async () => {
+  let observedBody: Record<string, unknown> = {};
+
+  await withProxyApp(
+    {
+      keys: [],
+      keysPayload: {
+        providers: {
+          "ollama-cloud": ["ollama-cloud-key"]
+        }
+      },
+      configOverrides: {
+        upstreamProviderId: "ollama-cloud",
+        upstreamFallbackProviderIds: []
+      },
+      upstreamHandler: async (_request, body) => {
+        observedBody = JSON.parse(body) as Record<string, unknown>;
+        return {
+          status: 200,
+          headers: {
+            "content-type": "application/json"
+          },
+          body: JSON.stringify({
+            id: "chatcmpl-ollama-xhigh",
+            object: "chat.completion",
+            model: "gemma3:27b",
+            choices: [
+              {
+                index: 0,
+                message: {
+                  role: "assistant",
+                  content: "xhigh-normalized"
+                },
+                finish_reason: "stop"
+              }
+            ]
+          })
+        };
+      }
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json"
+        },
+        payload: {
+          model: "gemma3:27b",
+          messages: [{ role: "user", content: "hello" }],
+          reasoning_effort: "xhigh",
+          stream: false
+        }
+      });
+
+      assert.equal(response.statusCode, 200);
+      assert.equal(response.headers["x-open-hax-upstream-provider"], "ollama-cloud");
+      assert.ok(isRecord(observedBody.reasoning));
+      assert.equal(observedBody.reasoning.effort, "high");
+    }
+  );
+});
+
 test("routes glm chat requests to chat-completions upstream", async () => {
   let observedPath = "";
   let observedBody: unknown;
