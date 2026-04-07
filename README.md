@@ -416,3 +416,244 @@ curl --request POST \
     "stream": true
   }'
 ```
+
+## Semantic Versioning
+
+Proxx follows [Semantic Versioning 2.0.0](https://semver.org/).
+
+| Version Component | When to Bump | Examples |
+|-------------------|--------------|----------|
+| **MAJOR** (X.0.0) | Breaking API changes | Removing endpoints, changing auth flow, restructuring federation protocol |
+| **MINOR** (0.Y.0) | New features, backwards compatible | New providers, new endpoints, federation features, bridge protocol |
+| **PATCH** (0.0.Z) | Bug fixes, improvements | Rate limit handling, documentation, performance |
+
+### Fork Tax Releases
+
+Fork tax releases are tagged as `vX.Y.Z` and published to npm:
+
+```bash
+# Tag a release
+git tag -a v0.2.0 -m "Release v0.2.0: federation bridge and capacity-aware e2e"
+git push origin v0.2.0
+
+# Publish to npm (requires NPM_TOKEN)
+npm publish --access public
+```
+
+Current stable: **v0.2.0** — Federation bridge, capacity-aware testing, single-witness production routing.
+
+### Version History
+
+| Version | Date | Summary |
+|---------|------|---------|
+| 0.2.0 | 2025-04-07 | Federation bridge protocol, capacity-aware live e2e, production single-witness routing |
+| 0.1.0 | 2025-03-15 | Initial release: OpenAI-compatible proxy with account rotation |
+
+## Usage Modes
+
+Proxx supports four deployment modes, from simple to fully federated:
+
+### Mode A: Isolated Local Instance
+
+Single-tenant local deployment for personal use.
+
+```bash
+git clone https://github.com/open-hax/proxx.git
+cd proxx
+pnpm install
+cp .env.example .env
+
+# Edit .env:
+# - PROXY_AUTH_TOKEN=your-secret-token
+# - DATABASE_URL=postgresql://... (optional, uses sqlite otherwise)
+
+pnpm dev
+```
+
+Your instance is now available at:
+- API: http://127.0.0.1:8789
+- Web UI: http://127.0.0.1:5174
+
+**Use when:** You want a personal AI proxy with account rotation, running locally.
+
+### Mode B: Multi-Tenant Local Instance
+
+Local deployment with multiple tenants (family, team).
+
+```bash
+# Same as Mode A, but use PostgreSQL for shared state
+DATABASE_URL=postgresql://user:pass@localhost:5432/proxx pnpm dev
+
+# Create tenants via API:
+curl -X POST http://127.0.0.1:8789/api/v1/tenants \
+  -H "Authorization: Bearer $PROXY_AUTH_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"label": "family", "scopes": ["proxy:use"]}'
+```
+
+Each tenant gets their own API key and can have separate provider allowlists.
+
+**Use when:** You want to share the proxy with family or a small team.
+
+### Mode C: Federated Cloud Deployment
+
+Multiple cloud instances sharing state via PostgreSQL.
+
+1. Deploy to multiple hosts (testing, staging, production)
+2. Point all instances at the same `DATABASE_URL`
+3. Instances automatically share:
+   - Operator/admin login state
+   - Tenant API keys and settings
+   - Provider credentials (including OAuth accounts)
+   - Usage analytics
+
+```bash
+# Each instance sets its own identity:
+FEDERATION_SELF_CLUSTER_ID=production
+FEDERATION_SELF_GROUP_ID=group-a
+FEDERATION_SELF_NODE_ID=a1
+```
+
+Routing prefixes:
+- `/cluster/` — routes to any node in the cluster
+- `/group-a/` — routes to any node in group-a
+- `/a1.node.promethean.rest/` — routes to specific node
+
+**Use when:** You want high availability, geographic distribution, or staged deployments.
+
+### Mode D: Full Hybrid with WebSocket Bridge
+
+Connect a local instance to your cloud deployment without opening inbound ports.
+
+**Local side:**
+```bash
+FEDERATION_BRIDGE_RELAY_URL=wss://your-cloud.promethean.rest/api/ui/federation/bridge/ws
+FEDERATION_BRIDGE_AUTHORIZATION=Bearer <token>
+FEDERATION_SELF_CLUSTER_ID=local
+FEDERATION_SELF_GROUP_ID=local-group
+FEDERATION_SELF_NODE_ID=local-node
+```
+
+**Cloud side:**
+- Bridge relay starts automatically with the federation UI
+- Sessions appear in `/api/v1/federation/bridges`
+- Request routing respects bridge-advertised capabilities
+
+**What this enables:**
+- Local OAuth flows (localhost callbacks) → cloud routing
+- Local accounts visible to cloud as bridge-routed capability
+- No inbound firewall changes needed
+
+**Use when:** You want cloud scale but need local-only OAuth (ChatGPT, Factory) or have NAT/firewall constraints.
+
+See [`specs/drafts/federation-bridge-ws-v0.md`](specs/drafts/federation-bridge-ws-v0.md) for protocol details.
+
+## Federation Panel
+
+The Web UI includes a Federation page at `/federation` showing:
+
+| Section | What It Shows |
+|---------|---------------|
+| **Self** | This instance's cluster/group/node identity |
+| **Peers** | Registered federation peers with sync status |
+| **Bridges** | Active WebSocket bridge sessions |
+| **Accounts** | Local vs projected vs imported accounts |
+| **Routed Requests** | Live feed of federated/bridge-routed traffic |
+
+### Bridge Session Details
+
+Each bridge session displays:
+- Session ID and peer DID
+- Cluster/group/node topology
+- Advertised capabilities (models, paths)
+- Health status and last heartbeat
+- Active streams and queued requests
+
+### Federation Health
+
+```bash
+# Check each environment
+curl https://testing.proxx.ussy.promethean.rest/health | jq '.ok'
+curl https://staging.proxx.ussy.promethean.rest/health | jq '.ok'
+curl https://proxx.promethean.rest/health | jq '.ok'
+```
+
+## OpenAPI Contract
+
+Proxx exposes an OpenAPI 3.0 specification:
+
+```bash
+curl https://your-instance.promethean.rest/api/v1/openapi.json
+```
+
+### Covered Endpoints
+
+| Path | Description |
+|------|-------------|
+| `/v1/chat/completions` | OpenAI-compatible chat |
+| `/v1/responses` | OpenAI Responses API |
+| `/v1/models` | Model catalog |
+| `/v1/embeddings` | Embeddings |
+| `/v1/images/generations` | Image generation |
+| `/api/v1/federation/*` | Federation control plane |
+| `/api/v1/tenants/*` | Tenant management |
+| `/api/v1/credentials/*` | Credential management |
+
+### Validate Contract
+
+```bash
+curl -s https://proxx.promethean.rest/api/v1/openapi.json > openapi.json
+npx @apidevtools/swagger-cli validate openapi.json
+```
+
+## Agent Setup Prompt
+
+For AI assistants outside the devel workspace, use this prompt:
+
+```
+Set up proxx (OpenAI-compatible proxy with account rotation and federation):
+
+1. Clone and install:
+   git clone https://github.com/open-hax/proxx.git && cd proxx && pnpm install
+
+2. Configure environment:
+   cp .env.example .env
+   
+   Required in .env:
+   - PROXY_AUTH_TOKEN=<your-secret-token>
+   
+   Optional:
+   - DATABASE_URL=postgresql://... (for multi-tenant or federation)
+   - UPSTREAM_PROVIDER_ID=vivgrid|openai|ollama-cloud
+   - OPENAI_API_KEY, FACTORY_API_KEY, etc. for provider credentials
+
+3. Run:
+   pnpm dev
+
+4. Verify:
+   curl http://127.0.0.1:8789/health
+
+Endpoints:
+- API: http://127.0.0.1:8789
+- Web UI: http://127.0.0.1:5174
+- OpenAPI: http://127.0.0.1:8789/api/v1/openapi.json
+
+For advanced modes (federation, bridge, multi-tenant), see README.md sections:
+- Mode A: Isolated local instance
+- Mode B: Multi-tenant local
+- Mode C: Federated cloud
+- Mode D: Hybrid with WebSocket bridge
+
+Semantic versioning: See package.json for current version.
+Fork tax releases are tagged vX.Y.Z and published to npm as @open-hax/proxx.
+```
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch: `git checkout -b feature/your-feature`
+3. Make changes and add tests
+4. Run validation: `pnpm validate:required`
+5. Submit a PR into `staging` branch
+
+See [`DEVEL.md`](DEVEL.md) for development workflow details.
