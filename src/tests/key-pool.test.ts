@@ -345,6 +345,58 @@ test("rate-limit cooldown survives OAuth token refresh for the same account", as
   );
 });
 
+test("persisted cooldown timestamps are normalized to integers", async () => {
+  await withKeysFile(
+    {
+      providers: {
+        openai: {
+          auth: "oauth_bearer",
+          accounts: [
+            { id: "oa-1", access_token: "oa-token-1", chatgpt_account_id: "chatgpt-a" },
+          ],
+        },
+      },
+    },
+    async (keysFilePath) => {
+      const originalNow = Date.now;
+      const persisted: number[] = [];
+      Date.now = () => 1_700_000_000_000;
+
+      try {
+        const keyPool = new KeyPool({
+          keysFilePath,
+          reloadIntervalMs: 100000,
+          defaultCooldownMs: 60_000,
+          defaultProviderId: "openai",
+          cooldownJitterFactor: 0.4,
+          cooldownStore: {
+            async loadCooldowns() {
+              return new Map();
+            },
+            async persistCooldown(_providerId, _accountId, cooldownUntil) {
+              persisted.push(cooldownUntil);
+            },
+            async clearCooldown() {
+              return;
+            },
+          },
+        }, () => 1);
+
+        await keyPool.warmup();
+        const credential = (await keyPool.getRequestOrder("openai"))[0]!;
+
+        keyPool.markRateLimited(credential, 60_000);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        assert.equal(persisted.length, 1);
+        assert.equal(Number.isInteger(persisted[0]!), true);
+      } finally {
+        Date.now = originalNow;
+      }
+    },
+  );
+});
+
 test("loads env-backed openrouter and requesty providers alongside file accounts", { concurrency: false }, async () => {
   await withEnv(
     {

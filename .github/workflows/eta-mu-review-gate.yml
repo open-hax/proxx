@@ -40,7 +40,7 @@ jobs:
           cache-dependency-path: .eta-mu/packages/eta-mu-github/pnpm-lock.yaml
 
       - name: Install eta-mu dependencies
-        run: pnpm --dir .eta-mu/packages/eta-mu-github install --frozen-lockfile
+        run: pnpm --dir .eta-mu/packages/eta-mu-github install --frozen-lockfile --ignore-workspace
 
       - name: Enforce review-thread resolution for configured actors
         env:

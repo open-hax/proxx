@@ -946,7 +946,7 @@ export class KeyPool {
     const baseCooldown = Math.max(retryAfterMs ?? this.config.defaultCooldownMs, 1000);
     const jitterFactor = this.config.cooldownJitterFactor ?? 0.4;
     const jitteredCooldown = this.applyJitterToCooldown(baseCooldown, jitterFactor);
-    const cooldownUntil = Date.now() + jitteredCooldown;
+    const cooldownUntil = normalizeEpochMilliseconds(Date.now() + jitteredCooldown) ?? 0;
     this.cooldownByAccountKey.set(accountStateKey(credential), cooldownUntil);
 
     const streakKey = accountStateKey(credential);
@@ -969,14 +969,15 @@ export class KeyPool {
 
   public setAccountCooldownUntil(providerId: string, accountId: string, cooldownUntil: number): void {
     const key = accountStateKeyFromIds(normalizeProviderId(providerId), accountId);
-    if (!Number.isFinite(cooldownUntil) || cooldownUntil <= Date.now()) {
+    const normalizedCooldownUntil = normalizeEpochMilliseconds(cooldownUntil) ?? 0;
+    if (!Number.isFinite(normalizedCooldownUntil) || normalizedCooldownUntil <= Date.now()) {
       this.cooldownByAccountKey.delete(key);
       this.persistCooldownAsync(providerId, accountId, 0);
       return;
     }
 
-    this.cooldownByAccountKey.set(key, cooldownUntil);
-    this.persistCooldownAsync(providerId, accountId, cooldownUntil);
+    this.cooldownByAccountKey.set(key, normalizedCooldownUntil);
+    this.persistCooldownAsync(providerId, accountId, normalizedCooldownUntil);
   }
 
   public clearAccountCooldown(providerId: string, accountId: string): void {
@@ -1190,10 +1191,11 @@ export class KeyPool {
     if (!this.config.cooldownStore) {
       return;
     }
-    if (cooldownUntil <= Date.now()) {
+    const normalizedCooldownUntil = normalizeEpochMilliseconds(cooldownUntil) ?? 0;
+    if (normalizedCooldownUntil <= Date.now()) {
       this.config.cooldownStore.clearCooldown(providerId, accountId).catch(() => undefined);
     } else {
-      this.config.cooldownStore.persistCooldown(providerId, accountId, cooldownUntil).catch(() => undefined);
+      this.config.cooldownStore.persistCooldown(providerId, accountId, normalizedCooldownUntil).catch(() => undefined);
     }
   }
 

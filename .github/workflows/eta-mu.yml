@@ -13,9 +13,10 @@ on:
     types: [created]
 
 permissions:
-  contents: read
+  contents: write
   issues: write
   pull-requests: write
+  checks: write
 
 concurrency:
   group: eta-mu-${{ github.repository }}-${{ github.event.issue.number || github.event.pull_request.number || github.run_id }}
@@ -38,17 +39,29 @@ jobs:
           path: .eta-mu
           persist-credentials: false
 
-      - name: Create eta-mu app token
-        id: eta_mu_token
-        if: ${{ secrets.ETA_MU_APP_ID != '' && secrets.ETA_MU_APP_PRIVATE_KEY != '' }}
-        continue-on-error: true
-        uses: actions/create-github-app-token@v1
+      - name: Detect eta-mu app credentials
+        id: eta_mu_app_credentials
         env:
           ETA_MU_APP_ID: ${{ secrets.ETA_MU_APP_ID }}
           ETA_MU_APP_PRIVATE_KEY: ${{ secrets.ETA_MU_APP_PRIVATE_KEY }}
+        run: |
+          if [[ -n "${ETA_MU_APP_ID}" && -n "${ETA_MU_APP_PRIVATE_KEY}" ]]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create eta-mu app token
+        id: eta_mu_token
+        if: ${{ steps.eta_mu_app_credentials.outputs.available == 'true' }}
+        continue-on-error: true
+        env:
+          ETA_MU_APP_ID: ${{ secrets.ETA_MU_APP_ID }}
+          ETA_MU_APP_PRIVATE_KEY: ${{ secrets.ETA_MU_APP_PRIVATE_KEY }}
+        uses: actions/create-github-app-token@v1
         with:
-          app-id: ${{ secrets.ETA_MU_APP_ID }}
-          private-key: ${{ secrets.ETA_MU_APP_PRIVATE_KEY }}
+          app-id: ${{ env.ETA_MU_APP_ID }}
+          private-key: ${{ env.ETA_MU_APP_PRIVATE_KEY }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -63,9 +76,11 @@ jobs:
           cache-dependency-path: .eta-mu/packages/eta-mu-github/pnpm-lock.yaml
 
       - name: Install eta-mu dependencies
-        run: pnpm --dir .eta-mu/packages/eta-mu-github install --frozen-lockfile
+        run: pnpm --dir .eta-mu/packages/eta-mu-github install --frozen-lockfile --ignore-workspace
 
       - name: Run eta-mu event handler
+        id: eta_mu_run
+        continue-on-error: true
         env:
           GITHUB_TOKEN: ${{ steps.eta_mu_token.conclusion == 'success' && steps.eta_mu_token.outputs.token != '' && steps.eta_mu_token.outputs.token || github.token }}
           ETA_MU_APP_ID: ${{ secrets.ETA_MU_APP_ID }}
@@ -89,3 +104,8 @@ jobs:
           --event-name "${GITHUB_EVENT_NAME}"
           --event-path "${GITHUB_EVENT_PATH}"
           --cwd "$PWD"
+
+      - name: Warn when eta-mu falls back
+        if: ${{ steps.eta_mu_run.outcome == 'failure' }}
+        run: |
+          echo "::warning title=eta-mu soft failure::The eta-mu event handler failed for this event. Promotion should continue because eta-mu is advisory automation here; inspect the eta-mu run logs for details while the wrapper workflow remains green."

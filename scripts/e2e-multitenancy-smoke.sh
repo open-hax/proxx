@@ -12,6 +12,7 @@ fi
 PASS=0
 FAIL=0
 RESTORE_SETTINGS_JSON=''
+KEY_ID=''
 
 green()  { printf "\033[32m%s\033[0m\n" "$*"; }
 red()    { printf "\033[31m%s\033[0m\n" "$*"; }
@@ -56,11 +57,19 @@ else:
 
 restore_settings() {
   if [[ -n "$RESTORE_SETTINGS_JSON" ]]; then
-    admin_json -X POST "${BASE}/api/ui/settings" -d "$RESTORE_SETTINGS_JSON" >/dev/null || true
+    admin_json -X POST "${BASE}/api/v1/settings" -d "$RESTORE_SETTINGS_JSON" >/dev/null || true
   fi
 }
 
-trap restore_settings EXIT
+cleanup_key() {
+  if [[ -n "$KEY_ID" ]]; then
+    curl -sS --max-time 30 \
+      -H "Authorization: Bearer ${AUTH_TOKEN}" \
+      -X DELETE "${BASE}/api/v1/tenants/default/api-keys/${KEY_ID}" >/dev/null || true
+  fi
+}
+
+trap 'cleanup_key; restore_settings' EXIT
 
 bold "=== Multitenancy smoke against ${BASE} ==="
 
@@ -71,12 +80,12 @@ else
   exit 1
 fi
 
-CURRENT_SETTINGS=$(admin_json "${BASE}/api/ui/settings") || CURRENT_SETTINGS=''
+CURRENT_SETTINGS=$(admin_json "${BASE}/api/v1/settings") || CURRENT_SETTINGS=''
 if [[ -z "$CURRENT_SETTINGS" ]]; then
-  fail "GET /api/ui/settings" "no response"
+  fail "GET /api/v1/settings" "no response"
   exit 1
 fi
-pass "GET /api/ui/settings"
+pass "GET /api/v1/settings"
 RESTORE_SETTINGS_JSON=$(printf '%s' "$CURRENT_SETTINGS" | python3 -c '
 import json, sys
 payload = json.load(sys.stdin)
@@ -88,7 +97,7 @@ print(json.dumps({
 }))
 ')
 
-UPDATED_SETTINGS=$(admin_json -X POST "${BASE}/api/ui/settings" -d '{"allowedProviderIds":["openai"]}') || UPDATED_SETTINGS=''
+UPDATED_SETTINGS=$(admin_json -X POST "${BASE}/api/v1/settings" -d '{"allowedProviderIds":["openai"]}') || UPDATED_SETTINGS=''
 if [[ -n "$UPDATED_SETTINGS" && "$(printf '%s' "$UPDATED_SETTINGS" | json_field 'allowedProviderIds.0' 2>/dev/null || true)" == "openai" ]]; then
   pass "tenant provider allowlist persisted"
 else
@@ -102,7 +111,7 @@ fi
 
 # First, set allowlist to vivgrid+openai (common production config)
 # This ensures factory is definitively NOT in the allowlist.
-RESTRICT_SETTINGS=$(admin_json -X POST "${BASE}/api/ui/settings" -d '{"allowedProviderIds":["vivgrid","openai"]}') || RESTRICT_SETTINGS=''
+RESTRICT_SETTINGS=$(admin_json -X POST "${BASE}/api/v1/settings" -d '{"allowedProviderIds":["vivgrid","openai"]}') || RESTRICT_SETTINGS=''
 if [[ -n "$RESTRICT_SETTINGS" && "$(printf '%s' "$RESTRICT_SETTINGS" | json_field 'allowedProviderIds.0' 2>/dev/null || true)" == "vivgrid" ]]; then
   pass "tenant provider allowlist set to vivgrid+openai"
 else
@@ -137,14 +146,14 @@ else
 fi
 
 # Restore allowlist to openai for subsequent tests
-RESTORED_SETTINGS=$(admin_json -X POST "${BASE}/api/ui/settings" -d '{"allowedProviderIds":["openai"]}') || RESTORED_SETTINGS=''
+RESTORED_SETTINGS=$(admin_json -X POST "${BASE}/api/v1/settings" -d '{"allowedProviderIds":["openai"]}') || RESTORED_SETTINGS=''
 if [[ -n "$RESTORED_SETTINGS" && "$(printf '%s' "$RESTORED_SETTINGS" | json_field 'allowedProviderIds.0' 2>/dev/null || true)" == "openai" ]]; then
   pass "tenant provider allowlist restored to openai"
 else
   fail "tenant provider allowlist restored to openai" "unexpected response"
 fi
 
-CREATED_KEY=$(admin_json -X POST "${BASE}/api/ui/tenants/default/api-keys" -d '{"label":"live-smoke-key","scopes":["proxy:use"]}') || CREATED_KEY=''
+CREATED_KEY=$(admin_json -X POST "${BASE}/api/v1/tenants/default/api-keys" -d '{"label":"live-smoke-key","scopes":["proxy:use"]}') || CREATED_KEY=''
 if [[ -z "$CREATED_KEY" ]]; then
   fail "tenant key create" "no response"
   exit 1
@@ -171,7 +180,7 @@ else
   fail "tenant key accepted on /v1/chat/completions" "status=${TENANT_STATUS}"
 fi
 
-KEYS_AFTER=$(admin_json "${BASE}/api/ui/tenants/default/api-keys") || KEYS_AFTER=''
+KEYS_AFTER=$(admin_json "${BASE}/api/v1/tenants/default/api-keys") || KEYS_AFTER=''
 LAST_USED=$(printf '%s' "$KEYS_AFTER" | python3 -c '
 import json, sys
 payload = json.load(sys.stdin)
@@ -187,15 +196,16 @@ else
   fail "tenant key lastUsedAt updated" "empty value"
 fi
 
-DELETE_RESPONSE=$(curl -sS -w '\nHTTP_STATUS:%{http_code}' --max-time 30 -H "Authorization: Bearer ${AUTH_TOKEN}" -X DELETE "${BASE}/api/ui/tenants/default/api-keys/${KEY_ID}" || true)
+DELETE_RESPONSE=$(curl -sS -w '\nHTTP_STATUS:%{http_code}' --max-time 30 -H "Authorization: Bearer ${AUTH_TOKEN}" -X DELETE "${BASE}/api/v1/tenants/default/api-keys/${KEY_ID}" || true)
 DELETE_STATUS="${DELETE_RESPONSE##*$'\n'HTTP_STATUS:}"
 if [[ "$DELETE_STATUS" == "200" ]]; then
   pass "tenant key cleanup"
+  KEY_ID=''
 else
   fail "tenant key cleanup" "status=${DELETE_STATUS}"
 fi
 
-admin_json -X POST "${BASE}/api/ui/settings" -d "$RESTORE_SETTINGS_JSON" >/dev/null
+admin_json -X POST "${BASE}/api/v1/settings" -d "$RESTORE_SETTINGS_JSON" >/dev/null
 pass "tenant settings restored"
 RESTORE_SETTINGS_JSON=''
 
