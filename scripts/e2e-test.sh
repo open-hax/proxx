@@ -62,12 +62,6 @@ is_capacity_limited() {
   [[ "$error_code" == "all_keys_rate_limited" || "$error_code" == "no_available_key" || "$error_type" == "rate_limit_error" ]]
 }
 
-curl_json_token() {
-  local token="$1"
-  shift
-  curl -sf --max-time 30 -H "Content-Type: application/json" -H "Authorization: Bearer ${token}" "$@"
-}
-
 curl_status() {
   curl -so /dev/null -w "%{http_code}" --max-time 30 "${AUTH_ARGS[@]}" "$@"
 }
@@ -215,45 +209,6 @@ print(0)
 chat_completion() {
   local model="$1" content="${2:-Say exactly: OK}"
   curl_json -X POST "${BASE}/v1/chat/completions" -d "{
-    \"model\": \"$model\",
-    \"messages\": [{\"role\": \"user\", \"content\": \"$content\"}],
-    \"stream\": false
-  }"
-}
-
-chat_completion_stream() {
-  local model="$1" content="${2:-Say exactly: OK}"
-  curl -sf --max-time 60 -H "Content-Type: application/json" "${AUTH_ARGS[@]}" \
-    -X POST "${BASE}/v1/chat/completions" -d "{
-    \"model\": \"$model\",
-    \"messages\": [{\"role\": \"user\", \"content\": \"$content\"}],
-    \"stream\": true
-  }"
-}
-
-responses_passthrough() {
-  local model="$1" text="${2:-Say exactly: OK}"
-  curl_json -X POST "${BASE}/v1/responses" -d "{
-    \"model\": \"$model\",
-    \"input\": [{\"role\": \"user\", \"content\": [{\"type\": \"input_text\", \"text\": \"$text\"}]}],
-    \"instructions\": \"\",
-    \"stream\": false
-  }"
-}
-
-responses_passthrough_null_instructions() {
-  local model="$1" text="${2:-Say exactly: OK}"
-  curl_json -X POST "${BASE}/v1/responses" -d "{
-    \"model\": \"$model\",
-    \"input\": [{\"role\": \"user\", \"content\": [{\"type\": \"input_text\", \"text\": \"$text\"}]}],
-    \"instructions\": null,
-    \"stream\": true
-  }"
-}
-
-chat_completion_with_token() {
-  local token="$1" model="$2" content="${3:-Say exactly: OK}"
-  curl_json_token "$token" -X POST "${BASE}/v1/chat/completions" -d "{
     \"model\": \"$model\",
     \"messages\": [{\"role\": \"user\", \"content\": \"$content\"}],
     \"stream\": false
