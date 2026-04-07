@@ -13,9 +13,10 @@ on:
     types: [created]
 
 permissions:
-  contents: read
+  contents: write
   issues: write
   pull-requests: write
+  checks: write
 
 concurrency:
   group: eta-mu-${{ github.repository }}-${{ github.event.issue.number || github.event.pull_request.number || github.run_id }}
@@ -66,6 +67,8 @@ jobs:
         run: pnpm --dir .eta-mu/packages/eta-mu-github install --frozen-lockfile --ignore-workspace
 
       - name: Run eta-mu event handler
+        id: eta_mu_run
+        continue-on-error: true
         env:
           GITHUB_TOKEN: ${{ steps.eta_mu_token.conclusion == 'success' && steps.eta_mu_token.outputs.token != '' && steps.eta_mu_token.outputs.token || github.token }}
           ETA_MU_APP_ID: ${{ secrets.ETA_MU_APP_ID }}
@@ -89,3 +92,8 @@ jobs:
           --event-name "${GITHUB_EVENT_NAME}"
           --event-path "${GITHUB_EVENT_PATH}"
           --cwd "$PWD"
+
+      - name: Warn when eta-mu falls back
+        if: ${{ steps.eta_mu_run.outcome == 'failure' }}
+        run: |
+          echo "::warning title=eta-mu soft failure::The eta-mu event handler failed for this event. Promotion should continue because eta-mu is advisory automation here; inspect the eta-mu run logs for details while the wrapper workflow remains green."
