@@ -5984,8 +5984,7 @@ test("normalizes xhigh reasoning effort to high for ollama-cloud provider", asyn
 
       assert.equal(response.statusCode, 200);
       assert.equal(response.headers["x-open-hax-upstream-provider"], "ollama-cloud");
-      assert.ok(isRecord(observedBody.reasoning));
-      assert.equal(observedBody.reasoning.effort, "high");
+      assert.equal(observedBody.reasoning_effort, "high");
     }
   );
 });
