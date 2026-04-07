@@ -1081,10 +1081,14 @@ export function responsesToChatCompletion(responseBody: unknown, fallbackModel: 
   const createdAt = asNumber(responseBody["created_at"]) ?? Math.floor(Date.now() / 1000);
   const model = asString(responseBody["model"]) ?? fallbackModel;
   const mappedMessage = responsesOutputToChatMessage(responseBody["output"]);
+  const topLevelOutputText = asString(responseBody["output_text"]);
+  const content = mappedMessage.content === "" && topLevelOutputText && topLevelOutputText.length > 0
+    ? topLevelOutputText
+    : mappedMessage.content;
 
   const message: Record<string, unknown> = {
     role: "assistant",
-    content: mappedMessage.content
+    content
   };
   if (mappedMessage.reasoningContent.length > 0) {
     message["reasoning_content"] = mappedMessage.reasoningContent;
