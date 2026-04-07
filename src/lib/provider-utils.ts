@@ -118,12 +118,21 @@ export function streamPayloadHasReasoningTrace(payload: string): boolean {
         || type === "response.reasoning_summary.delta"
         || type === "response.reasoning_summary_text.delta"
         || type === "response.reasoning_summary_part.delta"
+        || type === "response.reasoning_summary_part.added"
+        || type === "response.reasoning_summary_part.done"
       ) {
         const delta = parsed["delta"];
         if (typeof delta === "string" && delta.length > 0) {
           return true;
         }
         if (isRecord(delta) && typeof delta["text"] === "string" && delta["text"].length > 0) {
+          return true;
+        }
+        const part = parsed["part"];
+        if (isRecord(part) && typeof part["text"] === "string" && part["text"].length > 0) {
+          return true;
+        }
+        if (typeof parsed["text"] === "string" && parsed["text"].length > 0) {
           return true;
         }
       }
@@ -153,6 +162,8 @@ export function streamPayloadHasSubstantiveChunks(payload: string): boolean {
         || type === "response.reasoning_summary.delta"
         || type === "response.reasoning_summary_text.delta"
         || type === "response.reasoning_summary_part.delta"
+        || type === "response.reasoning_summary_part.added"
+        || type === "response.reasoning_summary_part.done"
       ) {
         const delta = parsed["delta"];
         if (typeof delta === "string" && delta.length > 0) {
@@ -160,6 +171,13 @@ export function streamPayloadHasSubstantiveChunks(payload: string): boolean {
         }
 
         if (isRecord(delta) && typeof delta["text"] === "string" && delta["text"].length > 0) {
+          return true;
+        }
+        const part = parsed["part"];
+        if (isRecord(part) && typeof part["text"] === "string" && part["text"].length > 0) {
+          return true;
+        }
+        if (typeof parsed["text"] === "string" && parsed["text"].length > 0) {
           return true;
         }
         continue;

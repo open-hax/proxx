@@ -46,6 +46,14 @@ test("streamPayloadHasReasoningTrace detects response.reasoning_summary.delta", 
   assert.ok(streamPayloadHasReasoningTrace(payload));
 });
 
+test("streamPayloadHasReasoningTrace detects response.reasoning_summary_part.added", () => {
+  const payload = [
+    "data: {\"type\":\"response.reasoning_summary_part.added\",\"part\":{\"type\":\"summary_text\",\"text\":\"summary text\"}}",
+    "data: [DONE]",
+  ].join("\n");
+  assert.ok(streamPayloadHasReasoningTrace(payload));
+});
+
 test("streamPayloadHasReasoningTrace returns false for empty reasoning delta", () => {
   const payload = [
     "data: {\"type\":\"response.reasoning.delta\",\"delta\":\"\"}",
