@@ -38,6 +38,30 @@ curl_json() {
   curl -sf --max-time 30 -H "Content-Type: application/json" "${AUTH_ARGS[@]}" "$@"
 }
 
+capture_json() {
+  curl -sS --max-time 30 -H "Content-Type: application/json" "${AUTH_ARGS[@]}" "$@" -w $'\nHTTP_STATUS:%{http_code}'
+}
+
+capture_json_token() {
+  local token="$1"
+  shift
+  curl -sS --max-time 30 -H "Content-Type: application/json" -H "Authorization: Bearer ${token}" "$@" -w $'\nHTTP_STATUS:%{http_code}'
+}
+
+split_http_response() {
+  local combined="$1"
+  HTTP_STATUS="${combined##*$'\n'HTTP_STATUS:}"
+  HTTP_BODY="${combined%$'\n'HTTP_STATUS:*}"
+}
+
+is_capacity_limited() {
+  local json="$1"
+  local error_code error_type
+  error_code="$(json_field_or_empty "$json" "error.code")"
+  error_type="$(json_field_or_empty "$json" "error.type")"
+  [[ "$error_code" == "all_keys_rate_limited" || "$error_code" == "no_available_key" || "$error_type" == "rate_limit_error" ]]
+}
+
 curl_json_token() {
   local token="$1"
   shift
@@ -236,6 +260,15 @@ chat_completion_with_token() {
   }"
 }
 
+chat_completion_with_token_capture() {
+  local token="$1" model="$2" content="${3:-Say exactly: OK}"
+  capture_json_token "$token" -X POST "${BASE}/v1/chat/completions" -d "{
+    \"model\": \"$model\",
+    \"messages\": [{\"role\": \"user\", \"content\": \"$content\"}],
+    \"stream\": false
+  }"
+}
+
 # ── connectivity ─────────────────────────────────────────────────────
 
 bold "=== E2E Tests against ${BASE} ==="
@@ -274,19 +307,24 @@ if [[ -n "${DEV_PROXY_AUTH_TOKEN:-}" ]]; then
     if [[ -n "$TENANT_KEY_ID" && -n "$TENANT_KEY_TOKEN" ]]; then
       # Retry once on first tenant key request to handle cold-start connection delays
       RESPONSE=""
+      HTTP_STATUS=""
+      HTTP_BODY=""
       for attempt in 1 2; do
-        RESPONSE=$(chat_completion_with_token "$TENANT_KEY_TOKEN" "openai/gpt-5.2-codex" "Reply with exactly one word: OK" 2>/dev/null) || RESPONSE=""
+        RESPONSE=$(chat_completion_with_token_capture "$TENANT_KEY_TOKEN" "openai/gpt-5.2-codex" "Reply with exactly one word: OK" 2>/dev/null) || RESPONSE=""
         if [[ -n "$RESPONSE" ]]; then
+          split_http_response "$RESPONSE"
           break
         fi
         if [[ "$attempt" -eq 1 ]]; then
           sleep 2
         fi
       done
-      if [[ -n "$RESPONSE" ]]; then
+      if [[ "$HTTP_STATUS" == "200" ]]; then
         pass "tenant API key can access /v1/chat/completions"
+      elif [[ "$HTTP_STATUS" == "429" && $(is_capacity_limited "$HTTP_BODY"; echo $?) -eq 0 ]]; then
+        pass "tenant API key can access /v1/chat/completions (status 429 capacity-limited)"
       else
-        fail "tenant API key chat completion" "no response after retry"
+        fail "tenant API key chat completion" "status=${HTTP_STATUS:-000} $(json_error_summary "${HTTP_BODY:-}")"
       fi
 
       TENANT_KEYS=$(curl_json "${BASE}/api/v1/tenants/default/api-keys" 2>/dev/null) || TENANT_KEYS=""
@@ -331,20 +369,36 @@ fi
 bold ""
 bold "── 2. OpenAI Responses Strategy (gpt-* chat completions) ──"
 
-RESPONSE=$(chat_completion "gpt-5.2" "Reply with exactly one word: OK" 2>/dev/null) || RESPONSE=""
-if [[ -n "$RESPONSE" ]]; then
+GPT_RESPONSE=$(capture_json -X POST "${BASE}/v1/chat/completions" -d '{
+  "model": "gpt-5.2",
+  "messages": [{"role": "user", "content": "Reply with exactly one word: OK"}],
+  "stream": false
+}' 2>/dev/null) || GPT_RESPONSE=""
+split_http_response "$GPT_RESPONSE"
+if [[ "$HTTP_STATUS" == "200" && -n "$HTTP_BODY" ]]; then
+  RESPONSE="$HTTP_BODY"
   assert_json_field "gpt-5.2 returns chat.completion" "object" "chat.completion"
   assert_json_field "gpt-5.2 has choices" "choices.0.message.role" "assistant"
   pass "gpt-5.2 non-streaming round-trip"
+elif [[ "$HTTP_STATUS" == "429" && $(is_capacity_limited "$HTTP_BODY"; echo $?) -eq 0 ]]; then
+  skip "gpt-5.2 chat completion" "upstream GPT capacity is currently unavailable"
 else
-  fail "gpt-5.2 chat completion" "no response or error"
+  fail "gpt-5.2 chat completion" "status=${HTTP_STATUS:-000} $(json_error_summary "${HTTP_BODY:-}")"
 fi
 
-STREAM_OUT=$(chat_completion_stream "gpt-5.2" "Reply with one word: OK" 2>/dev/null) || STREAM_OUT=""
-if echo "$STREAM_OUT" | grep -q "data:"; then
+STREAM_OUT=$(curl -sS --max-time 60 -H "Content-Type: application/json" "${AUTH_ARGS[@]}" \
+  -X POST "${BASE}/v1/chat/completions" -d '{
+  "model": "gpt-5.2",
+  "messages": [{"role": "user", "content": "Reply with one word: OK"}],
+  "stream": true
+}' -w $'\nHTTP_STATUS:%{http_code}' 2>/dev/null) || STREAM_OUT=""
+split_http_response "$STREAM_OUT"
+if echo "$HTTP_BODY" | grep -q "data:"; then
   pass "gpt-5.2 streaming round-trip"
+elif [[ "$HTTP_STATUS" == "429" && $(is_capacity_limited "$HTTP_BODY"; echo $?) -eq 0 ]]; then
+  skip "gpt-5.2 streaming" "upstream GPT capacity is currently unavailable"
 else
-  fail "gpt-5.2 streaming" "no SSE data chunks received"
+  fail "gpt-5.2 streaming" "status=${HTTP_STATUS:-000} no SSE data chunks received $(json_error_summary "${HTTP_BODY:-}")"
 fi
 
 # ── 3. OpenAI Responses Passthrough (gpt-* via /v1/responses) ──
@@ -352,19 +406,36 @@ fi
 bold ""
 bold "── 3. OpenAI Responses Passthrough (gpt-* via /v1/responses) ──"
 
-RESPONSE=$(responses_passthrough "gpt-5.2-codex" "Reply with one word: OK" 2>/dev/null) || RESPONSE=""
-if [[ -n "$RESPONSE" ]]; then
+RESPONSE=$(capture_json -X POST "${BASE}/v1/responses" -d '{
+  "model": "gpt-5.2-codex",
+  "input": [{"role": "user", "content": [{"type": "input_text", "text": "Reply with one word: OK"}]}],
+  "instructions": "",
+  "stream": false
+}' 2>/dev/null) || RESPONSE=""
+split_http_response "$RESPONSE"
+if [[ "$HTTP_STATUS" == "200" ]]; then
   pass "gpt-5.2-codex responses passthrough round-trip"
+elif [[ "$HTTP_STATUS" == "429" && $(is_capacity_limited "$HTTP_BODY"; echo $?) -eq 0 ]]; then
+  skip "gpt-5.2-codex responses passthrough" "upstream GPT capacity is currently unavailable"
 else
-  fail "gpt-5.2-codex responses passthrough" "no response"
+  fail "gpt-5.2-codex responses passthrough" "status=${HTTP_STATUS:-000} $(json_error_summary "${HTTP_BODY:-}")"
 fi
 
 # Regression: null instructions must not cause 400
-STREAM_OUT=$(responses_passthrough_null_instructions "gpt-5.2" "Reply with one word: OK" 2>/dev/null) || STREAM_OUT=""
-if echo "$STREAM_OUT" | grep -q "data:"; then
+STREAM_OUT=$(curl -sS --max-time 60 -H "Content-Type: application/json" "${AUTH_ARGS[@]}" \
+  -X POST "${BASE}/v1/responses" -d '{
+  "model": "gpt-5.2",
+  "input": [{"role": "user", "content": [{"type": "input_text", "text": "Reply with one word: OK"}]}],
+  "instructions": null,
+  "stream": true
+}' -w $'\nHTTP_STATUS:%{http_code}' 2>/dev/null) || STREAM_OUT=""
+split_http_response "$STREAM_OUT"
+if echo "$HTTP_BODY" | grep -q "data:"; then
   pass "gpt-5.2 passthrough with null instructions (regression)"
+elif [[ "$HTTP_STATUS" == "429" && $(is_capacity_limited "$HTTP_BODY"; echo $?) -eq 0 ]]; then
+  skip "gpt-5.2 null instructions passthrough" "upstream GPT capacity is currently unavailable"
 else
-  fail "gpt-5.2 null instructions passthrough" "no SSE data or 400 error"
+  fail "gpt-5.2 null instructions passthrough" "status=${HTTP_STATUS:-000} no SSE data or 400 error $(json_error_summary "${HTTP_BODY:-}")"
 fi
 
 # ── 4. OpenAI Chat Completions Strategy (non-gpt models via openai provider) ──
@@ -503,6 +574,9 @@ LOAD_OUT=$(DEV_PROXY_URL="$BASE" \
 LOAD_STATUS=${LOAD_STATUS:-0}
 if [[ "$LOAD_STATUS" -eq 0 ]]; then
   pass "concurrent load smoke test (${LOAD_CONCURRENCY} concurrent, ${LOAD_REQUESTS} total)"
+  printf '%s\n' "$LOAD_OUT"
+elif echo "$LOAD_OUT" | grep -Eq 'all_keys_rate_limited|no_available_key|rate_limit_error'; then
+  skip "concurrent load smoke test" "upstream GPT capacity is currently unavailable"
   printf '%s\n' "$LOAD_OUT"
 else
   fail "concurrent load smoke test" "$LOAD_OUT"
