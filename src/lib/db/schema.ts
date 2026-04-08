@@ -19,7 +19,7 @@ CREATE INDEX IF NOT EXISTS idx_account_health_score ON account_health(
 );
 `;
 
-export const SCHEMA_VERSION = 7;
+export const SCHEMA_VERSION = 8;
 
 export const CREATE_TENANTS_TABLE = `
 CREATE TABLE IF NOT EXISTS tenants (
@@ -141,6 +141,18 @@ CREATE TABLE IF NOT EXISTS account_cooldown (
 );
 `;
 
+export const CREATE_PROMPT_AFFINITY_TABLE = `
+CREATE TABLE IF NOT EXISTS prompt_affinity (
+  prompt_cache_key TEXT PRIMARY KEY,
+  provider_id TEXT NOT NULL,
+  account_id TEXT NOT NULL,
+  provisional_provider_id TEXT,
+  provisional_account_id TEXT,
+  provisional_success_count INTEGER NOT NULL DEFAULT 0,
+  updated_at BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT
+);
+`;
+
 export const CREATE_SESSIONS_TABLE = `
 CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY,
@@ -256,6 +268,7 @@ export const ALL_MIGRATIONS = [
   { version: 5, sql: CREATE_TENANT_PROVIDER_POLICIES_OWNER_INDEX },
   { version: 6, sql: "ALTER TABLE providers ADD COLUMN IF NOT EXISTS base_url TEXT;" },
   { version: 7, sql: "ALTER TABLE accounts ADD COLUMN IF NOT EXISTS disabled BOOLEAN NOT NULL DEFAULT FALSE;" },
+  { version: 8, sql: CREATE_PROMPT_AFFINITY_TABLE },
 ];
 
 export const UPSERT_TENANT = `
@@ -536,4 +549,53 @@ SELECT
   END as health_score
 FROM account_health
 ORDER BY health_score DESC;
+`;
+
+export const SELECT_PROMPT_AFFINITY = `
+SELECT prompt_cache_key, provider_id, account_id, provisional_provider_id, provisional_account_id, provisional_success_count, updated_at
+FROM prompt_affinity
+WHERE prompt_cache_key = $1;
+`;
+
+export const SELECT_ALL_PROMPT_AFFINITY = `
+SELECT prompt_cache_key, provider_id, account_id, provisional_provider_id, provisional_account_id, provisional_success_count, updated_at
+FROM prompt_affinity;
+`;
+
+export const UPSERT_PROMPT_AFFINITY = `
+INSERT INTO prompt_affinity (prompt_cache_key, provider_id, account_id, provisional_provider_id, provisional_account_id, provisional_success_count, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
+ON CONFLICT (prompt_cache_key) DO UPDATE SET
+  provider_id = EXCLUDED.provider_id,
+  account_id = EXCLUDED.account_id,
+  provisional_provider_id = EXCLUDED.provisional_provider_id,
+  provisional_account_id = EXCLUDED.provisional_account_id,
+  provisional_success_count = EXCLUDED.provisional_success_count,
+  updated_at = EXCLUDED.updated_at;
+`;
+
+export const DELETE_PROMPT_AFFINITY = `
+DELETE FROM prompt_affinity WHERE prompt_cache_key = $1;
+`;
+
+export const UPSERT_PROMPT_AFFINITY_PROVISIONAL = `
+INSERT INTO prompt_affinity (prompt_cache_key, provider_id, account_id, provisional_provider_id, provisional_account_id, provisional_success_count, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
+ON CONFLICT (prompt_cache_key) DO UPDATE SET
+  provisional_provider_id = EXCLUDED.provisional_provider_id,
+  provisional_account_id = EXCLUDED.provisional_account_id,
+  provisional_success_count = EXCLUDED.provisional_success_count,
+  updated_at = EXCLUDED.updated_at;
+`;
+
+export const UPSERT_PROMPT_AFFINITY_PROMOTE_PROVISIONAL = `
+INSERT INTO prompt_affinity (prompt_cache_key, provider_id, account_id, provisional_provider_id, provisional_account_id, provisional_success_count, updated_at)
+VALUES ($1, $2, $3, NULL, NULL, 0, $4)
+ON CONFLICT (prompt_cache_key) DO UPDATE SET
+  provider_id = EXCLUDED.provider_id,
+  account_id = EXCLUDED.account_id,
+  provisional_provider_id = NULL,
+  provisional_account_id = NULL,
+  provisional_success_count = 0,
+  updated_at = EXCLUDED.updated_at;
 `;
