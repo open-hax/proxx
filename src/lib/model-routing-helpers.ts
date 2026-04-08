@@ -28,11 +28,16 @@ function providerCatalogEntrySupportsModel(
     return true;
   }
 
-  // Rotussy's catalog is sourced from models.dev and can lag newly released GLM IDs.
-  // If it already advertises the GLM family, keep it eligible for new glm-* models.
-  return providerId.trim().toLowerCase() === "rotussy"
-    && isGlmModel(modelId)
-    && entry.modelIds.some((candidateModelId) => isGlmModel(candidateModelId));
+  // Provider catalogs (rotussy, ollama-cloud) can lag newly released GLM IDs.
+  // If a provider already advertises the GLM family, keep it eligible for new glm-* models.
+  if (
+    isGlmModel(modelId)
+    && entry.modelIds.some((candidateModelId) => isGlmModel(candidateModelId))
+  ) {
+    return true;
+  }
+
+  return false;
 }
 
 export function catalogHasDynamicOllamaModel(
@@ -132,6 +137,11 @@ export function filterProviderRoutesByCatalogAvailability(
   routedModel: string,
   catalogBundle: ResolvedCatalogWithPreferences,
 ): ProviderRoute[] {
+  // For GLM models, always include all routes in case the catalog hasn't updated yet
+  if (isGlmModel(routedModel)) {
+    return [...providerRoutes];
+  }
+
   const catalogMatchedRoutes = providerRoutes.filter((route) => {
     const entry = catalogBundle.providerCatalogs[route.providerId];
     return providerCatalogEntrySupportsModel(route.providerId, routedModel, entry);

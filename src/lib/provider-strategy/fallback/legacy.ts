@@ -4,7 +4,7 @@ import type { AccountHealthStore } from "../../db/account-health-store.js";
 import type { EventStore } from "../../db/event-store.js";
 import type { ProviderCredential } from "../../key-pool.js";
 import type { PolicyEngine } from "../../policy/index.js";
-import type { PromptAffinityStore } from "../../prompt-affinity-store.js";
+import type { IPromptAffinityStore } from "../../prompt-affinity-store.js";
 import type { ProviderRoutePheromoneStore } from "../../provider-route-pheromone-store.js";
 import type { RequestLogStore } from "../../request-log-store.js";
 import type { QuotaMonitor } from "../../quota-monitor.js";
@@ -110,7 +110,7 @@ export async function executeProviderRoutingPlan(
   strategy: ProviderStrategy,
   reply: FastifyReply,
   requestLogStore: RequestLogStore,
-  promptAffinityStore: PromptAffinityStore,
+  promptAffinityStore: IPromptAffinityStore,
   providerRoutePheromoneStore: ProviderRoutePheromoneStore,
   keyPool: {
     getRequestOrder(providerId: string): Promise<ProviderCredential[]>;
@@ -695,6 +695,13 @@ export async function executeProviderRoutingPlan(
         }
         if (!upstreamResponse.ok) {
           await providerRoutePheromoneStore.noteFailure(candidate.providerId, context.routedModel);
+          if (
+            preferredAffinity
+            && candidate.providerId === preferredAffinity.providerId
+            && candidate.account.accountId === preferredAffinity.accountId
+          ) {
+            preferredReassignmentAllowed = true;
+          }
         }
 
         accumulator.sawRateLimit ||= outcome.rateLimit === true;
