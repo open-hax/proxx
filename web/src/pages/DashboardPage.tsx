@@ -205,6 +205,7 @@ function serviceTierShareBars(summary: UsageOverview["summary"]): JSX.Element {
   );
 }
 
+/** Dashboard page: shows request log, provider health, and account status. */
 export function DashboardPage(): JSX.Element {
   const [overview, setOverview] = useState<UsageOverview | null>(null);
   const [keyPoolStatuses, setKeyPoolStatuses] = useState<Record<string, KeyPoolStatus>>({});

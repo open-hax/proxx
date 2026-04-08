@@ -185,6 +185,7 @@ function usageCount(value: number | undefined): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
+/** Returns `part` as a percentage of `total`, or 0 when `total` is non-positive. */
 function percentage(part: number, total: number): number {
   if (total <= 0) {
     return 0;
@@ -193,6 +194,12 @@ function percentage(part: number, total: number): number {
   return Number(((part / total) * 100).toFixed(2));
 }
 
+/**
+ * Determines whether a request log entry represents a failed request.
+ * Counts entries with HTTP error status (>= 400), an `error` string,
+ * or an `upstreamErrorCode` (e.g. "stream_quota_error" on 200 OK responses
+ * that carry a quota error in the SSE body).
+ */
 function isRequestLogError(entry: {
   readonly status: number;
   readonly error?: string;
@@ -201,6 +208,7 @@ function isRequestLogError(entry: {
   return entry.status >= 400 || typeof entry.error === "string" || typeof entry.upstreamErrorCode === "string";
 }
 
+/** Returns 1 when the entry used a prompt cache key and is not an error, otherwise 0. */
 function cacheKeyUseCountForEntry(entry: {
   readonly promptCacheKeyUsed?: boolean;
   readonly status: number;
@@ -209,6 +217,7 @@ function cacheKeyUseCountForEntry(entry: {
   return entry.promptCacheKeyUsed === true && !isRequestLogError(entry) ? 1 : 0;
 }
 
+/** Returns 1 when the entry had a cache hit and is not an error, otherwise 0. */
 function cacheHitCountForEntry(entry: {
   readonly cacheHit?: boolean;
   readonly status: number;

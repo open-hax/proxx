@@ -106,6 +106,12 @@ function candidateMatchesAffinity(
     && candidate.account.accountId === affinity.accountId;
 }
 
+/**
+ * Executes the provider routing plan: iterates over fallback candidates,
+ * attempts each one, and handles success/failure/rate-limit outcomes.
+ * Supports prompt-cache-key affinity for session stickiness and
+ * hidden quota error detection (200 OK with error in stream body).
+ */
 export async function executeProviderRoutingPlan(
   strategy: ProviderStrategy,
   reply: FastifyReply,
@@ -704,6 +710,12 @@ export async function executeProviderRoutingPlan(
           }
         }
 
+        /**
+         * Handle hidden upstream errors: providers that return 200 OK but carry a
+         * quota error ("stream_quota_error") or empty/invalid body ("stream_empty_or_invalid")
+         * in the SSE stream. These accounts must be put into cooldown and the sticky
+         * affinity record deleted so the fallback loop can try the next candidate.
+         */
         if (upstreamResponse.ok && (outcome.rateLimit === true || outcome.requestError === true)) {
           const cooldownMs = outcome.rateLimit === true
             ? context.config.keyCooldownMs
