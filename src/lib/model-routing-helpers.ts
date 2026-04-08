@@ -1,5 +1,6 @@
 import type { ProxyConfig } from "./config.js";
 import { isAutoModel } from "./auto-model-selector.js";
+import { isGlmModel } from "./glm-compat.js";
 import { looksLikeHostedOpenAiFamily, providerIdLooksLikeOllama, type ProviderRoute } from "./provider-routing.js";
 import type { ResolvedCatalogWithPreferences } from "./provider-catalog.js";
 
@@ -11,6 +12,27 @@ interface ResolvedModelCatalog {
 
 function normalizeModelId(modelId: string): string {
   return modelId.trim().toLowerCase();
+}
+
+function providerCatalogEntrySupportsModel(
+  providerId: string,
+  modelId: string,
+  entry: ResolvedCatalogWithPreferences["providerCatalogs"][string] | undefined,
+): boolean {
+  if (!entry) {
+    return false;
+  }
+
+  const normalizedModelId = normalizeModelId(modelId);
+  if (entry.modelIds.some((candidateModelId) => normalizeModelId(candidateModelId) === normalizedModelId)) {
+    return true;
+  }
+
+  // Rotussy's catalog is sourced from models.dev and can lag newly released GLM IDs.
+  // If it already advertises the GLM family, keep it eligible for new glm-* models.
+  return providerId.trim().toLowerCase() === "rotussy"
+    && isGlmModel(modelId)
+    && entry.modelIds.some((candidateModelId) => isGlmModel(candidateModelId));
 }
 
 export function catalogHasDynamicOllamaModel(
@@ -112,7 +134,7 @@ export function filterProviderRoutesByCatalogAvailability(
 ): ProviderRoute[] {
   const catalogMatchedRoutes = providerRoutes.filter((route) => {
     const entry = catalogBundle.providerCatalogs[route.providerId];
-    return entry?.modelIds.includes(routedModel) ?? false;
+    return providerCatalogEntrySupportsModel(route.providerId, routedModel, entry);
   });
 
   if (catalogMatchedRoutes.length > 0) {

@@ -44,7 +44,10 @@ import { PromptAffinityStore } from "./lib/prompt-affinity-store.js";
 import { ProviderRoutePheromoneStore } from "./lib/provider-route-pheromone-store.js";
 import { ProxySettingsStore } from "./lib/proxy-settings-store.js";
 import { QuotaMonitor } from "./lib/quota-monitor.js";
+import { RequestLogSseHub } from "./lib/observability/request-log-sse-hub.js";
 import { registerWebSocketRoutes } from "./routes/api/ui/ws.js";
+import { registerBridgeSseRoutes } from "./routes/api/ui/bridge-sse.js";
+import { registerRequestLogSseRoutes } from "./routes/api/ui/request-log-sse.js";
 import { registerApiV1Routes } from "./routes/api/v1/index.js";
 import { modelIdsToNativeTags } from "./lib/ollama-native.js";
 import { createSqlConnection, closeConnection, type Sql } from "./lib/db/index.js";
@@ -260,6 +263,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     sqlRequestUsageStore,
   );
   await requestLogStore.warmup();
+  const requestLogSseHub = new RequestLogSseHub(requestLogStore);
   const promptAffinityStore = new PromptAffinityStore(
     config.promptAffinityFilePath,
     config.promptAffinityFlushMs,
@@ -743,6 +747,34 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
   bridgeRelay = wsBridgeRelay;
   (deps as { bridgeRelay: FederationBridgeRelay | undefined }).bridgeRelay = wsBridgeRelay;
 
+  await registerBridgeSseRoutes(app, {
+    config,
+    keyPool,
+    requestLogStore,
+    credentialStore: runtimeCredentialStore,
+    sqlCredentialStore,
+    sqlFederationStore,
+    sqlTenantProviderPolicyStore,
+    sqlRequestUsageStore,
+    authPersistence: sqlAuthPersistence,
+    proxySettingsStore,
+    eventStore,
+  }, wsBridgeRelay);
+
+  await registerRequestLogSseRoutes(app, {
+    config,
+    keyPool,
+    requestLogStore,
+    credentialStore: runtimeCredentialStore,
+    sqlCredentialStore,
+    sqlFederationStore,
+    sqlTenantProviderPolicyStore,
+    sqlRequestUsageStore,
+    authPersistence: sqlAuthPersistence,
+    proxySettingsStore,
+    eventStore,
+  }, requestLogSseHub);
+
   await registerApiV1Routes(app, {
     config,
     keyPool,
@@ -785,6 +817,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       await eventStore.close();
     }
 
+    await requestLogSseHub.close();
     await promptAffinityStore.close();
     await providerRoutePheromoneStore.close();
     await requestLogStore.close();

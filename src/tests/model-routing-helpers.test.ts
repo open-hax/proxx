@@ -195,3 +195,55 @@ test("filterProviderRoutesByCatalogAvailability removes ollama-cloud for glm whe
     { providerId: "rotussy", baseUrl: "https://api.ussyco.de/v1" },
   ]);
 });
+
+test("filterProviderRoutesByCatalogAvailability keeps rotussy for new glm models when its catalog lags", () => {
+  const filtered = filterProviderRoutesByCatalogAvailability(
+    [
+      { providerId: "rotussy", baseUrl: "https://api.ussyco.de/v1" },
+      { providerId: "zai", baseUrl: "https://api.z.ai/api/paas/v4" },
+      { providerId: "ollama-cloud", baseUrl: "https://ollama.com" },
+    ],
+    "glm-5.1",
+    {
+      catalog: {
+        modelIds: ["glm-5.1"],
+        aliasTargets: {},
+        dynamicOllamaModelIds: [],
+        declaredModelIds: ["glm-5.1"],
+      },
+      providerCatalogs: {
+        rotussy: {
+          providerId: "rotussy",
+          modelIds: ["glm-5", "glm-4.7-flash"],
+          fetchedAt: Date.now(),
+          stale: false,
+          sourceEndpoints: ["/v1/models", "/models"],
+        },
+        zai: {
+          providerId: "zai",
+          modelIds: ["glm-4.6"],
+          fetchedAt: Date.now(),
+          stale: false,
+          sourceEndpoints: ["/models"],
+        },
+        "ollama-cloud": {
+          providerId: "ollama-cloud",
+          modelIds: ["glm-5.1"],
+          fetchedAt: Date.now(),
+          stale: false,
+          sourceEndpoints: ["/v1/models"],
+        },
+      },
+      preferences: {
+        preferred: [],
+        disabled: [],
+        aliases: {},
+      },
+    },
+  );
+
+  assert.deepEqual(filtered, [
+    { providerId: "rotussy", baseUrl: "https://api.ussyco.de/v1" },
+    { providerId: "ollama-cloud", baseUrl: "https://ollama.com" },
+  ]);
+});

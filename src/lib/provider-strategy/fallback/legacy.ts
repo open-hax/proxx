@@ -97,6 +97,15 @@ function requestyModelPrefix(model: string): string {
   return requestyModelProvider(model);
 }
 
+function candidateMatchesAffinity(
+  candidate: { readonly providerId: string; readonly account: ProviderCredential },
+  affinity: { readonly providerId: string; readonly accountId: string } | undefined,
+): boolean {
+  return affinity !== undefined
+    && candidate.providerId === affinity.providerId
+    && candidate.account.accountId === affinity.accountId;
+}
+
 export async function executeProviderRoutingPlan(
   strategy: ProviderStrategy,
   reply: FastifyReply,
@@ -436,12 +445,13 @@ export async function executeProviderRoutingPlan(
           accumulator.sawRateLimit = true;
 
           let ollamaMultiplier = 1;
+          let ollamaLimitKind: ReturnType<typeof detectOllamaLimitKind> = "unknown";
           if (candidate.account.providerId === "ollama-cloud") {
             try {
               const cloned = upstreamResponse.clone();
               const body = await cloned.json() as Record<string, unknown>;
-              const limitKind = detectOllamaLimitKind(body);
-              if (limitKind === "weekly") {
+              ollamaLimitKind = detectOllamaLimitKind(body);
+              if (ollamaLimitKind === "weekly") {
                 ollamaMultiplier = context.config.ollamaWeeklyCooldownMultiplier;
               }
             } catch {
@@ -470,6 +480,17 @@ export async function executeProviderRoutingPlan(
 
           cooldownMs = Math.round(cooldownMs * ollamaMultiplier);
           keyPool.markRateLimited(candidate.account, cooldownMs);
+          if (
+            ollamaLimitKind === "session"
+            && promptCacheKey
+            && (
+              candidateMatchesAffinity(candidate, preferredAffinity)
+              || candidateMatchesAffinity(candidate, provisionalAffinity)
+            )
+          ) {
+            await promptAffinityStore.delete(promptCacheKey);
+            preferredReassignmentAllowed = true;
+          }
           if (
             preferredAffinity
             && candidate.providerId === preferredAffinity.providerId
