@@ -196,8 +196,9 @@ function percentage(part: number, total: number): number {
 function isRequestLogError(entry: {
   readonly status: number;
   readonly error?: string;
+  readonly upstreamErrorCode?: string;
 }): boolean {
-  return entry.status >= 400 || typeof entry.error === "string";
+  return entry.status >= 400 || typeof entry.error === "string" || typeof entry.upstreamErrorCode === "string";
 }
 
 function cacheKeyUseCountForEntry(entry: {
