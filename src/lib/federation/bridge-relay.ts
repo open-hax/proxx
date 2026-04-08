@@ -349,8 +349,11 @@ export class FederationBridgeRelay {
     this.channels.set(sessionId, channel);
   }
 
-  public unregisterChannel(sessionId: string): void {
-    this.handleDisconnect(sessionId);
+  public unregisterChannel(sessionId: string, channel: BridgeSendChannel): void {
+    const activeChannel = this.channels.get(sessionId);
+    if (activeChannel === channel) {
+      this.channels.delete(sessionId);
+    }
   }
 
   public getChannel(sessionId: string): BridgeSendChannel | undefined {

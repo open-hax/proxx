@@ -1,9 +1,12 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 
-import type { FederationBridgeAuthorizedIdentity, FederationBridgeRelay } from "../../../lib/federation/bridge-relay.js";
+import type {
+  FederationBridgeAuthorizedIdentity,
+  FederationBridgeRelay,
+  FederationBridgeSessionRecord,
+} from "../../../lib/federation/bridge-relay.js";
 import { createSseBridgeSendChannel, formatSseEvent } from "../../../lib/federation/sse-bridge-channel.js";
 import {
-  BRIDGE_PROTOCOL_VERSION,
   parseBridgeMessageJson,
   type BridgeHelloMessage,
 } from "../../../lib/federation/bridge-protocol.js";
@@ -15,6 +18,23 @@ import {
 import { resolveRequestAuth } from "../../../lib/request-auth.js";
 
 export const BRIDGE_SSE_PROTOCOL_VERSION = "bridge-sse-v0" as const;
+
+function identityCanAccessSession(
+  identity: FederationBridgeAuthorizedIdentity,
+  session: FederationBridgeSessionRecord,
+): boolean {
+  if (identity.authKind === "legacy_admin") {
+    return true;
+  }
+
+  const identitySubject = identity.subject?.trim() ?? "";
+  const sessionSubject = session.authSubject?.trim() ?? "";
+  if (identitySubject.length === 0 || sessionSubject.length === 0 || identitySubject !== sessionSubject) {
+    return false;
+  }
+
+  return (identity.tenantId?.trim() ?? "") === (session.tenantId?.trim() ?? "");
+}
 
 function setSseHeaders(reply: FastifyReply): void {
   reply.raw.writeHead(200, {
@@ -94,22 +114,25 @@ export async function registerBridgeSseRoutes(
 
     const sessionId = (request.query as Record<string, string>).sessionId?.trim();
 
+    if (sessionId) {
+      const session = bridgeRelay.getSession(sessionId);
+      if (!session || session.state !== "connected") {
+        reply.code(404).send({ error: "session_not_found", message: `session ${sessionId} not found or not connected` });
+        return;
+      }
+
+      if (!identityCanAccessSession(identity, session)) {
+        reply.code(403).send({ error: "forbidden", message: `session ${sessionId} does not belong to the current identity` });
+        return;
+      }
+    }
+
     setSseHeaders(reply);
 
     const channel = createSseBridgeSendChannel(reply.raw);
 
     if (sessionId) {
-      const session = bridgeRelay.getSession(sessionId);
-      if (!session || session.state !== "connected") {
-        reply.raw.write(formatSseEvent("error", {
-          code: "session_not_found",
-          message: `session ${sessionId} not found or not connected`,
-          sentAt: new Date().toISOString(),
-        }));
-        reply.raw.end();
-        return;
-      }
-
+      
       bridgeRelay.registerSseChannel(sessionId, channel);
 
       reply.raw.write(formatSseEvent("session_bound", {
@@ -119,7 +142,7 @@ export async function registerBridgeSseRoutes(
       }));
 
       reply.raw.on("close", () => {
-        bridgeRelay.unregisterChannel(sessionId);
+        bridgeRelay.unregisterChannel(sessionId, channel);
       });
     } else {
       reply.raw.write(formatSseEvent("sse_open", {
@@ -223,6 +246,11 @@ export async function registerBridgeSseRoutes(
     const session = bridgeRelay.getSession(sessionId);
     if (!session || session.state !== "connected") {
       reply.code(404).send({ error: "session_not_found", message: `session ${sessionId} not found or disconnected` });
+      return;
+    }
+
+    if (!identityCanAccessSession(identity, session)) {
+      reply.code(403).send({ error: "forbidden", message: `session ${sessionId} does not belong to the current identity` });
       return;
     }
 
