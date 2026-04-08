@@ -59,6 +59,7 @@ function buildMinimalConfig(overrides: Partial<ProxyConfig> = {}): ProxyConfig {
     ollamaWeeklyCooldownMultiplier: 24,
     requestTimeoutMs: 180000,
     streamBootstrapTimeoutMs: 5000,
+    embedMaxContextTokens: 262144,
     upstreamTransientRetryCount: 2,
     upstreamTransientRetryBackoffMs: 1,
     proxyAuthToken: undefined,
