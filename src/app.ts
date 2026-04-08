@@ -264,7 +264,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
   );
   await requestLogStore.warmup();
   const requestLogSseHub = new RequestLogSseHub(requestLogStore);
-  const promptAffinityStore = new SqlPromptAffinityStore(sql!);
+  const promptAffinityStore = new SqlPromptAffinityStore(sql);
   await promptAffinityStore.init();
   const providerRoutePheromoneStore = new ProviderRoutePheromoneStore(
     join(dirname(config.requestLogsFilePath), "provider-route-pheromones.json"),

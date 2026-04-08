@@ -1,7 +1,6 @@
 import type { Sql } from "./index.js";
 import type { PromptAffinityRecord } from "../prompt-affinity-store.js";
 import {
-  SELECT_PROMPT_AFFINITY,
   SELECT_ALL_PROMPT_AFFINITY,
   UPSERT_PROMPT_AFFINITY,
   DELETE_PROMPT_AFFINITY,
@@ -36,23 +35,25 @@ export class SqlPromptAffinityStore {
   private cache = new Map<string, PromptAffinityRecord>();
   private initialized = false;
 
-  public constructor(private readonly sql: Sql) {}
+  public constructor(private readonly sql: Sql | undefined) {}
 
   public async init(): Promise<void> {
     if (this.initialized) return;
-    try {
-      const rows = await this.sql.unsafe<AffinityRow[]>(SELECT_ALL_PROMPT_AFFINITY);
-      for (const row of rows) {
-        this.cache.set(row.prompt_cache_key, rowToRecord(row));
-      }
-    } catch (e) {
-      const code = typeof e === "object" && e !== null && "code" in e
-        ? (e as { readonly code?: unknown }).code
-        : undefined;
-      if (code === "42P01") {
-        // prompt_affinity table does not exist yet
-      } else {
-        throw e;
+    if (this.sql) {
+      try {
+        const rows = await this.sql.unsafe<AffinityRow[]>(SELECT_ALL_PROMPT_AFFINITY);
+        for (const row of rows) {
+          this.cache.set(row.prompt_cache_key, rowToRecord(row));
+        }
+      } catch (e) {
+        const code = typeof e === "object" && e !== null && "code" in e
+          ? (e as { readonly code?: unknown }).code
+          : undefined;
+        if (code === "42P01") {
+          // prompt_affinity table does not exist yet
+        } else {
+          throw e;
+        }
       }
     }
     this.initialized = true;
@@ -68,21 +69,61 @@ export class SqlPromptAffinityStore {
     const normalizedKey = promptCacheKey.trim();
     if (!normalizedKey) return;
     const now = Date.now();
-    await this.sql.unsafe(UPSERT_PROMPT_AFFINITY, [
-      normalizedKey,
-      providerId.trim(),
-      accountId.trim(),
-      null,
-      null,
-      0,
-      now,
-    ]);
+    if (this.sql) {
+      await this.sql.unsafe(UPSERT_PROMPT_AFFINITY, [
+        normalizedKey,
+        providerId.trim(),
+        accountId.trim(),
+        null,
+        null,
+        0,
+        now,
+      ]);
+    }
     this.cache.set(normalizedKey, {
       promptCacheKey: normalizedKey,
       providerId: providerId.trim(),
       accountId: accountId.trim(),
       updatedAt: now,
     });
+  }
+
+  private async persistUpsert(
+    normalizedKey: string,
+    providerId: string,
+    accountId: string,
+    provisionalProviderId: string | null,
+    provisionalAccountId: string | null,
+    provisionalSuccessCount: number,
+    now: number,
+  ): Promise<void> {
+    if (this.sql) {
+      await this.sql.unsafe(UPSERT_PROMPT_AFFINITY, [
+        normalizedKey,
+        providerId,
+        accountId,
+        provisionalProviderId,
+        provisionalAccountId,
+        provisionalSuccessCount,
+        now,
+      ]);
+    }
+  }
+
+  private async persistPromoteProvisional(
+    normalizedKey: string,
+    providerId: string,
+    accountId: string,
+    now: number,
+  ): Promise<void> {
+    if (this.sql) {
+      await this.sql.unsafe(UPSERT_PROMPT_AFFINITY_PROMOTE_PROVISIONAL, [
+        normalizedKey,
+        providerId,
+        accountId,
+        now,
+      ]);
+    }
   }
 
   public async noteSuccess(promptCacheKey: string, providerId: string, accountId: string): Promise<void> {
@@ -95,15 +136,7 @@ export class SqlPromptAffinityStore {
     const existing = this.cache.get(normalizedKey);
 
     if (!existing) {
-      await this.sql.unsafe(UPSERT_PROMPT_AFFINITY, [
-        normalizedKey,
-        normalizedProviderId,
-        normalizedAccountId,
-        null,
-        null,
-        0,
-        now,
-      ]);
+      await this.persistUpsert(normalizedKey, normalizedProviderId, normalizedAccountId, null, null, 0, now);
       this.cache.set(normalizedKey, {
         promptCacheKey: normalizedKey,
         providerId: normalizedProviderId,
@@ -114,15 +147,7 @@ export class SqlPromptAffinityStore {
     }
 
     if (existing.providerId === normalizedProviderId && existing.accountId === normalizedAccountId) {
-      await this.sql.unsafe(UPSERT_PROMPT_AFFINITY, [
-        normalizedKey,
-        normalizedProviderId,
-        normalizedAccountId,
-        null,
-        null,
-        0,
-        now,
-      ]);
+      await this.persistUpsert(normalizedKey, normalizedProviderId, normalizedAccountId, null, null, 0, now);
       this.cache.set(normalizedKey, {
         promptCacheKey: normalizedKey,
         providerId: normalizedProviderId,
@@ -140,12 +165,7 @@ export class SqlPromptAffinityStore {
       : 1;
 
     if (provisionalSuccessCount >= PROVISIONAL_PROMOTION_SUCCESS_COUNT) {
-      await this.sql.unsafe(UPSERT_PROMPT_AFFINITY_PROMOTE_PROVISIONAL, [
-        normalizedKey,
-        normalizedProviderId,
-        normalizedAccountId,
-        now,
-      ]);
+      await this.persistPromoteProvisional(normalizedKey, normalizedProviderId, normalizedAccountId, now);
       this.cache.set(normalizedKey, {
         promptCacheKey: normalizedKey,
         providerId: normalizedProviderId,
@@ -153,7 +173,7 @@ export class SqlPromptAffinityStore {
         updatedAt: now,
       });
     } else {
-      await this.sql.unsafe(UPSERT_PROMPT_AFFINITY, [
+      await this.persistUpsert(
         normalizedKey,
         existing.providerId,
         existing.accountId,
@@ -161,7 +181,7 @@ export class SqlPromptAffinityStore {
         normalizedAccountId,
         provisionalSuccessCount,
         now,
-      ]);
+      );
       this.cache.set(normalizedKey, {
         ...existing,
         provisionalProviderId: normalizedProviderId,
@@ -177,7 +197,9 @@ export class SqlPromptAffinityStore {
   public async delete(promptCacheKey: string): Promise<void> {
     const normalized = promptCacheKey.trim();
     if (!normalized) return;
-    await this.sql.unsafe(DELETE_PROMPT_AFFINITY, [normalized]);
+    if (this.sql) {
+      await this.sql.unsafe(DELETE_PROMPT_AFFINITY, [normalized]);
+    }
     this.cache.delete(normalized);
   }
 }
