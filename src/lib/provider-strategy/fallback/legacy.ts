@@ -704,6 +704,35 @@ export async function executeProviderRoutingPlan(
           }
         }
 
+        if (upstreamResponse.ok && (outcome.rateLimit === true || outcome.requestError === true)) {
+          const cooldownMs = outcome.rateLimit === true
+            ? context.config.keyCooldownMs
+            : Math.min(context.config.keyCooldownMs, 10_000);
+          keyPool.markRateLimited(candidate.account, cooldownMs);
+          await providerRoutePheromoneStore.noteFailure(candidate.providerId, context.routedModel);
+          if (outcome.rateLimit === true) {
+            requestLogStore.update(requestLogEntryId, {
+              upstreamErrorCode: "stream_quota_error",
+              upstreamErrorMessage: "200 OK with quota error in stream body",
+            });
+          } else {
+            requestLogStore.update(requestLogEntryId, {
+              upstreamErrorCode: "stream_empty_or_invalid",
+              upstreamErrorMessage: "200 OK with no substantive content in stream body",
+            });
+          }
+          if (
+            preferredAffinity
+            && candidate.providerId === preferredAffinity.providerId
+            && candidate.account.accountId === preferredAffinity.accountId
+          ) {
+            preferredReassignmentAllowed = true;
+          }
+          if (outcome.rateLimit === true && promptCacheKey && candidateMatchesAffinity(candidate, preferredAffinity)) {
+            await promptAffinityStore.delete(promptCacheKey);
+          }
+        }
+
         accumulator.sawRateLimit ||= outcome.rateLimit === true;
         accumulator.sawRequestError ||= outcome.requestError === true;
         accumulator.sawUpstreamServerError ||= outcome.upstreamServerError === true;
@@ -960,7 +989,7 @@ export async function executeProviderRoutingPlan(
   return {
     handled: false,
     candidateCount: candidates.length,
-    summary: accumulator
+    summary: accumulator,
   };
 }
 
