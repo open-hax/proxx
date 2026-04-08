@@ -228,6 +228,7 @@ export class PromptAffinityStore {
 
   private async mutate(mutator: (db: PromptAffinityDb) => void): Promise<void> {
     this.mutationChain = this.mutationChain.then(async () => {
+      this.dbCache = null;  // Invalidate cache so next read gets fresh data
       const db = await this.readDb();
       mutator(db);
       this.schedulePersist();
