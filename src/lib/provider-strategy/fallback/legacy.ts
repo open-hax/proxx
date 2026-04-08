@@ -695,6 +695,13 @@ export async function executeProviderRoutingPlan(
         }
         if (!upstreamResponse.ok) {
           await providerRoutePheromoneStore.noteFailure(candidate.providerId, context.routedModel);
+          if (
+            preferredAffinity
+            && candidate.providerId === preferredAffinity.providerId
+            && candidate.account.accountId === preferredAffinity.accountId
+          ) {
+            preferredReassignmentAllowed = true;
+          }
         }
 
         accumulator.sawRateLimit ||= outcome.rateLimit === true;

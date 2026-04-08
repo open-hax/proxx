@@ -145,13 +145,14 @@ test("filterProviderRoutesByCatalogAvailability leaves non-dynamic routes alone 
   assert.deepEqual(filtered, routes);
 });
 
-test("filterProviderRoutesByCatalogAvailability removes ollama-cloud for glm when only rotussy advertises the model", () => {
+test("filterProviderRoutesByCatalogAvailability keeps all routes for GLM models", () => {
+  const routes = [
+    { providerId: "ollama-cloud", baseUrl: "https://ollama.com" },
+    { providerId: "rotussy", baseUrl: "https://api.ussyco.de/v1" },
+    { providerId: "zai", baseUrl: "https://api.z.ai/api/paas/v4" },
+  ];
   const filtered = filterProviderRoutesByCatalogAvailability(
-    [
-      { providerId: "ollama-cloud", baseUrl: "https://ollama.com" },
-      { providerId: "rotussy", baseUrl: "https://api.ussyco.de/v1" },
-      { providerId: "zai", baseUrl: "https://api.z.ai/api/paas/v4" },
-    ],
+    routes,
     "glm-4.7-flash",
     {
       catalog: {
@@ -191,18 +192,17 @@ test("filterProviderRoutesByCatalogAvailability removes ollama-cloud for glm whe
     },
   );
 
-  assert.deepEqual(filtered, [
-    { providerId: "rotussy", baseUrl: "https://api.ussyco.de/v1" },
-  ]);
+  assert.deepEqual(filtered, routes);
 });
 
-test("filterProviderRoutesByCatalogAvailability keeps rotussy for new glm models when its catalog lags", () => {
+test("filterProviderRoutesByCatalogAvailability keeps all routes for GLM models including new ones", () => {
+  const routes = [
+    { providerId: "rotussy", baseUrl: "https://api.ussyco.de/v1" },
+    { providerId: "zai", baseUrl: "https://api.z.ai/api/paas/v4" },
+    { providerId: "ollama-cloud", baseUrl: "https://ollama.com" },
+  ];
   const filtered = filterProviderRoutesByCatalogAvailability(
-    [
-      { providerId: "rotussy", baseUrl: "https://api.ussyco.de/v1" },
-      { providerId: "zai", baseUrl: "https://api.z.ai/api/paas/v4" },
-      { providerId: "ollama-cloud", baseUrl: "https://ollama.com" },
-    ],
+    routes,
     "glm-5.1",
     {
       catalog: {
@@ -242,8 +242,5 @@ test("filterProviderRoutesByCatalogAvailability keeps rotussy for new glm models
     },
   );
 
-  assert.deepEqual(filtered, [
-    { providerId: "rotussy", baseUrl: "https://api.ussyco.de/v1" },
-    { providerId: "ollama-cloud", baseUrl: "https://ollama.com" },
-  ]);
+  assert.deepEqual(filtered, routes);
 });
