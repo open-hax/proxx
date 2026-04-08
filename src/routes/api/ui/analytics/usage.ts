@@ -213,6 +213,7 @@ function cacheKeyUseCountForEntry(entry: {
   readonly promptCacheKeyUsed?: boolean;
   readonly status: number;
   readonly error?: string;
+  readonly upstreamErrorCode?: string;
 }): number {
   return entry.promptCacheKeyUsed === true && !isRequestLogError(entry) ? 1 : 0;
 }
@@ -222,6 +223,7 @@ function cacheHitCountForEntry(entry: {
   readonly cacheHit?: boolean;
   readonly status: number;
   readonly error?: string;
+  readonly upstreamErrorCode?: string;
 }): number {
   return entry.cacheHit === true && !isRequestLogError(entry) ? 1 : 0;
 }

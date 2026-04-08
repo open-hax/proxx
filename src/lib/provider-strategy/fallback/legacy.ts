@@ -734,13 +734,12 @@ export async function executeProviderRoutingPlan(
             });
           }
           if (
-            preferredAffinity
-            && candidate.providerId === preferredAffinity.providerId
-            && candidate.account.accountId === preferredAffinity.accountId
+            candidateMatchesAffinity(candidate, preferredAffinity)
+            || candidateMatchesAffinity(candidate, provisionalAffinity)
           ) {
             preferredReassignmentAllowed = true;
           }
-          if (outcome.rateLimit === true && promptCacheKey && candidateMatchesAffinity(candidate, preferredAffinity)) {
+          if (outcome.rateLimit === true && promptCacheKey && (candidateMatchesAffinity(candidate, preferredAffinity) || candidateMatchesAffinity(candidate, provisionalAffinity))) {
             await promptAffinityStore.delete(promptCacheKey);
           }
         }
