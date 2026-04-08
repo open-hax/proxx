@@ -45,6 +45,7 @@ import { ProviderRoutePheromoneStore } from "./lib/provider-route-pheromone-stor
 import { ProxySettingsStore } from "./lib/proxy-settings-store.js";
 import { QuotaMonitor } from "./lib/quota-monitor.js";
 import { registerWebSocketRoutes } from "./routes/api/ui/ws.js";
+import { registerBridgeSseRoutes } from "./routes/api/ui/bridge-sse.js";
 import { registerApiV1Routes } from "./routes/api/v1/index.js";
 import { modelIdsToNativeTags } from "./lib/ollama-native.js";
 import { createSqlConnection, closeConnection, type Sql } from "./lib/db/index.js";
@@ -742,6 +743,20 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
 
   bridgeRelay = wsBridgeRelay;
   (deps as { bridgeRelay: FederationBridgeRelay | undefined }).bridgeRelay = wsBridgeRelay;
+
+  await registerBridgeSseRoutes(app, {
+    config,
+    keyPool,
+    requestLogStore,
+    credentialStore: runtimeCredentialStore,
+    sqlCredentialStore,
+    sqlFederationStore,
+    sqlTenantProviderPolicyStore,
+    sqlRequestUsageStore,
+    authPersistence: sqlAuthPersistence,
+    proxySettingsStore,
+    eventStore,
+  }, wsBridgeRelay);
 
   await registerApiV1Routes(app, {
     config,

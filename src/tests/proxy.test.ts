@@ -1648,6 +1648,88 @@ test("reassigns prompt_cache_key affinity when the pinned account becomes rate-l
   );
 });
 
+test("reassigns ollama session-limited prompt_cache_key affinity after one fallback success", async () => {
+  const observedKeys: string[] = [];
+  let ollamaAAttempts = 0;
+
+  await withProxyApp(
+    {
+      keys: [],
+      keysPayload: {
+        providers: {
+          "ollama-cloud": ["ollama-a", "ollama-b"],
+        },
+      },
+      configOverrides: {
+        upstreamProviderId: "ollama-cloud",
+        upstreamFallbackProviderIds: [],
+        keyCooldownJitterFactor: 0,
+      },
+      upstreamHandler: async (request) => {
+        const auth = request.headers.authorization;
+        if (typeof auth === "string") {
+          observedKeys.push(auth.replace(/^Bearer\s+/i, ""));
+        }
+
+        if (auth === "Bearer ollama-a") {
+          ollamaAAttempts += 1;
+          if (ollamaAAttempts >= 2) {
+            return {
+              status: 429,
+              headers: {
+                "content-type": "application/json",
+                "retry-after": "1",
+              } as Record<string, string>,
+              body: JSON.stringify({
+                error: {
+                  message: "you (ollama-a) have reached your session usage limit, upgrade for higher limits: https://ollama.com/upgrade",
+                },
+              }),
+            };
+          }
+        }
+
+        return {
+          status: 200,
+          headers: {
+            "content-type": "application/json",
+          } as Record<string, string>,
+          body: JSON.stringify({
+            id: crypto.randomUUID(),
+            object: "chat.completion",
+            model: "glm-5.1",
+            choices: [
+              {
+                index: 0,
+                message: {
+                  role: "assistant",
+                  content: "glm-ok",
+                },
+                finish_reason: "stop",
+              },
+            ],
+          }),
+        };
+      },
+    },
+    async ({ app }) => {
+      const payload = {
+        model: "glm-5.1",
+        messages: [{ role: "user", content: "hello" }],
+        prompt_cache_key: "sticky-ollama-session-1",
+        stream: false,
+      };
+
+      assert.equal((await app.inject({ method: "POST", url: "/v1/chat/completions", headers: { "content-type": "application/json" }, payload })).statusCode, 200);
+      assert.equal((await app.inject({ method: "POST", url: "/v1/chat/completions", headers: { "content-type": "application/json" }, payload })).statusCode, 200);
+      await new Promise((resolve) => setTimeout(resolve, 1_100));
+      assert.equal((await app.inject({ method: "POST", url: "/v1/chat/completions", headers: { "content-type": "application/json" }, payload })).statusCode, 200);
+
+      assert.deepEqual(observedKeys, ["ollama-a", "ollama-a", "ollama-b", "ollama-b"]);
+    },
+  );
+});
+
 test("persists request logs with usage counts for dashboard surfaces", async () => {
   let requestLogsJson = "";
 
