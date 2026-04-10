@@ -19,8 +19,8 @@ import {
   responsesEventStreamToErrorPayload,
 } from "../../responses-compat.js";
 import type { ProviderRoute } from "../../provider-routing.js";
+import { fetchWithResponseTimeout } from "../../http/index.js";
 import {
-  fetchWithResponseTimeout,
   responseIndicatesQuotaError,
   summarizeUpstreamError,
   toErrorMessage,

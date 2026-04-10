@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import type { AppDeps } from "../lib/app-deps.js";
 import { DEFAULT_TENANT_ID } from "../lib/tenant-api-key.js";
-import { joinUrl } from "../lib/request-utils.js";
+import { joinUrl } from "../lib/http/index.js";
 import { tenantProviderAllowed } from "../lib/policy/engine/index.js";
 import { buildForwardHeaders } from "../lib/proxy.js";
 import {
@@ -13,7 +13,8 @@ import {
   selectProviderStrategy,
 } from "../lib/provider-strategy.js";
 import { isAutoModel } from "../lib/auto-model-selector.js";
-import { isRecord, sendOpenAiError, toErrorMessage, fetchWithResponseTimeout } from "../lib/provider-utils.js";
+import { isRecord, sendOpenAiError, toErrorMessage } from "../lib/provider-utils.js";
+import { fetchWithResponseTimeout } from "../lib/http/index.js";
 import { ensureNativeOllamaEmbedContextFits } from "../lib/ollama-context.js";
 
 function summarizeEmbeddingInput(input: string | readonly string[]): { readonly itemCount: number; readonly totalChars: number } {

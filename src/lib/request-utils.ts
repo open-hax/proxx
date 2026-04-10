@@ -126,19 +126,6 @@ export function summarizeResponsesRequestBody(body: Record<string, unknown>): Re
   return summary;
 }
 
-export function joinUrl(baseUrl: string, path: string): string {
-  const normalizedBase = baseUrl.replace(/\/+$/, "");
-  let normalizedPath = path.startsWith("/") ? path : `/${path}`;
-
-  const baseLower = normalizedBase.toLowerCase();
-  const pathLower = normalizedPath.toLowerCase();
-  if (pathLower.startsWith("/v1/") && baseLower.endsWith("/v1")) {
-    normalizedPath = normalizedPath.slice(3);
-  }
-
-  return `${normalizedBase}${normalizedPath}`;
-}
-
 export function parseJsonIfPossible(body: string): unknown {
   if (body.trim().length === 0) {
     return undefined;

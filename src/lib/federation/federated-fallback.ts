@@ -4,7 +4,8 @@ import type { FastifyReply, FastifyInstance } from "fastify";
 
 import { buildForwardHeaders } from "../proxy.js";
 import { normalizeRequestedModel } from "../request-utils.js";
-import { fetchWithResponseTimeout, toErrorMessage } from "../provider-utils.js";
+import { fetchWithResponseTimeout } from "../http/index.js";
+import { toErrorMessage } from "../provider-utils.js";
 import {
   shareModeAllowsRelay,
   shareModeAllowsWarmImport,
