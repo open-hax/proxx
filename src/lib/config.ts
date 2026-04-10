@@ -84,6 +84,13 @@ export interface ProxyConfig {
   readonly embedMaxInputChars: number;
   readonly upstreamTransientRetryCount: number;
   readonly upstreamTransientRetryBackoffMs: number;
+
+  /** Maximum retries on the same credential when a concurrency-throttle 429 is received. */
+  readonly concurrencyThrottleMaxRetries: number;
+
+  /** Rate-limit responses with retry-after ≤ this value (ms) are classified as
+   *  concurrency throttles rather than quota exhaustion. */
+  readonly concurrencyThrottleThresholdMs: number;
   readonly proxyAuthToken?: string;
   readonly proxyTokenPepper: string;
   readonly allowUnauthenticated: boolean;
@@ -555,6 +562,8 @@ export function loadConfig(cwd: string = process.cwd()): ProxyConfig {
     embedMaxInputChars: numberFromEnvAliases(["EMBED_MAX_INPUT_CHARS"], 250000),
     upstreamTransientRetryCount: nonNegativeNumberFromEnvAliases(["UPSTREAM_TRANSIENT_RETRY_COUNT"], 2),
     upstreamTransientRetryBackoffMs: numberFromEnvAliases(["UPSTREAM_TRANSIENT_RETRY_BACKOFF_MS"], 350),
+    concurrencyThrottleMaxRetries: nonNegativeNumberFromEnvAliases(["CONCURRENCY_THROTTLE_MAX_RETRIES"], 3),
+    concurrencyThrottleThresholdMs: numberFromEnvAliases(["CONCURRENCY_THROTTLE_THRESHOLD_MS"], 30_000),
     proxyAuthToken,
     proxyTokenPepper,
     allowUnauthenticated,
