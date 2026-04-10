@@ -80,6 +80,8 @@ export interface ProxyConfig {
   readonly requestTimeoutMs: number;
   readonly streamBootstrapTimeoutMs: number;
   readonly embedMaxContextTokens: number;
+  readonly embedMaxBatchItems: number;
+  readonly embedMaxInputChars: number;
   readonly upstreamTransientRetryCount: number;
   readonly upstreamTransientRetryBackoffMs: number;
   readonly proxyAuthToken?: string;
@@ -549,6 +551,8 @@ export function loadConfig(cwd: string = process.cwd()): ProxyConfig {
     requestTimeoutMs: numberFromEnvAliases(["UPSTREAM_REQUEST_TIMEOUT_MS"], 900000),
     streamBootstrapTimeoutMs: numberFromEnvAliases(["UPSTREAM_STREAM_BOOTSTRAP_TIMEOUT_MS"], 8000),
     embedMaxContextTokens: numberFromEnvAliases(["EMBED_MAX_CONTEXT_TOKENS"], 262144),
+    embedMaxBatchItems: numberFromEnvAliases(["EMBED_MAX_BATCH_ITEMS"], 128),
+    embedMaxInputChars: numberFromEnvAliases(["EMBED_MAX_INPUT_CHARS"], 250000),
     upstreamTransientRetryCount: nonNegativeNumberFromEnvAliases(["UPSTREAM_TRANSIENT_RETRY_COUNT"], 2),
     upstreamTransientRetryBackoffMs: numberFromEnvAliases(["UPSTREAM_TRANSIENT_RETRY_BACKOFF_MS"], 350),
     proxyAuthToken,

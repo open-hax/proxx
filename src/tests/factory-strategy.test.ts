@@ -163,6 +163,8 @@ async function withProxyApp(
     requestTimeoutMs: 2000,
     streamBootstrapTimeoutMs: 2000,
     embedMaxContextTokens: 262144,
+    embedMaxBatchItems: 128,
+    embedMaxInputChars: 250000,
     upstreamTransientRetryCount: 0,
     upstreamTransientRetryBackoffMs: 1,
     allowUnauthenticated: true,

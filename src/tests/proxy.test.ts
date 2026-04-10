@@ -190,6 +190,8 @@ async function withProxyApp(
     requestTimeoutMs: 2000,
     streamBootstrapTimeoutMs: 2000,
     embedMaxContextTokens: 262144,
+    embedMaxBatchItems: 128,
+    embedMaxInputChars: 250000,
     upstreamTransientRetryCount: 2,
     upstreamTransientRetryBackoffMs: 1,
     proxyAuthToken: options.proxyAuthToken,
@@ -8954,6 +8956,68 @@ test("rejects auto models for /v1/embeddings", async () => {
 
       assert.equal(response.statusCode, 400);
       assert.equal(response.headers["x-open-hax-error-code"], "model_not_supported");
+    }
+  );
+});
+
+test("rejects oversized embedding batches before calling upstream", async () => {
+  let upstreamCalled = false;
+
+  await withProxyApp(
+    {
+      keys: [],
+      configOverrides: {
+        embedMaxBatchItems: 2,
+      },
+      upstreamHandler: async () => {
+        upstreamCalled = true;
+        throw new Error("embedding upstream should not be called");
+      }
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/embeddings",
+        payload: {
+          model: "qwen3-embedding:0.6b",
+          input: ["one", "two", "three"]
+        }
+      });
+
+      assert.equal(response.statusCode, 400);
+      assert.equal(response.headers["x-open-hax-error-code"], "embed_batch_too_large");
+      assert.equal(upstreamCalled, false);
+    }
+  );
+});
+
+test("rejects oversized embedding character payloads before calling upstream", async () => {
+  let upstreamCalled = false;
+
+  await withProxyApp(
+    {
+      keys: [],
+      configOverrides: {
+        embedMaxInputChars: 10,
+      },
+      upstreamHandler: async () => {
+        upstreamCalled = true;
+        throw new Error("embedding upstream should not be called");
+      }
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/embeddings",
+        payload: {
+          model: "qwen3-embedding:0.6b",
+          input: "hello world"
+        }
+      });
+
+      assert.equal(response.statusCode, 400);
+      assert.equal(response.headers["x-open-hax-error-code"], "embed_input_too_large");
+      assert.equal(upstreamCalled, false);
     }
   );
 });

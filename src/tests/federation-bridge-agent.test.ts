@@ -105,6 +105,8 @@ async function withBridgeApp(
     requestTimeoutMs: 2_000,
     streamBootstrapTimeoutMs: 2_000,
     embedMaxContextTokens: 262144,
+    embedMaxBatchItems: 128,
+    embedMaxInputChars: 250000,
     upstreamTransientRetryCount: 1,
     upstreamTransientRetryBackoffMs: 1,
     proxyAuthToken: options.proxyAuthToken ?? "bridge-admin-token",
