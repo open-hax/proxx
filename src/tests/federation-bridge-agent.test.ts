@@ -124,6 +124,8 @@ async function withBridgeApp(
     oauthRefreshMaxConcurrency: 32,
     oauthRefreshBackgroundIntervalMs: 15_000,
     oauthRefreshProactiveWindowMs: 30 * 60_000,
+    concurrencyThrottleMaxRetries: 3,
+    concurrencyThrottleThresholdMs: 30_000,
   };
 
   const app = await createApp(config);

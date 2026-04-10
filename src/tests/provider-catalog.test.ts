@@ -79,6 +79,8 @@ function buildMinimalConfig(overrides: Partial<ProxyConfig> = {}): ProxyConfig {
     oauthRefreshMaxConcurrency: 32,
     oauthRefreshBackgroundIntervalMs: 15000,
     oauthRefreshProactiveWindowMs: 1800000,
+    concurrencyThrottleMaxRetries: 3,
+    concurrencyThrottleThresholdMs: 30_000,
     ...overrides,
   };
 }
