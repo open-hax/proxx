@@ -10,10 +10,12 @@ import { isRecord } from "../lib/provider-utils.js";
 import {
   resolvableConcreteModelIds,
   resolvableConcreteModelIdsForProviders,
+} from "../lib/catalog-resolution.js";
+import {
   filterProviderRoutesByCatalogAvailability,
   filterProviderRoutesByModelSupport,
   shouldRejectModelFromProviderCatalog,
-} from "../lib/model-routing-helpers.js";
+} from "../lib/policy/adapters/index.js";
 import {
   tenantModelAllowed,
   filterTenantProviderRoutes,

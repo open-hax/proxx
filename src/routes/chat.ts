@@ -8,7 +8,7 @@ import {
   filterProviderRoutesByCatalogAvailability,
   filterProviderRoutesByModelSupport,
   shouldRejectModelFromProviderCatalog,
-} from "../lib/model-routing-helpers.js";
+} from "../lib/policy/adapters/index.js";
 import {
   tenantProviderAllowed,
   filterTenantProviderRoutes,
