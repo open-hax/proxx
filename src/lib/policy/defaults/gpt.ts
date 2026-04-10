@@ -22,7 +22,6 @@ export const CLAUDE_OPUS_46_PROVIDER_ORDER: readonly ProviderId[] = [
 export const GLM_PROVIDER_ORDER: readonly ProviderId[] = [
   "zai",
   "rotussy",
-  "ollama-cloud",
   "requesty",
   "factory",
   "openrouter",
@@ -72,7 +71,7 @@ export function createGptModelRoutingRules(): readonly ModelRoutingRule[] {
     {
       modelPattern: /^glm-/,
       preferredProviders: GLM_PROVIDER_ORDER,
-      excludedProviders: ["openai"],
+      excludedProviders: ["openai", "ollama-cloud"],
       accountOrdering: { kind: "prefer_free" },
     },
     {

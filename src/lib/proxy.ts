@@ -220,14 +220,9 @@ export function classifyRateLimitKind(
   if (message) {
     const lowered = message.toLowerCase();
 
-    // If the message explicitly says concurrency, it's a throttle.
-    for (const indicator of CONCURRENCY_INDICATORS) {
-      if (lowered.includes(indicator)) {
-        return "concurrency_throttle";
-      }
-    }
-
-    // Check for quota keywords that explicitly indicate exhaustion.
+    // Check for quota keywords FIRST - they're more specific indicators of exhaustion.
+    // A message like "Too many requests - quota exceeded" should be quota_exhausted,
+    // not concurrency_throttle, so we prioritize quota detection.
     const quotaKeywords = [
       "usage limit",
       "quota",
@@ -244,6 +239,13 @@ export function classifyRateLimitKind(
     for (const keyword of quotaKeywords) {
       if (lowered.includes(keyword)) {
         return "quota_exhausted";
+      }
+    }
+
+    // Then check for concurrency indicators - these suggest transient throttling.
+    for (const indicator of CONCURRENCY_INDICATORS) {
+      if (lowered.includes(indicator)) {
+        return "concurrency_throttle";
       }
     }
   }
