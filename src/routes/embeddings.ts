@@ -16,6 +16,20 @@ import { isAutoModel } from "../lib/auto-model-selector.js";
 import { isRecord, sendOpenAiError, toErrorMessage, fetchWithResponseTimeout } from "../lib/provider-utils.js";
 import { ensureNativeOllamaEmbedContextFits } from "../lib/ollama-context.js";
 
+function summarizeEmbeddingInput(input: string | readonly string[]): { readonly itemCount: number; readonly totalChars: number } {
+  if (typeof input === "string") {
+    return {
+      itemCount: input.length > 0 ? 1 : 0,
+      totalChars: input.length,
+    };
+  }
+
+  return {
+    itemCount: input.length,
+    totalChars: input.reduce((sum, entry) => sum + entry.length, 0),
+  };
+}
+
 export function registerEmbeddingsRoutes(deps: AppDeps, app: FastifyInstance): void {
   app.post<{ Body: Record<string, unknown> }>("/v1/embeddings", async (request, reply) => {
     if (!isRecord(request.body)) {
@@ -56,29 +70,62 @@ export function registerEmbeddingsRoutes(deps: AppDeps, app: FastifyInstance): v
       ...request.body,
       model: routedModel,
     });
+    const inputSummary = summarizeEmbeddingInput(embedBody.input);
+
+    if (inputSummary.itemCount > deps.config.embedMaxBatchItems) {
+      sendOpenAiError(
+        reply,
+        400,
+        `Embedding batch is too large. Received ${inputSummary.itemCount} input items, maximum: ${deps.config.embedMaxBatchItems}. Split the request into smaller batches.`,
+        "invalid_request_error",
+        "embed_batch_too_large",
+      );
+      return;
+    }
+
+    if (inputSummary.totalChars > deps.config.embedMaxInputChars) {
+      sendOpenAiError(
+        reply,
+        400,
+        `Embedding input is too large. Received ${inputSummary.totalChars} characters, maximum: ${deps.config.embedMaxInputChars}. Split the request into smaller chunks.`,
+        "invalid_request_error",
+        "embed_input_too_large",
+      );
+      return;
+    }
+
     const embedBudget = await ensureNativeOllamaEmbedContextFits(
       deps.config.ollamaBaseUrl,
       { model: routedModel, input: embedBody.input },
       Math.min(deps.config.requestTimeoutMs, 30_000),
     );
 
-    if (embedBudget && embedBudget.requiredContextTokens > embedBudget.availableContextTokens) {
+    const maxContextTokens = Math.min(
+      deps.config.embedMaxContextTokens,
+      embedBudget?.contextLength ?? deps.config.embedMaxContextTokens,
+    );
+
+    if (embedBudget && embedBudget.estimatedInputTokens > maxContextTokens) {
       sendOpenAiError(
         reply,
         400,
-        `Embedding request exceeds model context window for ${embedBudget.model}. Estimated input tokens: ${embedBudget.estimatedInputTokens}, available: ${embedBudget.availableContextTokens}. Reduce input size or split the document before embedding.`,
+        `Embedding request exceeds model context window for ${embedBudget.model}. Estimated input tokens: ${embedBudget.estimatedInputTokens}, maximum: ${maxContextTokens}. Reduce input size or split the document before embedding.`,
         "invalid_request_error",
-        "ollama_context_overflow",
+        "embed_context_overflow",
       );
       return;
     }
+
+    const autoNumCtx = embedBudget && embedBudget.requiredContextTokens > embedBudget.availableContextTokens
+      ? Math.min(maxContextTokens, embedBudget.recommendedNumCtx)
+      : undefined;
 
     const upstreamBody = nativeEmbedToOllamaRequest(
       {
         ...request.body,
         model: routedModel,
       },
-      embedBudget?.availableContextTokens,
+      autoNumCtx ?? embedBudget?.availableContextTokens,
     );
 
     let upstreamResponse: Response;
