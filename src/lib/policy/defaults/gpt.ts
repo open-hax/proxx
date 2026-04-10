@@ -26,6 +26,7 @@ export const GLM_PROVIDER_ORDER: readonly ProviderId[] = [
   "factory",
   "openrouter",
   "vivgrid",
+  "ollama-cloud",
 ];
 
 export const GPT_FREE_BLOCKED_MODELS: readonly ModelId[] = [
@@ -71,7 +72,7 @@ export function createGptModelRoutingRules(): readonly ModelRoutingRule[] {
     {
       modelPattern: /^glm-/,
       preferredProviders: GLM_PROVIDER_ORDER,
-      excludedProviders: ["openai", "ollama-cloud"],
+      excludedProviders: ["openai"],
       accountOrdering: { kind: "prefer_free" },
     },
     {
