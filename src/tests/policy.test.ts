@@ -48,7 +48,7 @@ test("claude-opus-4-6 provider ordering prefers factory and excludes openai", ()
   assert.deepEqual(ordered, ["factory", "requesty", "vivgrid"]);
 });
 
-test("excludes ollama-cloud for glm provider ordering", () => {
+test("includes ollama-cloud for glm provider ordering via native /api/chat", () => {
   const policy = createPolicyEngine(DEFAULT_POLICY_CONFIG);
 
   const ordered = policy.orderProviders(
@@ -56,8 +56,8 @@ test("excludes ollama-cloud for glm provider ordering", () => {
     createModelInfo("glm-5"),
   );
 
-  // ollama-cloud is excluded for GLM models since it doesn't serve them via /v1/chat/completions
-  assert.deepEqual(ordered, ["zai", "rotussy", "requesty", "vivgrid"]);
+  // ollama-cloud is included for GLM models via native /api/chat endpoint (OllamaCloudProviderStrategy)
+  assert.deepEqual(ordered, ["zai", "rotussy", "requesty", "vivgrid", "ollama-cloud"]);
 });
 
 test("keeps ollama-cloud available for gpt-oss provider ordering", () => {
