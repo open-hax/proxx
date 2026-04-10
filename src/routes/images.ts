@@ -1,10 +1,10 @@
 import type { FastifyInstance } from "fastify";
 import type { AppDeps } from "../lib/app-deps.js";
 import { DEFAULT_TENANT_ID } from "../lib/tenant-api-key.js";
-import { resolveExplicitTenantProviderId } from "../lib/tenant-policy-helpers.js";
 import {
+  resolveExplicitTenantProviderId,
   filterTenantProviderRoutes,
-} from "../lib/tenant-policy-helpers.js";
+} from "../lib/policy/engine/index.js";
 import {
   filterImagesApiRoutes,
   buildProviderRoutesWithDynamicBaseUrls,

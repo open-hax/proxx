@@ -66,4 +66,11 @@ export function createPolicyEngine(config: PolicyConfig): PolicyEngine {
 
 export type { AccountOrderingResult } from "./account-ordering.js";
 export type { ProviderId, AccountId, PlanType, ModelInfo, AccountInfo } from "../schema.js";
+export type { TenantSettings } from "./tenant-enforcement.js";
+export {
+  tenantModelAllowed,
+  tenantProviderAllowed,
+  filterTenantProviderRoutes,
+  resolveExplicitTenantProviderId,
+} from "./tenant-enforcement.js";
 export { DEFAULT_PLAN_WEIGHTS, DEFAULT_FALLBACK_BEHAVIOR };

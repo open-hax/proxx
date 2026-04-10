@@ -18,7 +18,7 @@ import {
   tenantModelAllowed,
   filterTenantProviderRoutes,
   resolveExplicitTenantProviderId,
-} from "../lib/tenant-policy-helpers.js";
+} from "../lib/policy/engine/index.js";
 import {
   buildResponsesPassthroughContext,
   executeProviderRoutingPlan,

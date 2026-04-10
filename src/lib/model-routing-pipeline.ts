@@ -9,7 +9,7 @@ import type { AccountHealthStore } from "./db/account-health-store.js";
 import {
   tenantModelAllowed,
   resolveExplicitTenantProviderId,
-} from "./tenant-policy-helpers.js";
+} from "./policy/engine/index.js";
 import { sendOpenAiError } from "./provider-utils.js";
 import { resolveCatalogAndAlias } from "./catalog-alias-resolver.js";
 import {

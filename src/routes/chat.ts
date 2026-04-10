@@ -12,7 +12,7 @@ import {
 import {
   tenantProviderAllowed,
   filterTenantProviderRoutes,
-} from "../lib/tenant-policy-helpers.js";
+} from "../lib/policy/engine/index.js";
 import {
   selectProviderStrategy,
   executeProviderRoutingPlan,

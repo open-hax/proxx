@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import type { AppDeps } from "../lib/app-deps.js";
 import { DEFAULT_TENANT_ID } from "../lib/tenant-api-key.js";
 import { joinUrl } from "../lib/request-utils.js";
-import { tenantProviderAllowed } from "../lib/tenant-policy-helpers.js";
+import { tenantProviderAllowed } from "../lib/policy/engine/index.js";
 import { buildForwardHeaders } from "../lib/proxy.js";
 import {
   nativeEmbedToOpenAiRequest,
