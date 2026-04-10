@@ -356,7 +356,7 @@ test("rotates API key when first key is rate-limited", async () => {
         if (auth === "Bearer key-a") {
           const headers: Record<string, string> = {
             "content-type": "application/json",
-            "retry-after": "1"
+            "retry-after": "60"
           };
 
           return {
@@ -1615,7 +1615,7 @@ test("reassigns prompt_cache_key affinity when the pinned account becomes rate-l
           if (keyAAttempts >= 2) {
             const headers: Record<string, string> = {
               "content-type": "application/json",
-              "retry-after": "1"
+              "retry-after": "60"
             };
             return {
               status: 429,
@@ -2512,11 +2512,13 @@ test("falls back from openai-prefixed codex route to standard fallback providers
         observedPaths.push(request.url ?? "");
 
         if (auth === "Bearer openai-rate-limited") {
+          const headers: Record<string, string> = {
+            "content-type": "application/json",
+            "retry-after": "60"
+          };
           return {
             status: 429,
-            headers: {
-              "content-type": "application/json"
-            },
+            headers,
             body: JSON.stringify({ error: { message: "rate limit" } })
           };
         }
@@ -3735,7 +3737,7 @@ test("returns 429 when every key is rate-limited", async () => {
         status: 429,
         headers: {
           "content-type": "application/json",
-          "retry-after": "2"
+          "retry-after": "60"
         },
         body: JSON.stringify({ error: { message: "rate limit" } })
       })
@@ -6455,7 +6457,7 @@ test("routes openai-prefixed models with oauth account failover", async () => {
             status: 429,
             headers: {
               ...jsonHeaders,
-              "retry-after": "1"
+              "retry-after": "60"
             },
             body: JSON.stringify({ error: { message: "rate limit" } })
           };
@@ -6929,7 +6931,7 @@ test("reassigns openai oauth codex prompt_cache_key affinity when the pinned gpt
           if (openAiAAttempts >= 2) {
             const headers: Record<string, string> = {
               "content-type": "application/json",
-              "retry-after": "1",
+              "retry-after": "60",
             };
             return {
               status: 429,
@@ -7020,7 +7022,7 @@ test("does not immediately promote fallback affinity after one successful reassi
             return {
               status: 429,
               headers,
-              body: JSON.stringify({ error: { message: "rate limit" } }),
+              body: JSON.stringify({ error: { message: "daily quota exceeded" } }),
             };
           }
         }
