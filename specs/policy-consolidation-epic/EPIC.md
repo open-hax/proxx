@@ -1,7 +1,7 @@
 # Policy Consolidation Refactor Epic
 
 **Epic ID:** POLICY-CONSOLIDATE-001
-**Status:** Planning
+**Status:** Complete
 **Total Points:** 16
 **Estimated Timeline:** 2-3 sprints
 
@@ -85,11 +85,25 @@ src/lib/
 
 ## Success Criteria
 
-1. **No policy logic in helpers** - All moved to `policy/`
-2. **No util files > 150 lines** - All split into focused modules
-3. **All tests pass** - 579+ tests remain green
-4. **Import paths intuitive** - `policy/engine/tenant-enforcement` vs `tenant-policy-helpers`
-5. **Rule ordering documented** - GLM → Claude → GPT ordering explained
+1. **No policy logic in helpers** - All moved to `policy/` ✅
+2. **No util files > 150 lines** - All split into focused modules ✅
+3. **All tests pass** - 579+ tests remain green ✅
+4. **Import paths intuitive** - `policy/engine/tenant-enforcement` vs `tenant-policy-helpers` ✅
+5. **Rule ordering documented** - GLM → Claude → GPT ordering explained ✅
+
+## Commits
+
+### Phase 1 (7 points) - Complete
+- `86c3f51`: Spec 1.1 - Move tenant enforcement to policy/engine
+- `9fbc9d3`: Spec 1.2 - Move route filtering to policy/adapters
+- `e9da06e`: Spec 1.3 - Split model family rules into separate files
+
+### Phase 2 (9 points) - Complete
+- `f4bf244`: Spec 2.1 - Extract HTTP utilities into http/
+- `5ded133`: Spec 2.2 - Extract SSE parsing into sse/
+- `9474fcc`: Spec 2.3 - Extract error classification into errors/
+- `64c7714`: Spec 2.4 - Extract OpenAI utilities into openai/
+- `950f37e`: Spec 2.5 - Move prompt cache utilities to openai/
 
 ## Rollback Strategy
 
