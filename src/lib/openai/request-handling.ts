@@ -2,9 +2,36 @@
  * OpenAI-specific request and response handling utilities.
  */
 
+import { createHash } from "node:crypto";
 import type { FastifyReply } from "fastify";
 import { isRecord, asString } from "../provider-utils.js";
 import { openAiError } from "../proxy.js";
+
+/**
+ * Extract a prompt cache key from a request body.
+ */
+export function extractPromptCacheKey(body: Record<string, unknown>): string | undefined {
+  const raw = typeof body.prompt_cache_key === "string"
+    ? body.prompt_cache_key
+    : typeof body.promptCacheKey === "string"
+      ? body.promptCacheKey
+      : undefined;
+  const normalized = raw?.trim();
+  return normalized && normalized.length > 0 ? normalized : undefined;
+}
+
+/**
+ * Hash a prompt cache key for safe logging.
+ */
+export function hashPromptCacheKey(promptCacheKey: string): string {
+  const trimmed = promptCacheKey.trim();
+  if (trimmed.length === 0) {
+    return "<REDACTED>";
+  }
+
+  const digest = createHash("sha256").update(trimmed).digest("hex").slice(0, 12);
+  return `sha256:${digest}`;
+}
 
 /**
  * Append a value to a CSV-style header, avoiding duplicates.

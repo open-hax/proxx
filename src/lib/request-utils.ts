@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import type { FastifyReply } from "fastify";
 
 export const PROXY_AUTH_COOKIE_NAME = "open_hax_proxy_auth_token";
@@ -23,26 +22,6 @@ export function readCookieToken(cookieHeader: string | undefined, name: string):
   }
 
   return undefined;
-}
-
-export function extractPromptCacheKey(body: Record<string, unknown>): string | undefined {
-  const raw = typeof body.prompt_cache_key === "string"
-    ? body.prompt_cache_key
-    : typeof body.promptCacheKey === "string"
-      ? body.promptCacheKey
-      : undefined;
-  const normalized = raw?.trim();
-  return normalized && normalized.length > 0 ? normalized : undefined;
-}
-
-export function hashPromptCacheKey(promptCacheKey: string): string {
-  const trimmed = promptCacheKey.trim();
-  if (trimmed.length === 0) {
-    return "<REDACTED>";
-  }
-
-  const digest = createHash("sha256").update(trimmed).digest("hex").slice(0, 12);
-  return `sha256:${digest}`;
 }
 
 export function parseJsonIfPossible(body: string): unknown {

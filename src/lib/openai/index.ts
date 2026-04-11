@@ -1,4 +1,6 @@
 export {
+  extractPromptCacheKey,
+  hashPromptCacheKey,
   appendCsvHeaderValue,
   shouldEnableInterleavedThinkingHeader,
   requestWantsReasoningTrace,

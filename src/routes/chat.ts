@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 
-import { type ChatCompletionRequest, extractPromptCacheKey } from "../lib/request-utils.js";
+import type { ChatCompletionRequest } from "../lib/request-utils.js";
+import { extractPromptCacheKey } from "../lib/openai/index.js";
 import { isRecord } from "../lib/provider-utils.js";
 import { resolveModelRouting } from "../lib/model-routing-pipeline.js";
 import {
