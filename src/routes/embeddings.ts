@@ -13,7 +13,8 @@ import {
   selectProviderStrategy,
 } from "../lib/provider-strategy.js";
 import { isAutoModel } from "../lib/auto-model-selector.js";
-import { isRecord, sendOpenAiError, toErrorMessage } from "../lib/provider-utils.js";
+import { isRecord, sendOpenAiError } from "../lib/provider-utils.js";
+import { toErrorMessage } from "../lib/errors/index.js";
 import { fetchWithResponseTimeout } from "../lib/http/index.js";
 import { ensureNativeOllamaEmbedContextFits } from "../lib/ollama-context.js";
 

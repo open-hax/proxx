@@ -29,7 +29,7 @@ import {
 import {
   responseIsEventStream,
   summarizeUpstreamError,
-} from "../provider-utils.js";
+} from "../errors/index.js";
 import { joinUrl } from "../http/index.js";
 
 function dedupePaths(values: readonly string[]): string[] {

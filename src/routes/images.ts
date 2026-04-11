@@ -17,7 +17,8 @@ import {
   executeProviderRoutingPlan,
 } from "../lib/provider-strategy.js";
 import { buildImagesPassthroughContext } from "../lib/provider-strategy.js";
-import { isRecord, sendOpenAiError, toErrorMessage } from "../lib/provider-utils.js";
+import { isRecord, sendOpenAiError } from "../lib/provider-utils.js";
+import { toErrorMessage } from "../lib/errors/index.js";
 import { handleRoutingOutcome } from "../lib/routing-outcome-handler.js";
 
 export function registerImagesRoutes(deps: AppDeps, app: FastifyInstance): void {

@@ -25,7 +25,8 @@ import {
   type ProviderRoute,
 } from "../lib/provider-routing.js";
 import { orderProviderRoutesByPolicy } from "../lib/provider-policy.js";
-import { sendOpenAiError, toErrorMessage } from "../lib/provider-utils.js";
+import { sendOpenAiError } from "../lib/provider-utils.js";
+import { toErrorMessage } from "../lib/errors/index.js";
 import { handleRoutingOutcome } from "../lib/routing-outcome-handler.js";
 import { isCephalonAutoModel, reorderCephalonProviderRoutes } from "../lib/provider-strategy/strategies/cephalon.js";
 import { isVisionAutoModel, reorderVisionProviderRoutes } from "../lib/provider-strategy/strategies/vision.js";

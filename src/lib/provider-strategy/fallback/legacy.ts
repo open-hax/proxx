@@ -24,7 +24,7 @@ import {
   responseIndicatesQuotaError,
   summarizeUpstreamError,
   toErrorMessage,
-} from "../../provider-utils.js";
+} from "../../errors/index.js";
 import { getTelemetry } from "../../telemetry/otel.js";
 import { selectRemoteProviderStrategyForRoute } from "../registry.js";
 import {

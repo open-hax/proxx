@@ -34,7 +34,8 @@ import {
 } from "../lib/provider-routing.js";
 import { discoverDynamicOllamaRoutes, prependDynamicOllamaRoutes } from "../lib/dynamic-ollama-routes.js";
 import { orderProviderRoutesByPolicy } from "../lib/provider-policy.js";
-import { sendOpenAiError, toErrorMessage } from "../lib/provider-utils.js";
+import { sendOpenAiError } from "../lib/provider-utils.js";
+import { toErrorMessage } from "../lib/errors/index.js";
 import { isAutoModel, rankAutoModels } from "../lib/auto-model-selector.js";
 import { handleRoutingOutcome } from "../lib/routing-outcome-handler.js";
 import {

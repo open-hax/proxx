@@ -15,7 +15,7 @@ import {
   responseIndicatesModelNotSupportedForAccount,
   streamPayloadIndicatesQuotaError,
   summarizeUpstreamError,
-} from "../provider-utils.js";
+} from "../errors/index.js";
 import {
   type BuildPayloadResult,
   isRecord,
