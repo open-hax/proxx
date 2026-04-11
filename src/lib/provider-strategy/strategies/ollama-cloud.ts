@@ -5,7 +5,6 @@ import {
   ollamaToChatCompletion,
   streamOllamaNdjsonToChatCompletionSse,
 } from "../../ollama-compat.js";
-import { sendOpenAiError } from "../../provider-utils.js";
 import { toErrorMessage } from "../../errors/index.js";
 import { BaseProviderStrategy } from "../base.js";
 import {
@@ -89,7 +88,7 @@ export class OllamaCloudProviderStrategy extends BaseProviderStrategy {
     let upstreamJson: unknown;
     try {
       upstreamJson = await upstreamResponse.json();
-    } catch (error) {
+    } catch (_error) {
       return {
         kind: "continue",
         requestError: true,

@@ -1,4 +1,3 @@
-import type { ProxyConfig } from "./config.js";
 import { isAutoModel } from "./auto-model-selector.js";
 import type { ResolvedCatalogWithPreferences } from "./provider-catalog.js";
 
