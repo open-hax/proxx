@@ -2,10 +2,10 @@ import type { FastifyInstance, FastifyReply } from "fastify";
 
 import {
   extractPromptCacheKey,
-  summarizeResponsesRequestBody,
   hashPromptCacheKey,
   copyInjectedResponseHeaders,
 } from "../lib/request-utils.js";
+import { summarizeResponsesRequestBody } from "../lib/openai/index.js";
 import { isRecord } from "../lib/provider-utils.js";
 import {
   resolvableConcreteModelIds,

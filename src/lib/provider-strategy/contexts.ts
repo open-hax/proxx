@@ -1,7 +1,7 @@
 import type { IncomingHttpHeaders } from "node:http";
 
 import type { ProxyConfig } from "../config.js";
-import { requestWantsReasoningTrace } from "../provider-utils.js";
+import { requestWantsReasoningTrace } from "../openai/index.js";
 import { looksLikeHostedOpenAiFamily, resolveRequestRoutingState } from "../provider-routing.js";
 import { PROVIDER_STRATEGIES } from "./registry.js";
 import type { ResolvedRequestAuth } from "../request-auth.js";

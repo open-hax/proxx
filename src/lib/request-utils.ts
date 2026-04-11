@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
 import type { FastifyReply } from "fastify";
-import { isRecord } from "./provider-utils.js";
 
 export const PROXY_AUTH_COOKIE_NAME = "open_hax_proxy_auth_token";
 
@@ -44,86 +43,6 @@ export function hashPromptCacheKey(promptCacheKey: string): string {
 
   const digest = createHash("sha256").update(trimmed).digest("hex").slice(0, 12);
   return `sha256:${digest}`;
-}
-
-export function summarizeResponsesRequestBody(body: Record<string, unknown>): Record<string, unknown> {
-  const summary: Record<string, unknown> = {};
-
-  if (typeof body.model === "string" && body.model.trim().length > 0) {
-    summary.model = body.model;
-  }
-
-  if (typeof body.stream === "boolean") {
-    summary.stream = body.stream;
-  }
-
-  if (typeof body.max_output_tokens === "number" && Number.isFinite(body.max_output_tokens)) {
-    summary.max_output_tokens = body.max_output_tokens;
-  }
-
-  const input = body.input;
-  if (typeof input === "string") {
-    summary.input = { kind: "text", length: input.length, preview: input.slice(0, 200) };
-    return summary;
-  }
-
-  if (!Array.isArray(input)) {
-    summary.input = { kind: typeof input };
-    return summary;
-  }
-
-  let textChars = 0;
-  let firstTextPreview: string | undefined;
-  let imageCount = 0;
-
-  for (const item of input) {
-    if (!isRecord(item)) {
-      continue;
-    }
-
-    const content = item.content;
-    if (typeof content === "string") {
-      textChars += content.length;
-      if (firstTextPreview === undefined && content.length > 0) {
-        firstTextPreview = content.slice(0, 200);
-      }
-      continue;
-    }
-
-    if (!Array.isArray(content)) {
-      continue;
-    }
-
-    for (const part of content) {
-      if (!isRecord(part)) {
-        continue;
-      }
-
-      const partType = typeof part.type === "string" ? part.type.toLowerCase() : "";
-      const text = typeof part.text === "string" ? part.text : undefined;
-
-      if (text) {
-        textChars += text.length;
-        if (firstTextPreview === undefined && text.length > 0) {
-          firstTextPreview = text.slice(0, 200);
-        }
-      }
-
-      if (partType.includes("image") || part.image_url !== undefined || part.imageUrl !== undefined) {
-        imageCount += 1;
-      }
-    }
-  }
-
-  summary.input = {
-    kind: "structured",
-    itemCount: input.length,
-    textChars,
-    textPreview: firstTextPreview,
-    imageCount,
-  };
-
-  return summary;
 }
 
 export function parseJsonIfPossible(body: string): unknown {
