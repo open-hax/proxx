@@ -148,7 +148,7 @@ export function summarizeResponsesRequestBody(body: Record<string, unknown>): Re
 
   const input = body.input;
   if (typeof input === "string") {
-    summary.input = { kind: "text", length: input.length, preview: input.slice(0, 200) };
+    summary.input = { kind: "text", length: input.length };
     return summary;
   }
 
@@ -158,7 +158,6 @@ export function summarizeResponsesRequestBody(body: Record<string, unknown>): Re
   }
 
   let textChars = 0;
-  let firstTextPreview: string | undefined;
   let imageCount = 0;
 
   for (const item of input) {
@@ -169,9 +168,6 @@ export function summarizeResponsesRequestBody(body: Record<string, unknown>): Re
     const content = item.content;
     if (typeof content === "string") {
       textChars += content.length;
-      if (firstTextPreview === undefined && content.length > 0) {
-        firstTextPreview = content.slice(0, 200);
-      }
       continue;
     }
 
@@ -189,9 +185,6 @@ export function summarizeResponsesRequestBody(body: Record<string, unknown>): Re
 
       if (text) {
         textChars += text.length;
-        if (firstTextPreview === undefined && text.length > 0) {
-          firstTextPreview = text.slice(0, 200);
-        }
       }
 
       if (partType.includes("image") || part.image_url !== undefined || part.imageUrl !== undefined) {
@@ -204,7 +197,6 @@ export function summarizeResponsesRequestBody(body: Record<string, unknown>): Re
     kind: "structured",
     itemCount: input.length,
     textChars,
-    textPreview: firstTextPreview,
     imageCount,
   };
 

@@ -12,7 +12,7 @@ export function joinUrl(baseUrl: string, path: string): string {
 
   const baseLower = normalizedBase.toLowerCase();
   const pathLower = normalizedPath.toLowerCase();
-  if (pathLower.startsWith("/v1/") && baseLower.endsWith("/v1")) {
+  if ((pathLower === "/v1" || pathLower.startsWith("/v1/")) && baseLower.endsWith("/v1")) {
     normalizedPath = normalizedPath.slice(3);
   }
 
