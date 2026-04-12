@@ -6,12 +6,20 @@ import { FactoryChatCompletionsProviderStrategy, FactoryMessagesProviderStrategy
 import { OpenAiChatCompletionsProviderStrategy, OpenAiResponsesPassthroughStrategy, OpenAiResponsesProviderStrategy } from "./strategies/openai.js";
 import { LocalOllamaProviderStrategy, OllamaProviderStrategy } from "./strategies/ollama.js";
 import { ChatCompletionsProviderStrategy, ImagesGenerationsPassthroughStrategy, MessagesProviderStrategy, ResponsesPassthroughStrategy, ResponsesProviderStrategy, ResponsesViaChatCompletionsStrategy, ZaiChatCompletionsProviderStrategy } from "./strategies/standard.js";
+import { HuggingFaceEmbeddingStrategy, TEIEmbeddingStrategy, OvmNpuEmbeddingStrategy } from "./strategies/embeddings.js";
 
 export const GEMINI_CHAT_STRATEGY = new GeminiChatProviderStrategy();
 export const ZAI_CHAT_STRATEGY = new ZaiChatCompletionsProviderStrategy();
 export const ROTUSSY_RESPONSES_VIA_CHAT_STRATEGY = new ResponsesViaChatCompletionsStrategy();
 
 export const PROVIDER_STRATEGIES: readonly ProviderStrategy[] = [
+  // Embedding strategies — checked before chat/completions strategies
+  // so that embedding requests are never accidentally routed as chat.
+  new HuggingFaceEmbeddingStrategy(),
+  new TEIEmbeddingStrategy(),
+  new OvmNpuEmbeddingStrategy(),
+
+  // Existing strategies — unchanged order.
   new ImagesGenerationsPassthroughStrategy(),
   new OpenAiResponsesPassthroughStrategy(),
   new FactoryResponsesPassthroughStrategy(),
@@ -47,9 +55,6 @@ export function selectRemoteProviderStrategyForRoute(
   }
 
   if (providerUsesOpenAiChatCompletions(providerId) && context.responsesPassthrough !== true && context.imagesPassthrough !== true) {
-    // Models that need the Responses API (gpt-*) should use the responses
-    // strategy even for requesty/openrouter -- their /v1/chat/completions
-    // endpoint rejects tools+reasoning_effort for newer models.
     const needsResponses = shouldUseResponsesUpstream(context.routedModel, context.config.responsesModelPrefixes);
     if (!needsResponses) {
       return PROVIDER_STRATEGIES.find((entry) => entry.mode === "chat_completions" && entry.matches({
