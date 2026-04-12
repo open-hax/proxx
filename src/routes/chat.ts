@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 
-import { type ChatCompletionRequest, extractPromptCacheKey } from "../lib/request-utils.js";
+import type { ChatCompletionRequest } from "../lib/request-utils.js";
+import { extractPromptCacheKey } from "../lib/openai/index.js";
 import { isRecord } from "../lib/provider-utils.js";
 import { resolveModelRouting } from "../lib/model-routing-pipeline.js";
 import {
@@ -8,11 +9,11 @@ import {
   filterProviderRoutesByCatalogAvailability,
   filterProviderRoutesByModelSupport,
   shouldRejectModelFromProviderCatalog,
-} from "../lib/model-routing-helpers.js";
+} from "../lib/policy/adapters/index.js";
 import {
   tenantProviderAllowed,
   filterTenantProviderRoutes,
-} from "../lib/tenant-policy-helpers.js";
+} from "../lib/policy/engine/index.js";
 import {
   selectProviderStrategy,
   executeProviderRoutingPlan,
@@ -25,7 +26,8 @@ import {
   type ProviderRoute,
 } from "../lib/provider-routing.js";
 import { orderProviderRoutesByPolicy } from "../lib/provider-policy.js";
-import { sendOpenAiError, toErrorMessage } from "../lib/provider-utils.js";
+import { sendOpenAiError } from "../lib/provider-utils.js";
+import { toErrorMessage } from "../lib/errors/index.js";
 import { handleRoutingOutcome } from "../lib/routing-outcome-handler.js";
 import { isCephalonAutoModel, reorderCephalonProviderRoutes } from "../lib/provider-strategy/strategies/cephalon.js";
 import { isVisionAutoModel, reorderVisionProviderRoutes } from "../lib/provider-strategy/strategies/vision.js";

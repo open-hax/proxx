@@ -3,7 +3,7 @@ import type { RuntimeCredentialStore } from "./runtime-credential-store.js";
 import type { OpenAiOAuthManager, OAuthTokens } from "./openai-oauth.js";
 import { isTerminalOpenAiRefreshError } from "./openai-oauth.js";
 import { refreshFactoryOAuthToken, parseJwtExpiry, persistFactoryAuthV2 } from "./factory-auth.js";
-import { toErrorMessage } from "./provider-utils.js";
+import { toErrorMessage } from "./errors/index.js";
 import { TokenRefreshManager, type TokenRefreshManagerConfig, type Logger } from "./token-refresh-manager.js";
 
 export interface TokenRefreshDeps {

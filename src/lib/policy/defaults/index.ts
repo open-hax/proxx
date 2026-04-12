@@ -1,21 +1,46 @@
 import { DEFAULT_FALLBACK_BEHAVIOR, DEFAULT_PLAN_WEIGHTS, type PolicyConfig } from "../schema.js";
-import { buildFreeBlockedConstraints, createGptModelRoutingRules, GPT_FREE_BLOCKED_MODELS } from "./gpt.js";
+import {
+  createAllModelRoutingRules,
+  buildFreeBlockedConstraints,
+  GPT_FREE_BLOCKED_MODELS,
+  // Re-exports for backward compatibility
+  PAID_PLAN_WEIGHTS,
+  PAID_PLANS,
+  GPT_FREE_BLOCKED_MODEL_PATTERN,
+  DEFAULT_GPT_PROVIDER_ORDER,
+  GPT_OSS_PROVIDER_ORDER,
+  CLAUDE_OPUS_46_PROVIDER_ORDER,
+  GLM_PROVIDER_ORDER,
+  createGptRoutingRules,
+  createClaudeRoutingRules,
+  createGlmRoutingRules,
+} from "./rules/index.js";
 
+// Re-export for backward compatibility
 export {
   buildFreeBlockedConstraints,
-  createGptModelRoutingRules,
-  CLAUDE_OPUS_46_PROVIDER_ORDER,
-  DEFAULT_GPT_PROVIDER_ORDER,
+  PAID_PLAN_WEIGHTS,
+  PAID_PLANS,
   GPT_FREE_BLOCKED_MODELS,
   GPT_FREE_BLOCKED_MODEL_PATTERN,
+  DEFAULT_GPT_PROVIDER_ORDER,
   GPT_OSS_PROVIDER_ORDER,
-} from "./gpt.js";
+  CLAUDE_OPUS_46_PROVIDER_ORDER,
+  GLM_PROVIDER_ORDER,
+  createGptRoutingRules,
+  createClaudeRoutingRules,
+  createGlmRoutingRules,
+  createAllModelRoutingRules,
+};
+
+// Legacy export for backward compatibility
+export { createAllModelRoutingRules as createGptModelRoutingRules } from "./rules/index.js";
 
 export const DEFAULT_POLICY_CONFIG: PolicyConfig = {
   version: "1.0",
 
   modelRouting: {
-    rules: createGptModelRoutingRules(),
+    rules: createAllModelRoutingRules(),
     defaultAccountOrdering: { kind: "prefer_free" },
   },
 

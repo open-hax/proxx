@@ -20,7 +20,8 @@ import {
   messagesToChatCompletion,
   shouldUseMessagesUpstream,
 } from "../../messages-compat.js";
-import { appendCsvHeaderValue, chatCompletionHasReasoningContent, shouldEnableInterleavedThinkingHeader } from "../../provider-utils.js";
+import { appendCsvHeaderValue, shouldEnableInterleavedThinkingHeader } from "../../openai/index.js";
+import { chatCompletionHasReasoningContent } from "../../sse/index.js";
 import { BaseProviderStrategy, TransformedJsonProviderStrategy } from "../base.js";
 import {
   applyRequestedServiceTier,

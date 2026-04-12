@@ -29,21 +29,8 @@ import {
 import {
   responseIsEventStream,
   summarizeUpstreamError,
-} from "../provider-utils.js";
-
-function joinUrl(baseUrl: string, path: string): string {
-  const normalizedBase = baseUrl.replace(/\/+$/, "");
-  let normalizedPath = path.startsWith("/") ? path : `/${path}`;
-
-  // Avoid accidental `/v1/v1/...` joins when the provider base URL already includes the OpenAI version segment.
-  const baseLower = normalizedBase.toLowerCase();
-  const pathLower = normalizedPath.toLowerCase();
-  if (pathLower.startsWith("/v1/") && baseLower.endsWith("/v1")) {
-    normalizedPath = normalizedPath.slice(3);
-  }
-
-  return `${normalizedBase}${normalizedPath}`;
-}
+} from "../errors/index.js";
+import { joinUrl } from "../http/index.js";
 
 function dedupePaths(values: readonly string[]): string[] {
   const seen = new Set<string>();

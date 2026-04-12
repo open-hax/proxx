@@ -9,12 +9,12 @@ import type { AccountHealthStore } from "./db/account-health-store.js";
 import {
   tenantModelAllowed,
   resolveExplicitTenantProviderId,
-} from "./tenant-policy-helpers.js";
+} from "./policy/engine/index.js";
 import { sendOpenAiError } from "./provider-utils.js";
 import { resolveCatalogAndAlias } from "./catalog-alias-resolver.js";
 import {
   resolvableConcreteModelIds,
-} from "./model-routing-helpers.js";
+} from "./catalog-resolution.js";
 import { isAutoModel, rankAutoModels } from "./auto-model-selector.js";
 import { isCephalonAutoModel, buildCephalonModelCandidates } from "./provider-strategy/strategies/cephalon.js";
 import { isVisionAutoModel, buildVisionModelCandidates } from "./provider-strategy/strategies/vision.js";
