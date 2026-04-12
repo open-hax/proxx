@@ -225,14 +225,22 @@ export function registerWebsearchRoutes(deps: AppDeps, app: FastifyInstance): vo
           ? extracted.citations
           : extractMarkdownLinks(output);
 
-        reply.send({
-          output,
-          sources: sources.slice(0, numResults),
-          responseId: extracted.responseId,
-          model,
-          backend: "openai",
-        });
-        return;
+        // Check if OpenAI actually used web_search (output non-empty)
+        // If empty, the account likely doesn't have web_search access (requires Scale tier)
+        if (output.trim().length > 0 && sources.length > 0) {
+          reply.send({
+            output,
+            sources: sources.slice(0, numResults),
+            responseId: extracted.responseId,
+            model,
+            backend: "openai",
+          });
+          return;
+        }
+
+        // Output was empty - log and continue to try next config or fall back to Exa
+        lastErrorPayload = { reason: "openai_web_search_empty_output", model, toolUsed: false };
+        request.log.warn({ model, includeDomainsInTool }, "OpenAI web_search returned empty output, falling back to Exa");
       }
     }
 
