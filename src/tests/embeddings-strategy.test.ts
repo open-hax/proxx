@@ -1,196 +1,164 @@
 /**
  * embeddings-strategy.test.ts
  *
- * Conformance and sanity tests for the multi-provider embedding strategy.
- * All provider calls are mocked — no live endpoints required.
+ * Conformance tests for the embedding ProviderStrategy subclasses.
+ * Uses the same strategy interface as all other proxx strategies.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import assert from "node:assert/strict";
+import { describe, it } from "node:test";
 import {
-  embedWithOllama,
-  embedWithHFCloud,
-  embedWithTEI,
-  embedWithOvmNpu,
-} from '../lib/embeddings-providers/index.js';
-import type { EmbeddingProviderConfig, EmbeddingRequest } from '../lib/embeddings-strategy.js';
+  HuggingFaceEmbeddingStrategy,
+  TEIEmbeddingStrategy,
+  OvmNpuEmbeddingStrategy,
+} from '../lib/provider-strategy/strategies/embeddings.js';
+import type { StrategyRequestContext } from '../lib/provider-strategy/shared.js';
 
-const MOCK_DIMS = 1024;
-const mockEmbedding = Array.from({ length: MOCK_DIMS }, (_, i) => i / MOCK_DIMS);
-
-function makeCfg(overrides?: Partial<EmbeddingProviderConfig>): EmbeddingProviderConfig {
-  return { endpoint: 'http://mock', apiKey: 'test-key', ...overrides };
-}
-
-function makeReq(overrides?: Partial<EmbeddingRequest>): EmbeddingRequest {
+// ---------------------------------------------------------------------------
+// Minimal mock context
+// ---------------------------------------------------------------------------
+function makeCtx(overrides: Partial<StrategyRequestContext> = {}): StrategyRequestContext {
   return {
-    provider: 'ollama',
-    model: 'test-model',
-    input: ['hello world'],
-    mode: 'query',
+    config: {} as never,
+    clientHeaders: {},
+    requestBody: { input: ['hello world'] },
+    requestedModelInput: 'test-model',
+    routingModelInput: 'test-model',
+    routedModel: 'test-model',
+    explicitOllama: false,
+    openAiPrefixed: false,
+    factoryPrefixed: false,
+    localOllama: false,
+    clientWantsStream: false,
+    needsReasoningTrace: false,
+    upstreamAttemptTimeoutMs: 30_000,
     ...overrides,
   };
 }
 
-beforeEach(() => vi.restoreAllMocks());
+function embedCtx(provider: string, extra?: Partial<StrategyRequestContext>): StrategyRequestContext {
+  return makeCtx({
+    clientHeaders: { 'x-embedding-provider': provider },
+    requestBody: { input: ['hello'] },
+    ...extra,
+  });
+}
 
 // ---------------------------------------------------------------------------
-// Ollama
+// HuggingFaceEmbeddingStrategy
 // ---------------------------------------------------------------------------
-describe('embedWithOllama', () => {
-  it('returns normalised EmbeddingResponse', async () => {
-    vi.stubGlobal('fetch', async () => ({
-      ok: true,
-      json: async () => ({ embeddings: [mockEmbedding] }),
-    }));
+describe('HuggingFaceEmbeddingStrategy', () => {
+  const s = new HuggingFaceEmbeddingStrategy();
 
-    const res = await embedWithOllama(makeCfg(), makeReq({ provider: 'ollama' }));
-    expect(res.provider).toBe('ollama');
-    expect(res.embeddings).toHaveLength(1);
-    expect(res.dimensions).toBe(MOCK_DIMS);
+  it('has mode hf_embeddings', () => assert.equal(s.mode, 'hf_embeddings'));
+  it('is not local', () => assert.equal(s.isLocal, false));
+
+  it('matches on x-embedding-provider: hf', () =>
+    assert.equal(s.matches(embedCtx('hf')), true));
+  it('matches on x-embedding-provider: huggingface', () =>
+    assert.equal(s.matches(embedCtx('huggingface')), true));
+  it('does not match tei', () =>
+    assert.equal(s.matches(embedCtx('tei')), false));
+
+  it('getUpstreamPath encodes model name', () => {
+    const ctx = embedCtx('hf', { requestBody: { input: ['x'], model: 'Qwen/Qwen3-Embedding-4B' } });
+    assert.equal(s.getUpstreamPath(ctx), '/pipeline/feature-extraction/Qwen%2FQwen3-Embedding-4B');
   });
 
-  it('throws on non-ok response', async () => {
-    vi.stubGlobal('fetch', async () => ({ ok: false, status: 500, text: async () => 'err' }));
-    await expect(embedWithOllama(makeCfg(), makeReq())).rejects.toThrow('500');
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Hugging Face cloud  (native inference, not OpenAI shim)
-// ---------------------------------------------------------------------------
-describe('embedWithHFCloud', () => {
-  it('returns normalised EmbeddingResponse', async () => {
-    vi.stubGlobal('fetch', async () => ({
-      ok: true,
-      json: async () => [mockEmbedding],
-    }));
-
-    const res = await embedWithHFCloud(
-      makeCfg(),
-      makeReq({ provider: 'huggingface-cloud', model: 'Qwen/Qwen3-Embedding-4B' }),
-    );
-    expect(res.provider).toBe('huggingface-cloud');
-    expect(res.model).toBe('Qwen/Qwen3-Embedding-4B');
-    expect(res.dimensions).toBe(MOCK_DIMS);
+  it('getUpstreamPath does NOT contain /v1/embeddings', () => {
+    const ctx = embedCtx('hf');
+    assert.equal(s.getUpstreamPath(ctx).includes('/v1/embeddings'), false);
   });
 
-  it('sends Authorization header when apiKey present', async () => {
-    let capturedHeaders: Record<string, string> = {};
-    vi.stubGlobal('fetch', async (_url: string, opts: RequestInit) => {
-      capturedHeaders = opts.headers as Record<string, string>;
-      return { ok: true, json: async () => [mockEmbedding] };
-    });
-
-    await embedWithHFCloud(makeCfg({ apiKey: 'hf_test' }), makeReq({ provider: 'huggingface-cloud' }));
-    expect(capturedHeaders['Authorization']).toBe('Bearer hf_test');
+  it('buildPayload wraps scalar input in array', () => {
+    const ctx = embedCtx('hf', { requestBody: { input: 'single string' } });
+    const result = s.buildPayload(ctx);
+    assert.equal(Array.isArray(result.upstreamPayload['inputs']), true);
   });
 
-  it('does NOT hit /v1/embeddings (OpenAI shim)', async () => {
-    let capturedUrl = '';
-    vi.stubGlobal('fetch', async (url: string) => {
-      capturedUrl = url;
-      return { ok: true, json: async () => [mockEmbedding] };
-    });
-
-    await embedWithHFCloud(makeCfg(), makeReq({ provider: 'huggingface-cloud' }));
-    expect(capturedUrl).not.toContain('/v1/embeddings');
-    expect(capturedUrl).toContain('/pipeline/feature-extraction/');
+  it('buildPayload forwards instruction as parameters.prompt', () => {
+    const ctx = embedCtx('hf', { requestBody: { input: ['x'], instruction: 'Embed this' } });
+    const result = s.buildPayload(ctx);
+    const params = result.upstreamPayload['parameters'] as Record<string, unknown>;
+    assert.equal(params['prompt'], 'Embed this');
   });
 });
 
 // ---------------------------------------------------------------------------
-// TEI (self-hosted)
+// TEIEmbeddingStrategy
 // ---------------------------------------------------------------------------
-describe('embedWithTEI', () => {
-  it('returns normalised EmbeddingResponse', async () => {
-    vi.stubGlobal('fetch', async () => ({
-      ok: true,
-      json: async () => [mockEmbedding],
-    }));
+describe('TEIEmbeddingStrategy', () => {
+  const s = new TEIEmbeddingStrategy();
 
-    const res = await embedWithTEI(
-      makeCfg(),
-      makeReq({ provider: 'tei', model: 'Qwen/Qwen3-Embedding-4B' }),
-    );
-    expect(res.provider).toBe('tei');
-    expect(res.model).toBe('Qwen/Qwen3-Embedding-4B');
-    expect(res.dimensions).toBe(MOCK_DIMS);
-  });
+  it('has mode tei_embeddings', () => assert.equal(s.mode, 'tei_embeddings'));
+  it('is not local', () => assert.equal(s.isLocal, false));
 
-  it('uses /embed not /v1/embeddings', async () => {
-    let capturedUrl = '';
-    vi.stubGlobal('fetch', async (url: string) => {
-      capturedUrl = url;
-      return { ok: true, json: async () => [mockEmbedding] };
-    });
+  it('matches on x-embedding-provider: tei', () =>
+    assert.equal(s.matches(embedCtx('tei')), true));
+  it('does not match hf', () =>
+    assert.equal(s.matches(embedCtx('hf')), false));
 
-    await embedWithTEI(makeCfg(), makeReq({ provider: 'tei' }));
-    expect(capturedUrl).toMatch(/\/embed$/);
+  it('getUpstreamPath returns /embed', () =>
+    assert.equal(s.getUpstreamPath(makeCtx()), '/embed'));
+
+  it('getUpstreamPath does NOT contain /v1/embeddings', () =>
+    assert.equal(s.getUpstreamPath(makeCtx()).includes('/v1/embeddings'), false));
+
+  it('buildPayload sets truncate_dim when dimensions provided', () => {
+    const ctx = embedCtx('tei', { requestBody: { input: ['x'], dimensions: 512 } });
+    const result = s.buildPayload(ctx);
+    assert.equal(result.upstreamPayload['truncate_dim'], 512);
   });
 });
 
 // ---------------------------------------------------------------------------
-// ovm-npu  (Intel OpenVINO Model Server)
+// OvmNpuEmbeddingStrategy
 // ---------------------------------------------------------------------------
-describe('embedWithOvmNpu', () => {
-  const ovmResponse = {
-    data: [{ embedding: mockEmbedding, index: 0 }],
-    usage: { prompt_tokens: 5, total_tokens: 5 },
-  };
+describe('OvmNpuEmbeddingStrategy', () => {
+  const s = new OvmNpuEmbeddingStrategy();
 
-  it('returns normalised EmbeddingResponse', async () => {
-    vi.stubGlobal('fetch', async () => ({
-      ok: true,
-      json: async () => ovmResponse,
-    }));
+  it('has mode ovm_embeddings', () => assert.equal(s.mode, 'ovm_embeddings'));
+  it('is not local', () => assert.equal(s.isLocal, false));
 
-    const res = await embedWithOvmNpu(
-      makeCfg(),
-      makeReq({ provider: 'ovm-npu', model: 'OpenVINO/Qwen3-Embedding-0.6B-int8-ov' }),
-    );
-    expect(res.provider).toBe('ovm-npu');
-    expect(res.model).toBe('OpenVINO/Qwen3-Embedding-0.6B-int8-ov');
-    expect(res.dimensions).toBe(MOCK_DIMS);
-    expect(res.usage?.promptTokens).toBe(5);
+  it('matches on x-embedding-provider: ovm', () =>
+    assert.equal(s.matches(embedCtx('ovm')), true));
+  it('matches on x-embedding-provider: ovm-npu', () =>
+    assert.equal(s.matches(embedCtx('ovm-npu')), true));
+  it('does not match tei', () =>
+    assert.equal(s.matches(embedCtx('tei')), false));
+
+  it('getUpstreamPath returns /v3/embeddings', () =>
+    assert.equal(s.getUpstreamPath(makeCtx()), '/v3/embeddings'));
+
+  it('buildPayload uses 0.6B model by default', () => {
+    const ctx = embedCtx('ovm');
+    const result = s.buildPayload(ctx);
+    assert.equal(String(result.upstreamPayload['model']).includes('0.6B'), true);
   });
 
-  it('hits /v3/embeddings', async () => {
-    let capturedUrl = '';
-    vi.stubGlobal('fetch', async (url: string) => {
-      capturedUrl = url;
-      return { ok: true, json: async () => ovmResponse };
-    });
-
-    await embedWithOvmNpu(makeCfg(), makeReq({ provider: 'ovm-npu' }));
-    expect(capturedUrl).toContain('/v3/embeddings');
-  });
-
-  it('sorts embeddings by index', async () => {
-    vi.stubGlobal('fetch', async () => ({
-      ok: true,
-      json: async () => ({
-        data: [
-          { embedding: [0.9, 0.9], index: 1 },
-          { embedding: [0.1, 0.1], index: 0 },
-        ],
-      }),
-    }));
-
-    const res = await embedWithOvmNpu(makeCfg(), makeReq({ provider: 'ovm-npu' }));
-    expect(res.embeddings[0][0]).toBeCloseTo(0.1);
-    expect(res.embeddings[1][0]).toBeCloseTo(0.9);
+  it('Qwen3-Embedding-4B is NOT the ovm default (route to hf/tei instead)', () => {
+    const ctx = embedCtx('ovm');
+    const result = s.buildPayload(ctx);
+    assert.equal(String(result.upstreamPayload['model']).includes('4B'), false);
   });
 });
 
 // ---------------------------------------------------------------------------
-// Provider isolation — ovm-npu should NOT be used for 4B models
+// Registration guard: embedding strategies must not accidentally match chat
 // ---------------------------------------------------------------------------
-describe('provider intent guards', () => {
-  it('Qwen3-Embedding-4B should route to hf-cloud or tei, not ovm-npu', () => {
-    const model = 'Qwen/Qwen3-Embedding-4B';
-    // ovm-npu default model is the 0.6B variant
-    const ovmDefault = 'OpenVINO/Qwen3-Embedding-0.6B-int8-ov';
-    expect(model).not.toBe(ovmDefault);
-    expect(model).not.toContain('0.6B');
+describe('embedding strategies do not match chat requests', () => {
+  const strategies = [
+    new HuggingFaceEmbeddingStrategy(),
+    new TEIEmbeddingStrategy(),
+    new OvmNpuEmbeddingStrategy(),
+  ];
+
+  it('none match a plain chat request body', () => {
+    const chatCtx = makeCtx({
+      requestBody: { messages: [{ role: 'user', content: 'hi' }] },
+    });
+    for (const s of strategies) {
+      assert.equal(s.matches(chatCtx), false);
+    }
   });
 });

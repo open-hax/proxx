@@ -159,7 +159,10 @@ type UpstreamMode =
   | "openai_responses"
   | "ollama_chat"
   | "local_ollama_chat"
-  | "embeddings";
+  | "embeddings"
+  | "hf_embeddings"
+  | "tei_embeddings"
+  | "ovm_embeddings";
 
 interface StrategyRequestContext {
   /** Provider id for which we're selecting an upstream strategy. */

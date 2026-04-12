@@ -36,7 +36,10 @@ export type UpstreamMode =
   | "gemini_chat"
   | "ollama_chat"
   | "local_ollama_chat"
-  | "embeddings";
+  | "embeddings"
+  | "hf_embeddings"
+  | "tei_embeddings"
+  | "ovm_embeddings";
 
 export interface StrategyInfo {
   readonly mode: UpstreamMode;
