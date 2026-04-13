@@ -1,6 +1,5 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { ActionStrip, Badge, Button, Card, FilterToolbar, Input, PanelHeader, SurfaceHero, Tabs, type TabItem } from "@open-hax/uxx";
 import {
   addFederationPeer,
   getFederationAccounts,
@@ -249,93 +248,57 @@ export function FederationPage(): JSX.Element {
     }
   };
 
-  const accountKnowledgeTabs = useMemo<readonly TabItem[]>(() => [
-    {
-      id: "local",
-      label: "Local",
-      badge: String(accounts?.localAccounts.length ?? 0),
-      content: (
-        <div>
-          <p>{accounts?.localAccounts.length ?? 0} accounts</p>
-          <ul className="federation-pills">
-            {localProviders.map((entry) => <li key={`local-${entry.providerId}`}><Badge variant="info">{entry.providerId}</Badge> · {entry.count}</li>)}
-          </ul>
-        </div>
-      ),
-    },
-    {
-      id: "projected",
-      label: "Projected",
-      badge: String(accounts?.projectedAccounts.length ?? 0),
-      content: (
-        <div>
-          <p>{accounts?.projectedAccounts.length ?? 0} accounts</p>
-          <ul className="federation-pills">
-            {projectedProviders.map((entry) => <li key={`projected-${entry.providerId}`}><Badge variant="warning">{entry.providerId}</Badge> · {entry.count}</li>)}
-          </ul>
-        </div>
-      ),
-    },
-    {
-      id: "known",
-      label: "Known",
-      badge: String(accounts?.knownAccounts.length ?? 0),
-      content: (
-        <div>
-          <p>{accounts?.knownAccounts.length ?? 0} accounts</p>
-          <ul className="federation-pills">
-            {knownProviders.map((entry) => <li key={`known-${entry.providerId}`}><Badge variant="success">{entry.providerId}</Badge> · {entry.count}</li>)}
-          </ul>
-        </div>
-      ),
-    },
-  ], [accounts?.knownAccounts.length, accounts?.localAccounts.length, accounts?.projectedAccounts.length, knownProviders, localProviders, projectedProviders]);
-
   return (
     <section className="federation-page">
-      <SurfaceHero
-        kicker="Federation"
-        title="Brethren control surface"
-        description="Inspect self-state, peers, projected accounts, bridge sessions, and pull syncs without spelunking through curl, psql, and host tunnels."
-        stats={[
-          { label: 'this node', value: selfState?.nodeId ?? '—', tone: 'info' },
-          { label: 'known peers', value: selfState?.peerCount ?? 0, tone: 'info' },
-          { label: 'projected accounts', value: accounts?.projectedAccounts.length ?? 0, tone: 'warning' },
-          { label: 'recent routed reqs', value: routedRequestLogs.length },
-        ]}
-      />
+      <header className="federation-hero panel-sheen">
+        <div>
+          <p className="dashboard-kicker">Federation</p>
+          <h2>Brethren control surface</h2>
+          <p>
+            Inspect self-state, peers, projected accounts, bridge sessions, and pull syncs without spelunking through curl,
+            psql, and host tunnels.
+          </p>
+        </div>
+        <div className="federation-hero-meta">
+          <strong>{selfState?.nodeId ?? "—"}</strong>
+          <span>this node</span>
+          <strong>{selfState?.peerCount ?? 0}</strong>
+          <span>known peers</span>
+          <strong>{accounts?.projectedAccounts.length ?? 0}</strong>
+          <span>projected accounts</span>
+          <strong>{routedRequestLogs.length}</strong>
+          <span>recent routed reqs</span>
+        </div>
+      </header>
 
       <section className="federation-toolbar panel-sheen">
-        <FilterToolbar>
-          <label>
-            Owner subject
-            <Input
-              type="text"
-              value={ownerSubject}
-              onChange={(event) => setOwnerSubject(event.currentTarget.value)}
-              placeholder="did:web:proxx.promethean.rest:brethren"
-            />
-          </label>
-          <ActionStrip>
-            <Button type="button" variant="primary" loading={loading} onClick={() => void load()}>
-              {loading ? "Refreshing…" : "Refresh"}
-            </Button>
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={() => setOwnerSubject(DEFAULT_OWNER_SUBJECT)}
-            >
-              Default brethren subject
-            </Button>
-          </ActionStrip>
-        </FilterToolbar>
+        <label>
+          Owner subject
+          <input
+            type="text"
+            value={ownerSubject}
+            onChange={(event) => setOwnerSubject(event.currentTarget.value)}
+            placeholder="did:web:proxx.promethean.rest:brethren"
+          />
+        </label>
+        <div className="federation-toolbar-actions">
+          <button type="button" onClick={() => void load()} disabled={loading}>
+            {loading ? "Refreshing…" : "Refresh"}
+          </button>
+          <button
+            type="button"
+            onClick={() => setOwnerSubject(DEFAULT_OWNER_SUBJECT)}
+          >
+            Default brethren subject
+          </button>
+        </div>
       </section>
 
       {error ? <div className="federation-error panel-sheen">{error}</div> : null}
 
       <div className="federation-grid">
-        <Card variant="elevated" padding="md" style={{ minHeight: "100%" }}>
-          <PanelHeader title="Self" />
+        <article className="federation-card panel-sheen">
+          <h3>Self</h3>
           <dl className="federation-kv">
             <dt>Node</dt><dd>{selfState?.nodeId ?? "—"}</dd>
             <dt>Group</dt><dd>{selfState?.groupId ?? "—"}</dd>
@@ -343,10 +306,10 @@ export function FederationPage(): JSX.Element {
             <dt>Peer DID</dt><dd>{selfState?.peerDid ?? "—"}</dd>
             <dt>Public URL</dt><dd>{selfState?.publicBaseUrl ?? "—"}</dd>
           </dl>
-        </Card>
+        </article>
 
-        <Card variant="elevated" padding="md" style={{ minHeight: "100%" }}>
-          <PanelHeader title="Bridge sessions" />
+        <article className="federation-card panel-sheen">
+          <h3>Bridge sessions</h3>
           {bridges.length === 0 ? (
             <p className="federation-empty">No live bridge sessions reported.</p>
           ) : (
@@ -360,33 +323,53 @@ export function FederationPage(): JSX.Element {
               ))}
             </ul>
           )}
-        </Card>
+        </article>
 
-        <Card variant="elevated" padding="md" style={{ minHeight: "100%" }}>
-          <PanelHeader title="Routing" />
+        <article className="federation-card panel-sheen">
+          <h3>Routing</h3>
           <dl className="federation-kv">
             <dt>Recent federated</dt><dd>{routedRequestSummary.federated}</dd>
             <dt>Recent bridge</dt><dd>{routedRequestSummary.bridge}</dd>
             <dt>Top peer</dt><dd>{routedRequestSummary.topPeer ?? "—"}</dd>
             <dt>Tracked logs</dt><dd>{recentRequestLogs.length}</dd>
           </dl>
-        </Card>
+        </article>
 
-        <div className="federation-card federation-card-wide">
-        <Card variant="elevated" padding="md">
-          <PanelHeader title="Account knowledge" />
-          <Tabs defaultValue="local" variant="enclosed" items={accountKnowledgeTabs as TabItem[]} />
+        <article className="federation-card panel-sheen federation-card-wide">
+          <h3>Account knowledge</h3>
+          <div className="federation-account-columns">
+            <div>
+              <h4>Local</h4>
+              <p>{accounts?.localAccounts.length ?? 0} accounts</p>
+              <ul className="federation-pills">
+                {localProviders.map((entry) => <li key={`local-${entry.providerId}`}>{entry.providerId} · {entry.count}</li>)}
+              </ul>
+            </div>
+            <div>
+              <h4>Projected</h4>
+              <p>{accounts?.projectedAccounts.length ?? 0} accounts</p>
+              <ul className="federation-pills">
+                {projectedProviders.map((entry) => <li key={`projected-${entry.providerId}`}>{entry.providerId} · {entry.count}</li>)}
+              </ul>
+            </div>
+            <div>
+              <h4>Known</h4>
+              <p>{accounts?.knownAccounts.length ?? 0} accounts</p>
+              <ul className="federation-pills">
+                {knownProviders.map((entry) => <li key={`known-${entry.providerId}`}>{entry.providerId} · {entry.count}</li>)}
+              </ul>
+            </div>
+          </div>
           {lastSyncResult ? (
             <div className="federation-sync-result">
               Last sync: {lastSyncResult.peer.label} · projected {lastSyncResult.importedProjectedAccountsCount} · diff {lastSyncResult.remoteDiffCount}
             </div>
           ) : null}
-        </Card>
-        </div>
+        </article>
       </div>
 
       <article className="federation-card panel-sheen federation-card-wide">
-        <PanelHeader title="Recent routed requests" />
+        <h3>Recent routed requests</h3>
         {routedRequestLogs.length === 0 ? (
           <p className="federation-empty">No routed federation or bridge requests captured in the recent request log sample.</p>
         ) : (
@@ -410,7 +393,12 @@ export function FederationPage(): JSX.Element {
       </article>
 
       <article className="federation-card panel-sheen federation-card-wide">
-        <PanelHeader title="Peers" description="Register and sync peers without shell gymnastics." />
+        <header className="federation-card-header">
+          <div>
+            <h3>Peers</h3>
+            <p>Register and sync peers without shell gymnastics.</p>
+          </div>
+        </header>
 
         {peers.length === 0 ? <p className="federation-empty">No peers registered for this owner subject.</p> : null}
         {peers.length > 0 ? (
@@ -419,7 +407,7 @@ export function FederationPage(): JSX.Element {
               <article key={peer.id} className="federation-peer-card">
                 <div className="federation-peer-title-row">
                   <h4>{peer.label}</h4>
-                  <Badge variant={peer.status.toLowerCase() === "healthy" ? "success" : peer.status.toLowerCase() === "warning" ? "warning" : "default"}>{peer.status}</Badge>
+                  <span className={`federation-peer-status federation-peer-status-${peer.status.toLowerCase()}`}>{peer.status}</span>
                 </div>
                 <dl className="federation-kv">
                   <dt>Owner</dt><dd>{peer.ownerSubject}</dd>
@@ -430,9 +418,9 @@ export function FederationPage(): JSX.Element {
                   <dt>Updated</dt><dd>{formatDate(peer.updatedAt)}</dd>
                 </dl>
                 <div className="federation-peer-actions">
-                  <Button type="button" size="sm" onClick={() => void handleSyncPeer(peer)}>
+                  <button type="button" onClick={() => void handleSyncPeer(peer)}>
                     Sync pull
-                  </Button>
+                  </button>
                   <small>{syncStatus[peer.id] ?? "Idle"}</small>
                 </div>
               </article>
@@ -442,11 +430,11 @@ export function FederationPage(): JSX.Element {
       </article>
 
       <article className="federation-card panel-sheen federation-card-wide">
-        <PanelHeader title="Add peer" />
+        <h3>Add peer</h3>
         <form className="federation-form" onSubmit={(event) => void handleSubmitPeer(event)}>
           <label>
             Owner credential
-            <Input
+            <input
               type="password"
               value={peerForm.ownerCredential}
               onChange={(event) => setPeerForm((current) => ({ ...current, ownerCredential: event.currentTarget.value }))}
@@ -456,7 +444,7 @@ export function FederationPage(): JSX.Element {
           </label>
           <label>
             Label
-            <Input
+            <input
               type="text"
               value={peerForm.label}
               onChange={(event) => setPeerForm((current) => ({ ...current, label: event.currentTarget.value }))}
@@ -466,7 +454,7 @@ export function FederationPage(): JSX.Element {
           </label>
           <label>
             Base URL
-            <Input
+            <input
               type="url"
               value={peerForm.baseUrl}
               onChange={(event) => setPeerForm((current) => ({ ...current, baseUrl: event.currentTarget.value }))}
@@ -476,7 +464,7 @@ export function FederationPage(): JSX.Element {
           </label>
           <label>
             Control base URL
-            <Input
+            <input
               type="url"
               value={peerForm.controlBaseUrl}
               onChange={(event) => setPeerForm((current) => ({ ...current, controlBaseUrl: event.currentTarget.value }))}
@@ -485,7 +473,7 @@ export function FederationPage(): JSX.Element {
           </label>
           <label>
             Peer DID
-            <Input
+            <input
               type="text"
               value={peerForm.peerDid}
               onChange={(event) => setPeerForm((current) => ({ ...current, peerDid: event.currentTarget.value }))}
@@ -494,7 +482,7 @@ export function FederationPage(): JSX.Element {
           </label>
           <label>
             Auth credential
-            <Input
+            <input
               type="password"
               value={peerForm.authCredential}
               onChange={(event) => setPeerForm((current) => ({ ...current, authCredential: event.currentTarget.value }))}
@@ -502,9 +490,9 @@ export function FederationPage(): JSX.Element {
             />
           </label>
           <div className="federation-form-actions">
-            <Button type="submit" variant="primary" loading={submittingPeer}>
+            <button type="submit" disabled={submittingPeer}>
               {submittingPeer ? "Adding…" : "Add peer"}
-            </Button>
+            </button>
           </div>
         </form>
       </article>

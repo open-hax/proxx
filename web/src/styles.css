@@ -1067,6 +1067,18 @@ button:disabled {
   color: var(--token-colors-accent-red);
 }
 
+.credentials-badge-warning {
+  border-color: rgba(255, 190, 85, 0.4);
+  background: rgba(58, 41, 16, 0.88);
+  color: #ffd48a;
+}
+
+.credentials-badge-danger {
+  border-color: rgba(255, 124, 110, 0.4);
+  background: rgba(67, 27, 24, 0.9);
+  color: #ffb7ae;
+}
+
 .credentials-badge-muted {
   color: var(--text-dim);
 }
@@ -1093,10 +1105,10 @@ button:disabled {
 
 .credentials-pool-metric {
   margin: 0;
-  border: 1px solid var(--token-colors-alpha-bg-_16);
+  border: 1px solid rgba(131, 185, 208, 0.16);
   border-radius: 12px;
   padding: 10px;
-  background: var(--token-colors-alpha-bg-_62);
+  background: rgba(8, 22, 31, 0.62);
   display: grid;
   gap: 4px;
 }
@@ -1185,10 +1197,10 @@ button:disabled {
 }
 
 .credentials-audit-row {
-  border: 1px solid var(--token-colors-alpha-bg-_16);
+  border: 1px solid rgba(131, 185, 208, 0.16);
   border-radius: 12px;
   padding: 10px;
-  background: var(--token-colors-alpha-bg-_62);
+  background: rgba(8, 22, 31, 0.62);
 }
 
 .credentials-audit-row > div {
@@ -1209,7 +1221,7 @@ button:disabled {
 }
 
 .credentials-probe-note-error {
-  color: var(--token-colors-accent-red);
+  color: #ff9a90;
 }
 
 .credentials-account-grid {
@@ -1288,7 +1300,7 @@ button:disabled {
 }
 
 .credentials-quota-group + .credentials-quota-group {
-  border-top: 1px solid var(--token-colors-alpha-bg-_14);
+  border-top: 1px solid rgba(131, 185, 208, 0.14);
   padding-top: 10px;
 }
 
@@ -1979,11 +1991,11 @@ a {
 .federation-toolbar,
 .federation-card,
 .federation-error {
-  background: var(--token-colors-surface-panel);
-  border: 1px solid var(--token-colors-border-default);
+  background: rgba(17, 24, 39, 0.74);
+  border: 1px solid rgba(148, 163, 184, 0.18);
   border-radius: 18px;
   padding: 18px;
-  box-shadow: 0 20px 60px var(--token-colors-alpha-shadowDeep);
+  box-shadow: 0 20px 60px rgba(15, 23, 42, 0.22);
 }
 
 .federation-hero {
@@ -2003,7 +2015,7 @@ a {
 .federation-peer-card dd,
 .federation-kv dd,
 .federation-list small {
-  color: var(--token-colors-text-default);
+  color: rgba(226, 232, 240, 0.82);
 }
 
 .federation-hero-meta {
@@ -2038,9 +2050,9 @@ a {
   width: 100%;
   padding: 10px 12px;
   border-radius: 12px;
-  border: 1px solid var(--token-colors-border-default);
-  background: var(--token-colors-alpha-bg-_70);
-  color: var(--token-colors-text-default);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  background: rgba(15, 23, 42, 0.7);
+  color: #f8fafc;
 }
 
 .federation-toolbar-actions,
@@ -2057,9 +2069,9 @@ a {
 .federation-peer-actions button {
   padding: 10px 14px;
   border-radius: 999px;
-  border: 1px solid var(--token-colors-alpha-blue-_35);
-  background: var(--token-colors-alpha-blue-_15);
-  color: var(--token-colors-text-default);
+  border: 1px solid rgba(96, 165, 250, 0.35);
+  background: rgba(59, 130, 246, 0.15);
+  color: #dbeafe;
   cursor: pointer;
 }
 
@@ -2081,13 +2093,19 @@ a {
 }
 
 .federation-kv dt {
-  color: var(--token-colors-text-muted);
+  color: rgba(148, 163, 184, 0.9);
   font-weight: 600;
 }
 
 .federation-kv dd {
   margin: 0;
   overflow-wrap: anywhere;
+}
+
+.federation-account-columns {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
 }
 
 .federation-pills,
@@ -2104,8 +2122,8 @@ a {
 .federation-list li {
   border-radius: 999px;
   padding: 6px 10px;
-  background: var(--token-colors-alpha-bg-_55);
-  border: 1px solid var(--token-colors-border-default);
+  background: rgba(51, 65, 85, 0.55);
+  border: 1px solid rgba(148, 163, 184, 0.16);
 }
 
 .federation-peer-grid {
@@ -2116,8 +2134,8 @@ a {
 
 .federation-peer-card {
   border-radius: 16px;
-  border: 1px solid var(--token-colors-border-default);
-  background: var(--token-colors-alpha-bg-_46);
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  background: rgba(15, 23, 42, 0.46);
   padding: 14px;
   display: grid;
   gap: 12px;
@@ -2139,18 +2157,18 @@ a {
   border-radius: 999px;
   padding: 4px 10px;
   font-size: 0.8rem;
-  border: 1px solid var(--token-colors-border-default);
+  border: 1px solid rgba(148, 163, 184, 0.2);
 }
 
 .federation-peer-status-active {
-  background: var(--token-colors-alpha-green-_16);
-  color: var(--token-colors-accent-cyan);
+  background: rgba(34, 197, 94, 0.16);
+  color: #bbf7d0;
 }
 
 .federation-peer-status-disabled,
 .federation-peer-status-error {
-  background: var(--token-colors-alpha-red-_14);
-  color: var(--token-colors-accent-red);
+  background: rgba(248, 113, 113, 0.14);
+  color: #fecaca;
 }
 
 .federation-form {
@@ -2164,23 +2182,24 @@ a {
 }
 
 .federation-empty {
-  color: var(--token-colors-text-muted);
+  color: rgba(148, 163, 184, 0.85);
 }
 
 .federation-sync-result {
   margin-top: 12px;
-  color: var(--token-colors-accent-blue);
+  color: #bfdbfe;
 }
 
 .federation-error {
-  color: var(--token-colors-accent-red);
-  border-color: var(--token-colors-alpha-red-_25);
-  background: var(--token-colors-alpha-federationError);
+  color: #fecaca;
+  border-color: rgba(248, 113, 113, 0.25);
+  background: rgba(127, 29, 29, 0.22);
 }
 
 @media (max-width: 960px) {
   .federation-hero,
   .federation-grid,
+  .federation-account-columns,
   .federation-form {
     grid-template-columns: 1fr;
   }

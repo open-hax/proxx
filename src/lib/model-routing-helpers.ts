@@ -1,47 +1,11 @@
 import type { ProxyConfig } from "./config.js";
 import { isAutoModel } from "./auto-model-selector.js";
-import { isGlmModel } from "./glm-compat.js";
-import { looksLikeHostedOpenAiFamily, providerIdLooksLikeOllama, type ProviderRoute } from "./provider-routing.js";
+import type { ProviderRoute } from "./provider-routing.js";
 import type { ResolvedCatalogWithPreferences } from "./provider-catalog.js";
 
 interface ResolvedModelCatalog {
   readonly modelIds: readonly string[];
   readonly aliasTargets: Readonly<Record<string, string>>;
-  readonly dynamicOllamaModelIds: readonly string[];
-}
-
-function normalizeModelId(modelId: string): string {
-  return modelId.trim().toLowerCase();
-}
-
-function providerCatalogEntrySupportsModel(
-  providerId: string,
-  modelId: string,
-  entry: ResolvedCatalogWithPreferences["providerCatalogs"][string] | undefined,
-): boolean {
-  if (!entry) {
-    return false;
-  }
-
-  const normalizedModelId = normalizeModelId(modelId);
-  if (entry.modelIds.some((candidateModelId) => normalizeModelId(candidateModelId) === normalizedModelId)) {
-    return true;
-  }
-
-  // Rotussy's catalog is sourced from models.dev and can lag newly released GLM IDs.
-  // If it already advertises the GLM family, keep it eligible for new glm-* models.
-  return providerId.trim().toLowerCase() === "rotussy"
-    && isGlmModel(modelId)
-    && entry.modelIds.some((candidateModelId) => isGlmModel(candidateModelId));
-}
-
-export function catalogHasDynamicOllamaModel(
-  catalog: Pick<ResolvedModelCatalog, "dynamicOllamaModelIds"> | null | undefined,
-  modelId: string,
-): boolean {
-  const normalizedModelId = normalizeModelId(modelId);
-  return normalizedModelId.length > 0
-    && (catalog?.dynamicOllamaModelIds ?? []).some((candidateModelId) => normalizeModelId(candidateModelId) === normalizedModelId);
 }
 
 export function resolvableConcreteModelIds(catalog: ResolvedModelCatalog | null): string[] | undefined {
@@ -102,14 +66,9 @@ export function openAiProviderUsesCodexSurface(config: ProxyConfig): boolean {
 export function providerRouteSupportsModel(config: ProxyConfig, providerId: string, modelId: string): boolean {
   const normalizedProviderId = providerId.trim().toLowerCase();
   const normalizedModelId = modelId.trim().toLowerCase();
-  const normalizedOpenAiProviderId = config.openaiProviderId.trim().toLowerCase();
-
-  if (normalizedProviderId === normalizedOpenAiProviderId && !looksLikeHostedOpenAiFamily(normalizedModelId)) {
-    return false;
-  }
 
   if (
-    normalizedProviderId === normalizedOpenAiProviderId
+    normalizedProviderId === config.openaiProviderId.trim().toLowerCase()
     && normalizedModelId === "gpt-5.4-nano"
     && openAiProviderUsesCodexSurface(config)
   ) {
@@ -125,27 +84,6 @@ export function filterProviderRoutesByModelSupport(
   modelId: string,
 ): ProviderRoute[] {
   return routes.filter((route) => providerRouteSupportsModel(config, route.providerId, modelId));
-}
-
-export function filterProviderRoutesByCatalogAvailability(
-  providerRoutes: readonly ProviderRoute[],
-  routedModel: string,
-  catalogBundle: ResolvedCatalogWithPreferences,
-): ProviderRoute[] {
-  const catalogMatchedRoutes = providerRoutes.filter((route) => {
-    const entry = catalogBundle.providerCatalogs[route.providerId];
-    return providerCatalogEntrySupportsModel(route.providerId, routedModel, entry);
-  });
-
-  if (catalogMatchedRoutes.length > 0) {
-    return catalogMatchedRoutes;
-  }
-
-  if (catalogHasDynamicOllamaModel(catalogBundle.catalog, routedModel)) {
-    return providerRoutes.filter((route) => providerIdLooksLikeOllama(route.providerId));
-  }
-
-  return [...providerRoutes];
 }
 
 export function shouldRejectModelFromProviderCatalog(

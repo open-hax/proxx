@@ -11,7 +11,7 @@ export async function registerGetSettingsUiRoute(
   options?: PrefixedRouteOptions,
 ): Promise<void> {
   app.get(resolveSettingsRoutePath("/settings", options), async (request, reply) => {
-    const auth = getResolvedAuth(request);
+    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
     if (!auth) {
       reply.code(401).send({ error: "unauthorized" });
       return;

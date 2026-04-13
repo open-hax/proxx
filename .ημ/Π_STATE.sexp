@@ -1,33 +1,25 @@
 ;; Π State Snapshot
-;; Generated: 2026-04-04T03:31:21Z
+;; Generated: 2026-03-27T04:59:11Z
 
 (
   :repo "open-hax/proxx"
-  :branch "fork-tax/20260404-033121-proxx-night-owl-dashboard-finish"
-  :base-branch "fix/prompt-cache-audit-followups"
-  :previous-tag "Π/20260404-010801-request-log-cache-rollup-failure-exclusion"
-  :intended-tag "Π/20260404-033121-proxx-night-owl-dashboard-finish"
-  :remote "origin"
+  :branch "fix/ci-live-e2e-aggregate-conclusion"
+  :head-before "55a5b116fa678b972792414deaf1050f75d4bc34"
+  :previous-tag "Π/2026-03-27/045620"
+  :intended-tag "Π/2026-03-27/045911"
+  :remote "origin/fix/ci-live-e2e-aggregate-conclusion"
+  :status-digest "660a87b95a180e9f"
 
   :work-description
-  "Adopt the published UXX runtime theming surface in Proxx, add a persisted Monokai/Night Owl theme toggle, and finish the dashboard/home-page migration so both UXX primitives and Proxx-owned CSS panels respond to the active theme.
+  "Final follow-up repository handoff snapshot for the remaining tenant-provider-policy-routes test diff left after the earlier Proxx snapshots.
 
-  Changes:
-  - Upgraded @open-hax/uxx to 0.1.3
-  - Wrapped the app in ThemeProvider with persisted theme selection in local storage
-  - Moved Proxx theme aliases/background ownership to the themed wrapper instead of :root
-  - Verified the dashboard, nav, inputs, and panels all switch to Night Owl instead of only the metric cards
-  - Rebuilt and recreated services/proxx against the published package"
+Includes:
+- federation diff-events route coverage in src/tests/tenant-provider-policy-routes.test.ts
+- refreshed .ημ handoff artifacts for the final test-only residue state."
+
+  :dirty-state (
+    :modified ["src/tests/tenant-provider-policy-routes.test.ts"])
 
   :verification (
-    :build "pass (pnpm build)"
-    :web-build "pass (pnpm web:build)"
-    :runtime "pass (docker compose up -d --build --force-recreate; service healthy on :5174)"
-    :browser-check "pass (Night Owl applied across dashboard panels + controls)"))
-    :store-tests "pass (npx tsx --test src/tests/request-log-store.test.ts)"
-    :proxy-analytics "pass (targeted src/tests/proxy.test.ts cache-hit summary regressions)"
-    :known-red "unrelated proxy.test failure remains: glm chat requests skip ollama-cloud when provider catalog does not advertise the requested model")
-
-  :deferred (
-    :metadata-rebuild "Rebuild live services/proxx request-log metadata to refresh stale weekly/monthly cache counters"
-    :ui-labeling "Disambiguate cache hit rate vs cached token share in operator UI"))
+    :typecheck "pass (pnpm run typecheck)"
+    :prior-tests "last observed full test run on snapshot Π/2026-03-27/045033 failed 419/420 on prompt-cache audit grouping; current residue preserved without rerunning the full suite"))

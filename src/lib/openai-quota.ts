@@ -837,16 +837,7 @@ export async function fetchOpenAiQuotaSnapshots(
   },
 ): Promise<OpenAiQuotaSnapshotResponse> {
   const fetchFn = options.fetchFn ?? fetch;
-  const accounts = options.accounts
-    ? options.accounts
-        .filter((account) => account.authType === "oauth_bearer")
-        .filter((account) => !options.accountId || account.id === options.accountId)
-        .sort((left, right) => {
-          const leftLabel = (left.email ?? left.displayName ?? left.id).toLowerCase();
-          const rightLabel = (right.email ?? right.displayName ?? right.id).toLowerCase();
-          return leftLabel.localeCompare(rightLabel);
-        })
-    : await listOpenAiOAuthAccounts(credentialStore, options.providerId, options.accountId);
+  const accounts = await listOpenAiOAuthAccounts(credentialStore, options.providerId, options.accountId);
 
   const snapshots = await Promise.all(
     accounts.map((account) => fetchQuotaForAccount(options.providerId, account, credentialStore, fetchFn, options.logger)),

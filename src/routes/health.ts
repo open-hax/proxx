@@ -34,13 +34,6 @@ export function registerHealthRoutes(deps: AppDeps, app: FastifyInstance): void 
     } catch (error) {
       keyPoolStatus = { error: toErrorMessage(error) };
       keyPoolProviders = {};
-      return {
-        ok: false,
-        service: "open-hax-openai-proxy",
-        authMode: deps.config.proxyAuthToken ? "token" : "unauthenticated",
-        keyPool: keyPoolStatus,
-        keyPoolProviders
-      };
     }
 
     return {

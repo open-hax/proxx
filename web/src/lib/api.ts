@@ -114,7 +114,6 @@ export interface PromptCacheAuditOverview {
   readonly crossAccountHashCount: number;
   readonly crossSuccessfulAccountHashCount: number;
   readonly rows: readonly PromptCacheAuditRow[];
-  readonly watchRows: readonly PromptCacheAuditRow[];
 }
 
 export interface KeyPoolStatus {
@@ -1009,7 +1008,7 @@ export async function syncFederationPeer(input: {
   readonly sinceMs?: number;
   readonly pullUsage?: boolean;
 }): Promise<FederationSyncResult> {
-  return requestJson<FederationSyncResult>("/api/v1/federation/sync/pull", {
+  return requestJson<FederationSyncResult>("/api/ui/federation/sync/pull", {
     method: "POST",
     headers: {
       "content-type": "application/json",

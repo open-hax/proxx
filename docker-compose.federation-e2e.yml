@@ -1,7 +1,11 @@
+name: proxx-federation-e2e
+
 x-proxx-node: &proxx-node
   build:
     context: .
     dockerfile: Dockerfile
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
   environment: &proxx-node-env
     NODE_ENV: production
     PROXY_HOST: 0.0.0.0

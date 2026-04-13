@@ -1,14 +1,13 @@
 import type { FastifyReply } from "fastify";
 
-import type { AccountHealthStore } from "../../db/account-health-store.js";
-import type { EventStore } from "../../db/event-store.js";
-import type { ProviderCredential } from "../../key-pool.js";
-import type { PolicyEngine } from "../../policy/index.js";
-import type { PromptAffinityStore } from "../../prompt-affinity-store.js";
-import type { ProviderRoutePheromoneStore } from "../../provider-route-pheromone-store.js";
-import type { RequestLogStore } from "../../request-log-store.js";
-import type { QuotaMonitor } from "../../quota-monitor.js";
-import { buildUpstreamHeadersForCredential, detectOllamaLimitKind, extractRateLimitCooldownMs, isRateLimitResponse } from "../../proxy.js";
+import type { AccountHealthStore } from "../db/account-health-store.js";
+import type { EventStore } from "../db/event-store.js";
+import type { ProviderCredential } from "../key-pool.js";
+import type { PolicyEngine } from "../policy/index.js";
+import type { PromptAffinityStore } from "../prompt-affinity-store.js";
+import type { RequestLogStore } from "../request-log-store.js";
+import type { QuotaMonitor } from "../quota-monitor.js";
+import { buildUpstreamHeadersForCredential, extractRateLimitCooldownMs, isRateLimitResponse } from "../proxy.js";
 import {
   responsesEventStreamToErrorPayload,
 } from "../../responses-compat.js";
@@ -27,6 +26,10 @@ import {
   extractImagesFromCodexEventStream,
   extractImagesFromCodexResponse,
   joinUrl,
+  providerAccountsForRequest,
+  providerAccountsForRequestWithPolicy,
+  reorderAccountsForLatency,
+  reorderCandidatesForAffinities,
   responseLooksLikeEventStream,
   sleep,
   transientRetryDelayMs,
@@ -49,40 +52,6 @@ import {
 import { requestyModelProvider } from "../../model-family.js";
 import { buildFallbackCandidates } from "./orchestrator.js";
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
-function asString(value: unknown): string | undefined {
-  return typeof value === "string" ? value : undefined;
-}
-
-function normalizeReasoningEffortForOllamaCloud(payload: Record<string, unknown>): Record<string, unknown> {
-  const reasoning = isRecord(payload["reasoning"]) ? payload["reasoning"] : null;
-  const effort = asString(reasoning?.["effort"]) ?? asString(payload["reasoning_effort"]) ?? asString(payload["reasoningEffort"]);
-
-  if (!effort || effort.toLowerCase() !== "xhigh") {
-    return payload;
-  }
-
-  const result = { ...payload };
-
-  if (reasoning && asString(reasoning["effort"])?.toLowerCase() === "xhigh") {
-    result["reasoning"] = { ...reasoning, effort: "high" };
-  }
-
-  if (asString(payload["reasoning_effort"])?.toLowerCase() === "xhigh") {
-    result["reasoning_effort"] = "high";
-  }
-
-  if (asString(payload["reasoningEffort"])?.toLowerCase() === "xhigh") {
-    result["reasoningEffort"] = "high";
-  }
-
-  return result;
-}
-import { clampRouteQuality, createAccumulator, emptyResult, type FallbackDeps } from "./types.js";
-
 function shouldUseOpenAiCodexHeaderProfile(
   providerId: string,
   account: ProviderCredential,
@@ -90,6 +59,20 @@ function shouldUseOpenAiCodexHeaderProfile(
 ): boolean {
   return providerId === openaiProviderId && account.authType === "oauth_bearer";
 }
+
+const REQUESTY_MODEL_PREFIXES: ReadonlyArray<readonly [string, string]> = [
+  ["gpt-", "openai"],
+  ["o1", "openai"],
+  ["o3", "openai"],
+  ["o4", "openai"],
+  ["chatgpt-", "openai"],
+  ["claude-", "anthropic"],
+  ["gemini-", "google"],
+  ["deepseek", "deepseek"],
+  ["glm-", "zhipu"],
+  ["kimi-", "moonshotai"],
+  ["qwen", "qwen"],
+];
 
 const MAX_STICKY_TRANSPORT_FAILURE_CANDIDATES = 4;
 
@@ -138,7 +121,92 @@ export async function executeProviderRoutingPlan(
     policy, healthStore, eventStore, quotaMonitor,
   };
 
-  const { candidates, preferredAffinity, provisionalAffinity } = await buildFallbackCandidates(deps);
+  const candidatesByProvider: Record<string, Array<{ readonly providerId: string; readonly baseUrl: string; readonly account: ProviderCredential }>> = {};
+  const forcedCredentialSelection = resolveForcedCredentialSelection(context);
+
+  for (const route of providerRoutes) {
+    if (forcedCredentialSelection.providerId && route.providerId !== forcedCredentialSelection.providerId) {
+      continue;
+    }
+
+    let routeAccounts: ProviderCredential[];
+    try {
+      const rawAccounts = await keyPool.getRequestOrder(route.providerId);
+      routeAccounts = policy
+        ? providerAccountsForRequestWithPolicy(policy, rawAccounts, route.providerId, context.routedModel, {
+            openAiPrefixed: context.openAiPrefixed,
+            localOllama: context.localOllama,
+            explicitOllama: context.explicitOllama,
+          }, healthStore)
+        : providerAccountsForRequest(rawAccounts, route.providerId, context.routedModel);
+    } catch {
+      continue;
+    }
+
+    routeAccounts = reorderAccountsForLatency(requestLogStore, route.providerId, routeAccounts, context.routedModel, strategy.mode);
+
+    if (forcedCredentialSelection.accountId) {
+      routeAccounts = routeAccounts.filter((account) => account.accountId === forcedCredentialSelection.accountId);
+    }
+
+    const routeCandidates = routeAccounts.map((account) => ({
+      providerId: route.providerId,
+      baseUrl: route.baseUrl,
+      account,
+    }));
+
+    if (routeCandidates.length > 0) {
+      candidatesByProvider[route.providerId] = routeCandidates;
+    }
+  }
+
+  const affinityRecord = promptCacheKey
+    ? await promptAffinityStore.get(promptCacheKey)
+    : undefined;
+  const preferredAffinity = affinityRecord
+    ? { providerId: affinityRecord.providerId, accountId: affinityRecord.accountId }
+    : undefined;
+  const provisionalAffinity = affinityRecord?.provisionalProviderId && affinityRecord?.provisionalAccountId
+    ? { providerId: affinityRecord.provisionalProviderId, accountId: affinityRecord.provisionalAccountId }
+    : undefined;
+
+  const allCandidates = providerRoutes.flatMap((route) => candidatesByProvider[route.providerId] ?? []);
+
+  const providerIndex = new Map(providerRoutes.map((route, index) => [route.providerId, index] as const));
+
+  const sortedCandidates = [...allCandidates].sort((left, right) => {
+    const idxLeft = providerIndex.get(left.providerId) ?? Number.MAX_SAFE_INTEGER;
+    const idxRight = providerIndex.get(right.providerId) ?? Number.MAX_SAFE_INTEGER;
+
+    // Respect provider ordering first (already policy-ordered), with an escape hatch
+    // for significant TTFT differences.
+    if (idxLeft !== idxRight) {
+      const perfLeft = requestLogStore.getPerfSummary(left.providerId, left.account.accountId, context.routedModel, strategy.mode);
+      const perfRight = requestLogStore.getPerfSummary(right.providerId, right.account.accountId, context.routedModel, strategy.mode);
+
+      const ttftLeft = perfLeft?.ewmaTtftMs;
+      const ttftRight = perfRight?.ewmaTtftMs;
+      if (
+        typeof ttftLeft === "number" && Number.isFinite(ttftLeft)
+        && typeof ttftRight === "number" && Number.isFinite(ttftRight)
+      ) {
+        const ttftDelta = Math.abs(ttftLeft - ttftRight);
+        if (ttftDelta > 120) {
+          return ttftLeft - ttftRight;
+        }
+      }
+
+      return idxLeft - idxRight;
+    }
+
+    // Within a provider, preserve upstream ordering (policy + account ordering + latency window).
+    return 0;
+  });
+
+  const candidates = reorderCandidatesForAffinities(
+    sortedCandidates,
+    [preferredAffinity, provisionalAffinity].filter((value): value is { readonly providerId: string; readonly accountId: string } => Boolean(value)),
+  );
 
   if (candidates.length === 0) {
     return emptyResult(0);
@@ -443,42 +511,16 @@ export async function executeProviderRoutingPlan(
 
         if (isRateLimitResponse(upstreamResponse)) {
           accumulator.sawRateLimit = true;
-
-          let ollamaMultiplier = 1;
-          let ollamaLimitKind: ReturnType<typeof detectOllamaLimitKind> = "unknown";
-          if (candidate.account.providerId === "ollama-cloud") {
-            try {
-              const cloned = upstreamResponse.clone();
-              const body = await cloned.json() as Record<string, unknown>;
-              ollamaLimitKind = detectOllamaLimitKind(body);
-              if (ollamaLimitKind === "weekly") {
-                ollamaMultiplier = context.config.ollamaWeeklyCooldownMultiplier;
-              }
-            } catch {
-              // If we can't parse the body, fall back to no multiplier.
-            }
-          }
-
           let cooldownMs: number | undefined;
-          if (quotaMonitor?.tracksProvider(candidate.account.providerId)) {
+          if (quotaMonitor) {
             cooldownMs = quotaMonitor.getCooldownMs(candidate.account.accountId);
           }
           if (!cooldownMs) {
             cooldownMs = await extractRateLimitCooldownMs(upstreamResponse);
           }
-          if (!cooldownMs && quotaMonitor?.tracksProvider(candidate.account.providerId)) {
-            try {
-              await quotaMonitor.refreshAccountQuota(candidate.account.accountId);
-            } catch {
-              // Ignore quota lookup failures and fall back to response-derived cooldowns.
-            }
-            cooldownMs = quotaMonitor.getCooldownMsFromQuota(candidate.account.accountId);
-          }
           if (!cooldownMs) {
             cooldownMs = context.config.keyCooldownMs;
           }
-
-          cooldownMs = Math.round(cooldownMs * ollamaMultiplier);
           keyPool.markRateLimited(candidate.account, cooldownMs);
           if (
             ollamaLimitKind === "session"
@@ -511,26 +553,9 @@ export async function executeProviderRoutingPlan(
             : upstreamResponse.status === 402
               ? 24 * 60 * 60 * 1000
               : Math.min(context.config.keyCooldownMs, 60_000);
-          let quotaCooldownMs: number | undefined;
-          if (quotaMonitor?.tracksProvider(candidate.account.providerId)) {
-            quotaCooldownMs = quotaMonitor.getCooldownMs(candidate.account.accountId);
-            if (!quotaCooldownMs) {
-              try {
-                await quotaMonitor.refreshAccountQuota(candidate.account.accountId);
-              } catch {
-                // Ignore quota lookup failures and fall back to local cooldown heuristics.
-              }
-              quotaCooldownMs = quotaMonitor.getCooldownMs(candidate.account.accountId);
-            }
-          }
-          if (!quotaCooldownMs) {
-            quotaCooldownMs = await extractRateLimitCooldownMs(upstreamResponse);
-          }
-          if (!quotaCooldownMs) {
-            quotaCooldownMs = healthStore
-              ? healthStore.getGrowingCooldown(candidate.account.providerId, candidate.account.accountId, baseCooldownMs)
-              : baseCooldownMs;
-          }
+          const quotaCooldownMs = healthStore
+            ? healthStore.getGrowingCooldown(candidate.account.providerId, candidate.account.accountId, baseCooldownMs)
+            : baseCooldownMs;
           keyPool.markRateLimited(candidate.account, quotaCooldownMs);
           if (healthStore) {
             healthStore.recordFailure(candidate.account, upstreamResponse.status, "quota_exhausted");
