@@ -1,4 +1,6 @@
-import { dirname, join } from "node:path";
+import { createHash } from "node:crypto";
+import { access } from "node:fs/promises";
+import { Readable } from "node:stream";
 
 import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
 import fastifySwagger from "@fastify/swagger";
@@ -171,12 +173,18 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
 
       if (config.keysFilePath) {
         try {
+          await access(config.keysFilePath);
           const seedResult = await seedFromJsonFile(sql, config.keysFilePath, config.upstreamProviderId, {
             skipExistingProviders: true,
           });
           app.log.info({ providers: seedResult.providers, accounts: seedResult.accounts }, "seeded credentials from json file");
         } catch (error) {
-          app.log.warn({ error: toErrorMessage(error) }, "failed to seed credentials from json file; continuing with existing data");
+          const message = toErrorMessage(error).toLowerCase();
+          if (message.includes("enoent") || message.includes("no such file")) {
+            app.log.info({ keysFilePath: config.keysFilePath }, "credential seed file missing; continuing with database and env-backed providers only");
+          } else {
+            app.log.warn({ error: toErrorMessage(error) }, "failed to seed credentials from json file; continuing with existing data");
+          }
         }
       }
 

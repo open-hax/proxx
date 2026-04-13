@@ -14,6 +14,10 @@ set -euo pipefail
 
 BASE="${DEV_PROXY_URL:-http://127.0.0.1:8795}"
 E2E_REQUIRE_FACTORY="${E2E_REQUIRE_FACTORY:-0}"
+E2E_SKIP_OPENAI_SMOKE="${E2E_SKIP_OPENAI_SMOKE:-0}"
+TENANT_API_KEY_TEST_MODEL="${TENANT_API_KEY_TEST_MODEL:-openai/gpt-5.2-codex}"
+OPENAI_CHAT_TEST_MODEL="${OPENAI_CHAT_TEST_MODEL:-gpt-5.2}"
+OPENAI_RESPONSES_TEST_MODEL="${OPENAI_RESPONSES_TEST_MODEL:-gpt-5.2-codex}"
 PASS=0
 FAIL=0
 SKIP=0
@@ -31,6 +35,11 @@ bold()   { printf "\033[1m%s\033[0m\n" "$*"; }
 pass() { PASS=$((PASS + 1)); green "  PASS: $1"; }
 fail() { FAIL=$((FAIL + 1)); red   "  FAIL: $1 — $2"; }
 skip() { SKIP=$((SKIP + 1)); yellow "  SKIP: $1 — $2"; }
+
+model_looks_openai() {
+  local model="$1"
+  [[ "$model" == gpt-* || "$model" == openai/* || "$model" == openai:* ]]
+}
 
 # ── helpers ──────────────────────────────────────────────────────────
 
@@ -255,6 +264,9 @@ else
   fail "GET /v1/models" "no response"
 fi
 
+HEALTH_JSON=$(curl_json "${BASE}/health" 2>/dev/null) || HEALTH_JSON=""
+OPENAI_AVAILABLE_COUNT=$(json_provider_metric_or_zero "$HEALTH_JSON" "openai" "availableAccounts")
+
 bold ""
 bold "── 1b. Tenant API key lifecycle ──"
 
@@ -271,24 +283,25 @@ if [[ -n "${DEV_PROXY_AUTH_TOKEN:-}" ]]; then
     if [[ -n "$TENANT_KEY_ID" && -n "$TENANT_KEY_TOKEN" ]]; then
       # Retry once on first tenant key request to handle cold-start connection delays
       RESPONSE=""
-      HTTP_STATUS=""
-      HTTP_BODY=""
-      for attempt in 1 2; do
-        RESPONSE=$(chat_completion_with_token_capture "$TENANT_KEY_TOKEN" "openai/gpt-5.2-codex" "Reply with exactly one word: OK" 2>/dev/null) || RESPONSE=""
-        if [[ -n "$RESPONSE" ]]; then
-          split_http_response "$RESPONSE"
-          break
-        fi
-        if [[ "$attempt" -eq 1 ]]; then
-          sleep 2
-        fi
-      done
-      if [[ "$HTTP_STATUS" == "200" ]]; then
-        pass "tenant API key can access /v1/chat/completions"
-      elif [[ $(is_infrastructure_issue "$HTTP_STATUS" "$HTTP_BODY"; echo $?) -eq 0 ]]; then
-        pass "tenant API key can access /v1/chat/completions (status ${HTTP_STATUS:-000} capacity-limited)"
+      if [[ "$E2E_SKIP_OPENAI_SMOKE" == "1" ]] && model_looks_openai "$TENANT_API_KEY_TEST_MODEL"; then
+        skip "tenant API key chat completion" "openai-specific tenant smoke disabled in this environment"
+      elif model_looks_openai "$TENANT_API_KEY_TEST_MODEL" && [[ "$OPENAI_AVAILABLE_COUNT" -eq 0 ]]; then
+        skip "tenant API key chat completion" "openai provider has no currently available accounts"
       else
-        fail "tenant API key chat completion" "status=${HTTP_STATUS:-000} $(json_error_summary "${HTTP_BODY:-}")"
+        for attempt in 1 2; do
+          RESPONSE=$(chat_completion_with_token "$TENANT_KEY_TOKEN" "$TENANT_API_KEY_TEST_MODEL" "Reply with exactly one word: OK" 2>/dev/null) || RESPONSE=""
+          if [[ -n "$RESPONSE" ]]; then
+            break
+          fi
+          if [[ "$attempt" -eq 1 ]]; then
+            sleep 2
+          fi
+        done
+        if [[ -n "$RESPONSE" ]]; then
+          pass "tenant API key can access /v1/chat/completions"
+        else
+          fail "tenant API key chat completion" "no response after retry"
+        fi
       fi
 
       TENANT_KEYS=$(curl_json "${BASE}/api/v1/tenants/default/api-keys" 2>/dev/null) || TENANT_KEYS=""
@@ -333,36 +346,28 @@ fi
 bold ""
 bold "── 2. OpenAI Responses Strategy (gpt-* chat completions) ──"
 
-GPT_RESPONSE=$(capture_json -X POST "${BASE}/v1/chat/completions" -d '{
-  "model": "gpt-5.2",
-  "messages": [{"role": "user", "content": "Reply with exactly one word: OK"}],
-  "stream": false
-}' 2>/dev/null) || GPT_RESPONSE=""
-split_http_response "$GPT_RESPONSE"
-if [[ "$HTTP_STATUS" == "200" && -n "$HTTP_BODY" ]]; then
-  RESPONSE="$HTTP_BODY"
-  assert_json_field "gpt-5.2 returns chat.completion" "object" "chat.completion"
-  assert_json_field "gpt-5.2 has choices" "choices.0.message.role" "assistant"
-  pass "gpt-5.2 non-streaming round-trip"
-elif [[ $(is_infrastructure_issue "$HTTP_STATUS" "$HTTP_BODY"; echo $?) -eq 0 ]]; then
-  skip "gpt-5.2 chat completion" "upstream GPT capacity is currently unavailable"
+if [[ "$E2E_SKIP_OPENAI_SMOKE" == "1" ]]; then
+  skip "gpt-5.2 chat completion" "openai-specific smoke disabled in this environment"
+  skip "gpt-5.2 streaming" "openai-specific smoke disabled in this environment"
+elif [[ "$OPENAI_AVAILABLE_COUNT" -eq 0 ]]; then
+  skip "gpt-5.2 chat completion" "openai provider has no currently available accounts"
+  skip "gpt-5.2 streaming" "openai provider has no currently available accounts"
 else
-  fail "gpt-5.2 chat completion" "status=${HTTP_STATUS:-000} $(json_error_summary "${HTTP_BODY:-}")"
-fi
+  RESPONSE=$(chat_completion "$OPENAI_CHAT_TEST_MODEL" "Reply with exactly one word: OK" 2>/dev/null) || RESPONSE=""
+  if [[ -n "$RESPONSE" ]]; then
+    assert_json_field "${OPENAI_CHAT_TEST_MODEL} returns chat.completion" "object" "chat.completion"
+    assert_json_field "${OPENAI_CHAT_TEST_MODEL} has choices" "choices.0.message.role" "assistant"
+    pass "${OPENAI_CHAT_TEST_MODEL} non-streaming round-trip"
+  else
+    fail "${OPENAI_CHAT_TEST_MODEL} chat completion" "no response or error"
+  fi
 
-STREAM_OUT=$(curl -sS --max-time 60 -H "Content-Type: application/json" "${AUTH_ARGS[@]}" \
-  -X POST "${BASE}/v1/chat/completions" -d '{
-  "model": "gpt-5.2",
-  "messages": [{"role": "user", "content": "Reply with one word: OK"}],
-  "stream": true
-}' -w $'\nHTTP_STATUS:%{http_code}' 2>/dev/null) || STREAM_OUT=""
-split_http_response "$STREAM_OUT"
-if echo "$HTTP_BODY" | grep -q "data:"; then
-  pass "gpt-5.2 streaming round-trip"
-elif [[ $(is_infrastructure_issue "$HTTP_STATUS" "$HTTP_BODY"; echo $?) -eq 0 ]]; then
-  skip "gpt-5.2 streaming" "upstream GPT capacity is currently unavailable"
-else
-  fail "gpt-5.2 streaming" "status=${HTTP_STATUS:-000} no SSE data chunks received $(json_error_summary "${HTTP_BODY:-}")"
+  STREAM_OUT=$(chat_completion_stream "$OPENAI_CHAT_TEST_MODEL" "Reply with one word: OK" 2>/dev/null) || STREAM_OUT=""
+  if echo "$STREAM_OUT" | grep -q "data:"; then
+    pass "${OPENAI_CHAT_TEST_MODEL} streaming round-trip"
+  else
+    fail "${OPENAI_CHAT_TEST_MODEL} streaming" "no SSE data chunks received"
+  fi
 fi
 
 # ── 3. OpenAI Responses Passthrough (gpt-* via /v1/responses) ──
@@ -370,36 +375,27 @@ fi
 bold ""
 bold "── 3. OpenAI Responses Passthrough (gpt-* via /v1/responses) ──"
 
-RESPONSE=$(capture_json -X POST "${BASE}/v1/responses" -d '{
-  "model": "gpt-5.2-codex",
-  "input": [{"role": "user", "content": [{"type": "input_text", "text": "Reply with one word: OK"}]}],
-  "instructions": "",
-  "stream": false
-}' 2>/dev/null) || RESPONSE=""
-split_http_response "$RESPONSE"
-if [[ "$HTTP_STATUS" == "200" ]]; then
-  pass "gpt-5.2-codex responses passthrough round-trip"
-elif [[ $(is_infrastructure_issue "$HTTP_STATUS" "$HTTP_BODY"; echo $?) -eq 0 ]]; then
-  skip "gpt-5.2-codex responses passthrough" "upstream GPT capacity is currently unavailable"
+if [[ "$E2E_SKIP_OPENAI_SMOKE" == "1" ]]; then
+  skip "gpt-5.2-codex responses passthrough" "openai-specific smoke disabled in this environment"
+  skip "gpt-5.2 null instructions passthrough" "openai-specific smoke disabled in this environment"
+elif [[ "$OPENAI_AVAILABLE_COUNT" -eq 0 ]]; then
+  skip "gpt-5.2-codex responses passthrough" "openai provider has no currently available accounts"
+  skip "gpt-5.2 null instructions passthrough" "openai provider has no currently available accounts"
 else
-  fail "gpt-5.2-codex responses passthrough" "status=${HTTP_STATUS:-000} $(json_error_summary "${HTTP_BODY:-}")"
-fi
+  RESPONSE=$(responses_passthrough "$OPENAI_RESPONSES_TEST_MODEL" "Reply with one word: OK" 2>/dev/null) || RESPONSE=""
+  if [[ -n "$RESPONSE" ]]; then
+    pass "${OPENAI_RESPONSES_TEST_MODEL} responses passthrough round-trip"
+  else
+    fail "${OPENAI_RESPONSES_TEST_MODEL} responses passthrough" "no response"
+  fi
 
-# Regression: null instructions must not cause 400
-STREAM_OUT=$(curl -sS --max-time 60 -H "Content-Type: application/json" "${AUTH_ARGS[@]}" \
-  -X POST "${BASE}/v1/responses" -d '{
-  "model": "gpt-5.2",
-  "input": [{"role": "user", "content": [{"type": "input_text", "text": "Reply with one word: OK"}]}],
-  "instructions": null,
-  "stream": true
-}' -w $'\nHTTP_STATUS:%{http_code}' 2>/dev/null) || STREAM_OUT=""
-split_http_response "$STREAM_OUT"
-if echo "$HTTP_BODY" | grep -q "data:"; then
-  pass "gpt-5.2 passthrough with null instructions (regression)"
-elif [[ $(is_infrastructure_issue "$HTTP_STATUS" "$HTTP_BODY"; echo $?) -eq 0 ]]; then
-  skip "gpt-5.2 null instructions passthrough" "upstream GPT capacity is currently unavailable"
-else
-  fail "gpt-5.2 null instructions passthrough" "status=${HTTP_STATUS:-000} no SSE data or 400 error $(json_error_summary "${HTTP_BODY:-}")"
+  # Regression: null instructions must not cause 400
+  STREAM_OUT=$(responses_passthrough_null_instructions "$OPENAI_CHAT_TEST_MODEL" "Reply with one word: OK" 2>/dev/null) || STREAM_OUT=""
+  if echo "$STREAM_OUT" | grep -q "data:"; then
+    pass "${OPENAI_CHAT_TEST_MODEL} passthrough with null instructions (regression)"
+  else
+    fail "${OPENAI_CHAT_TEST_MODEL} null instructions passthrough" "no SSE data or 400 error"
+  fi
 fi
 
 # ── 4. OpenAI Chat Completions Strategy (non-gpt models via openai provider) ──
