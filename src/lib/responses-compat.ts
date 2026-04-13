@@ -2913,8 +2913,7 @@ export async function streamResponsesSseToChatCompletionChunks(
   let terminalResponse: Record<string, unknown> | null = null;
   let sawError: Record<string, unknown> | null = null;
   let buffer = "";
-  const materializedPayloads: Record<string, unknown>[] = [];
-  const functionCallState: Map<number, { name: string; callId: string; itemId?: string }> = new Map();
+  const functionCallState: Map<number, { name: string; callId: string }> = new Map();
   let toolCallIndex = 0;
 
   function emitChunk(delta: Record<string, unknown>, finishReason: string | null): void {

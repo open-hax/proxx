@@ -20,7 +20,6 @@ import {
   type BridgeResponseHeadMessage,
   type BridgeTopologySummary,
 } from "./bridge-protocol.js";
-import type { BridgeSendChannel } from "./bridge-send-channel.js";
 
 export interface FederationBridgeAuthorizedIdentity {
   readonly authKind: "legacy_admin" | "ui_session";
@@ -138,34 +137,10 @@ function writeUpgradeResponse(socket: Duplex, statusCode: number, statusText: st
   socket.destroy();
 }
 
-class WebSocketBridgeChannel implements BridgeSendChannel {
-  private readonly _ws: WebSocket;
-
-  constructor(ws: WebSocket) {
-    this._ws = ws;
-  }
-
-  get isOpen(): boolean {
-    return this._ws.readyState === WebSocket.OPEN;
-  }
-
-  send(data: string): void {
-    this._ws.send(data);
-  }
-
-  close(code?: number, reason?: string): void {
-    this._ws.close(code ?? 1000, reason ?? "");
-  }
-
-  get ws(): WebSocket {
-    return this._ws;
-  }
-}
-
 export class FederationBridgeRelay {
   private readonly wsServer = new WebSocketServer({ noServer: true });
   private readonly sessions = new Map<string, MutableFederationBridgeSessionRecord>();
-  private readonly channels = new Map<string, BridgeSendChannel>();
+  private readonly connections = new Map<string, WebSocket>();
   private readonly pendingRequests = new Map<string, PendingBridgeRequest>();
 
   /** Remove disconnected sessions older than the retention window to prevent unbounded growth. */
@@ -204,7 +179,7 @@ export class FederationBridgeRelay {
     identity: FederationBridgeAuthorizedIdentity,
   ): void {
     this.wsServer.handleUpgrade(request, socket, head, (webSocket) => {
-      this.handleConnection(new WebSocketBridgeChannel(webSocket), identity);
+      this.handleConnection(webSocket, identity);
     });
   }
 
@@ -228,17 +203,15 @@ export class FederationBridgeRelay {
     readonly timeoutMs: number;
     readonly headers?: Readonly<Record<string, string>>;
     readonly body?: string;
-    readonly requestContext?: BridgeRequestOpenMessage["requestContext"];
-    readonly routingIntent?: BridgeRequestOpenMessage["routingIntent"];
   }): AsyncIterable<BridgeRelayResponseEvent> {
     const session = this.sessions.get(sessionId);
     if (!session || session.state !== "connected") {
       throw new Error(`bridge session ${sessionId} is not connected`);
     }
 
-    const channel = this.channels.get(sessionId);
-    if (!channel || !channel.isOpen) {
-      throw new Error(`bridge session ${sessionId} has no open channel`);
+    const webSocket = this.connections.get(sessionId);
+    if (!webSocket || webSocket.readyState !== WebSocket.OPEN) {
+      throw new Error(`bridge session ${sessionId} has no open websocket connection`);
     }
 
     const streamId = randomUUID();
@@ -255,8 +228,6 @@ export class FederationBridgeRelay {
       method: input.method ?? "GET",
       path: input.path,
       headers: input.headers ?? { accept: "application/json" },
-      requestContext: input.requestContext,
-      routingIntent: input.routingIntent,
       hopCount: 0,
     };
 
@@ -279,9 +250,9 @@ export class FederationBridgeRelay {
     };
 
     this.pendingRequests.set(streamId, pending);
-    channel.send(JSON.stringify(request));
+    webSocket.send(JSON.stringify(request));
     if (typeof input.body === "string" && input.body.length > 0) {
-      channel.send(JSON.stringify({
+      webSocket.send(JSON.stringify({
         type: "request_chunk",
         protocolVersion: BRIDGE_PROTOCOL_VERSION,
         sessionId,
@@ -306,8 +277,6 @@ export class FederationBridgeRelay {
     readonly timeoutMs: number;
     readonly headers?: Readonly<Record<string, string>>;
     readonly body?: string;
-    readonly requestContext?: BridgeRequestOpenMessage["requestContext"];
-    readonly routingIntent?: BridgeRequestOpenMessage["routingIntent"];
   }): Promise<{ readonly status: number; readonly headers: Readonly<Record<string, string>>; readonly body: string; readonly json: unknown }> {
     const events = this.requestStream(sessionId, input);
     let status = 200;
@@ -345,203 +314,123 @@ export class FederationBridgeRelay {
     return { status, headers, body, json };
   }
 
-  public registerSseChannel(sessionId: string, channel: BridgeSendChannel): void {
-    this.channels.set(sessionId, channel);
-  }
-
-  public unregisterChannel(sessionId: string, channel: BridgeSendChannel): void {
-    const activeChannel = this.channels.get(sessionId);
-    if (activeChannel === channel) {
-      this.channels.delete(sessionId);
-    }
-  }
-
-  public getChannel(sessionId: string): BridgeSendChannel | undefined {
-    return this.channels.get(sessionId);
-  }
-
-  /** Called when an SSE session completes hello via POST; wires up the SSE send channel. */
-  public completeSseHello(
-    hello: BridgeHelloMessage,
-    identity: FederationBridgeAuthorizedIdentity,
-    sseChannel: BridgeSendChannel,
-  ): BridgeHelloAckMessage {
-    const helloAck = this.acceptHello(hello, identity);
-    this.channels.set(helloAck.sessionId, sseChannel);
-    return helloAck;
-  }
-
-  /**
-   * Handle an incoming message from a channel (WebSocket or SSE+HTTP POST).
-   * For WebSocket connections this is called from the message handler in handleConnection.
-   * For SSE connections this is called from the HTTP POST route handler.
-   */
-  public handleChannelMessage(sessionId: string, messageText: string, channel: BridgeSendChannel): void {
-    try {
-      const parsed = parseBridgeMessageJson(messageText);
-      const session = this.sessions.get(sessionId);
-      if (!session) {
-        this.sendErrorToChannel(channel, sessionId, {
-          code: "bridge_session_not_found",
-          message: "bridge session not found",
-          retryable: false,
-        });
-        return;
-      }
-      if (parsed.sessionId && parsed.sessionId !== sessionId) {
-        this.sendErrorToChannel(channel, session, {
-          code: "bridge_session_mismatch",
-          message: `message sessionId ${parsed.sessionId} does not match active session ${sessionId}`,
-          retryable: false,
-          streamId: parsed.streamId,
-        });
-        return;
-      }
-
-      session.lastSeenAt = parsed.sentAt;
-      switch (parsed.type) {
-        case "heartbeat":
-          session.lastHeartbeatSequence = parsed.sequence;
-          session.activeStreams = parsed.activeStreams;
-          session.queuedRequests = parsed.queuedRequests;
-          break;
-        case "capabilities":
-          session.capabilities = cloneCapabilities(parsed);
-          break;
-        case "health_report":
-          session.health = cloneHealth(parsed);
-          break;
-        case "response_head":
-          this.handleResponseHead(parsed);
-          break;
-        case "response_chunk":
-          this.handleResponseChunk(parsed);
-          break;
-        case "response_end":
-          this.handleResponseEnd(parsed);
-          break;
-        case "error":
-          if (parsed.streamId) {
-            this.handleResponseError(parsed);
-          }
-          session.recentError = {
-            at: parsed.sentAt,
-            code: parsed.code,
-            message: parsed.message,
-            retryable: parsed.retryable,
-          };
-          break;
-        case "hello":
-          this.sendErrorToChannel(channel, session, {
-            code: "bridge_duplicate_hello",
-            message: "bridge hello may only be sent once per session",
-            retryable: false,
-          });
-          break;
-        default:
-          this.sendErrorToChannel(channel, session, {
-            code: "bridge_execution_not_implemented",
-            message: `bridge message type ${parsed.type} is not implemented by the relay stub yet`,
-            retryable: true,
-            streamId: parsed.streamId,
-          });
-          break;
-      }
-    } catch (error) {
-      this.sendErrorToChannel(channel, sessionId, {
-        code: "bridge_message_invalid",
-        message: error instanceof Error ? error.message : String(error),
-        retryable: false,
-      });
-    }
-  }
-
-  private handleConnection(channel: BridgeSendChannel, identity: FederationBridgeAuthorizedIdentity): void {
+  private handleConnection(webSocket: WebSocket, identity: FederationBridgeAuthorizedIdentity): void {
     let sessionId: string | undefined;
 
-    const handleMessage = (messageText: string): void => {
-      if (!sessionId) {
-        try {
-          const parsed = parseBridgeMessageJson(messageText);
+    webSocket.on("message", (data, isBinary) => {
+      if (isBinary) {
+        this.markErrorAndClose(webSocket, sessionId, "bridge_binary_frames_not_supported", "binary websocket frames are not supported in bridge-ws-v0", false);
+        return;
+      }
+
+      let messageText: string;
+      try {
+        messageText = normalizeWsText(data);
+      } catch (error) {
+        this.markErrorAndClose(webSocket, sessionId, "bridge_message_decode_failed", error instanceof Error ? error.message : String(error), false);
+        return;
+      }
+
+      try {
+        const parsed = parseBridgeMessageJson(messageText);
+        if (!sessionId) {
           if (parsed.type !== "hello") {
-            this.sendErrorToChannel(channel, undefined, {
-              code: "bridge_hello_required",
-              message: "first bridge frame must be a hello message",
-              retryable: false,
-            });
-            channel.close(1008, "bridge_hello_required");
+            this.markErrorAndClose(webSocket, undefined, "bridge_hello_required", "first bridge frame must be a hello message", false);
             return;
           }
           const helloAck = this.acceptHello(parsed, identity);
           sessionId = helloAck.sessionId;
-          this.channels.set(sessionId, channel);
-          channel.send(JSON.stringify(helloAck));
-          return;
-        } catch (error) {
-          this.sendErrorToChannel(channel, undefined, {
-            code: "bridge_message_decode_failed",
-            message: error instanceof Error ? error.message : String(error),
-            retryable: false,
-          });
-          channel.close(1008, "bridge_message_decode_failed");
+          this.connections.set(sessionId, webSocket);
+          webSocket.send(JSON.stringify(helloAck));
           return;
         }
+
+        const session = this.sessions.get(sessionId);
+        if (!session) {
+          this.markErrorAndClose(webSocket, sessionId, "bridge_session_not_found", "bridge session not found", false);
+          return;
+        }
+        if (parsed.sessionId && parsed.sessionId !== sessionId) {
+          this.sendErrorFrame(webSocket, session, {
+            code: "bridge_session_mismatch",
+            message: `message sessionId ${parsed.sessionId} does not match active session ${sessionId}`,
+            retryable: false,
+            streamId: parsed.streamId,
+          });
+          return;
+        }
+
+        session.lastSeenAt = parsed.sentAt;
+        switch (parsed.type) {
+          case "heartbeat":
+            session.lastHeartbeatSequence = parsed.sequence;
+            session.activeStreams = parsed.activeStreams;
+            session.queuedRequests = parsed.queuedRequests;
+            break;
+          case "capabilities":
+            session.capabilities = cloneCapabilities(parsed);
+            break;
+          case "health_report":
+            session.health = cloneHealth(parsed);
+            break;
+          case "response_head":
+            this.handleResponseHead(parsed);
+            break;
+          case "response_chunk":
+            this.handleResponseChunk(parsed);
+            break;
+          case "response_end":
+            this.handleResponseEnd(parsed);
+            break;
+          case "error":
+            if (parsed.streamId) {
+              this.handleResponseError(parsed);
+            }
+            session.recentError = {
+              at: parsed.sentAt,
+              code: parsed.code,
+              message: parsed.message,
+              retryable: parsed.retryable,
+            };
+            break;
+          case "hello":
+            this.sendErrorFrame(webSocket, session, {
+              code: "bridge_duplicate_hello",
+              message: "bridge hello may only be sent once per session",
+              retryable: false,
+            });
+            break;
+          default:
+            this.sendErrorFrame(webSocket, session, {
+              code: "bridge_execution_not_implemented",
+              message: `bridge message type ${parsed.type} is not implemented by the relay stub yet`,
+              retryable: true,
+              streamId: parsed.streamId,
+            });
+            break;
+        }
+      } catch (error) {
+        this.markErrorAndClose(webSocket, sessionId, "bridge_message_invalid", error instanceof Error ? error.message : String(error), false);
       }
+    });
 
-      this.handleChannelMessage(sessionId!, messageText, channel);
-    };
-
-    if (channel instanceof WebSocketBridgeChannel) {
-      const ws = channel.ws;
-      ws.on("message", (data, isBinary) => {
-        if (isBinary) {
-          this.sendErrorToChannel(channel, sessionId, {
-            code: "bridge_binary_frames_not_supported",
-            message: "binary websocket frames are not supported in bridge-ws-v0",
-            retryable: false,
-          });
-          channel.close(1008, "bridge_binary_frames_not_supported");
-          return;
-        }
-
-        let messageText: string;
-        try {
-          messageText = normalizeWsText(data);
-        } catch (error) {
-          this.sendErrorToChannel(channel, sessionId, {
-            code: "bridge_message_decode_failed",
-            message: error instanceof Error ? error.message : String(error),
-            retryable: false,
-          });
-          channel.close(1008, "bridge_message_decode_failed");
-          return;
-        }
-
-        handleMessage(messageText);
-      });
-
-      ws.on("close", () => {
-        this.handleDisconnect(sessionId);
-      });
-    }
-  }
-
-  private handleDisconnect(sessionId: string | undefined): void {
-    if (!sessionId) {
-      return;
-    }
-    const session = this.sessions.get(sessionId);
-    if (!session) {
-      return;
-    }
-    this.channels.delete(sessionId);
-    session.state = "disconnected";
-    session.disconnectedAt = new Date().toISOString();
-    for (const pending of [...this.pendingRequests.values()].filter((candidate) => candidate.sessionId === sessionId)) {
-      clearTimeout(pending.timeout);
-      this.pendingRequests.delete(pending.streamId);
-      this.failPendingRequest(pending, new Error(`bridge session ${sessionId} closed during request ${pending.streamId}`));
-    }
+    webSocket.on("close", () => {
+      if (!sessionId) {
+        return;
+      }
+      const session = this.sessions.get(sessionId);
+      if (!session) {
+        return;
+      }
+      this.connections.delete(sessionId);
+      session.state = "disconnected";
+      session.disconnectedAt = new Date().toISOString();
+      for (const pending of [...this.pendingRequests.values()].filter((candidate) => candidate.sessionId === sessionId)) {
+        clearTimeout(pending.timeout);
+        this.pendingRequests.delete(pending.streamId);
+        this.failPendingRequest(pending, new Error(`bridge session ${sessionId} closed during request ${pending.streamId}`));
+      }
+    });
   }
 
   private createResponseStream(streamId: string, pending: PendingBridgeRequest): AsyncIterable<BridgeRelayResponseEvent> {
@@ -596,7 +485,7 @@ export class FederationBridgeRelay {
     }
   }
 
-  public acceptHello(hello: BridgeHelloMessage, identity: FederationBridgeAuthorizedIdentity): BridgeHelloAckMessage {
+  private acceptHello(hello: BridgeHelloMessage, identity: FederationBridgeAuthorizedIdentity): BridgeHelloAckMessage {
     const connectedAt = hello.sentAt;
     const sessionId = randomUUID();
     // Prune old disconnected sessions before adding a new one to prevent unbounded growth
@@ -647,34 +536,48 @@ export class FederationBridgeRelay {
     };
   }
 
-  private sendErrorToChannel(
-    channel: BridgeSendChannel,
-    sessionOrId: MutableFederationBridgeSessionRecord | string | undefined,
-    input: { readonly code: string; readonly message: string; readonly retryable: boolean; readonly streamId?: string },
+  private sendErrorFrame(
+    webSocket: WebSocket,
+    session: MutableFederationBridgeSessionRecord,
+    input: Pick<BridgeErrorMessage, "code" | "message" | "retryable"> & { readonly streamId?: string },
   ): void {
     const payload: BridgeErrorMessage = {
       type: "error",
       protocolVersion: BRIDGE_PROTOCOL_VERSION,
-      sessionId: typeof sessionOrId === "string" ? sessionOrId : sessionOrId?.sessionId ?? "",
+      sessionId: session.sessionId,
       streamId: input.streamId,
       sentAt: new Date().toISOString(),
       traceId: randomUUID(),
-      ownerSubject: typeof sessionOrId === "object" ? sessionOrId.ownerSubject : "",
-      clusterId: typeof sessionOrId === "object" ? sessionOrId.clusterId : "",
-      agentId: typeof sessionOrId === "object" ? sessionOrId.agentId : "",
+      ownerSubject: session.ownerSubject,
+      clusterId: session.clusterId,
+      agentId: session.agentId,
       code: input.code,
       message: input.message,
       retryable: input.retryable,
     };
-    if (typeof sessionOrId === "object" && sessionOrId) {
-      sessionOrId.recentError = {
-        at: payload.sentAt,
-        code: payload.code,
-        message: payload.message,
-        retryable: payload.retryable,
-      };
+    session.recentError = {
+      at: payload.sentAt,
+      code: payload.code,
+      message: payload.message,
+      retryable: payload.retryable,
+    };
+    webSocket.send(JSON.stringify(payload));
+  }
+
+  private markErrorAndClose(
+    webSocket: WebSocket,
+    sessionId: string | undefined,
+    code: string,
+    message: string,
+    retryable: boolean,
+  ): void {
+    if (sessionId) {
+      const session = this.sessions.get(sessionId);
+      if (session) {
+        this.sendErrorFrame(webSocket, session, { code, message, retryable });
+      }
     }
-    channel.send(JSON.stringify(payload));
+    webSocket.close(1008, `${code}:${message}`.slice(0, 120));
   }
 
   private handleResponseHead(message: BridgeResponseHeadMessage): void {
