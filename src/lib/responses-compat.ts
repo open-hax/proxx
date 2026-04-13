@@ -102,10 +102,30 @@ function appendStringPart(parts: string[], value: unknown): void {
   }
 }
 
+function normalizeAssistantPhase(value: unknown): "commentary" | "final_answer" | undefined {
+  return value === "commentary" || value === "final_answer"
+    ? value
+    : undefined;
+}
+
 function extractReasoningTextFromResponsesItem(item: Record<string, unknown>): string {
   const parts: string[] = [];
   appendStringPart(parts, item["reasoning"]);
   appendStringPart(parts, item["text"]);
+
+  const content = item["content"];
+  if (Array.isArray(content)) {
+    for (const entry of content) {
+      if (!isRecord(entry)) {
+        continue;
+      }
+
+      const entryType = asString(entry["type"]);
+      if (entryType === "reasoning_text" || entryType === "summary_text") {
+        appendStringPart(parts, entry["text"]);
+      }
+    }
+  }
 
   const summary = item["summary"];
   if (typeof summary === "string") {
@@ -274,6 +294,39 @@ function normalizeToolCallArguments(value: unknown): string {
   return stringifyUnknown(value);
 }
 
+function extractReasoningTextFromChatMessage(entry: Record<string, unknown>): string {
+  const parts: string[] = [];
+  appendStringPart(parts, entry["reasoning_content"]);
+  appendStringPart(parts, entry["reasoning"]);
+
+  const content = entry["content"];
+  if (!Array.isArray(content)) {
+    return parts.join("");
+  }
+
+  for (const part of content) {
+    if (!isRecord(part)) {
+      continue;
+    }
+
+    const partType = asString(part["type"]);
+    if (
+      partType === "reasoning"
+      || partType === "reasoning_content"
+      || partType === "reasoning_details"
+      || partType === "reasoning_text"
+      || partType === "summary_text"
+      || partType === "thinking"
+    ) {
+      appendStringPart(parts, part["text"]);
+      appendStringPart(parts, part["reasoning"]);
+      appendStringPart(parts, part["summary"]);
+    }
+  }
+
+  return parts.join("");
+}
+
 function chatMessagesToResponsesInput(messages: unknown): unknown[] {
   if (!Array.isArray(messages)) {
     return [];
@@ -310,11 +363,32 @@ function chatMessagesToResponsesInput(messages: unknown): unknown[] {
 
     if (role === "assistant") {
       const toolCalls = Array.isArray(entry["tool_calls"]) ? entry["tool_calls"] : [];
-      if (hasMeaningfulContent(entry["content"])) {
+      const phase = normalizeAssistantPhase(entry["phase"]);
+      const reasoningText = extractReasoningTextFromChatMessage(entry);
+
+      if (reasoningText.length > 0) {
         input.push({
+          type: "reasoning",
+          content: [{
+            type: "reasoning_text",
+            text: reasoningText,
+          }],
+          summary: [],
+          status: "completed",
+        });
+      }
+
+      if (hasMeaningfulContent(entry["content"])) {
+        const assistantMessage: Record<string, unknown> = {
           role,
           content: normalizeChatMessageContentForResponses(role, entry["content"])
-        });
+        };
+
+        if (phase) {
+          assistantMessage["phase"] = phase;
+        }
+
+        input.push(assistantMessage);
       }
 
       for (const [toolIndex, toolCall] of toolCalls.entries()) {
@@ -342,7 +416,7 @@ function chatMessagesToResponsesInput(messages: unknown): unknown[] {
         });
       }
 
-      if (!hasMeaningfulContent(entry["content"]) && toolCalls.length === 0) {
+      if (!hasMeaningfulContent(entry["content"]) && toolCalls.length === 0 && reasoningText.length === 0) {
         input.push({
           role,
           content: ""
@@ -617,6 +691,26 @@ function responsesInputToChatMessages(input: unknown, instructions: unknown): un
 
   const hasInstructions = instructionsText && instructionsText.length > 0;
   let pendingToolCalls: unknown[] = [];
+  let pendingReasoning = "";
+  let pendingAssistantPhase: "commentary" | "final_answer" | undefined;
+
+  const flushPendingAssistantReasoning = (): void => {
+    if (pendingReasoning.length === 0) {
+      return;
+    }
+
+    const message: Record<string, unknown> = {
+      role: "assistant",
+      content: "",
+      reasoning_content: pendingReasoning,
+    };
+    if (pendingAssistantPhase) {
+      message["phase"] = pendingAssistantPhase;
+    }
+    messages.push(message);
+    pendingReasoning = "";
+    pendingAssistantPhase = undefined;
+  };
 
   const flushPendingToolCalls = (): void => {
     if (pendingToolCalls.length === 0) {
@@ -628,16 +722,31 @@ function responsesInputToChatMessages(input: unknown, instructions: unknown): un
       : null;
 
     if (lastMessage && asString(lastMessage["role"]) === "assistant" && !Array.isArray(lastMessage["tool_calls"])) {
+      if (pendingReasoning.length > 0 && typeof lastMessage["reasoning_content"] !== "string") {
+        lastMessage["reasoning_content"] = pendingReasoning;
+      }
+      if (pendingAssistantPhase && normalizeAssistantPhase(lastMessage["phase"]) === undefined) {
+        lastMessage["phase"] = pendingAssistantPhase;
+      }
       lastMessage["tool_calls"] = pendingToolCalls;
     } else {
-      messages.push({
+      const assistantMessage: Record<string, unknown> = {
         role: "assistant",
         content: "",
         tool_calls: pendingToolCalls
-      });
+      };
+      if (pendingReasoning.length > 0) {
+        assistantMessage["reasoning_content"] = pendingReasoning;
+      }
+      if (pendingAssistantPhase) {
+        assistantMessage["phase"] = pendingAssistantPhase;
+      }
+      messages.push(assistantMessage);
     }
 
     pendingToolCalls = [];
+    pendingReasoning = "";
+    pendingAssistantPhase = undefined;
   };
 
   for (const entry of input) {
@@ -648,6 +757,7 @@ function responsesInputToChatMessages(input: unknown, instructions: unknown): un
     const itemType = asString(entry["type"]);
     if (itemType === "function_call_output") {
       flushPendingToolCalls();
+      flushPendingAssistantReasoning();
       const callId = asString(entry["call_id"]);
       if (!callId) {
         continue;
@@ -678,6 +788,14 @@ function responsesInputToChatMessages(input: unknown, instructions: unknown): un
       continue;
     }
 
+    if (itemType === "reasoning") {
+      const reasoningText = extractReasoningTextFromResponsesItem(entry);
+      if (reasoningText.length > 0) {
+        pendingReasoning += reasoningText;
+      }
+      continue;
+    }
+
     flushPendingToolCalls();
 
     const role = asString(entry["role"]);
@@ -689,13 +807,27 @@ function responsesInputToChatMessages(input: unknown, instructions: unknown): un
       continue;
     }
 
-    messages.push({
+    const message: Record<string, unknown> = {
       role,
       content: normalizeResponsesContentForChat(entry["content"] ?? "")
-    });
+    };
+
+    if (role === "assistant" && pendingReasoning.length > 0) {
+      message["reasoning_content"] = pendingReasoning;
+      pendingReasoning = "";
+    }
+
+    const phase = normalizeAssistantPhase(entry["phase"]);
+    if (role === "assistant" && phase) {
+      message["phase"] = phase;
+      pendingAssistantPhase = undefined;
+    }
+
+    messages.push(message);
   }
 
   flushPendingToolCalls();
+  flushPendingAssistantReasoning();
 
   return messages;
 }
@@ -885,29 +1017,46 @@ function chatMessageToResponsesOutput(message: Record<string, unknown>, response
     output.push({
       id: `rs_${responseId}`,
       type: "reasoning",
-      summary: [
+      content: [
         {
-          type: "summary_text",
+          type: "reasoning_text",
           text: reasoningContent
         }
-      ]
+      ],
+      summary: []
     });
   }
 
   const content = asString(message["content"]);
-  if (content && content.length > 0) {
-    output.push({
+  const refusal = asString(message["refusal"]);
+  const phase = normalizeAssistantPhase(message["phase"]);
+  if ((content && content.length > 0) || (refusal && refusal.length > 0)) {
+    const assistantMessage: Record<string, unknown> = {
       id: `msg_${responseId}`,
       type: "message",
       role: "assistant",
       status: "completed",
-      content: [
-        {
-          type: "output_text",
-          text: content
-        }
-      ]
-    });
+      content: []
+    };
+
+    const messageContent = assistantMessage["content"] as Record<string, unknown>[];
+    if (content && content.length > 0) {
+      messageContent.push({
+        type: "output_text",
+        text: content
+      });
+    }
+    if (refusal && refusal.length > 0) {
+      messageContent.push({
+        type: "refusal",
+        refusal
+      });
+    }
+    if (phase) {
+      assistantMessage["phase"] = phase;
+    }
+
+    output.push(assistantMessage);
   }
 
   const toolCalls = Array.isArray(message["tool_calls"]) ? message["tool_calls"] : [];
@@ -933,6 +1082,105 @@ function chatMessageToResponsesOutput(message: Record<string, unknown>, response
   }
 
   return output;
+}
+
+type ChatOutputBlock =
+  | { readonly kind: "content"; readonly text: string }
+  | { readonly kind: "reasoning"; readonly text: string }
+  | { readonly kind: "refusal"; readonly text: string }
+  | { readonly kind: "tool_call"; readonly toolCall: Record<string, unknown> };
+
+function pushChatOutputBlock(blocks: ChatOutputBlock[], kind: "content" | "reasoning" | "refusal", text: string): void {
+  if (text.length === 0) {
+    return;
+  }
+
+  blocks.push({ kind, text });
+}
+
+function responseItemToChatToolCall(item: Record<string, unknown>, index: number): Record<string, unknown> | undefined {
+  const itemType = asString(item["type"]);
+  if (itemType !== "function_call") {
+    return undefined;
+  }
+
+  const functionName = asString(item["name"]);
+  if (!functionName) {
+    return undefined;
+  }
+
+  return {
+    id: asString(item["call_id"]) ?? `call_${index}`,
+    type: "function",
+    function: {
+      name: functionName,
+      arguments: normalizeToolCallArguments(item["arguments"])
+    }
+  };
+}
+
+function responsesOutputToChatBlocks(output: unknown): {
+  readonly blocks: readonly ChatOutputBlock[];
+  readonly phase?: "commentary" | "final_answer";
+} {
+  if (!Array.isArray(output)) {
+    return { blocks: [] };
+  }
+
+  const blocks: ChatOutputBlock[] = [];
+  let phase: "commentary" | "final_answer" | undefined;
+
+  for (const [index, item] of output.entries()) {
+    if (!isRecord(item)) {
+      continue;
+    }
+
+    const itemType = asString(item["type"]);
+    if (itemType === "message") {
+      if (asString(item["role"]) !== "assistant") {
+        continue;
+      }
+
+      phase = normalizeAssistantPhase(item["phase"]) ?? phase;
+      pushChatOutputBlock(blocks, "reasoning", contentToText(item["reasoning_content"]));
+      pushChatOutputBlock(blocks, "reasoning", contentToText(item["reasoning"]));
+
+      const content = Array.isArray(item["content"]) ? item["content"] : [];
+      for (const part of content) {
+        if (!isRecord(part)) {
+          continue;
+        }
+
+        const partType = asString(part["type"]);
+        if (partType === "output_text") {
+          pushChatOutputBlock(blocks, "content", asString(part["text"]) ?? "");
+          continue;
+        }
+
+        if (partType === "refusal") {
+          pushChatOutputBlock(blocks, "refusal", asString(part["refusal"]) ?? "");
+          continue;
+        }
+
+        if (partType === "reasoning_text" || partType === "reasoning" || partType === "thinking" || partType === "summary_text") {
+          pushChatOutputBlock(blocks, "reasoning", asString(part["text"]) ?? asString(part["reasoning"]) ?? "");
+        }
+      }
+      continue;
+    }
+
+    if (itemType === "reasoning") {
+      pushChatOutputBlock(blocks, "reasoning", extractReasoningTextFromResponsesItem(item));
+      continue;
+    }
+
+    const toolCall = responseItemToChatToolCall(item, index);
+    if (toolCall) {
+      blocks.push({ kind: "tool_call", toolCall });
+    }
+  }
+
+  return { blocks, phase };
 }
 
 export function chatCompletionToResponsesResponse(completionBody: unknown): Record<string, unknown> {
@@ -967,107 +1215,65 @@ export function chatCompletionToResponsesResponse(completionBody: unknown): Reco
 function responsesOutputToChatMessage(output: unknown): {
   readonly content: string | null;
   readonly reasoningContent: string;
+  readonly refusal: string | null;
   readonly toolCalls: ReadonlyArray<Record<string, unknown>>;
+  readonly phase?: "commentary" | "final_answer";
   readonly finishReason: "stop" | "tool_calls";
 } {
-  if (!Array.isArray(output)) {
+  const { blocks, phase } = responsesOutputToChatBlocks(output);
+  if (blocks.length === 0) {
     return {
       content: "",
       reasoningContent: "",
+      refusal: null,
       toolCalls: [],
+      phase,
       finishReason: "stop"
     };
   }
 
   const textParts: string[] = [];
   const reasoningParts: string[] = [];
+  const refusalParts: string[] = [];
   const toolCalls: Record<string, unknown>[] = [];
 
-  for (const [index, item] of output.entries()) {
-    if (!isRecord(item)) {
+  for (const block of blocks) {
+    if (block.kind === "content") {
+      textParts.push(block.text);
+      continue;
+    }
+    if (block.kind === "reasoning") {
+      reasoningParts.push(block.text);
+      continue;
+    }
+    if (block.kind === "refusal") {
+      refusalParts.push(block.text);
       continue;
     }
 
-    const itemType = asString(item["type"]);
-    if (itemType === "message") {
-      const role = asString(item["role"]);
-      if (role !== "assistant") {
-        continue;
-      }
-
-      appendStringPart(reasoningParts, item["reasoning_content"]);
-      appendStringPart(reasoningParts, item["reasoning"]);
-
-      const content = item["content"];
-      if (!Array.isArray(content)) {
-        continue;
-      }
-
-      for (const part of content) {
-        if (!isRecord(part)) {
-          continue;
-        }
-
-        const partType = asString(part["type"]);
-        if (partType === "output_text") {
-          const text = asString(part["text"]);
-          if (text) {
-            textParts.push(text);
-          }
-          continue;
-        }
-
-        if (partType === "reasoning" || partType === "thinking" || partType === "summary_text") {
-          appendStringPart(reasoningParts, part["text"]);
-          appendStringPart(reasoningParts, part["reasoning"]);
-        }
-      }
-      continue;
-    }
-
-    if (itemType === "reasoning") {
-      const reasoningText = extractReasoningTextFromResponsesItem(item);
-      if (reasoningText.length > 0) {
-        reasoningParts.push(reasoningText);
-      }
-      continue;
-    }
-
-    if (itemType === "function_call") {
-      const functionName = asString(item["name"]);
-      if (!functionName) {
-        continue;
-      }
-
-      const callId = asString(item["call_id"]) ?? `call_${index}`;
-      const argumentsText = normalizeToolCallArguments(item["arguments"]);
-
-      toolCalls.push({
-        id: callId,
-        type: "function",
-        function: {
-          name: functionName,
-          arguments: argumentsText
-        }
-      });
-    }
+    toolCalls.push(block.toolCall);
   }
 
   const textContent = textParts.join("");
   const reasoningContent = reasoningParts.join("");
+  const refusal = refusalParts.join("");
   if (toolCalls.length > 0) {
     return {
       content: textContent.length > 0 ? textContent : null,
       reasoningContent,
+      refusal: refusal.length > 0 ? refusal : null,
       toolCalls,
+      phase,
       finishReason: "tool_calls"
     };
   }
 
   return {
-    content: textContent,
+    content: textContent.length > 0 ? textContent : null,
     reasoningContent,
+    refusal: refusal.length > 0 ? refusal : null,
     toolCalls,
+    phase,
     finishReason: "stop"
   };
 }
@@ -1093,8 +1299,14 @@ export function responsesToChatCompletion(responseBody: unknown, fallbackModel: 
   if (mappedMessage.reasoningContent.length > 0) {
     message["reasoning_content"] = mappedMessage.reasoningContent;
   }
+  if (mappedMessage.refusal) {
+    message["refusal"] = mappedMessage.refusal;
+  }
   if (mappedMessage.toolCalls.length > 0) {
     message["tool_calls"] = mappedMessage.toolCalls;
+  }
+  if (mappedMessage.phase) {
+    message["phase"] = mappedMessage.phase;
   }
 
   const completion: Record<string, unknown> = {
@@ -1193,11 +1405,573 @@ function parseResponsesSsePayloads(streamText: string): Array<Record<string, unk
   return payloads;
 }
 
+function currentUnixTimeSeconds(): number {
+  return Math.floor(Date.now() / 1000);
+}
+
+function responseOutputLooksMeaningful(output: unknown): boolean {
+  if (!Array.isArray(output) || output.length === 0) {
+    return false;
+  }
+
+  return output.some((item) => {
+    if (!isRecord(item)) {
+      return true;
+    }
+
+    const itemType = asString(item["type"]);
+    if (itemType === "message") {
+      return Array.isArray(item["content"]) && item["content"].length > 0;
+    }
+
+    if (itemType === "reasoning") {
+      return (Array.isArray(item["summary"]) && item["summary"].length > 0)
+        || (Array.isArray(item["content"]) && item["content"].length > 0);
+    }
+
+    if (itemType === "function_call") {
+      return Boolean(asString(item["name"]) || asString(item["arguments"]));
+    }
+
+    return true;
+  });
+}
+
+function buildResponseSnapshot(response: Record<string, unknown>, fallbackModel: string): Record<string, unknown> {
+  const snapshot: Record<string, unknown> = {
+    object: "response",
+    output: [],
+    ...response,
+  };
+
+  if (!Array.isArray(snapshot["output"])) {
+    snapshot["output"] = [];
+  }
+  if (!asString(snapshot["id"])) {
+    snapshot["id"] = `resp_${Date.now()}`;
+  }
+  if (asNumber(snapshot["created_at"]) === undefined) {
+    snapshot["created_at"] = currentUnixTimeSeconds();
+  }
+  if (!asString(snapshot["model"])) {
+    snapshot["model"] = fallbackModel;
+  }
+  if (!asString(snapshot["status"])) {
+    snapshot["status"] = "in_progress";
+  }
+
+  return snapshot;
+}
+
+function mergeResponseSnapshot(
+  snapshot: Record<string, unknown>,
+  response: Record<string, unknown>,
+  fallbackModel: string,
+): Record<string, unknown> {
+  const merged: Record<string, unknown> = {
+    ...snapshot,
+    ...response,
+  };
+
+  merged["output"] = responseOutputLooksMeaningful(response["output"])
+    ? response["output"]
+    : snapshot["output"];
+
+  return buildResponseSnapshot(merged, fallbackModel);
+}
+
+function ensureOutputArray(snapshot: Record<string, unknown>): unknown[] {
+  if (!Array.isArray(snapshot["output"])) {
+    snapshot["output"] = [];
+  }
+  return snapshot["output"] as unknown[];
+}
+
+function ensureRecordAtIndex(values: unknown[], index: number, create: () => Record<string, unknown>): Record<string, unknown> {
+  while (values.length <= index) {
+    values.push(undefined);
+  }
+
+  const existing = values[index];
+  if (isRecord(existing)) {
+    return existing;
+  }
+
+  const created = create();
+  values[index] = created;
+  return created;
+}
+
+function ensureMessageContentPart(
+  snapshot: Record<string, unknown>,
+  outputIndex: number,
+  contentIndex: number,
+  partType: "output_text" | "refusal",
+  itemId?: string,
+): Record<string, unknown> | null {
+  const message = ensureRecordAtIndex(ensureOutputArray(snapshot), outputIndex, () => ({
+    id: itemId ?? `msg_${outputIndex}`,
+    type: "message",
+    role: "assistant",
+    status: "in_progress",
+    content: [],
+  }));
+
+  if (asString(message["type"]) !== "message") {
+    return null;
+  }
+
+  let content: unknown[];
+  if (Array.isArray(message["content"])) {
+    content = message["content"] as unknown[];
+  } else {
+    message["content"] = [];
+    content = message["content"] as unknown[];
+  }
+
+  return ensureRecordAtIndex(content, contentIndex, () => partType === "output_text"
+    ? { type: "output_text", text: "", annotations: [], logprobs: [] }
+    : { type: "refusal", refusal: "" });
+}
+
+function ensureReasoningItem(snapshot: Record<string, unknown>, outputIndex: number, itemId?: string): Record<string, unknown> | null {
+  const reasoning = ensureRecordAtIndex(ensureOutputArray(snapshot), outputIndex, () => ({
+    id: itemId ?? `rs_${outputIndex}`,
+    type: "reasoning",
+    status: "in_progress",
+    content: [],
+    summary: [],
+  }));
+
+  if (asString(reasoning["type"]) !== "reasoning") {
+    return null;
+  }
+
+  if (!Array.isArray(reasoning["content"])) {
+    reasoning["content"] = [];
+  }
+  if (!Array.isArray(reasoning["summary"])) {
+    reasoning["summary"] = [];
+  }
+
+  return reasoning;
+}
+
+function ensureReasoningContentPart(
+  snapshot: Record<string, unknown>,
+  outputIndex: number,
+  contentIndex: number,
+  itemId?: string,
+): Record<string, unknown> | null {
+  const reasoning = ensureReasoningItem(snapshot, outputIndex, itemId);
+  if (!reasoning) {
+    return null;
+  }
+
+  const content = reasoning["content"] as unknown[];
+  return ensureRecordAtIndex(content, contentIndex, () => ({
+    type: "reasoning_text",
+    text: "",
+  }));
+}
+
+function ensureReasoningSummaryPart(
+  snapshot: Record<string, unknown>,
+  outputIndex: number,
+  summaryIndex: number,
+  itemId?: string,
+): Record<string, unknown> | null {
+  const reasoning = ensureReasoningItem(snapshot, outputIndex, itemId);
+  if (!reasoning) {
+    return null;
+  }
+
+  const summary = reasoning["summary"] as unknown[];
+  return ensureRecordAtIndex(summary, summaryIndex, () => ({
+    type: "summary_text",
+    text: "",
+  }));
+}
+
+function ensureFunctionCallItem(snapshot: Record<string, unknown>, outputIndex: number, itemId?: string): Record<string, unknown> | null {
+  const item = ensureRecordAtIndex(ensureOutputArray(snapshot), outputIndex, () => ({
+    id: itemId ?? `fc_${outputIndex}`,
+    type: "function_call",
+    call_id: itemId ?? `call_${outputIndex}`,
+    name: "",
+    arguments: "",
+    status: "in_progress",
+  }));
+
+  return asString(item["type"]) === "function_call"
+    ? item
+    : null;
+}
+
+function ensureCustomToolCallItem(snapshot: Record<string, unknown>, outputIndex: number, itemId?: string): Record<string, unknown> | null {
+  const item = ensureRecordAtIndex(ensureOutputArray(snapshot), outputIndex, () => ({
+    id: itemId ?? `custom_${outputIndex}`,
+    type: "custom_tool_call",
+    call_id: itemId ?? `call_${outputIndex}`,
+    name: "",
+    input: "",
+    status: "in_progress",
+  }));
+
+  return asString(item["type"]) === "custom_tool_call"
+    ? item
+    : null;
+}
+
+function ensureMcpCallItem(snapshot: Record<string, unknown>, outputIndex: number, itemId?: string): Record<string, unknown> | null {
+  const item = ensureRecordAtIndex(ensureOutputArray(snapshot), outputIndex, () => ({
+    id: itemId ?? `mcp_${outputIndex}`,
+    type: "mcp_call",
+    name: "",
+    arguments: "",
+    server_label: "",
+    status: "in_progress",
+  }));
+
+  return asString(item["type"]) === "mcp_call"
+    ? item
+    : null;
+}
+
+function materializeResponsesEventPayloads(
+  payloads: readonly Record<string, unknown>[],
+  fallbackModel: string,
+): Record<string, unknown> | undefined {
+  let snapshot: Record<string, unknown> | undefined;
+
+  for (const payload of payloads) {
+    const type = asString(payload["type"]);
+    const response = isRecord(payload["response"]) ? payload["response"] : null;
+
+    if (
+      (type === "response.created"
+        || type === "response.queued"
+        || type === "response.in_progress"
+        || type === "response.completed"
+        || type === "response.incomplete"
+        || type === "response.failed")
+      && response
+    ) {
+      snapshot = snapshot
+        ? mergeResponseSnapshot(snapshot, response, fallbackModel)
+        : buildResponseSnapshot(response, fallbackModel);
+    }
+
+    if (!snapshot) {
+      continue;
+    }
+
+    if ((type === "response.output_item.added" || type === "response.output_item.done") && isRecord(payload["item"])) {
+      const outputIndex = asNumber(payload["output_index"]);
+      if (outputIndex !== undefined) {
+        ensureOutputArray(snapshot)[outputIndex] = payload["item"];
+      }
+      continue;
+    }
+
+    if ((type === "response.content_part.added" || type === "response.content_part.done") && isRecord(payload["part"])) {
+      const outputIndex = asNumber(payload["output_index"]);
+      const contentIndex = asNumber(payload["content_index"]);
+      if (outputIndex === undefined || contentIndex === undefined) {
+        continue;
+      }
+
+      const part = payload["part"] as Record<string, unknown>;
+      const partType = asString(part["type"]);
+      if (partType === "reasoning_text") {
+        const reasoningPart = ensureReasoningContentPart(snapshot, outputIndex, contentIndex, asString(payload["item_id"]));
+        if (reasoningPart) {
+          Object.assign(reasoningPart, part);
+        }
+        continue;
+      }
+
+      if (partType === "output_text" || partType === "refusal") {
+        const messagePart = ensureMessageContentPart(snapshot, outputIndex, contentIndex, partType, asString(payload["item_id"]));
+        if (messagePart) {
+          Object.assign(messagePart, part);
+        }
+      }
+      continue;
+    }
+
+    if (type === "response.output_text.delta") {
+      const outputIndex = asNumber(payload["output_index"]);
+      const contentIndex = asNumber(payload["content_index"]);
+      const delta = asString(payload["delta"]);
+      if (outputIndex === undefined || contentIndex === undefined || delta === undefined) {
+        continue;
+      }
+
+      const part = ensureMessageContentPart(snapshot, outputIndex, contentIndex, "output_text", asString(payload["item_id"]));
+      if (part) {
+        part["text"] = `${asString(part["text"]) ?? ""}${delta}`;
+        if (Array.isArray(payload["logprobs"])) {
+          part["logprobs"] = payload["logprobs"];
+        }
+      }
+      continue;
+    }
+
+    if (type === "response.output_text.done") {
+      const outputIndex = asNumber(payload["output_index"]);
+      const contentIndex = asNumber(payload["content_index"]);
+      if (outputIndex === undefined || contentIndex === undefined) {
+        continue;
+      }
+
+      const part = ensureMessageContentPart(snapshot, outputIndex, contentIndex, "output_text", asString(payload["item_id"]));
+      if (part) {
+        part["text"] = asString(payload["text"]) ?? asString(part["text"]) ?? "";
+        if (Array.isArray(payload["logprobs"])) {
+          part["logprobs"] = payload["logprobs"];
+        }
+      }
+      continue;
+    }
+
+    if (type === "response.output_text.annotation.added") {
+      const outputIndex = asNumber(payload["output_index"]);
+      const contentIndex = asNumber(payload["content_index"]);
+      const annotationIndex = asNumber(payload["annotation_index"]);
+      if (outputIndex === undefined || contentIndex === undefined || annotationIndex === undefined) {
+        continue;
+      }
+
+      const part = ensureMessageContentPart(snapshot, outputIndex, contentIndex, "output_text", asString(payload["item_id"]));
+      if (part) {
+        let annotations: unknown[];
+        if (Array.isArray(part["annotations"])) {
+          annotations = part["annotations"] as unknown[];
+        } else {
+          part["annotations"] = [];
+          annotations = part["annotations"] as unknown[];
+        }
+        while (annotations.length <= annotationIndex) {
+          annotations.push(undefined);
+        }
+        annotations[annotationIndex] = payload["annotation"];
+      }
+      continue;
+    }
+
+    if (type === "response.refusal.delta") {
+      const outputIndex = asNumber(payload["output_index"]);
+      const contentIndex = asNumber(payload["content_index"]);
+      const delta = asString(payload["delta"]);
+      if (outputIndex === undefined || contentIndex === undefined || delta === undefined) {
+        continue;
+      }
+
+      const part = ensureMessageContentPart(snapshot, outputIndex, contentIndex, "refusal", asString(payload["item_id"]));
+      if (part) {
+        part["refusal"] = `${asString(part["refusal"]) ?? ""}${delta}`;
+      }
+      continue;
+    }
+
+    if (type === "response.refusal.done") {
+      const outputIndex = asNumber(payload["output_index"]);
+      const contentIndex = asNumber(payload["content_index"]);
+      if (outputIndex === undefined || contentIndex === undefined) {
+        continue;
+      }
+
+      const part = ensureMessageContentPart(snapshot, outputIndex, contentIndex, "refusal", asString(payload["item_id"]));
+      if (part) {
+        part["refusal"] = asString(payload["refusal"]) ?? asString(part["refusal"]) ?? "";
+      }
+      continue;
+    }
+
+    if (type === "response.reasoning_text.delta") {
+      const outputIndex = asNumber(payload["output_index"]);
+      const contentIndex = asNumber(payload["content_index"]);
+      const delta = asString(payload["delta"]);
+      if (outputIndex === undefined || contentIndex === undefined || delta === undefined) {
+        continue;
+      }
+
+      const part = ensureReasoningContentPart(snapshot, outputIndex, contentIndex, asString(payload["item_id"]));
+      if (part) {
+        part["text"] = `${asString(part["text"]) ?? ""}${delta}`;
+      }
+      continue;
+    }
+
+    if (type === "response.reasoning_text.done") {
+      const outputIndex = asNumber(payload["output_index"]);
+      const contentIndex = asNumber(payload["content_index"]);
+      if (outputIndex === undefined || contentIndex === undefined) {
+        continue;
+      }
+
+      const part = ensureReasoningContentPart(snapshot, outputIndex, contentIndex, asString(payload["item_id"]));
+      if (part) {
+        part["text"] = asString(payload["text"]) ?? asString(part["text"]) ?? "";
+      }
+      continue;
+    }
+
+    if (type === "response.reasoning_summary_part.added" || type === "response.reasoning_summary_part.done") {
+      const outputIndex = asNumber(payload["output_index"]);
+      const summaryIndex = asNumber(payload["summary_index"]);
+      if (outputIndex === undefined || summaryIndex === undefined || !isRecord(payload["part"])) {
+        continue;
+      }
+
+      const summaryPart = ensureReasoningSummaryPart(snapshot, outputIndex, summaryIndex, asString(payload["item_id"]));
+      if (summaryPart) {
+        Object.assign(summaryPart, payload["part"]);
+      }
+      continue;
+    }
+
+    if (type === "response.reasoning_summary_text.delta") {
+      const outputIndex = asNumber(payload["output_index"]);
+      const summaryIndex = asNumber(payload["summary_index"]);
+      const delta = asString(payload["delta"]);
+      if (outputIndex === undefined || summaryIndex === undefined || delta === undefined) {
+        continue;
+      }
+
+      const summaryPart = ensureReasoningSummaryPart(snapshot, outputIndex, summaryIndex, asString(payload["item_id"]));
+      if (summaryPart) {
+        summaryPart["text"] = `${asString(summaryPart["text"]) ?? ""}${delta}`;
+      }
+      continue;
+    }
+
+    if (type === "response.reasoning_summary_text.done") {
+      const outputIndex = asNumber(payload["output_index"]);
+      const summaryIndex = asNumber(payload["summary_index"]);
+      if (outputIndex === undefined || summaryIndex === undefined) {
+        continue;
+      }
+
+      const summaryPart = ensureReasoningSummaryPart(snapshot, outputIndex, summaryIndex, asString(payload["item_id"]));
+      if (summaryPart) {
+        summaryPart["text"] = asString(payload["text"]) ?? asString(summaryPart["text"]) ?? "";
+      }
+      continue;
+    }
+
+    if (type === "response.function_call_arguments.delta") {
+      const outputIndex = asNumber(payload["output_index"]);
+      const delta = asString(payload["delta"]);
+      if (outputIndex === undefined || delta === undefined) {
+        continue;
+      }
+
+      const item = ensureFunctionCallItem(snapshot, outputIndex, asString(payload["item_id"]));
+      if (item) {
+        item["arguments"] = `${asString(item["arguments"]) ?? ""}${delta}`;
+      }
+      continue;
+    }
+
+    if (type === "response.function_call_arguments.done") {
+      const outputIndex = asNumber(payload["output_index"]);
+      if (outputIndex === undefined) {
+        continue;
+      }
+
+      const item = ensureFunctionCallItem(snapshot, outputIndex, asString(payload["item_id"]));
+      if (item) {
+        item["arguments"] = asString(payload["arguments"]) ?? asString(item["arguments"]) ?? "";
+        item["name"] = asString(payload["name"]) ?? asString(item["name"]) ?? "";
+      }
+      continue;
+    }
+
+    if (type === "response.custom_tool_call_input.delta") {
+      const outputIndex = asNumber(payload["output_index"]);
+      const delta = asString(payload["delta"]);
+      if (outputIndex === undefined || delta === undefined) {
+        continue;
+      }
+
+      const item = ensureCustomToolCallItem(snapshot, outputIndex, asString(payload["item_id"]));
+      if (item) {
+        item["input"] = `${asString(item["input"]) ?? ""}${delta}`;
+      }
+      continue;
+    }
+
+    if (type === "response.custom_tool_call_input.done") {
+      const outputIndex = asNumber(payload["output_index"]);
+      if (outputIndex === undefined) {
+        continue;
+      }
+
+      const item = ensureCustomToolCallItem(snapshot, outputIndex, asString(payload["item_id"]));
+      if (item) {
+        item["input"] = asString(payload["input"]) ?? asString(item["input"]) ?? "";
+      }
+      continue;
+    }
+
+    if (type === "response.mcp_call_arguments.delta") {
+      const outputIndex = asNumber(payload["output_index"]);
+      const delta = asString(payload["delta"]);
+      if (outputIndex === undefined || delta === undefined) {
+        continue;
+      }
+
+      const item = ensureMcpCallItem(snapshot, outputIndex, asString(payload["item_id"]));
+      if (item) {
+        item["arguments"] = `${asString(item["arguments"]) ?? ""}${delta}`;
+      }
+      continue;
+    }
+
+    if (type === "response.mcp_call_arguments.done") {
+      const outputIndex = asNumber(payload["output_index"]);
+      if (outputIndex === undefined) {
+        continue;
+      }
+
+      const item = ensureMcpCallItem(snapshot, outputIndex, asString(payload["item_id"]));
+      if (item) {
+        item["arguments"] = asString(payload["arguments"]) ?? asString(item["arguments"]) ?? "";
+      }
+    }
+  }
+
+  if (!snapshot) {
+    return undefined;
+  }
+
+  const outputTextParts: string[] = [];
+  for (const item of ensureOutputArray(snapshot)) {
+    if (!isRecord(item) || asString(item["type"]) !== "message" || asString(item["role"]) !== "assistant") {
+      continue;
+    }
+
+    const content = Array.isArray(item["content"]) ? item["content"] : [];
+    for (const part of content) {
+      if (isRecord(part) && asString(part["type"]) === "output_text") {
+        appendStringPart(outputTextParts, part["text"]);
+      }
+    }
+  }
+  snapshot["output_text"] = outputTextParts.join("");
+
+  return snapshot;
+}
+
 export function responsesEventStreamToErrorPayload(streamText: string): Record<string, unknown> | undefined {
   for (const payload of parseResponsesSsePayloads(streamText)) {
     const type = asString(payload["type"]);
-    if (type === "error" && isRecord(payload["error"])) {
-      return payload["error"];
+    if (type === "error") {
+      return isRecord(payload["error"])
+        ? payload["error"] as Record<string, unknown>
+        : payload;
     }
 
     if (type === "response.failed") {
@@ -1213,6 +1987,21 @@ export function responsesEventStreamToErrorPayload(streamText: string): Record<s
 
 export function responsesEventStreamToChatCompletion(streamText: string, fallbackModel: string): Record<string, unknown> {
   const payloads = parseResponsesSsePayloads(streamText);
+
+  // Check if the stream is already in chat completion chunk format (not Responses API format)
+  // This can happen when the upstream returns chat completion chunks directly
+  const hasChatCompletionChunks = payloads.some(
+    (p) => asString(p["object"]) === "chat.completion.chunk"
+  );
+  if (hasChatCompletionChunks) {
+    return synthesizeChatCompletionFromStreamPayloads(payloads, fallbackModel);
+  }
+
+  const materializedResponse = materializeResponsesEventPayloads(payloads, fallbackModel);
+  if (materializedResponse) {
+    return responsesToChatCompletion(materializedResponse, fallbackModel);
+  }
+
   let terminalResponse: Record<string, unknown> | undefined;
   let latestResponse: Record<string, unknown> | undefined;
   const textDeltas: string[] = [];
@@ -1278,10 +2067,11 @@ export function responsesEventStreamToChatCompletion(streamText: string, fallbac
         ...(reasoningDeltas.length > 0
           ? [{
               type: "reasoning",
-              summary: [{
-                type: "summary_text",
+              content: [{
+                type: "reasoning_text",
                 text: reasoningDeltas.join("")
-              }]
+              }],
+              summary: []
             }]
           : []),
         ...(textDeltas.length > 0
@@ -1347,6 +2137,7 @@ function synthesizeChatCompletionFromStreamPayloads(
   let usage: Record<string, unknown> | undefined;
   const contentParts: string[] = [];
   const reasoningParts: string[] = [];
+  const refusalParts: string[] = [];
   const toolCalls = new Map<number, { id: string; name: string; arguments: string }>();
 
   for (const payload of payloads) {
@@ -1374,6 +2165,11 @@ function synthesizeChatCompletionFromStreamPayloads(
       const reasoning = asString(delta["reasoning_content"]);
       if (reasoning && reasoning.length > 0) {
         reasoningParts.push(reasoning);
+      }
+
+      const refusal = asString(delta["refusal"]);
+      if (refusal && refusal.length > 0) {
+        refusalParts.push(refusal);
       }
 
       const deltaToolCalls = Array.isArray(delta["tool_calls"]) ? delta["tool_calls"] : [];
@@ -1420,6 +2216,7 @@ function synthesizeChatCompletionFromStreamPayloads(
 
   const content = contentParts.join("");
   const reasoning = reasoningParts.join("");
+  const refusal = refusalParts.join("");
   const message: Record<string, unknown> = {
     role: "assistant",
     content: orderedToolCalls.length > 0
@@ -1429,6 +2226,10 @@ function synthesizeChatCompletionFromStreamPayloads(
 
   if (reasoning.length > 0) {
     message["reasoning_content"] = reasoning;
+  }
+
+  if (refusal.length > 0) {
+    message["refusal"] = refusal;
   }
 
   if (orderedToolCalls.length > 0) {
@@ -1492,6 +2293,8 @@ export function chatCompletionEventStreamToResponsesEventStream(streamText: stri
   let messageOutputIndex: number | undefined;
   let reasoningOutputIndex: number | undefined;
   const toolCallState = new Map<number, { readonly itemId: string; readonly callId: string; readonly outputIndex: number }>();
+  const messageContentIndexes = new Map<"content" | "refusal", number>();
+  let reasoningContentAdded = false;
 
   const emitEvent = (type: string, payload: Record<string, unknown>): void => {
     events.push(`event: ${type}\ndata: ${JSON.stringify({ type, ...payload })}\n\n`);
@@ -1526,6 +2329,23 @@ export function chatCompletionEventStreamToResponsesEventStream(streamText: stri
     return reasoningOutputIndex;
   };
 
+  const ensureReasoningContentPart = (): number => {
+    const outputIndex = ensureReasoningItem();
+    if (!reasoningContentAdded) {
+      emitEvent("response.content_part.added", {
+        item_id: `rs_${responseId}`,
+        output_index: outputIndex,
+        content_index: 0,
+        part: {
+          type: "reasoning_text",
+          text: "",
+        },
+      });
+      reasoningContentAdded = true;
+    }
+    return outputIndex;
+  };
+
   const ensureMessageItem = (): number => {
     if (messageOutputIndex !== undefined) {
       return messageOutputIndex;
@@ -1545,6 +2365,26 @@ export function chatCompletionEventStreamToResponsesEventStream(streamText: stri
     return messageOutputIndex;
   };
 
+  const ensureMessageContentPart = (kind: "content" | "refusal"): { readonly outputIndex: number; readonly contentIndex: number } => {
+    const outputIndex = ensureMessageItem();
+    const existingIndex = messageContentIndexes.get(kind);
+    if (existingIndex !== undefined) {
+      return { outputIndex, contentIndex: existingIndex };
+    }
+
+    const contentIndex = messageContentIndexes.size;
+    messageContentIndexes.set(kind, contentIndex);
+    emitEvent("response.content_part.added", {
+      item_id: `msg_${responseId}`,
+      output_index: outputIndex,
+      content_index: contentIndex,
+      part: kind === "content"
+        ? { type: "output_text", text: "", annotations: [], logprobs: [] }
+        : { type: "refusal", refusal: "" },
+    });
+    return { outputIndex, contentIndex };
+  };
+
   for (const payload of payloads) {
     const choices = Array.isArray(payload["choices"]) ? payload["choices"] : [];
     const firstChoice = choices.length > 0 && isRecord(choices[0]) ? choices[0] : null;
@@ -1559,9 +2399,9 @@ export function chatCompletionEventStreamToResponsesEventStream(streamText: stri
 
     const reasoning = asString(delta["reasoning_content"]);
     if (reasoning && reasoning.length > 0) {
-      emitEvent("response.reasoning.delta", {
+      emitEvent("response.reasoning_text.delta", {
         item_id: `rs_${responseId}`,
-        output_index: ensureReasoningItem(),
+        output_index: ensureReasoningContentPart(),
         content_index: 0,
         delta: reasoning
       });
@@ -1569,11 +2409,23 @@ export function chatCompletionEventStreamToResponsesEventStream(streamText: stri
 
     const content = asString(delta["content"]);
     if (content && content.length > 0) {
+      const messagePart = ensureMessageContentPart("content");
       emitEvent("response.output_text.delta", {
         item_id: `msg_${responseId}`,
-        output_index: ensureMessageItem(),
-        content_index: 0,
+        output_index: messagePart.outputIndex,
+        content_index: messagePart.contentIndex,
         delta: content
+      });
+    }
+
+    const refusal = asString(delta["refusal"]);
+    if (refusal && refusal.length > 0) {
+      const refusalPart = ensureMessageContentPart("refusal");
+      emitEvent("response.refusal.delta", {
+        item_id: `msg_${responseId}`,
+        output_index: refusalPart.outputIndex,
+        content_index: refusalPart.contentIndex,
+        delta: refusal,
       });
     }
 
@@ -1623,6 +2475,71 @@ export function chatCompletionEventStreamToResponsesEventStream(streamText: stri
     }
   }
 
+  const responseOutputItems = Array.isArray(response["output"]) ? response["output"] : [];
+  for (const [outputIndex, item] of responseOutputItems.entries()) {
+    if (!isRecord(item)) {
+      continue;
+    }
+
+    const itemType = asString(item["type"]);
+    if (itemType === "reasoning") {
+      const content = Array.isArray(item["content"]) ? item["content"] : [];
+      for (const [contentIndex, part] of content.entries()) {
+        if (!isRecord(part) || asString(part["type"]) !== "reasoning_text") {
+          continue;
+        }
+
+        emitEvent("response.reasoning_text.done", {
+          item_id: asString(item["id"]) ?? `rs_${responseId}`,
+          output_index: outputIndex,
+          content_index: contentIndex,
+          text: asString(part["text"]) ?? "",
+        });
+      }
+      continue;
+    }
+
+    if (itemType === "message" && asString(item["role"]) === "assistant") {
+      const content = Array.isArray(item["content"]) ? item["content"] : [];
+      for (const [contentIndex, part] of content.entries()) {
+        if (!isRecord(part)) {
+          continue;
+        }
+
+        const partType = asString(part["type"]);
+        if (partType === "output_text") {
+          emitEvent("response.output_text.done", {
+            item_id: asString(item["id"]) ?? `msg_${responseId}`,
+            output_index: outputIndex,
+            content_index: contentIndex,
+            text: asString(part["text"]) ?? "",
+            logprobs: Array.isArray(part["logprobs"]) ? part["logprobs"] : [],
+          });
+          continue;
+        }
+
+        if (partType === "refusal") {
+          emitEvent("response.refusal.done", {
+            item_id: asString(item["id"]) ?? `msg_${responseId}`,
+            output_index: outputIndex,
+            content_index: contentIndex,
+            refusal: asString(part["refusal"]) ?? "",
+          });
+        }
+      }
+      continue;
+    }
+
+    if (itemType === "function_call") {
+      emitEvent("response.function_call_arguments.done", {
+        item_id: asString(item["id"]) ?? `fc_${responseId}_${outputIndex}`,
+        output_index: outputIndex,
+        name: asString(item["name"]) ?? "",
+        arguments: normalizeToolCallArguments(item["arguments"]),
+      });
+    }
+  }
+
   emitEvent("response.completed", { response });
   return events.join("");
 }
@@ -1669,6 +2586,11 @@ function completionToStreamDelta(completion: Record<string, unknown>): {
   const reasoning = asString(message["reasoning_content"]) ?? asString(message["reasoning"]);
   if (reasoning && reasoning.length > 0) {
     delta["reasoning_content"] = reasoning;
+  }
+
+  const refusal = asString(message["refusal"]);
+  if (refusal && refusal.length > 0) {
+    delta["refusal"] = refusal;
   }
 
   const toolCalls = Array.isArray(message["tool_calls"]) ? message["tool_calls"] : [];
@@ -1788,18 +2710,7 @@ export function responsesOutputHasReasoning(responseBody: unknown): boolean {
 }
 
 export function extractTerminalResponseFromEventStream(streamText: string): Record<string, unknown> | undefined {
-  const payloads = parseResponsesSsePayloads(streamText);
-  let lastTerminalResponse: Record<string, unknown> | undefined;
-
-  for (const payload of payloads) {
-    const type = asString(payload["type"]);
-    const response = isRecord(payload["response"]) ? payload["response"] : null;
-    if ((type === "response.completed" || type === "response.incomplete") && response) {
-      lastTerminalResponse = response;
-    }
-  }
-
-  return lastTerminalResponse;
+  return materializeResponsesEventPayloads(parseResponsesSsePayloads(streamText), "unknown");
 }
 
 function chunkTextByWords(text: string, wordsPerChunk: number): string[] {
@@ -1902,7 +2813,7 @@ export async function writeInterleavedResponsesSse(
     writeFn(`data: ${JSON.stringify(chunk)}\n\n`);
   };
 
-  const emitTextChunks = async (text: string, fieldName: "content" | "reasoning_content"): Promise<void> => {
+  const emitTextChunks = async (text: string, fieldName: "content" | "reasoning_content" | "refusal"): Promise<void> => {
     if (text.length === 0) {
       return;
     }
@@ -1923,100 +2834,43 @@ export async function writeInterleavedResponsesSse(
     }
   };
 
-  for (const item of output) {
-    if (!isRecord(item)) {
+  const { blocks } = responsesOutputToChatBlocks(output);
+  for (const block of blocks) {
+    if (block.kind === "reasoning") {
+      await emitTextChunks(block.text, "reasoning_content");
       continue;
     }
 
-    const itemType = asString(item["type"]);
-
-    if (itemType === "reasoning") {
-      const reasoningText = extractReasoningTextFromResponsesItem(item);
-      await emitTextChunks(reasoningText, "reasoning_content");
+    if (block.kind === "content") {
+      await emitTextChunks(block.text, "content");
       continue;
     }
 
-    if (itemType === "message") {
-      if (asString(item["role"]) !== "assistant") {
-        continue;
-      }
-
-      const topReasoningParts: string[] = [];
-      appendStringPart(topReasoningParts, item["reasoning_content"]);
-      appendStringPart(topReasoningParts, item["reasoning"]);
-      if (topReasoningParts.length > 0) {
-        await emitTextChunks(topReasoningParts.join(""), "reasoning_content");
-      }
-
-      const content = item["content"];
-      if (!Array.isArray(content)) {
-        continue;
-      }
-
-      for (const part of content) {
-        if (!isRecord(part)) {
-          continue;
-        }
-
-        const partType = asString(part["type"]);
-
-        if (partType === "output_text") {
-          const text = asString(part["text"]);
-          if (text) {
-            await emitTextChunks(text, "content");
-          }
-          continue;
-        }
-
-        if (partType === "reasoning" || partType === "thinking" || partType === "summary_text") {
-          const reasonParts: string[] = [];
-          appendStringPart(reasonParts, part["text"]);
-          appendStringPart(reasonParts, part["reasoning"]);
-          if (reasonParts.length > 0) {
-            await emitTextChunks(reasonParts.join(""), "reasoning_content");
-          }
-        }
-      }
-
+    if (block.kind === "refusal") {
+      await emitTextChunks(block.text, "refusal");
       continue;
     }
 
-    if (itemType === "function_call") {
-      const functionName = asString(item["name"]);
-      if (!functionName) {
-        continue;
-      }
+    const delta: Record<string, unknown> = {
+      tool_calls: [
+        {
+          index: toolCallIndex,
+          ...block.toolCall,
+        }
+      ]
+    };
 
-      const callId = asString(item["call_id"]) ?? `call_${toolCallIndex}`;
-      const argumentsText = normalizeToolCallArguments(item["arguments"]);
+    if (isFirstChunk) {
+      delta["role"] = "assistant";
+      isFirstChunk = false;
+    }
 
-      const delta: Record<string, unknown> = {
-        tool_calls: [
-          {
-            index: toolCallIndex,
-            id: callId,
-            type: "function",
-            function: {
-              name: functionName,
-              arguments: argumentsText
-            }
-          }
-        ]
-      };
-
-      if (isFirstChunk) {
-        delta["role"] = "assistant";
-        isFirstChunk = false;
-      }
-
-      hasToolCalls = true;
-      emitChunk(delta, null);
-      toolCallIndex++;
-      const delayMs = nextStreamChunkDelayMs();
-      if (delayMs > 0) {
-        await sleepMs(delayMs);
-      }
-      continue;
+    hasToolCalls = true;
+    emitChunk(delta, null);
+    toolCallIndex++;
+    const delayMs = nextStreamChunkDelayMs();
+    if (delayMs > 0) {
+      await sleepMs(delayMs);
     }
   }
 
@@ -2059,6 +2913,7 @@ export async function streamResponsesSseToChatCompletionChunks(
   let terminalResponse: Record<string, unknown> | null = null;
   let sawError: Record<string, unknown> | null = null;
   let buffer = "";
+  const materializedPayloads: Record<string, unknown>[] = [];
   const functionCallState: Map<number, { name: string; callId: string; itemId?: string }> = new Map();
   let toolCallIndex = 0;
 
@@ -2071,6 +2926,24 @@ export async function streamResponsesSseToChatCompletionChunks(
       choices: [{ index: 0, delta, finish_reason: finishReason }],
     };
     writeFn(`data: ${JSON.stringify(chunk)}\n\n`);
+  }
+
+  function emitAssistantDelta(delta: Record<string, unknown>): void {
+    if (isFirstChunk) {
+      delta["role"] = "assistant";
+      isFirstChunk = false;
+    }
+    emitChunk(delta, null);
+  }
+
+  function findFunctionCallSlot(callId: string | undefined, itemId: string | undefined): number {
+    for (const [idx, fc] of functionCallState.entries()) {
+      if ((callId && fc.callId === callId) || (itemId && (fc.itemId === itemId || fc.callId === itemId))) {
+        return idx;
+      }
+    }
+
+    return -1;
   }
 
   function processEvent(payload: Record<string, unknown>): void {
@@ -2116,12 +2989,15 @@ export async function streamResponsesSseToChatCompletionChunks(
     if (type === "response.output_text.delta") {
       const delta = typeof payload["delta"] === "string" ? payload["delta"] : undefined;
       if (delta) {
-        const d: Record<string, unknown> = { content: delta };
-        if (isFirstChunk) {
-          d["role"] = "assistant";
-          isFirstChunk = false;
-        }
-        emitChunk(d, null);
+        emitAssistantDelta({ content: delta });
+      }
+      return;
+    }
+
+    if (type === "response.output_text.done") {
+      const text = asString(payload["text"]);
+      if (text) {
+        emitAssistantDelta({ content: text });
       }
       return;
     }
@@ -2136,12 +3012,31 @@ export async function streamResponsesSseToChatCompletionChunks(
     ) {
       const delta = extractResponsesReasoningDeltaText(payload);
       if (delta) {
-        const d: Record<string, unknown> = { reasoning_content: delta };
-        if (isFirstChunk) {
-          d["role"] = "assistant";
-          isFirstChunk = false;
-        }
-        emitChunk(d, null);
+        emitAssistantDelta({ reasoning_content: delta });
+      }
+      return;
+    }
+
+    if (type === "response.reasoning_text.done" || type === "response.reasoning_summary_text.done") {
+      const text = asString(payload["text"]);
+      if (text) {
+        emitAssistantDelta({ reasoning_content: text });
+      }
+      return;
+    }
+
+    if (type === "response.refusal.delta") {
+      const delta = asString(payload["delta"]);
+      if (delta) {
+        emitAssistantDelta({ refusal: delta });
+      }
+      return;
+    }
+
+    if (type === "response.refusal.done") {
+      const refusal = asString(payload["refusal"]);
+      if (refusal) {
+        emitAssistantDelta({ refusal });
       }
       return;
     }
@@ -2154,6 +3049,7 @@ export async function streamResponsesSseToChatCompletionChunks(
         const callId = typeof item["call_id"] === "string" ? item["call_id"] : undefined;
         const itemIdVal = typeof item["id"] === "string" ? item["id"] : undefined;
         const name = typeof item["name"] === "string" ? item["name"] : undefined;
+        const argumentsText = typeof item["arguments"] === "string" ? item["arguments"] : "";
         if (callId) {
           const slotIdx = toolCallIndex;
           functionCallState.set(slotIdx, { name: name ?? "", callId });
@@ -2169,14 +3065,10 @@ export async function streamResponsesSseToChatCompletionChunks(
               index: slotIdx,
               id: callId,
               type: "function",
-              function: { name: name ?? "", arguments: "" },
+              function: { name: name ?? "", arguments: argumentsText },
             }],
           };
-          if (isFirstChunk) {
-            d["role"] = "assistant";
-            isFirstChunk = false;
-          }
-          emitChunk(d, null);
+          emitAssistantDelta(d);
         }
       }
       return;
@@ -2189,13 +3081,7 @@ export async function streamResponsesSseToChatCompletionChunks(
       const itemId = typeof payload["item_id"] === "string" ? payload["item_id"] : undefined;
 
       // Find existing tool call slot by call_id or item_id
-      let slotIdx = -1;
-      for (const [idx, fc] of functionCallState.entries()) {
-        if ((callId && fc.callId === callId) || (itemId && (fc.itemId === itemId || fc.callId === itemId))) {
-          slotIdx = idx;
-          break;
-        }
-      }
+      let slotIdx = findFunctionCallSlot(callId, itemId);
 
       // Fallback: create slot from delta if no output_item.added was received
       if (slotIdx < 0 && callId) {
@@ -2213,22 +3099,50 @@ export async function streamResponsesSseToChatCompletionChunks(
             function: { name: name ?? "", arguments: delta ?? "" },
           }],
         };
-        if (isFirstChunk) {
-          d["role"] = "assistant";
-          isFirstChunk = false;
-        }
-        emitChunk(d, null);
+        emitAssistantDelta(d);
         return;
       }
 
       if (delta && slotIdx >= 0) {
-        emitChunk({
+        emitAssistantDelta({
           tool_calls: [{
             index: slotIdx,
             function: { arguments: delta },
           }],
-        }, null);
+        });
       }
+      return;
+    }
+
+    if (type === "response.function_call_arguments.done") {
+      const callId = asString(payload["call_id"]);
+      const itemId = asString(payload["item_id"]);
+      const argumentsText = asString(payload["arguments"]);
+      const functionName = asString(payload["name"]);
+      let slotIdx = findFunctionCallSlot(callId, itemId);
+
+      if (slotIdx < 0) {
+        slotIdx = toolCallIndex;
+        functionCallState.set(slotIdx, {
+          name: functionName ?? "",
+          callId: callId ?? itemId ?? `call_${slotIdx}`,
+          itemId,
+        });
+        toolCallIndex++;
+        hasToolCalls = true;
+      }
+
+      emitAssistantDelta({
+        tool_calls: [{
+          index: slotIdx,
+          id: callId ?? itemId ?? `call_${slotIdx}`,
+          type: "function",
+          function: {
+            name: functionName ?? functionCallState.get(slotIdx)?.name ?? "",
+            arguments: argumentsText ?? "",
+          },
+        }],
+      });
       return;
     }
 
@@ -2236,7 +3150,9 @@ export async function streamResponsesSseToChatCompletionChunks(
     if (type === "response.completed" || type === "response.incomplete") {
       const response = isRecord(payload["response"]) ? payload["response"] : null;
       if (response) {
-        terminalResponse = response;
+        terminalResponse = terminalResponse
+          ? mergeResponseSnapshot(terminalResponse, response, fallbackModel)
+          : buildResponseSnapshot(response, fallbackModel);
         const rmodel = typeof response["model"] === "string" ? response["model"] : undefined;
         if (rmodel) {
           model = rmodel;
@@ -2276,6 +3192,7 @@ export async function streamResponsesSseToChatCompletionChunks(
       try {
         const parsed: unknown = JSON.parse(data);
         if (isRecord(parsed)) {
+          materializedPayloads.push(parsed);
           processEvent(parsed);
         }
       } catch {
@@ -2310,11 +3227,25 @@ export async function streamResponsesSseToChatCompletionChunks(
       try {
         const parsed: unknown = JSON.parse(data);
         if (isRecord(parsed)) {
+          materializedPayloads.push(parsed);
           processEvent(parsed);
         }
       } catch {
         // Skip
       }
+    }
+  }
+
+  const materializedResponse = materializeResponsesEventPayloads(materializedPayloads, fallbackModel);
+  if (materializedResponse) {
+    terminalResponse = materializedResponse;
+    const materializedModel = asString(materializedResponse["model"]);
+    if (materializedModel) {
+      model = materializedModel;
+    }
+    const materializedCreated = asNumber(materializedResponse["created_at"]);
+    if (materializedCreated !== undefined) {
+      createdAt = materializedCreated;
     }
   }
 
