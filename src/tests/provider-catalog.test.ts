@@ -60,6 +60,8 @@ function buildMinimalConfig(overrides: Partial<ProxyConfig> = {}): ProxyConfig {
     requestTimeoutMs: 180000,
     streamBootstrapTimeoutMs: 5000,
     embedMaxContextTokens: 262144,
+    embedMaxBatchItems: 128,
+    embedMaxInputChars: 250000,
     upstreamTransientRetryCount: 2,
     upstreamTransientRetryBackoffMs: 1,
     proxyAuthToken: undefined,
@@ -77,6 +79,8 @@ function buildMinimalConfig(overrides: Partial<ProxyConfig> = {}): ProxyConfig {
     oauthRefreshMaxConcurrency: 32,
     oauthRefreshBackgroundIntervalMs: 15000,
     oauthRefreshProactiveWindowMs: 1800000,
+    concurrencyThrottleMaxRetries: 3,
+    concurrencyThrottleThresholdMs: 30_000,
     ...overrides,
   };
 }

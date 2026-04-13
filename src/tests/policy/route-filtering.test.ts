@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { catalogHasDynamicOllamaModel, filterProviderRoutesByCatalogAvailability } from "../lib/model-routing-helpers.js";
+import { catalogHasDynamicOllamaModel, filterProviderRoutesByCatalogAvailability } from "../../lib/policy/adapters/index.js";
 
 test("filterProviderRoutesByCatalogAvailability keeps only providers that advertise the requested model", () => {
   const filtered = filterProviderRoutesByCatalogAvailability(

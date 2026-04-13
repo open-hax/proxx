@@ -1,4 +1,5 @@
-import { fetchWithResponseTimeout, isRecord } from "./provider-utils.js";
+import { isRecord } from "./provider-utils.js";
+import { fetchWithResponseTimeout } from "./http/index.js";
 
 const contextLengthCache = new Map<string, { length: number; fetchedAt: number }>();
 const CONTEXT_CACHE_TTL_MS = 5 * 60 * 1000;

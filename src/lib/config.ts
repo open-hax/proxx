@@ -80,8 +80,17 @@ export interface ProxyConfig {
   readonly requestTimeoutMs: number;
   readonly streamBootstrapTimeoutMs: number;
   readonly embedMaxContextTokens: number;
+  readonly embedMaxBatchItems: number;
+  readonly embedMaxInputChars: number;
   readonly upstreamTransientRetryCount: number;
   readonly upstreamTransientRetryBackoffMs: number;
+
+  /** Maximum retries on the same credential when a concurrency-throttle 429 is received. */
+  readonly concurrencyThrottleMaxRetries: number;
+
+  /** Rate-limit responses with retry-after ≤ this value (ms) are classified as
+   *  concurrency throttles rather than quota exhaustion. */
+  readonly concurrencyThrottleThresholdMs: number;
   readonly proxyAuthToken?: string;
   readonly proxyTokenPepper: string;
   readonly allowUnauthenticated: boolean;
@@ -545,8 +554,12 @@ export function loadConfig(cwd: string = process.cwd()): ProxyConfig {
     requestTimeoutMs: numberFromEnvAliases(["UPSTREAM_REQUEST_TIMEOUT_MS"], 180000),
     streamBootstrapTimeoutMs: numberFromEnvAliases(["UPSTREAM_STREAM_BOOTSTRAP_TIMEOUT_MS"], 8000),
     embedMaxContextTokens: numberFromEnvAliases(["EMBED_MAX_CONTEXT_TOKENS"], 262144),
+    embedMaxBatchItems: numberFromEnvAliases(["EMBED_MAX_BATCH_ITEMS"], 128),
+    embedMaxInputChars: numberFromEnvAliases(["EMBED_MAX_INPUT_CHARS"], 250000),
     upstreamTransientRetryCount: nonNegativeNumberFromEnvAliases(["UPSTREAM_TRANSIENT_RETRY_COUNT"], 2),
     upstreamTransientRetryBackoffMs: numberFromEnvAliases(["UPSTREAM_TRANSIENT_RETRY_BACKOFF_MS"], 350),
+    concurrencyThrottleMaxRetries: nonNegativeNumberFromEnvAliases(["CONCURRENCY_THROTTLE_MAX_RETRIES"], 3),
+    concurrencyThrottleThresholdMs: numberFromEnvAliases(["CONCURRENCY_THROTTLE_THRESHOLD_MS"], 30_000),
     proxyAuthToken,
     proxyTokenPepper,
     allowUnauthenticated,

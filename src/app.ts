@@ -74,8 +74,8 @@ import {
 import { discoverDynamicOllamaRoutes } from "./lib/dynamic-ollama-routes.js";
 import {
   sendOpenAiError,
-  toErrorMessage,
 } from "./lib/provider-utils.js";
+import { toErrorMessage } from "./lib/errors/index.js";
 import { getTelemetry } from "./lib/telemetry/otel.js";
 import { RequestLogStore } from "./lib/request-log-store.js";
 import { SqlPromptAffinityStore } from "./lib/db/sql-prompt-affinity-store.js";

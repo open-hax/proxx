@@ -98,3 +98,11 @@ export function getPlanWeightsForModel(
 }
 
 export { toPlanType, toAccountInfo, toModelInfo };
+export {
+  catalogHasDynamicOllamaModel,
+  openAiProviderUsesCodexSurface,
+  providerRouteSupportsModel,
+  filterProviderRoutesByModelSupport,
+  filterProviderRoutesByCatalogAvailability,
+  shouldRejectModelFromProviderCatalog,
+} from "./route-filtering.js";

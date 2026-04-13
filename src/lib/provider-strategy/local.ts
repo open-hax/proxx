@@ -2,7 +2,9 @@ import type { FastifyReply } from "fastify";
 
 import type { RequestLogStore } from "../request-log-store.js";
 import { buildForwardHeaders, buildUpstreamHeaders } from "../proxy.js";
-import { fetchWithResponseTimeout, sendOpenAiError, toErrorMessage } from "../provider-utils.js";
+import { fetchWithResponseTimeout } from "../http/index.js";
+import { sendOpenAiError } from "../provider-utils.js";
+import { toErrorMessage } from "../errors/index.js";
 import { getTelemetry } from "../telemetry/otel.js";
 import {
   joinUrl,

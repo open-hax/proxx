@@ -1,5 +1,5 @@
 import { TransformedJsonProviderStrategy } from "../base.js";
-import { requestWantsReasoningTrace } from "../../provider-utils.js";
+import { requestWantsReasoningTrace } from "../../openai/index.js";
 import {
   asNumber,
   asString,

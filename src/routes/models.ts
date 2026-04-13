@@ -1,4 +1,6 @@
 import type { FastifyInstance } from "fastify";
+
+import { tenantModelAllowed } from "../lib/policy/engine/index.js";
 import { toOpenAiModel } from "../lib/models.js";
 import { sendOpenAiError } from "../lib/provider-utils.js";
 import type { AppDeps } from "../lib/app-deps.js";

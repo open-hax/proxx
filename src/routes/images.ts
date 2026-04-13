@@ -1,10 +1,10 @@
 import type { FastifyInstance } from "fastify";
 import type { AppDeps } from "../lib/app-deps.js";
 import { DEFAULT_TENANT_ID } from "../lib/tenant-api-key.js";
-import { resolveExplicitTenantProviderId } from "../lib/tenant-policy-helpers.js";
 import {
+  resolveExplicitTenantProviderId,
   filterTenantProviderRoutes,
-} from "../lib/tenant-policy-helpers.js";
+} from "../lib/policy/engine/index.js";
 import {
   filterImagesApiRoutes,
   buildProviderRoutesWithDynamicBaseUrls,
@@ -17,10 +17,9 @@ import {
   executeProviderFallback,
 } from "../lib/provider-strategy.js";
 import { buildImagesPassthroughContext } from "../lib/provider-strategy.js";
-import {
-  minMsUntilAnyProviderKeyReady,
-} from "../lib/provider-routing.js";
-import { isRecord, sendOpenAiError, toErrorMessage } from "../lib/provider-utils.js";
+import { isRecord, sendOpenAiError } from "../lib/provider-utils.js";
+import { toErrorMessage } from "../lib/errors/index.js";
+import { handleRoutingOutcome } from "../lib/routing-outcome-handler.js";
 
 export function registerImagesRoutes(deps: AppDeps, app: FastifyInstance): void {
   app.post<{ Body: Record<string, unknown> }>("/v1/images/generations", async (request, reply) => {
