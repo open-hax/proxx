@@ -1,4 +1,4 @@
-import { fetchWithResponseTimeout } from "../http/index.js";
+import { fetchWithResponseTimeout } from "../provider-utils.js";
 import { readSingleHeader } from "../request-utils.js";
 
 const FEDERATION_HOP_HEADER = "x-open-hax-federation-hop";

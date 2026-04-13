@@ -6965,7 +6965,7 @@ test("does not immediately promote fallback affinity after one successful reassi
             return {
               status: 429,
               headers,
-              body: JSON.stringify({ error: { message: "daily quota exceeded" } }),
+              body: JSON.stringify({ error: { message: "rate limit" } }),
             };
           }
         }

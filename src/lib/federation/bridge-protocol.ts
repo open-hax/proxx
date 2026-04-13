@@ -5,7 +5,7 @@ export const BRIDGE_PROTOCOL_VERSION = "bridge-ws-v0" as const;
 export type BridgeProtocolVersion = typeof BRIDGE_PROTOCOL_VERSION;
 export type BridgeAuthMode = "admin_key" | "at_did" | "did_signed_challenge";
 export type BridgeAccountAuthType = "api_key" | "oauth_bearer" | "local" | "none";
-export type BridgeCredentialMobility = "local_only" | "descriptor_only" | "importable" | "non_exportable";
+export type BridgeCredentialMobility = "local_only" | "descriptor_only" | "importable" | "non_exportable" | "access_token_only";
 export type BridgeChunkEncoding = "utf8" | "base64";
 export type BridgeDefaultExecutionPolicy = "cluster_default" | "group_affinity" | "node_affinity";
 
@@ -429,7 +429,7 @@ function parseCapabilityAdvertisement(value: unknown, context: string): BridgeCa
     supportsResponses: requiredBoolean(value, "supportsResponses"),
     supportsStreaming: requiredBoolean(value, "supportsStreaming"),
     supportsWarmImport: requiredBoolean(value, "supportsWarmImport"),
-    credentialMobility: readEnum(value.credentialMobility, `${context}.credentialMobility`, ["local_only", "descriptor_only", "importable", "non_exportable"] as const),
+    credentialMobility: readEnum(value.credentialMobility, `${context}.credentialMobility`, ["local_only", "descriptor_only", "importable", "non_exportable", "access_token_only"] as const),
     credentialOrigin: requiredString(value, "credentialOrigin"),
     lastHealthyAt: optionalIsoTimestamp(value, "lastHealthyAt"),
     lastFailureAt: optionalIsoTimestamp(value, "lastFailureAt"),

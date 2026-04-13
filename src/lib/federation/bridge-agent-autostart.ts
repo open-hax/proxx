@@ -273,7 +273,7 @@ async function buildCapabilities(
       supportsResponses: true,
       supportsStreaming: true,
       supportsWarmImport: false,
-      credentialMobility: provider.authType === "oauth_bearer" ? "non_exportable" : "importable",
+      credentialMobility: provider.authType === "oauth_bearer" ? "access_token_only" : "importable",
       credentialOrigin: provider.authType === "oauth_bearer" ? "localhost_oauth" : "local_api_key",
       lastHealthyAt: provider.accountCount > 0 ? new Date().toISOString() : undefined,
       topologyTargets,

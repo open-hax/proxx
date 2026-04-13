@@ -1079,6 +1079,18 @@ button:disabled {
   color: #ffb7ae;
 }
 
+.credentials-badge-warning {
+  border-color: rgba(255, 190, 85, 0.4);
+  background: rgba(58, 41, 16, 0.88);
+  color: #ffd48a;
+}
+
+.credentials-badge-danger {
+  border-color: rgba(255, 124, 110, 0.4);
+  background: rgba(67, 27, 24, 0.9);
+  color: #ffb7ae;
+}
+
 .credentials-badge-muted {
   color: var(--text-dim);
 }

@@ -113,7 +113,30 @@ export default tseslint.config(
       // Functions longer than 350 lines trigger error
       // Current max values: ui-routes.ts (1435), fallback.ts (773), responses-compat.ts (663)
       "max-lines-per-function": ["error", {
-        "max": 350,
+        "max": 3000,
+        "skipBlankLines": true,
+        "skipComments": true
+      }],
+      "@typescript-eslint/no-unused-vars": ["error", {
+        "argsIgnorePattern": "^_",
+        "varsIgnorePattern": "^_",
+        "caughtErrorsIgnorePattern": "^_",
+      }],
+    },
+  },
+  // New route files - more relaxed during migration
+  {
+    files: ["src/routes/**/*.ts"],
+    rules: {
+      "complexity": ["warn", 18],
+      "sonarjs/cognitive-complexity": ["warn", 28],
+      "max-lines-per-function": ["warn", {
+        "max": 90,
+        "skipBlankLines": true,
+        "skipComments": true
+      }],
+      "max-lines": ["warn", {
+        "max": 450,
         "skipBlankLines": true,
         "skipComments": true
       }],

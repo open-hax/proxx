@@ -1,8 +1,8 @@
 import type { FastifyInstance } from "fastify";
 import type { AppDeps } from "../lib/app-deps.js";
 import { DEFAULT_TENANT_ID } from "../lib/tenant-api-key.js";
-import { joinUrl } from "../lib/http/index.js";
-import { tenantProviderAllowed } from "../lib/policy/engine/index.js";
+import { joinUrl } from "../lib/request-utils.js";
+import { tenantProviderAllowed } from "../lib/tenant-policy-helpers.js";
 import { buildForwardHeaders } from "../lib/proxy.js";
 import {
   nativeEmbedToOpenAiRequest,
@@ -15,24 +15,7 @@ import {
   filterTenantProviderRoutes,
 } from "../lib/tenant-policy-helpers.js";
 import { isAutoModel } from "../lib/auto-model-selector.js";
-import { isRecord, sendOpenAiError } from "../lib/provider-utils.js";
-import { toErrorMessage } from "../lib/errors/index.js";
-import { fetchWithResponseTimeout } from "../lib/http/index.js";
-import { ensureNativeOllamaEmbedContextFits } from "../lib/ollama-context.js";
-
-function summarizeEmbeddingInput(input: string | readonly string[]): { readonly itemCount: number; readonly totalChars: number } {
-  if (typeof input === "string") {
-    return {
-      itemCount: input.length > 0 ? 1 : 0,
-      totalChars: input.length,
-    };
-  }
-
-  return {
-    itemCount: input.length,
-    totalChars: input.reduce((sum, entry) => sum + entry.length, 0),
-  };
-}
+import { isRecord, sendOpenAiError, toErrorMessage, fetchWithResponseTimeout } from "../lib/provider-utils.js";
 
 export function registerEmbeddingsRoutes(deps: AppDeps, app: FastifyInstance): void {
   app.post<{ Body: Record<string, unknown> }>("/v1/embeddings", async (request, reply) => {
@@ -74,63 +57,6 @@ export function registerEmbeddingsRoutes(deps: AppDeps, app: FastifyInstance): v
       ...request.body,
       model: routedModel,
     });
-    const inputSummary = summarizeEmbeddingInput(embedBody.input);
-
-    if (inputSummary.itemCount > deps.config.embedMaxBatchItems) {
-      sendOpenAiError(
-        reply,
-        400,
-        `Embedding batch is too large. Received ${inputSummary.itemCount} input items, maximum: ${deps.config.embedMaxBatchItems}. Split the request into smaller batches.`,
-        "invalid_request_error",
-        "embed_batch_too_large",
-      );
-      return;
-    }
-
-    if (inputSummary.totalChars > deps.config.embedMaxInputChars) {
-      sendOpenAiError(
-        reply,
-        400,
-        `Embedding input is too large. Received ${inputSummary.totalChars} characters, maximum: ${deps.config.embedMaxInputChars}. Split the request into smaller chunks.`,
-        "invalid_request_error",
-        "embed_input_too_large",
-      );
-      return;
-    }
-
-    const embedBudget = await ensureNativeOllamaEmbedContextFits(
-      deps.config.ollamaBaseUrl,
-      { model: routedModel, input: embedBody.input },
-      Math.min(deps.config.requestTimeoutMs, 30_000),
-    );
-
-    const maxContextTokens = Math.min(
-      deps.config.embedMaxContextTokens,
-      embedBudget?.contextLength ?? deps.config.embedMaxContextTokens,
-    );
-
-    if (embedBudget && embedBudget.estimatedInputTokens > maxContextTokens) {
-      sendOpenAiError(
-        reply,
-        400,
-        `Embedding request exceeds model context window for ${embedBudget.model}. Estimated input tokens: ${embedBudget.estimatedInputTokens}, maximum: ${maxContextTokens}. Reduce input size or split the document before embedding.`,
-        "invalid_request_error",
-        "embed_context_overflow",
-      );
-      return;
-    }
-
-    const autoNumCtx = embedBudget && embedBudget.requiredContextTokens > embedBudget.availableContextTokens
-      ? Math.min(maxContextTokens, embedBudget.recommendedNumCtx)
-      : undefined;
-
-    const upstreamBody = nativeEmbedToOllamaRequest(
-      {
-        ...request.body,
-        model: routedModel,
-      },
-      autoNumCtx ?? embedBudget?.availableContextTokens,
-    );
 
     let upstreamResponse: Response;
     try {
