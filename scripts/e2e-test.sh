@@ -474,10 +474,18 @@ else
 fi
 
 if [[ "$FACTORY_ACCOUNT_COUNT" -eq 0 ]]; then
-  skip "factory/ prefix routing" "factory provider has no configured live accounts"
+  if [[ "$E2E_REQUIRE_FACTORY" == "1" ]]; then
+    fail "factory/ prefix routing" "factory provider has no configured live accounts"
+  else
+    skip "factory/ prefix routing" "factory provider has no configured live accounts"
+  fi
 else
   if [[ "$FACTORY_AVAILABLE_COUNT" -eq 0 ]]; then
-    skip "factory/ prefix routing" "factory provider has no currently available accounts"
+    if [[ "$E2E_REQUIRE_FACTORY" == "1" ]]; then
+      fail "factory/ prefix routing" "factory provider has no currently available accounts"
+    else
+      skip "factory/ prefix routing" "factory provider has no currently available accounts"
+    fi
   else
     RESPONSE=$(chat_completion "factory/claude-opus-4-6" "Reply with one word: OK" 2>/dev/null) || RESPONSE=""
     if [[ -n "$RESPONSE" ]]; then
