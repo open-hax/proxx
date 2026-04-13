@@ -303,6 +303,28 @@ PY
   FED_PROVIDER_ID="openai"
   FED_ACCOUNT_ID="$AUDIT_WITNESS_ID"
 fi
+B1_ACCOUNTS_FILE=$(mktemp)
+B2_ACCOUNTS_FILE=$(mktemp)
+curl_json_host "$B1_HOST" GET "/api/ui/federation/accounts?ownerSubject=${OWNER_DID}" > "$B1_ACCOUNTS_FILE"
+curl_json_host "$B2_HOST" GET "/api/ui/federation/accounts?ownerSubject=${OWNER_DID}" > "$B2_ACCOUNTS_FILE"
+IFS=$'\t' read -r FED_PROVIDER_ID FED_ACCOUNT_ID _ <<< "$(printf '%s' "$A1_ACCOUNTS" | select_audit_account_triplet "$B1_ACCOUNTS_FILE" "$B2_ACCOUNTS_FILE")"
+rm -f "$B1_ACCOUNTS_FILE" "$B2_ACCOUNTS_FILE"
+if [[ -z "$FED_PROVIDER_ID" || -z "$FED_ACCOUNT_ID" ]]; then
+  AUDIT_WITNESS_ID="federation-audit-openai-$(date +%s)"
+  info "No A1-only account candidate; seeding dedicated audit witness ${AUDIT_WITNESS_ID}"
+  curl_json_host "$A1_HOST" POST "/api/ui/credentials/api-key" "$(python3 - <<'PY' "$AUDIT_WITNESS_ID"
+import json, sys
+account_id = sys.argv[1]
+print(json.dumps({
+  "providerId": "openai",
+  "accountId": account_id,
+  "credentialValue": f"{account_id}-token",
+}))
+PY
+)" >/dev/null
+  FED_PROVIDER_ID="openai"
+  FED_ACCOUNT_ID="$AUDIT_WITNESS_ID"
+fi
 if [[ -n "$FED_PROVIDER_ID" && -n "$FED_ACCOUNT_ID" ]]; then
   pass "selected audit account ${FED_PROVIDER_ID}/${FED_ACCOUNT_ID}"
 else
@@ -380,10 +402,10 @@ print(json.dumps({
 }))
 PY
 )
-curl_json_host "$A1_HOST" POST "/api/v1/federation/usage-import" "$SYNTHETIC_PAYLOAD" >/dev/null
+curl_json_host "$A1_HOST" POST "/api/ui/federation/usage-import" "$SYNTHETIC_PAYLOAD" >/dev/null
 pass "synthetic usage injected on A1"
 
-USAGE_SYNC=$(curl_json_host "$B1_HOST" POST "/api/v1/federation/sync/pull" "$(python3 - <<'PY' "$OWNER_DID" "$SYNTHETIC_USAGE_TS"
+USAGE_SYNC=$(curl_json_host "$B1_HOST" POST "/api/ui/federation/sync/pull" "$(python3 - <<'PY' "$OWNER_DID" "$SYNTHETIC_USAGE_TS"
 import json, sys
 owner_did, timestamp_ms = sys.argv[1:3]
 print(json.dumps({"peerId": "a1", "ownerSubject": owner_did, "pullUsage": True, "sinceMs": max(0, int(timestamp_ms) - 1000)}))
@@ -398,7 +420,7 @@ fi
 
 HAS_SYNTHETIC='False'
 for _ in 1 2 3; do
-  B2_LOGS=$(curl_json_host "$B2_HOST" GET "/api/v1/request-logs?limit=500")
+  B2_LOGS=$(curl_json_host "$B2_HOST" GET "/api/ui/request-logs?limit=500")
   HAS_SYNTHETIC=$(printf '%s' "$B2_LOGS" | python3 -c '
 import json, sys
 payload = json.load(sys.stdin)
