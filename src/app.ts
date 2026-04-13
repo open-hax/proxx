@@ -59,7 +59,6 @@ import { EventStore } from "./lib/db/event-store.js";
 import { createDefaultLabelers } from "./lib/db/event-labelers.js";
 import { SqlRequestUsageStore } from "./lib/db/sql-request-usage-store.js";
 import { SqlFederationStore } from "./lib/db/sql-federation-store.js";
-import { SqlTenantProviderPolicyStore } from "./lib/db/sql-tenant-provider-policy-store.js";
 import { SqlAuthPersistence } from "./lib/auth/sql-persistence.js";
 import { seedApiKeyProvidersFromEnv, seedFromJsonFile, seedFromJsonValue, seedFactoryAuthFromFiles, seedModelsFromFile } from "./lib/db/json-seeder.js";
 import { RuntimeCredentialStore } from "./lib/runtime-credential-store.js";
@@ -123,7 +122,6 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
   let eventStore: EventStore | undefined;
   let sqlRequestUsageStore: SqlRequestUsageStore | undefined;
   let sqlFederationStore: SqlFederationStore | undefined;
-  let sqlTenantProviderPolicyStore: SqlTenantProviderPolicyStore | undefined;
 
   if (config.databaseUrl) {
     try {
@@ -149,23 +147,9 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       await sqlRequestUsageStore.init();
       app.log.info("request usage store initialized");
 
-      try {
-        sqlFederationStore = new SqlFederationStore(sql);
-        await sqlFederationStore.init();
-        app.log.info("federation store initialized");
-      } catch (error) {
-        sqlFederationStore = undefined;
-        app.log.warn({ error: toErrorMessage(error) }, "failed to initialize federation store; continuing with federation disabled");
-      }
-
-      try {
-        sqlTenantProviderPolicyStore = new SqlTenantProviderPolicyStore(sql);
-        await sqlTenantProviderPolicyStore.init();
-        app.log.info("tenant provider policy store initialized");
-      } catch (error) {
-        sqlTenantProviderPolicyStore = undefined;
-        app.log.warn({ error: toErrorMessage(error) }, "failed to initialize tenant provider policy store; continuing with policy store disabled");
-      }
+      sqlFederationStore = new SqlFederationStore(sql);
+      await sqlFederationStore.init();
+      app.log.info("federation store initialized");
 
       sqlAuthPersistence = new SqlAuthPersistence(sql);
       await sqlAuthPersistence.init();
@@ -745,52 +729,6 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     credentialStore: runtimeCredentialStore,
     sqlCredentialStore,
     sqlFederationStore,
-    sqlTenantProviderPolicyStore,
-    sqlRequestUsageStore,
-    authPersistence: sqlAuthPersistence,
-    proxySettingsStore,
-    eventStore,
-  });
-
-  bridgeRelay = wsBridgeRelay;
-  (deps as { bridgeRelay: FederationBridgeRelay | undefined }).bridgeRelay = wsBridgeRelay;
-
-  await registerBridgeSseRoutes(app, {
-    config,
-    keyPool,
-    requestLogStore,
-    credentialStore: runtimeCredentialStore,
-    sqlCredentialStore,
-    sqlFederationStore,
-    sqlTenantProviderPolicyStore,
-    sqlRequestUsageStore,
-    authPersistence: sqlAuthPersistence,
-    proxySettingsStore,
-    eventStore,
-  }, wsBridgeRelay);
-
-  await registerRequestLogSseRoutes(app, {
-    config,
-    keyPool,
-    requestLogStore,
-    credentialStore: runtimeCredentialStore,
-    sqlCredentialStore,
-    sqlFederationStore,
-    sqlTenantProviderPolicyStore,
-    sqlRequestUsageStore,
-    authPersistence: sqlAuthPersistence,
-    proxySettingsStore,
-    eventStore,
-  }, requestLogSseHub);
-
-  await registerApiV1Routes(app, {
-    config,
-    keyPool,
-    requestLogStore,
-    credentialStore: runtimeCredentialStore,
-    sqlCredentialStore,
-    sqlFederationStore,
-    sqlTenantProviderPolicyStore,
     sqlRequestUsageStore,
     authPersistence: sqlAuthPersistence,
     proxySettingsStore,
