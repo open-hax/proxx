@@ -1,97 +1,92 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";
 import test from "node:test";
 
-import { PromptAffinityStore } from "../lib/prompt-affinity-store.js";
+import { SqlPromptAffinityStore } from "../lib/db/sql-prompt-affinity-store.js";
 
-async function withTempDir(fn: (tempDir: string) => Promise<void>): Promise<void> {
-  const tempDir = await mkdtemp(path.join(os.tmpdir(), "prompt-affinity-store-test-"));
+test("prompt affinity upsert stores and retrieves records", async () => {
+  const store = new SqlPromptAffinityStore(undefined);
+  await store.init();
 
-  try {
-    await fn(tempDir);
-  } finally {
-    await rm(tempDir, { recursive: true, force: true });
-  }
-}
+  await store.upsert("cache-key-1", "factory", "acct-1");
+  await store.upsert("cache-key-2", "openai", "acct-2");
+  await store.upsert("cache-key-1", "factory", "acct-3");
 
-test("prompt affinity close flushes batched writes", async () => {
-  await withTempDir(async (tempDir) => {
-    const filePath = path.join(tempDir, "prompt-affinity.json");
-    const store = new PromptAffinityStore(filePath, 60_000);
-    await store.warmup();
+  const record1 = await store.get("cache-key-1");
+  assert.equal(record1?.promptCacheKey, "cache-key-1");
+  assert.equal(record1?.providerId, "factory");
+  assert.equal(record1?.accountId, "acct-3");
+  assert.equal(typeof record1?.updatedAt, "number");
 
-    await Promise.all([
-      store.upsert("cache-key-1", "factory", "acct-1"),
-      store.upsert("cache-key-2", "openai", "acct-2"),
-      store.upsert("cache-key-1", "factory", "acct-3"),
-    ]);
+  const record2 = await store.get("cache-key-2");
+  assert.equal(record2?.promptCacheKey, "cache-key-2");
+  assert.equal(record2?.providerId, "openai");
+  assert.equal(record2?.accountId, "acct-2");
 
-    await store.close();
+  const missing = await store.get("nonexistent");
+  assert.equal(missing, undefined);
 
-    const persisted = JSON.parse(await readFile(filePath, "utf8")) as {
-      records: Array<{ promptCacheKey: string; providerId: string; accountId: string; updatedAt: number }>;
-    };
-    assert.equal(persisted.records.length, 2);
-    assert.equal(persisted.records[0]?.promptCacheKey, "cache-key-1");
-    assert.equal(persisted.records[0]?.providerId, "factory");
-    assert.equal(persisted.records[0]?.accountId, "acct-3");
-    assert.equal(typeof persisted.records[0]?.updatedAt, "number");
-    assert.equal(persisted.records[1]?.promptCacheKey, "cache-key-2");
-    assert.equal(persisted.records[1]?.providerId, "openai");
-    assert.equal(persisted.records[1]?.accountId, "acct-2");
-    assert.equal(typeof persisted.records[1]?.updatedAt, "number");
-  });
+  await store.close();
 });
 
 test("prompt affinity promotes fallback only after repeated successful use", async () => {
-  await withTempDir(async (tempDir) => {
-    const filePath = path.join(tempDir, "prompt-affinity.json");
-    const store = new PromptAffinityStore(filePath, 60_000);
-    await store.warmup();
+  const store = new SqlPromptAffinityStore(undefined);
+  await store.init();
 
-    await store.noteSuccess("cache-key-1", "openai", "acct-a");
-    let record = await store.get("cache-key-1");
-    assert.equal(record?.providerId, "openai");
-    assert.equal(record?.accountId, "acct-a");
-    assert.equal(record?.provisionalProviderId, undefined);
+  await store.noteSuccess("cache-key-1", "openai", "acct-a");
+  let record = await store.get("cache-key-1");
+  assert.equal(record?.providerId, "openai");
+  assert.equal(record?.accountId, "acct-a");
+  assert.equal(record?.provisionalProviderId, undefined);
 
-    await store.noteSuccess("cache-key-1", "openai", "acct-b");
-    record = await store.get("cache-key-1");
-    assert.equal(record?.providerId, "openai");
-    assert.equal(record?.accountId, "acct-a");
-    assert.equal(record?.provisionalProviderId, "openai");
-    assert.equal(record?.provisionalAccountId, "acct-b");
-    assert.equal(record?.provisionalSuccessCount, 1);
+  await store.noteSuccess("cache-key-1", "openai", "acct-b");
+  record = await store.get("cache-key-1");
+  assert.equal(record?.providerId, "openai");
+  assert.equal(record?.accountId, "acct-a");
+  assert.equal(record?.provisionalProviderId, "openai");
+  assert.equal(record?.provisionalAccountId, "acct-b");
+  assert.equal(record?.provisionalSuccessCount, 1);
 
-    await store.noteSuccess("cache-key-1", "openai", "acct-b");
-    record = await store.get("cache-key-1");
-    assert.equal(record?.providerId, "openai");
-    assert.equal(record?.accountId, "acct-b");
-    assert.equal(record?.provisionalProviderId, undefined);
-    assert.equal(record?.provisionalAccountId, undefined);
+  await store.noteSuccess("cache-key-1", "openai", "acct-b");
+  record = await store.get("cache-key-1");
+  assert.equal(record?.providerId, "openai");
+  assert.equal(record?.accountId, "acct-b");
+  assert.equal(record?.provisionalProviderId, undefined);
+  assert.equal(record?.provisionalAccountId, undefined);
 
-    await store.noteSuccess("cache-key-1", "openai", "acct-b");
-    record = await store.get("cache-key-1");
-    assert.equal(record?.providerId, "openai");
-    assert.equal(record?.accountId, "acct-b");
-    assert.equal(record?.provisionalProviderId, undefined);
+  await store.noteSuccess("cache-key-1", "openai", "acct-b");
+  record = await store.get("cache-key-1");
+  assert.equal(record?.providerId, "openai");
+  assert.equal(record?.accountId, "acct-b");
+  assert.equal(record?.provisionalProviderId, undefined);
 
-    await store.noteSuccess("cache-key-1", "openai", "acct-a");
-    record = await store.get("cache-key-1");
-    assert.equal(record?.providerId, "openai");
-    assert.equal(record?.accountId, "acct-b");
-    assert.equal(record?.provisionalProviderId, "openai");
-    assert.equal(record?.provisionalAccountId, "acct-a");
-    assert.equal(record?.provisionalSuccessCount, 1);
+  await store.noteSuccess("cache-key-1", "openai", "acct-a");
+  record = await store.get("cache-key-1");
+  assert.equal(record?.providerId, "openai");
+  assert.equal(record?.accountId, "acct-b");
+  assert.equal(record?.provisionalProviderId, "openai");
+  assert.equal(record?.provisionalAccountId, "acct-a");
+  assert.equal(record?.provisionalSuccessCount, 1);
 
-    await store.noteSuccess("cache-key-1", "openai", "acct-b");
-    record = await store.get("cache-key-1");
-    assert.equal(record?.providerId, "openai");
-    assert.equal(record?.accountId, "acct-b");
-    assert.equal(record?.provisionalProviderId, undefined);
+  await store.noteSuccess("cache-key-1", "openai", "acct-b");
+  record = await store.get("cache-key-1");
+  assert.equal(record?.providerId, "openai");
+  assert.equal(record?.accountId, "acct-b");
+  assert.equal(record?.provisionalProviderId, undefined);
 
-    await store.close();
-  });
+  await store.close();
+});
+
+test("prompt affinity delete removes records", async () => {
+  const store = new SqlPromptAffinityStore(undefined);
+  await store.init();
+
+  await store.upsert("cache-key-1", "factory", "acct-1");
+  let record = await store.get("cache-key-1");
+  assert.equal(record?.providerId, "factory");
+
+  await store.delete("cache-key-1");
+  record = await store.get("cache-key-1");
+  assert.equal(record, undefined);
+
+  await store.close();
 });

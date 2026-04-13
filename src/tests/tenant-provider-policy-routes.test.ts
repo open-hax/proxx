@@ -82,6 +82,7 @@ function buildConfig(input: {
     keyCooldownMs: 10_000,
     requestTimeoutMs: 2_000,
     streamBootstrapTimeoutMs: 2_000,
+    embedMaxContextTokens: 262144,
     upstreamTransientRetryCount: 1,
     upstreamTransientRetryBackoffMs: 1,
     proxyAuthToken: input.proxyAuthToken,

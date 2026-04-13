@@ -1,5 +1,6 @@
 import type { ProxyConfig } from "./config.js";
 import type { KeyPool } from "./key-pool.js";
+import { isGlmModel } from "./glm-compat.js";
 
 export interface ProviderRoute {
   readonly providerId: string;
@@ -450,7 +451,7 @@ export function resolveProviderRoutesForModel(
   }
   const modelKnownOnOllama = dynamicOllamaModels.has(normalizedModel);
 
-  if (!modelKnownOnOllama) {
+  if (!modelKnownOnOllama && !isGlmModel(normalizedModel)) {
     const nonOllamaRoutes = routes.filter((route) => !providerIdLooksLikeOllama(route.providerId));
     return nonOllamaRoutes.length > 0 ? nonOllamaRoutes : [...routes];
   }

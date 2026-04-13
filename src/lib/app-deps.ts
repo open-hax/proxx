@@ -9,7 +9,8 @@ import type { SqlTenantProviderPolicyStore } from "./db/sql-tenant-provider-poli
 import type { AccountHealthStore } from "./db/account-health-store.js";
 import type { EventStore } from "./db/event-store.js";
 import type { RequestLogStore } from "./request-log-store.js";
-import type { PromptAffinityStore } from "./prompt-affinity-store.js";
+import type { IPromptAffinityStore } from "./prompt-affinity-store.js";
+import type { ProviderRoutePheromoneStore } from "./provider-route-pheromone-store.js";
 import type { ProxySettingsStore } from "./proxy-settings-store.js";
 import type { PolicyEngine } from "./policy/index.js";
 import type { ProviderCatalogStore } from "./provider-catalog.js";
@@ -47,7 +48,8 @@ export interface AppDeps {
   readonly accountHealthStore: AccountHealthStore | undefined;
   readonly eventStore: EventStore | undefined;
   readonly requestLogStore: RequestLogStore;
-  readonly promptAffinityStore: PromptAffinityStore;
+  readonly promptAffinityStore: IPromptAffinityStore;
+  readonly providerRoutePheromoneStore: ProviderRoutePheromoneStore;
   readonly proxySettingsStore: ProxySettingsStore;
   readonly policyEngine: PolicyEngine;
   readonly providerCatalogStore: ProviderCatalogStore;
