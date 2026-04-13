@@ -216,10 +216,8 @@ async function withProxyApp(
   const config: ProxyConfig = {
     ...defaultConfig,
     ...options.configOverrides,
-    upstreamProviderBaseUrls: {
-      ...defaultConfig.upstreamProviderBaseUrls,
-      ...(options.configOverrides?.upstreamProviderBaseUrls ?? {}),
-    },
+    // Ensure required path exists even when overrides omit it.
+    sessionsFilePath: options.configOverrides?.sessionsFilePath ?? path.join(tempDir, "sessions.json"),
   };
 
   const app = await createApp(config);

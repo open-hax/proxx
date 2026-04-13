@@ -72,6 +72,7 @@ export interface ProxyConfig {
   readonly promptAffinityFilePath: string;
   readonly promptAffinityFlushMs: number;
   readonly settingsFilePath: string;
+  readonly sessionsFilePath: string;
   readonly keyReloadMs: number;
   readonly keyCooldownMs: number;
   readonly keyCooldownJitterFactor: number;
@@ -549,6 +550,7 @@ export function loadConfig(cwd: string = process.cwd()): ProxyConfig {
     promptAffinityFilePath: filePathFromEnvAliases(["PROXY_PROMPT_AFFINITY_FILE"], "./data/prompt-affinity.json", cwd),
     promptAffinityFlushMs: nonNegativeNumberFromEnvAliases(["PROXY_PROMPT_AFFINITY_FLUSH_MS"], 250),
     settingsFilePath: filePathFromEnvAliases(["PROXY_SETTINGS_FILE"], "./data/proxy-settings.json", cwd),
+    sessionsFilePath: filePathFromEnvAliases(["PROXY_SESSIONS_FILE"], "./data/sessions.json", cwd),
     keyReloadMs: numberFromEnvAliases(["PROXY_KEY_RELOAD_MS", "VIVGRID_KEY_RELOAD_MS"], 5000),
     keyCooldownMs: numberFromEnvAliases(["PROXY_KEY_COOLDOWN_MS", "VIVGRID_KEY_COOLDOWN_MS"], 300_000),
     requestTimeoutMs: numberFromEnvAliases(["UPSTREAM_REQUEST_TIMEOUT_MS"], 180000),
