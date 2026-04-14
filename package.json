@@ -48,7 +48,8 @@
     "fastify": "^5.0.0",
     "postgres": "^3.4.8",
     "ws": "^8.20.0",
-    "zod": "^4.3.6"
+    "zod": "^4.3.6",
+    "@open-hax/uxx":"0.1.4"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
