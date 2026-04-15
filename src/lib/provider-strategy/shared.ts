@@ -1351,8 +1351,18 @@ function extractUsageFromOpenAiChatSse(streamText: string): UsageCounts {
       const completionTokens = asNumber(usage["completion_tokens"]);
       const totalTokens = asNumber(usage["total_tokens"])
         ?? (promptTokens !== undefined && completionTokens !== undefined ? promptTokens + completionTokens : undefined);
+      const cachedPromptTokens = cachedPromptTokensFromUsage(usage);
 
       if (promptTokens !== undefined || completionTokens !== undefined) {
+        if (cachedPromptTokens !== undefined) {
+          return { promptTokens, completionTokens, totalTokens, cachedPromptTokens };
+        }
+
+        if (promptTokens !== undefined) {
+          // Normalize to 0 so dashboards can distinguish "no cache hit" from "no usage provided".
+          return { promptTokens, completionTokens, totalTokens, cachedPromptTokens: 0 };
+        }
+
         return { promptTokens, completionTokens, totalTokens };
       }
     } catch {
