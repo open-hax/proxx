@@ -20,9 +20,6 @@ import {
 import { KeyPool, type ProviderCredential } from "./lib/key-pool.js";
 import { CredentialStore } from "./lib/credential-store.js";
 import { OpenAiOAuthManager } from "./lib/openai-oauth.js";
-import {
-  factoryCredentialNeedsRefresh,
-} from "./lib/factory-auth.js";
 import { ProviderCatalogStore } from "./lib/provider-catalog.js";
 import { initializePolicyEngine, createPolicyEngine, type PolicyEngine } from "./lib/policy/index.js";
 import { DEFAULT_POLICY_CONFIG } from "./lib/policy/index.js";
@@ -61,7 +58,9 @@ import { SqlTenantProviderPolicyStore } from "./lib/db/sql-tenant-provider-polic
 import { SqlAuthPersistence } from "./lib/auth/sql-persistence.js";
 import { seedApiKeyProvidersFromEnv, seedFromJsonFile, seedFromJsonValue, seedFactoryAuthFromFiles, seedModelsFromFile } from "./lib/db/json-seeder.js";
 import { RuntimeCredentialStore } from "./lib/runtime-credential-store.js";
-import { createTokenRefreshManager } from "./lib/token-refresh-handlers.js";
+import {
+  createTokenRefreshRuntime,
+} from "./lib/token-refresh-handlers.js";
 import { DEFAULT_TENANT_ID } from "./lib/tenant-api-key.js";
 import { resolveRequestAuth, type ResolvedRequestAuth } from "./lib/request-auth.js";
 import { createEnvFederationBridgeAgent } from "./lib/federation/bridge-agent-autostart.js";
@@ -292,7 +291,12 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     clientSecret: config.openaiOauthClientSecret,
   });
 
-  const tokenRefreshManager = createTokenRefreshManager({
+  const {
+    tokenRefreshManager,
+    refreshExpiredOAuthAccount,
+    refreshFactoryAccount,
+    ensureFreshAccounts,
+  } = createTokenRefreshRuntime({
     keyPool,
     runtimeCredentialStore,
     oauthManager,
@@ -697,22 +701,9 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     dynamicProviderBaseUrlGetter: dynamicProviderBaseUrlGetter
       ? async (id: string) => (await dynamicProviderBaseUrlGetter(id)) ?? undefined
       : async () => undefined, bridgeRelay, quotaMonitor,
-    refreshExpiredOAuthAccount: async (c) => tokenRefreshManager.refresh(c),
-    refreshFactoryAccount: async (c) => { await tokenRefreshManager.refresh(c); return null; },
-    ensureFreshAccounts: async (providerId) => {
-      const expired = keyPool.getExpiredAccountsWithRefreshTokens(providerId);
-      if (expired.length > 0) {
-        await tokenRefreshManager.refreshBatch(expired);
-      }
-      if (providerId === "factory") {
-        const allFactoryAccounts = await keyPool.getAllAccounts("factory").catch(() => [] as ProviderCredential[]);
-        for (const account of allFactoryAccounts) {
-          if (factoryCredentialNeedsRefresh(account)) {
-            await tokenRefreshManager.refresh(account);
-          }
-        }
-      }
-    },
+    refreshExpiredOAuthAccount,
+    refreshFactoryAccount,
+    ensureFreshAccounts,
     getMergedModelIds,
     executeFederatedRequestFallback: async (input) => executeFederatedRequestFallback(fedDeps, input),
     injectNativeBridge: async (url, payload, headers) => injectNativeBridge(getBridgeDeps(), url, payload, headers),
