@@ -2,17 +2,19 @@ import type { ProviderCredential } from "./key-pool.js";
 import type { RuntimeCredentialStore } from "./runtime-credential-store.js";
 import type { OpenAiOAuthManager, OAuthTokens } from "./openai-oauth.js";
 import { isTerminalOpenAiRefreshError } from "./openai-oauth.js";
-import { refreshFactoryOAuthToken, parseJwtExpiry, persistFactoryAuthV2 } from "./factory-auth.js";
-import { toErrorMessage } from "./provider-utils.js";
-import { TokenRefreshManager, type TokenRefreshManagerConfig, type Logger } from "./token-refresh-manager.js";
+import { refreshFactoryOAuthToken, parseJwtExpiry, persistFactoryAuthV2, factoryCredentialNeedsRefresh } from "./factory-auth.js";
+import { toErrorMessage } from "./errors/index.js";
+import { TokenRefreshManager, type TokenRefreshManagerConfig, type Logger, type RefreshFn } from "./token-refresh-manager.js";
+
+interface TokenRefreshKeyPool {
+  updateAccountCredential(providerId: string, oldCredential: ProviderCredential, newCredential: ProviderCredential): void;
+  markRateLimited(credential: ProviderCredential, retryAfterMs?: number): void;
+  getExpiredAccountsWithRefreshTokens(providerId: string): ProviderCredential[];
+  getAllAccounts(providerId: string): Promise<ProviderCredential[]>;
+}
 
 export interface TokenRefreshDeps {
-  readonly keyPool: {
-    updateAccountCredential(providerId: string, oldCredential: ProviderCredential, newCredential: ProviderCredential): void;
-    markRateLimited(credential: ProviderCredential, retryAfterMs?: number): void;
-    getExpiredAccountsWithRefreshTokens(providerId: string): ProviderCredential[];
-    getAllAccounts(providerId: string): Promise<ProviderCredential[]>;
-  };
+  readonly keyPool: TokenRefreshKeyPool;
   readonly runtimeCredentialStore: RuntimeCredentialStore;
   readonly oauthManager: OpenAiOAuthManager;
   readonly sqlCredentialStore?: unknown;
@@ -20,34 +22,105 @@ export interface TokenRefreshDeps {
   readonly config: TokenRefreshManagerConfig;
 }
 
+export interface OpenAiRefreshDeps {
+  readonly keyPool: TokenRefreshKeyPool;
+  readonly runtimeCredentialStore: RuntimeCredentialStore;
+  readonly oauthManager: OpenAiOAuthManager;
+  readonly sqlCredentialStore?: unknown;
+  readonly log: Logger;
+}
+
+export interface FactoryRefreshDeps {
+  readonly keyPool: TokenRefreshKeyPool;
+  readonly runtimeCredentialStore: RuntimeCredentialStore;
+  readonly sqlCredentialStore?: unknown;
+  readonly log: Logger;
+}
+
+export interface EnsureFreshAccountsDeps {
+  readonly keyPool: Pick<TokenRefreshKeyPool, "getExpiredAccountsWithRefreshTokens" | "getAllAccounts">;
+  readonly tokenRefreshManager: Pick<TokenRefreshManager, "refresh" | "refreshBatch">;
+  readonly shouldRefreshFactoryAccount?: (credential: ProviderCredential) => boolean;
+}
+
+export interface TokenRefreshRuntime {
+  readonly tokenRefreshManager: TokenRefreshManager;
+  readonly refreshExpiredOAuthAccount: RefreshFn;
+  readonly refreshFactoryAccount: RefreshFn;
+  readonly ensureFreshAccounts: (providerId: string) => Promise<void>;
+}
+
+export function createOpenAiRefreshHandler(deps: OpenAiRefreshDeps): RefreshFn {
+  return async (credential) => refreshOpenAiAccount(credential, deps);
+}
+
+export function createFactoryRefreshHandler(deps: FactoryRefreshDeps): RefreshFn {
+  return async (credential) => refreshFactoryAccount(credential, deps);
+}
+
+export function createEnsureFreshAccounts(deps: EnsureFreshAccountsDeps): (providerId: string) => Promise<void> {
+  const shouldRefreshFactoryAccount = deps.shouldRefreshFactoryAccount ?? factoryCredentialNeedsRefresh;
+
+  return async (providerId: string) => {
+    const expired = deps.keyPool.getExpiredAccountsWithRefreshTokens(providerId);
+    if (expired.length > 0) {
+      await deps.tokenRefreshManager.refreshBatch(expired);
+    }
+
+    if (providerId !== "factory") {
+      return;
+    }
+
+    const allFactoryAccounts = await deps.keyPool.getAllAccounts("factory").catch(() => [] as ProviderCredential[]);
+    for (const account of allFactoryAccounts) {
+      if (shouldRefreshFactoryAccount(account)) {
+        await deps.tokenRefreshManager.refresh(account);
+      }
+    }
+  };
+}
+
 export function createTokenRefreshManager(deps: TokenRefreshDeps): TokenRefreshManager {
-  const { keyPool, runtimeCredentialStore, oauthManager, log, sqlCredentialStore, config } = deps;
+  const refreshExpiredOAuthAccount = createOpenAiRefreshHandler(deps);
+  const refreshFactoryAccount = createFactoryRefreshHandler(deps);
 
   return new TokenRefreshManager(
-    async (credential) => refreshCallback(credential, { keyPool, runtimeCredentialStore, oauthManager, log, sqlCredentialStore }),
-    log,
-    config,
+    async (credential) => {
+      if (credential.providerId === "factory") {
+        return refreshFactoryAccount(credential);
+      }
+      return refreshExpiredOAuthAccount(credential);
+    },
+    deps.log,
+    deps.config,
   );
 }
 
-async function refreshCallback(
+export function createTokenRefreshRuntime(deps: TokenRefreshDeps): TokenRefreshRuntime {
+  const refreshExpiredOAuthAccount = createOpenAiRefreshHandler(deps);
+  const refreshFactoryAccount = createFactoryRefreshHandler(deps);
+  const tokenRefreshManager = createTokenRefreshManager(deps);
+  const ensureFreshAccounts = createEnsureFreshAccounts({
+    keyPool: deps.keyPool,
+    tokenRefreshManager,
+  });
+
+  return {
+    tokenRefreshManager,
+    refreshExpiredOAuthAccount,
+    refreshFactoryAccount,
+    ensureFreshAccounts,
+  };
+}
+
+async function refreshOpenAiAccount(
   credential: ProviderCredential,
-  deps: {
-    keyPool: TokenRefreshDeps["keyPool"];
-    runtimeCredentialStore: RuntimeCredentialStore;
-    oauthManager: OpenAiOAuthManager;
-    log: Logger;
-    sqlCredentialStore?: unknown;
-  },
+  deps: OpenAiRefreshDeps,
 ): Promise<ProviderCredential | null> {
-  const { keyPool, runtimeCredentialStore, oauthManager, log, sqlCredentialStore } = deps;
+  const { keyPool, runtimeCredentialStore, oauthManager, log } = deps;
 
   if (!credential.refreshToken) {
     return null;
-  }
-
-  if (credential.providerId === "factory") {
-    return refreshFactoryAccount(credential, { keyPool, runtimeCredentialStore, log, sqlCredentialStore });
   }
 
   log.info({ accountId: credential.accountId, providerId: credential.providerId }, "refreshing expired OAuth token");
@@ -126,12 +199,7 @@ async function refreshCallback(
 
 async function refreshFactoryAccount(
   credential: ProviderCredential,
-  deps: {
-    keyPool: TokenRefreshDeps["keyPool"];
-    runtimeCredentialStore: RuntimeCredentialStore;
-    log: Logger;
-    sqlCredentialStore?: unknown;
-  },
+  deps: FactoryRefreshDeps,
 ): Promise<ProviderCredential | null> {
   const { keyPool, runtimeCredentialStore, log, sqlCredentialStore } = deps;
 
