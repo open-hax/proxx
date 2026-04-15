@@ -43,6 +43,14 @@ function validateModelRoutingRule(rule: unknown): boolean {
     return false;
   }
 
+  if (rule.preferredStrategies !== undefined && (!Array.isArray(rule.preferredStrategies) || !rule.preferredStrategies.every((mode) => typeof mode === "string"))) {
+    return false;
+  }
+
+  if (rule.excludedStrategies !== undefined && (!Array.isArray(rule.excludedStrategies) || !rule.excludedStrategies.every((mode) => typeof mode === "string"))) {
+    return false;
+  }
+
   if (rule.accountOrdering !== undefined && !validateAccountOrderingRule(rule.accountOrdering)) {
     return false;
   }

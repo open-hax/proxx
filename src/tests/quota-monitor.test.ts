@@ -313,3 +313,104 @@ test("quota monitor refreshAccountQuota fetches only the targeted account", asyn
     globalThis.fetch = originalFetch;
   }
 });
+
+test("getCooldownMs returns undefined for non-exhausted account with reset windows (429 regression)", async () => {
+  // Regression: OpenAI quota snapshots always carry reset timestamps even when
+  // the account is healthy.  A transient 429 should NOT produce a multi-day
+  // cooldown from those reset windows.  getCooldownMs must gate on isExhausted.
+  const credentialStore = createCredentialStore([
+    { id: "healthy-acct", token: "token-healthy" },
+  ]);
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => {
+    // Simulate a healthy quota snapshot: allowed=true, low usage, but still
+    // carries a reset window of ~2 days (like real OpenAI responses).
+    return new Response(JSON.stringify({
+      usage: {
+        rate_limit: {
+          allowed: true,
+          limit_reached: false,
+          primary_window: {
+            used_percent: 34,
+            reset_after_seconds: 168463, // ~1.95 days
+          },
+        },
+      },
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }) as typeof fetch;
+
+  try {
+    const monitor = new QuotaMonitor(
+      credentialStore,
+      createLogger(),
+      { providerId: "openai" },
+    );
+
+    // Refresh quota — snapshot is healthy but carries reset metadata.
+    const record = await monitor.refreshAccountQuota("healthy-acct");
+    assert.equal(record?.isExhausted, false, "account should not be exhausted");
+
+    // getCooldownMs must return undefined because the account is not exhausted.
+    assert.equal(
+      monitor.getCooldownMs("healthy-acct"),
+      undefined,
+      "getCooldownMs should return undefined for non-exhausted account with reset windows",
+    );
+
+    // getCooldownMsFromQuota still returns the reset window (that's its contract),
+    // but consumers should NOT call it without checking exhaustion first.
+    const rawQuotaCooldown = monitor.getCooldownMsFromQuota("healthy-acct");
+    assert.ok(
+      rawQuotaCooldown != null && rawQuotaCooldown > 86_400_000,
+      "getCooldownMsFromQuota returns the raw reset window (>1 day) regardless of exhaustion",
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("getCooldownMs returns reset window only when account is actually exhausted", async () => {
+  const credentialStore = createCredentialStore([
+    { id: "exhausted-acct", token: "token-exhausted" },
+  ]);
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => {
+    return new Response(JSON.stringify({
+      usage: {
+        rate_limit: {
+          allowed: false,
+          limit_reached: true,
+          primary_window: {
+            used_percent: 100,
+            reset_after_seconds: 5400, // 1.5 hours
+          },
+        },
+      },
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }) as typeof fetch;
+
+  try {
+    const monitor = new QuotaMonitor(
+      credentialStore,
+      createLogger(),
+      { providerId: "openai" },
+    );
+
+    await monitor.refreshAccountQuota("exhausted-acct");
+
+    // When truly exhausted, getCooldownMs should return the reset window.
+    const cd = monitor.getCooldownMs("exhausted-acct");
+    assert.ok(cd != null, "getCooldownMs should return a value for exhausted account");
+    assert.ok(cd >= 5_300_000, "cooldown should reflect the reset window (~5400s)");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

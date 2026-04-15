@@ -28,6 +28,7 @@ export interface PolicyEngine {
   selectStrategy(
     strategies: readonly StrategyInfo[],
     providerId: ProviderId,
+    model: ModelInfo,
   ): StrategyInfo | undefined;
 
   getFallbackBehavior(): FallbackBehavior;
@@ -46,8 +47,8 @@ export function createPolicyEngine(config: PolicyConfig): PolicyEngine {
       return orderProvidersForModel(providerIds, model, rule);
     },
 
-    selectStrategy(strategies, providerId) {
-      return selectStrategyByPolicy(strategies, providerId, config);
+    selectStrategy(strategies, providerId, model) {
+      return selectStrategyByPolicy(strategies, providerId, model, config);
     },
 
     getFallbackBehavior(): FallbackBehavior {

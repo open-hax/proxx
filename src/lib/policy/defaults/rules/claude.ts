@@ -1,4 +1,9 @@
-import type { ModelRoutingRule, ProviderId } from "../../schema.js";
+import type { ModelRoutingRule, ProviderId, UpstreamMode } from "../../schema.js";
+
+const CLAUDE_STRATEGIES: readonly UpstreamMode[] = [
+  "messages",
+  "chat_completions",
+];
 
 export const CLAUDE_OPUS_46_PROVIDER_ORDER: readonly ProviderId[] = [
   "factory",
@@ -13,6 +18,7 @@ export function createClaudeRoutingRules(): readonly ModelRoutingRule[] {
       modelPattern: /^claude-opus-4-6(?:-fast)?$/,
       preferredProviders: CLAUDE_OPUS_46_PROVIDER_ORDER,
       excludedProviders: ["openai", "ollama-cloud"],
+      preferredStrategies: CLAUDE_STRATEGIES,
       accountOrdering: { kind: "prefer_free" },
     },
   ];

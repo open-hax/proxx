@@ -1,4 +1,9 @@
-import type { ModelRoutingRule, ProviderId } from "../../schema.js";
+import type { ModelRoutingRule, ProviderId, UpstreamMode } from "../../schema.js";
+
+const GLM_STRATEGIES: readonly UpstreamMode[] = [
+  "chat_completions",
+  "ollama_chat",
+];
 
 export const GLM_PROVIDER_ORDER: readonly ProviderId[] = [
   "zai",
@@ -16,6 +21,7 @@ export function createGlmRoutingRules(): readonly ModelRoutingRule[] {
       modelPattern: /^glm-/,
       preferredProviders: GLM_PROVIDER_ORDER,
       excludedProviders: ["openai"],
+      preferredStrategies: GLM_STRATEGIES,
       accountOrdering: { kind: "prefer_free" },
     },
   ];

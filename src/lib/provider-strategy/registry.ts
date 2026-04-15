@@ -1,6 +1,9 @@
 import type { ProviderStrategy, StrategyRequestContext } from "./shared.js";
 import { providerUsesOpenAiChatCompletions } from "./shared.js";
 import { shouldUseResponsesUpstream } from "../responses-compat.js";
+import { isGlmModel } from "../glm-compat.js";
+import type { PolicyEngine } from "../policy/index.js";
+import type { ModelInfo, StrategyInfo } from "../policy/schema.js";
 import { GeminiChatProviderStrategy } from "./strategies/gemini.js";
 import { FactoryChatCompletionsProviderStrategy, FactoryMessagesProviderStrategy, FactoryResponsesPassthroughStrategy, FactoryResponsesProviderStrategy } from "./strategies/factory.js";
 import { OpenAiChatCompletionsProviderStrategy, OpenAiResponsesPassthroughStrategy, OpenAiResponsesProviderStrategy } from "./strategies/openai.js";
@@ -33,6 +36,7 @@ export const PROVIDER_STRATEGIES: readonly ProviderStrategy[] = [
 export function selectRemoteProviderStrategyForRoute(
   context: StrategyRequestContext,
   providerId: string,
+  policy?: PolicyEngine,
 ): ProviderStrategy {
   const normalizedProviderId = providerId.trim().toLowerCase();
 
@@ -48,8 +52,14 @@ export function selectRemoteProviderStrategyForRoute(
     return ROTUSSY_RESPONSES_VIA_CHAT_STRATEGY;
   }
 
-  // ollama-cloud uses native /api/chat endpoint, not OpenAI-compatible /v1/chat/completions
-  if (normalizedProviderId === "ollama-cloud" && context.responsesPassthrough !== true && context.imagesPassthrough !== true) {
+  // ollama-cloud can be routed via the OpenAI-compatible surface for most OSS models,
+  // but GLM requests should use the native /api/chat endpoint for reliability.
+  if (
+    normalizedProviderId === "ollama-cloud"
+    && context.responsesPassthrough !== true
+    && context.imagesPassthrough !== true
+    && isGlmModel(context.routedModel)
+  ) {
     return OLLAMA_CLOUD_STRATEGY;
   }
 
@@ -77,6 +87,43 @@ export function selectRemoteProviderStrategyForRoute(
     localOllama: false,
   };
 
-  return PROVIDER_STRATEGIES.find((entry) => !entry.isLocal && entry.matches(routeContext))
-    ?? PROVIDER_STRATEGIES[PROVIDER_STRATEGIES.length - 1]!;
+  const matchingStrategies = PROVIDER_STRATEGIES.filter((entry) => !entry.isLocal && entry.matches(routeContext));
+  if (matchingStrategies.length === 0) {
+    return PROVIDER_STRATEGIES[PROVIDER_STRATEGIES.length - 1]!;
+  }
+
+  // Passthrough surfaces (Responses passthrough, images generation passthrough)
+  // are request-shape driven, not model-policy driven. Preserve the explicit
+  // strategy ordering in PROVIDER_STRATEGIES so we don't accidentally select a
+  // chat strategy just because it also matches.
+  if (routeContext.responsesPassthrough === true || routeContext.imagesPassthrough === true) {
+    return matchingStrategies[0]!;
+  }
+
+  if (!policy) {
+    return matchingStrategies[0]!;
+  }
+
+  const modelInfo: ModelInfo = {
+    requestedModel: context.requestedModelInput,
+    routedModel: context.routedModel,
+    isGptModel: context.routedModel.startsWith("gpt-"),
+    isOpenAiPrefixed: routeContext.openAiPrefixed,
+    isLocal: false,
+    isOllama: false,
+  };
+
+  const strategyInfos: StrategyInfo[] = matchingStrategies.map((strategy, index) => ({
+    mode: strategy.mode,
+    isLocal: strategy.isLocal,
+    priority: matchingStrategies.length - index,
+  }));
+
+  const selected = policy.selectStrategy(strategyInfos, normalizedProviderId, modelInfo);
+  if (!selected) {
+    return matchingStrategies[0]!;
+  }
+
+  return matchingStrategies.find((strategy) => strategy.mode === selected.mode)
+    ?? matchingStrategies[0]!;
 }

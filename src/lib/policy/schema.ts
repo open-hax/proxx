@@ -27,9 +27,13 @@ export interface ModelInfo {
 export type UpstreamMode =
   | "chat_completions"
   | "responses"
+  | "responses_passthrough"
   | "messages"
   | "openai_chat_completions"
   | "openai_responses"
+  | "openai_responses_passthrough"
+  | "images"
+  | "gemini_chat"
   | "ollama_chat"
   | "local_ollama_chat";
 
@@ -55,6 +59,10 @@ export interface ModelRoutingRule {
   readonly modelPattern: string | RegExp;
   readonly preferredProviders?: readonly ProviderId[];
   readonly excludedProviders?: readonly ProviderId[];
+  /** Preferred upstream strategy modes for this model family/pattern. */
+  readonly preferredStrategies?: readonly UpstreamMode[];
+  /** Strategy modes to exclude for this model family/pattern. */
+  readonly excludedStrategies?: readonly UpstreamMode[];
   readonly accountOrdering?: AccountOrderingRule;
   readonly requiresPaidPlan?: boolean;
   readonly fallbackModels?: readonly ModelId[];
