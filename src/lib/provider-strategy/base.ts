@@ -365,7 +365,21 @@ export abstract class BaseProviderStrategy implements ProviderStrategy {
       if (isEventStream) {
         const stream = Readable.fromWeb(upstreamResponse.body as never);
         reply.removeHeader("content-length");
-        reply.send(stream);
+        reply.hijack();
+        const rawResponse = reply.raw;
+        rawResponse.statusCode = upstreamResponse.status;
+        for (const [name, value] of Object.entries(reply.getHeaders())) {
+          if (value !== undefined) {
+            rawResponse.setHeader(name, value as never);
+          }
+        }
+        rawResponse.flushHeaders();
+        stream.pipe(rawResponse);
+        stream.on("error", () => {
+          if (!rawResponse.writableEnded) {
+            rawResponse.end();
+          }
+        });
         return;
       }
 
@@ -389,7 +403,21 @@ export abstract class BaseProviderStrategy implements ProviderStrategy {
     if (isEventStream) {
       const stream = Readable.fromWeb(upstreamResponse.body as never);
       reply.removeHeader("content-length");
-      reply.send(stream);
+      reply.hijack();
+      const rawResponse = reply.raw;
+      rawResponse.statusCode = upstreamResponse.status;
+      for (const [name, value] of Object.entries(reply.getHeaders())) {
+        if (value !== undefined) {
+          rawResponse.setHeader(name, value as never);
+        }
+      }
+      rawResponse.flushHeaders();
+      stream.pipe(rawResponse);
+      stream.on("error", () => {
+        if (!rawResponse.writableEnded) {
+          rawResponse.end();
+        }
+      });
       return;
     }
 
