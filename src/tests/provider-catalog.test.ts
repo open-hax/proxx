@@ -270,6 +270,79 @@ test("getCatalog returns empty catalog when all routes time out", async () => {
   }
 });
 
+test("getCatalog discovers local ollama models via /api/tags without requiring key-pool accounts", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "catalog-test-"));
+
+  const modelsPath = path.join(tempDir, "models.json");
+  await writeFile(modelsPath, JSON.stringify({ models: [] }), "utf8");
+
+  const ollamaServer = createServer((req, res) => {
+    if (req.url === "/api/tags") {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({
+        models: [
+          { name: "gemma4:latest" },
+          { name: "gemma4:e4b" },
+        ],
+      }));
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+
+  ollamaServer.listen(0, "127.0.0.1");
+  await once(ollamaServer, "listening");
+  const ollamaAddress = ollamaServer.address();
+  if (!ollamaAddress || typeof ollamaAddress === "string") {
+    throw new Error("Failed to resolve ollama server address");
+  }
+
+  try {
+    const config = buildMinimalConfig({
+      modelsFilePath: modelsPath,
+      ollamaBaseUrl: `http://127.0.0.1:${ollamaAddress.port}`,
+      requestTimeoutMs: 5_000,
+    });
+
+    const keyPool = buildMockKeyPool(new Map());
+
+    const store = new ProviderCatalogStore(
+      config,
+      keyPool,
+      [],
+      [{ providerId: "ollama-local", baseUrl: `http://127.0.0.1:${ollamaAddress.port}` }],
+    );
+
+    const result = await store.getCatalog(true);
+
+    assert.ok(result.providerCatalogs["ollama-local"], "local ollama provider should appear in catalog");
+    assert.deepEqual(
+      [...result.providerCatalogs["ollama-local"].modelIds],
+      ["gemma4:latest", "gemma4:e4b"],
+    );
+
+    assert.ok(
+      result.catalog.modelIds.includes("gemma4:latest"),
+      "resolved model ids should include local ollama tag gemma4:latest",
+    );
+    assert.ok(
+      result.catalog.modelIds.includes("gemma4:e4b"),
+      "resolved model ids should include local ollama tag gemma4:e4b",
+    );
+    assert.ok(
+      result.catalog.dynamicOllamaModelIds.includes("gemma4:e4b"),
+      "dynamic ollama model ids should include local tag",
+    );
+  } finally {
+    ollamaServer.closeAllConnections();
+    await new Promise<void>((resolve, reject) => {
+      ollamaServer.close((err) => (err ? reject(err) : resolve()));
+    });
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("rotussy catalog discovery falls back to /v1/models when /models is unsupported", async () => {
   const tempDir = await mkdtemp(path.join(os.tmpdir(), "catalog-test-"));
 

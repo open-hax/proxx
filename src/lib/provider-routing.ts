@@ -74,10 +74,14 @@ export function shouldUseLocalOllama(model: string, patterns: readonly string[])
   }
 
   const lowered = model.toLowerCase();
+  // Newer Ollama tags sometimes include a leading letter prefix before a size
+  // designator (e.g. `:e4b`). Normalize those to the canonical `:4b` form so
+  // the default LOCAL_OLLAMA_MODEL_PATTERNS like `:4b` still match.
+  const loweredSizeTagNormalized = lowered.replace(/:([a-z]+)(\d+(?:\.\d+)?[bt])/g, ":$2");
   for (const pattern of patterns) {
     const normalizedPattern = pattern.toLowerCase();
     if (normalizedPattern.startsWith(":")) {
-      if (lowered.includes(normalizedPattern)) {
+      if (lowered.includes(normalizedPattern) || loweredSizeTagNormalized.includes(normalizedPattern)) {
         return true;
       }
       continue;
@@ -413,13 +417,29 @@ export async function minMsUntilAnyProviderKeyReady(keyPool: KeyPool, routes: re
 }
 
 export function buildOllamaCatalogRoutes(config: ProxyConfig): ProviderRoute[] {
-  return Object.entries(config.upstreamProviderBaseUrls)
+  const localBaseUrl = config.ollamaBaseUrl.trim().replace(/\/+$/, "");
+  const localRoute: ProviderRoute | null = config.localOllamaEnabled && localBaseUrl.length > 0
+    ? { providerId: "ollama-local", baseUrl: localBaseUrl }
+    : null;
+
+  const configuredRoutes = Object.entries(config.upstreamProviderBaseUrls)
     .filter(([providerId]) => providerId.toLowerCase().includes("ollama"))
     .map(([providerId, baseUrl]) => ({
       providerId,
       baseUrl: baseUrl.replace(/\/+$/, "")
     }))
     .filter((route) => route.baseUrl.length > 0);
+
+  const merged = localRoute ? [localRoute, ...configuredRoutes] : configuredRoutes;
+  const seen = new Set<string>();
+  return merged.filter((route) => {
+    const providerId = route.providerId.trim();
+    if (providerId.length === 0 || seen.has(providerId)) {
+      return false;
+    }
+    seen.add(providerId);
+    return route.baseUrl.trim().length > 0;
+  });
 }
 
 export function providerIdLooksLikeOllama(providerId: string): boolean {
