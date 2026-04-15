@@ -75,6 +75,13 @@ function validateStrategySelectionRule(rule: unknown): boolean {
     return false;
   }
 
+  if (rule.requestKind !== undefined) {
+    const allowedKinds = ["chat", "responses_passthrough", "images_passthrough"];
+    if (typeof rule.requestKind !== "string" || !allowedKinds.includes(rule.requestKind)) {
+      return false;
+    }
+  }
+
   if (rule.preferredStrategies !== undefined && !Array.isArray(rule.preferredStrategies)) {
     return false;
   }

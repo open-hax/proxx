@@ -27,10 +27,10 @@ export class OllamaCloudProviderStrategy extends BaseProviderStrategy {
 
   public readonly isLocal = false;
 
-  public matches(_context: StrategyRequestContext): boolean {
-    // This strategy is selected explicitly via providerId in registry.ts
-    // so this matches() method is not used for routing decisions.
-    return false;
+  public matches(context: StrategyRequestContext): boolean {
+    return context.routeProviderId === "ollama-cloud"
+      && context.responsesPassthrough !== true
+      && context.imagesPassthrough !== true;
   }
 
   public getUpstreamPath(_context: StrategyRequestContext): string {

@@ -1,8 +1,8 @@
 import type { ModelRoutingRule, ProviderId, UpstreamMode } from "../../schema.js";
 
 const GLM_STRATEGIES: readonly UpstreamMode[] = [
-  "chat_completions",
   "ollama_chat",
+  "chat_completions",
 ];
 
 export const GLM_PROVIDER_ORDER: readonly ProviderId[] = [

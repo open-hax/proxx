@@ -47,6 +47,11 @@ export interface RequestContext {
   readonly model: ModelInfo;
   readonly clientWantsStream: boolean;
   readonly needsReasoningTrace: boolean;
+  /**
+   * High-level request surface. This lets policy distinguish e.g. /v1/responses passthrough
+   * from /v1/chat/completions routing.
+   */
+  readonly requestKind: "chat" | "responses_passthrough" | "images_passthrough";
 }
 
 export type AccountOrderingRule =
@@ -70,6 +75,7 @@ export interface ModelRoutingRule {
 
 export interface StrategySelectionRule {
   readonly providerPattern: string | RegExp;
+  readonly requestKind?: RequestContext["requestKind"];
   readonly preferredStrategies?: readonly UpstreamMode[];
   readonly excludedStrategies?: readonly UpstreamMode[];
 }

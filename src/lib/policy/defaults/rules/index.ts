@@ -25,6 +25,12 @@ export function createAllModelRoutingRules(): readonly ModelRoutingRule[] {
     ...createGlmRoutingRules(),      // GLM first (most specific)
     ...createClaudeRoutingRules(),   // Claude next
     ...createGptRoutingRules(),      // GPT last (catches remaining gpt- patterns)
+    // Catch-all: default to OpenAI-compatible chat completions unless a more
+    // specific model-family rule overrides it.
+    {
+      modelPattern: /.*/,
+      preferredStrategies: ["chat_completions"],
+    },
   ];
 }
 

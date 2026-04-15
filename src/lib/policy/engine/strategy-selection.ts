@@ -1,55 +1,51 @@
-import type { ModelInfo, ProviderId, PolicyConfig, StrategyInfo } from "../schema.js";
+import type { ProviderId, PolicyConfig, RequestContext, StrategyInfo } from "../schema.js";
 import { findMatchingStrategyPreferenceRule, matchesPattern } from "./matchers.js";
 
 export function selectStrategyByPolicy(
   strategies: readonly StrategyInfo[],
   providerId: ProviderId,
-  model: ModelInfo,
+  request: RequestContext,
   config: PolicyConfig,
 ): StrategyInfo | undefined {
-  const modelRule = findMatchingStrategyPreferenceRule(model, config.modelRouting.rules);
+  const modelRule = findMatchingStrategyPreferenceRule(request.model, config.modelRouting.rules);
   const modelPreferred = modelRule?.preferredStrategies ?? undefined;
   const modelExcluded = new Set(modelRule?.excludedStrategies ?? []);
 
   const providerRules = config.strategySelection.rules.filter((rule) =>
-    matchesPattern(providerId, rule.providerPattern),
+    matchesPattern(providerId, rule.providerPattern)
+      && (rule.requestKind === undefined || rule.requestKind === request.requestKind),
   );
 
+  const providerExcluded = new Set<StrategyInfo["mode"]>();
+  const providerPreferred: StrategyInfo["mode"][] = [];
+
   for (const rule of providerRules) {
-    if (rule.preferredStrategies) {
-      for (const preferredMode of rule.preferredStrategies) {
-        const match = strategies.find((strategy) => strategy.mode === preferredMode && !modelExcluded.has(strategy.mode));
-        if (match) {
-          return match;
-        }
-      }
+    for (const mode of rule.excludedStrategies ?? []) {
+      providerExcluded.add(mode);
     }
-
-    if (rule.excludedStrategies) {
-      const excluded = new Set([...modelExcluded, ...rule.excludedStrategies]);
-      const allowed = strategies.filter((strategy) => !excluded.has(strategy.mode));
-      if (allowed.length > 0) {
-        return allowed[0];
-      }
+    for (const mode of rule.preferredStrategies ?? []) {
+      providerPreferred.push(mode);
     }
   }
 
-  if (modelPreferred) {
-    for (const preferredMode of modelPreferred) {
-      const match = strategies.find((strategy) => strategy.mode === preferredMode && !modelExcluded.has(strategy.mode));
-      if (match) {
-        return match;
-      }
-    }
+  const excluded = new Set<StrategyInfo["mode"]>([...modelExcluded, ...providerExcluded]);
+  const allowed = strategies.filter((strategy) => !excluded.has(strategy.mode));
+  if (allowed.length === 0) {
+    return strategies[0];
   }
 
-  for (const defaultMode of config.strategySelection.defaultOrder) {
-    const match = strategies.find((strategy) => strategy.mode === defaultMode && !modelExcluded.has(strategy.mode));
+  const preferenceOrder: StrategyInfo["mode"][] = [
+    ...providerPreferred,
+    ...(modelPreferred ?? []),
+    ...config.strategySelection.defaultOrder,
+  ];
+
+  for (const preferredMode of preferenceOrder) {
+    const match = allowed.find((strategy) => strategy.mode === preferredMode);
     if (match) {
       return match;
     }
   }
 
-  const firstAllowed = strategies.find((strategy) => !modelExcluded.has(strategy.mode));
-  return firstAllowed ?? strategies[0];
+  return [...allowed].sort((left, right) => right.priority - left.priority)[0];
 }

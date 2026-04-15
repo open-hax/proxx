@@ -45,7 +45,49 @@ export const DEFAULT_POLICY_CONFIG: PolicyConfig = {
   },
 
   strategySelection: {
-    rules: [],
+    rules: [
+      // Provider capability/preferences
+      {
+        providerPattern: /^gemini$/,
+        requestKind: "chat",
+        preferredStrategies: ["gemini_chat"],
+      },
+      {
+        providerPattern: /^zai$/,
+        requestKind: "chat",
+        preferredStrategies: ["chat_completions"],
+        excludedStrategies: ["responses", "messages"],
+      },
+      {
+        providerPattern: /^rotussy$/,
+        requestKind: "responses_passthrough",
+        preferredStrategies: ["chat_completions"],
+        excludedStrategies: ["responses_passthrough"],
+      },
+      {
+        providerPattern: /^(openrouter|requesty|ob1|zen)$/,
+        requestKind: "chat",
+        // These providers are OpenAI-compatible; don't attempt Anthropic /v1/messages.
+        excludedStrategies: ["messages"],
+      },
+
+      // Request-surface defaults (keep last so provider-specific rules can override)
+      {
+        providerPattern: /.*/,
+        requestKind: "images_passthrough",
+        preferredStrategies: ["images"],
+      },
+      {
+        providerPattern: /.*/,
+        requestKind: "responses_passthrough",
+        preferredStrategies: [
+          "openai_responses_passthrough",
+          "responses_passthrough",
+          // Some providers (e.g. rotussy) don't offer /v1/responses; allow translation via chat.
+          "chat_completions",
+        ],
+      },
+    ],
     defaultOrder: [
       "local_ollama_chat",
       "ollama_chat",

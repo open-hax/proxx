@@ -5,6 +5,7 @@ import type {
   PlanType,
   PolicyConfig,
   ProviderId,
+  RequestContext,
   StrategyInfo,
 } from "../schema.js";
 import { DEFAULT_FALLBACK_BEHAVIOR, DEFAULT_PLAN_WEIGHTS } from "../schema.js";
@@ -28,7 +29,7 @@ export interface PolicyEngine {
   selectStrategy(
     strategies: readonly StrategyInfo[],
     providerId: ProviderId,
-    model: ModelInfo,
+    request: RequestContext,
   ): StrategyInfo | undefined;
 
   getFallbackBehavior(): FallbackBehavior;
@@ -47,8 +48,8 @@ export function createPolicyEngine(config: PolicyConfig): PolicyEngine {
       return orderProvidersForModel(providerIds, model, rule);
     },
 
-    selectStrategy(strategies, providerId, model) {
-      return selectStrategyByPolicy(strategies, providerId, model, config);
+    selectStrategy(strategies, providerId, request) {
+      return selectStrategyByPolicy(strategies, providerId, request, config);
     },
 
     getFallbackBehavior(): FallbackBehavior {

@@ -50,6 +50,7 @@ export function registerImagesRoutes(deps: AppDeps, app: FastifyInstance): void 
       requestBody,
       model,
       request.openHaxAuth ?? undefined,
+      deps.policyEngine,
     );
     reply.header("x-open-hax-upstream-mode", strategy.mode);
 

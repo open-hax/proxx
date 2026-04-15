@@ -21,5 +21,15 @@ export function createClaudeRoutingRules(): readonly ModelRoutingRule[] {
       preferredStrategies: CLAUDE_STRATEGIES,
       accountOrdering: { kind: "prefer_free" },
     },
+
+    // Default: route the broader Claude family through Anthropic Messages when available.
+    // Provider-level strategy rules can exclude "messages" for OpenAI-compatible providers.
+    {
+      modelPattern: /^claude-/,
+      preferredProviders: CLAUDE_OPUS_46_PROVIDER_ORDER,
+      excludedProviders: ["openai", "ollama-cloud"],
+      preferredStrategies: CLAUDE_STRATEGIES,
+      accountOrdering: { kind: "prefer_free" },
+    },
   ];
 }

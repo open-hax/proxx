@@ -160,6 +160,8 @@ type UpstreamMode =
   | "local_ollama_chat";
 
 interface StrategyRequestContext {
+  /** Provider id for which we're selecting an upstream strategy. */
+  readonly routeProviderId?: string;
   readonly config: ProxyConfig;
   readonly clientHeaders: IncomingHttpHeaders;
   readonly requestBody: Record<string, unknown>;

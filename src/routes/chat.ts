@@ -91,6 +91,7 @@ export function registerChatRoutes(deps: AppDeps, app: FastifyInstance): void {
         requestedModelInput,
         candidateRoutingModel,
         request.openHaxAuth ?? undefined,
+        deps.policyEngine,
       );
       reply.header("x-open-hax-upstream-mode", strategy.mode);
       const requestAuth = request.openHaxAuth ?? undefined;

@@ -4,6 +4,15 @@ import test from "node:test";
 import { createPolicyEngine, DEFAULT_POLICY_CONFIG, type ModelInfo } from "../lib/policy/index.js";
 import type { StrategyInfo } from "../lib/policy/schema.js";
 
+function createRequestContext(routedModel: string, requestKind: "chat" | "responses_passthrough" | "images_passthrough" = "chat") {
+  return {
+    model: createModelInfo(routedModel),
+    clientWantsStream: false,
+    needsReasoningTrace: false,
+    requestKind,
+  } as const;
+}
+
 function createModelInfo(routedModel: string): ModelInfo {
   return {
     requestedModel: routedModel,
@@ -25,7 +34,7 @@ test("policy selects responses-first strategies for gpt-* models", () => {
     { mode: "openai_responses", isLocal: false, priority: 4 },
   ];
 
-  const selected = policy.selectStrategy(available, "openai", createModelInfo("gpt-5.4"));
+  const selected = policy.selectStrategy(available, "openai", createRequestContext("gpt-5.4"));
   assert.equal(selected?.mode, "openai_responses");
 });
 
@@ -37,7 +46,7 @@ test("policy selects ollama chat strategies for gpt-oss models", () => {
     { mode: "ollama_chat", isLocal: false, priority: 2 },
   ];
 
-  const selected = policy.selectStrategy(available, "ollama-cloud", createModelInfo("gpt-oss-120b"));
+  const selected = policy.selectStrategy(available, "ollama-cloud", createRequestContext("gpt-oss-120b"));
   assert.equal(selected?.mode, "ollama_chat");
 });
 
@@ -49,7 +58,7 @@ test("policy prefers messages strategy for claude models when available", () => 
     { mode: "messages", isLocal: false, priority: 2 },
   ];
 
-  const selected = policy.selectStrategy(available, "factory", createModelInfo("claude-opus-4-6"));
+  const selected = policy.selectStrategy(available, "factory", createRequestContext("claude-opus-4-6"));
   assert.equal(selected?.mode, "messages");
 });
 
@@ -60,6 +69,18 @@ test("policy falls back to chat completions for claude models when messages is u
     { mode: "chat_completions", isLocal: false, priority: 1 },
   ];
 
-  const selected = policy.selectStrategy(available, "openrouter", createModelInfo("claude-opus-4-6"));
+  const selected = policy.selectStrategy(available, "openrouter", createRequestContext("claude-opus-4-6"));
   assert.equal(selected?.mode, "chat_completions");
+});
+
+test("responses passthrough prefers responses_passthrough strategies", () => {
+  const policy = createPolicyEngine(DEFAULT_POLICY_CONFIG);
+
+  const available: StrategyInfo[] = [
+    { mode: "chat_completions", isLocal: false, priority: 1 },
+    { mode: "responses_passthrough", isLocal: false, priority: 2 },
+  ];
+
+  const selected = policy.selectStrategy(available, "requesty", createRequestContext("gpt-5.4", "responses_passthrough"));
+  assert.equal(selected?.mode, "responses_passthrough");
 });

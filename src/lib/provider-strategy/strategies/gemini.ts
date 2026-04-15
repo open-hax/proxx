@@ -139,8 +139,9 @@ export class GeminiChatProviderStrategy extends TransformedJsonProviderStrategy 
   public readonly isLocal = false;
 
   public matches(_context: StrategyRequestContext): boolean {
-    // Selected explicitly in selectRemoteProviderStrategyForRoute for providerId === "gemini".
-    return false;
+    return _context.routeProviderId === "gemini"
+      && _context.responsesPassthrough !== true
+      && _context.imagesPassthrough !== true;
   }
 
   public getUpstreamPath(context: StrategyRequestContext): string {

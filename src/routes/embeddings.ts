@@ -64,6 +64,7 @@ export function registerEmbeddingsRoutes(deps: AppDeps, app: FastifyInstance): v
       model,
       model,
       request.openHaxAuth ?? undefined,
+      deps.policyEngine,
     ).context;
 
     const routedModel = routingState.routedModel;
