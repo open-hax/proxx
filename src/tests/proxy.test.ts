@@ -7801,6 +7801,113 @@ test("/api/tools/websearch falls back to Exa when OpenAI fails", async () => {
   }
 });
 
+test("/api/tools/websearch falls back to Exa when OpenAI returns empty output", async () => {
+  const originalFetch = globalThis.fetch;
+  const callOrder: string[] = [];
+
+  globalThis.fetch = (async (input: any, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input.url;
+    if (url?.includes("mcp.exa.ai")) {
+      callOrder.push("exa");
+      const body = init?.body ? JSON.parse(init.body as string) : {};
+      assert.equal(body.method, "tools/call");
+      assert.equal(body.params.name, "web_search_exa");
+
+      return new Response(
+        `data: ${JSON.stringify({
+          jsonrpc: "2.0",
+          result: {
+            content: [
+              {
+                type: "text",
+                text: "- [Exa Empty Fallback](https://exa.example.com/empty) — Recovered from empty OpenAI output.",
+              },
+            ],
+          },
+        })}\n\n`,
+        { status: 200, headers: { "content-type": "text/event-stream" } }
+      );
+    }
+    if (typeof url === "string" && url.startsWith("http://127.0.0.1:")) {
+      return originalFetch(input, init);
+    }
+    throw new Error(`Unexpected fetch URL: ${url}`);
+  }) as typeof fetch;
+
+  try {
+    await withProxyApp(
+      {
+        keys: [],
+        keysPayload: {
+          providers: {
+            openai: {
+              auth: "oauth_bearer",
+              accounts: [{ id: "openai-a", access_token: "oa-token-a", chatgpt_account_id: "chatgpt-a" }],
+            },
+          },
+        },
+        proxyAuthToken: "proxy-token",
+        configOverrides: {
+          upstreamProviderId: "openai",
+          upstreamFallbackProviderIds: [],
+        },
+        upstreamHandler: async () => {
+          callOrder.push("openai");
+          const streamText = [
+            `event: response.created\ndata: ${JSON.stringify({
+              type: "response.created",
+              response: { id: "resp_empty_ws", status: "in_progress", model: "gpt-5.2", output: [] },
+            })}\n\n`,
+            `event: response.completed\ndata: ${JSON.stringify({
+              type: "response.completed",
+              response: {
+                id: "resp_empty_ws",
+                status: "completed",
+                model: "gpt-5.2",
+                output: [],
+                usage: { input_tokens: 5, output_tokens: 0, total_tokens: 5 },
+              },
+            })}\n\n`,
+          ].join("");
+
+          return {
+            status: 200,
+            headers: { "content-type": "text/event-stream; charset=utf-8" },
+            body: streamText,
+          };
+        },
+      },
+      async ({ app }) => {
+        const response = await app.inject({
+          method: "POST",
+          url: "/api/tools/websearch",
+          headers: {
+            authorization: "Bearer proxy-token",
+            "content-type": "application/json",
+          },
+          payload: {
+            query: "empty query",
+            numResults: 5,
+            model: "gpt-5.2",
+          },
+        });
+
+        assert.equal(response.statusCode, 200);
+        assert.deepEqual(callOrder, ["openai", "openai", "exa"]);
+
+        const payload: unknown = response.json();
+        assert.ok(isRecord(payload));
+        assert.equal(payload.backend, "exa");
+        assert.ok(typeof payload.output === "string");
+        assert.ok(payload.output.includes("Exa Empty Fallback"));
+        assert.ok(Array.isArray(payload.sources));
+      }
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("records token usage from codex SSE responses with missing content-type (regression)", async () => {
   await withProxyApp(
     {

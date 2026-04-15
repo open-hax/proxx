@@ -225,14 +225,19 @@ export function registerWebsearchRoutes(deps: AppDeps, app: FastifyInstance): vo
           ? extracted.citations
           : extractMarkdownLinks(output);
 
-        reply.send({
-          output,
-          sources: sources.slice(0, numResults),
-          responseId: extracted.responseId,
-          model,
-          backend: "openai",
-        });
-        return;
+        if (output.trim().length > 0 && sources.length > 0) {
+          reply.send({
+            output,
+            sources: sources.slice(0, numResults),
+            responseId: extracted.responseId,
+            model,
+            backend: "openai",
+          });
+          return;
+        }
+
+        lastErrorPayload = { reason: "openai_web_search_empty_output", model, toolUsed: false };
+        request.log.warn({ model, includeDomainsInTool }, "OpenAI web_search returned empty output, falling back to Exa");
       }
     }
 
