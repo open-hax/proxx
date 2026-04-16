@@ -120,6 +120,8 @@ test("seedApiKeyProvidersFromEnv seeds supported env providers into the DB", asy
     "REQUESTY_API_TOKEN",
     "REQUESTY_API_KEY",
     "REQUESTY_PROVIDER_ID",
+    "OLLAMA_CLOUD_API_KEY",
+    "OLLAMA_CLOUD_PROVIDER_ID",
     "ZEN_API_KEY",
     "ZENMUX_API_KEY",
     "ZEN_PROVIDER_ID",
@@ -132,16 +134,19 @@ test("seedApiKeyProvidersFromEnv seeds supported env providers into the DB", asy
 
   process.env.ROTUSSY_API_KEY = "rotussy-seed-token"; // pragma: allowlist secret
   process.env.ZAI_API_KEY = "zai-seed-token"; // pragma: allowlist secret
+  process.env.OLLAMA_CLOUD_API_KEY = "ollama-cloud-seed-token"; // pragma: allowlist secret
 
   try {
     const result = await seedApiKeyProvidersFromEnv(fake.sql as never);
 
-    assert.equal(result.providers, 2);
-    assert.equal(result.accounts, 2);
+    assert.equal(result.providers, 3);
+    assert.equal(result.accounts, 3);
     assert.equal(fake.providers.get("rotussy"), "api_key");
     assert.equal(fake.providers.get("zai"), "api_key");
+    assert.equal(fake.providers.get("ollama-cloud"), "api_key");
     assert.equal(fake.accounts.get("rotussy:rotussy-env-seed")?.token, "rotussy-seed-token");
     assert.equal(fake.accounts.get("zai:zai-env-seed")?.token, "zai-seed-token");
+    assert.equal(fake.accounts.get("ollama-cloud:ollama-cloud-env-seed")?.token, "ollama-cloud-seed-token");
   } finally {
     for (const name of envNames) {
       const value = previous.get(name);

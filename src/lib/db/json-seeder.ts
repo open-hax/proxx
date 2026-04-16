@@ -186,6 +186,11 @@ const ENV_API_KEY_PROVIDER_SPECS = [
     keyEnvNames: ["REQUESTY_API_TOKEN", "REQUESTY_API_KEY"],
   },
   {
+    providerIdEnvNames: ["OLLAMA_CLOUD_PROVIDER_ID"],
+    providerIdFallback: "ollama-cloud",
+    keyEnvNames: ["OLLAMA_CLOUD_API_KEY"],
+  },
+  {
     providerIdEnvNames: ["ZEN_PROVIDER_ID"],
     providerIdFallback: "zen",
     keyEnvNames: ["ZEN_API_KEY", "ZENMUX_API_KEY"],
