@@ -179,34 +179,36 @@ export function registerChatRoutes(deps: AppDeps, app: FastifyInstance): void {
           return;
         }
 
-        providerRoutes = filterProviderRoutesByCatalogAvailability(providerRoutes, context.routedModel, catalogBundle);
-        if (wantsDynamicOllamaRoutes) {
-          const ranked = await rankProviderRoutesWithAco({
-            providerRoutes,
-            model: context.routedModel,
-            upstreamMode: strategy.mode,
-            keyPool: deps.keyPool,
-            requestLogStore: deps.requestLogStore,
-            healthStore: deps.accountHealthStore,
-            pheromoneStore: deps.providerRoutePheromoneStore,
-          });
-          providerRoutes = ranked.orderedRoutes;
-        }
-
-        if (providerRoutes.length === 0) {
-          if (hasMoreModelCandidates) {
-            continue;
+        if (!strategy.isLocal) {
+          providerRoutes = filterProviderRoutesByCatalogAvailability(providerRoutes, context.routedModel, catalogBundle);
+          if (wantsDynamicOllamaRoutes) {
+            const ranked = await rankProviderRoutesWithAco({
+              providerRoutes,
+              model: context.routedModel,
+              upstreamMode: strategy.mode,
+              keyPool: deps.keyPool,
+              requestLogStore: deps.requestLogStore,
+              healthStore: deps.accountHealthStore,
+              pheromoneStore: deps.providerRoutePheromoneStore,
+            });
+            providerRoutes = ranked.orderedRoutes;
           }
-          sendOpenAiError(reply, 503, "No healthy Ollama nodes are currently available.", "server_error", "healthy_nodes_unavailable");
-          return;
-        }
 
-        if (shouldRejectModelFromProviderCatalog(providerRoutes, context.routedModel, catalogBundle)) {
-          if (hasMoreModelCandidates) {
-            continue;
+          if (providerRoutes.length === 0) {
+            if (hasMoreModelCandidates) {
+              continue;
+            }
+            sendOpenAiError(reply, 503, "No healthy Ollama nodes are currently available.", "server_error", "healthy_nodes_unavailable");
+            return;
           }
-          sendOpenAiError(reply, 404, `Model not found: ${context.routedModel}`, "invalid_request_error", "model_not_found");
-          return;
+
+          if (shouldRejectModelFromProviderCatalog(providerRoutes, context.routedModel, catalogBundle)) {
+            if (hasMoreModelCandidates) {
+              continue;
+            }
+            sendOpenAiError(reply, 404, `Model not found: ${context.routedModel}`, "invalid_request_error", "model_not_found");
+            return;
+          }
         }
       } catch (error) {
         request.log.warn({ error: toErrorMessage(error) }, "failed to verify provider model catalog; continuing without gating");

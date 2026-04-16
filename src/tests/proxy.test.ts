@@ -8801,6 +8801,92 @@ test("streams first ollama SSE chunk before upstream completion", async () => {
   );
 });
 
+test("routes local-only ollama models even when ollama-cloud is also configured", async () => {
+  const observedRequests: Array<{ readonly url: string; readonly authorization?: string; readonly model?: string }> = [];
+
+  await withProxyApp(
+    {
+      keys: [],
+      keysPayload: {
+        providers: {
+          "ollama-cloud": ["ollama-cloud-key"],
+        },
+      },
+      handleModelCatalog: true,
+      configOverrides: {
+        upstreamProviderId: "zai",
+        upstreamFallbackProviderIds: ["ollama-cloud"],
+      },
+      upstreamHandler: async (request, body) => {
+        const authorization = typeof request.headers.authorization === "string"
+          ? request.headers.authorization
+          : undefined;
+
+        if (request.method === "GET" && request.url === "/api/tags") {
+          const models = authorization === "Bearer ollama-cloud-key"
+            ? [{ name: "gemma4:31b" }]
+            : [{ name: "gemma4:e4b" }];
+          return {
+            status: 200,
+            headers: {
+              "content-type": "application/json"
+            },
+            body: JSON.stringify({ models }),
+          };
+        }
+
+        if (request.method === "POST" && request.url === "/v1/chat/completions") {
+          const parsed = JSON.parse(body) as { model?: string };
+          observedRequests.push({ url: request.url ?? "", authorization, model: parsed.model });
+
+          return {
+            status: 200,
+            headers: {
+              "content-type": "application/json"
+            },
+            body: JSON.stringify({
+              id: "chatcmpl-local",
+              object: "chat.completion",
+              created: 1,
+              model: parsed.model,
+              choices: [{ index: 0, message: { role: "assistant", content: "hello-local" }, finish_reason: "stop" }],
+              usage: { prompt_tokens: 2, completion_tokens: 1, total_tokens: 3 },
+            }),
+          };
+        }
+
+        return {
+          status: 404,
+          headers: {
+            "content-type": "application/json"
+          },
+          body: JSON.stringify({ error: { message: `Unhandled ${request.method} ${request.url}` } }),
+        };
+      }
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json"
+        },
+        payload: {
+          model: "gemma4:e4b",
+          messages: [{ role: "user", content: "hello" }],
+          stream: false
+        }
+      });
+
+      assert.equal(response.statusCode, 200);
+      const parsed = response.json();
+      assert.equal(parsed.model, "gemma4:e4b");
+      assert.equal(parsed.choices[0].message.content, "hello-local");
+      assert.deepEqual(observedRequests, [{ url: "/v1/chat/completions", authorization: undefined, model: "gemma4:e4b" }]);
+    }
+  );
+});
+
 test("records ollama token usage in request logs", async () => {
   await withProxyApp(
     {
