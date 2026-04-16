@@ -283,6 +283,7 @@ test("getCatalog discovers local ollama models via /api/tags without requiring k
         models: [
           { name: "gemma4:latest" },
           { name: "gemma4:e4b" },
+          { name: "gemma4:31b" },
         ],
       }));
       return;
@@ -319,20 +320,25 @@ test("getCatalog discovers local ollama models via /api/tags without requiring k
     assert.ok(result.providerCatalogs["ollama-local"], "local ollama provider should appear in catalog");
     assert.deepEqual(
       [...result.providerCatalogs["ollama-local"].modelIds],
-      ["gemma4:latest", "gemma4:e4b"],
+      ["gemma4:latest", "gemma4:e4b", "gemma4:31b"],
     );
 
+    assert.equal(
+      result.catalog.aliasTargets["gemma4:latest"],
+      "gemma4:31b",
+      "latest-tag aliases should resolve to the largest concrete ollama variant",
+    );
     assert.ok(
       result.catalog.modelIds.includes("gemma4:latest"),
-      "resolved model ids should include local ollama tag gemma4:latest",
+      "resolved model ids may retain latest-tag aliases internally for request compatibility",
     );
     assert.ok(
-      result.catalog.modelIds.includes("gemma4:e4b"),
-      "resolved model ids should include local ollama tag gemma4:e4b",
+      result.catalog.modelIds.includes("gemma4:31b"),
+      "resolved model ids should include local ollama tag gemma4:31b",
     );
     assert.ok(
-      result.catalog.dynamicOllamaModelIds.includes("gemma4:e4b"),
-      "dynamic ollama model ids should include local tag",
+      result.catalog.dynamicOllamaModelIds.includes("gemma4:31b"),
+      "dynamic ollama model ids should include concrete local tag",
     );
   } finally {
     ollamaServer.closeAllConnections();

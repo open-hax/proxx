@@ -201,6 +201,7 @@ function parseModelScaleScore(modelTag: string): number | undefined {
 export function buildLargestModelAliases(modelIds: readonly string[]): Record<string, string> {
   const knownModelIds = new Set(modelIds);
   const aliases = new Map<string, { readonly modelId: string; readonly score: number; readonly tagLength: number }>();
+  const latestAliases = new Map<string, string>();
 
   for (const modelId of modelIds) {
     const separatorIndex = modelId.indexOf(":");
@@ -210,6 +211,11 @@ export function buildLargestModelAliases(modelIds: readonly string[]): Record<st
 
     const alias = modelId.slice(0, separatorIndex);
     const modelTag = modelId.slice(separatorIndex + 1);
+    const normalizedTag = modelTag.trim().toLowerCase();
+    if (normalizedTag === "latest") {
+      latestAliases.set(alias, modelId);
+    }
+
     const score = parseModelScaleScore(modelTag);
     if (!score || score <= 0) {
       continue;
@@ -222,19 +228,18 @@ export function buildLargestModelAliases(modelIds: readonly string[]): Record<st
         score,
         tagLength: modelTag.length
       });
-      continue;
-    }
+    } else {
+      const shouldReplace = score > current.score
+        || (score === current.score && modelTag.length < current.tagLength)
+        || (score === current.score && modelTag.length === current.tagLength && modelId < current.modelId);
 
-    const shouldReplace = score > current.score
-      || (score === current.score && modelTag.length < current.tagLength)
-      || (score === current.score && modelTag.length === current.tagLength && modelId < current.modelId);
-
-    if (shouldReplace) {
-      aliases.set(alias, {
-        modelId,
-        score,
-        tagLength: modelTag.length
-      });
+      if (shouldReplace) {
+        aliases.set(alias, {
+          modelId,
+          score,
+          tagLength: modelTag.length
+        });
+      }
     }
   }
 
@@ -242,6 +247,11 @@ export function buildLargestModelAliases(modelIds: readonly string[]): Record<st
   for (const [alias, selected] of aliases.entries()) {
     if (!knownModelIds.has(alias)) {
       aliasTargets[alias] = selected.modelId;
+    }
+
+    const latestAlias = latestAliases.get(alias);
+    if (latestAlias && latestAlias !== selected.modelId) {
+      aliasTargets[latestAlias] = selected.modelId;
     }
   }
 
