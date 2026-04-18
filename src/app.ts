@@ -46,6 +46,7 @@ import { registerWebSocketRoutes } from "./routes/api/ui/ws.js";
 import { registerBridgeSseRoutes } from "./routes/api/ui/bridge-sse.js";
 import { registerRequestLogSseRoutes } from "./routes/api/ui/request-log-sse.js";
 import { registerApiV1Routes } from "./routes/api/v1/index.js";
+import { registerObservabilityRoutes } from "./routes/observability/index.js";
 import { modelIdsToNativeTags } from "./lib/ollama-native.js";
 import { createSqlConnection, closeConnection, type Sql } from "./lib/db/index.js";
 import { SqlCredentialStore } from "./lib/db/sql-credential-store.js";
@@ -777,6 +778,22 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     eventStore,
     refreshOpenAiOauthAccounts,
     bridgeRelay: wsBridgeRelay,
+  });
+
+  // Legacy /api/ui analytics + request logs used by Knoxx admin.
+  // NOTE: These routes are auth-gated by Proxx request auth middleware.
+  await registerObservabilityRoutes(app, {
+    config,
+    keyPool,
+    requestLogStore,
+    credentialStore: runtimeCredentialStore,
+    sqlCredentialStore,
+    sqlFederationStore,
+    sqlTenantProviderPolicyStore,
+    sqlRequestUsageStore,
+    authPersistence: sqlAuthPersistence,
+    proxySettingsStore,
+    eventStore,
   });
 
   app.get("/api/tags", async (_request, reply) => {
