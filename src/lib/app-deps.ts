@@ -9,7 +9,7 @@ import type { SqlTenantProviderPolicyStore } from "./db/sql-tenant-provider-poli
 import type { AccountHealthStore } from "./db/account-health-store.js";
 import type { EventStore } from "./db/event-store.js";
 import type { RequestLogStore } from "./request-log-store.js";
-import type { IPromptAffinityStore } from "./prompt-affinity-store.js";
+import type { IPromptAffinityStore } from "./db/sql-prompt-affinity-store.js";
 import type { ProviderRoutePheromoneStore } from "./provider-route-pheromone-store.js";
 import type { ProxySettingsStore } from "./proxy-settings-store.js";
 import type { PolicyEngine } from "./policy/index.js";
