@@ -1,12 +1,15 @@
 (ns proxx.cache-policy)
 
-;; Cache policy by entity type.
-;; Drivers are policy-blind; they consult this data via the pipeline.
+;; ══════════════════════════════════════════════════════════════
+;; Cache policy as data
+;; ══════════════════════════════════════════════════════════════
+;; This namespace encodes read/write behavior for each entity type.
+;; Drivers do not embed policy; they consult this map.
 
 (def policies
   {:provider
-   {:redis-ttl-s   300
-    :lmdb-ttl-s    3600
+   {:redis-ttl-s   300        ;; 5 min in redis
+    :lmdb-ttl-s    3600       ;; 1 hr warm buffer
     :write-through [:redis :lmdb :postgres]
     :read-order    [:redis :lmdb :postgres]}
 
@@ -17,16 +20,16 @@
     :read-order    [:redis :lmdb :postgres]}
 
    :prompt-affinity
-   {:redis-ttl-s   120
-    :lmdb-ttl-s    900
+   {:redis-ttl-s   120        ;; hot routing data
+    :lmdb-ttl-s    900        ;; 15 min warm buffer
     :write-through [:redis :lmdb :postgres]
     :read-order    [:redis :lmdb :postgres]}
 
    :pheromone-state
-   {:redis-ttl-s   60
+   {:redis-ttl-s   60         ;; very hot, short-lived
     :lmdb-ttl-s    300
-    :write-through [:redis :lmdb]
-    :read-order    [:redis :lmdb]}
+    :write-through [:redis :lmdb]   ;; projected from events, not written to postgres
+    :read-order    [:redis :lmdb]}  ;; backing truth is event log
 
    :routing-policy
    {:redis-ttl-s   600

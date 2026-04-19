@@ -1,5 +1,5 @@
 (ns proxx.schema-test
-  (:require [cljs.test :refer [deftest is testing run-tests]]
+  (:require [cljs.test :refer [deftest is]]
             [proxx.schema :as s]))
 
 ;; ── Fixtures ────────────────────────────────────────────────────────────────
