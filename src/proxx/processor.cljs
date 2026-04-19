@@ -1,6 +1,5 @@
 (ns proxx.processor
   (:require [clojure.string :as str]
-            [malli.core :as m]
             [proxx.schema :as s]))
 
 ;; ══════════════════════════════════════════════════════════════
