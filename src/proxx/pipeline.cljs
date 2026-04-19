@@ -1,6 +1,8 @@
 (ns proxx.pipeline
   (:require [proxx.cache-policy :as cp]
-            [proxx.store.protocol :refer [store-get store-put]]))
+            [proxx.store.protocol :refer [store-get store-put]]
+            [proxx.processor :as proc]
+            [proxx.schema :as schema]))
 
 ;; ══════════════════════════════════════════════════════════════
 ;; Construction
@@ -46,7 +48,7 @@
    write-through chain declared in cache-policy.
 
    Always writes to :hot first (sync).
-   Then follows policy :write-through chain (may include Promises).
+   Then follows policy :write-through chain.
 
    Returns the record."
   [pipeline entity-type record]
@@ -88,7 +90,7 @@
           (if (some? record)
             (do
               ;; back-fill all layers checked before this one
-              (doseq [[bk bs] checked]
+              (doseq [[_ bs] checked]
                 (store-put bs entity-type k record))
               record)
             (recur (rest remaining)
@@ -109,9 +111,9 @@
    source: :rest | :ws | :seed
    opts: {:request-id string} | {:seed-hash string}"
   [pipeline entity-type raw-record source & [opts]]
-  (let [normalised (proxx.processor/normalize-keys raw-record)
-        stamped    (proxx.processor/stamp-provenance normalised source opts)
-        [status r] (proxx.schema/validate entity-type stamped)]
+  (let [normalised (proc/normalize-keys raw-record)
+        stamped    (proc/stamp-provenance normalised source opts)
+        [status r] (schema/validate entity-type stamped)]
     (if (= :ok status)
       (route! pipeline entity-type r)
       (throw (ex-info "Ingest validation failed"

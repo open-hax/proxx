@@ -1,6 +1,6 @@
 (ns proxx.store-test
-  (:require [cljs.test :refer [deftest is async]]
-            [proxx.store.protocol :refer [IStore store-get store-put store-delete store-list store-close]]
+  (:require [cljs.test :refer [deftest is]]
+            [proxx.store.protocol :refer [store-get store-put store-delete store-list store-close]]
             [proxx.store.hot :as hot]
             [proxx.store.seed :as seed]))
 
@@ -17,8 +17,8 @@
     (is (empty? (store-list s :provider)))))
 
 (deftest seed-store-read-only
-  (let [s (seed/->SeedStore {:provider [{:id "foo"}]})]
-    (is (= [{:id "foo"}] (store-list s :provider)))
-    (is (= [{:id "foo"}] (store-get s :provider nil)))
-    (store-put s :provider "k" {:id "bar"})
-    (is (= [{:id "foo"}] (store-list s :provider)))))
+  (let [s (seed/->SeedStore {:provider [{:id "foo"} {:id "bar"}]})]
+    (is (= [{:id "foo"} {:id "bar"}] (store-list s :provider)))
+    (is (= {:id "foo"} (store-get s :provider "foo")))
+    (store-put s :provider "k" {:id "baz"})
+    (is (= [{:id "foo"} {:id "bar"}] (store-list s :provider)))))
