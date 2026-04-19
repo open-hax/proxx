@@ -3,111 +3,189 @@
             [malli.core :as m]
             [proxx.schema :as s]))
 
+;; ══════════════════════════════════════════════════════════════
+;; Key normalization
+;; ══════════════════════════════════════════════════════════════
+
+(defn- normalize-key* [k]
+  (-> (name k)
+      (str/replace #"([A-Z])" "-$1")
+      (str/replace #"_" "-")
+      (str/lower-case)
+      keyword))
+
 (defn normalize-keys
-  "Recursively converts string / camelCase / snake_case keys to kebab-case keywords."
+  "Recursively converts string/camelCase/snake_case keys to kebab-case
+   keywords. Maps in, maps out; sequences preserved as-is."
   [m]
-  (reduce-kv
-    (fn [acc k v]
-      (let [kw (-> (name k)
-                   (str/replace #"([A-Z])" "-$1")
-                   (str/replace #"_" "-")
-                   (str/lower-case)
-                   keyword)]
-        (assoc acc kw (if (map? v) (normalize-keys v) v))))
-    {}
-    m))
+  (cond
+    (map? m)
+    (reduce-kv
+      (fn [acc k v]
+        (assoc acc (normalize-key* k) (normalize-keys v)))
+      {}
+      m)
+
+    (sequential? m)
+    (mapv normalize-keys m)
+
+    :else m))
+
+;; ══════════════════════════════════════════════════════════════
+;; Provenance stamping
+;; ══════════════════════════════════════════════════════════════
 
 (defn stamp-provenance
+  "Attach provenance to a record. Source is one of
+   #{:seed :rest :ws :redis :lmdb :postgres}.
+
+   Extra opts:
+   - :seed-hash   (for :seed)
+   - :request-id  (for :rest/:ws)
+
+   Returns record with :provenance map."
   [record source & [{:keys [seed-hash request-id]}]]
-  (assoc record :provenance
-         (cond-> {:source      source
-                  :ingested-at (.getTime (js/Date.))}
-           seed-hash  (assoc :seed-hash seed-hash)
-           request-id (assoc :request-id request-id))))
+  (let [base {:source      source
+              :ingested-at (.now js/Date)}
+        prov (cond-> base
+               seed-hash  (assoc :seed-hash seed-hash)
+               request-id (assoc :request-id request-id))]
+    (assoc record :provenance prov)))
 
 (defn validate
-  "Returns [:ok record] or [:error explain-data]."
+  "Thin pass-through to proxx.schema/validate so callers only
+   depend on this ns when doing ingestion work."
   [schema-key record]
-  (let [schema (get s/registry schema-key)]
-    (if (m/validate schema record)
-      [:ok record]
-      [:error (m/explain schema record)])))
+  (s/validate schema-key record))
+
+;; ══════════════════════════════════════════════════════════════
+;; Affinity state machine (pure)
+;; ══════════════════════════════════════════════════════════════
 
 (defn apply-affinity-event
   "Pure state transition for prompt affinity.
-   state  - existing PromptAffinityRecord map or nil
-   event  - {:type :note-success|:upsert|:delete, :prompt-cache-key .. :provider-id .. :account-id ..}
-   opts   - {:promotion-threshold int}"
-  [state {:keys [event-type prompt-cache-key provider-id account-id]} {:keys [promotion-threshold]}]
-  (let [now (.getTime (js/Date.))]
-    (case event-type
+
+   Inputs:
+   - state  ::PromptAffinityRecord | nil
+   - event  {:type :delete | :upsert | :note-success
+             :prompt-cache-key string
+             :provider-id string
+             :account-id string}
+   - opts   {:promotion-threshold int >= 1}
+
+   Returns next PromptAffinityRecord or nil (delete).
+   Does not touch provenance; caller stamps it."
+  [state event {:keys [promotion-threshold]}]
+  (let [{:keys [type provider-id account-id prompt-cache-key]} event
+        now (.now js/Date)]
+    (case type
       :delete nil
-      :upsert {:prompt-cache-key (or (:prompt-cache-key state) prompt-cache-key)
-               :provider-id      provider-id
-               :account-id       account-id
-               :updated-at       now}
+
+      :upsert
+      {:prompt-cache-key (or (:prompt-cache-key state) prompt-cache-key)
+       :provider-id      provider-id
+       :account-id       account-id
+       :updated-at       now}
+
       :note-success
       (cond
+        ;; No existing record -> create canonical immediately
         (nil? state)
         {:prompt-cache-key prompt-cache-key
          :provider-id      provider-id
          :account-id       account-id
          :updated-at       now}
 
+        ;; Already canonical for this provider/account -> just bump timestamp
         (and (= (:provider-id state) provider-id)
              (= (:account-id state) account-id))
         (-> state
-            (dissoc :provisional-provider-id :provisional-account-id :provisional-success-count)
+            (dissoc :provisional-provider-id
+                    :provisional-account-id
+                    :provisional-success-count)
             (assoc :updated-at now))
 
         :else
-        (let [same-prov? (and (= (:provisional-provider-id state) provider-id)
-                              (= (:provisional-account-id state) account-id))
-              new-count  (if same-prov?
-                           (inc (or (:provisional-success-count state) 1))
-                           1)]
+        (let [same-provisional? (and (= (:provisional-provider-id state) provider-id)
+                                     (= (:provisional-account-id state) account-id))
+              new-count         (if same-provisional?
+                                  (inc (or (:provisional-success-count state) 1))
+                                  1)]
           (if (>= new-count promotion-threshold)
+            ;; Promote provisional to canonical
             {:prompt-cache-key (:prompt-cache-key state)
              :provider-id      provider-id
              :account-id       account-id
              :updated-at       now}
-            (assoc state
-                   :provisional-provider-id   provider-id
-                   :provisional-account-id    account-id
-                   :provisional-success-count new-count
-                   :updated-at                now)))))))
+            ;; Accumulate provisional
+            (-> state
+                (assoc :provisional-provider-id   provider-id
+                       :provisional-account-id    account-id
+                       :provisional-success-count new-count
+                       :updated-at                now))))))))
+
+;; ══════════════════════════════════════════════════════════════
+;; Pheromone projection (pure)
+;; ══════════════════════════════════════════════════════════════
 
 (defn project-pheromone
-  "Compute current pheromone score from a seq of {:ts epoch-ms :outcome :success|:failure|...}."
-  [events {:keys [decay-half-life-ms] :or {decay-half-life-ms 60000}}]
-  (let [now (.getTime (js/Date.))]
+  "Compute current pheromone score from a seq of recent events.
+
+   events: [{:ts epoch-ms :outcome :success|:failure} ...]
+
+   decay-half-life-ms: time for contribution to halve.
+   outcome weighting: success -> +1.0, failure -> -0.5.
+
+   Returns numeric score (unbounded; schema clamps later)."
+  [events {:keys [decay-half-life-ms]
+           :or   {decay-half-life-ms 60000}}]
+  (let [now (.now js/Date)]
     (reduce (fn [acc {:keys [ts outcome]}]
               (let [age          (- now ts)
-                    decay-factor (js/Math.pow 0.5 (/ age decay-half-life-ms))
-                    signal       (if (= outcome :success) 1.0 -0.5)]
+                    decay-factor (Math/pow 0.5 (/ age decay-half-life-ms))
+                    signal       (case outcome
+                                    :success  1.0
+                                    :failure -0.5
+                                    0.0)]
                 (+ acc (* signal decay-factor))))
             0.0
             events)))
 
-(defn apply-weight-transform [value transform]
+;; ══════════════════════════════════════════════════════════════
+;; Scoring (pure)
+;; ══════════════════════════════════════════════════════════════
+
+(defn apply-weight-transform
+  "Transform a metric value according to scoring weight transform."
+  [value transform]
   (case transform
     :linear    value
     :invert    (- 1.0 value)
-    :normalize value
+    :normalize value   ;; true normalization needs population stats
     value))
 
-(defn compute-score [metrics weights]
-  (reduce
-    (fn [score {:keys [metric-key weight transform]}]
-      (let [path  (mapv keyword (str/split metric-key #"\."))
-            value (get-in metrics path 0.0)]
-        (+ score (* weight (apply-weight-transform value transform)))))
-    0.0
-    weights))
+(defn compute-score
+  "Compute scalar score from a metrics map and a collection of
+   ScoringWeight records.
+
+   metrics is a nested map, e.g.
+   {[:provider-id "openai" :model-id "gpt-4o"]
+    {:latency {:p50 120 :p95 300}
+     :success-rate 0.98}}
+
+   weights is a seq of {:metric-key "latency.p95" :weight 0.4 ...}."
+  [metrics weights]
+  (reduce (fn [score {:keys [metric-key weight transform]}]
+            (let [path  (mapv keyword (str/split metric-key #"\."))
+                  value (get-in metrics path 0.0)]
+              (+ score (* weight (apply-weight-transform value transform)))))
+          0.0
+          weights))
 
 (defn score-candidates
-  "Attach :score to each candidate given a metrics-map and scoring weights.
-   metrics-map keyed by [provider-id model-id] -> metric map."
+  "Attach :score to each candidate {:provider-id :model-id ...}
+   using a metrics map keyed by [provider-id model-id] and a
+   collection of ScoringWeight records."
   [candidates metrics-map weights]
   (mapv (fn [c]
           (let [k       [(:provider-id c) (:model-id c)]
