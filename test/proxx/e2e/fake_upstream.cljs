@@ -2,12 +2,9 @@
   (:require [proxx.e2e.fixtures :as fx]))
 
 (defn ->json [x]
-  (if (string? x)
-    x
-    (js/JSON.stringify (clj->js x))))
+  (if (string? x) x (js/JSON.stringify (clj->js x))))
 
-(defn make-server
-  [scenario-seq]
+(defn make-server [scenario-seq]
   (let [http       (js/require "http")
         requests   (atom [])
         call-count (atom 0)
@@ -21,12 +18,8 @@
                        (.on req "data" #(swap! chunks conj %))
                        (.on req "end"
                             (fn []
-                              (let [body-str  (.join (into-array @chunks) "")
-                                    scene     (get-scene)
-                                    status    (:status scene 200)
-                                    headers   (:headers scene {})
-                                    body-out  (->json (:body scene ""))
-                                    delay-ms  (:body-delay scene 0)]
+                              (let [body-str (.join (into-array @chunks) "")
+                                    scene    (get-scene)]
                                 (swap! requests conj
                                        {:method  (.-method req)
                                         :path    (.-url req)
@@ -34,21 +27,17 @@
                                         :headers (js->clj (.-headers req))})
                                 (js/setTimeout
                                  (fn []
-                                   (.writeHead res status (clj->js headers))
-                                   (.end res body-out))
-                                 delay-ms)))))
+                                   (.writeHead res (:status scene 200) (clj->js (:headers scene {})))
+                                   (.end res (->json (:body scene ""))))
+                                 (:body-delay scene 0)))))))
         srv        (.createServer http handler)
         port-p     (js/Promise.
                     (fn [done _]
                       (.listen srv 0 "127.0.0.1"
                                (fn [] (done (.-port (.address srv)))))))]
-    {:srv      srv
-     :port-p   port-p
-     :requests requests
-     :close!   (fn [] (.close srv))}))
+    {:srv srv :port-p port-p :requests requests :close! (fn [] (.close srv))}))
 
-(defn with-server
-  [scenario-seq f]
+(defn with-server [scenario-seq f]
   (let [{:keys [port-p requests close!]} (make-server scenario-seq)]
     (.then port-p
            (fn [port]

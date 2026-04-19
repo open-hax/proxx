@@ -1,22 +1,17 @@
 (ns proxx.ledger.emitter
   (:require [proxx.ledger.projector :as proj]))
 
-;; ── Internals ─────────────────────────────────────────────────────────────
-
 (defn- now-ms [] (.getTime (js/Date.)))
-
 (defn- new-event-id [] (str (random-uuid)))
 
-(defn- append!
-  [ledger-atom event]
+(defn- append! [ledger-atom event]
   (let [stamped (merge {:event-id (new-event-id) :ts (now-ms)} event)]
     (swap! ledger-atom conj stamped)
     stamped))
 
-;; ── HTTP helpers ───────────────────────────────────────────────────────────
+;; ── HTTP ───────────────────────────────────────────────────────────────────
 
-(defn- fetch-completion
-  [{:keys [base-url path]} payload]
+(defn- fetch-completion [{:keys [base-url path]} payload]
   (let [http     (js/require "http")
         url-mod  (js/require "url")
         parsed   (.parse url-mod base-url)
@@ -29,84 +24,70 @@
                                      "content-length" (.-length (js/Buffer.from body-str))}}]
     (js/Promise.
      (fn [resolve reject]
-       (let [req (.request http opts
-                           (fn [res]
-                             (let [chunks (atom [])]
-                               (.on res "data" #(swap! chunks conj %))
-                               (.on res "end"
-                                    (fn []
-                                      (resolve {:status   (.-statusCode res)
-                                                :headers  (js->clj (.-headers res))
-                                                :body-str (.join (into-array @chunks) "")})))))]
+       (let [chunks (atom [])
+             req    (.request
+                     http opts
+                     (fn [res]
+                       (.on res "data" #(swap! chunks conj %))
+                       (.on res "end"
+                            (fn []
+                              (resolve {:status   (.-statusCode res)
+                                        :headers  (js->clj (.-headers res))
+                                        :body-str (.join (into-array @chunks) "")})))))]
          (.on req "error" reject)
          (.write req body-str)
          (.end req))))))
 
-;; ── Response classification ─────────────────────────────────────────────────────
+;; ── Classification ────────────────────────────────────────────────────────────
 
-(def ^:private quota-body-patterns
+(def ^:private quota-patterns
   [#"rate limit" #"quota" #"too many requests" #"insufficient_quota"])
 
-(defn- quota-signal-in-body? [body-str]
-  (let [lower (.toLowerCase body-str)]
-    (boolean (some #(re-find % lower) quota-body-patterns))))
+(defn- quota-body? [s]
+  (boolean (some #(re-find % (.toLowerCase s)) quota-patterns)))
 
 (defn- parse-json [s]
   (try (js->clj (js/JSON.parse s) :keywordize-keys true)
        (catch :default _ nil)))
 
-(defn- classify-response [{:keys [status body-str]}]
+(defn- classify [{:keys [status body-str]}]
   (cond
-    (= status 429)
-    {:outcome :rate-limited}
-
-    (empty? body-str)
-    {:outcome :empty-response}
-
+    (= status 429)    {:outcome :rate-limited}
+    (empty? body-str) {:outcome :empty-response}
     :else
     (let [parsed (parse-json body-str)]
       (cond
-        (nil? parsed)
-        {:outcome :unrecognized-schema}
-
-        (quota-signal-in-body? body-str)
-        {:outcome :quota-exhausted-in-body :parsed parsed}
-
+        (nil? parsed)           {:outcome :unrecognized-schema}
+        (quota-body? body-str)  {:outcome :quota-exhausted-in-body :parsed parsed}
         (and (:choices parsed)
              (= "length" (-> parsed :choices first :finish_reason)))
-        {:outcome   :success
-         :parsed    parsed
-         :overflow? true
+        {:outcome :success :parsed parsed :overflow? true
          :tokens-in (-> parsed :usage :prompt_tokens)}
+        (:choices parsed)       {:outcome :success :parsed parsed}
+        :else                   {:outcome :unrecognized-schema :parsed parsed}))))
 
-        (:choices parsed)
-        {:outcome :success :parsed parsed}
+;; ── Churn ───────────────────────────────────────────────────────────────────
 
-        :else
-        {:outcome :unrecognized-schema :parsed parsed}))))
-
-;; ── Churn detection ────────────────────────────────────────────────────────────
-
-(defn- detect-churn! [ledger-atom session-state session-id messages]
-  (let [prev-count (:last-message-count @session-state)
-        curr-count (count messages)]
-    (swap! session-state assoc :last-message-count curr-count)
-    (when (and prev-count (< curr-count prev-count))
+(defn- detect-churn! [ledger-atom s-state session-id messages]
+  (let [prev (get @s-state :last-message-count)
+        curr (count messages)]
+    (swap! s-state assoc :last-message-count curr)
+    (when (and prev (< curr prev))
       (append! ledger-atom
                {:event-type              :session-churn-detected
                 :session-id              session-id
                 :churn-type              :compaction
-                :message-count-before    prev-count
-                :message-count-after     curr-count
-                :prefix-similarity-after (proj/prefix-similarity prev-count curr-count)}))))
+                :message-count-before    prev
+                :message-count-after     curr
+                :prefix-similarity-after (proj/prefix-similarity prev curr)}))))
 
-;; ── Single-provider attempt ─────────────────────────────────────────────────────
+;; ── Attempt ─────────────────────────────────────────────────────────────────
 
 (defn- attempt! [ledger-atom provider session-id request]
   (-> (fetch-completion provider request)
       (.then
        (fn [resp]
-         (let [{:keys [outcome parsed overflow? tokens-in]} (classify-response resp)
+         (let [{:keys [outcome parsed overflow? tokens-in]} (classify resp)
                base {:provider-id (:provider-id provider)
                      :account-id  (:account-id provider)
                      :model-id    (:model-id provider)
@@ -122,12 +103,12 @@
                (merge base {:outcome :success :parsed parsed}))
 
              :rate-limited
-             (let [retry-after    (some-> (get-in resp [:headers "retry-after"]) js/parseInt)
-                   cooldown-until (+ (now-ms) (* (or retry-after 1800) 1000))]
+             (let [ra  (some-> (get-in resp [:headers "retry-after"]) js/parseInt)
+                   cu  (+ (now-ms) (* (or ra 1800) 1000))]
                (append! ledger-atom
                         (merge base {:event-type     :account-cooldown-initiated
                                      :reason         :quota-short
-                                     :cooldown-until cooldown-until}))
+                                     :cooldown-until cu}))
                (merge base {:outcome :rate-limited}))
 
              (:quota-exhausted-in-body :empty-response)
@@ -148,20 +129,19 @@
                                      :expected-schema :openai-chat}))
                (merge base {:outcome :unrecognized-schema}))
 
-             (merge base {:outcome outcome})))))))
+             (merge base {:outcome outcome}))))))))
 
-;; ── Public API ─────────────────────────────────────────────────────────────────
+;; ── Public ───────────────────────────────────────────────────────────────────
 
 (defonce ^:private session-states (atom {}))
 
-(defn route!
-  [{:keys [providers ledger session-id harness-id cache-key]} req]
-  (let [messages       (:messages req [])
-        s-state        (get (swap! session-states update session-id #(or % (atom {})))
-                            session-id)
-        first-request? (nil? (:last-message-count @s-state))]
+(defn route! [{:keys [providers ledger session-id harness-id cache-key]} req]
+  (let [messages (:messages req [])
+        s-state  (get (swap! session-states update session-id #(or % (atom {})))
+                      session-id)
+        first?   (nil? (get @s-state :last-message-count))]
 
-    (when first-request?
+    (when first?
       (when-let [p (first providers)]
         (append! ledger
                  {:event-type        :session-start
@@ -179,32 +159,32 @@
       (letfn [(try-next [idx]
                 (if (>= idx (count pvec))
                   (js/Promise.resolve {:outcome :all-strategies-exhausted})
-                  (let [provider (nth pvec idx)]
-                    (-> (attempt! ledger provider session-id req)
+                  (let [p (nth pvec idx)]
+                    (-> (attempt! ledger p session-id req)
                         (.then
                          (fn [result]
                            (if (= :success (:outcome result))
                              result
-                             (let [next-idx (inc idx)]
-                               (when (< next-idx (count pvec))
-                                 (let [next-p (nth pvec next-idx)]
+                             (let [ni (inc idx)]
+                               (when (< ni (count pvec))
+                                 (let [np (nth pvec ni)]
                                    (append! ledger
                                             {:event-type       :session-account-changed
                                              :session-id       session-id
-                                             :provider-id      (:provider-id provider)
-                                             :account-id       (:account-id provider)
-                                             :model-id         (:model-id provider)
-                                             :from-account-id  (:account-id provider)
-                                             :to-account-id    (:account-id next-p)
-                                             :from-provider-id (:provider-id provider)
-                                             :to-provider-id   (:provider-id next-p)
+                                             :provider-id      (:provider-id p)
+                                             :account-id       (:account-id p)
+                                             :model-id         (:model-id p)
+                                             :from-account-id  (:account-id p)
+                                             :to-account-id    (:account-id np)
+                                             :from-provider-id (:provider-id p)
+                                             :to-provider-id   (:provider-id np)
                                              :reason           (:outcome result)
                                              :epoch-id-before  (proj/current-epoch
                                                                 @ledger
                                                                 {:session-id  session-id
-                                                                 :provider-id (:provider-id provider)
-                                                                 :account-id  (:account-id provider)
-                                                                 :model-id    (:model-id provider)})
+                                                                 :provider-id (:provider-id p)
+                                                                 :account-id  (:account-id p)
+                                                                 :model-id    (:model-id p)})
                                              :epoch-id-after   (str (random-uuid))})))
-                               (try-next next-idx)))))))]
+                               (try-next ni))))))))]
         (try-next 0)))))
