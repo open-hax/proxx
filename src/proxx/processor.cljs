@@ -89,14 +89,12 @@
 
       :note-success
       (cond
-        ;; No existing record -> create canonical immediately
         (nil? state)
         {:prompt-cache-key prompt-cache-key
          :provider-id      provider-id
          :account-id       account-id
          :updated-at       now}
 
-        ;; Already canonical for this provider/account -> just bump timestamp
         (and (= (:provider-id state) provider-id)
              (= (:account-id state) account-id))
         (-> state
@@ -112,12 +110,10 @@
                                   (inc (or (:provisional-success-count state) 1))
                                   1)]
           (if (>= new-count promotion-threshold)
-            ;; Promote provisional to canonical
             {:prompt-cache-key (:prompt-cache-key state)
              :provider-id      provider-id
              :account-id       account-id
              :updated-at       now}
-            ;; Accumulate provisional
             (-> state
                 (assoc :provisional-provider-id   provider-id
                        :provisional-account-id    account-id
@@ -133,7 +129,7 @@
 
    events: [{:ts epoch-ms :outcome :success|:failure} ...]
 
-   decay-half-life-ms: time for contribution to halve.
+   decay-half-life-ms: time for score to halve.
    outcome weighting: success -> +1.0, failure -> -0.5.
 
    Returns numeric score (unbounded; schema clamps later)."
@@ -144,9 +140,9 @@
               (let [age          (- now ts)
                     decay-factor (Math/pow 0.5 (/ age decay-half-life-ms))
                     signal       (case outcome
-                                    :success  1.0
-                                    :failure -0.5
-                                    0.0)]
+                                   :success  1.0
+                                   :failure -0.5
+                                   0.0)]
                 (+ acc (* signal decay-factor))))
             0.0
             events)))
@@ -156,24 +152,22 @@
 ;; ══════════════════════════════════════════════════════════════
 
 (defn apply-weight-transform
-  "Transform a metric value according to scoring weight transform."
+  "Transform a metric value according to a ScoringWeight transform."
   [value transform]
   (case transform
     :linear    value
     :invert    (- 1.0 value)
-    :normalize value   ;; true normalization needs population stats
+    :normalize value  ;; true normalization needs population stats
     value))
 
 (defn compute-score
   "Compute scalar score from a metrics map and a collection of
    ScoringWeight records.
 
-   metrics is a nested map, e.g.
-   {[:provider-id "openai" :model-id "gpt-4o"]
-    {:latency {:p50 120 :p95 300}
-     :success-rate 0.98}}
+   metrics is a nested map keyed by dot-path segments, e.g.
+   {:latency {:p95 300} :success-rate 0.98}.
 
-   weights is a seq of {:metric-key "latency.p95" :weight 0.4 ...}."
+   weights is a seq of {:metric-key \"latency.p95\" :weight 0.4 ...}."
   [metrics weights]
   (reduce (fn [score {:keys [metric-key weight transform]}]
             (let [path  (mapv keyword (str/split metric-key #"\."))
