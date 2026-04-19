@@ -1,6 +1,5 @@
 (ns proxx.store.seed
-  (:require [cljs.reader :as edn]
-            [proxx.store.protocol :refer [IStore store-get store-put store-delete store-list store-close]]))
+  (:require [proxx.store.protocol :refer [IStore]]))
 
 ;; ══════════════════════════════════════════════════════════════
 ;; Seed store — EDN files at boot
@@ -10,9 +9,11 @@
 
 (defrecord SeedStore [seed-data]
   IStore
-  (store-get [_ entity-type _k]
-    ;; seed is by-entity full snapshot; keyed lookups are not supported here
-    (get seed-data entity-type))
+  (store-get [_ entity-type k]
+    (let [coll (get seed-data entity-type)]
+      (if (nil? k)
+        coll
+        (first (filter #(= (:id %) k) coll)))))
 
   (store-put [_ _entity-type _k _record]
     nil)

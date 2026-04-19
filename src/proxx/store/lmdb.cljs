@@ -1,7 +1,7 @@
 (ns proxx.store.lmdb
   (:require [cljs.reader :as edn]
             [proxx.cache-policy :as cp]
-            [proxx.store.protocol :refer [IStore store-get store-put store-delete store-list store-close]]))
+            [proxx.store.protocol :refer [IStore]]))
 
 ;; ══════════════════════════════════════════════════════════════
 ;; LMDB store — warm buffer

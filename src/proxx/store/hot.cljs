@@ -1,5 +1,5 @@
 (ns proxx.store.hot
-  (:require [proxx.store.protocol :refer [IStore store-get store-put store-delete store-list store-close]]))
+  (:require [proxx.store.protocol :refer [IStore]]))
 
 ;; ══════════════════════════════════════════════════════════════
 ;; Hot in-process cache (per-process atom)
