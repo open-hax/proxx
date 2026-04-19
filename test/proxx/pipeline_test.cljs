@@ -1,7 +1,8 @@
 (ns proxx.pipeline-test
   (:require [cljs.test :refer [deftest is]]
             [proxx.pipeline :as pl]
-            [proxx.store.hot :as hot]))
+            [proxx.store.hot :as hot]
+            [proxx.store.protocol :refer [store-put]]))
 
 ;; ══════════════════════════════════════════════════════════════
 ;; Helpers
@@ -61,8 +62,7 @@
   (let [pl    (hot-pipeline)
         rec   (provider-record "ollama")
         redis (get-in pl [:stores :redis])]
-    (require '[proxx.store.protocol :refer [store-put]])
-    ((resolve 'proxx.store.protocol/store-put) redis :provider "ollama" rec)
+    (store-put redis :provider "ollama" rec)
     (let [result (pl/fetch! pl :provider "ollama")]
       (is (= rec result))
       ;; back-fill: hot should now contain it
