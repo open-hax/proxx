@@ -12,7 +12,7 @@
     (swap! ledger-atom conj stamped)
     stamped))
 
-;; ── HTTP ───────────────────────────────────────────────────────────────────
+;; ── HTTP ────────────────────────────────────────────────────────────────────
 
 (defn-async fetch-completion [{:keys [base-url path]} payload]
   (js/Promise.
@@ -40,7 +40,7 @@
        (.write req body-str)
        (.end req)))))
 
-;; ── Classification (pure) ─────────────────────────────────────────────────────
+;; ── Classification (pure) ────────────────────────────────────────────────────
 
 (def ^:private quota-patterns
   [#"rate limit" #"quota" #"too many requests" #"insufficient_quota"])
@@ -52,9 +52,7 @@
   (try (js->clj (js/JSON.parse s) :keywordize-keys true)
        (catch :default _ nil)))
 
-(defn classify-response
-  "Pure. Returns {:outcome kw :parsed? :overflow? :tokens-in}."
-  [{:keys [status body-str]}]
+(defn classify-response [{:keys [status body-str]}]
   (cond
     (= status 429)    {:outcome :rate-limited}
     (empty? body-str) {:outcome :empty-response}
@@ -70,7 +68,7 @@
         (:choices parsed)      {:outcome :success :parsed parsed}
         :else                  {:outcome :unrecognized-schema :parsed parsed}))))
 
-;; ── Outcome handlers (pure — no IO, no Promise) ────────────────────────────────
+;; ── Outcome handlers (pure) ──────────────────────────────────────────────────
 
 (defn- handle-success [ledger-atom base parsed overflow? tokens-in]
   (when overflow?
@@ -105,7 +103,7 @@
                         :expected-schema :openai-chat}))
   (merge base {:outcome :unrecognized-schema}))
 
-;; ── Attempt (async shell — IO + dispatch only) ────────────────────────────────
+;; ── Attempt (async shell) ────────────────────────────────────────────────────
 
 (defn-async attempt [ledger-atom provider session-id request]
   (p-let [resp (fetch-completion provider request)]
@@ -125,7 +123,7 @@
         (handle-unrecognized ledger-atom base resp)
         (merge base {:outcome outcome})))))
 
-;; ── Churn detection ───────────────────────────────────────────────────────────
+;; ── Churn detection ──────────────────────────────────────────────────────────
 
 (defn- detect-churn! [ledger-atom s-state session-id messages]
   (let [prev (get @s-state :last-message-count)
@@ -140,7 +138,7 @@
                 :message-count-after     curr
                 :prefix-similarity-after (proj/prefix-similarity prev curr)}))))
 
-;; ── Fallover loop ───────────────────────────────────────────────────────────
+;; ── Fallover loop ────────────────────────────────────────────────────────────
 
 (defn- emit-account-changed! [ledger session-id p np result]
   (append! ledger
@@ -162,18 +160,19 @@
                                 :model-id    (:model-id p)})
             :epoch-id-after   (str (random-uuid))}))
 
-(defn-async try-providers [ledger pvec session-id req idx]
+(defn-async try-providers [ledger pvec session-id req idx last-result]
   (if (>= idx (count pvec))
-    {:outcome :all-strategies-exhausted}
+    ;; All providers tried — return the last real result, not a synthetic sentinel.
+    (or last-result {:outcome :all-strategies-exhausted})
     (p-let [result (attempt ledger (nth pvec idx) session-id req)]
       (if (= :success (:outcome result))
         result
         (let [ni (inc idx)]
           (when (< ni (count pvec))
             (emit-account-changed! ledger session-id (nth pvec idx) (nth pvec ni) result))
-          (try-providers ledger pvec session-id req ni))))))
+          (try-providers ledger pvec session-id req ni result))))))
 
-;; ── Public API ─────────────────────────────────────────────────────────────────
+;; ── Public API ───────────────────────────────────────────────────────────────
 
 (defonce ^:private session-states (atom {}))
 
@@ -194,4 +193,4 @@
                   :account-id        (:account-id p)
                   :model-id          (:model-id p)})))
     (detect-churn! ledger s-state session-id messages)
-    (try-providers ledger (vec providers) session-id req 0)))
+    (try-providers ledger (vec providers) session-id req 0 nil)))
