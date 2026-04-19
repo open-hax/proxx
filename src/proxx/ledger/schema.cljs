@@ -29,9 +29,7 @@
 (def ChurnType        [:enum :tool-call-pruning :compaction :client-unknown])
 (def CooldownReason   [:enum :quota-short :quota-weekly :error-rate :latency :manual])
 
-;; ── Base event fields (inlined into every event schema) ──────────────────────
-;; :merge is not available in CLJS malli without a custom registry.
-;; We inline the common fields directly into each event map instead.
+;; ── Base event fields ────────────────────────────────────────────────────────
 
 (def ^:private base-fields
   [[:event-id    :string]
@@ -43,10 +41,21 @@
    [:model-id    {:optional true} s/ModelId]
    [:provenance  {:optional true} s/Provenance]])
 
+(defn- field-key
+  "Extracts the keyword key from a malli map field entry."
+  [field]
+  (if (map? (second field))
+    (first field)   ; [:key {:optional true} schema]
+    (first field))) ; [:key schema]
+
 (defn- event-map
-  "Builds a [:map ...] schema from base-fields plus extra-fields."
+  "Builds a [:map ...] schema merging base-fields with extra-fields.
+   extra-fields win on duplicate keys — base entries are dropped for any
+   key that appears in extra-fields."
   [extra-fields]
-  (into [:map] (concat base-fields extra-fields)))
+  (let [override-keys (set (map field-key extra-fields))
+        filtered-base (remove #(override-keys (field-key %)) base-fields)]
+    (into [:map] (concat filtered-base extra-fields))))
 
 ;; ── 1. Session start ─────────────────────────────────────────────────────────
 
@@ -145,7 +154,7 @@
 
 (def AccountCooldownExpiredEvent
   (event-map
-   [[:event-type           [:= :account-cooldown-expired]]
+   [[:event-type            [:= :account-cooldown-expired]]
     [:cooldown-initiated-at :int]
     [:cooldown-reason       CooldownReason]]))
 
@@ -221,5 +230,4 @@
    :ledger/health-degraded          AccountHealthDegradedEvent
    :ledger/health-improved          AccountHealthImprovedEvent})
 
-;; Validate registry compiles cleanly at load time.
 (def _check (m/schema [:map-of :keyword :any]))
