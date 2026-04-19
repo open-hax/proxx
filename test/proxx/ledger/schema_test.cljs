@@ -73,4 +73,4 @@
                       :derived-cache-key "dck-xyz"
                       :provider-id       "openai"
                       :account-id        "A1"
-                      :model-id          "gpt-4o"}))))))
+                      :model-id          "gpt-4o"})))))
