@@ -1,69 +1,80 @@
 (ns proxx.boot-test
   (:require
-   [cljs.test   :refer [deftest is testing]]
-   [proxx.boot  :as boot]
-   [proxx.store.seed :as seed]
-   [proxx.store.protocol :refer [store-get store-list]]))
+   [cljs.test          :refer [deftest is testing]]
+   [proxx.boot         :as boot]
+   [proxx.store.hot    :as hot]
+   [proxx.store.protocol :refer [store-get store-put]]))
 
 ;; ---------------------------------------------------------------------------
 ;; Fixtures
 ;; ---------------------------------------------------------------------------
 
-(def ^:private test-config
+(def ^:private no-external-config
   {:redis-url    nil
    :lmdb-path    nil
    :database-url nil})
+
+(def ^:private fixture-map
+  {:provider-model
+   [{:id "gpt-4" :provider-id "openai" :name "GPT-4"}]
+   :provider-credential
+   [{:id "openai:fixture" :provider-id "openai" :auth-type "api_key" :secret "sk-fixture"}]})
 
 ;; ---------------------------------------------------------------------------
 ;; Tests
 ;; ---------------------------------------------------------------------------
 
 (deftest boot-returns-pipeline
-  (testing "boot! with no external stores returns a non-nil pipeline map"
+  (testing "boot! with no external stores returns a pipeline map with :stores key"
     (boot/halt!)
-    (let [pl (boot/boot! test-config)]
+    (let [pl (boot/boot! no-external-config)]
       (is (map? pl))
-      (is (some? (:hot pl))))))
+      (is (contains? pl :stores)))))
 
 (deftest boot-idempotent
-  (testing "calling boot! twice returns the same pipeline"
+  (testing "calling boot! twice returns the identical pipeline object"
     (boot/halt!)
-    (let [pl1 (boot/boot! test-config)
-          pl2 (boot/boot! test-config)]
+    (let [pl1 (boot/boot! no-external-config)
+          pl2 (boot/boot! no-external-config)]
       (is (identical? pl1 pl2)))))
 
 (deftest halt-clears-state
-  (testing "halt! resets state so pipeline returns nil"
+  (testing "halt! resets state so (pipeline) returns nil"
     (boot/halt!)
-    (boot/boot! test-config)
+    (boot/boot! no-external-config)
     (boot/halt!)
     (is (nil? (boot/pipeline)))))
 
-(deftest seed-static-idempotent
-  (testing "seeding static data twice does not duplicate records"
+(deftest halt-returns-keyword
+  (testing "halt! returns :halted"
     (boot/halt!)
-    (let [pl (boot/boot! test-config)]
-      ;; second seed-static! call should detect same hash and no-op
-      (boot/seed-static! pl)
-      ;; We can't easily count hot-store entries here, but we can assert
-      ;; the pipeline is still structurally valid after double-seed
+    (boot/boot! no-external-config)
+    (is (= :halted (boot/halt!)))))
+
+(deftest seed-static-ingests-fixture
+  (testing "seed-static! writes fixture records into the hot store"
+    (boot/halt!)
+    (let [pl (boot/boot! (assoc no-external-config :fixture-map fixture-map))
+          hot-store (get-in pl [:stores :hot])]
+      ;; fixture-map was seeded during boot!
+      (is (some? (store-get hot-store :provider-model "gpt-4"))))))
+
+(deftest seed-static-idempotent
+  (testing "seeding the same fixture twice does not throw"
+    (boot/halt!)
+    (let [pl (boot/boot! no-external-config)]
+      (boot/seed-static! pl fixture-map)
+      (boot/seed-static! pl fixture-map)
       (is (map? pl)))))
 
-(deftest seed-from-value-ingests-records
-  (testing "seed-from-value! ingests a credential record into the hot store"
+(deftest seed-from-value-ingests-record
+  (testing "seed-from-value! writes a credential into the hot store"
     (boot/halt!)
-    (let [pl  (boot/boot! test-config)
+    (let [pl  (boot/boot! no-external-config)
           raw (clj->js [{:id          "openai:test"
                          :provider-id "openai"
                          :auth-type   "api_key"
                          :secret      "sk-test"}])]
       (boot/seed-from-value! pl raw)
-      ;; After seeding the hot store should hold the record
-      (let [result (store-get (:hot pl) :provider-credential "openai:test")]
-        (is (some? result))))))
-
-(deftest halt-after-boot
-  (testing "halt! returns :halted keyword"
-    (boot/halt!)
-    (boot/boot! test-config)
-    (is (= :halted (boot/halt!)))))
+      (let [hot-store (get-in pl [:stores :hot])]
+        (is (some? (store-get hot-store :provider-credential "openai:test")))))))
