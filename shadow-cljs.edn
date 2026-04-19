@@ -7,4 +7,11 @@
  {:node-test
   {:target      :node-test
    :output-to   "target/node-test.cjs"
-   :ns-regexp   "proxx\\..*-test$"}}}
+   :ns-regexp   "proxx\\..*-test$"
+   :compiler-options {:source-map true}}
+
+  :node-e2e
+  {:target      :node-test
+   :output-to   "target/node-e2e.cjs"
+   :ns-regexp   "proxx\\.e2e\\..*-test$"
+   :compiler-options {:source-map true}}}}

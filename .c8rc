@@ -1,0 +1,12 @@
+{
+  "include": ["src/proxx/**"],
+  "exclude": [
+    "src/proxx/**/*_test.cljs",
+    "src/proxx/**/*-test.cljs",
+    "target/**",
+    "node_modules/**"
+  ],
+  "reporter": ["text", "lcov", "json-summary"],
+  "reportsDirectory": "coverage/cljs",
+  "all": true
+}
