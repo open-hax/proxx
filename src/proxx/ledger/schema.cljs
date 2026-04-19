@@ -2,10 +2,14 @@
   (:require [malli.core :as m]
             [proxx.schema :as s]))
 
-(def SessionId  :string)
-(def HarnessId  :string)
-(def RequestId  :string)
-(def EpochId    :string)
+;; ── Shared primitives ────────────────────────────────────────────────────────
+
+(def SessionId :string)
+(def HarnessId :string)
+(def RequestId :string)
+(def EpochId   :string)
+
+;; ── Outcome vocabulary ───────────────────────────────────────────────────────
 
 (def RoutingOutcome
   [:enum
@@ -21,65 +25,67 @@
    :unrecognized-schema
    :all-strategies-exhausted])
 
-(def QuotaWindowType
-  [:enum :short :long :weekly :unknown])
+(def QuotaWindowType  [:enum :short :long :weekly :unknown])
+(def ChurnType        [:enum :tool-call-pruning :compaction :client-unknown])
+(def CooldownReason   [:enum :quota-short :quota-weekly :error-rate :latency :manual])
 
-(def ChurnType
-  [:enum :tool-call-pruning :compaction :client-unknown])
+;; ── Base event fields (inlined into every event schema) ──────────────────────
+;; :merge is not available in CLJS malli without a custom registry.
+;; We inline the common fields directly into each event map instead.
 
-(def CooldownReason
-  [:enum :quota-short :quota-weekly :error-rate :latency :manual])
+(def ^:private base-fields
+  [[:event-id    :string]
+   [:event-type  :keyword]
+   [:ts          :int]
+   [:session-id  {:optional true} SessionId]
+   [:provider-id {:optional true} s/ProviderId]
+   [:account-id  {:optional true} s/AccountId]
+   [:model-id    {:optional true} s/ModelId]
+   [:provenance  {:optional true} s/Provenance]])
 
-(def HealthThresholdType
-  [:enum :degraded :recovered])
+(defn- event-map
+  "Builds a [:map ...] schema from base-fields plus extra-fields."
+  [extra-fields]
+  (into [:map] (concat base-fields extra-fields)))
 
-(def BaseEvent
-  [:map
-   [:event-id     :string]
-   [:event-type   :keyword]
-   [:ts           :int]
-   [:session-id   {:optional true} SessionId]
-   [:provider-id  {:optional true} s/ProviderId]
-   [:account-id   {:optional true} s/AccountId]
-   [:model-id     {:optional true} s/ModelId]
-   [:provenance   {:optional true} s/Provenance]])
+;; ── 1. Session start ─────────────────────────────────────────────────────────
 
 (def SessionStartEvent
-  [:merge BaseEvent
-   [:map
-    [:event-type          [:= :session-start]]
-    [:session-id          SessionId]
-    [:harness-id          HarnessId]
-    [:harness-cache-key   :string]
-    [:derived-cache-key   :string]
-    [:provider-id         s/ProviderId]
-    [:account-id          s/AccountId]
-    [:model-id            s/ModelId]]])
+  (event-map
+   [[:event-type        [:= :session-start]]
+    [:session-id        SessionId]
+    [:harness-id        HarnessId]
+    [:harness-cache-key :string]
+    [:derived-cache-key :string]
+    [:provider-id       s/ProviderId]
+    [:account-id        s/AccountId]
+    [:model-id          s/ModelId]]))
+
+;; ── 2. Empty / unrecognized provider response ─────────────────────────────────
 
 (def EmptyProviderResponseEvent
-  [:merge BaseEvent
-   [:map
-    [:event-type      [:= :empty-provider-response]]
+  (event-map
+   [[:event-type       [:= :empty-provider-response]]
+    [:request-id       RequestId]
+    [:http-status      :int]
+    [:raw-body         {:optional true} :string]
+    [:outcome          RoutingOutcome]
+    [:label            {:optional true} :string]
+    [:label-confidence {:optional true} :double]]))
+
+(def UnrecognizedSchemaEvent
+  (event-map
+   [[:event-type      [:= :unrecognized-response-schema]]
     [:request-id      RequestId]
     [:http-status     :int]
     [:raw-body        {:optional true} :string]
-    [:outcome         RoutingOutcome]
-    [:label           {:optional true} :string]
-    [:label-confidence {:optional true} :double]]])
+    [:expected-schema :keyword]]))
 
-(def UnrecognizedSchemaEvent
-  [:merge BaseEvent
-   [:map
-    [:event-type   [:= :unrecognized-response-schema]]
-    [:request-id   RequestId]
-    [:http-status  :int]
-    [:raw-body     {:optional true} :string]
-    [:expected-schema :keyword]]])
+;; ── 3. Session account changed ───────────────────────────────────────────────
 
 (def SessionAccountChangedEvent
-  [:merge BaseEvent
-   [:map
-    [:event-type       [:= :session-account-changed]]
+  (event-map
+   [[:event-type       [:= :session-account-changed]]
     [:session-id       SessionId]
     [:from-account-id  s/AccountId]
     [:to-account-id    s/AccountId]
@@ -87,93 +93,103 @@
     [:to-provider-id   {:optional true} s/ProviderId]
     [:reason           RoutingOutcome]
     [:epoch-id-before  EpochId]
-    [:epoch-id-after   EpochId]]])
+    [:epoch-id-after   EpochId]]))
+
+;; ── 4. Session model changed ─────────────────────────────────────────────────
 
 (def SessionModelChangedEvent
-  [:merge BaseEvent
-   [:map
-    [:event-type     [:= :session-model-changed]]
-    [:session-id     SessionId]
-    [:from-model-id  s/ModelId]
-    [:to-model-id    s/ModelId]
-    [:reason         [:enum :context-overflow :policy :manual :client-requested]]
+  (event-map
+   [[:event-type      [:= :session-model-changed]]
+    [:session-id      SessionId]
+    [:from-model-id   s/ModelId]
+    [:to-model-id     s/ModelId]
+    [:reason          [:enum :context-overflow :policy :manual :client-requested]]
     [:epoch-id-before EpochId]
-    [:epoch-id-after  EpochId]]])
+    [:epoch-id-after  EpochId]]))
+
+;; ── 5. Session churn detected ────────────────────────────────────────────────
 
 (def SessionChurnDetectedEvent
-  [:merge BaseEvent
-   [:map
-    [:event-type            [:= :session-churn-detected]]
-    [:session-id            SessionId]
-    [:churn-type            ChurnType]
+  (event-map
+   [[:event-type               [:= :session-churn-detected]]
+    [:session-id               SessionId]
+    [:churn-type               ChurnType]
     [:prefix-similarity-before {:optional true} :double]
     [:prefix-similarity-after  {:optional true} :double]
-    [:message-count-before  {:optional true} :int]
-    [:message-count-after   {:optional true} :int]]])
+    [:message-count-before     {:optional true} :int]
+    [:message-count-after      {:optional true} :int]]))
+
+;; ── 6. Context overflow detected ─────────────────────────────────────────────
 
 (def ContextOverflowDetectedEvent
-  [:merge BaseEvent
-   [:map
-    [:event-type               [:= :context-overflow-detected]]
+  (event-map
+   [[:event-type               [:= :context-overflow-detected]]
     [:session-id               SessionId]
     [:tokens-in                :int]
     [:tokens-out               {:optional true} :int]
     [:advertised-context-limit {:optional true} :int]
     [:observed-limit-estimate  {:optional true} :int]
     [:overflow-signal          [:enum :hard-error :soft-truncation :empty-response :provider-message]]
-    [:raw-signal               {:optional true} :string]]])
+    [:raw-signal               {:optional true} :string]]))
+
+;; ── 7. Account cooldown initiated ────────────────────────────────────────────
 
 (def AccountCooldownInitiatedEvent
-  [:merge BaseEvent
-   [:map
-    [:event-type       [:= :account-cooldown-initiated]]
-    [:reason           CooldownReason]
-    [:cooldown-until   :int]
-    [:triggering-event-id {:optional true} :string]]])
+  (event-map
+   [[:event-type          [:= :account-cooldown-initiated]]
+    [:reason              CooldownReason]
+    [:cooldown-until      :int]
+    [:triggering-event-id {:optional true} :string]]))
+
+;; ── 8. Account cooldown expired ──────────────────────────────────────────────
 
 (def AccountCooldownExpiredEvent
-  [:merge BaseEvent
-   [:map
-    [:event-type        [:= :account-cooldown-expired]]
+  (event-map
+   [[:event-type           [:= :account-cooldown-expired]]
     [:cooldown-initiated-at :int]
-    [:cooldown-reason   CooldownReason]]])
+    [:cooldown-reason       CooldownReason]]))
+
+;; ── 9. Quota reset detected ──────────────────────────────────────────────────
 
 (def QuotaResetDetectedEvent
-  [:merge BaseEvent
-   [:map
-    [:event-type      [:= :quota-reset-detected]]
-    [:window-type     QuotaWindowType]
-    [:detected-via    [:enum :explicit-api :inferred-from-traffic :manual]]
+  (event-map
+   [[:event-type       [:= :quota-reset-detected]]
+    [:window-type      QuotaWindowType]
+    [:detected-via     [:enum :explicit-api :inferred-from-traffic :manual]]
     [:tokens-available {:optional true} :int]
-    [:reset-at        {:optional true} :int]]])
+    [:reset-at         {:optional true} :int]]))
+
+;; ── 10. Account health degraded ──────────────────────────────────────────────
 
 (def AccountHealthDegradedEvent
-  [:merge BaseEvent
-   [:map
-    [:event-type          [:= :account-health-degraded]]
-    [:health-score-before :double]
-    [:health-score-after  :double]
-    [:degraded-threshold  :double]
+  (event-map
+   [[:event-type           [:= :account-health-degraded]]
+    [:health-score-before  :double]
+    [:health-score-after   :double]
+    [:degraded-threshold   :double]
     [:contributing-metrics {:optional true}
      [:map
-      [:error-rate    {:optional true} :double]
+      [:error-rate     {:optional true} :double]
       [:p50-latency-ms {:optional true} :double]
       [:p99-latency-ms {:optional true} :double]
-      [:quota-pressure {:optional true} :double]]]]])
+      [:quota-pressure {:optional true} :double]]]]))
+
+;; ── 11. Account health improved ──────────────────────────────────────────────
 
 (def AccountHealthImprovedEvent
-  [:merge BaseEvent
-   [:map
-    [:event-type           [:= :account-health-improved]]
+  (event-map
+   [[:event-type           [:= :account-health-improved]]
     [:health-score-before  :double]
     [:health-score-after   :double]
     [:recovery-threshold   :double]
     [:contributing-metrics {:optional true}
      [:map
-      [:error-rate    {:optional true} :double]
+      [:error-rate     {:optional true} :double]
       [:p50-latency-ms {:optional true} :double]
       [:p99-latency-ms {:optional true} :double]
-      [:quota-pressure {:optional true} :double]]]]])
+      [:quota-pressure {:optional true} :double]]]]))
+
+;; ── Union / dispatch ─────────────────────────────────────────────────────────
 
 (def LedgerEvent
   [:multi {:dispatch :event-type}
@@ -205,6 +221,5 @@
    :ledger/health-degraded          AccountHealthDegradedEvent
    :ledger/health-improved          AccountHealthImprovedEvent})
 
-;; Force malli compilation at load time to surface schema errors early.
-(def _validate-registry
-  (m/schema [:map-of :keyword :any]))
+;; Validate registry compiles cleanly at load time.
+(def _check (m/schema [:map-of :keyword :any]))
