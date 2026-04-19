@@ -1,11 +1,12 @@
 (ns proxx.boot
   (:require
+   [goog.object           :as gobj]
    [proxx.pipeline        :as pl]
    [proxx.store.hot       :as hot]
    [proxx.store.redis     :as redis]
    [proxx.store.lmdb      :as lmdb]
    [proxx.store.postgres  :as pg]
-   [proxx.store.protocol  :refer [store-close store-put]]))
+   [proxx.store.protocol  :refer [store-close]]))
 
 ;; ---------------------------------------------------------------------------
 ;; State
@@ -35,7 +36,8 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- ingest-source!
-  "Ingest records through pipeline only when content hash has changed."
+  "Ingest records through pipeline only when content hash has changed.
+   source must be a valid Provenance :source enum value."
   [pipeline source-key entity-type records]
   (when (and (seq records) (changed? source-key records))
     (doseq [r records]
@@ -46,22 +48,23 @@
 ;; ---------------------------------------------------------------------------
 
 (defn seed-from-value!
-  "Ingest a parsed JS array of provider/account objects (PROXY_KEYS_JSON etc.)."
+  "Ingest a parsed JS array of provider/account objects (PROXY_KEYS_JSON etc.).
+   Records are ingested with :seed provenance source."
   [pipeline raw-js-value]
   (let [records (js->clj raw-js-value :keywordize-keys true)]
-    (ingest-source! pipeline :env-json :provider-credential records)))
+    (ingest-source! pipeline :seed :provider-credential records)))
 
 (defn seed-from-models!
-  "Ingest a parsed JS models array."
+  "Ingest a parsed JS models array with :seed provenance."
   [pipeline models-js-value]
   (let [records (js->clj models-js-value :keywordize-keys true)]
-    (ingest-source! pipeline :models-file :provider-model records)))
+    (ingest-source! pipeline :seed :provider-model records)))
 
 (defn seed-from-env-api-keys!
   "Ingest PROVIDER_API_KEY_<NAME>=<val> env vars as :provider-credential records."
   [pipeline]
-  (let [env    (js->clj (.-env js/process) :keywordize-keys true)
-        prefix "PROVIDER_API_KEY_"
+  (let [env     (js->clj (.-env js/process) :keywordize-keys true)
+        prefix  "PROVIDER_API_KEY_"
         records (->> env
                      (filter (fn [[k _]] (.startsWith (name k) prefix)))
                      (mapv (fn [[k v]]
@@ -73,15 +76,14 @@
                                 :provider-id pid
                                 :auth-type   "api_key"
                                 :secret      v}))))]
-    (ingest-source! pipeline :env-api-keys :provider-credential records)))
+    (ingest-source! pipeline :seed :provider-credential records)))
 
 (defn seed-static!
-  "Ingest built-in fixture data (used in dev / test). Pass an EDN map of
-  {entity-type [records...]}."
+  "Ingest built-in fixture data. fixture-map is {entity-type [records...]}.
+   All records are stamped with :seed provenance."
   [pipeline fixture-map]
   (doseq [[entity-type records] fixture-map]
-    (ingest-source! pipeline (keyword "static" (name entity-type))
-                    entity-type records)))
+    (ingest-source! pipeline :seed entity-type records)))
 
 ;; ---------------------------------------------------------------------------
 ;; Store construction
@@ -92,7 +94,7 @@
 
 (defn- make-redis-store [redis-url]
   (let [Redis  (js/require "ioredis")
-        client (Redis. redis-url)]
+        client (new Redis redis-url)]
     (redis/->RedisStore client)))
 
 (defn- make-lmdb-store [lmdb-path]
@@ -103,7 +105,7 @@
 
 (defn- make-pg-store [database-url query-registry]
   (let [postgres (js/require "postgres")
-        sql      (postgres database-url)]
+        sql      (new postgres database-url)]
     (pg/->PostgresStore sql query-registry)))
 
 ;; ---------------------------------------------------------------------------
@@ -111,39 +113,40 @@
 ;; ---------------------------------------------------------------------------
 
 (defn boot!
-  "Open the store stack, run seed sources, return the live pipeline.
+  "Open store stack, run seed sources, return the live pipeline.
 
   config keys:
     :redis-url      — ioredis connection string (optional)
     :lmdb-path      — filesystem path for LMDB env (optional)
     :database-url   — postgres connection string (optional)
-    :query-registry — entity-type query map required when :database-url set
-    :fixture-map    — EDN map {entity-type [records]} for static seed (optional)
+    :query-registry — entity-type query map (required when :database-url set)
+    :fixture-map    — {entity-type [records]} for static seed (optional)
     :models-value   — parsed JS models array (optional)
 
-  Idempotent: returns existing pipeline if already booted."
+  Idempotent: returns existing pipeline when already booted."
   [{:keys [redis-url lmdb-path database-url query-registry
-           fixture-map models-value] :as _config}]
+           fixture-map models-value]}]
   (if-let [existing (:pipeline @state)]
     existing
-    (let [hot-store  (make-hot-store)
-          redis-store  (when redis-url    (make-redis-store redis-url))
-          lmdb-store   (when lmdb-path    (make-lmdb-store lmdb-path))
-          pg-store     (when database-url (make-pg-store database-url
-                                                          (or query-registry {})))
-          stores       (filterv some? [hot-store redis-store lmdb-store pg-store])
-          pipeline     (pl/make-pipeline
-                        {:hot      hot-store
-                         :redis    redis-store
-                         :lmdb     lmdb-store
-                         :postgres pg-store})]
+    (let [hot-store   (make-hot-store)
+          redis-store (when redis-url    (make-redis-store redis-url))
+          lmdb-store  (when lmdb-path    (make-lmdb-store lmdb-path))
+          pg-store    (when database-url (make-pg-store database-url
+                                                        (or query-registry {})))
+          stores      (filterv some? [hot-store redis-store lmdb-store pg-store])
+          pipeline    (pl/make-pipeline
+                       {:hot      hot-store
+                        :redis    redis-store
+                        :lmdb     lmdb-store
+                        :postgres pg-store})]
       (swap! state assoc :pipeline pipeline :stores stores)
-      ;; Seed in priority order — static/fixtures first, env overrides last
+      ;; Seed priority: static < env-api-keys < inline-json < models
       (when fixture-map
         (seed-static! pipeline fixture-map))
       (seed-from-env-api-keys! pipeline)
-      (let [kj (or (aget js/process.env "PROXY_KEYS_JSON")
-                   (aget js/process.env "UPSTREAM_KEYS_JSON"))]
+      (let [proc-env (.-env js/process)
+            kj       (or (gobj/get proc-env "PROXY_KEYS_JSON")
+                         (gobj/get proc-env "UPSTREAM_KEYS_JSON"))]
         (when (and kj (pos? (.-length (.trim kj))))
           (seed-from-value! pipeline (js/JSON.parse kj))))
       (when models-value
