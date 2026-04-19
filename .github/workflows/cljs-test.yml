@@ -35,9 +35,6 @@ jobs:
         with:
           node-version: 22
 
-      # Java is required by shadow-cljs to run the Clojure compiler.
-      # No cache: param — shadow-cljs manages its own Maven deps; we cache
-      # ~/.m2/repository explicitly below to avoid re-downloading on every run.
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -51,7 +48,6 @@ jobs:
           key: shadow-cljs-${{ runner.os }}-${{ hashFiles('shadow-cljs.edn') }}
           restore-keys: shadow-cljs-${{ runner.os }}-
 
-      # Install shadow-cljs globally — avoids touching the (broken) pnpm lockfile.
       - name: Install shadow-cljs
         run: npm install -g shadow-cljs
 
@@ -59,7 +55,7 @@ jobs:
         run: shadow-cljs compile node-test
 
       - name: Run CLJS tests
-        run: node target/node-test.js
+        run: node target/node-test.cjs
 
   cljs-lint:
     name: cljs-lint
@@ -79,7 +75,6 @@ jobs:
           key: clj-kondo-${{ runner.os }}-${{ hashFiles('shadow-cljs.edn') }}
           restore-keys: clj-kondo-${{ runner.os }}-
 
-      # clj-kondo native binary via npm — no pnpm lockfile needed.
       - name: Install clj-kondo
         run: npm install -g clj-kondo
 

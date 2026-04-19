@@ -21,9 +21,7 @@
         k           (or (:id record)
                         (:prompt-cache-key record)
                         (:provider-id record))]
-    ;; always write hot cache first
     (store/store-put (store-for pipeline :hot) entity-type k record)
-    ;; then follow declared chain
     (doseq [store-key write-chain]
       (when-let [s (store-for pipeline store-key)]
         (store/store-put s entity-type k record)))
@@ -42,9 +40,8 @@
               v (when s (store/store-get s entity-type k))]
           (if v
             (do
-              ;; backfill earlier caches
               (doseq [backfill-key (take-while #(not= % store-key) full-chain)]
                 (when-let [bs (store-for pipeline backfill-key)]
                   (store/store-put bs entity-type k v)))
               v)
-            (recur (rest remaining)))))))
+            (recur (rest remaining))))))))

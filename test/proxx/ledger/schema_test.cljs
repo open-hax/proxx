@@ -3,8 +3,8 @@
             [malli.core :as m]
             [proxx.ledger.schema :as ls]))
 
-(defn valid? [schema-key val]
-  (m/validate (get ls/registry schema-key) val))
+(defn valid? [schema-key value]
+  (m/validate (get ls/registry schema-key) value))
 
 (deftest session-start-valid
   (testing "well-formed session_start passes validation"
@@ -65,12 +65,12 @@
 (deftest missing-required-field-fails
   (testing "missing event-id fails validation"
     (is (not (valid? :ledger/session-start
-                     {:event-type       :session-start
-                      :ts               1000
-                      :session-id       "S1"
-                      :harness-id       "opencode"
+                     {:event-type        :session-start
+                      :ts                1000
+                      :session-id        "S1"
+                      :harness-id        "opencode"
                       :harness-cache-key "hck-abc"
                       :derived-cache-key "dck-xyz"
-                      :provider-id      "openai"
-                      :account-id       "A1"
-                      :model-id         "gpt-4o"})))))  
+                      :provider-id       "openai"
+                      :account-id        "A1"
+                      :model-id          "gpt-4o"}))))))

@@ -5,6 +5,6 @@
 
  :builds
  {:node-test
-  {:target     :node-test
-   :output-to  "target/node-test.js"
-   :ns-regexp  "proxx\\..*-test$"}}}
+  {:target      :node-test
+   :output-to   "target/node-test.cjs"
+   :ns-regexp   "proxx\\..*-test$"}}}

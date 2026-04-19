@@ -2,20 +2,16 @@
   (:require [malli.core :as m]
             [proxx.schema :as s]))
 
-;; ── Shared primitives ────────────────────────────────────────────────────────
-
 (def SessionId  :string)
 (def HarnessId  :string)
 (def RequestId  :string)
-(def EpochId    :string)  ;; hash of most recent failure event for a given (session,provider,account,model)
-
-;; ── Outcome vocabulary ───────────────────────────────────────────────────────
+(def EpochId    :string)
 
 (def RoutingOutcome
   [:enum
    :success
    :quota-exhausted
-   :quota-exhausted-in-body   ;; e.g. Ollama 200 with quota message
+   :quota-exhausted-in-body
    :rate-limited
    :timeout
    :server-error
@@ -37,22 +33,16 @@
 (def HealthThresholdType
   [:enum :degraded :recovered])
 
-;; ── Base event fields ────────────────────────────────────────────────────────
-;; Every ledger event carries these.
-
 (def BaseEvent
   [:map
    [:event-id     :string]
    [:event-type   :keyword]
-   [:ts           :int]          ;; epoch ms
+   [:ts           :int]
    [:session-id   {:optional true} SessionId]
    [:provider-id  {:optional true} s/ProviderId]
    [:account-id   {:optional true} s/AccountId]
    [:model-id     {:optional true} s/ModelId]
    [:provenance   {:optional true} s/Provenance]])
-
-;; ── 1. Session start ─────────────────────────────────────────────────────────
-;; First occurrence of a client providing a given cache key.
 
 (def SessionStartEvent
   [:merge BaseEvent
@@ -60,14 +50,11 @@
     [:event-type          [:= :session-start]]
     [:session-id          SessionId]
     [:harness-id          HarnessId]
-    [:harness-cache-key   :string]   ;; what the client calls it
-    [:derived-cache-key   :string]   ;; our computed internal key at epoch 0
+    [:harness-cache-key   :string]
+    [:derived-cache-key   :string]
     [:provider-id         s/ProviderId]
     [:account-id          s/AccountId]
     [:model-id            s/ModelId]]])
-
-;; ── 2. Empty / unrecognized provider response ────────────────────────────────
-;; Covers Ollama-style silent quota exhaustion (200 + quota message in body).
 
 (def EmptyProviderResponseEvent
   [:merge BaseEvent
@@ -75,9 +62,9 @@
     [:event-type      [:= :empty-provider-response]]
     [:request-id      RequestId]
     [:http-status     :int]
-    [:raw-body        {:optional true} :string]   ;; kept for re-labelling
+    [:raw-body        {:optional true} :string]
     [:outcome         RoutingOutcome]
-    [:label           {:optional true} :string]   ;; classifier output
+    [:label           {:optional true} :string]
     [:label-confidence {:optional true} :double]]])
 
 (def UnrecognizedSchemaEvent
@@ -88,8 +75,6 @@
     [:http-status  :int]
     [:raw-body     {:optional true} :string]
     [:expected-schema :keyword]]])
-
-;; ── 3. Session account changed ───────────────────────────────────────────────
 
 (def SessionAccountChangedEvent
   [:merge BaseEvent
@@ -104,8 +89,6 @@
     [:epoch-id-before  EpochId]
     [:epoch-id-after   EpochId]]])
 
-;; ── 4. Session model changed ─────────────────────────────────────────────────
-
 (def SessionModelChangedEvent
   [:merge BaseEvent
    [:map
@@ -117,23 +100,16 @@
     [:epoch-id-before EpochId]
     [:epoch-id-after  EpochId]]])
 
-;; ── 5. Session churn detected ────────────────────────────────────────────────
-;; Client-side tool-call pruning or compaction broke affinity.
-
 (def SessionChurnDetectedEvent
   [:merge BaseEvent
    [:map
     [:event-type            [:= :session-churn-detected]]
     [:session-id            SessionId]
     [:churn-type            ChurnType]
-    [:prefix-similarity-before {:optional true} :double]   ;; 0..1
+    [:prefix-similarity-before {:optional true} :double]
     [:prefix-similarity-after  {:optional true} :double]
     [:message-count-before  {:optional true} :int]
     [:message-count-after   {:optional true} :int]]])
-
-;; ── 6. Context overflow detected ────────────────────────────────────────────
-;; Hit practical context limit for (provider, model).
-;; Distinct from advertised limit — captures actual observed behavior.
 
 (def ContextOverflowDetectedEvent
   [:merge BaseEvent
@@ -147,17 +123,13 @@
     [:overflow-signal          [:enum :hard-error :soft-truncation :empty-response :provider-message]]
     [:raw-signal               {:optional true} :string]]])
 
-;; ── 7. Account cooldown initiated ───────────────────────────────────────────
-
 (def AccountCooldownInitiatedEvent
   [:merge BaseEvent
    [:map
     [:event-type       [:= :account-cooldown-initiated]]
     [:reason           CooldownReason]
-    [:cooldown-until   :int]       ;; epoch ms — expected expiry
+    [:cooldown-until   :int]
     [:triggering-event-id {:optional true} :string]]])
-
-;; ── 8. Account cooldown expired ─────────────────────────────────────────────
 
 (def AccountCooldownExpiredEvent
   [:merge BaseEvent
@@ -165,8 +137,6 @@
     [:event-type        [:= :account-cooldown-expired]]
     [:cooldown-initiated-at :int]
     [:cooldown-reason   CooldownReason]]])
-
-;; ── 9. Quota reset detected ─────────────────────────────────────────────────
 
 (def QuotaResetDetectedEvent
   [:merge BaseEvent
@@ -176,8 +146,6 @@
     [:detected-via    [:enum :explicit-api :inferred-from-traffic :manual]]
     [:tokens-available {:optional true} :int]
     [:reset-at        {:optional true} :int]]])
-
-;; ── 10. Account health degraded ─────────────────────────────────────────────
 
 (def AccountHealthDegradedEvent
   [:merge BaseEvent
@@ -193,8 +161,6 @@
       [:p99-latency-ms {:optional true} :double]
       [:quota-pressure {:optional true} :double]]]]])
 
-;; ── 11. Account health improved ─────────────────────────────────────────────
-
 (def AccountHealthImprovedEvent
   [:merge BaseEvent
    [:map
@@ -208,9 +174,6 @@
       [:p50-latency-ms {:optional true} :double]
       [:p99-latency-ms {:optional true} :double]
       [:quota-pressure {:optional true} :double]]]]])
-
-;; ── Union / dispatch ─────────────────────────────────────────────────────────
-;; All ledger events as a tagged union, dispatch on :event-type.
 
 (def LedgerEvent
   [:multi {:dispatch :event-type}
@@ -241,3 +204,7 @@
    :ledger/quota-reset              QuotaResetDetectedEvent
    :ledger/health-degraded          AccountHealthDegradedEvent
    :ledger/health-improved          AccountHealthImprovedEvent})
+
+;; Force malli compilation at load time to surface schema errors early.
+(def _validate-registry
+  (m/schema [:map-of :keyword :any]))

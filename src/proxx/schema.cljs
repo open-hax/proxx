@@ -1,9 +1,5 @@
 (ns proxx.schema
-  (:require [malli.core :as m]
-            [malli.registry :as mr]
-            [clojure.string :as str]))
-
-;; Primitive aliases
+  (:require [malli.core :as m]))
 
 (def ProviderId :string)
 (def AccountId  :string)
@@ -11,16 +7,12 @@
 (def TenantId   :string)
 (def PromptHash :string)
 
-;; Provenance metadata attached to all ingested records
-
 (def Provenance
   [:map
    [:source      [:enum :seed :rest :ws :redis :lmdb :postgres]]
    [:ingested-at :int]
    [:seed-hash   {:optional true} :string]
    [:request-id  {:optional true} :string]])
-
-;; Core domain schemas
 
 (def Provider
   [:map
@@ -96,3 +88,7 @@
    :routing-policy    RoutingPolicy
    :affinity-policy   AffinityPolicy
    :provenance        Provenance})
+
+;; Trigger malli registry compilation to catch schema errors at load time.
+(def _validate-registry
+  (m/schema [:map-of :keyword :any]))

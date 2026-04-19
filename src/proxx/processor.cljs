@@ -21,7 +21,7 @@
   [record source & [{:keys [seed-hash request-id]}]]
   (assoc record :provenance
          (cond-> {:source      source
-                  :ingested-at (System/currentTimeMillis)}
+                  :ingested-at (.getTime (js/Date.))}
            seed-hash  (assoc :seed-hash seed-hash)
            request-id (assoc :request-id request-id))))
 
@@ -33,16 +33,14 @@
       [:ok record]
       [:error (m/explain schema record)])))
 
-;; Prompt affinity state transition
-
 (defn apply-affinity-event
   "Pure state transition for prompt affinity.
    state  - existing PromptAffinityRecord map or nil
    event  - {:type :note-success|:upsert|:delete, :prompt-cache-key .. :provider-id .. :account-id ..}
    opts   - {:promotion-threshold int}"
-  [state {:keys [type prompt-cache-key provider-id account-id] :as event} {:keys [promotion-threshold]}]
-  (let [now (System/currentTimeMillis)]
-    (case type
+  [state {:keys [event-type prompt-cache-key provider-id account-id]} {:keys [promotion-threshold]}]
+  (let [now (.getTime (js/Date.))]
+    (case event-type
       :delete nil
       :upsert {:prompt-cache-key (or (:prompt-cache-key state) prompt-cache-key)
                :provider-id      provider-id
@@ -79,22 +77,17 @@
                    :provisional-success-count new-count
                    :updated-at                now)))))))
 
-;; Pheromone projection
-
 (defn project-pheromone
-  "Compute current pheromone score from a seq of {:ts epoch-ms :outcome :success|:failure|...}.
-   decay-half-life-ms is the time for the contribution to halve."
+  "Compute current pheromone score from a seq of {:ts epoch-ms :outcome :success|:failure|...}."
   [events {:keys [decay-half-life-ms] :or {decay-half-life-ms 60000}}]
-  (let [now (System/currentTimeMillis)]
+  (let [now (.getTime (js/Date.))]
     (reduce (fn [acc {:keys [ts outcome]}]
               (let [age          (- now ts)
-                    decay-factor (Math/pow 0.5 (/ age decay-half-life-ms))
+                    decay-factor (js/Math.pow 0.5 (/ age decay-half-life-ms))
                     signal       (if (= outcome :success) 1.0 -0.5)]
                 (+ acc (* signal decay-factor))))
             0.0
             events)))
-
-;; Scoring helpers
 
 (defn apply-weight-transform [value transform]
   (case transform
@@ -108,8 +101,7 @@
     (fn [score {:keys [metric-key weight transform]}]
       (let [path  (mapv keyword (str/split metric-key #"\."))
             value (get-in metrics path 0.0)]
-        (+ score (* weight (apply-weight-transform value transform))))
-      )
+        (+ score (* weight (apply-weight-transform value transform)))))
     0.0
     weights))
 
