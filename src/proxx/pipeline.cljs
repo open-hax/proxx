@@ -21,6 +21,25 @@
             :postgres postgres}})
 
 ;; ══════════════════════════════════════════════════════════════
+;; Secret redaction
+;; ══════════════════════════════════════════════════════════════
+
+(def ^:private sensitive-keys
+  #{:secret :api-key :password :token :refresh-token
+    :access-token :client-secret :private-key})
+
+(defn- safe-record-context
+  "Returns a diagnostic map safe to include in ex-info.
+   Includes the record id (if derivable) and present key names;
+   never includes values for sensitive keys."
+  [record]
+  {:record-id (or (:id record)
+                  (:prompt-cache-key record)
+                  (:provider-id record)
+                  :unknown)
+   :keys      (vec (keys record))})
+
+;; ══════════════════════════════════════════════════════════════
 ;; Internals
 ;; ══════════════════════════════════════════════════════════════
 
@@ -37,7 +56,7 @@
       (:prompt-cache-key record)
       (:provider-id record)
       (throw (ex-info "Cannot derive key from record"
-                      {:record record}))))
+                      (safe-record-context record)))))
 
 ;; ══════════════════════════════════════════════════════════════
 ;; route! — chain-of-custody write
@@ -106,7 +125,9 @@
    Normalises keys, stamps provenance, validates schema,
    then routes to the write-through chain.
 
-   Throws ex-info on schema failure.
+   Throws ex-info on schema failure. The exception data never
+   includes raw record values; only key names and the entity-type
+   are exposed for diagnostics.
 
    source: :rest | :ws | :seed
    opts: {:request-id string} | {:seed-hash string}"
@@ -120,4 +141,4 @@
                       {:entity-type entity-type
                        :source      source
                        :errors      r
-                       :input       raw-record})))))
+                       :input-keys  (vec (keys raw-record))})))))
