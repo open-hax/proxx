@@ -1,32 +1,38 @@
-# Π Snapshot: Proxx dashboard Night Owl completion
+# Π Snapshot: Proxx final tenant-provider-policy route test residue
 
 - **Repo:** `open-hax/proxx`
-- **Branch:** `fork-tax/20260404-033121-proxx-night-owl-dashboard-finish`
-- **Base branch:** `fix/prompt-cache-audit-followups`
-- **Previous tag:** `Π/20260404-010801-request-log-cache-rollup-failure-exclusion`
-- **Intended Π tag:** `Π/20260404-033121-proxx-night-owl-dashboard-finish`
-- **Generated:** `2026-04-04T03:31:21Z`
+- **Branch:** `fix/ci-live-e2e-aggregate-conclusion`
+- **Pre-snapshot HEAD:** `55a5b11`
+- **Previous tag:** `Π/2026-03-27/045620`
+- **Intended Π tag:** `Π/2026-03-27/045911`
+- **Generated:** `2026-03-27T04:59:11Z`
 
-## What this snapshot preserves
+## Work Summary
 
-This Π handoff captures the downstream Proxx integration of the published UXX theming runtime. The app now persists a theme preference, exposes a Monokai/Night Owl toggle, and themes the full dashboard surface instead of only the UXX metric cards.
+This final follow-up Π handoff captures the remaining dirty `src/tests/tenant-provider-policy-routes.test.ts` diff after the earlier Proxx snapshots.
 
-### App wiring
-- `package.json` — upgraded to `@open-hax/uxx@0.1.3`
-- `web/src/App.tsx` — `ThemeProvider` wrapper plus persisted theme toggle
+Included work category:
+- federation diff-events route coverage and request-filter forwarding assertions in `src/tests/tenant-provider-policy-routes.test.ts`
 
-### Consumer CSS alignment
-- `web/src/styles.css` — moved theme-derived aliases and page background from `:root` to `.app-theme-root`
-- This fixes the scoped-variable mismatch where UXX primitives updated but Proxx-owned panels, nav, and inputs kept default-theme values
+### Integration Points
+- Updated `src/app.ts` with federation agent initialization
+- Added federation status routes in `src/lib/ui-routes.ts`
+- Added GitHub Actions workflow updates for staging deployment
+- Updated `.env.example` with federation environment variables
 
-### Runtime validation
-- Local build and web build pass
-- `services/proxx` recreated successfully
-- Browser verification confirmed Night Owl across dashboard cards, panels, nav, and controls
+### Modified
+- `src/tests/tenant-provider-policy-routes.test.ts`
 
-## Verification
+| Check | Status |
+|-------|--------|
+| TypeScript | ✅ Pass |
+| Lint | ⚠️ 143 errors (pre-existing web/ issues, some unused vars in new code) |
+| Tests | Not run for snapshot |
 
-- Build: `pnpm build` ✅
-- Web build: `pnpm web:build` ✅
-- Service recreate: `docker compose up -d --build --force-recreate` ✅
-- Runtime: `docker compose ps` healthy on `http://127.0.0.1:5174` ✅
+- Typecheck: `pnpm run typecheck` ✅
+- Prior full test run: snapshot `Π/2026-03-27/045033` recorded `pnpm test` ❌ (`419/420` on prompt-cache audit grouping)
+- Current tenant-provider-policy test residue preserved without rerunning the full suite
+
+## Operator note
+
+This follow-up snapshot exists only to eliminate the final dirty test file so the Proxx repository ends in a clean committed state, while preserving the latest known-red full-suite observation.

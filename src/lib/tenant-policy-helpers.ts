@@ -1,7 +1,6 @@
-import { resolveRequestRoutingState } from "../../provider-routing.js";
+import { resolveRequestRoutingState } from "./provider-routing.js";
 
-export interface TenantSettings {
-  readonly allowedModels: readonly string[] | null;
+interface TenantSettings {
   readonly allowedProviderIds: readonly string[] | null;
   readonly disabledProviderIds: readonly string[] | null;
 }

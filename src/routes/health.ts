@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import type { AppDeps } from "../lib/app-deps.js";
-import { toErrorMessage } from "../lib/errors/index.js";
+import { toErrorMessage } from "../lib/provider-utils.js";
 
 export function registerHealthRoutes(deps: AppDeps, app: FastifyInstance): void {
   app.get("/health", async () => {

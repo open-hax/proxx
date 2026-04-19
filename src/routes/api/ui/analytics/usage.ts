@@ -37,6 +37,18 @@ interface UsageAccountSummary {
   readonly lastUsedAt: string | null;
 }
 
+function parseRequestLogRouteKind(value: string | undefined): RequestLogWsSubscription["routeKind"] {
+  const normalized = value?.trim().toLowerCase();
+  if (normalized === "local" || normalized === "federated" || normalized === "bridge" || normalized === "routed" || normalized === "any") {
+    return normalized;
+  }
+  return undefined;
+}
+
+interface RequestLogWsSubscription {
+  readonly routeKind?: "local" | "federated" | "bridge" | "routed" | "any";
+}
+
 interface TrendPoint {
   readonly t: string;
   readonly v: number;
@@ -160,6 +172,84 @@ export function toUsageWindow(value: unknown): UsageWindow {
   return "daily";
 }
 
+function sanitizeFederationUsageEntry(candidate: unknown): RequestLogEntry | undefined {
+  if (typeof candidate !== "object" || candidate === null) {
+    return undefined;
+  }
+
+  const row = candidate as Record<string, unknown>;
+  const id = typeof row.id === "string" ? row.id.trim() : "";
+  const providerId = typeof row.providerId === "string" ? row.providerId.trim() : "";
+  const accountId = typeof row.accountId === "string" ? row.accountId.trim() : "";
+  const authType = row.authType;
+  const model = typeof row.model === "string" ? row.model.trim() : "";
+  const upstreamMode = typeof row.upstreamMode === "string" ? row.upstreamMode.trim() : "";
+  const upstreamPath = typeof row.upstreamPath === "string" ? row.upstreamPath.trim() : "";
+  const timestamp = typeof row.timestamp === "number" && Number.isFinite(row.timestamp) ? row.timestamp : undefined;
+  const status = typeof row.status === "number" && Number.isFinite(row.status) ? row.status : undefined;
+  const latencyMs = typeof row.latencyMs === "number" && Number.isFinite(row.latencyMs) ? row.latencyMs : undefined;
+  const serviceTierSource = row.serviceTierSource;
+
+  if (!id || !providerId || !accountId || !model || !upstreamMode || !upstreamPath || timestamp === undefined || status === undefined || latencyMs === undefined) {
+    return undefined;
+  }
+
+  const normalizedAuthType: RequestLogEntry["authType"] =
+    authType === "api_key" || authType === "oauth_bearer" || authType === "local" || authType === "none"
+      ? authType
+      : "none";
+
+  const normalizedRouteKind: RequestLogEntry["routeKind"] =
+    row.routeKind === "local" || row.routeKind === "federated" || row.routeKind === "bridge"
+      ? row.routeKind
+      : "local";
+
+  const normalizedServiceTierSource: RequestLogEntry["serviceTierSource"] =
+    serviceTierSource === "fast_mode" || serviceTierSource === "explicit" || serviceTierSource === "none"
+      ? serviceTierSource
+      : "none";
+
+  return {
+    id,
+    timestamp,
+    tenantId: typeof row.tenantId === "string" ? row.tenantId : undefined,
+    issuer: typeof row.issuer === "string" ? row.issuer : undefined,
+    keyId: typeof row.keyId === "string" ? row.keyId : undefined,
+    routeKind: normalizedRouteKind,
+    federationOwnerSubject: typeof row.federationOwnerSubject === "string" ? row.federationOwnerSubject : undefined,
+    routedPeerId: typeof row.routedPeerId === "string" ? row.routedPeerId : undefined,
+    routedPeerLabel: typeof row.routedPeerLabel === "string" ? row.routedPeerLabel : undefined,
+    providerId,
+    accountId,
+    authType: normalizedAuthType,
+    model,
+    upstreamMode,
+    upstreamPath,
+    status,
+    latencyMs,
+    serviceTier: typeof row.serviceTier === "string" ? row.serviceTier : undefined,
+    serviceTierSource: normalizedServiceTierSource,
+    promptTokens: typeof row.promptTokens === "number" && Number.isFinite(row.promptTokens) ? row.promptTokens : undefined,
+    completionTokens: typeof row.completionTokens === "number" && Number.isFinite(row.completionTokens) ? row.completionTokens : undefined,
+    totalTokens: typeof row.totalTokens === "number" && Number.isFinite(row.totalTokens) ? row.totalTokens : undefined,
+    cachedPromptTokens: typeof row.cachedPromptTokens === "number" && Number.isFinite(row.cachedPromptTokens) ? row.cachedPromptTokens : undefined,
+    imageCount: typeof row.imageCount === "number" && Number.isFinite(row.imageCount) ? row.imageCount : undefined,
+    imageCostUsd: typeof row.imageCostUsd === "number" && Number.isFinite(row.imageCostUsd) ? row.imageCostUsd : undefined,
+    promptCacheKeyHash: typeof row.promptCacheKeyHash === "string" ? row.promptCacheKeyHash : undefined,
+    promptCacheKeyUsed: row.promptCacheKeyUsed === true,
+    cacheHit: row.cacheHit === true,
+    ttftMs: typeof row.ttftMs === "number" && Number.isFinite(row.ttftMs) ? row.ttftMs : undefined,
+    tps: typeof row.tps === "number" && Number.isFinite(row.tps) ? row.tps : undefined,
+    error: typeof row.error === "string" ? row.error : undefined,
+    upstreamErrorCode: typeof row.upstreamErrorCode === "string" ? row.upstreamErrorCode : undefined,
+    upstreamErrorType: typeof row.upstreamErrorType === "string" ? row.upstreamErrorType : undefined,
+    upstreamErrorMessage: typeof row.upstreamErrorMessage === "string" ? row.upstreamErrorMessage : undefined,
+    costUsd: typeof row.costUsd === "number" && Number.isFinite(row.costUsd) ? row.costUsd : undefined,
+    energyJoules: typeof row.energyJoules === "number" && Number.isFinite(row.energyJoules) ? row.energyJoules : undefined,
+    waterEvaporatedMl: typeof row.waterEvaporatedMl === "number" && Number.isFinite(row.waterEvaporatedMl) ? row.waterEvaporatedMl : undefined,
+  };
+}
+
 export function toSafeLimit(value: unknown, fallback: number, max: number): number {
   if (typeof value === "number" && Number.isFinite(value)) {
     return Math.max(1, Math.min(Math.floor(value), max));
@@ -185,7 +275,6 @@ function usageCount(value: number | undefined): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
-/** Returns `part` as a percentage of `total`, or 0 when `total` is non-positive. */
 function percentage(part: number, total: number): number {
   if (total <= 0) {
     return 0;
@@ -194,36 +283,25 @@ function percentage(part: number, total: number): number {
   return Number(((part / total) * 100).toFixed(2));
 }
 
-/**
- * Determines whether a request log entry represents a failed request.
- * Counts entries with HTTP error status (>= 400), an `error` string,
- * or an `upstreamErrorCode` (e.g. "stream_quota_error" on 200 OK responses
- * that carry a quota error in the SSE body).
- */
 function isRequestLogError(entry: {
   readonly status: number;
   readonly error?: string;
-  readonly upstreamErrorCode?: string;
 }): boolean {
-  return entry.status >= 400 || typeof entry.error === "string" || typeof entry.upstreamErrorCode === "string";
+  return entry.status >= 400 || typeof entry.error === "string";
 }
 
-/** Returns 1 when the entry used a prompt cache key and is not an error, otherwise 0. */
 function cacheKeyUseCountForEntry(entry: {
   readonly promptCacheKeyUsed?: boolean;
   readonly status: number;
   readonly error?: string;
-  readonly upstreamErrorCode?: string;
 }): number {
   return entry.promptCacheKeyUsed === true && !isRequestLogError(entry) ? 1 : 0;
 }
 
-/** Returns 1 when the entry had a cache hit and is not an error, otherwise 0. */
 function cacheHitCountForEntry(entry: {
   readonly cacheHit?: boolean;
   readonly status: number;
   readonly error?: string;
-  readonly upstreamErrorCode?: string;
 }): number {
   return entry.cacheHit === true && !isRequestLogError(entry) ? 1 : 0;
 }
@@ -1868,7 +1946,7 @@ export async function registerUsageAnalyticsRoutes(app: FastifyInstance, deps: U
   app.get<{
     Querystring: { readonly sort?: string; readonly window?: string; readonly tenantId?: string; readonly issuer?: string; readonly keyId?: string };
   }>("/api/ui/dashboard/overview", async (request, reply) => {
-    const auth = getResolvedAuth(request);
+    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
     if (!auth) {
       reply.code(401).send({ error: "unauthorized" });
       return;
@@ -1894,7 +1972,7 @@ export async function registerUsageAnalyticsRoutes(app: FastifyInstance, deps: U
   app.get<{
     Querystring: { readonly sort?: string; readonly window?: string; readonly tenantId?: string; readonly issuer?: string; readonly keyId?: string };
   }>("/api/ui/analytics/provider-model", async (request, reply) => {
-    const auth = getResolvedAuth(request);
+    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
     if (!auth) {
       reply.code(401).send({ error: "unauthorized" });
       return;

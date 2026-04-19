@@ -11,7 +11,7 @@ export async function registerPostTenantSelectUiRoute(
   options?: PrefixedRouteOptions,
 ): Promise<void> {
   app.post<{ Params: { readonly tenantId: string } }>(resolveSettingsRoutePath("/tenants/:tenantId/select", options), async (request, reply) => {
-    const auth = getResolvedAuth(request);
+    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
     if (!auth) {
       reply.code(401).send({ error: "unauthorized" });
       return;
