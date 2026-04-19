@@ -1,5 +1,5 @@
 (ns proxx.processor-test
-  (:require [cljs.test :refer [deftest is testing]]
+  (:require [cljs.test :refer [deftest is]]
             [proxx.processor :as p]))
 
 ;; ══════════════════════════════════════════════════════════════
