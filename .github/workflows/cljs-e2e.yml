@@ -55,9 +55,5 @@ jobs:
       - name: Compile e2e tests
         run: shadow-cljs compile node-e2e
 
-      # These tests are expected to FAIL (red phase).
-      # The job is allowed to fail so the PR still shows signal;
-      # flip continue-on-error to false once emitter is implemented.
-      - name: Run e2e tests (red phase — failures expected)
+      - name: Run e2e tests
         run: node target/node-e2e.cjs
-        continue-on-error: true

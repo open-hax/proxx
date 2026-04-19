@@ -17,12 +17,16 @@
 (defn-async fetch-completion [{:keys [base-url path]} payload]
   (js/Promise.
    (fn [resolve reject]
-     (let [http     (js/require "http")
-           url-mod  (js/require "url")
+     (let [url-mod  (js/require "url")
            parsed   (.parse url-mod base-url)
+           protocol (.-protocol parsed)
+           http     (if (= protocol "https:")
+                      (js/require "https")
+                      (js/require "http"))
            body-str (js/JSON.stringify (clj->js payload))
            opts     #js {:hostname (.-hostname parsed)
-                         :port     (or (.-port parsed) 80)
+                         :port     (or (.-port parsed)
+                                       (if (= protocol "https:") 443 80))
                          :path     path
                          :method   "POST"
                          :headers  #js {"content-type"   "application/json"
@@ -36,6 +40,10 @@
                                        (resolve {:status   (.-statusCode res)
                                                  :headers  (js->clj (.-headers res))
                                                  :body-str (.join (into-array @chunks) "")})))))]
+       (.setTimeout req 30000
+                    (fn []
+                      (.abort req)
+                      (reject (js/Error. "fetch-completion timeout"))))
        (.on req "error" reject)
        (.write req body-str)
        (.end req)))))
@@ -59,12 +67,15 @@
     :else
     (let [parsed (parse-json body-str)]
       (cond
+        (quota-body? body-str) {:outcome :quota-exhausted-in-body
+                                 :parsed  parsed}
         (nil? parsed)          {:outcome :unrecognized-schema}
-        (quota-body? body-str) {:outcome :quota-exhausted-in-body :parsed parsed}
         (and (:choices parsed)
              (= "length" (-> parsed :choices first :finish_reason)))
-        {:outcome :success :parsed parsed
-         :overflow? true :tokens-in (-> parsed :usage :prompt_tokens)}
+        {:outcome   :success
+         :parsed    parsed
+         :overflow? true
+         :tokens-in (-> parsed :usage :prompt_tokens)}
         (:choices parsed)      {:outcome :success :parsed parsed}
         :else                  {:outcome :unrecognized-schema :parsed parsed}))))
 
@@ -79,8 +90,16 @@
   (merge base {:outcome :success :parsed parsed}))
 
 (defn- handle-rate-limited [ledger-atom base resp]
-  (let [ra (some-> (get-in resp [:headers "retry-after"]) js/parseInt)
-        cu (+ (now-ms) (* (or ra 1800) 1000))]
+  (let [raw-ra (get-in resp [:headers "retry-after"])
+        ra-int (some-> raw-ra js/parseInt)
+        ra     (if (and ra-int (js/Number.isFinite ra-int))
+                 ra-int
+                 (let [parsed-date (some-> raw-ra js/Date.parse)]
+                   (if (and parsed-date (js/Number.isFinite parsed-date))
+                     (let [now-sec (/ (now-ms) 1000)]
+                       (max 0 (- (/ parsed-date 1000) now-sec)))
+                     1800)))
+        cu (+ (now-ms) (* ra 1000))]
     (append! ledger-atom
              (merge base {:event-type     :account-cooldown-initiated
                           :reason         :quota-short
@@ -177,10 +196,12 @@
 (defonce ^:private session-states (atom {}))
 
 (defn-async route! [{:keys [providers ledger session-id harness-id cache-key]} req]
-  (let [messages (:messages req [])
-        s-state  (get (swap! session-states update session-id #(or % (atom {})))
-                      session-id)
-        first?   (nil? (get @s-state :last-message-count))]
+  (let [messages      (:messages req [])
+        composite-key [ledger harness-id session-id]
+        s-state       (get (swap! session-states
+                                  update composite-key #(or % (atom {})))
+                           composite-key)
+        first?        (nil? (get @s-state :last-message-count))]
     (when first?
       (when-let [p (first providers)]
         (append! ledger
@@ -193,4 +214,6 @@
                   :account-id        (:account-id p)
                   :model-id          (:model-id p)})))
     (detect-churn! ledger s-state session-id messages)
+    (when (:session-complete @s-state)
+      (swap! session-states dissoc composite-key))
     (try-providers ledger (vec providers) session-id req 0 nil)))
