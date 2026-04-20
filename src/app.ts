@@ -596,14 +596,8 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     });
   }
 
-  app.get("/", async (request, reply) => {
-    reply.header("content-type", "text/html; charset=utf-8");
-    reply.send(renderPublicLandingPage(request));
-  });
-
-  app.get("/favicon.ico", async (_request, reply) => {
-    reply.code(204).send();
-  });
+  // NOTE: the UI router owns GET / (and friends) to serve the SPA.
+  // Defining it here would duplicate routes and break app construction.
 
   const uiBridgeRelay = await registerUiRoutes(app, {
     config,
