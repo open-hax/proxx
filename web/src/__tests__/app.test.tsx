@@ -16,6 +16,11 @@ vi.mock("../lib/api", async (importOriginal) => {
       }
       return { fastMode: false };
     }),
+    listCredentials: vi.fn(async () => ({ providers: [], keyPoolStatuses: {}, requestLogSummary: {} })),
+    getDisabledAccounts: vi.fn(async () => ({ disabledAccounts: [] })),
+    listRequestLogs: vi.fn(async () => ([])),
+    getOpenAiCredentialQuota: vi.fn(async () => ({ generatedAt: new Date().toISOString(), accounts: [] })),
+    getOpenAiPromptCacheAudit: vi.fn(async () => ({ generatedAt: new Date().toISOString(), scannedEntryCount: 0, distinctHashCount: 0, crossAccountHashCount: 0, crossSuccessfulAccountHashCount: 0, rows: [] })),
   };
 });
 
@@ -45,5 +50,15 @@ describe("App", () => {
     );
 
     expect(await screen.findByText("Welcome to Proxx")).toBeInTheDocument();
+  });
+
+  it("renders credentials page without crashing (guards against missing refreshDisabledAccounts)", async () => {
+    render(
+      <MemoryRouter initialEntries={["/credentials"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("Credentials Manager")).toBeInTheDocument();
   });
 });

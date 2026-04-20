@@ -377,6 +377,7 @@ export function CredentialsPage(): JSX.Element {
   const [providers, setProviders] = useState<CredentialProvider[]>([]);
   const [keyPoolStatuses, setKeyPoolStatuses] = useState<Record<string, KeyPoolStatus>>({});
   const [requestLogSummary, setRequestLogSummary] = useState<Record<string, ProviderRequestLogSummary>>({});
+  const [disabledAccounts, setDisabledAccounts] = useState<ReadonlyArray<{ readonly providerId: string; readonly accountId: string }>>([]);
   const [logs, setLogs] = useState<RequestLogEntry[]>([]);
   const [selectedProvider, setSelectedProvider] = useStoredState(LS_CREDENTIALS_LOG_PROVIDER, "", validateString);
   const [selectedAccount, setSelectedAccount] = useStoredState(LS_CREDENTIALS_LOG_ACCOUNT, "", validateString);
@@ -409,6 +410,19 @@ export function CredentialsPage(): JSX.Element {
     setRequestLogSummary(payload.requestLogSummary);
   }, [revealSecrets]);
 
+  const refreshDisabledAccounts = useCallback(async () => {
+    const payload = await getDisabledAccounts();
+    setDisabledAccounts(payload.disabledAccounts);
+  }, []);
+
+  const disabledAccountKeySet = useMemo(() => {
+    const keys = new Set<string>();
+    for (const entry of disabledAccounts) {
+      keys.add(`${entry.providerId}:${entry.accountId}`);
+    }
+    return keys;
+  }, [disabledAccounts]);
+
   const refreshLogs = useCallback(async () => {
     const entries = await listRequestLogs({
       providerId: selectedProvider || undefined,
@@ -440,6 +454,34 @@ export function CredentialsPage(): JSX.Element {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
     }
   }, []);
+
+  const handleDisableAccount = useCallback(async (providerId: string, accountId: string, displayName: string) => {
+    if (!window.confirm(`Disable account "${displayName}" (${providerId}/${accountId})?`)) {
+      return;
+    }
+
+    setError(null);
+
+    try {
+      await disableAccount(providerId, accountId);
+      setStatus(`Disabled account ${displayName}.`);
+      await Promise.all([refreshDisabledAccounts(), refreshCredentials(), refreshQuota()]);
+    } catch (disableError) {
+      setError(disableError instanceof Error ? disableError.message : String(disableError));
+    }
+  }, [refreshCredentials, refreshDisabledAccounts, refreshQuota]);
+
+  const handleEnableAccount = useCallback(async (providerId: string, accountId: string, displayName: string) => {
+    setError(null);
+
+    try {
+      await enableAccount(providerId, accountId);
+      setStatus(`Enabled account ${displayName}.`);
+      await Promise.all([refreshDisabledAccounts(), refreshCredentials(), refreshQuota()]);
+    } catch (enableError) {
+      setError(enableError instanceof Error ? enableError.message : String(enableError));
+    }
+  }, [refreshCredentials, refreshDisabledAccounts, refreshQuota]);
 
   useEffect(() => {
     void refreshCredentials().catch((nextError) => {
@@ -1146,6 +1188,7 @@ export function CredentialsPage(): JSX.Element {
   const renderAccountTile = (entry: AccountEntry, showProviderBadge: boolean) => {
     const { account, providerId } = entry;
     const accountKey = `${providerId}:${account.id}`;
+    const isAccountDisabled = disabledAccountKeySet.has(accountKey);
     const quota = quotaByAccount.get(accountKey);
     const diagnostics = accountDiagnostics.byAccount.get(accountKey);
     const planLabel = titleCasePlan(quota?.planType ?? account.planType);
