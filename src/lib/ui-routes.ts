@@ -1223,7 +1223,12 @@ export async function registerUiRoutes(app: FastifyInstance, deps: UiRouteDepend
         .filter((entry) => entry.length > 0)
       : [];
 
-    const maxRequestsPerMinute = parseOptionalRequestsPerMinute(request.body?.maxRequestsPerMinute);
+    const parsedMaxRequestsPerMinute = parseOptionalRequestsPerMinute(request.body?.maxRequestsPerMinute);
+    if (request.body?.maxRequestsPerMinute !== undefined && parsedMaxRequestsPerMinute === undefined) {
+      reply.code(400).send({ error: "invalid_max_requests_per_minute" });
+      return;
+    }
+    const maxRequestsPerMinute = parsedMaxRequestsPerMinute === null ? undefined : parsedMaxRequestsPerMinute;
     const maxConcurrentRequests = parseOptionalPositiveInteger(request.body?.maxConcurrentRequests);
     const warmImportThreshold = parseOptionalPositiveInteger(request.body?.warmImportThreshold);
     const notes = typeof request.body?.notes === "string" ? request.body.notes : undefined;
