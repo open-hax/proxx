@@ -216,7 +216,7 @@ export function registerChatRoutes(deps: AppDeps, app: FastifyInstance): void {
       if (strategy.mode === "ollama_chat" || strategy.mode === "local_ollama_chat") {
         const candidateRequestBody = payload.upstreamPayload;
         if (isRecord(candidateRequestBody) && !requestHasExplicitNumCtx(requestBody)) {
-          const ollamaUrl = providerRoutes.length > 0 ? providerRoutes[0]!.baseUrl : deps.config.ollamaBaseUrl;
+          const ollamaUrl = deps.config.ollamaBaseUrl;
           const budget = await ensureOllamaContextFits(ollamaUrl, candidateRequestBody, Math.min(deps.config.requestTimeoutMs, 30_000));
           if (budget && budget.requiredContextTokens > budget.availableContextTokens) {
             if (hasMoreModelCandidates) {
@@ -234,7 +234,7 @@ export function registerChatRoutes(deps: AppDeps, app: FastifyInstance): void {
         }
       }
 
-      if (strategy.isLocal && providerRoutes.length === 0) {
+      if (strategy.isLocal) {
         if (!tenantProviderAllowed(proxySettings, "ollama")) {
           if (hasMoreModelCandidates) {
             continue;

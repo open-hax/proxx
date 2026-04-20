@@ -26,10 +26,19 @@ export function resolveFederationHopCount(headers: Record<string, unknown>): num
 
 export function resolveFederationOwnerSubject(input: {
   readonly headers: Record<string, unknown>;
-  readonly requestAuth?: { readonly kind?: string; readonly subject?: string };
+  readonly requestAuth?: { readonly kind?: string; readonly subject?: string; readonly tenantId?: string };
   readonly hopCount?: number;
 }): string | undefined {
   const explicitHeader = readSingleHeader(input.headers, FEDERATION_OWNER_SUBJECT_HEADER)?.trim();
+
+  if (input.requestAuth?.kind === "tenant_api_key") {
+    const tenantId = input.requestAuth.tenantId?.trim();
+    if (explicitHeader) {
+      return tenantId && explicitHeader === tenantId ? explicitHeader : undefined;
+    }
+    return tenantId || undefined;
+  }
+
   if (explicitHeader && ((input.hopCount ?? 0) > 0 || input.requestAuth?.kind === "legacy_admin")) {
     return explicitHeader;
   }

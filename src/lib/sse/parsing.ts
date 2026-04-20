@@ -98,6 +98,14 @@ export function streamPayloadHasReasoningTrace(payload: string): boolean {
         }
       }
 
+      if (type === "response.reasoning_summary_part.added") {
+        const part = isRecord(parsed["part"]) ? parsed["part"] : null;
+        const text = part ? asString(part["text"]) : undefined;
+        if (text && text.length > 0) {
+          return true;
+        }
+      }
+
       if (type === "response.output_item.added") {
         const item = isRecord(parsed["item"]) ? parsed["item"] : null;
         if (item && asString(item["type"]) === "reasoning") {

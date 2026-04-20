@@ -2,9 +2,8 @@ import type { ProxyConfig } from "./config.js";
 import type { KeyPool, ProviderCredential } from "./key-pool.js";
 import type { ProviderRoute, ResolvedModelCatalog } from "./provider-routing.js";
 import { parseModelIdsFromCatalogPayload, buildLargestModelAliases, dedupeModelIds } from "./provider-routing.js";
-import { fetchWithResponseTimeout } from "./http/index.js";
+import { fetchWithResponseTimeout, joinUrl } from "./http/index.js";
 import { loadDeclaredModels, loadModelPreferences, type ModelPreferences } from "./models.js";
-import { joinUrl } from "./http/index.js";
 
 const DEFAULT_CATALOG_ROUTE_TIMEOUT_MS = 15_000;
 
@@ -285,9 +284,7 @@ export class ProviderCatalogStore {
         if (signal?.aborted) {
           return [];
         }
-        const normalizedBase = route.baseUrl.replace(/\/+$/, "");
-        const normalizedPath = candidatePath.startsWith("/") ? candidatePath : `/${candidatePath}`;
-        const url = `${normalizedBase}${normalizedPath}`;
+        const url = joinUrl(route.baseUrl, candidatePath);
         let response: Response;
         try {
           response = await fetchWithResponseTimeout(url, {

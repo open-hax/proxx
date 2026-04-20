@@ -31,8 +31,16 @@ export function tenantModelAllowed(settings: TenantSettings, model: string): boo
       return true;
     }
     // Support ollama prefix normalization: "ollama/model:tag" matches "model:tag"
-    const withoutOllamaPrefix = normalized.startsWith("ollama/") ? normalized.slice(7) : normalized.startsWith("ollama:") ? normalized.slice(6) : normalized;
-    const allowedWithoutPrefix = allowedNormalized.startsWith("ollama/") ? allowedNormalized.slice(7) : allowedNormalized.startsWith("ollama:") ? allowedNormalized.slice(6) : allowedNormalized;
+    const withoutOllamaPrefix = normalized.startsWith("ollama/")
+      ? normalized.slice(7)
+      : normalized.startsWith("ollama:")
+        ? normalized.slice(7)
+        : normalized;
+    const allowedWithoutPrefix = allowedNormalized.startsWith("ollama/")
+      ? allowedNormalized.slice(7)
+      : allowedNormalized.startsWith("ollama:")
+        ? allowedNormalized.slice(7)
+        : allowedNormalized;
     if (withoutOllamaPrefix === allowedWithoutPrefix) {
       return true;
     }

@@ -473,6 +473,18 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     _otelSpan: TelemetrySpan | null;
   };
 
+  const tenantRpmWindow = new Map<string, { windowStartMs: number; count: number }>();
+  const RATE_LIMITED_TENANT_PATHS = new Set<string>([
+    "/v1/chat/completions",
+    "/v1/responses",
+    "/v1/images/generations",
+    "/v1/embeddings",
+    "/api/chat",
+    "/api/generate",
+    "/api/embed",
+    "/api/embeddings",
+  ]);
+
   app.decorateRequest("openHaxAuth", null);
   app.decorateRequest("_otelSpan", null);
 
@@ -549,8 +561,39 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     decoratedRequest.openHaxAuth = resolvedAuth ?? null;
 
     if (!resolvedAuth && !config.allowUnauthenticated) {
-      reply.code(401).send({ error: "unauthorized" });
+      sendOpenAiError(reply, 401, "Unauthorized", "invalid_request_error", "unauthorized");
       return;
+    }
+
+    const tenantId = resolvedAuth?.tenantId;
+    if (tenantId && request.method === "POST") {
+      const path = (request.raw.url ?? request.url).split("?", 1)[0] ?? request.url;
+      if (RATE_LIMITED_TENANT_PATHS.has(path)) {
+        const settings = await proxySettingsStore.getForTenant(tenantId);
+        const requestsPerMinute = settings.requestsPerMinute;
+        if (typeof requestsPerMinute === "number" && Number.isFinite(requestsPerMinute) && requestsPerMinute > 0) {
+          const now = Date.now();
+          const windowMs = 60_000;
+          const entry = tenantRpmWindow.get(tenantId);
+          const windowStartMs = entry && now - entry.windowStartMs < windowMs ? entry.windowStartMs : now;
+          const count = entry && windowStartMs === entry.windowStartMs ? entry.count : 0;
+
+          if (count >= requestsPerMinute) {
+            const retryAfterSeconds = Math.ceil((windowStartMs + windowMs - now) / 1000);
+            reply.header("retry-after", Math.max(1, retryAfterSeconds));
+            sendOpenAiError(
+              reply,
+              429,
+              "Tenant requests-per-minute quota exceeded.",
+              "rate_limit_error",
+              "tenant_quota_exceeded",
+            );
+            return;
+          }
+
+          tenantRpmWindow.set(tenantId, { windowStartMs, count: count + 1 });
+        }
+      }
     }
   });
 

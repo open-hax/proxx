@@ -12,6 +12,15 @@ export function registerModelsRoutes(deps: AppDeps, app: FastifyInstance): void 
     });
   });
 
+  // Native Ollama-compatible catalog endpoint.
+  app.get("/api/tags", async (_request, reply) => {
+    const catalogBundle = await deps.providerCatalogStore.getCatalog();
+    const modelIds = catalogBundle.catalog.modelIds;
+    reply.send({
+      models: modelIds.map((name) => ({ name })),
+    });
+  });
+
   app.get<{ Params: { model: string } }>("/v1/models/:model", async (request, reply) => {
     const modelIds = await deps.getMergedModelIds();
     const model = modelIds.find((entry) => entry === request.params.model);

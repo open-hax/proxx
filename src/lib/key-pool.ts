@@ -402,6 +402,14 @@ function readProvidersFromEnv(): Map<string, ProviderState> {
     );
   }
 
+  const rotussyKey = (process.env.ROTUSSY_API_KEY ?? "").trim();
+  if (rotussyKey) {
+    providers.set(
+      normalizeProviderId(process.env.ROTUSSY_PROVIDER_ID ?? "rotussy"),
+      createEnvProviderState(process.env.ROTUSSY_PROVIDER_ID ?? "rotussy", rotussyKey),
+    );
+  }
+
   const requestyKey = (process.env.REQUESTY_API_TOKEN ?? process.env.REQUESTY_API_KEY ?? "").trim();
   if (requestyKey) {
     providers.set(

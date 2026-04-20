@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { access, readFile } from "node:fs/promises";
 import type { Duplex } from "node:stream";
 
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 
 import type { UiRouteDependencies } from "../routes/types.js";
 import type { CredentialStoreLike } from "./credential-store.js";
@@ -41,6 +41,7 @@ import {
   parseBoolean,
   parseOptionalProviderIds,
   parseOptionalRequestsPerMinute,
+  parseOptionalPositiveInteger,
   readCookieValue,
   toVisibleTenants,
 } from "../routes/shared/ui-auth.js";
@@ -50,16 +51,21 @@ import { shouldWarmImportProjectedAccount } from "./db/sql-federation-store.js";
 import { normalizeTenantId, DEFAULT_TENANT_ID } from "./tenant-api-key.js";
 import type { FederationBridgeRelay } from "./federation/bridge-relay.js";
 import type { RequestLogWsSubscription } from "./observability/request-log-ws-hub.js";
+import {
+  normalizeTenantProviderKind,
+  normalizeTenantProviderShareMode,
+  normalizeTenantProviderTrustTier,
+} from "./tenant-provider-policy.js";
 import { registerUsageAnalyticsRoutes, toUsageWindow, resolveUsageScopeFromAuth, buildUsageOverview, buildProviderModelAnalytics } from "../routes/api/ui/analytics/usage.js";
 import { registerHostDashboardRoutes } from "../routes/api/ui/hosts/index.js";
 import { registerEventRoutes } from "../routes/api/ui/events/index.js";
 import { registerMcpSeedRoutes } from "../routes/api/ui/mcp/index.js";
 import { registerStaticAssetRoutes } from "../routes/api/ui/assets.js";
 import { registerWebSocketRoutes } from "../routes/api/ui/ws.js";
-import { htmlError, htmlSuccess, inferBaseUrl, createCredentialRouteContext } from "../routes/credentials/context.js";
+import { htmlError, htmlSuccess, inferBaseUrl, createCredentialRouteContext, resolveOpenAiProbeEndpoint } from "../routes/credentials/context.js";
 import { OpenAiOAuthManager } from "./openai-oauth.js";
 import { FactoryOAuthManager } from "./factory-oauth.js";
-import { fetchOpenAiQuotaSnapshots } from "./openai-quota.js";
+import { fetchOpenAiQuotaSnapshots, probeOpenAiAccount } from "./openai-quota.js";
 
 
 
@@ -895,6 +901,11 @@ export async function registerUiRoutes(app: FastifyInstance, deps: UiRouteDepend
       return;
     }
 
+    if (account.authType === "oauth_bearer") {
+      reply.send({ account: { ...account, refreshToken: undefined } });
+      return;
+    }
+
     reply.send({ account });
   });
 
@@ -1111,6 +1122,15 @@ export async function registerUiRoutes(app: FastifyInstance, deps: UiRouteDepend
       return;
     }
 
+    const existing = await deps.sqlFederationStore.getProjectedAccount({ sourcePeerId, providerId, accountId });
+    if (existing && !projectedAccountAllowsCredentialImport(existing)) {
+      reply.code(409).send({
+        error: "credential_non_importable",
+        detail: "oauth_bearer projected accounts are route-only and cannot be marked imported",
+      });
+      return;
+    }
+
     const account = await deps.sqlFederationStore.markProjectedAccountImported({ sourcePeerId, providerId, accountId });
     if (!account) {
       reply.code(404).send({ error: "projected_account_not_found" });
@@ -1131,6 +1151,99 @@ export async function registerUiRoutes(app: FastifyInstance, deps: UiRouteDepend
     });
 
     reply.send({ account });
+  });
+
+  app.get<{
+    Querystring: { readonly ownerSubject?: string; readonly subjectDid?: string };
+  }>("/api/ui/federation/tenant-provider-policies", async (request, reply) => {
+    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
+    if (!authCanManageFederation(auth)) {
+      reply.code(auth ? 403 : 401).send({ error: auth ? "forbidden" : "unauthorized" });
+      return;
+    }
+
+    if (!deps.sqlTenantProviderPolicyStore) {
+      reply.code(503).send({ error: "tenant_provider_policy_store_not_supported" });
+      return;
+    }
+
+    const ownerSubject = typeof request.query.ownerSubject === "string" && request.query.ownerSubject.trim().length > 0
+      ? request.query.ownerSubject.trim()
+      : undefined;
+    const subjectDid = typeof request.query.subjectDid === "string" && request.query.subjectDid.trim().length > 0
+      ? request.query.subjectDid.trim()
+      : undefined;
+
+    const policies = await deps.sqlTenantProviderPolicyStore.listPolicies({ ownerSubject, subjectDid });
+    reply.send({ policies });
+  });
+
+  app.post<{
+    Body: {
+      readonly subjectDid?: string;
+      readonly providerId?: string;
+      readonly providerKind?: string;
+      readonly ownerSubject?: string;
+      readonly shareMode?: string;
+      readonly trustTier?: string;
+      readonly allowedModels?: readonly string[];
+      readonly maxRequestsPerMinute?: number | string | null;
+      readonly maxConcurrentRequests?: number | string;
+      readonly encryptedChannelRequired?: boolean;
+      readonly warmImportThreshold?: number | string;
+      readonly notes?: string;
+    };
+  }>("/api/ui/federation/tenant-provider-policies", async (request, reply) => {
+    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
+    if (!authCanManageFederation(auth)) {
+      reply.code(auth ? 403 : 401).send({ error: auth ? "forbidden" : "unauthorized" });
+      return;
+    }
+
+    if (!deps.sqlTenantProviderPolicyStore) {
+      reply.code(503).send({ error: "tenant_provider_policy_store_not_supported" });
+      return;
+    }
+
+    const subjectDid = typeof request.body?.subjectDid === "string" ? request.body.subjectDid.trim() : "";
+    const providerId = typeof request.body?.providerId === "string" ? request.body.providerId.trim() : "";
+    const ownerSubject = typeof request.body?.ownerSubject === "string" ? request.body.ownerSubject.trim() : "";
+    if (!subjectDid || !providerId || !ownerSubject) {
+      reply.code(400).send({ error: "subject_did_provider_id_and_owner_subject_required" });
+      return;
+    }
+
+    const providerKind = normalizeTenantProviderKind(request.body?.providerKind) ?? "local_upstream";
+    const shareMode = normalizeTenantProviderShareMode(request.body?.shareMode) ?? "deny";
+    const trustTier = normalizeTenantProviderTrustTier(request.body?.trustTier) ?? "less_trusted";
+    const allowedModels = Array.isArray(request.body?.allowedModels)
+      ? request.body.allowedModels
+        .filter((entry): entry is string => typeof entry === "string")
+        .map((entry) => entry.trim())
+        .filter((entry) => entry.length > 0)
+      : [];
+
+    const maxRequestsPerMinute = parseOptionalRequestsPerMinute(request.body?.maxRequestsPerMinute);
+    const maxConcurrentRequests = parseOptionalPositiveInteger(request.body?.maxConcurrentRequests);
+    const warmImportThreshold = parseOptionalPositiveInteger(request.body?.warmImportThreshold);
+    const notes = typeof request.body?.notes === "string" ? request.body.notes : undefined;
+
+    const policy = await deps.sqlTenantProviderPolicyStore.upsertPolicy({
+      subjectDid,
+      providerId,
+      providerKind,
+      ownerSubject,
+      shareMode,
+      trustTier,
+      allowedModels,
+      maxRequestsPerMinute,
+      maxConcurrentRequests,
+      encryptedChannelRequired: request.body?.encryptedChannelRequired ?? false,
+      warmImportThreshold,
+      notes,
+    });
+
+    reply.code(201).send({ policy });
   });
 
   app.get<{
@@ -1464,6 +1577,36 @@ export async function registerUiRoutes(app: FastifyInstance, deps: UiRouteDepend
     });
 
     reply.send(overview);
+  });
+
+  app.post<{
+    Body: { readonly accountId?: string };
+  }>("/api/ui/credentials/openai/probe", async (request, reply) => {
+    const accountId = typeof request.body?.accountId === "string" && request.body.accountId.trim().length > 0
+      ? request.body.accountId.trim()
+      : "";
+
+    if (!accountId) {
+      reply.code(400).send({ error: "account_id_required" });
+      return;
+    }
+
+    try {
+      const probeEndpoint = resolveOpenAiProbeEndpoint(deps.config);
+      const result = await probeOpenAiAccount(credentialStore, {
+        providerId: deps.config.openaiProviderId,
+        accountId,
+        openAiBaseUrl: probeEndpoint.openAiBaseUrl,
+        openAiResponsesPath: probeEndpoint.openAiResponsesPath,
+        logger: app.log,
+      });
+
+      reply.send(result);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      const statusCode = detail.startsWith("OpenAI account not found:") ? 404 : 500;
+      reply.code(statusCode).send({ error: statusCode === 404 ? "account_not_found" : "openai_probe_failed", detail });
+    }
   });
 
   app.post<{
@@ -1855,9 +1998,86 @@ export async function registerUiRoutes(app: FastifyInstance, deps: UiRouteDepend
     reply.send(await readFile(filePath));
   });
 
-  const sendUiIndex = async (reply: { type: (value: string) => void; send: (value: unknown) => void }) => {
+  function inferWebConsoleUrl(request: FastifyRequest): string {
+    const forwardedHost = typeof request.headers["x-forwarded-host"] === "string" ? request.headers["x-forwarded-host"].trim() : undefined;
+    const hostHeader = typeof request.headers.host === "string" ? request.headers.host.trim() : undefined;
+    const host = forwardedHost || hostHeader || "localhost";
+    const forwardedProto = typeof request.headers["x-forwarded-proto"] === "string" ? request.headers["x-forwarded-proto"].trim() : undefined;
+    const protocol = forwardedProto || request.protocol || "http";
+    const webPort = (process.env.PROXY_WEB_PORT ?? "5174").trim() || "5174";
+
+    let hostname = "localhost";
+    try {
+      hostname = new URL(`http://${host}`).hostname || "localhost";
+    } catch {
+      hostname = host.split(":", 1)[0] || "localhost";
+    }
+
+    return `${protocol}://${hostname}:${webPort}`;
+  }
+
+  function escapeHtml(value: string): string {
+    return value
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#39;");
+  }
+
+  function renderPublicLandingPage(request: FastifyRequest): string {
+    const webUrl = inferWebConsoleUrl(request);
+    const safeWebUrl = escapeHtml(webUrl);
+
+    return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Open Hax OpenAI Proxy</title>
+    <style>
+      body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; padding: 2rem; line-height: 1.5; }
+      code { background: #f4f4f5; padding: 0.15rem 0.35rem; border-radius: 4px; }
+    </style>
+  </head>
+  <body>
+    <h1>Open Hax OpenAI Proxy</h1>
+    <p>OpenAI-compatible proxy with a web console.</p>
+    <h2>Proxy Token</h2>
+    <p>
+      This proxy is protected by a <strong>Proxy Token</strong>. Add it to every request as an Authorization header:
+      <code>Authorization: Bearer &lt;Proxy Token&gt;</code>.
+    </p>
+    <ul>
+      <li>Web console: <a href="${safeWebUrl}">${safeWebUrl}</a></li>
+      <li>Health: <code>/health</code></li>
+      <li>Models: <code>/v1/models</code></li>
+      <li>Chat: <code>/v1/chat/completions</code></li>
+      <li>Responses: <code>/v1/responses</code></li>
+      <li>Images: <code>/v1/images/generations</code></li>
+      <li>Embeddings: <code>/v1/embeddings</code></li>
+    </ul>
+  </body>
+</html>`;
+  }
+
+  const sendUiIndexWithRootFallback = async (request: FastifyRequest, reply: { type: (value: string) => void; send: (value: unknown) => void }) => {
+    const authEnabled = Boolean(deps.config.proxyAuthToken) && deps.config.allowUnauthenticated !== true;
+
+    if (request.url === "/" && authEnabled) {
+      reply.type("text/html; charset=utf-8");
+      reply.send(renderPublicLandingPage(request));
+      return;
+    }
+
     const html = await loadUiIndexHtml();
     if (!html) {
+      if (request.url === "/") {
+        reply.type("text/html; charset=utf-8");
+        reply.send(renderPublicLandingPage(request));
+        return;
+      }
+
       reply.send({ ok: true, name: "open-hax-openai-proxy", version: "0.1.0" });
       return;
     }
@@ -1866,9 +2086,13 @@ export async function registerUiRoutes(app: FastifyInstance, deps: UiRouteDepend
     reply.send(html);
   };
 
-  for (const path of ["/", "/chat", "/images", "/credentials", "/tools", "/hosts"] as const) {
-    app.get(path, async (_request, reply) => {
-      await sendUiIndex(reply);
+  app.get("/", async (request, reply) => {
+    await sendUiIndexWithRootFallback(request, reply);
+  });
+
+  for (const path of ["/chat", "/images", "/credentials", "/tools", "/hosts"] as const) {
+    app.get(path, async (request, reply) => {
+      await sendUiIndexWithRootFallback(request, reply);
     });
   }
 

@@ -477,6 +477,11 @@ function providerSupportsOpenAiCompatibleApi(providerId: string, openAiProviderI
 
 export function providerSupportsResponsesApi(providerId: string, openAiProviderId?: string): boolean {
   const normalized = providerId.trim().toLowerCase();
+  // rotussy doesn't implement the native Responses API, but we can satisfy /v1/responses
+  // by rewriting to /v1/chat/completions via ResponsesViaChatCompletionsStrategy.
+  if (normalized === "rotussy") {
+    return true;
+  }
   if (OPENAI_COMPATIBLE_API_PROVIDERS.has(normalized)) {
     return true;
   }
