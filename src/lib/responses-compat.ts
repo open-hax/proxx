@@ -1947,6 +1947,7 @@ function materializeResponsesEventPayloads(
     return undefined;
   }
 
+  const existingOutputText = asString(snapshot["output_text"]) ?? "";
   const outputTextParts: string[] = [];
   for (const item of ensureOutputArray(snapshot)) {
     if (!isRecord(item) || asString(item["type"]) !== "message" || asString(item["role"]) !== "assistant") {
@@ -1960,7 +1961,8 @@ function materializeResponsesEventPayloads(
       }
     }
   }
-  snapshot["output_text"] = outputTextParts.join("");
+  const derivedOutputText = outputTextParts.join("");
+  snapshot["output_text"] = derivedOutputText.length > 0 ? derivedOutputText : existingOutputText;
 
   return snapshot;
 }

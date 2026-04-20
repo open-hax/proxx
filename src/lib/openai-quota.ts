@@ -537,6 +537,31 @@ async function fetchUsagePayload(
   throw new Error(quotaErrorMessage(primary.status, primary.text));
 }
 
+export async function fetchOpenAiRateLimitCooldownMsForToken(
+  accessToken: string,
+  chatgptAccountId: string | undefined,
+  fetchFn: typeof fetch,
+): Promise<number | undefined> {
+  const { payload } = await fetchUsagePayload(accessToken, chatgptAccountId, fetchFn);
+  if (!isRecord(payload)) {
+    return undefined;
+  }
+
+  const usage = isRecord(payload.usage) ? payload.usage : payload;
+  const rateLimit = isRecord(usage.rate_limit) ? usage.rate_limit : undefined;
+  const primary = isRecord(rateLimit?.primary_window) ? rateLimit?.primary_window : undefined;
+  const resetAfterSeconds = asNumber(primary?.reset_after_seconds)
+    ?? asNumber(primary?.resetAfterSeconds)
+    ?? asNumber(primary?.reset_after)
+    ?? asNumber(primary?.resetAfter);
+
+  if (typeof resetAfterSeconds !== "number" || !Number.isFinite(resetAfterSeconds)) {
+    return undefined;
+  }
+
+  return Math.max(0, Math.round(resetAfterSeconds * 1000));
+}
+
 function normalizePlanType(payload: unknown, fallback?: string): string | undefined {
   if (!isRecord(payload)) {
     return fallback;

@@ -18,6 +18,7 @@ import {
 import {
   responsesEventStreamToErrorPayload,
 } from "../../responses-compat.js";
+import { fetchOpenAiRateLimitCooldownMsForToken } from "../../openai-quota.js";
 import type { ProviderRoute } from "../../provider-routing.js";
 import { fetchWithResponseTimeout } from "../../http/index.js";
 import {
@@ -196,6 +197,10 @@ export async function executeProviderRoutingPlan(
   quotaMonitor?: QuotaMonitor,
 ): Promise<ProviderFallbackExecutionResult> {
   const accumulator = createAccumulator();
+
+  // Cache per-request OpenAI quota cooldown lookups so we don't hammer the
+  // `wham/usage` endpoint when multiple retries happen in a single request.
+  const openAiQuotaCooldownCache = new Map<string, number>();
 
   const deps: FallbackDeps = {
     strategy, reply, requestLogStore, promptAffinityStore, providerRoutePheromoneStore,
@@ -610,15 +615,50 @@ export async function executeProviderRoutingPlan(
             }
           }
 
+          const isOpenAiOauthAccount = candidate.providerId === context.config.openaiProviderId
+            && candidate.account.authType === "oauth_bearer";
+
           let cooldownMs: number | undefined;
+          let cooldownIsExplicit = false;
           if (quotaMonitor) {
             cooldownMs = quotaMonitor.getCooldownMs(candidate.account.accountId);
+            cooldownIsExplicit = typeof cooldownMs === "number" && Number.isFinite(cooldownMs) && cooldownMs > 0;
           }
+
           if (!cooldownMs) {
             cooldownMs = await extractRateLimitCooldownMs(upstreamResponse);
+            cooldownIsExplicit = typeof cooldownMs === "number" && Number.isFinite(cooldownMs) && cooldownMs > 0;
           }
+
+          // For OpenAI OAuth accounts, a generic 429 often represents a quota/limit
+          // window. If we don't have an explicit retry-after, refresh the quota
+          // snapshot and cool down until the reset window.
+          if (!cooldownMs && isOpenAiOauthAccount) {
+            const cached = openAiQuotaCooldownCache.get(candidate.account.accountId);
+            if (typeof cached === "number" && Number.isFinite(cached) && cached > 0) {
+              cooldownMs = cached;
+              cooldownIsExplicit = true;
+            } else {
+              try {
+                const fetched = await fetchOpenAiRateLimitCooldownMsForToken(
+                  candidate.account.token,
+                  candidate.account.chatgptAccountId,
+                  fetch,
+                );
+                if (typeof fetched === "number" && Number.isFinite(fetched) && fetched > 0) {
+                  openAiQuotaCooldownCache.set(candidate.account.accountId, fetched);
+                  cooldownMs = fetched;
+                  cooldownIsExplicit = true;
+                }
+              } catch {
+                // ignore quota lookup failures; fall back to default cooldown.
+              }
+            }
+          }
+
           if (!cooldownMs) {
             cooldownMs = context.config.keyCooldownMs;
+            cooldownIsExplicit = false;
           }
 
           cooldownMs = Math.round(cooldownMs * ollamaMultiplier);
@@ -638,7 +678,11 @@ export async function executeProviderRoutingPlan(
             context.config.concurrencyThrottleThresholdMs,
           );
 
-          if (rateLimitKind === "concurrency_throttle") {
+          const shouldRetrySameCredential = rateLimitKind === "concurrency_throttle"
+            && cooldownIsExplicit
+            && !hasMoreCandidates;
+
+          if (shouldRetrySameCredential) {
             // Concurrency throttle: wait for the indicated period, then retry
             // the same credential instead of falling over to a different provider.
             const maxRetries = context.config.concurrencyThrottleMaxRetries;

@@ -52,9 +52,38 @@ export function registerWebsearchRoutes(deps: AppDeps, app: FastifyInstance): vo
       }
     }
 
+    const upstreamProxyAuth = typeof request.headers.authorization === "string"
+      ? request.headers.authorization
+      : (deps.config.proxyAuthToken ? `Bearer ${deps.config.proxyAuthToken}` : undefined);
+
     const authHeaders: Record<string, string> = {
       "content-type": "application/json",
-      ...(deps.config.proxyAuthToken ? { authorization: `Bearer ${deps.config.proxyAuthToken}` } : {}),
+      ...(upstreamProxyAuth ? { authorization: upstreamProxyAuth } : {}),
+    };
+
+    const parseSseJsonPayload = (raw: string): unknown => {
+      // Minimal SSE parser: pick the last `data:` JSON object.
+      // Tests provide bodies like: `data: { ... }\n\n` or `event: ...\ndata: { ... }\n\n`.
+      const lines = raw.split(/\r?\n/u);
+      let lastJson: unknown = undefined;
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith("data:")) {
+          continue;
+        }
+        const payloadText = trimmed.slice("data:".length).trim();
+        if (payloadText.length === 0 || payloadText === "[DONE]") {
+          continue;
+        }
+        try {
+          lastJson = JSON.parse(payloadText);
+        } catch {
+          // ignore
+        }
+      }
+
+      return lastJson;
     };
 
     const baseTool: Record<string, unknown> = {
@@ -94,40 +123,107 @@ export function registerWebsearchRoutes(deps: AppDeps, app: FastifyInstance): vo
             },
           ],
           tools: [tool],
-          tool_choice: "auto",
+          tool_choice: { type: "web_search" },
           store: false,
           stream: false,
         },
       });
     };
 
+    const resolveInjectedJson = (injected: { readonly body: string; readonly headers: Record<string, unknown> }): unknown => {
+      const contentType = typeof injected.headers["content-type"] === "string" ? String(injected.headers["content-type"]) : "";
+      const raw = injected.body;
+      if (contentType.toLowerCase().includes("text/event-stream") || raw.trim().startsWith("data:")) {
+        const parsed = parseSseJsonPayload(raw);
+        if (parsed && typeof parsed === "object" && (parsed as any).response && typeof (parsed as any).response === "object") {
+          return (parsed as any).response;
+        }
+        return parsed;
+      }
+      return parseJsonIfPossible(raw);
+    };
+
     let lastErrorPayload: unknown;
 
     for (const model of uniqueModels) {
-      // Try the most structured tool payload first; fall back to hint-only if upstream rejects unknown fields.
-      for (const includeDomainsInTool of [true, false]) {
-        const injected = await attemptPayload(model, includeDomainsInTool);
-        if (injected.statusCode !== 200) {
-          lastErrorPayload = parseJsonIfPossible(injected.body) ?? injected.body;
-          continue;
-        }
+      const injected = await attemptPayload(model, true);
+      if (injected.statusCode !== 200) {
+        lastErrorPayload = parseJsonIfPossible(injected.body) ?? injected.body;
+        continue;
+      }
 
-        const json = parseJsonIfPossible(injected.body);
-        const extracted = extractResponseTextAndUrlCitations(json);
+      const upstreamProvider = injected.headers["x-open-hax-upstream-provider"];
+      const upstreamMode = injected.headers["x-open-hax-upstream-mode"];
+      if (typeof upstreamProvider === "string") {
+        reply.header("x-open-hax-upstream-provider", upstreamProvider);
+      }
+      if (typeof upstreamMode === "string") {
+        reply.header("x-open-hax-upstream-mode", upstreamMode);
+      }
 
-        const output = extracted.text;
-        const sources = extracted.citations.length > 0
-          ? extracted.citations
-          : extractMarkdownLinks(output);
+      const json = resolveInjectedJson(injected);
+      const extracted = extractResponseTextAndUrlCitations(json);
+
+      const output = extracted.text;
+      const sources = extracted.citations.length > 0
+        ? extracted.citations
+        : extractMarkdownLinks(output);
+
+      reply.send({
+        query,
+        model: requestedModel || model,
+        backend: "openai",
+        output,
+        sources: sources.slice(0, numResults),
+        responseId: extracted.responseId,
+      });
+      return;
+    }
+
+    const exaUrl = process.env.OPEN_HAX_EXA_MCP_URL?.trim() || "https://mcp.exa.ai/sse";
+    try {
+      const exaResponse = await fetch(exaUrl, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: "websearch",
+          method: "tools/call",
+          params: {
+            name: "web_search_exa",
+            arguments: {
+              query,
+              num_results: numResults,
+              ...(allowedDomains.length > 0 ? { allowed_domains: allowedDomains } : {}),
+            },
+          },
+        }),
+      });
+
+      if (exaResponse.ok) {
+        const raw = await exaResponse.text();
+        const parsed = parseSseJsonPayload(raw);
+        const content = (parsed as any)?.result?.content;
+        const textBlocks = Array.isArray(content)
+          ? content
+            .map((entry) => (entry && typeof entry === "object") ? (entry as any).text : undefined)
+            .filter((entry): entry is string => typeof entry === "string")
+          : [];
+
+        const output = textBlocks.join("\n");
+        const sources = extractMarkdownLinks(output);
 
         reply.send({
+          query,
+          model: requestedModel || fallbackModel,
+          backend: "exa",
           output,
           sources: sources.slice(0, numResults),
-          responseId: extracted.responseId,
-          model,
         });
         return;
       }
+    } catch {
+      // ignore and fall through
     }
 
     reply.code(502).send({

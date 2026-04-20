@@ -1,7 +1,20 @@
 import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
 
+import { PromptAffinityStore } from "../lib/prompt-affinity-store.js";
 import { SqlPromptAffinityStore } from "../lib/db/sql-prompt-affinity-store.js";
+
+async function withTempDir(fn: (tempDir: string) => Promise<void>): Promise<void> {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "prompt-affinity-test-"));
+  try {
+    await fn(tempDir);
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+}
 
 // ============================================================================
 // Basic Store Operations

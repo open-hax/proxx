@@ -27,6 +27,59 @@ import {
   type UpstreamMode,
 } from "./shared.js";
 
+function looksLikeSsePayload(text: string): boolean {
+  const trimmed = text.trimStart();
+  return trimmed.startsWith("data:") || trimmed.startsWith(":");
+}
+
+async function readResponseTextWithBootstrap(
+  upstreamResponse: Response,
+  bootstrapTimeoutMs: number,
+): Promise<{ readonly ok: true; readonly text: string } | { readonly ok: false }> {
+  if (!upstreamResponse.body) {
+    return { ok: true, text: await upstreamResponse.text() };
+  }
+
+  const reader = (upstreamResponse.body as ReadableStream<Uint8Array>).getReader();
+  const decoder = new TextDecoder();
+  const deadline = Date.now() + Math.max(0, bootstrapTimeoutMs);
+
+  const readWithTimeout = async (): Promise<ReadableStreamReadResult<Uint8Array> | null> => {
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) {
+      return null;
+    }
+
+    const timeout = new Promise<null>((resolve) => {
+      setTimeout(resolve, remainingMs);
+    });
+    const result = await Promise.race([reader.read(), timeout]);
+    return result === null ? null : (result as ReadableStreamReadResult<Uint8Array>);
+  };
+
+  // Require the first bytes to arrive within the bootstrap window.
+  const first = await readWithTimeout();
+  if (!first || first.done) {
+    try {
+      await reader.cancel();
+    } catch {
+      // ignore
+    }
+    return { ok: false };
+  }
+
+  let text = decoder.decode(first.value, { stream: true });
+  for (;;) {
+    const next = await reader.read();
+    if (next.done) {
+      break;
+    }
+    text += decoder.decode(next.value, { stream: true });
+  }
+  text += decoder.decode();
+  return { ok: true, text };
+}
+
 function appendUpstreamIdentityHeaders(reply: FastifyReply, context: ProviderAttemptContext): void {
   reply.header("x-open-hax-upstream-provider", context.providerId);
 
@@ -74,7 +127,16 @@ export abstract class BaseProviderStrategy implements ProviderStrategy {
       const contentType = upstreamResponse.headers.get("content-type") ?? "";
       const isEventStream = contentType.toLowerCase().includes("text/event-stream");
 
-      if (!isEventStream) {
+      // Image generation responses don't follow the chat/responses JSON shapes.
+      // Accept them as-is and let handleSuccessfulProviderAttempt pass them through.
+      if (this.mode === "images") {
+        return this.handleSuccessfulProviderAttempt(reply, upstreamResponse, context);
+      }
+
+      // For non-stream requests, sanity-check that the upstream returned a JSON
+      // payload we can plausibly forward. For stream requests, defer validation
+      // to the streaming handler so we can accept mislabelled SSE payloads.
+      if (!isEventStream && !context.clientWantsStream) {
         try {
           const bodyText = await upstreamResponse.clone().text();
           if (bodyText.length === 0) {
@@ -257,11 +319,62 @@ export abstract class BaseProviderStrategy implements ProviderStrategy {
       // ChatCompletion payload. In that case, translate it into an SSE stream
       // so clients still receive an event-stream.
       const contentType = (upstreamResponse.headers.get("content-type") ?? "").toLowerCase();
-      const isEventStream = contentType.includes("text/event-stream");
-      if (!isEventStream) {
+      const declaredEventStream = contentType.includes("text/event-stream");
+
+      // Some upstreams incorrectly label their SSE responses as JSON. If the
+      // body is already SSE, treat it as such.
+      if (!declaredEventStream) {
+        const responseText = await upstreamResponse.text();
+        const stripped = stripSseCommentLines(responseText);
+        if (looksLikeSsePayload(stripped)) {
+          const streamText = stripped;
+
+          if (streamPayloadIndicatesQuotaError(streamText) && context.hasMoreCandidates) {
+            return {
+              kind: "continue",
+              rateLimit: true,
+            };
+          }
+
+          if (!streamPayloadHasSubstantiveChunks(streamText)) {
+            return {
+              kind: "continue",
+              requestError: true,
+            };
+          }
+
+          if (context.needsReasoningTrace && !streamPayloadHasReasoningTrace(streamText) && context.hasMoreCandidates) {
+            return {
+              kind: "continue",
+              requestError: true,
+            };
+          }
+
+          appendUpstreamIdentityHeaders(reply, context);
+          reply.code(upstreamResponse.status);
+          copyUpstreamHeaders(reply, upstreamResponse.headers);
+          reply.removeHeader("content-length");
+          reply.header("cache-control", "no-cache");
+          reply.header("x-accel-buffering", "no");
+          reply.header("content-type", "text/event-stream; charset=utf-8");
+          reply.hijack();
+          const rawResponse = reply.raw;
+          rawResponse.statusCode = upstreamResponse.status;
+          for (const [name, value] of Object.entries(reply.getHeaders())) {
+            if (value !== undefined) {
+              rawResponse.setHeader(name, value as never);
+            }
+          }
+          rawResponse.flushHeaders();
+          rawResponse.write(streamText);
+          rawResponse.end();
+          return { kind: "handled" };
+        }
+
+        // Otherwise treat it like a normal JSON completion and convert to SSE.
         let upstreamJson: unknown;
         try {
-          upstreamJson = await upstreamResponse.json();
+          upstreamJson = JSON.parse(responseText);
         } catch {
           return {
             kind: "continue",
@@ -276,13 +389,22 @@ export abstract class BaseProviderStrategy implements ProviderStrategy {
         reply.header("cache-control", "no-cache");
         reply.header("x-accel-buffering", "no");
         reply.header("content-type", "text/event-stream; charset=utf-8");
-
-        // Best-effort conversion: upstreamJson should already be a chat completion.
         reply.send(chatCompletionToSse(isRecord(upstreamJson) ? upstreamJson : { error: upstreamJson }));
         return { kind: "handled" };
       }
 
-      const streamText = stripSseCommentLines(await upstreamResponse.text());
+      const bootstrapResult = await readResponseTextWithBootstrap(
+        upstreamResponse,
+        Math.min(context.config.requestTimeoutMs, context.config.streamBootstrapTimeoutMs),
+      );
+      if (!bootstrapResult.ok) {
+        return {
+          kind: "continue",
+          requestError: true,
+        };
+      }
+
+      const streamText = stripSseCommentLines(bootstrapResult.text);
       if (streamPayloadIndicatesQuotaError(streamText) && context.hasMoreCandidates) {
         return {
           kind: "continue",
@@ -290,7 +412,9 @@ export abstract class BaseProviderStrategy implements ProviderStrategy {
         };
       }
 
-      if (!streamPayloadHasSubstantiveChunks(streamText) && context.hasMoreCandidates) {
+      // Even if this is the last candidate, a stream with no substantive chunks
+      // is treated as an upstream failure so the caller receives a 502.
+      if (!streamPayloadHasSubstantiveChunks(streamText)) {
         return {
           kind: "continue",
           requestError: true

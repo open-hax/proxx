@@ -215,7 +215,11 @@ export class ImagesGenerationsPassthroughStrategy extends BaseProviderStrategy {
   }
 
   public buildPayload(context: StrategyRequestContext): BuildPayloadResult {
-    const upstreamPayload: Record<string, unknown> = { ...context.requestBody };
+    const upstreamPayload: Record<string, unknown> = {
+      ...context.requestBody,
+      // Ensure provider-specific routing (e.g. requesty/openrouter prefixes) is applied.
+      model: context.routedModel,
+    };
     delete upstreamPayload["open_hax"];
     return buildPayloadResult(upstreamPayload, context);
   }

@@ -10,11 +10,31 @@ export function extractResponseTextAndUrlCitations(payload: unknown): {
   }
 
   const responseId = typeof payload.id === "string" ? payload.id : undefined;
+  const outputText = typeof payload.output_text === "string" ? payload.output_text : "";
   const output = Array.isArray(payload.output) ? payload.output : [];
   const texts: string[] = [];
   const citations = new Map<string, { url: string; title?: string }>();
 
   for (const item of output) {
+    if (isRecord(item) && item.type === "web_search_call") {
+      const action = isRecord(item.action) ? item.action : null;
+      const sources = action && Array.isArray(action.sources) ? action.sources : [];
+      for (const source of sources) {
+        if (!isRecord(source)) {
+          continue;
+        }
+        const url = typeof source.url === "string" ? source.url : "";
+        if (!url) {
+          continue;
+        }
+        if (!citations.has(url)) {
+          const title = typeof source.title === "string" && source.title.trim().length > 0 ? source.title.trim() : undefined;
+          citations.set(url, { url, ...(title ? { title } : {}) });
+        }
+      }
+      continue;
+    }
+
     if (!isRecord(item) || item.type !== "message") {
       continue;
     }
@@ -52,7 +72,7 @@ export function extractResponseTextAndUrlCitations(payload: unknown): {
     }
   }
 
-  const combined = texts.join("\n\n").trim();
+  const combined = (texts.length > 0 ? texts.join("\n\n") : outputText).trim();
   return { text: combined, citations: Array.from(citations.values()), responseId };
 }
 
