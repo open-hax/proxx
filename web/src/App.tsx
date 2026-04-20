@@ -16,13 +16,6 @@ import { AnalyticsPage } from "./pages/AnalyticsPage";
 import { FederationPage } from "./pages/FederationPage";
 import { EventsPage } from "./pages/EventsPage";
 
-const LS_ONBOARDED = "open-hax-proxy.ui.onboarded";
-const LS_THEME = "open-hax-proxy.ui.theme";
-
-function parseThemeName(value: unknown): ThemeName | undefined {
-  return value === "monokai" || value === "night-owl" ? value : undefined;
-}
-
 const LS_THEME = "open-hax-proxy.ui.theme";
 const LS_ONBOARDED = "open-hax-proxy.ui.onboarded";
 
