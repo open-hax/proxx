@@ -23,6 +23,22 @@ function parseThemeName(value: unknown): ThemeName | undefined {
   return value === "monokai" || value === "night-owl" ? value : undefined;
 }
 
+const LS_THEME = "open-hax-proxy.ui.theme";
+const LS_ONBOARDED = "open-hax-proxy.ui.onboarded";
+
+function parseThemeName(value: unknown): ThemeName | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+  if (trimmed === "monokai" || trimmed === "night-owl") {
+    return trimmed as ThemeName;
+  }
+
+  return undefined;
+}
+
 function navClass(isActive: boolean): string {
   return isActive ? "nav-link nav-link-active" : "nav-link";
 }
