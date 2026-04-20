@@ -258,6 +258,7 @@ export function registerChatRoutes(deps: AppDeps, app: FastifyInstance): void {
         reply,
         deps.requestLogStore,
         deps.promptAffinityStore,
+        deps.providerRoutePheromoneStore,
         deps.keyPool,
         providerRoutes,
         context,
@@ -267,7 +268,7 @@ export function registerChatRoutes(deps: AppDeps, app: FastifyInstance): void {
         deps.policyEngine,
         deps.accountHealthStore,
         deps.eventStore,
-        undefined,
+        deps.quotaMonitor,
       );
 
       if (execution.handled) {

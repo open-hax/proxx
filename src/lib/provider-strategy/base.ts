@@ -253,9 +253,33 @@ export abstract class BaseProviderStrategy implements ProviderStrategy {
     }
 
     if (context.clientWantsStream) {
-      const bootstrap = await bootstrapEventStream(upstreamResponse, context);
-      if (bootstrap.kind === "continue") {
-        return bootstrap;
+      // Some upstreams will ignore `stream=true` and return a normal JSON
+      // ChatCompletion payload. In that case, translate it into an SSE stream
+      // so clients still receive an event-stream.
+      const contentType = (upstreamResponse.headers.get("content-type") ?? "").toLowerCase();
+      const isEventStream = contentType.includes("text/event-stream");
+      if (!isEventStream) {
+        let upstreamJson: unknown;
+        try {
+          upstreamJson = await upstreamResponse.json();
+        } catch {
+          return {
+            kind: "continue",
+            requestError: true,
+          };
+        }
+
+        appendUpstreamIdentityHeaders(reply, context);
+        reply.code(upstreamResponse.status);
+        copyUpstreamHeaders(reply, upstreamResponse.headers);
+        reply.removeHeader("content-length");
+        reply.header("cache-control", "no-cache");
+        reply.header("x-accel-buffering", "no");
+        reply.header("content-type", "text/event-stream; charset=utf-8");
+
+        // Best-effort conversion: upstreamJson should already be a chat completion.
+        reply.send(chatCompletionToSse(isRecord(upstreamJson) ? upstreamJson : { error: upstreamJson }));
+        return { kind: "handled" };
       }
 
       const streamText = stripSseCommentLines(await upstreamResponse.text());

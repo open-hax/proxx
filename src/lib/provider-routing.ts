@@ -30,7 +30,7 @@ function asString(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
-function looksLikeHostedOpenAiFamily(model: string): boolean {
+export function looksLikeHostedOpenAiFamily(model: string): boolean {
   const lowered = model.toLowerCase();
   return lowered.startsWith("gpt-")
     || lowered.startsWith("openai/")
@@ -477,7 +477,7 @@ function providerSupportsOpenAiCompatibleApi(providerId: string, openAiProviderI
 
 export function providerSupportsResponsesApi(providerId: string, openAiProviderId?: string): boolean {
   const normalized = providerId.trim().toLowerCase();
-  if (RESPONSES_COMPATIBLE_API_PROVIDERS.has(normalized)) {
+  if (OPENAI_COMPATIBLE_API_PROVIDERS.has(normalized)) {
     return true;
   }
 

@@ -1019,6 +1019,7 @@ export class KeyPool {
     const now = Date.now();
     let availableAccounts = 0;
     let disabledAccounts = 0;
+    let cooldownAccounts = 0;
     let inFlightAccounts = 0;
     let minDelay = Number.POSITIVE_INFINITY;
 
@@ -1057,6 +1058,7 @@ export class KeyPool {
         totalAccounts,
         availableAccounts,
         cooldownAccounts: Math.max(totalAccounts - availableAccounts - disabledAccounts, 0),
+        disabledAccounts,
         inFlightAccounts,
         nextReadyInMs
       };

@@ -88,6 +88,14 @@ export class QuotaMonitor {
     }, 10000);
   }
 
+  /**
+   * Convenience helper for routing code: this monitor currently tracks a single
+   * provider (config.providerId).
+   */
+  public tracksProvider(providerId: string): boolean {
+    return providerId.trim().toLowerCase() === this.config.providerId.trim().toLowerCase();
+  }
+
   public stop(): void {
     this.stopped = true;
     if (this.checkTimer) {

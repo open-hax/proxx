@@ -1,133 +1,73 @@
-import { Readable } from "node:stream";
+import { dirname, join } from "node:path";
 
-import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
+import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
 
 import { DEFAULT_MODELS, type ProxyConfig } from "./lib/config.js";
 import {
   PROXY_AUTH_COOKIE_NAME,
   readCookieToken,
-  extractPromptCacheKey,
-  hashPromptCacheKey,
-  summarizeResponsesRequestBody,
-  joinUrl,
-  parseJsonIfPossible,
   readSingleHeader,
   escapeHtml,
-  normalizeRequestedModel,
   isTrustedLocalBridgeAddress,
-  copyInjectedResponseHeaders,
   SUPPORTED_V1_ENDPOINTS,
   SUPPORTED_NATIVE_OLLAMA_ENDPOINTS,
-  type ChatCompletionRequest,
-  type WebSearchToolRequest,
 } from "./lib/request-utils.js";
-import { extractResponseTextAndUrlCitations, extractMarkdownLinks } from "./lib/response-utils.js";
-import {
-  tenantProviderAllowed,
-  filterTenantProviderRoutes,
-  resolveExplicitTenantProviderId,
-} from "./lib/tenant-policy-helpers.js";
-import {
-  resolvableConcreteModelIds,
-  resolvableConcreteModelIdsForProviders,
-  openAiProviderUsesCodexSurface,
-  providerRouteSupportsModel,
-  filterProviderRoutesByModelSupport,
-  shouldRejectModelFromProviderCatalog,
-} from "./lib/model-routing-helpers.js";
-import {
-  bridgeCapabilitySupportsPath,
-  bridgeCapabilitySupportsModel,
-  appendBridgeResponseHeaders,
-  decodeBridgeResponseChunk,
-} from "./lib/bridge-helpers.js";
-import {
-  extractPeerCredential,
-  fetchFederationJson,
-  resolveFederationHopCount,
-  resolveFederationOwnerSubject,
-} from "./lib/federation/federation-helpers.js";
+import { toErrorMessage } from "./lib/errors/index.js";
+import { getTelemetry, type TelemetrySpan } from "./lib/telemetry/otel.js";
 
 import { KeyPool, type ProviderCredential } from "./lib/key-pool.js";
 import { CredentialStore } from "./lib/credential-store.js";
+import { RuntimeCredentialStore } from "./lib/runtime-credential-store.js";
 import { OpenAiOAuthManager } from "./lib/openai-oauth.js";
-import {
-  factoryCredentialNeedsRefresh,
-} from "./lib/factory-auth.js";
-import { ProviderCatalogStore } from "./lib/provider-catalog.js";
-import { initializePolicyEngine, createPolicyEngine, type PolicyEngine } from "./lib/policy/index.js";
-import { DEFAULT_POLICY_CONFIG } from "./lib/policy/index.js";
+
+import { initializePolicyEngine, createPolicyEngine, type PolicyEngine, DEFAULT_POLICY_CONFIG } from "./lib/policy/index.js";
+
 import {
   buildOllamaCatalogRoutes,
-  filterResponsesApiRoutes,
-  filterImagesApiRoutes,
-  minMsUntilAnyProviderKeyReady,
-  parseModelIdsFromCatalogPayload,
-  resolveProviderRoutesForModel,
-  type ProviderRoute,
-  type ResolvedModelCatalog,
   buildProviderRoutesWithDynamicBaseUrls,
   createDynamicProviderBaseUrlGetter,
+  parseModelIdsFromCatalogPayload,
+  type ProviderRoute,
+  type ResolvedModelCatalog,
 } from "./lib/provider-routing.js";
-import { discoverDynamicOllamaRoutes } from "./lib/dynamic-ollama-routes.js";
-import {
-  sendOpenAiError,
-} from "./lib/provider-utils.js";
-import { toErrorMessage } from "./lib/errors/index.js";
-import { getTelemetry } from "./lib/telemetry/otel.js";
+
+import { ProviderCatalogStore } from "./lib/provider-catalog.js";
 import { RequestLogStore } from "./lib/request-log-store.js";
+import { RequestLogSseHub } from "./lib/observability/request-log-sse-hub.js";
+
 import { SqlPromptAffinityStore } from "./lib/db/sql-prompt-affinity-store.js";
 import { ProviderRoutePheromoneStore } from "./lib/provider-route-pheromone-store.js";
 import { ProxySettingsStore } from "./lib/proxy-settings-store.js";
+
 import { QuotaMonitor } from "./lib/quota-monitor.js";
-import { registerUiRoutes } from "./lib/ui-routes.js";
-import { registerApiV1Routes } from "./routes/api/v1/index.js";
-import {
-  ensureOllamaContextFits,
-} from "./lib/ollama-context.js";
-import {
-  chatCompletionToNativeChat,
-  chatCompletionToNativeGenerate,
-  modelIdsToNativeTags,
-  nativeChatToOpenAiRequest,
-  nativeEmbedResponseToOpenAiEmbeddings,
-  nativeEmbedToOpenAiRequest,
-  nativeGenerateToChatRequest,
-  openAiEmbeddingsToNativeEmbed,
-  openAiEmbeddingsToNativeEmbeddings,
-} from "./lib/ollama-native.js";
-import { shouldUseResponsesUpstream } from "./lib/responses-compat.js";
-import { applyNativeOllamaAuth } from "./lib/native-auth.js";
-import { requestHasExplicitNumCtx } from "./lib/ollama-compat.js";
+
+import { createTokenRefreshManager } from "./lib/token-refresh-handlers.js";
+import type { TokenRefreshManager } from "./lib/token-refresh-manager.js";
+
 import { createSqlConnection, closeConnection, type Sql } from "./lib/db/index.js";
 import { SqlCredentialStore } from "./lib/db/sql-credential-store.js";
 import { AccountHealthStore } from "./lib/db/account-health-store.js";
 import { EventStore } from "./lib/db/event-store.js";
 import { createDefaultLabelers } from "./lib/db/event-labelers.js";
 import { SqlRequestUsageStore } from "./lib/db/sql-request-usage-store.js";
-import { SqlFederationStore, shouldWarmImportProjectedAccount, type FederationPeerRecord, type FederationProjectedAccountRecord } from "./lib/db/sql-federation-store.js";
+import { SqlFederationStore } from "./lib/db/sql-federation-store.js";
 import { SqlTenantProviderPolicyStore } from "./lib/db/sql-tenant-provider-policy-store.js";
 import { SqlAuthPersistence } from "./lib/auth/sql-persistence.js";
-import { SqlGitHubAllowlist } from "./lib/auth/github-allowlist.js";
-import { seedFromJsonFile, seedFromJsonValue, seedFactoryAuthFromFiles, seedModelsFromFile } from "./lib/db/json-seeder.js";
-import { registerOAuthRoutes } from "./lib/oauth-routes.js";
-import { isAutoModel, rankAutoModels } from "./lib/auto-model-selector.js";
-import { RuntimeCredentialStore } from "./lib/runtime-credential-store.js";
-import { TokenRefreshManager } from "./lib/token-refresh-manager.js";
+import {
+  seedApiKeyProvidersFromEnv,
+  seedFromJsonFile,
+  seedFromJsonValue,
+  seedFactoryAuthFromFiles,
+  seedModelsFromFile,
+} from "./lib/db/json-seeder.js";
+
 import { DEFAULT_TENANT_ID } from "./lib/tenant-api-key.js";
 import { resolveRequestAuth, type ResolvedRequestAuth } from "./lib/request-auth.js";
-import { createEnvFederationBridgeAgent } from "./lib/federation/bridge-agent-autostart.js";
-import type { FederationBridgeRelay } from "./lib/federation/bridge-relay.js";
-import { isAtDid } from "./lib/federation/owner-credential.js";
+
+import { registerUiRoutes } from "./lib/ui-routes.js";
+import { registerApiV1Routes } from "./routes/api/v1/index.js";
+
 import {
-  shareModeAllowsRelay,
-  shareModeAllowsWarmImport,
-  tenantProviderPolicyAllowsUse,
-  type TenantProviderPolicyRecord,
-} from "./lib/tenant-provider-policy.js";
-import { type AppDeps } from "./lib/app-deps.js";
-import {
-  noteFederatedProjectedAccountRouted,
   executeFederatedRequestFallback,
 } from "./lib/federation/federated-fallback.js";
 import {
@@ -135,6 +75,9 @@ import {
   handleBridgeRequest,
   injectNativeBridge,
 } from "./lib/federation/bridge-fallback.js";
+import { createEnvFederationBridgeAgent } from "./lib/federation/bridge-agent-autostart.js";
+import type { FederationBridgeRelay } from "./lib/federation/bridge-relay.js";
+
 import { registerChatRoutes } from "./routes/chat.js";
 import { registerResponsesRoutes } from "./routes/responses.js";
 import { registerImagesRoutes } from "./routes/images.js";
@@ -143,11 +86,65 @@ import { registerModelsRoutes } from "./routes/models.js";
 import { registerEmbeddingsRoutes } from "./routes/embeddings.js";
 import { registerNativeOllamaRoutes } from "./routes/native-ollama.js";
 import { registerHealthRoutes } from "./routes/health.js";
+import { sendOpenAiError } from "./lib/provider-utils.js";
+import { isAtDid } from "./lib/federation/owner-credential.js";
+
+import type { AppDeps } from "./lib/app-deps.js";
+
+function inferWebConsoleUrl(request: FastifyRequest): string {
+  const forwardedHost = readSingleHeader(request.headers as Record<string, unknown>, "x-forwarded-host")?.trim();
+  const host = forwardedHost
+    || readSingleHeader(request.headers as Record<string, unknown>, "host")?.trim()
+    || "localhost";
+  const forwardedProto = readSingleHeader(request.headers as Record<string, unknown>, "x-forwarded-proto")?.trim();
+  const protocol = forwardedProto || request.protocol || "http";
+  const webPort = (process.env.PROXY_WEB_PORT ?? "5174").trim() || "5174";
+
+  let hostname = "localhost";
+  try {
+    hostname = new URL(`http://${host}`).hostname || "localhost";
+  } catch {
+    hostname = host.split(":", 1)[0] || "localhost";
+  }
+
+  return `${protocol}://${hostname}:${webPort}`;
+}
+
+function renderPublicLandingPage(request: FastifyRequest): string {
+  const webUrl = inferWebConsoleUrl(request);
+  const safeWebUrl = escapeHtml(webUrl);
+
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Proxx</title>
+    <style>
+      body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; padding: 2rem; }
+      code { background: #f4f4f5; padding: 0.15rem 0.35rem; border-radius: 4px; }
+    </style>
+  </head>
+  <body>
+    <h1>Proxx</h1>
+    <p>OpenAI-compatible proxy.</p>
+    <ul>
+      <li>UI: <a href="${safeWebUrl}">${safeWebUrl}</a></li>
+      <li>Health: <code>/health</code></li>
+      <li>Models: <code>/v1/models</code></li>
+      <li>Chat: <code>/v1/chat/completions</code></li>
+      <li>Responses: <code>/v1/responses</code></li>
+      <li>Images: <code>/v1/images/generations</code></li>
+      <li>Embeddings: <code>/v1/embeddings</code></li>
+    </ul>
+  </body>
+</html>`;
+}
 
 export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
   const app = Fastify({
     logger: true,
-    bodyLimit: 300 * 1024 * 1024
+    bodyLimit: 300 * 1024 * 1024,
   });
 
   // Enable raw zip uploads for ChatGPT export import.
@@ -165,124 +162,98 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
   let sqlTenantProviderPolicyStore: SqlTenantProviderPolicyStore | undefined;
 
   if (config.databaseUrl) {
+    sql = createSqlConnection({ connectionString: config.databaseUrl });
+    app.log.info("connecting to database");
+
+    sqlCredentialStore = new SqlCredentialStore(sql, { defaultTenantId: DEFAULT_TENANT_ID });
+    await sqlCredentialStore.init();
+
+    accountHealthStore = new AccountHealthStore(sql);
+    await accountHealthStore.init();
+
+    eventStore = new EventStore(sql);
+    await eventStore.init();
+    for (const labeler of createDefaultLabelers()) {
+      eventStore.registerLabeler(labeler);
+    }
+
+    sqlRequestUsageStore = new SqlRequestUsageStore(sql);
+    await sqlRequestUsageStore.init();
+
+    sqlFederationStore = new SqlFederationStore(sql);
+    await sqlFederationStore.init();
+
     try {
-      sql = createSqlConnection({ connectionString: config.databaseUrl });
-      app.log.info("connecting to database");
-
-      sqlCredentialStore = new SqlCredentialStore(sql, { defaultTenantId: DEFAULT_TENANT_ID });
-      await sqlCredentialStore.init();
-      app.log.info("credential store initialized");
-
-      accountHealthStore = new AccountHealthStore(sql);
-      await accountHealthStore.init();
-      app.log.info("account health store initialized");
-
-      eventStore = new EventStore(sql);
-      await eventStore.init();
-      for (const labeler of createDefaultLabelers()) {
-        eventStore.registerLabeler(labeler);
-      }
-      app.log.info("event store initialized");
-
-      sqlRequestUsageStore = new SqlRequestUsageStore(sql);
-      await sqlRequestUsageStore.init();
-      app.log.info("request usage store initialized");
-
-      sqlFederationStore = new SqlFederationStore(sql);
-      await sqlFederationStore.init();
-      app.log.info("federation store initialized");
-
-      try {
-        sqlTenantProviderPolicyStore = new SqlTenantProviderPolicyStore(sql);
-        await sqlTenantProviderPolicyStore.init();
-        app.log.info("tenant provider policy store initialized");
-      } catch (error) {
-        sqlTenantProviderPolicyStore = undefined;
-        app.log.warn({ error: toErrorMessage(error) }, "failed to initialize tenant provider policy store; continuing with policy store disabled");
-      }
-
-      try {
-        sqlTenantProviderPolicyStore = new SqlTenantProviderPolicyStore(sql);
-        await sqlTenantProviderPolicyStore.init();
-        app.log.info("tenant provider policy store initialized");
-      } catch (error) {
-        sqlTenantProviderPolicyStore = undefined;
-        app.log.warn({ error: toErrorMessage(error) }, "failed to initialize tenant provider policy store; continuing with policy store disabled");
-      }
-
-      sqlAuthPersistence = new SqlAuthPersistence(sql);
-      await sqlAuthPersistence.init();
-      app.log.info("auth persistence initialized");
-
-      if (config.keysFilePath) {
-        try {
-          const seedResult = await seedFromJsonFile(sql, config.keysFilePath, config.upstreamProviderId, {
-            skipExistingProviders: true,
-          });
-          app.log.info({ providers: seedResult.providers, accounts: seedResult.accounts }, "seeded credentials from json file");
-        } catch (error) {
-          app.log.warn({ error: toErrorMessage(error) }, "failed to seed credentials from json file; continuing with existing data");
-        }
-      }
-
-      const inlineKeysJson = process.env.PROXY_KEYS_JSON ?? process.env.UPSTREAM_KEYS_JSON ?? process.env.VIVGRID_KEYS_JSON;
-      if (typeof inlineKeysJson === "string" && inlineKeysJson.trim().length > 0) {
-        try {
-          const parsedInlineKeys: unknown = JSON.parse(inlineKeysJson);
-          const seedResult = await seedFromJsonValue(sql, parsedInlineKeys, config.upstreamProviderId, {
-            skipExistingProviders: true,
-          });
-          app.log.info({ providers: seedResult.providers, accounts: seedResult.accounts }, "seeded credentials from inline json env");
-        } catch (error) {
-          app.log.warn({ error: toErrorMessage(error) }, "failed to seed credentials from inline json env; continuing with existing data");
-        }
-      }
-
-      try {
-        const envSeedResult = await seedApiKeyProvidersFromEnv(sql);
-        if (envSeedResult.providers > 0 || envSeedResult.accounts > 0) {
-          app.log.info({ providers: envSeedResult.providers, accounts: envSeedResult.accounts }, "seeded api-key providers from env into database");
-        }
-      } catch (error) {
-        app.log.warn({ error: toErrorMessage(error) }, "failed to seed api-key providers from env; continuing with existing data");
-      }
-
-      // Seed Factory OAuth credentials from encrypted auth.v2 files into the DB.
-      // Only imports on first boot when no factory accounts exist in the DB yet.
-      try {
-        const factorySeed = await seedFactoryAuthFromFiles(sql);
-        if (factorySeed.seeded) {
-          app.log.info("seeded Factory OAuth credentials from auth.v2 files into database");
-        }
-      } catch (error) {
-        app.log.warn({ error: toErrorMessage(error) }, "failed to seed Factory OAuth credentials from auth.v2 files");
-      }
-
-      // Seed models from models.json into the DB (first boot only).
-      if (config.modelsFilePath) {
-        try {
-          const modelSeed = await seedModelsFromFile(sql, config.modelsFilePath, DEFAULT_MODELS);
-          if (modelSeed.seeded) {
-            app.log.info({ count: modelSeed.count }, "seeded models from file into database");
-          }
-        } catch (error) {
-          app.log.warn({ error: toErrorMessage(error) }, "failed to seed models from file");
-        }
-      }
-
-      const removedLegacyOpenAiAccounts = await sqlCredentialStore.cleanupLegacyOpenAiDuplicates();
-      if (removedLegacyOpenAiAccounts > 0) {
-        app.log.warn({ count: removedLegacyOpenAiAccounts }, "removed legacy duplicate OpenAI account rows after seeding");
-      }
-
-      app.log.info("database connection established");
+      sqlTenantProviderPolicyStore = new SqlTenantProviderPolicyStore(sql);
+      await sqlTenantProviderPolicyStore.init();
     } catch (error) {
-      app.log.error({ error: toErrorMessage(error) }, "failed to initialize database connection");
-      throw error;
+      sqlTenantProviderPolicyStore = undefined;
+      app.log.warn({ error: toErrorMessage(error) }, "failed to initialize tenant provider policy store; continuing with policy store disabled");
+    }
+
+    sqlAuthPersistence = new SqlAuthPersistence(sql);
+    await sqlAuthPersistence.init();
+
+    if (config.keysFilePath) {
+      try {
+        const seedResult = await seedFromJsonFile(sql, config.keysFilePath, config.upstreamProviderId, {
+          skipExistingProviders: true,
+        });
+        app.log.info({ providers: seedResult.providers, accounts: seedResult.accounts }, "seeded credentials from json file");
+      } catch (error) {
+        app.log.warn({ error: toErrorMessage(error) }, "failed to seed credentials from json file; continuing with existing data");
+      }
+    }
+
+    const inlineKeysJson = process.env.PROXY_KEYS_JSON ?? process.env.UPSTREAM_KEYS_JSON ?? process.env.VIVGRID_KEYS_JSON;
+    if (typeof inlineKeysJson === "string" && inlineKeysJson.trim().length > 0) {
+      try {
+        const parsedInlineKeys: unknown = JSON.parse(inlineKeysJson);
+        const seedResult = await seedFromJsonValue(sql, parsedInlineKeys, config.upstreamProviderId, {
+          skipExistingProviders: true,
+        });
+        app.log.info({ providers: seedResult.providers, accounts: seedResult.accounts }, "seeded credentials from inline json env");
+      } catch (error) {
+        app.log.warn({ error: toErrorMessage(error) }, "failed to seed credentials from inline json env; continuing with existing data");
+      }
+    }
+
+    try {
+      const envSeedResult = await seedApiKeyProvidersFromEnv(sql);
+      if (envSeedResult.providers > 0 || envSeedResult.accounts > 0) {
+        app.log.info({ providers: envSeedResult.providers, accounts: envSeedResult.accounts }, "seeded api-key providers from env into database");
+      }
+    } catch (error) {
+      app.log.warn({ error: toErrorMessage(error) }, "failed to seed api-key providers from env; continuing with existing data");
+    }
+
+    try {
+      const factorySeed = await seedFactoryAuthFromFiles(sql);
+      if (factorySeed.seeded) {
+        app.log.info("seeded Factory OAuth credentials from auth.v2 files into database");
+      }
+    } catch (error) {
+      app.log.warn({ error: toErrorMessage(error) }, "failed to seed Factory OAuth credentials from auth.v2 files");
+    }
+
+    if (config.modelsFilePath) {
+      try {
+        const modelSeed = await seedModelsFromFile(sql, config.modelsFilePath, DEFAULT_MODELS);
+        if (modelSeed.seeded) {
+          app.log.info({ count: modelSeed.count }, "seeded models from file into database");
+        }
+      } catch (error) {
+        app.log.warn({ error: toErrorMessage(error) }, "failed to seed models from file");
+      }
+    }
+
+    const removedLegacyOpenAiAccounts = await sqlCredentialStore.cleanupLegacyOpenAiDuplicates();
+    if (removedLegacyOpenAiAccounts > 0) {
+      app.log.warn({ count: removedLegacyOpenAiAccounts }, "removed legacy duplicate OpenAI account rows after seeding");
     }
   }
 
-  const dynamicProviderBaseUrlGetter = createDynamicProviderBaseUrlGetter(sqlCredentialStore);
+  const dynamicProviderBaseUrlGetterRaw = createDynamicProviderBaseUrlGetter(sqlCredentialStore);
 
   const keyPool = new KeyPool({
     keysFilePath: config.keysFilePath,
@@ -296,11 +267,13 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     cooldownJitterFactor: config.keyCooldownJitterFactor,
     enableRandomWalk: config.enableKeyRandomWalk,
   });
+
   try {
     await keyPool.warmup();
   } catch (error) {
     app.log.warn({ error: toErrorMessage(error) }, "failed to warm up provider accounts; non-keyed routes may still work");
   }
+
   const requestLogStore = new RequestLogStore(
     config.requestLogsFilePath,
     config.requestLogsMaxEntries,
@@ -308,14 +281,18 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     sqlRequestUsageStore,
   );
   await requestLogStore.warmup();
+
   const requestLogSseHub = new RequestLogSseHub(requestLogStore);
+
   const promptAffinityStore = new SqlPromptAffinityStore(sql);
   await promptAffinityStore.init();
+
   const providerRoutePheromoneStore = new ProviderRoutePheromoneStore(
     join(dirname(config.requestLogsFilePath), "provider-route-pheromones.json"),
     config.promptAffinityFlushMs,
   );
   await providerRoutePheromoneStore.warmup();
+
   const proxySettingsStore = new ProxySettingsStore(config.settingsFilePath, sql);
   await proxySettingsStore.warmup();
 
@@ -330,6 +307,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
 
   const credentialStore = new CredentialStore(config.keysFilePath, config.upstreamProviderId);
   const runtimeCredentialStore = new RuntimeCredentialStore(credentialStore, sqlCredentialStore);
+
   const oauthManager = new OpenAiOAuthManager({
     oauthScopes: config.openaiOauthScopes,
     clientId: config.openaiOauthClientId,
@@ -337,7 +315,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     clientSecret: config.openaiOauthClientSecret,
   });
 
-  const tokenRefreshManager = createTokenRefreshManager({
+  const tokenRefreshManager: TokenRefreshManager = createTokenRefreshManager({
     keyPool,
     runtimeCredentialStore,
     oauthManager,
@@ -352,78 +330,29 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     },
   });
 
-  const FEDERATION_OWNER_SUBJECT_HEADER = "x-open-hax-federation-owner-subject";
-  const FEDERATION_BRIDGE_TENANT_HEADER = "x-open-hax-bridge-tenant-id";
-  const FEDERATION_FORCED_PROVIDER_HEADER = "x-open-hax-forced-provider";
-  const FEDERATION_FORCED_ACCOUNT_ID_HEADER = "x-open-hax-forced-account-id";
-  const FEDERATION_ROUTED_PEER_HEADER = "x-open-hax-federation-routed-peer";
-  const FEDERATION_ROUTED_PROVIDER_HEADER = "x-open-hax-federation-routed-provider";
-  const FEDERATION_ROUTED_ACCOUNT_HEADER = "x-open-hax-federation-routed-account";
-  const FEDERATION_IMPORTED_HEADER = "x-open-hax-federation-imported";
-  const FEDERATION_BLOCKED_RESPONSE_HEADERS = new Set([
-    "set-cookie",
-    "x-open-hax-federation-hop",
-    "x-open-hax-federation-owner-subject",
-    "x-open-hax-federation-routed-peer",
-    "x-open-hax-federation-routed-provider",
-    "x-open-hax-federation-routed-account",
-    "x-open-hax-federation-imported",
-    "x-open-hax-forced-provider",
-    "x-open-hax-forced-account-id",
-  ]);
+  tokenRefreshManager.startBackgroundRefresh(() => keyPool.getExpiringAccounts(config.oauthRefreshProactiveWindowMs));
 
-  interface FederationCredentialExport {
-    readonly providerId: string;
-    readonly accountId: string;
-    readonly authType: "api_key" | "oauth_bearer";
-    readonly secret: string;
-    readonly refreshToken?: string;
-    readonly expiresAt?: number;
-    readonly chatgptAccountId?: string;
-    readonly email?: string;
-    readonly subject?: string;
-    readonly planType?: string;
-  }
-
-  function inferWebConsoleUrl(request: FastifyRequest): string {
-    const forwardedHost = readSingleHeader(request.headers as Record<string, unknown>, "x-forwarded-host")?.trim();
-    const host = forwardedHost
-      || readSingleHeader(request.headers as Record<string, unknown>, "host")?.trim()
-      || "localhost";
-    const forwardedProto = readSingleHeader(request.headers as Record<string, unknown>, "x-forwarded-proto")?.trim();
-    const protocol = forwardedProto || request.protocol || "http";
-    const webPort = (process.env.PROXY_WEB_PORT ?? "5174").trim() || "5174";
-
-    let hostname = "localhost";
-    try {
-      hostname = new URL(`http://${host}`).hostname || "localhost";
-    } catch {
-      hostname = host.split(":", 1)[0] || "localhost";
+  const ensureFreshAccounts = async (providerId: string): Promise<void> => {
+    const expired = keyPool.getExpiredAccountsWithRefreshTokens(providerId);
+    if (expired.length === 0) {
+      return;
     }
+    await tokenRefreshManager.refreshBatch(expired);
+  };
 
-    return `${protocol}://${hostname}:${webPort}`;
-  }
-
-  function inferWebConsoleUrl(request: FastifyRequest): string {
-    const forwardedHost = readSingleHeader(request.headers as Record<string, unknown>, "x-forwarded-host")?.trim();
-    const host = forwardedHost
-      || readSingleHeader(request.headers as Record<string, unknown>, "host")?.trim()
-      || "localhost";
-    const forwardedProto = readSingleHeader(request.headers as Record<string, unknown>, "x-forwarded-proto")?.trim();
-    const protocol = forwardedProto || request.protocol || "http";
-    const webPort = (process.env.PROXY_WEB_PORT ?? "5174").trim() || "5174";
-
-    let hostname = "localhost";
-    try {
-      hostname = new URL(`http://${host}`).hostname || "localhost";
-    } catch {
-      hostname = host.split(":", 1)[0] || "localhost";
+  const refreshExpiredOAuthAccount = async (credential: ProviderCredential): Promise<ProviderCredential | null> => {
+    if (credential.authType !== "oauth_bearer") {
+      return null;
     }
+    return tokenRefreshManager.refresh(credential);
+  };
 
-    return `${protocol}://${hostname}:${webPort}`;
-  }
-
-
+  const refreshFactoryAccount = async (credential: ProviderCredential): Promise<void> => {
+    if (credential.providerId !== "factory") {
+      return;
+    }
+    await tokenRefreshManager.refresh(credential);
+  };
 
   async function refreshOpenAiOauthAccounts(accountId?: string): Promise<{
     readonly totalAccounts: number;
@@ -436,14 +365,8 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       : undefined;
 
     const candidates = allOpenAiAccounts.filter((account) => {
-      if (account.authType !== "oauth_bearer") {
-        return false;
-      }
-
-      if (typeof account.refreshToken !== "string" || account.refreshToken.trim().length === 0) {
-        return false;
-      }
-
+      if (account.authType !== "oauth_bearer") return false;
+      if (typeof account.refreshToken !== "string" || account.refreshToken.trim().length === 0) return false;
       return normalizedAccountId === undefined || account.accountId === normalizedAccountId;
     });
 
@@ -475,29 +398,11 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       quotaCriticalThreshold: 98,
     },
     accountHealthStore,
-    keyPool,
-  );
-  quotaMonitor.start();
-
-  const quotaMonitor = new QuotaMonitor(
-    runtimeCredentialStore,
-    {
-      info: (obj, msg) => app.log.info(obj, msg),
-      warn: (obj, msg) => app.log.warn(obj, msg),
-      error: (obj, msg) => app.log.error(obj, msg),
-    },
-    {
-      checkIntervalMs: 20 * 60 * 1000,
-      providerId: config.openaiProviderId.trim() || "openai",
-      quotaWarningThreshold: 90,
-      quotaCriticalThreshold: 98,
-    },
-    accountHealthStore,
   );
   quotaMonitor.start();
 
   const ollamaCatalogRoutes = buildOllamaCatalogRoutes(config);
-  const providerCatalogRoutes = (await buildProviderRoutesWithDynamicBaseUrls(config, false, dynamicProviderBaseUrlGetter, true))
+  const providerCatalogRoutes = (await buildProviderRoutesWithDynamicBaseUrls(config, false, dynamicProviderBaseUrlGetterRaw, true))
     .filter((route) => route.providerId !== "factory" || !config.disabledProviderIds.includes("factory"));
   const providerCatalogStore = new ProviderCatalogStore(
     config,
@@ -523,8 +428,6 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       return [];
     }
 
-    // Prefer advertised capabilities when available (avoids fan-out overhead).
-    // Fall back to /v1/models fan-out when capabilities are not yet advertised.
     const advertisedModels = new Set<string>();
     for (const session of connectedSessions) {
       for (const capability of session.capabilities) {
@@ -538,7 +441,6 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       return [...advertisedModels];
     }
 
-    // Fallback: fan-out /v1/models to each connected session when capabilities not advertised
     const remoteModelLists = await Promise.all(connectedSessions.map(async (session) => {
       try {
         const response = await bridgeRelay!.requestJson(session.sessionId, {
@@ -562,36 +464,6 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     return [...new Set([...localCatalog.modelIds, ...bridgedModels])];
   }
 
-
-
-  const bridgeAgent = createEnvFederationBridgeAgent({
-    config,
-    keyPool,
-    credentialStore: runtimeCredentialStore,
-    logger: app.log,
-    getResolvedModelCatalog: () => getResolvedModelCatalog(false),
-    handleBridgeRequest: (input) => handleBridgeRequest(bridgeDeps, input),
-  });
-
-
-  const fedDeps = { app, sqlFederationStore, runtimeCredentialStore, keyPool, sqlTenantProviderPolicyStore };
-  const bridgeDeps = { bridgeRelay, app, config, runtimeCredentialStore, keyPool, sqlTenantProviderPolicyStore };
-
-
-
-  const bridgeAgent = createEnvFederationBridgeAgent({
-    config,
-    keyPool,
-    credentialStore: runtimeCredentialStore,
-    logger: app.log,
-    getResolvedModelCatalog: () => getResolvedModelCatalog(false),
-    handleBridgeRequest: (input) => handleBridgeRequest(bridgeDeps, input),
-  });
-
-
-  const fedDeps = { app, sqlFederationStore, runtimeCredentialStore, keyPool, sqlTenantProviderPolicyStore };
-  const bridgeDeps = { bridgeRelay, app, config, runtimeCredentialStore, keyPool, sqlTenantProviderPolicyStore };
-
   if (config.allowUnauthenticated) {
     app.log.warn("proxy auth disabled via PROXY_ALLOW_UNAUTHENTICATED=true");
   }
@@ -602,6 +474,10 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
   };
 
   app.decorateRequest("openHaxAuth", null);
+  app.decorateRequest("_otelSpan", null);
+
+  const FEDERATION_OWNER_SUBJECT_HEADER = "x-open-hax-federation-owner-subject";
+  const FEDERATION_BRIDGE_TENANT_HEADER = "x-open-hax-bridge-tenant-id";
 
   app.addHook("onRequest", async (request, reply) => {
     const decoratedRequest = request as DecoratedAppRequest;
@@ -616,10 +492,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     }
 
     const rawPath = (request.raw.url ?? request.url).split("?", 1)[0] ?? request.url;
-    const allowUnauthenticatedRoute = rawPath === "/" || rawPath === "/favicon.ico" || rawPath === "/health" || rawPath === "/api/ui/credentials/openai/oauth/browser/callback" || rawPath === "/api/v1/credentials/openai/oauth/browser/callback"
-      || rawPath === "/auth/callback" || rawPath === "/auth/factory/callback"
-      || rawPath === config.githubOAuthCallbackPath || rawPath === "/auth/login"
-      || rawPath === "/auth/refresh" || rawPath === "/auth/logout";
+    const allowUnauthenticatedRoute = rawPath === "/" || rawPath === "/favicon.ico" || rawPath === "/health";
     const allowUiSessionAuth = rawPath.startsWith("/api/ui/") || rawPath === "/api/v1" || rawPath.startsWith("/api/v1/") || rawPath.startsWith("/auth/");
 
     if (allowUnauthenticatedRoute) {
@@ -634,6 +507,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     const internalTenantId = typeof request.headers[FEDERATION_BRIDGE_TENANT_HEADER] === "string"
       ? request.headers[FEDERATION_BRIDGE_TENANT_HEADER].trim()
       : undefined;
+
     if (
       bridgeAuthHeader === "internal"
       && rawPath.startsWith("/v1/")
@@ -658,69 +532,27 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       resolveTenantApiKey: sqlCredentialStore
         ? async (token) => sqlCredentialStore!.resolveTenantApiKey(token, config.proxyTokenPepper)
         : undefined,
-      resolveUiSession: allowUiSessionAuth && sqlCredentialStore && sqlAuthPersistence
+      resolveUiSession: sqlCredentialStore && sqlAuthPersistence
         ? async (token) => {
-          const accessToken = await sqlAuthPersistence.getAccessToken(token);
+          const accessToken = await sqlAuthPersistence!.getAccessToken(token);
           if (!accessToken) {
             return undefined;
           }
-
           const activeTenantId = typeof accessToken.extra?.activeTenantId === "string"
             ? accessToken.extra.activeTenantId
             : undefined;
-          return sqlCredentialStore.resolveUiSession(accessToken.subject, activeTenantId);
+          return sqlCredentialStore!.resolveUiSession(accessToken.subject, activeTenantId);
         }
         : undefined,
     });
 
-    if (!resolvedAuth) {
-      sendOpenAiError(reply, 401, "Unauthorized", "invalid_request_error", "unauthorized");
+    decoratedRequest.openHaxAuth = resolvedAuth ?? null;
+
+    if (!resolvedAuth && !config.allowUnauthenticated) {
+      reply.code(401).send({ error: "unauthorized" });
       return;
     }
-
-    decoratedRequest.openHaxAuth = resolvedAuth;
-
-    const enforceTenantQuotaRoute = request.method === "POST" && (
-      rawPath === "/v1/chat/completions"
-      || rawPath === "/v1/responses"
-      || rawPath === "/v1/images/generations"
-      || rawPath === "/v1/embeddings"
-    );
-
-    if (enforceTenantQuotaRoute && resolvedAuth.kind !== "unauthenticated") {
-      const tenantId = resolvedAuth.tenantId ?? DEFAULT_TENANT_ID;
-      const tenantSettings = await proxySettingsStore.getForTenant(tenantId);
-      if (typeof tenantSettings.requestsPerMinute === "number" && tenantSettings.requestsPerMinute > 0) {
-        const now = Date.now();
-        const recentRequestCount = requestLogStore.countRequestsSince(now - 60_000, { tenantId });
-        if (recentRequestCount >= tenantSettings.requestsPerMinute) {
-          reply.header("retry-after", 60);
-          sendOpenAiError(
-            reply,
-            429,
-            `Tenant request quota exceeded for ${tenantId}. Allowed requests per minute: ${tenantSettings.requestsPerMinute}.`,
-            "rate_limit_error",
-            "tenant_quota_exceeded",
-          );
-          return;
-        }
-      }
-    }
-
-    if (
-      resolvedAuth.kind === "tenant_api_key"
-      && sqlCredentialStore
-      && request.method === "POST"
-      && rawPath.startsWith("/v1/")
-      && resolvedAuth.tenantId
-      && resolvedAuth.keyId
-    ) {
-      await sqlCredentialStore.touchTenantApiKeyLastUsed(resolvedAuth.tenantId, resolvedAuth.keyId);
-    }
   });
-
-  // Attach a telemetry span to each request
-  app.decorateRequest("_otelSpan", null);
 
   app.addHook("onRequest", async (request) => {
     if (request.method === "OPTIONS") return;
@@ -740,7 +572,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     span.end();
   });
 
-  const OPTIONS_PATHS = [
+  for (const path of [
     "/",
     "/health",
     "/v1/chat/completions",
@@ -758,9 +590,10 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     "/api/ui/*",
     "/api/v1",
     "/api/v1/*",
-  ];
-  for (const path of OPTIONS_PATHS) {
-    app.options(path, async (_request, reply) => { reply.code(204).send(); });
+  ]) {
+    app.options(path, async (_request, reply) => {
+      reply.code(204).send();
+    });
   }
 
   app.get("/", async (request, reply) => {
@@ -771,104 +604,6 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
   app.get("/favicon.ico", async (_request, reply) => {
     reply.code(204).send();
   });
-
-  app.get("/", async (request, reply) => {
-    reply.header("content-type", "text/html; charset=utf-8");
-    reply.send(renderPublicLandingPage(request));
-  });
-
-  app.get("/favicon.ico", async (_request, reply) => {
-    reply.code(204).send();
-  });
-
-  app.options("/health", async (_request, reply) => {
-    reply.code(204).send();
-  });
-
-  app.options("/v1/chat/completions", async (_request, reply) => {
-    reply.code(204).send();
-  });
-
-  app.options("/v1/responses", async (_request, reply) => {
-    reply.code(204).send();
-  });
-
-  app.options("/v1/images/generations", async (_request, reply) => {
-    reply.code(204).send();
-  });
-
-  app.options("/v1/embeddings", async (_request, reply) => {
-    reply.code(204).send();
-  });
-
-  app.options("/v1/models", async (_request, reply) => {
-    reply.code(204).send();
-  });
-
-  app.options("/v1/models/:model", async (_request, reply) => {
-    reply.code(204).send();
-  });
-
-  app.options("/api/chat", async (_request, reply) => {
-    reply.code(204).send();
-  });
-
-  app.options("/api/generate", async (_request, reply) => {
-    reply.code(204).send();
-  });
-
-  app.options("/api/embed", async (_request, reply) => {
-    reply.code(204).send();
-  });
-
-  app.options("/api/embeddings", async (_request, reply) => {
-    reply.code(204).send();
-  });
-
-  app.options("/api/tags", async (_request, reply) => {
-    reply.code(204).send();
-  });
-
-  app.options("/api/ui", async (_request, reply) => {
-    reply.code(204).send();
-  });
-
-  app.options("/api/ui/*", async (_request, reply) => {
-    reply.code(204).send();
-  });
-
-  app.options("/api/v1", async (_request, reply) => {
-    reply.code(204).send();
-  });
-
-  app.options("/api/v1/*", async (_request, reply) => {
-    reply.code(204).send();
-  });
-
-  const deps: AppDeps = {
-    app, config, keyPool, credentialStore, runtimeCredentialStore,
-    sqlCredentialStore, sqlFederationStore, sqlTenantProviderPolicyStore,
-    accountHealthStore, eventStore, requestLogStore, promptAffinityStore,
-    proxySettingsStore, policyEngine, providerCatalogStore, tokenRefreshManager,
-    dynamicProviderBaseUrlGetter: dynamicProviderBaseUrlGetter
-      ? async (id: string) => (await dynamicProviderBaseUrlGetter(id)) ?? undefined
-      : async () => undefined, bridgeRelay, quotaMonitor,
-    refreshFactoryAccount: async (c) => { await refreshFactoryAccount(c as never); },
-    ensureFreshAccounts,
-    refreshExpiredOAuthAccount: async (c) => await refreshExpiredOAuthAccount(c as never),
-    getMergedModelIds,
-    executeFederatedRequestFallback: async (input) => executeFederatedRequestFallback(fedDeps, input),
-    injectNativeBridge: async (url, payload, headers) => injectNativeBridge(bridgeDeps, url, payload, headers),
-  };
-
-  registerHealthRoutes(deps, app);
-  registerModelsRoutes(deps, app);
-  registerWebsearchRoutes(deps, app);
-  registerChatRoutes(deps, app);
-  registerResponsesRoutes(deps, app);
-  registerImagesRoutes(deps, app);
-  registerEmbeddingsRoutes(deps, app);
-  registerNativeOllamaRoutes(deps, app);
 
   const uiBridgeRelay = await registerUiRoutes(app, {
     config,
@@ -882,7 +617,6 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     proxySettingsStore,
     eventStore,
     refreshOpenAiOauthAccounts,
-    bridgeRelay: wsBridgeRelay,
   });
 
   await registerApiV1Routes(app, {
@@ -900,10 +634,72 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     bridgeRelay: uiBridgeRelay,
   });
 
+  bridgeRelay = uiBridgeRelay;
+
+  const fedDeps = { app, sqlFederationStore, runtimeCredentialStore, keyPool, sqlTenantProviderPolicyStore };
+  const bridgeDeps = { bridgeRelay, app, config, runtimeCredentialStore, keyPool, sqlTenantProviderPolicyStore };
+
+  const bridgeAgent = createEnvFederationBridgeAgent({
+    config,
+    keyPool,
+    credentialStore: runtimeCredentialStore,
+    logger: app.log,
+    getResolvedModelCatalog: () => getResolvedModelCatalog(false),
+    handleBridgeRequest: (input) => handleBridgeRequest(bridgeDeps, input),
+  });
+
+  if (bridgeAgent) {
+    await bridgeAgent.start();
+  }
+
+  const deps: AppDeps = {
+    app,
+    config,
+    keyPool,
+    credentialStore,
+    runtimeCredentialStore,
+    sqlCredentialStore,
+    sqlFederationStore,
+    sqlTenantProviderPolicyStore,
+    accountHealthStore,
+    eventStore,
+    requestLogStore,
+    promptAffinityStore,
+    providerRoutePheromoneStore,
+    proxySettingsStore,
+    policyEngine,
+    providerCatalogStore,
+    tokenRefreshManager,
+    dynamicProviderBaseUrlGetter: async (providerId: string) => {
+      if (!dynamicProviderBaseUrlGetterRaw) {
+        return undefined;
+      }
+      return (await dynamicProviderBaseUrlGetterRaw(providerId)) ?? undefined;
+    },
+    bridgeRelay,
+    quotaMonitor,
+    refreshFactoryAccount,
+    ensureFreshAccounts,
+    refreshExpiredOAuthAccount,
+    getMergedModelIds,
+    executeFederatedRequestFallback: async (input) => executeFederatedRequestFallback(fedDeps, input),
+    injectNativeBridge: async (url, payload, headers) => injectNativeBridge(bridgeDeps, url, payload, headers),
+  };
+
+  registerHealthRoutes(deps, app);
+  registerModelsRoutes(deps, app);
+  registerWebsearchRoutes(deps, app);
+  registerChatRoutes(deps, app);
+  registerResponsesRoutes(deps, app);
+  registerImagesRoutes(deps, app);
+  registerEmbeddingsRoutes(deps, app);
+  registerNativeOllamaRoutes(deps, app);
+
   app.addHook("onClose", async () => {
     if (bridgeAgent) {
       await bridgeAgent.stop();
     }
+
     await tokenRefreshManager.stopAndWait();
     quotaMonitor.stop();
 
@@ -934,7 +730,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
         404,
         `Unsupported endpoint: ${request.method} ${path}. Supported endpoints: ${SUPPORTED_V1_ENDPOINTS.join(", ")}`,
         "invalid_request_error",
-        "unsupported_endpoint"
+        "unsupported_endpoint",
       );
       return;
     }
@@ -945,14 +741,14 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
         404,
         `Unsupported endpoint: ${request.method} ${path}. Supported API v1 endpoints begin with /api/v1 and are routed through the canonical control surface.`,
         "invalid_request_error",
-        "unsupported_endpoint"
+        "unsupported_endpoint",
       );
       return;
     }
 
     if (path.startsWith("/api/")) {
       reply.code(404).send({
-        error: `Unsupported endpoint: ${request.method} ${path}. Supported native endpoints: ${SUPPORTED_NATIVE_OLLAMA_ENDPOINTS.join(", ")}`
+        error: `Unsupported endpoint: ${request.method} ${path}. Supported native endpoints: ${SUPPORTED_NATIVE_OLLAMA_ENDPOINTS.join(", ")}`,
       });
       return;
     }

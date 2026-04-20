@@ -58,6 +58,75 @@ import {
 } from "./error-classifier.js";
 import { requestyModelProvider } from "../../model-family.js";
 import { buildFallbackCandidates } from "./orchestrator.js";
+import {
+  clampRouteQuality,
+  createAccumulator,
+  emptyResult,
+  type FallbackDeps,
+} from "./types.js";
+
+function readHeaderValue(headers: Record<string, unknown>, name: string): string | undefined {
+  const direct = headers[name] ?? headers[name.toLowerCase()] ?? headers[name.toUpperCase()];
+  if (typeof direct === "string") {
+    return direct;
+  }
+  if (Array.isArray(direct) && typeof direct[0] === "string") {
+    return direct[0];
+  }
+  return undefined;
+}
+
+function resolveForcedCredentialSelection(context: StrategyRequestContext): {
+  readonly providerId?: string;
+  readonly accountId?: string;
+} {
+  if (context.requestAuth?.kind !== "legacy_admin") {
+    return {};
+  }
+
+  const providerId = readHeaderValue(context.clientHeaders as unknown as Record<string, unknown>, "x-open-hax-forced-provider")?.trim().toLowerCase();
+  const accountId = readHeaderValue(context.clientHeaders as unknown as Record<string, unknown>, "x-open-hax-forced-account-id")?.trim();
+
+  return {
+    providerId: providerId && providerId.length > 0 ? providerId : undefined,
+    accountId: accountId && accountId.length > 0 ? accountId : undefined,
+  };
+}
+
+function normalizeReasoningEffortForOllamaCloud(payload: Record<string, unknown>): Record<string, unknown> {
+  const rawEffort = typeof payload["reasoning_effort"] === "string"
+    ? String(payload["reasoning_effort"])
+    : typeof payload["reasoningEffort"] === "string"
+      ? String(payload["reasoningEffort"])
+      : undefined;
+
+  const normalizedEffort = rawEffort
+    ? (rawEffort.toLowerCase() === "xhigh" ? "high" : rawEffort.toLowerCase())
+    : undefined;
+
+  const reasoning = typeof payload["reasoning"] === "object" && payload["reasoning"] !== null
+    ? payload["reasoning"] as Record<string, unknown>
+    : undefined;
+
+  const reasoningEffort = typeof reasoning?.["effort"] === "string"
+    ? (String(reasoning["effort"]).toLowerCase() === "xhigh" ? "high" : String(reasoning["effort"]).toLowerCase())
+    : undefined;
+
+  const next: Record<string, unknown> = { ...payload };
+  let changed = false;
+
+  if (normalizedEffort && payload["reasoning_effort"] !== normalizedEffort) {
+    next["reasoning_effort"] = normalizedEffort;
+    changed = true;
+  }
+
+  if (reasoning && reasoningEffort && reasoning["effort"] !== reasoningEffort) {
+    next["reasoning"] = { ...reasoning, effort: reasoningEffort };
+    changed = true;
+  }
+
+  return changed ? next : payload;
+}
 
 function shouldUseOpenAiCodexHeaderProfile(
   providerId: string,

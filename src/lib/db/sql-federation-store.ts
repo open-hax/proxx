@@ -3,6 +3,8 @@ import crypto from "node:crypto";
 import type { Sql } from "./index.js";
 import { parseFederationOwnerCredential, type FederationOwnerCredential } from "../federation/owner-credential.js";
 
+type SqlTx = Pick<Sql, "unsafe">;
+
 export type FederationPeerAuthMode = "admin_key" | "at_did";
 export type FederationProjectedAccountState = "descriptor" | "remote_route" | "imported";
 
@@ -386,8 +388,9 @@ export class SqlFederationStore {
     return rows.map(toPeerRecord);
   }
 
-  public async getPeer(id: string): Promise<FederationPeerRecord | undefined> {
-    const rows = await this.sql.unsafe<FederationPeerRow[]>(
+  public async getPeer(id: string, tx?: SqlTx): Promise<FederationPeerRecord | undefined> {
+    const sql: SqlTx = tx ?? this.sql;
+    const rows = await sql.unsafe<FederationPeerRow[]>(
       "SELECT * FROM federation_peers WHERE id = $1 LIMIT 1",
       [id.trim()],
     );
@@ -492,8 +495,9 @@ export class SqlFederationStore {
     readonly sourcePeerId: string;
     readonly providerId: string;
     readonly accountId: string;
-  }): Promise<FederationProjectedAccountRecord | undefined> {
-    const rows = await this.sql.unsafe<FederationProjectedAccountRow[]>(
+  }, tx?: SqlTx): Promise<FederationProjectedAccountRecord | undefined> {
+    const sql: SqlTx = tx ?? this.sql;
+    const rows = await sql.unsafe<FederationProjectedAccountRow[]>(
       `UPDATE federation_projected_accounts
        SET warm_request_count = warm_request_count + 1,
            last_routed_at = NOW(),
@@ -514,8 +518,9 @@ export class SqlFederationStore {
     readonly sourcePeerId: string;
     readonly providerId: string;
     readonly accountId: string;
-  }): Promise<FederationProjectedAccountRecord | undefined> {
-    const rows = await this.sql.unsafe<FederationProjectedAccountRow[]>(
+  }, tx?: SqlTx): Promise<FederationProjectedAccountRecord | undefined> {
+    const sql: SqlTx = tx ?? this.sql;
+    const rows = await sql.unsafe<FederationProjectedAccountRow[]>(
       `UPDATE federation_projected_accounts
        SET availability_state = 'imported',
            imported_at = COALESCE(imported_at, NOW()),
@@ -526,6 +531,45 @@ export class SqlFederationStore {
     );
 
     return rows[0] ? toProjectedAccountRecord(rows[0]) : undefined;
+  }
+
+  public async getProjectedAccount(input: {
+    readonly sourcePeerId: string;
+    readonly providerId: string;
+    readonly accountId: string;
+  }, tx?: SqlTx): Promise<FederationProjectedAccountRecord | undefined> {
+    const sql: SqlTx = tx ?? this.sql;
+    const rows = await sql.unsafe<FederationProjectedAccountRow[]>(
+      `SELECT * FROM federation_projected_accounts
+       WHERE source_peer_id = $1 AND provider_id = $2 AND account_id = $3
+       LIMIT 1`,
+      [input.sourcePeerId.trim(), input.providerId.trim().toLowerCase(), input.accountId.trim()],
+    );
+
+    return rows[0] ? toProjectedAccountRecord(rows[0]) : undefined;
+  }
+
+  public async withProjectedAccountImportLock<T>(
+    input: {
+      readonly sourcePeerId: string;
+      readonly providerId: string;
+      readonly accountId: string;
+    },
+    callback: (tx: SqlTx) => Promise<T>,
+  ): Promise<T | undefined> {
+    // postgres.js returns a TransactionSql that is structurally compatible with
+    // our usage (unsafe()), but not assignable to our Sql type.
+    const result = await (this.sql as unknown as { begin: (fn: (tx: unknown) => Promise<unknown>) => Promise<unknown> }).begin(async (tx) => {
+      const sqlTx = tx as SqlTx;
+      await sqlTx.unsafe(
+        `SELECT 1 FROM federation_projected_accounts
+         WHERE source_peer_id = $1 AND provider_id = $2 AND account_id = $3
+         FOR UPDATE`,
+        [input.sourcePeerId.trim(), input.providerId.trim().toLowerCase(), input.accountId.trim()],
+      );
+      return callback(sqlTx);
+    });
+    return result as T | undefined;
   }
 
   public async getProjectedAccountsForOwner(ownerSubject: string): Promise<FederationProjectedAccountRecord[]> {

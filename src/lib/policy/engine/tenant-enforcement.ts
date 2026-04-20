@@ -19,6 +19,28 @@ export function tenantProviderAllowed(settings: TenantSettings, providerId: stri
   return true;
 }
 
+export function tenantModelAllowed(settings: TenantSettings, model: string): boolean {
+  if (!settings.allowedModels || settings.allowedModels.length === 0) {
+    return true;
+  }
+
+  const normalized = model.trim().toLowerCase();
+  for (const allowed of settings.allowedModels) {
+    const allowedNormalized = allowed.trim().toLowerCase();
+    if (normalized === allowedNormalized) {
+      return true;
+    }
+    // Support ollama prefix normalization: "ollama/model:tag" matches "model:tag"
+    const withoutOllamaPrefix = normalized.startsWith("ollama/") ? normalized.slice(7) : normalized.startsWith("ollama:") ? normalized.slice(6) : normalized;
+    const allowedWithoutPrefix = allowedNormalized.startsWith("ollama/") ? allowedNormalized.slice(7) : allowedNormalized.startsWith("ollama:") ? allowedNormalized.slice(6) : allowedNormalized;
+    if (withoutOllamaPrefix === allowedWithoutPrefix) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 export function filterTenantProviderRoutes(
   routes: readonly { readonly providerId: string; readonly baseUrl: string }[],
   settings: TenantSettings,

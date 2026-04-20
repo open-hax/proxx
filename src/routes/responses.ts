@@ -202,6 +202,7 @@ export function registerResponsesRoutes(deps: AppDeps, app: FastifyInstance): vo
         reply,
         deps.requestLogStore,
         deps.promptAffinityStore,
+        deps.providerRoutePheromoneStore,
         deps.keyPool,
         providerRoutes,
         context,
@@ -211,7 +212,7 @@ export function registerResponsesRoutes(deps: AppDeps, app: FastifyInstance): vo
         deps.policyEngine,
         deps.accountHealthStore,
         deps.eventStore,
-        undefined,
+        deps.quotaMonitor,
       );
 
       if (execution.handled) {

@@ -7,6 +7,7 @@ import type { FastifyInstance } from "fastify";
 
 import type { UiRouteDependencies } from "../routes/types.js";
 import type { CredentialStoreLike } from "./credential-store.js";
+import { CredentialStore } from "./credential-store.js";
 import {
   collectLocalHostDashboardSnapshot,
   fetchRemoteHostDashboardSnapshot,
@@ -21,29 +22,44 @@ import { registerCredentialUiRoutes } from "../routes/credentials/index.js";
 import { registerFederationUiRoutes } from "../routes/federation/index.js";
 import type { FederationAccountsResponse, FederationCredentialExport } from "../routes/federation/account-knowledge.js";
 import {
+  buildFederationAccountKnowledge,
+  findCredentialForFederationExport,
+} from "../routes/federation/account-knowledge.js";
+import {
   extractPeerCredential,
   fetchFederationJson,
   projectedAccountAllowsCredentialImport,
 } from "../routes/federation/remote.js";
 import { createSessionUiRouteContext, registerSessionUiRoutes } from "../routes/sessions/index.js";
+import type { ChatRole } from "./session-store.js";
 import { registerSettingsUiRoutes } from "../routes/settings/index.js";
 import {
   authCanManageFederation,
+  authCanManageTenantKeys,
   authCanViewTenant,
   getResolvedAuth,
+  parseBoolean,
+  parseOptionalProviderIds,
+  parseOptionalRequestsPerMinute,
   readCookieValue,
+  toVisibleTenants,
 } from "../routes/shared/ui-auth.js";
 import { getToolSeedForModel, loadMcpSeeds } from "./tool-mcp-seed.js";
 import type { SqlRequestUsageStore } from "./db/sql-request-usage-store.js";
-import { normalizeTenantId } from "./tenant-api-key.js";
+import { shouldWarmImportProjectedAccount } from "./db/sql-federation-store.js";
+import { normalizeTenantId, DEFAULT_TENANT_ID } from "./tenant-api-key.js";
 import { createFederationBridgeRelay, type FederationBridgeRelay } from "./federation/bridge-relay.js";
 import { RequestLogWsHub, type RequestLogWsSubscription } from "./observability/request-log-ws-hub.js";
-import { registerUsageAnalyticsRoutes } from "../routes/api/ui/analytics/usage.js";
+import { registerUsageAnalyticsRoutes, toUsageWindow, resolveUsageScopeFromAuth, buildUsageOverview, buildProviderModelAnalytics } from "../routes/api/ui/analytics/usage.js";
 import { registerHostDashboardRoutes } from "../routes/api/ui/hosts/index.js";
 import { registerEventRoutes } from "../routes/api/ui/events/index.js";
 import { registerMcpSeedRoutes } from "../routes/api/ui/mcp/index.js";
 import { registerStaticAssetRoutes } from "../routes/api/ui/assets.js";
 import { registerWebSocketRoutes } from "../routes/api/ui/ws.js";
+import { htmlError, htmlSuccess, inferBaseUrl, createCredentialRouteContext } from "../routes/credentials/context.js";
+import { OpenAiOAuthManager } from "./openai-oauth.js";
+import { FactoryOAuthManager } from "./factory-oauth.js";
+import { fetchOpenAiQuotaSnapshots } from "./openai-quota.js";
 
 
 
@@ -99,11 +115,157 @@ export async function registerUiRoutes(app: FastifyInstance, deps: UiRouteDepend
     },
   });
 
+  const { sessionStore, sessionIndex, ensureInitialSemanticIndexSync } = sessionContext;
+
+  function toChatRole(value: unknown): ChatRole {
+    if (value === "system" || value === "user" || value === "assistant" || value === "tool") {
+      return value;
+    }
+    return "user";
+  }
+
+  function authCanAccessHostDashboard(auth: ReturnType<typeof getResolvedAuth> | undefined): boolean {
+    if (!auth) {
+      return false;
+    }
+    if (auth.kind === "legacy_admin") {
+      return true;
+    }
+    if (auth.kind === "ui_session") {
+      return auth.role === "owner" || auth.role === "admin";
+    }
+    return false;
+  }
+
+  function sanitizeFederationUsageEntry(candidate: unknown): RequestLogEntry | undefined {
+    if (typeof candidate !== "object" || candidate === null) {
+      return undefined;
+    }
+    const row = candidate as Record<string, unknown>;
+    const id = typeof row.id === "string" ? row.id.trim() : "";
+    const providerId = typeof row.providerId === "string" ? row.providerId.trim() : "";
+    const accountId = typeof row.accountId === "string" ? row.accountId.trim() : "";
+    const authType = row.authType;
+    const model = typeof row.model === "string" ? row.model.trim() : "";
+    const upstreamMode = typeof row.upstreamMode === "string" ? row.upstreamMode.trim() : "";
+    const upstreamPath = typeof row.upstreamPath === "string" ? row.upstreamPath.trim() : "";
+    const timestamp = typeof row.timestamp === "number" && Number.isFinite(row.timestamp) ? row.timestamp : undefined;
+    const status = typeof row.status === "number" && Number.isFinite(row.status) ? row.status : undefined;
+    const latencyMs = typeof row.latencyMs === "number" && Number.isFinite(row.latencyMs) ? row.latencyMs : undefined;
+    const serviceTierSource = row.serviceTierSource;
+    if (!id || !providerId || !accountId || !model || !upstreamMode || !upstreamPath || timestamp === undefined || status === undefined || latencyMs === undefined) {
+      return undefined;
+    }
+    const normalizedAuthType: RequestLogEntry["authType"] =
+      authType === "api_key" || authType === "oauth_bearer" || authType === "local" || authType === "none"
+        ? authType
+        : "none";
+    const normalizedRouteKind: RequestLogEntry["routeKind"] =
+      row.routeKind === "local" || row.routeKind === "federated" || row.routeKind === "bridge"
+        ? row.routeKind
+        : "local";
+    const normalizedServiceTierSource: RequestLogEntry["serviceTierSource"] =
+      serviceTierSource === "fast_mode" || serviceTierSource === "explicit" || serviceTierSource === "none"
+        ? serviceTierSource
+        : "none";
+    return {
+      id,
+      timestamp,
+      tenantId: typeof row.tenantId === "string" ? row.tenantId : undefined,
+      issuer: typeof row.issuer === "string" ? row.issuer : undefined,
+      keyId: typeof row.keyId === "string" ? row.keyId : undefined,
+      routeKind: normalizedRouteKind,
+      federationOwnerSubject: typeof row.federationOwnerSubject === "string" ? row.federationOwnerSubject : undefined,
+      routedPeerId: typeof row.routedPeerId === "string" ? row.routedPeerId : undefined,
+      routedPeerLabel: typeof row.routedPeerLabel === "string" ? row.routedPeerLabel : undefined,
+      providerId,
+      accountId,
+      authType: normalizedAuthType,
+      model,
+      upstreamMode,
+      upstreamPath,
+      status,
+      latencyMs,
+      serviceTier: typeof row.serviceTier === "string" ? row.serviceTier : undefined,
+      serviceTierSource: normalizedServiceTierSource,
+      promptTokens: typeof row.promptTokens === "number" && Number.isFinite(row.promptTokens) ? row.promptTokens : undefined,
+      completionTokens: typeof row.completionTokens === "number" && Number.isFinite(row.completionTokens) ? row.completionTokens : undefined,
+      totalTokens: typeof row.totalTokens === "number" && Number.isFinite(row.totalTokens) ? row.totalTokens : undefined,
+      cachedPromptTokens: typeof row.cachedPromptTokens === "number" && Number.isFinite(row.cachedPromptTokens) ? row.cachedPromptTokens : undefined,
+      imageCount: typeof row.imageCount === "number" && Number.isFinite(row.imageCount) ? row.imageCount : undefined,
+      imageCostUsd: typeof row.imageCostUsd === "number" && Number.isFinite(row.imageCostUsd) ? row.imageCostUsd : undefined,
+      promptCacheKeyHash: typeof row.promptCacheKeyHash === "string" ? row.promptCacheKeyHash : undefined,
+      promptCacheKeyUsed: row.promptCacheKeyUsed === true,
+      cacheHit: row.cacheHit === true,
+      ttftMs: typeof row.ttftMs === "number" && Number.isFinite(row.ttftMs) ? row.ttftMs : undefined,
+      tps: typeof row.tps === "number" && Number.isFinite(row.tps) ? row.tps : undefined,
+      error: typeof row.error === "string" ? row.error : undefined,
+      upstreamErrorCode: typeof row.upstreamErrorCode === "string" ? row.upstreamErrorCode : undefined,
+      upstreamErrorType: typeof row.upstreamErrorType === "string" ? row.upstreamErrorType : undefined,
+      upstreamErrorMessage: typeof row.upstreamErrorMessage === "string" ? row.upstreamErrorMessage : undefined,
+      costUsd: typeof row.costUsd === "number" && Number.isFinite(row.costUsd) ? row.costUsd : undefined,
+      energyJoules: typeof row.energyJoules === "number" && Number.isFinite(row.energyJoules) ? row.energyJoules : undefined,
+      waterEvaporatedMl: typeof row.waterEvaporatedMl === "number" && Number.isFinite(row.waterEvaporatedMl) ? row.waterEvaporatedMl : undefined,
+    };
+  }
+
+  async function firstExistingAssetPath(paths: readonly string[]): Promise<string | undefined> {
+    for (const candidate of paths) {
+      try {
+        await access(candidate);
+        return candidate;
+      } catch {
+        // Continue to next candidate.
+      }
+    }
+    return undefined;
+  }
+
+  async function loadUiIndexHtml(): Promise<string | undefined> {
+    const indexPath = await firstExistingAssetPath([
+      resolve(process.cwd(), "web/dist/index.html"),
+      resolve(process.cwd(), "dist/web/index.html"),
+      resolve(process.cwd(), "../web/dist/index.html"),
+    ]);
+    if (!indexPath) {
+      return undefined;
+    }
+    return readFile(indexPath, "utf8");
+  }
+
+  async function resolveUiAssetPath(assetPath: string): Promise<string | undefined> {
+    const normalized = assetPath.replace(/^\/+/, "");
+    const candidates = [
+      resolve(process.cwd(), "web/dist", normalized),
+      resolve(process.cwd(), "dist/web", normalized),
+      resolve(process.cwd(), "../web/dist", normalized),
+    ];
+    return firstExistingAssetPath(candidates);
+  }
+
+  let mcpSeedCache: { readonly loadedAt: number; readonly seeds: Awaited<ReturnType<typeof loadMcpSeeds>> } | undefined;
+  const federationRequestTimeoutMs = 5000;
+  const credentialStore = deps.credentialStore;
+  const credentialCtx = createCredentialRouteContext(deps);
+  const oauthManager = credentialCtx.openAiOAuthManager;
+  const factoryOAuthManager = credentialCtx.factoryOAuthManager;
+  const bridgeRelay = createFederationBridgeRelay();
+  const hostDashboardTargets = loadHostDashboardTargetsFromEnv(process.env);
+  const hostDashboardDockerSocketPath = process.env.HOST_DASHBOARD_DOCKER_SOCKET_PATH?.trim() || undefined;
+  const hostDashboardRuntimeRoot = process.env.HOST_DASHBOARD_RUNTIME_ROOT?.trim() || undefined;
+  const hostDashboardRequestTimeoutMs = Math.max(5000, Math.min(60_000, Number(process.env.HOST_DASHBOARD_REQUEST_TIMEOUT_MS) || 10000));
+
   const loadCachedMcpSeeds = async () => {
     const now = Date.now();
     if (mcpSeedCache && now - mcpSeedCache.loadedAt < 30_000) {
       return mcpSeedCache.seeds;
     }
+
+    const ecosystemsDir = await firstExistingPath([
+      resolve(process.cwd(), "../../../ecosystems"),
+      resolve(process.cwd(), "../../ecosystems"),
+      resolve(process.cwd(), "ecosystems"),
+    ]);
 
     if (!ecosystemsDir) {
       return [];
@@ -372,12 +534,12 @@ export async function registerUiRoutes(app: FastifyInstance, deps: UiRouteDepend
   });
 
   app.get("/api/ui/sessions", async (_request, reply) => {
-    const sessions = await sessionStore.listSessions();
+    const sessions = await sessionContext.sessionStore.listSessions();
     reply.send({ sessions });
   });
 
   app.post<{ Body: { readonly title?: string } }>("/api/ui/sessions", async (request, reply) => {
-    const session = await sessionStore.createSession(request.body?.title);
+    const session = await sessionContext.sessionStore.createSession(request.body?.title);
     reply.code(201).send({ session });
   });
 

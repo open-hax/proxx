@@ -2,6 +2,25 @@ import type { FastifyReply } from "fastify";
 
 import { openAiError } from "./proxy.js";
 
+export {
+  toErrorMessage,
+  extractErrorMessage,
+  truncateForLog,
+  messageIndicatesQuotaError,
+  payloadLooksLikeError,
+  responseIsEventStream,
+  streamPayloadIndicatesQuotaError,
+  responseIndicatesQuotaError,
+  responseIndicatesMissingModel,
+  responseIndicatesModelNotSupportedForAccount,
+  summarizeUpstreamError,
+  type UpstreamErrorSummary,
+  QUOTA_ERROR_PATTERNS,
+  MODEL_NOT_SUPPORTED_WITH_CHATGPT_PATTERNS,
+} from "./errors/index.js";
+
+export { fetchWithResponseTimeout } from "./http/index.js";
+
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
@@ -188,36 +207,6 @@ export function streamPayloadHasSubstantiveChunks(payload: string): boolean {
 
     return true;
   }
-  return false;
-}
-
-export function streamPayloadIndicatesQuotaError(payload: string): boolean {
-  for (const data of extractSseDataLines(payload)) {
-    if (data === "[DONE]") {
-      continue;
-    }
-
-    try {
-      const parsed: unknown = JSON.parse(data);
-      if (!payloadLooksLikeError(parsed)) {
-        continue;
-      }
-
-      const message = extractErrorMessage(parsed);
-      if (message && messageIndicatesQuotaError(message)) {
-        return true;
-      }
-
-      if (messageIndicatesQuotaError(data)) {
-        return true;
-      }
-    } catch {
-      if (messageIndicatesQuotaError(data)) {
-        return true;
-      }
-    }
-  }
-
   return false;
 }
 

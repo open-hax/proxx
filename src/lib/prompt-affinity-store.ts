@@ -1,3 +1,6 @@
+import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { dirname } from "node:path";
+
 export interface IPromptAffinityStore {
   init?(): Promise<void>;
   warmup?(): Promise<void>;
