@@ -119,20 +119,18 @@ function formatProviderRouteCell(entry: RequestLogEntry): string {
 }
 
 function metricTone(value: number, inverse = false): string {
-  if (value <= 0) {
-    return "dashboard-metric-neutral";
+  // Generic metric tone helper used to color summary tiles.
+  // - Non-inverse metrics (counts/cost) are "good" when > 0, otherwise neutral.
+  // - Inverse metrics (error rate) are "good" when 0, then warn/danger as they rise.
+  if (inverse) {
+    if (value <= 0) return "dashboard-metric-good";
+    if (value >= 10) return "dashboard-metric-danger";
+    if (value >= 1) return "dashboard-metric-warn";
+    return "dashboard-metric-good";
   }
 
-  const peer = entry.routedPeerLabel ?? entry.routedPeerId ?? "unknown-peer";
-  return `${entry.routeKind} → ${peer}`;
-}
-
-function formatProviderRouteCell(entry: RequestLogEntry): string {
-  const base = `${entry.providerId}/${entry.accountId}`;
-  const routePart = entry.routeKind === "local" ? "" : ` · ${formatRouteLabel(entry)}`;
-  const origin = formatRequestOrigin(entry);
-  const originPart = origin !== "unknown" && origin !== "local" ? ` · from ${origin}` : "";
-  return `${base}${routePart}${originPart}`;
+  if (value <= 0) return "dashboard-metric-neutral";
+  return "dashboard-metric-good";
 }
 
 function metricTileVariant(value: number, inverse = false): MetricTileVariant {
