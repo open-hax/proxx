@@ -2132,6 +2132,78 @@ test("probes an OpenAI account with a minimal hello request", async () => {
   }
 });
 
+test("probes an Ollama Cloud account with a minimal hello request", async () => {
+  await withProxyApp(
+    {
+      keys: [],
+      keysPayload: {
+        providers: {
+          "ollama-cloud": {
+            auth: "api_key",
+            accounts: [
+              {
+                id: "ollama-probe-a",
+                api_key: "ollama-cloud-key",
+              },
+            ],
+          },
+        },
+      },
+      upstreamHandler: async (request, body) => {
+        assert.equal(request.method, "POST");
+        assert.equal(request.url, "/api/chat");
+        assert.equal(request.headers.authorization, "Bearer ollama-cloud-key");
+
+        const parsed = JSON.parse(body) as Record<string, unknown>;
+        assert.equal(parsed.model, "glm-5");
+        assert.equal(parsed.stream, false);
+        assert.equal(parsed.think, false);
+        assert.ok(Array.isArray(parsed.messages));
+        assert.ok(isRecord(parsed.messages[0]));
+        assert.equal(parsed.messages[0].role, "user");
+        assert.equal(parsed.messages[0].content, "Reply with exactly hello.");
+
+        return {
+          status: 200,
+          headers: {
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            model: "glm-5",
+            created_at: "2026-04-21T00:00:00.000Z",
+            message: {
+              role: "assistant",
+              content: "hello",
+            },
+            done: true,
+            done_reason: "stop",
+          }),
+        };
+      },
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/v1/credentials/ollama-cloud/probe",
+        payload: {
+          accountId: "ollama-probe-a",
+        },
+      });
+
+      assert.equal(response.statusCode, 200);
+      const payload: unknown = response.json();
+      assert.ok(isRecord(payload));
+      assert.equal(payload.providerId, "ollama-cloud");
+      assert.equal(payload.accountId, "ollama-probe-a");
+      assert.equal(payload.status, "ok");
+      assert.equal(payload.ok, true);
+      assert.equal(payload.matchesExpectedOutput, true);
+      assert.equal(payload.outputText, "hello");
+      assert.equal(payload.model, "glm-5");
+    },
+  );
+});
+
 test("does not misclassify gemini models as local ollama because they contain mini", async () => {
   const observedKeys: string[] = [];
 

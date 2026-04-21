@@ -369,7 +369,7 @@ export interface CredentialQuotaOverview {
   readonly accounts: readonly CredentialQuotaAccountSummary[];
 }
 
-export interface OpenAiAccountProbeResult {
+export interface CredentialAccountProbeResult {
   readonly providerId: string;
   readonly accountId: string;
   readonly displayName: string;
@@ -846,8 +846,18 @@ export async function getOpenAiPromptCacheAudit(limit?: number): Promise<PromptC
   return requestJson<PromptCacheAuditOverview>(`/api/v1/credentials/openai/prompt-cache-audit${suffix}`);
 }
 
-export async function probeOpenAiCredentialAccount(accountId: string): Promise<OpenAiAccountProbeResult> {
-  return requestJson<OpenAiAccountProbeResult>("/api/v1/credentials/openai/probe", {
+export async function probeOpenAiCredentialAccount(accountId: string): Promise<CredentialAccountProbeResult> {
+  return requestJson<CredentialAccountProbeResult>("/api/v1/credentials/openai/probe", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ accountId }),
+  });
+}
+
+export async function probeOllamaCloudCredentialAccount(accountId: string): Promise<CredentialAccountProbeResult> {
+  return requestJson<CredentialAccountProbeResult>("/api/v1/credentials/ollama-cloud/probe", {
     method: "POST",
     headers: {
       "content-type": "application/json",

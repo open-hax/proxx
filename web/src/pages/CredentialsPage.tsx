@@ -14,16 +14,17 @@ import {
   pollFactoryDeviceOAuth,
   pollOpenAiDeviceOAuth,
   type CredentialAccount,
+  type CredentialAccountProbeResult,
   type CredentialProvider,
   type CredentialQuotaAccountSummary,
   type CredentialQuotaRateLimit,
   type CredentialQuotaOverview,
   type CredentialQuotaWindow,
   type KeyPoolStatus,
-  type OpenAiAccountProbeResult,
   type PromptCacheAuditOverview,
   type ProviderRequestLogSummary,
   type RequestLogEntry,
+  probeOllamaCloudCredentialAccount,
   probeOpenAiCredentialAccount,
   removeCredential,
   startFactoryBrowserOAuth,
@@ -243,6 +244,10 @@ function formatRouteLabel(entry: RequestLogEntry): string {
   return `${entry.routeKind} → ${peer}`;
 }
 
+function probeModelForProvider(providerId: string): string {
+  return providerId === "ollama-cloud" ? "glm-5" : "gpt-5.2";
+}
+
 function sortAccounts(accounts: readonly CredentialAccount[]): CredentialAccount[] {
   return [...accounts].sort((left, right) => {
     const leftLabel = (left.email ?? left.displayName ?? left.id).toLowerCase();
@@ -356,7 +361,7 @@ export function CredentialsPage(): JSX.Element {
   const [quotaLoading, setQuotaLoading] = useState(false);
   const [quotaError, setQuotaError] = useState<string | null>(null);
   const [promptCacheAudit, setPromptCacheAudit] = useState<PromptCacheAuditOverview | null>(null);
-  const [accountProbeResults, setAccountProbeResults] = useState<Record<string, OpenAiAccountProbeResult>>({});
+  const [accountProbeResults, setAccountProbeResults] = useState<Record<string, CredentialAccountProbeResult>>({});
   const [accountProbeLoading, setAccountProbeLoading] = useState<Record<string, boolean>>({});
   const [disabledAccounts, setDisabledAccounts] = useState<Set<string>>(new Set());
   const [copiedFieldKey, setCopiedFieldKey] = useState<string | null>(null);
@@ -1025,10 +1030,15 @@ export function CredentialsPage(): JSX.Element {
     setAccountProbeLoading((current) => ({ ...current, [stateKey]: true }));
 
     try {
-      const result = await probeOpenAiCredentialAccount(accountId);
+      const result = providerId === "ollama-cloud"
+        ? await probeOllamaCloudCredentialAccount(accountId)
+        : await probeOpenAiCredentialAccount(accountId);
       setAccountProbeResults((current) => ({ ...current, [stateKey]: result }));
-      await refreshQuota();
-      await refreshPromptCacheAudit();
+
+      if (providerId === "openai") {
+        await refreshQuota();
+        await refreshPromptCacheAudit();
+      }
     } catch (probeError) {
       const message = probeError instanceof Error ? probeError.message : String(probeError);
       setAccountProbeResults((current) => ({
@@ -1038,7 +1048,7 @@ export function CredentialsPage(): JSX.Element {
           accountId,
           displayName: `${providerId}/${accountId}`,
           testedAt: new Date().toISOString(),
-          model: "gpt-5.2",
+          model: probeModelForProvider(providerId),
           expectedText: "hello",
           status: "error",
           ok: false,
@@ -1151,7 +1161,8 @@ export function CredentialsPage(): JSX.Element {
     const duplicateCount = diagnostics?.duplicateCount ?? 0;
     const needsReauth = diagnostics?.needsReauth ?? false;
     const canReauth = providerId === "openai" && account.authType === "oauth_bearer";
-    const canProbeAccount = providerId === "openai" && account.authType === "oauth_bearer";
+    const canProbeAccount = (providerId === "openai" && account.authType === "oauth_bearer")
+      || (providerId === "ollama-cloud" && account.authType === "api_key");
     const isAccountDisabled = disabledAccounts.has(accountKey);
 
     return (
