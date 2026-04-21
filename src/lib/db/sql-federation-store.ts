@@ -193,7 +193,17 @@ CREATE INDEX IF NOT EXISTS idx_federation_projected_accounts_owner ON federation
 `;
 
 const MAX_DIFF_PAGE_SIZE = 500;
-export const WARM_IMPORT_REQUEST_THRESHOLD = 3;
+
+function resolveWarmImportRequestThreshold(): number {
+  const raw = process.env.FEDERATION_WARM_IMPORT_REQUEST_THRESHOLD?.trim();
+  if (!raw) {
+    return 3;
+  }
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 3;
+}
+
+export const WARM_IMPORT_REQUEST_THRESHOLD = resolveWarmImportRequestThreshold();
 
 function parseJsonObject(raw: string | Record<string, unknown> | null): Record<string, unknown> {
   if (!raw) {
