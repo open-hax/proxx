@@ -2,7 +2,7 @@ import type { CredentialAccountView, CredentialStoreLike } from "./credential-st
 import { ollamaToChatCompletion } from "./ollama-compat.js";
 
 const OLLAMA_CLOUD_PROBE_TIMEOUT_MS = 30_000;
-const DEFAULT_OLLAMA_CLOUD_PROBE_MODEL = "glm-5";
+const DEFAULT_OLLAMA_CLOUD_PROBE_MODEL = "gemma4:31b";
 const DEFAULT_OLLAMA_CLOUD_PROBE_EXPECTED_TEXT = "hello";
 
 export interface CredentialAccountProbeResult {

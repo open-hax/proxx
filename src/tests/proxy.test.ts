@@ -2155,7 +2155,7 @@ test("probes an Ollama Cloud account with a minimal hello request", async () => 
         assert.equal(request.headers.authorization, "Bearer ollama-cloud-key");
 
         const parsed = JSON.parse(body) as Record<string, unknown>;
-        assert.equal(parsed.model, "glm-5");
+        assert.equal(parsed.model, "gemma4:31b");
         assert.equal(parsed.stream, false);
         assert.equal(parsed.think, false);
         assert.ok(Array.isArray(parsed.messages));
@@ -2169,7 +2169,7 @@ test("probes an Ollama Cloud account with a minimal hello request", async () => 
             "content-type": "application/json",
           },
           body: JSON.stringify({
-            model: "glm-5",
+            model: "gemma4:31b",
             created_at: "2026-04-21T00:00:00.000Z",
             message: {
               role: "assistant",
@@ -2199,7 +2199,7 @@ test("probes an Ollama Cloud account with a minimal hello request", async () => 
       assert.equal(payload.ok, true);
       assert.equal(payload.matchesExpectedOutput, true);
       assert.equal(payload.outputText, "hello");
-      assert.equal(payload.model, "glm-5");
+      assert.equal(payload.model, "gemma4:31b");
     },
   );
 });

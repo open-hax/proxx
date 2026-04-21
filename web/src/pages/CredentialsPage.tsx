@@ -245,7 +245,7 @@ function formatRouteLabel(entry: RequestLogEntry): string {
 }
 
 function probeModelForProvider(providerId: string): string {
-  return providerId === "ollama-cloud" ? "glm-5" : "gpt-5.2";
+  return providerId === "ollama-cloud" ? "gemma4:31b" : "gpt-5.2";
 }
 
 function sortAccounts(accounts: readonly CredentialAccount[]): CredentialAccount[] {
