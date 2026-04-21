@@ -63,6 +63,12 @@ export const MODEL_NOT_SUPPORTED_WITH_CHATGPT_PATTERNS = [
   "model_not_supported_for_account",
 ];
 
+export const MODEL_REQUIRES_SUBSCRIPTION_PATTERNS = [
+  "requires a subscription",
+  "subscription required",
+  "upgrade for access",
+];
+
 export const QUOTA_ERROR_PATTERNS = [
   "outstanding_balance",
   "outstanding-balance",
@@ -287,7 +293,7 @@ export async function responseIndicatesMissingModel(response: Response, requeste
  * Check if a response indicates that the model is not supported for the account.
  */
 export async function responseIndicatesModelNotSupportedForAccount(response: Response, requestedModel: string): Promise<boolean> {
-  if (response.status !== 400 && response.status !== 422) {
+  if (response.status !== 400 && response.status !== 403 && response.status !== 422) {
     return false;
   }
 
@@ -308,6 +314,10 @@ export async function responseIndicatesModelNotSupportedForAccount(response: Res
   }
 
   const lowered = message.toLowerCase();
+
+  if (MODEL_REQUIRES_SUBSCRIPTION_PATTERNS.some(pattern => lowered.includes(pattern))) {
+    return true;
+  }
 
   if (!MODEL_NOT_SUPPORTED_WITH_CHATGPT_PATTERNS.some(pattern => lowered.includes(pattern))) {
     return false;
