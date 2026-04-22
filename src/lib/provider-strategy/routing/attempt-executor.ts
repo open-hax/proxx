@@ -54,39 +54,6 @@ import {
 } from "./error-classifier.js";
 import { requestyModelProvider } from "../../model-family.js";
 import { buildFallbackCandidates } from "./candidate-builder.js";
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
-function asString(value: unknown): string | undefined {
-  return typeof value === "string" ? value : undefined;
-}
-
-function normalizeReasoningEffortForOllamaCloud(payload: Record<string, unknown>): Record<string, unknown> {
-  const reasoning = isRecord(payload["reasoning"]) ? payload["reasoning"] : null;
-  const effort = asString(reasoning?.["effort"]) ?? asString(payload["reasoning_effort"]) ?? asString(payload["reasoningEffort"]);
-
-  if (!effort || effort.toLowerCase() !== "xhigh") {
-    return payload;
-  }
-
-  const result = { ...payload };
-
-  if (reasoning && asString(reasoning["effort"])?.toLowerCase() === "xhigh") {
-    result["reasoning"] = { ...reasoning, effort: "high" };
-  }
-
-  if (asString(payload["reasoning_effort"])?.toLowerCase() === "xhigh") {
-    result["reasoning_effort"] = "high";
-  }
-
-  if (asString(payload["reasoningEffort"])?.toLowerCase() === "xhigh") {
-    result["reasoningEffort"] = "high";
-  }
-
-  return result;
-}
 import { clampRouteQuality, createAccumulator, emptyResult, type FallbackDeps } from "./types.js";
 
 function shouldUseOpenAiCodexHeaderProfile(
@@ -178,15 +145,6 @@ export async function executeProviderRoutingPlan(
         const prefix = requestyModelPrefix(model);
         const prefixed = { ...candidatePayload.upstreamPayload, model: `${prefix}/${model}` };
         candidatePayload = { ...candidatePayload, upstreamPayload: prefixed, bodyText: JSON.stringify(prefixed) };
-      }
-    }
-
-    // Ollama Cloud only accepts "high", "medium", "low", or "none" for reasoning effort.
-    // Normalize "xhigh" -> "high" for this provider.
-    if (candidate.providerId.trim().toLowerCase() === "ollama-cloud") {
-      const normalized = normalizeReasoningEffortForOllamaCloud(candidatePayload.upstreamPayload);
-      if (normalized !== candidatePayload.upstreamPayload) {
-        candidatePayload = { ...candidatePayload, upstreamPayload: normalized, bodyText: JSON.stringify(normalized) };
       }
     }
 

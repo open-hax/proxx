@@ -274,11 +274,10 @@ export function chatRequestToOllamaRequest(
     payload["tools"] = requestBody["tools"];
   }
 
-  // Pass through reasoning_effort, normalizing "xhigh" to "high" for Ollama Cloud compatibility
+  // Pass through reasoning_effort so Ollama-compatible reasoning tiers survive end to end.
   const reasoningEffort = asString(requestBody["reasoning_effort"]) ?? asString(requestBody["reasoningEffort"]);
   if (reasoningEffort) {
-    const normalizedEffort = reasoningEffort.toLowerCase() === "xhigh" ? "high" : reasoningEffort.toLowerCase();
-    payload["reasoning_effort"] = normalizedEffort;
+    payload["reasoning_effort"] = reasoningEffort.toLowerCase();
   }
 
   // Handle reasoning.effort object format
@@ -286,8 +285,7 @@ export function chatRequestToOllamaRequest(
   if (reasoning) {
     const effort = asString(reasoning["effort"]);
     if (effort) {
-      const normalizedEffort = effort.toLowerCase() === "xhigh" ? "high" : effort.toLowerCase();
-      payload["reasoning"] = { ...reasoning, effort: normalizedEffort };
+      payload["reasoning"] = { ...reasoning, effort: effort.toLowerCase() };
     }
   }
 

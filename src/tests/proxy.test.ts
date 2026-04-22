@@ -6088,7 +6088,7 @@ test("preserves xhigh reasoning effort for gpt chat requests routed to responses
   );
 });
 
-test("normalizes xhigh reasoning effort to high for ollama-cloud provider", async () => {
+test("preserves xhigh reasoning effort for ollama-cloud provider", async () => {
   let observedBody: Record<string, unknown> = {};
 
   await withProxyApp(
@@ -6145,7 +6145,7 @@ test("normalizes xhigh reasoning effort to high for ollama-cloud provider", asyn
 
       assert.equal(response.statusCode, 200);
       assert.equal(response.headers["x-open-hax-upstream-provider"], "ollama-cloud");
-      assert.equal(observedBody.reasoning_effort, "high");
+      assert.equal(observedBody.reasoning_effort, "xhigh");
     }
   );
 });
