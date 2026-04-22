@@ -4018,6 +4018,93 @@ test("permanently disables api_key accounts on 403 (forbidden/suspended)", async
   );
 });
 
+test("model-gated glm-5 accounts stay usable for gemma4", async () => {
+  const requestsByModel = new Map<string, number>();
+
+  await withProxyApp(
+    {
+      keys: [],
+      keysPayload: {
+        providers: {
+          "ollama-cloud": ["ollama-cloud-key-a"],
+        },
+      },
+      configOverrides: {
+        upstreamProviderId: "ollama-cloud",
+        upstreamFallbackProviderIds: [],
+        localOllamaEnabled: false,
+        keyCooldownJitterFactor: 0,
+      },
+      upstreamHandler: async (_request, body) => {
+        const payload = JSON.parse(body) as Record<string, unknown>;
+        const model = typeof payload.model === "string" ? payload.model : "";
+        requestsByModel.set(model, (requestsByModel.get(model) ?? 0) + 1);
+
+        if (model === "glm-5") {
+          return {
+            status: 403,
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              error: { message: "this model requires a subscription, upgrade for access" },
+            }),
+          };
+        }
+
+        assert.equal(model, "gemma4:31b");
+        return {
+          status: 200,
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            id: "chatcmpl_gemma4_ok",
+            object: "chat.completion",
+            model: "gemma4:31b",
+            choices: [{
+              index: 0,
+              message: {
+                role: "assistant",
+                content: "gemma4-still-works",
+              },
+              finish_reason: "stop",
+            }],
+          }),
+        };
+      }
+    },
+    async ({ app }) => {
+      const first = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: { "content-type": "application/json" },
+        payload: {
+          model: "glm-5",
+          messages: [{ role: "user", content: "hello" }],
+          stream: false,
+        },
+      });
+
+      assert.equal(first.statusCode, 403);
+
+      const third = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: { "content-type": "application/json" },
+        payload: {
+          model: "gemma4:31b",
+          messages: [{ role: "user", content: "hello gemma" }],
+          stream: false,
+        },
+      });
+
+      assert.equal(third.statusCode, 200);
+      assert.ok((requestsByModel.get("gemma4:31b") ?? 0) >= 1);
+      const payload: unknown = third.json();
+      assert.ok(isRecord(payload));
+      assert.ok(Array.isArray(payload.choices));
+      assert.equal((payload.choices as any)[0].message.content, "gemma4-still-works");
+    }
+  );
+});
+
 test("does not classify successful payload text as quota exhaustion", async () => {
   const observedKeys: string[] = [];
 

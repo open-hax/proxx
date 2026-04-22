@@ -36,3 +36,20 @@ test("unauthorized 401 is not treated as model-not-supported-for-account", async
   const result = await responseIndicatesModelNotSupportedForAccount(response, "gemma4:31b");
   assert.equal(result, false);
 });
+
+test("model access denied wording is treated as model-not-supported-for-account", async () => {
+  const response = new Response(
+    JSON.stringify({
+      error: { message: "account is not allowed to call glm-5 on this plan" },
+    }),
+    {
+      status: 403,
+      headers: {
+        "content-type": "application/json",
+      },
+    },
+  );
+
+  const result = await responseIndicatesModelNotSupportedForAccount(response, "glm-5");
+  assert.equal(result, true);
+});

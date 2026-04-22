@@ -95,6 +95,9 @@ export async function executeProviderRoutingPlan(
     getRequestOrder(providerId: string): Promise<ProviderCredential[]>;
     markInFlight(credential: ProviderCredential): () => void;
     markRateLimited(credential: ProviderCredential, retryAfterMs?: number): void;
+    markModelUnsupported?(credential: ProviderCredential, modelId: string, retryAfterMs?: number): void;
+    isModelUnsupported?(providerId: string, accountId: string, modelId: string): boolean;
+    clearModelUnsupported?(providerId: string, accountId: string, modelId: string): void;
     isAccountExpired?(credential: ProviderCredential): boolean;
     clearAccountCooldown?(providerId: string, accountId: string): void;
     disableAccount?(providerId: string, accountId: string): void;
@@ -131,6 +134,11 @@ export async function executeProviderRoutingPlan(
   let abortRemainingCandidatesForStickyTransportFailure = false;
 
   for (const [candidateIndex, candidate] of candidates.entries()) {
+    if (keyPool.isModelUnsupported?.(candidate.providerId, candidate.account.accountId, context.routedModel) === true) {
+      accumulator.sawModelNotSupportedForAccount = true;
+      continue;
+    }
+
     const candidateStrategy = selectRemoteProviderStrategyForRoute(context, candidate.providerId, policy);
     let candidatePayload = candidateStrategy === strategy
       ? payload
@@ -739,6 +747,7 @@ export async function executeProviderRoutingPlan(
             if (healthStore) {
               healthStore.recordSuccess(candidate.account, upstreamResponse.status);
             }
+            keyPool.clearModelUnsupported?.(candidate.account.providerId, candidate.account.accountId, context.routedModel);
             if (candidate.account.providerId === "ollama-cloud" && keyPool.clearAccountCooldown) {
               keyPool.clearAccountCooldown(candidate.account.providerId, candidate.account.accountId);
             }
@@ -765,6 +774,9 @@ export async function executeProviderRoutingPlan(
           upstreamSpan.end();
           if (healthStore && upstreamResponse.ok) {
             healthStore.recordSuccess(candidate.account, upstreamResponse.status);
+          }
+          if (upstreamResponse.ok) {
+            keyPool.clearModelUnsupported?.(candidate.account.providerId, candidate.account.accountId, context.routedModel);
           }
           if (upstreamResponse.ok && candidate.account.providerId === "ollama-cloud" && keyPool.clearAccountCooldown) {
             keyPool.clearAccountCooldown(candidate.account.providerId, candidate.account.accountId);
@@ -971,6 +983,7 @@ export async function executeProviderRoutingPlan(
                   if (healthStore) {
                     healthStore.recordSuccess(refreshedCredential, refreshedResponse.status);
                   }
+                  keyPool.clearModelUnsupported?.(refreshedCredential.providerId, refreshedCredential.accountId, context.routedModel);
                   await providerRoutePheromoneStore.noteSuccess(
                     candidate.providerId,
                     context.routedModel,
@@ -993,6 +1006,9 @@ export async function executeProviderRoutingPlan(
 
                 if (healthStore && refreshedResponse.ok) {
                   healthStore.recordSuccess(refreshedCredential, refreshedResponse.status);
+                }
+                if (refreshedResponse.ok) {
+                  keyPool.clearModelUnsupported?.(refreshedCredential.providerId, refreshedCredential.accountId, context.routedModel);
                 }
                 await providerRoutePheromoneStore.noteSuccess(
                   candidate.providerId,
@@ -1026,7 +1042,14 @@ export async function executeProviderRoutingPlan(
               if (refreshedOutcome.upstreamAuthError) {
                 accumulator.lastUpstreamAuthError = refreshedOutcome.upstreamAuthError;
               }
-              if (!refreshedResponse.ok && refreshedOutcome.requestError === true && (refreshedResponse.status === 401 || refreshedResponse.status === 403)) {
+              if (refreshedOutcome.modelNotSupportedForAccount === true) {
+                keyPool.markModelUnsupported?.(
+                  refreshedCredential,
+                  context.routedModel,
+                  Math.min(context.config.keyCooldownMs, 60_000),
+                );
+              }
+              if (!refreshedResponse.ok && refreshedOutcome.modelNotSupportedForAccount !== true && refreshedOutcome.requestError === true && (refreshedResponse.status === 401 || refreshedResponse.status === 403)) {
                 if (shouldCooldownCredentialOnAuthFailure(candidate.providerId, refreshedResponse.status)) {
                   keyPool.markRateLimited(refreshedCredential, Math.min(context.config.keyCooldownMs, 10_000));
                   // Disable OAuth accounts that fail auth even after successful token refresh
@@ -1053,7 +1076,7 @@ export async function executeProviderRoutingPlan(
               preferredReassignmentAllowed = true;
             }
           }
-        } else if (!upstreamResponse.ok && outcome.requestError === true && (upstreamResponse.status === 401 || upstreamResponse.status === 402 || upstreamResponse.status === 403)) {
+        } else if (!upstreamResponse.ok && outcome.modelNotSupportedForAccount !== true && outcome.requestError === true && (upstreamResponse.status === 401 || upstreamResponse.status === 402 || upstreamResponse.status === 403)) {
           if (shouldCooldownCredentialOnAuthFailure(candidate.providerId, upstreamResponse.status) || shouldPermanentlyDisableCredential(candidate.account, upstreamResponse.status)) {
             const permanentlyDisable = shouldPermanentlyDisableCredential(candidate.account, upstreamResponse.status);
             const cooldownMs = permanentlyDisable
@@ -1076,12 +1099,10 @@ export async function executeProviderRoutingPlan(
           }
         }
 
-        // Cooldown accounts that reject the model (e.g. free-tier ChatGPT accounts
-        // that cannot use gpt-5.4). Without this, the same accounts are retried on
-        // every request, causing long cascading failures before reaching a working
-        // provider.
+        // Keep model-gated accounts available for other models (e.g. gemma4) while
+        // skipping them for the rejected model on subsequent attempts.
         if (outcome.modelNotSupportedForAccount === true) {
-          keyPool.markRateLimited(candidate.account, Math.min(context.config.keyCooldownMs, 60_000));
+          keyPool.markModelUnsupported?.(candidate.account, context.routedModel, Math.min(context.config.keyCooldownMs, 60_000));
         }
 
         if (!upstreamResponse.ok && outcome.requestError === true && !outcome.modelNotFound && !outcome.modelNotSupportedForAccount) {

@@ -26,6 +26,9 @@ export interface FallbackKeyPool {
   getRequestOrder(providerId: string): Promise<ProviderCredential[]>;
   markInFlight(credential: ProviderCredential): () => void;
   markRateLimited(credential: ProviderCredential, retryAfterMs?: number): void;
+  markModelUnsupported?(credential: ProviderCredential, modelId: string, retryAfterMs?: number): void;
+  isModelUnsupported?(providerId: string, accountId: string, modelId: string): boolean;
+  clearModelUnsupported?(providerId: string, accountId: string, modelId: string): void;
   isAccountExpired?(credential: ProviderCredential): boolean;
   clearAccountCooldown?(providerId: string, accountId: string): void;
   disableAccount?(providerId: string, accountId: string): void;

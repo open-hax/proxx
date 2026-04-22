@@ -69,6 +69,17 @@ export const MODEL_REQUIRES_SUBSCRIPTION_PATTERNS = [
   "upgrade for access",
 ];
 
+export const MODEL_ACCESS_DENIED_PATTERNS = [
+  "not allowed to call",
+  "not allowed to use",
+  "not allowed to access",
+  "do not have access to",
+  "does not have access to",
+  "access to this model is restricted",
+  "model access denied",
+  "not available on your current plan",
+];
+
 export const QUOTA_ERROR_PATTERNS = [
   "outstanding_balance",
   "outstanding-balance",
@@ -319,7 +330,8 @@ export async function responseIndicatesModelNotSupportedForAccount(response: Res
     return true;
   }
 
-  if (!MODEL_NOT_SUPPORTED_WITH_CHATGPT_PATTERNS.some(pattern => lowered.includes(pattern))) {
+  const looksLikeAccessDenied = MODEL_ACCESS_DENIED_PATTERNS.some(pattern => lowered.includes(pattern));
+  if (!looksLikeAccessDenied && !MODEL_NOT_SUPPORTED_WITH_CHATGPT_PATTERNS.some(pattern => lowered.includes(pattern))) {
     return false;
   }
 

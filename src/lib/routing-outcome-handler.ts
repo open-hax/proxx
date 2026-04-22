@@ -112,6 +112,18 @@ export async function handleRoutingOutcome(input: RoutingOutcomeInput): Promise<
     return true;
   }
 
+  if (summary.sawModelNotSupportedForAccount) {
+    log.warn({ providerRoutes, attempts: summary.attempts, upstreamMode: strategyMode }, `${prefix}all attempts exhausted due to model access restrictions`);
+    sendOpenAiError(
+      reply,
+      403,
+      `Available upstream accounts are not allowed to use model: ${routedModel}`,
+      "invalid_request_error",
+      "model_not_supported_for_account",
+    );
+    return true;
+  }
+
   const message = summary.sawRequestError
     ? "All upstream attempts failed due to network/transport errors."
     : "Upstream rejected the request with no successful fallback.";
