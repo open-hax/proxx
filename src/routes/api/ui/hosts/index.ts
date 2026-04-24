@@ -8,6 +8,7 @@ import {
   resolveHostDashboardTargetToken,
 } from "../../../../lib/host-dashboard.js";
 import {
+  authCanManageFederation,
   getResolvedAuth,
 } from "../../../shared/ui-auth.js";
 
@@ -52,7 +53,7 @@ function inferBaseUrl(request: {
 
 export async function registerHostDashboardRoutes(
   app: FastifyInstance,
-  _deps: UiRouteDependencies,
+  deps: UiRouteDependencies,
 ): Promise<void> {
   const hostDashboardTargets = loadHostDashboardTargetsFromEnv(process.env);
   const hostDashboardDockerSocketPath = process.env.HOST_DASHBOARD_DOCKER_SOCKET_PATH?.trim() || undefined;
@@ -60,7 +61,7 @@ export async function registerHostDashboardRoutes(
   const hostDashboardRequestTimeoutMs = Math.max(5000, Math.min(60_000, Number(process.env.HOST_DASHBOARD_REQUEST_TIMEOUT_MS) || 10000));
 
   app.get("/api/ui/hosts/self", async (request, reply) => {
-    const auth = getResolvedAuth(request);
+    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
     if (!authCanAccessHostDashboard(auth)) {
       reply.code(auth ? 403 : 401).send({ error: auth ? "forbidden" : "unauthorized" });
       return;
@@ -88,7 +89,7 @@ export async function registerHostDashboardRoutes(
   });
 
   app.get("/api/ui/hosts/overview", async (request, reply) => {
-    const auth = getResolvedAuth(request);
+    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
     if (!authCanAccessHostDashboard(auth)) {
       reply.code(auth ? 403 : 401).send({ error: auth ? "forbidden" : "unauthorized" });
       return;

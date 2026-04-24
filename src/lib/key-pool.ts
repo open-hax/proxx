@@ -418,14 +418,6 @@ function readProvidersFromEnv(): Map<string, ProviderState> {
     );
   }
 
-  const rotussyKey = (process.env.ROTUSSY_API_KEY ?? "").trim();
-  if (rotussyKey) {
-    providers.set(
-      normalizeProviderId(process.env.ROTUSSY_PROVIDER_ID ?? "rotussy"),
-      createEnvProviderState(process.env.ROTUSSY_PROVIDER_ID ?? "rotussy", rotussyKey),
-    );
-  }
-
   return providers;
 }
 
@@ -1084,19 +1076,21 @@ export class KeyPool {
 
     const now = Date.now();
     let availableAccounts = 0;
-    let cooldownAccounts = 0;
     let disabledAccounts = 0;
     let inFlightAccounts = 0;
     let minDelay = Number.POSITIVE_INFINITY;
 
     for (const credential of providerState.accounts) {
-      if (this.disabledAccountKeys.has(accountStateKey(credential))) {
+      const key = accountStateKey(credential);
+
+      // Count disabled accounts separately
+      if (this.disabledAccountKeys.has(key)) {
         disabledAccounts += 1;
         continue;
       }
 
-      const cooldownUntil = this.cooldownByAccountKey.get(accountStateKey(credential)) ?? 0;
-      if ((this.inFlightByAccountKey.get(accountStateKey(credential)) ?? 0) > 0) {
+      const cooldownUntil = this.cooldownByAccountKey.get(key) ?? 0;
+      if ((this.inFlightByAccountKey.get(key) ?? 0) > 0) {
         inFlightAccounts += 1;
       }
       if (cooldownUntil <= now) {
@@ -1117,14 +1111,13 @@ export class KeyPool {
 
     return {
       providerId: normalizedProviderId,
-      authType: providerState.authType,
-      totalAccounts,
-      availableAccounts,
-      cooldownAccounts,
-      disabledAccounts,
-      inFlightAccounts,
-      nextReadyInMs,
-    };
+        authType: providerState.authType,
+        totalAccounts,
+        availableAccounts,
+        cooldownAccounts: Math.max(totalAccounts - availableAccounts - disabledAccounts, 0),
+        inFlightAccounts,
+        nextReadyInMs
+      };
   }
 
   public async getAllStatuses(): Promise<Record<string, KeyPoolStatus>> {

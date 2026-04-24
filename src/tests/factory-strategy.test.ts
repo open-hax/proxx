@@ -178,12 +178,7 @@ async function withProxyApp(
     openaiOauthClientId: "app_EMoamEEZ73f0CkXaXp7hrann",
     openaiOauthIssuer: "https://auth.openai.com",
     ...options.configOverrides,
-    proxyTokenPepper: options.configOverrides?.proxyTokenPepper ?? "test-proxy-token-pepper",
-    oauthRefreshMaxConcurrency: options.configOverrides?.oauthRefreshMaxConcurrency ?? 32,
-    oauthRefreshBackgroundIntervalMs: options.configOverrides?.oauthRefreshBackgroundIntervalMs ?? 15_000,
-    oauthRefreshProactiveWindowMs: options.configOverrides?.oauthRefreshProactiveWindowMs ?? 30 * 60_000,
-    concurrencyThrottleMaxRetries: options.configOverrides?.concurrencyThrottleMaxRetries ?? 3,
-    concurrencyThrottleThresholdMs: options.configOverrides?.concurrencyThrottleThresholdMs ?? 30_000,
+    sessionsFilePath: options.configOverrides?.sessionsFilePath ?? path.join(tempDir, "sessions.json"),
   };
 
   const app = await createApp(config);

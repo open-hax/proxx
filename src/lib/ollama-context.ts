@@ -120,12 +120,6 @@ export async function fetchOllamaModelContextLength(
   model: string,
   timeoutMs: number,
 ): Promise<number | null> {
-  const cacheKey = `${baseUrl}::${model}`;
-  const cached = contextLengthCache.get(cacheKey);
-  if (cached && Date.now() - cached.fetchedAt < CONTEXT_CACHE_TTL_MS) {
-    return cached.length;
-  }
-
   let response: Awaited<ReturnType<typeof fetchWithResponseTimeout>>;
   try {
     response = await fetchWithResponseTimeout(`${baseUrl.replace(/\/+$/, "")}/api/show`, {
@@ -136,7 +130,7 @@ export async function fetchOllamaModelContextLength(
       body: JSON.stringify({ model }),
     }, timeoutMs);
   } catch {
-    return cached?.length ?? null;
+    return null;
   }
 
   if (!response.ok) {

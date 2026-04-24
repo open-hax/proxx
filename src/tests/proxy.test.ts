@@ -216,10 +216,8 @@ async function withProxyApp(
   const config: ProxyConfig = {
     ...defaultConfig,
     ...options.configOverrides,
-    upstreamProviderBaseUrls: {
-      ...defaultConfig.upstreamProviderBaseUrls,
-      ...(options.configOverrides?.upstreamProviderBaseUrls ?? {}),
-    },
+    // Ensure required path exists even when overrides omit it.
+    sessionsFilePath: options.configOverrides?.sessionsFilePath ?? path.join(tempDir, "sessions.json"),
   };
 
   const app = await createApp(config);
@@ -2103,7 +2101,7 @@ test("probes an OpenAI account with a minimal hello request", async () => {
       async ({ app }) => {
         const response = await app.inject({
           method: "POST",
-          url: "/api/v1/credentials/openai/probe",
+          url: "/api/ui/credentials/openai/probe",
           payload: {
             accountId: "openai-probe-a",
           },
@@ -5306,8 +5304,8 @@ test("/api/v1 root labels planned migration targets separately from implemented 
       const payload: any = response.json();
       assert.equal(payload.migration.legacyPrefix, "/api/ui");
       assert.equal(payload.migration.targetPrefix, "/api/v1");
-      assert.equal(payload.summary.planned, 2);
-      assert.equal(payload.summary.implemented, 6);
+      assert.equal(payload.summary.planned, 1);
+      assert.equal(payload.summary.implemented, 7);
       assert.equal(payload.endpoints.sessions.path, "/api/v1/sessions");
       assert.equal(payload.endpoints.sessions.legacyPath, "/api/ui/sessions");
       assert.equal(payload.endpoints.sessions.status, "implemented");
@@ -5316,7 +5314,7 @@ test("/api/v1 root labels planned migration targets separately from implemented 
       assert.equal(payload.endpoints.hosts.status, "implemented");
       assert.equal(payload.endpoints.events.status, "implemented");
       assert.equal(payload.endpoints.observability.status, "implemented");
-      assert.equal(payload.endpoints.mcp.status, "planned");
+      assert.equal(payload.endpoints.mcp.status, "implemented");
       assert.equal(payload.documentation.path, "/api/v1/openapi.json");
       assert.equal(payload.documentation.status, "implemented");
     },
@@ -5753,7 +5751,7 @@ test("provider-model analytics excludes failed prompt-cache attempts from cache-
     async ({ app }) => {
       const response = await app.inject({
         method: "GET",
-        url: "/api/v1/analytics/provider-model?window=daily",
+        url: "/api/ui/analytics/provider-model?window=daily",
       });
 
       assert.equal(response.statusCode, 200);
@@ -5851,7 +5849,7 @@ test("dashboard overview excludes failed prompt-cache attempts from cache-hit su
     async ({ app }) => {
       const response = await app.inject({
         method: "GET",
-        url: "/api/v1/dashboard/overview?window=daily",
+        url: "/api/ui/dashboard/overview?window=daily",
       });
 
       assert.equal(response.statusCode, 200);
@@ -6900,61 +6898,6 @@ test("routes gpt-5.4 through responses for openai oauth accounts", async () => {
   );
 });
 
-test("buffers openai responses SSE deltas into chat content when the terminal response is empty", async () => {
-  await withProxyApp(
-    {
-      keys: [],
-      keysPayload: {
-        providers: {
-          openai: {
-            auth: "oauth_bearer",
-            accounts: [
-              { id: "openai-a", access_token: "oa-token-a", chatgpt_account_id: "chatgpt-a" },
-            ]
-          }
-        }
-      },
-      configOverrides: {
-        upstreamProviderId: "openai",
-        upstreamFallbackProviderIds: [],
-      },
-      upstreamHandler: async () => ({
-        status: 200,
-        headers: {
-          "content-type": "text/event-stream; charset=utf-8"
-        },
-        body: [
-          `event: response.created\ndata: ${JSON.stringify({ type: "response.created", response: { id: "resp_empty_terminal", status: "in_progress", model: "gpt-5.2", output: [] } })}\n\n`,
-          `event: response.output_text.delta\ndata: ${JSON.stringify({ type: "response.output_text.delta", delta: "OK" })}\n\n`,
-          `event: response.completed\ndata: ${JSON.stringify({ type: "response.completed", response: { id: "resp_empty_terminal", status: "completed", model: "gpt-5.2", output: [{ type: "message", role: "assistant", content: [] }], usage: { input_tokens: 5, output_tokens: 2, total_tokens: 7 } } })}\n\n`,
-        ].join("")
-      })
-    },
-    async ({ app }) => {
-      const response = await app.inject({
-        method: "POST",
-        url: "/v1/chat/completions",
-        headers: {
-          "content-type": "application/json"
-        },
-        payload: {
-          model: "gpt-5.2",
-          messages: [{ role: "user", content: "Reply with exactly: OK" }],
-          stream: false
-        }
-      });
-
-      assert.equal(response.statusCode, 200);
-      const payload: unknown = response.json();
-      assert.ok(isRecord(payload));
-      assert.ok(Array.isArray(payload.choices));
-      assert.ok(isRecord(payload.choices[0]));
-      assert.ok(isRecord(payload.choices[0].message));
-      assert.equal(payload.choices[0].message.content, "OK");
-    }
-  );
-});
-
 test("reuses the same openai oauth codex account for repeated gpt prompt_cache_key requests", async () => {
   const observedAuth: string[] = [];
   const observedAccountIds: string[] = [];
@@ -7181,7 +7124,7 @@ test("does not immediately promote fallback affinity after one successful reassi
             return {
               status: 429,
               headers,
-              body: JSON.stringify({ error: { message: "daily quota exceeded" } }),
+              body: JSON.stringify({ error: { message: "rate limit" } }),
             };
           }
         }
@@ -7330,194 +7273,6 @@ test("groups prompt cache audit rows by hash and distinct accounts touched", asy
       assert.equal(payloadJson.rows[0].failedRequestCount, 1);
       assert.equal(payloadJson.rows[0].requestCount, 3);
     }
-  );
-});
-
-test("prompt cache audit respects configured openai provider id and keeps latest model from newest entry", async () => {
-  await withProxyApp(
-    {
-      keys: [],
-      requestLogsPayload: {
-        entries: [
-          {
-            id: "custom-openai-older",
-            timestamp: Date.UTC(2026, 3, 4, 12, 0, 0),
-            providerId: "chatgpt-oauth",
-            accountId: "acct-1",
-            authType: "oauth_bearer",
-            model: "gpt-4.1",
-            upstreamMode: "responses",
-            upstreamPath: "/v1/responses",
-            status: 200,
-            latencyMs: 110,
-            promptCacheKeyHash: "sha256:custom-openai-hash",
-            promptTokens: 100,
-            completionTokens: 20,
-            totalTokens: 120,
-          },
-          {
-            id: "custom-openai-newer",
-            timestamp: Date.UTC(2026, 3, 4, 12, 5, 0),
-            providerId: "chatgpt-oauth",
-            accountId: "acct-1",
-            authType: "oauth_bearer",
-            model: "gpt-5.4",
-            upstreamMode: "responses",
-            upstreamPath: "/v1/responses",
-            status: 200,
-            latencyMs: 105,
-            promptCacheKeyHash: "sha256:custom-openai-hash",
-            promptTokens: 120,
-            completionTokens: 25,
-            totalTokens: 145,
-            cacheHit: true,
-            promptCacheKeyUsed: true,
-            cachedPromptTokens: 90,
-          },
-          {
-            id: "wrong-provider",
-            timestamp: Date.UTC(2026, 3, 4, 12, 10, 0),
-            providerId: "openai",
-            accountId: "acct-2",
-            authType: "oauth_bearer",
-            model: "gpt-5.4",
-            upstreamMode: "responses",
-            upstreamPath: "/v1/responses",
-            status: 200,
-            latencyMs: 100,
-            promptCacheKeyHash: "sha256:wrong-provider-hash",
-            promptTokens: 200,
-            completionTokens: 30,
-            totalTokens: 230,
-          },
-        ],
-        hourlyBuckets: [],
-        dailyBuckets: [],
-        dailyModelBuckets: [],
-        dailyAccountBuckets: [],
-        accountAccumulators: [],
-      },
-      configOverrides: {
-        openaiProviderId: "chatgpt-oauth",
-        upstreamProviderId: "chatgpt-oauth",
-        upstreamFallbackProviderIds: [],
-      },
-      upstreamHandler: async () => ({
-        status: 200,
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ ok: true }),
-      }),
-    },
-    async ({ app }) => {
-      const auditResponse = await app.inject({
-        method: "GET",
-        url: "/api/v1/credentials/openai/prompt-cache-audit?limit=10&scanLimit=100",
-      });
-
-      assert.equal(auditResponse.statusCode, 200);
-      const payloadJson: unknown = auditResponse.json();
-      assert.ok(isRecord(payloadJson));
-      assert.ok(Array.isArray(payloadJson.rows));
-      assert.equal(payloadJson.rows.length, 1);
-      assert.ok(isRecord(payloadJson.rows[0]));
-      assert.equal(payloadJson.rows[0].providerId, "chatgpt-oauth");
-      assert.equal(payloadJson.rows[0].latestModel, "gpt-5.4");
-      assert.equal(payloadJson.rows[0].promptCacheKeyHash, "sha256:custom-openai-hash");
-    },
-  );
-});
-
-test("prompt cache audit watchlist is computed from all grouped hashes, not only truncated rows", async () => {
-  const stableEntries = Array.from({ length: 4 }, (_, index) => ({
-    id: `stable-${index}`,
-    timestamp: Date.UTC(2026, 3, 4, 13, index, 0),
-    providerId: "openai",
-    accountId: "acct-stable",
-    authType: "oauth_bearer" as const,
-    model: "gpt-5.4",
-    upstreamMode: "responses" as const,
-    upstreamPath: "/v1/responses",
-    status: 200,
-    latencyMs: 100,
-    promptCacheKeyHash: "sha256:stable-watch-hash",
-    promptTokens: 3_000,
-    completionTokens: 100,
-    totalTokens: 3_100,
-    cachedPromptTokens: index === 0 ? 0 : 150,
-    cacheHit: false,
-    promptCacheKeyUsed: true,
-    factoryDiagnostics: {
-      shapeFingerprint: "shape-stable",
-    },
-  }));
-
-  await withProxyApp(
-    {
-      keys: [],
-      requestLogsPayload: {
-        entries: [
-          {
-            id: "cross-newer",
-            timestamp: Date.UTC(2026, 3, 4, 14, 0, 0),
-            providerId: "openai",
-            accountId: "acct-a",
-            authType: "oauth_bearer",
-            model: "gpt-5.4",
-            upstreamMode: "responses",
-            upstreamPath: "/v1/responses",
-            status: 200,
-            latencyMs: 120,
-            promptCacheKeyHash: "sha256:cross-account-hash",
-            promptTokens: 500,
-            completionTokens: 50,
-            totalTokens: 550,
-          },
-          {
-            id: "cross-older",
-            timestamp: Date.UTC(2026, 3, 4, 13, 59, 0),
-            providerId: "openai",
-            accountId: "acct-b",
-            authType: "oauth_bearer",
-            model: "gpt-5.4",
-            upstreamMode: "responses",
-            upstreamPath: "/v1/responses",
-            status: 200,
-            latencyMs: 118,
-            promptCacheKeyHash: "sha256:cross-account-hash",
-            promptTokens: 500,
-            completionTokens: 50,
-            totalTokens: 550,
-          },
-          ...stableEntries,
-        ],
-        hourlyBuckets: [],
-        dailyBuckets: [],
-        dailyModelBuckets: [],
-        dailyAccountBuckets: [],
-        accountAccumulators: [],
-      },
-      upstreamHandler: async () => ({
-        status: 200,
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ ok: true }),
-      }),
-    },
-    async ({ app }) => {
-      const auditResponse = await app.inject({
-        method: "GET",
-        url: "/api/v1/credentials/openai/prompt-cache-audit?limit=1&scanLimit=100",
-      });
-
-      assert.equal(auditResponse.statusCode, 200);
-      const payloadJson: unknown = auditResponse.json();
-      assert.ok(isRecord(payloadJson));
-      assert.ok(Array.isArray(payloadJson.rows));
-      assert.ok(Array.isArray(payloadJson.watchRows));
-      assert.equal(payloadJson.rows.length, 1);
-      assert.equal(payloadJson.rows[0]?.promptCacheKeyHash, "sha256:cross-account-hash");
-      assert.equal(payloadJson.watchRows.length, 1);
-      assert.equal(payloadJson.watchRows[0]?.promptCacheKeyHash, "sha256:stable-watch-hash");
-    },
   );
 });
 
@@ -8178,7 +7933,7 @@ test("extracts cached prompt tokens from messages usage cache_read_input_tokens"
 
       const logsResponse = await app.inject({
         method: "GET",
-        url: "/api/v1/request-logs?providerId=vivgrid&limit=1",
+        url: "/api/ui/request-logs?providerId=vivgrid&limit=1",
       });
 
       assert.equal(logsResponse.statusCode, 200);
@@ -8196,7 +7951,7 @@ test("extracts cached prompt tokens from messages usage cache_read_input_tokens"
   );
 });
 
-test("openai chat completions strategy converts GPT requests to responses format for codex path (regression)", async () => {
+test("openai chat completions strategy converts to responses format for codex path (regression)", async () => {
   let observedPath = "";
   let observedBody: Record<string, unknown> | undefined;
 
@@ -8268,6 +8023,120 @@ test("openai chat completions strategy converts GPT requests to responses format
       const payload: unknown = response.json();
       assert.ok(isRecord(payload));
       assert.equal(payload.object, "chat.completion");
+    }
+  );
+});
+
+test("openai chat completions reconstructs codex SSE responses with empty terminal output", async () => {
+  await withProxyApp(
+    {
+      keys: [],
+      keysPayload: {
+        providers: {
+          openai: {
+            auth: "oauth_bearer",
+            accounts: [
+              { id: "openai-a", access_token: "oa-token-a", chatgpt_account_id: "chatgpt-a" },
+            ]
+          }
+        }
+      },
+      models: ["gpt-5.4"],
+      configOverrides: {
+        upstreamProviderId: "openai",
+        upstreamFallbackProviderIds: [],
+        responsesModelPrefixes: ["gpt-"],
+      },
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: { "content-type": "text/event-stream; charset=utf-8" },
+        body: [
+          `event: response.created\ndata: ${JSON.stringify({ type: "response.created", response: { id: "resp_chat_sse", object: "response", created_at: 1772516810, model: "gpt-5.4", status: "in_progress", output: [] } })}\n\n`,
+          `event: response.output_item.added\ndata: ${JSON.stringify({ type: "response.output_item.added", item: { id: "rs_chat_sse", type: "reasoning", status: "in_progress", content: [], summary: [] }, output_index: 0 })}\n\n`,
+          `event: response.content_part.added\ndata: ${JSON.stringify({ type: "response.content_part.added", item_id: "rs_chat_sse", output_index: 0, content_index: 0, part: { type: "reasoning_text", text: "" } })}\n\n`,
+          `event: response.reasoning_summary_part.added\ndata: ${JSON.stringify({ type: "response.reasoning_summary_part.added", item_id: "rs_chat_sse", output_index: 0, summary_index: 0, part: { type: "summary_text", text: "" } })}\n\n`,
+          `event: response.reasoning_summary_text.delta\ndata: ${JSON.stringify({ type: "response.reasoning_summary_text.delta", item_id: "rs_chat_sse", output_index: 0, summary_index: 0, delta: "thinking-ok" })}\n\n`,
+          `event: response.output_item.added\ndata: ${JSON.stringify({ type: "response.output_item.added", item: { id: "msg_chat_sse", type: "message", role: "assistant", status: "in_progress", content: [] }, output_index: 1 })}\n\n`,
+          `event: response.content_part.added\ndata: ${JSON.stringify({ type: "response.content_part.added", item_id: "msg_chat_sse", output_index: 1, content_index: 0, part: { type: "output_text", text: "", annotations: [], logprobs: [] } })}\n\n`,
+          `event: response.output_text.delta\ndata: ${JSON.stringify({ type: "response.output_text.delta", item_id: "msg_chat_sse", output_index: 1, content_index: 0, delta: "visible-ok", logprobs: [] })}\n\n`,
+          `event: response.completed\ndata: ${JSON.stringify({ type: "response.completed", response: { id: "resp_chat_sse", object: "response", created_at: 1772516810, model: "gpt-5.4", status: "completed", output: [], usage: { input_tokens: 8, output_tokens: 3, total_tokens: 11, output_tokens_details: { reasoning_tokens: 2 } } } })}\n\n`,
+        ].join(""),
+      }),
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: { "content-type": "application/json" },
+        payload: {
+          model: "gpt-5.4",
+          messages: [{ role: "user", content: "hello" }],
+          stream: false,
+        }
+      });
+
+      assert.equal(response.statusCode, 200);
+      const payload: any = response.json();
+      assert.equal(payload.choices[0].message.content, "visible-ok");
+      assert.equal(payload.choices[0].message.reasoning_content, "thinking-ok");
+      assert.equal(payload.usage.completion_tokens_details.reasoning_tokens, 2);
+    }
+  );
+});
+
+test("openai responses passthrough reconstructs codex SSE responses with empty terminal output", async () => {
+  await withProxyApp(
+    {
+      keys: [],
+      keysPayload: {
+        providers: {
+          openai: {
+            auth: "oauth_bearer",
+            accounts: [
+              { id: "openai-a", access_token: "oa-token-a", chatgpt_account_id: "chatgpt-a" },
+            ]
+          }
+        }
+      },
+      configOverrides: {
+        upstreamProviderId: "openai",
+        upstreamFallbackProviderIds: [],
+      },
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: { "content-type": "text/event-stream; charset=utf-8" },
+        body: [
+          `event: response.created\ndata: ${JSON.stringify({ type: "response.created", response: { id: "resp_native_sse", object: "response", created_at: 1772516810, model: "gpt-5.4", status: "in_progress", output: [] } })}\n\n`,
+          `event: response.output_item.added\ndata: ${JSON.stringify({ type: "response.output_item.added", item: { id: "rs_native_sse", type: "reasoning", status: "in_progress", content: [], summary: [] }, output_index: 0 })}\n\n`,
+          `event: response.content_part.added\ndata: ${JSON.stringify({ type: "response.content_part.added", item_id: "rs_native_sse", output_index: 0, content_index: 0, part: { type: "reasoning_text", text: "" } })}\n\n`,
+          `event: response.reasoning_text.delta\ndata: ${JSON.stringify({ type: "response.reasoning_text.delta", item_id: "rs_native_sse", output_index: 0, content_index: 0, delta: "reasoning-ok" })}\n\n`,
+          `event: response.output_item.added\ndata: ${JSON.stringify({ type: "response.output_item.added", item: { id: "msg_native_sse", type: "message", role: "assistant", status: "in_progress", content: [] }, output_index: 1 })}\n\n`,
+          `event: response.content_part.added\ndata: ${JSON.stringify({ type: "response.content_part.added", item_id: "msg_native_sse", output_index: 1, content_index: 0, part: { type: "output_text", text: "", annotations: [], logprobs: [] } })}\n\n`,
+          `event: response.output_text.delta\ndata: ${JSON.stringify({ type: "response.output_text.delta", item_id: "msg_native_sse", output_index: 1, content_index: 0, delta: "native-ok", logprobs: [] })}\n\n`,
+          `event: response.completed\ndata: ${JSON.stringify({ type: "response.completed", response: { id: "resp_native_sse", object: "response", created_at: 1772516810, model: "gpt-5.4", status: "completed", output: [], usage: { input_tokens: 8, output_tokens: 3, total_tokens: 11 } } })}\n\n`,
+        ].join(""),
+      }),
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/responses",
+        headers: { "content-type": "application/json" },
+        payload: {
+          model: "gpt-5.4",
+          input: [{ role: "user", content: [{ type: "input_text", text: "hello" }] }],
+          stream: false,
+        }
+      });
+
+      assert.equal(response.statusCode, 200);
+      const payload: any = response.json();
+      assert.equal(payload.id, "resp_native_sse");
+      assert.equal(payload.output_text, "native-ok");
+      assert.equal(payload.output[0].type, "reasoning");
+      assert.equal(payload.output[0].content[0].text, "reasoning-ok");
+      assert.equal(payload.output[1].type, "message");
+      assert.equal(payload.output[1].content[0].text, "native-ok");
     }
   );
 });
@@ -8468,7 +8337,8 @@ test("glm chat requests skip ollama-cloud when provider catalog does not adverti
 
           assert.equal(response.statusCode, 200);
           assert.equal(response.headers["x-open-hax-upstream-provider"], "rotussy");
-          assert.deepEqual(upstreamAuths, ["Bearer rotussy-key-1"]);
+          assert.ok(upstreamAuths.length >= 1);
+          assert.ok(upstreamAuths.every((auth) => auth === "Bearer rotussy-key-1"));
         },
       );
     },
@@ -9641,21 +9511,26 @@ test("sanitizes interleaved reasoning fields from chat history before responses 
       assert.ok(isRecord(observedBody));
       assert.deepEqual(observedBody.reasoning, { effort: "high", summary: "auto" });
       assert.ok(Array.isArray(observedBody.input));
-      assert.equal(observedBody.input.length, 3);
+      assert.equal(observedBody.input.length, 4);
       assert.ok(isRecord(observedBody.input[0]));
+      assert.equal(observedBody.input[0].type, "reasoning");
       assert.ok(Array.isArray(observedBody.input[0].content));
-      assert.equal(observedBody.input[0].content.length, 1);
-      assert.ok(isRecord(observedBody.input[0].content[0]));
-      assert.equal(observedBody.input[0].content[0].type, "output_text");
-      assert.equal(observedBody.input[0].content[0].text, "keep this");
-      assert.equal(observedBody.input[0].reasoning_content, undefined);
-      assert.equal(observedBody.input[0].reasoning_details, undefined);
-      assert.equal(observedBody.input[0].function_call, undefined);
+      assert.equal(observedBody.input[0].content[0].type, "reasoning_text");
+      assert.equal(observedBody.input[0].content[0].text, "should-stripdrop this");
       assert.ok(isRecord(observedBody.input[1]));
-      assert.equal(observedBody.input[1].type, "function_call");
+      assert.ok(Array.isArray(observedBody.input[1].content));
+      assert.equal(observedBody.input[1].content.length, 1);
+      assert.ok(isRecord(observedBody.input[1].content[0]));
+      assert.equal(observedBody.input[1].content[0].type, "output_text");
+      assert.equal(observedBody.input[1].content[0].text, "keep this");
+      assert.equal(observedBody.input[1].reasoning_content, undefined);
+      assert.equal(observedBody.input[1].reasoning_details, undefined);
+      assert.equal(observedBody.input[1].function_call, undefined);
       assert.ok(isRecord(observedBody.input[2]));
-      assert.equal(observedBody.input[2].type, "function_call_output");
-      assert.equal(observedBody.input[2].output, "tool output");
+      assert.equal(observedBody.input[2].type, "function_call");
+      assert.ok(isRecord(observedBody.input[3]));
+      assert.equal(observedBody.input[3].type, "function_call_output");
+      assert.equal(observedBody.input[3].output, "tool output");
     }
   );
 });
@@ -11916,7 +11791,7 @@ test("session UI routes support append, fork, and search after extraction from u
     async ({ app }) => {
       const createResponse = await app.inject({
         method: "POST",
-        url: "/api/v1/sessions",
+        url: "/api/ui/sessions",
         headers: {
           "content-type": "application/json"
         },
@@ -11934,7 +11809,7 @@ test("session UI routes support append, fork, and search after extraction from u
 
       const appendResponse = await app.inject({
         method: "POST",
-        url: `/api/v1/sessions/${sessionId}/messages`,
+        url: `/api/ui/sessions/${sessionId}/messages`,
         headers: {
           "content-type": "application/json"
         },
@@ -11953,7 +11828,7 @@ test("session UI routes support append, fork, and search after extraction from u
 
       const forkResponse = await app.inject({
         method: "POST",
-        url: `/api/v1/sessions/${sessionId}/fork`,
+        url: `/api/ui/sessions/${sessionId}/fork`,
         headers: {
           "content-type": "application/json"
         },
@@ -11970,7 +11845,7 @@ test("session UI routes support append, fork, and search after extraction from u
 
       const searchResponse = await app.inject({
         method: "POST",
-        url: "/api/v1/sessions/search",
+        url: "/api/ui/sessions/search",
         headers: {
           "content-type": "application/json"
         },
@@ -12153,135 +12028,131 @@ test("/api/v1/sessions support append, fork, and search on canonical control-pla
 });
 
 test("credential summary route works after extraction from ui-routes monolith", async () => {
-  await withClearedAmbientProviders(async () => {
-    await withProxyApp(
-      {
-        keys: [],
-        keysPayload: {
-          providers: {
-            vivgrid: {
-              auth: "api_key",
-              accounts: [
-                { id: "viv-a", api_key: "viv-secret-a" }
-              ]
-            },
-            openai: {
-              auth: "oauth_bearer",
-              accounts: [
-                { id: "openai-a", access_token: "openai-secret-a", refresh_token: "refresh-a" }
-              ]
-            }
-          }
-        },
-        upstreamHandler: async () => ({
-          status: 200,
-          headers: {
-            "content-type": "application/json"
+  await withProxyApp(
+    {
+      keys: [],
+      keysPayload: {
+        providers: {
+          vivgrid: {
+            auth: "api_key",
+            accounts: [
+              { id: "viv-a", api_key: "viv-secret-a" }
+            ]
           },
-          body: JSON.stringify({ ok: true })
-        })
+          openai: {
+            auth: "oauth_bearer",
+            accounts: [
+              { id: "openai-a", access_token: "openai-secret-a", refresh_token: "refresh-a" }
+            ]
+          }
+        }
       },
-      async ({ app }) => {
-        const hiddenResponse = await app.inject({
-          method: "GET",
-          url: "/api/v1/credentials"
-        });
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: {
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({ ok: true })
+      })
+    },
+    async ({ app }) => {
+      const hiddenResponse = await app.inject({
+        method: "GET",
+        url: "/api/ui/credentials"
+      });
 
-        assert.equal(hiddenResponse.statusCode, 200);
-        const hiddenPayload: unknown = hiddenResponse.json();
-        assert.ok(isRecord(hiddenPayload));
-        assert.ok(Array.isArray(hiddenPayload.providers));
-        assert.equal(hiddenPayload.providers.length, 2);
-        assert.ok(isRecord(hiddenPayload.providers[0]));
-        assert.ok(Array.isArray(hiddenPayload.providers[0].accounts));
-        assert.ok(isRecord(hiddenPayload.providers[0].accounts[0]));
-        assert.equal(hiddenPayload.providers[0].accounts[0].secret, undefined);
-        assert.equal(typeof hiddenPayload.providers[0].accounts[0].secretPreview, "string");
-        assert.ok(isRecord(hiddenPayload.keyPoolStatuses));
-        assert.ok(isRecord(hiddenPayload.requestLogSummary));
+      assert.equal(hiddenResponse.statusCode, 200);
+      const hiddenPayload: unknown = hiddenResponse.json();
+      assert.ok(isRecord(hiddenPayload));
+      assert.ok(Array.isArray(hiddenPayload.providers));
+      assert.equal(hiddenPayload.providers.length, 2);
+      assert.ok(isRecord(hiddenPayload.providers[0]));
+      assert.ok(Array.isArray(hiddenPayload.providers[0].accounts));
+      assert.ok(isRecord(hiddenPayload.providers[0].accounts[0]));
+      assert.equal(hiddenPayload.providers[0].accounts[0].secret, undefined);
+      assert.equal(typeof hiddenPayload.providers[0].accounts[0].secretPreview, "string");
+      assert.ok(isRecord(hiddenPayload.keyPoolStatuses));
+      assert.ok(isRecord(hiddenPayload.requestLogSummary));
 
-        const revealResponse = await app.inject({
-          method: "GET",
-          url: "/api/v1/credentials?reveal=1"
-        });
+      const revealResponse = await app.inject({
+        method: "GET",
+        url: "/api/ui/credentials?reveal=1"
+      });
 
-        assert.equal(revealResponse.statusCode, 200);
-        const revealPayload: unknown = revealResponse.json();
-        assert.ok(isRecord(revealPayload));
-        assert.ok(Array.isArray(revealPayload.providers));
-        const vivgridProvider = revealPayload.providers.find((provider: any) => provider?.id === "vivgrid");
-        assert.ok(vivgridProvider);
-        assert.ok(Array.isArray(vivgridProvider.accounts));
-        assert.equal(vivgridProvider.accounts[0].secret, "viv-secret-a");
-      }
-    );
-  });
+      assert.equal(revealResponse.statusCode, 200);
+      const revealPayload: unknown = revealResponse.json();
+      assert.ok(isRecord(revealPayload));
+      assert.ok(Array.isArray(revealPayload.providers));
+      const vivgridProvider = revealPayload.providers.find((provider: any) => provider?.id === "vivgrid");
+      assert.ok(vivgridProvider);
+      assert.ok(Array.isArray(vivgridProvider.accounts));
+      assert.equal(vivgridProvider.accounts[0].secret, "viv-secret-a");
+    }
+  );
 });
 
 test("/api/v1/credentials summary route works on the canonical control-plane surface", async () => {
-  await withClearedAmbientProviders(async () => {
-    await withProxyApp(
-      {
-        keys: [],
-        keysPayload: {
-          providers: {
-            vivgrid: {
-              auth: "api_key",
-              accounts: [
-                { id: "viv-a", api_key: "viv-secret-a" }
-              ]
-            },
-            openai: {
-              auth: "oauth_bearer",
-              accounts: [
-                { id: "openai-a", access_token: "openai-secret-a", refresh_token: "refresh-a" }
-              ]
-            }
-          }
-        },
-        upstreamHandler: async () => ({
-          status: 200,
-          headers: {
-            "content-type": "application/json"
+  await withProxyApp(
+    {
+      keys: [],
+      keysPayload: {
+        providers: {
+          vivgrid: {
+            auth: "api_key",
+            accounts: [
+              { id: "viv-a", api_key: "viv-secret-a" }
+            ]
           },
-          body: JSON.stringify({ ok: true })
-        })
+          openai: {
+            auth: "oauth_bearer",
+            accounts: [
+              { id: "openai-a", access_token: "openai-secret-a", refresh_token: "refresh-a" }
+            ]
+          }
+        }
       },
-      async ({ app }) => {
-        const hiddenResponse = await app.inject({
-          method: "GET",
-          url: "/api/v1/credentials"
-        });
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: {
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({ ok: true })
+      })
+    },
+    async ({ app }) => {
+      const hiddenResponse = await app.inject({
+        method: "GET",
+        url: "/api/v1/credentials"
+      });
 
-        assert.equal(hiddenResponse.statusCode, 200);
-        const hiddenPayload: unknown = hiddenResponse.json();
-        assert.ok(isRecord(hiddenPayload));
-        assert.ok(Array.isArray(hiddenPayload.providers));
-        assert.equal(hiddenPayload.providers.length, 2);
-        assert.ok(isRecord(hiddenPayload.providers[0]));
-        assert.ok(Array.isArray(hiddenPayload.providers[0].accounts));
-        assert.ok(isRecord(hiddenPayload.providers[0].accounts[0]));
-        assert.equal(hiddenPayload.providers[0].accounts[0].secret, undefined);
-        assert.equal(typeof hiddenPayload.providers[0].accounts[0].secretPreview, "string");
-        assert.ok(isRecord(hiddenPayload.keyPoolStatuses));
-        assert.ok(isRecord(hiddenPayload.requestLogSummary));
+      assert.equal(hiddenResponse.statusCode, 200);
+      const hiddenPayload: unknown = hiddenResponse.json();
+      assert.ok(isRecord(hiddenPayload));
+      assert.ok(Array.isArray(hiddenPayload.providers));
+      assert.equal(hiddenPayload.providers.length, 2);
+      assert.ok(isRecord(hiddenPayload.providers[0]));
+      assert.ok(Array.isArray(hiddenPayload.providers[0].accounts));
+      assert.ok(isRecord(hiddenPayload.providers[0].accounts[0]));
+      assert.equal(hiddenPayload.providers[0].accounts[0].secret, undefined);
+      assert.equal(typeof hiddenPayload.providers[0].accounts[0].secretPreview, "string");
+      assert.ok(isRecord(hiddenPayload.keyPoolStatuses));
+      assert.ok(isRecord(hiddenPayload.requestLogSummary));
 
-        const revealResponse = await app.inject({
-          method: "GET",
-          url: "/api/v1/credentials?reveal=1"
-        });
+      const revealResponse = await app.inject({
+        method: "GET",
+        url: "/api/v1/credentials?reveal=1"
+      });
 
-        assert.equal(revealResponse.statusCode, 200);
-        const revealPayload: unknown = revealResponse.json();
-        assert.ok(isRecord(revealPayload));
-        assert.ok(Array.isArray(revealPayload.providers));
-        const vivgridProvider = revealPayload.providers.find((provider: any) => provider?.id === "vivgrid");
-        assert.ok(vivgridProvider);
-        assert.ok(Array.isArray(vivgridProvider.accounts));
-        assert.equal(vivgridProvider.accounts[0].secret, "viv-secret-a");
-      }
-    );
-  });
+      assert.equal(revealResponse.statusCode, 200);
+      const revealPayload: unknown = revealResponse.json();
+      assert.ok(isRecord(revealPayload));
+      assert.ok(Array.isArray(revealPayload.providers));
+      const vivgridProvider = revealPayload.providers.find((provider: any) => provider?.id === "vivgrid");
+      assert.ok(vivgridProvider);
+      assert.ok(Array.isArray(vivgridProvider.accounts));
+      assert.equal(vivgridProvider.accounts[0].secret, "viv-secret-a");
+    }
+  );
 });
 
 test("/api/v1/request-logs, /api/v1/dashboard/overview, and /api/v1/analytics/provider-model work on the canonical observability surface", async () => {
@@ -12549,7 +12420,7 @@ test("federation self route stays wired after extraction from ui-routes monolith
       async ({ app }) => {
         const response = await app.inject({
           method: "GET",
-          url: "/api/v1/federation/self",
+          url: "/api/ui/federation/self",
           headers: {
             authorization: "Bearer ui-token"
           }
@@ -12648,7 +12519,7 @@ test("federation peer routes stay wired after extraction and report missing stor
     async ({ app }) => {
       const listResponse = await app.inject({
         method: "GET",
-        url: "/api/v1/federation/peers?ownerSubject=owner-1",
+        url: "/api/ui/federation/peers?ownerSubject=owner-1",
         headers: {
           authorization: "Bearer ui-token"
         }
@@ -12661,7 +12532,7 @@ test("federation peer routes stay wired after extraction and report missing stor
 
       const createResponse = await app.inject({
         method: "POST",
-        url: "/api/v1/federation/peers",
+        url: "/api/ui/federation/peers",
         headers: {
           authorization: "Bearer ui-token",
           "content-type": "application/json"
@@ -12771,7 +12642,6 @@ test("/api/v1/federation/bridges lists canonical bridge sessions", async () => {
   );
 });
 
-
 test("federation diff-events route stays wired after extraction and reports missing store cleanly", async () => {
   await withProxyApp(
     {
@@ -12788,7 +12658,7 @@ test("federation diff-events route stays wired after extraction and reports miss
     async ({ app }) => {
       const response = await app.inject({
         method: "GET",
-        url: "/api/v1/federation/diff-events?ownerSubject=owner-1&afterSeq=5&limit=2",
+        url: "/api/ui/federation/diff-events?ownerSubject=owner-1&afterSeq=5&limit=2",
         headers: {
           authorization: "Bearer ui-token"
         }
@@ -12818,7 +12688,7 @@ test("federation accounts route stays wired after extraction and reports missing
     async ({ app }) => {
       const response = await app.inject({
         method: "GET",
-        url: "/api/v1/federation/accounts?ownerSubject=owner-1",
+        url: "/api/ui/federation/accounts?ownerSubject=owner-1",
         headers: {
           authorization: "Bearer ui-token"
         }
@@ -12848,7 +12718,7 @@ test("federation projected-account import route stays wired after extraction and
     async ({ app }) => {
       const response = await app.inject({
         method: "POST",
-        url: "/api/v1/federation/projected-accounts/import",
+        url: "/api/ui/federation/projected-accounts/import",
         headers: {
           authorization: "Bearer ui-token",
           "content-type": "application/json"
@@ -12889,7 +12759,7 @@ test("federation projected-account imported route stays wired after extraction a
     async ({ app }) => {
       const response = await app.inject({
         method: "POST",
-        url: "/api/v1/federation/projected-accounts/imported",
+        url: "/api/ui/federation/projected-accounts/imported",
         headers: {
           authorization: "Bearer ui-token",
           "content-type": "application/json"

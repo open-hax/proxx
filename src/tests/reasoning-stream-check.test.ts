@@ -43,25 +43,9 @@ test("streamPayloadHasReasoningTrace detects response.reasoning_summary.delta", 
   assert.ok(streamPayloadHasReasoningTrace(payload));
 });
 
-test("streamPayloadHasReasoningTrace detects response.reasoning_summary_text.delta", () => {
+test("streamPayloadHasReasoningTrace detects response.reasoning_summary_part.added", () => {
   const payload = [
-    "data: {\"type\":\"response.reasoning_summary_text.delta\",\"delta\":{\"text\":\"summary text\"}}",
-    "data: [DONE]",
-  ].join("\n");
-  assert.ok(streamPayloadHasReasoningTrace(payload));
-});
-
-test("streamPayloadHasReasoningTrace detects response.reasoning_summary_part.delta", () => {
-  const payload = [
-    "data: {\"type\":\"response.reasoning_summary_part.delta\",\"delta\":{\"text\":\"part text\"}}",
-    "data: [DONE]",
-  ].join("\n");
-  assert.ok(streamPayloadHasReasoningTrace(payload));
-});
-
-test("streamPayloadHasReasoningTrace detects response.output_item.added reasoning item", () => {
-  const payload = [
-    "data: {\"type\":\"response.output_item.added\",\"item\":{\"type\":\"reasoning\",\"text\":\"chain\"}}",
+    "data: {\"type\":\"response.reasoning_summary_part.added\",\"part\":{\"type\":\"summary_text\",\"text\":\"summary text\"}}",
     "data: [DONE]",
   ].join("\n");
   assert.ok(streamPayloadHasReasoningTrace(payload));

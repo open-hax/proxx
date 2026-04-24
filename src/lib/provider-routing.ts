@@ -30,7 +30,7 @@ function asString(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
-export function looksLikeHostedOpenAiFamily(model: string): boolean {
+function looksLikeHostedOpenAiFamily(model: string): boolean {
   const lowered = model.toLowerCase();
   return lowered.startsWith("gpt-")
     || lowered.startsWith("openai/")
@@ -492,7 +492,6 @@ export function resolveProviderRoutesForModel(
 }
 
 const OPENAI_COMPATIBLE_API_PROVIDERS = new Set(["vivgrid", "openai", "factory", "requesty", "zen"]);
-const RESPONSES_COMPATIBLE_API_PROVIDERS = new Set(["vivgrid", "openai", "factory", "requesty", "zen", "rotussy"]);
 
 function providerSupportsOpenAiCompatibleApi(providerId: string, openAiProviderId?: string): boolean {
   const normalized = providerId.trim().toLowerCase();
