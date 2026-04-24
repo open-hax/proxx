@@ -1,0 +1,213 @@
+
+> @open-hax/proxx@0.2.0 build /home/err/devel/orgs/open-hax/proxx
+> rm -rf dist && tsc -p tsconfig.json
+
+src/app.ts(428,5): error TS2554: Expected 2-4 arguments, but got 5.
+src/app.ts(435,5): error TS2554: Expected 1 arguments, but got 3.
+src/lib/config.ts(509,3): error TS2739: Type '{ host: string; port: number; upstreamProviderId: string; upstreamFallbackProviderIds: string[]; disabledProviderIds: string[]; upstreamProviderBaseUrls: Record<string, string>; ... 63 more ...; oauthRefreshProactiveWindowMs: number; }' is missing the following properties from type 'ProxyConfig': keyCooldownJitterFactor, enableKeyRandomWalk, ollamaWeeklyCooldownMultiplier
+src/lib/federation/bridge-fallback.ts(12,3): error TS2305: Module '"../provider-utils.js"' has no exported member 'fetchWithResponseTimeout'.
+src/lib/federation/federated-fallback.ts(7,10): error TS2305: Module '"../provider-utils.js"' has no exported member 'fetchWithResponseTimeout'.
+src/lib/federation/federated-fallback.ts(82,51): error TS2339: Property 'withProjectedAccountImportLock' does not exist on type 'SqlFederationStore'.
+src/lib/federation/federated-fallback.ts(86,15): error TS7006: Parameter 'tx' implicitly has an 'any' type.
+src/lib/federation/federated-fallback.ts(87,47): error TS2551: Property 'getProjectedAccount' does not exist on type 'SqlFederationStore'. Did you mean 'upsertProjectedAccount'?
+src/lib/federation/federated-fallback.ts(99,74): error TS2554: Expected 1 arguments, but got 2.
+src/lib/federation/federated-fallback.ts(157,12): error TS2554: Expected 1 arguments, but got 2.
+src/lib/federation/federated-fallback.ts(177,47): error TS2551: Property 'getProjectedAccount' does not exist on type 'SqlFederationStore'. Did you mean 'upsertProjectedAccount'?
+src/lib/federation/federation-helpers.ts(1,10): error TS2305: Module '"../provider-utils.js"' has no exported member 'fetchWithResponseTimeout'.
+src/lib/key-pool.ts(1101,7): error TS2304: Cannot find name 'cooldownAccounts'.
+src/lib/key-pool.ts(1112,5): error TS2741: Property 'disabledAccounts' is missing in type '{ providerId: string; authType: ProviderAuthType; totalAccounts: number; availableAccounts: number; cooldownAccounts: number; inFlightAccounts: number; nextReadyInMs: number; }' but required in type 'KeyPoolStatus'.
+src/lib/ollama-context.ts(137,12): error TS2304: Cannot find name 'cached'.
+src/lib/ollama-context.ts(144,12): error TS2304: Cannot find name 'cached'.
+src/lib/ollama-context.ts(148,12): error TS2304: Cannot find name 'cached'.
+src/lib/ollama-context.ts(161,28): error TS2304: Cannot find name 'cacheKey'.
+src/lib/policy/adapters/route-filtering.ts(3,10): error TS2459: Module '"../../provider-routing.js"' declares 'looksLikeHostedOpenAiFamily' locally, but it is not exported.
+src/lib/policy/engine/index.ts(73,3): error TS2724: '"./tenant-enforcement.js"' has no exported member named 'tenantModelAllowed'. Did you mean 'tenantProviderAllowed'?
+src/lib/provider-catalog.ts(9,7): error TS2451: Cannot redeclare block-scoped variable 'DEFAULT_CATALOG_ROUTE_TIMEOUT_MS'.
+src/lib/provider-catalog.ts(11,10): error TS2393: Duplicate function implementation.
+src/lib/provider-catalog.ts(25,7): error TS2451: Cannot redeclare block-scoped variable 'DEFAULT_CATALOG_ROUTE_TIMEOUT_MS'.
+src/lib/provider-catalog.ts(27,10): error TS2393: Duplicate function implementation.
+src/lib/provider-routing.ts(510,7): error TS2552: Cannot find name 'RESPONSES_COMPATIBLE_API_PROVIDERS'. Did you mean 'OPENAI_COMPATIBLE_API_PROVIDERS'?
+src/lib/provider-strategy/base.ts(284,31): error TS2304: Cannot find name 'bootstrapEventStream'.
+src/lib/provider-strategy/contexts.ts(5,10): error TS2459: Module '"../provider-routing.js"' declares 'looksLikeHostedOpenAiFamily' locally, but it is not exported.
+src/lib/provider-strategy/routing/attempt-executor.ts(442,29): error TS2339: Property 'tracksProvider' does not exist on type 'QuotaMonitor'.
+src/lib/provider-strategy/routing/attempt-executor.ts(448,44): error TS2339: Property 'tracksProvider' does not exist on type 'QuotaMonitor'.
+src/lib/provider-strategy/routing/attempt-executor.ts(450,34): error TS2339: Property 'refreshAccountQuota' does not exist on type 'QuotaMonitor'.
+src/lib/provider-strategy/routing/attempt-executor.ts(639,29): error TS2339: Property 'tracksProvider' does not exist on type 'QuotaMonitor'.
+src/lib/provider-strategy/routing/attempt-executor.ts(643,36): error TS2339: Property 'refreshAccountQuota' does not exist on type 'QuotaMonitor'.
+src/lib/provider-strategy/routing/candidate-builder.ts(65,23): error TS2339: Property 'tracksProvider' does not exist on type 'QuotaMonitor'.
+src/lib/provider-utils.ts(202,12): error TS2304: Cannot find name 'payloadLooksLikeError'.
+src/lib/provider-utils.ts(206,23): error TS2552: Cannot find name 'extractErrorMessage'. Did you mean 'toErrorMessage'?
+src/lib/provider-utils.ts(207,22): error TS2304: Cannot find name 'messageIndicatesQuotaError'.
+src/lib/provider-utils.ts(211,11): error TS2304: Cannot find name 'messageIndicatesQuotaError'.
+src/lib/provider-utils.ts(215,11): error TS2304: Cannot find name 'messageIndicatesQuotaError'.
+src/lib/responses-compat.ts(2940,62): error TS2339: Property 'itemId' does not exist on type '{ name: string; callId: string; }'.
+src/lib/responses-compat.ts(3057,72): error TS2353: Object literal may only specify known properties, and 'itemId' does not exist in type '{ name: string; callId: string; }'.
+src/lib/responses-compat.ts(3128,11): error TS2353: Object literal may only specify known properties, and 'itemId' does not exist in type '{ name: string; callId: string; }'.
+src/lib/responses-compat.ts(3194,11): error TS2304: Cannot find name 'materializedPayloads'.
+src/lib/responses-compat.ts(3229,11): error TS2304: Cannot find name 'materializedPayloads'.
+src/lib/responses-compat.ts(3238,66): error TS2304: Cannot find name 'materializedPayloads'.
+src/lib/ui-routes.ts(104,9): error TS2304: Cannot find name 'mcpSeedCache'.
+src/lib/ui-routes.ts(104,31): error TS2304: Cannot find name 'mcpSeedCache'.
+src/lib/ui-routes.ts(105,14): error TS2304: Cannot find name 'mcpSeedCache'.
+src/lib/ui-routes.ts(108,10): error TS2304: Cannot find name 'ecosystemsDir'.
+src/lib/ui-routes.ts(112,38): error TS2304: Cannot find name 'ecosystemsDir'.
+src/lib/ui-routes.ts(113,5): error TS2304: Cannot find name 'mcpSeedCache'.
+src/lib/ui-routes.ts(127,82): error TS2304: Cannot find name 'DEFAULT_TENANT_ID'.
+src/lib/ui-routes.ts(139,9): error TS2304: Cannot find name 'toVisibleTenants'.
+src/lib/ui-routes.ts(167,28): error TS2304: Cannot find name 'toVisibleTenants'.
+src/lib/ui-routes.ts(245,10): error TS2304: Cannot find name 'authCanManageTenantKeys'.
+src/lib/ui-routes.ts(269,10): error TS2304: Cannot find name 'authCanManageTenantKeys'.
+src/lib/ui-routes.ts(306,10): error TS2304: Cannot find name 'authCanManageTenantKeys'.
+src/lib/ui-routes.ts(344,31): error TS2304: Cannot find name 'parseOptionalRequestsPerMinute'.
+src/lib/ui-routes.ts(350,32): error TS2304: Cannot find name 'parseOptionalProviderIds'.
+src/lib/ui-routes.ts(356,33): error TS2304: Cannot find name 'parseOptionalProviderIds'.
+src/lib/ui-routes.ts(362,39): error TS2304: Cannot find name 'DEFAULT_TENANT_ID'.
+src/lib/ui-routes.ts(364,68): error TS2304: Cannot find name 'parseBoolean'.
+src/lib/ui-routes.ts(375,28): error TS2304: Cannot find name 'sessionStore'.
+src/lib/ui-routes.ts(380,27): error TS2304: Cannot find name 'sessionStore'.
+src/lib/ui-routes.ts(385,27): error TS2304: Cannot find name 'sessionStore'.
+src/lib/ui-routes.ts(395,27): error TS2304: Cannot find name 'sessionStore'.
+src/lib/ui-routes.ts(406,29): error TS2304: Cannot find name 'ChatRole'.
+src/lib/ui-routes.ts(415,42): error TS2304: Cannot find name 'sessionStore'.
+src/lib/ui-routes.ts(416,15): error TS2304: Cannot find name 'toChatRole'.
+src/lib/ui-routes.ts(422,13): error TS2304: Cannot find name 'sessionIndex'.
+src/lib/ui-routes.ts(442,29): error TS2304: Cannot find name 'sessionStore'.
+src/lib/ui-routes.ts(445,15): error TS2304: Cannot find name 'sessionIndex'.
+src/lib/ui-routes.ts(464,11): error TS2304: Cannot find name 'ensureInitialSemanticIndexSync'.
+src/lib/ui-routes.ts(473,28): error TS2304: Cannot find name 'sessionIndex'.
+src/lib/ui-routes.ts(479,28): error TS2304: Cannot find name 'sessionStore'.
+src/lib/ui-routes.ts(482,30): error TS7006: Parameter 'result' implicitly has an 'any' type.
+src/lib/ui-routes.ts(490,20): error TS2304: Cannot find name 'parseBoolean'.
+src/lib/ui-routes.ts(491,29): error TS2304: Cannot find name 'credentialStore'.
+src/lib/ui-routes.ts(564,25): error TS2304: Cannot find name 'bridgeRelay'.
+src/lib/ui-routes.ts(567,29): error TS7006: Parameter 'session' implicitly has an 'any' type.
+src/lib/ui-routes.ts(579,21): error TS2304: Cannot find name 'bridgeRelay'.
+src/lib/ui-routes.ts(701,52): error TS2304: Cannot find name 'buildFederationAccountKnowledge'.
+src/lib/ui-routes.ts(701,84): error TS2304: Cannot find name 'credentialStore'.
+src/lib/ui-routes.ts(730,27): error TS2304: Cannot find name 'findCredentialForFederationExport'.
+src/lib/ui-routes.ts(730,61): error TS2304: Cannot find name 'credentialStore'.
+src/lib/ui-routes.ts(845,9): error TS2304: Cannot find name 'shouldWarmImportProjectedAccount'.
+src/lib/ui-routes.ts(846,53): error TS2339: Property 'withProjectedAccountImportLock' does not exist on type 'SqlFederationStore'.
+src/lib/ui-routes.ts(847,49): error TS2551: Property 'getProjectedAccount' does not exist on type 'SqlFederationStore'. Did you mean 'upsertProjectedAccount'?
+src/lib/ui-routes.ts(865,24): error TS2304: Cannot find name 'federationRequestTimeoutMs'.
+src/lib/ui-routes.ts(874,19): error TS2304: Cannot find name 'credentialStore'.
+src/lib/ui-routes.ts(886,19): error TS2304: Cannot find name 'credentialStore'.
+src/lib/ui-routes.ts(905,49): error TS2551: Property 'getProjectedAccount' does not exist on type 'SqlFederationStore'. Did you mean 'upsertProjectedAccount'?
+src/lib/ui-routes.ts(914,21): error TS18048: 'account' is possibly 'undefined'.
+src/lib/ui-routes.ts(916,21): error TS18048: 'account' is possibly 'undefined'.
+src/lib/ui-routes.ts(916,45): error TS18048: 'account' is possibly 'undefined'.
+src/lib/ui-routes.ts(916,67): error TS18048: 'account' is possibly 'undefined'.
+src/lib/ui-routes.ts(919,21): error TS18048: 'account' is possibly 'undefined'.
+src/lib/ui-routes.ts(920,20): error TS18048: 'account' is possibly 'undefined'.
+src/lib/ui-routes.ts(921,28): error TS18048: 'account' is possibly 'undefined'.
+src/lib/ui-routes.ts(922,27): error TS18048: 'account' is possibly 'undefined'.
+src/lib/ui-routes.ts(1023,21): error TS2304: Cannot find name 'sanitizeFederationUsageEntry'.
+src/lib/ui-routes.ts(1084,22): error TS2304: Cannot find name 'federationRequestTimeoutMs'.
+src/lib/ui-routes.ts(1089,22): error TS2304: Cannot find name 'federationRequestTimeoutMs'.
+src/lib/ui-routes.ts(1130,24): error TS2304: Cannot find name 'federationRequestTimeoutMs'.
+src/lib/ui-routes.ts(1135,27): error TS2304: Cannot find name 'sanitizeFederationUsageEntry'.
+src/lib/ui-routes.ts(1177,10): error TS2304: Cannot find name 'authCanAccessHostDashboard'.
+src/lib/ui-routes.ts(1182,28): error TS2304: Cannot find name 'inferBaseUrl'.
+src/lib/ui-routes.ts(1184,16): error TS2304: Cannot find name 'hostDashboardTargets'.
+src/lib/ui-routes.ts(1189,24): error TS2304: Cannot find name 'hostDashboardTargets'.
+src/lib/ui-routes.ts(1189,51): error TS7006: Parameter 'target' implicitly has an 'any' type.
+src/lib/ui-routes.ts(1189,93): error TS2304: Cannot find name 'hostDashboardTargets'.
+src/lib/ui-routes.ts(1197,25): error TS2304: Cannot find name 'hostDashboardDockerSocketPath'.
+src/lib/ui-routes.ts(1198,20): error TS2304: Cannot find name 'hostDashboardRuntimeRoot'.
+src/lib/ui-routes.ts(1205,10): error TS2304: Cannot find name 'authCanAccessHostDashboard'.
+src/lib/ui-routes.ts(1210,28): error TS2304: Cannot find name 'inferBaseUrl'.
+src/lib/ui-routes.ts(1212,16): error TS2304: Cannot find name 'hostDashboardTargets'.
+src/lib/ui-routes.ts(1218,37): error TS2304: Cannot find name 'hostDashboardTargets'.
+src/lib/ui-routes.ts(1218,69): error TS7006: Parameter 'target' implicitly has an 'any' type.
+src/lib/ui-routes.ts(1222,29): error TS2304: Cannot find name 'hostDashboardDockerSocketPath'.
+src/lib/ui-routes.ts(1223,24): error TS2304: Cannot find name 'hostDashboardRuntimeRoot'.
+src/lib/ui-routes.ts(1230,20): error TS2304: Cannot find name 'hostDashboardRequestTimeoutMs'.
+src/lib/ui-routes.ts(1250,25): error TS2304: Cannot find name 'resolveUsageScopeFromAuth'.
+src/lib/ui-routes.ts(1262,20): error TS2304: Cannot find name 'toUsageWindow'.
+src/lib/ui-routes.ts(1263,28): error TS2304: Cannot find name 'buildUsageOverview'.
+src/lib/ui-routes.ts(1263,83): error TS2304: Cannot find name 'credentialStore'.
+src/lib/ui-routes.ts(1276,25): error TS2304: Cannot find name 'resolveUsageScopeFromAuth'.
+src/lib/ui-routes.ts(1288,20): error TS2304: Cannot find name 'toUsageWindow'.
+src/lib/ui-routes.ts(1289,29): error TS2304: Cannot find name 'buildProviderModelAnalytics'.
+src/lib/ui-routes.ts(1296,28): error TS2304: Cannot find name 'fetchOpenAiQuotaSnapshots'.
+src/lib/ui-routes.ts(1296,54): error TS2304: Cannot find name 'credentialStore'.
+src/lib/ui-routes.ts(1296,73): error TS2304: Cannot find name 'CredentialStore'.
+src/lib/ui-routes.ts(1343,11): error TS2304: Cannot find name 'credentialStore'.
+src/lib/ui-routes.ts(1359,10): error TS2304: Cannot find name 'credentialStore'.
+src/lib/ui-routes.ts(1364,27): error TS2304: Cannot find name 'credentialStore'.
+src/lib/ui-routes.ts(1378,28): error TS2304: Cannot find name 'inferBaseUrl'.
+src/lib/ui-routes.ts(1389,27): error TS2304: Cannot find name 'oauthManager'.
+src/lib/ui-routes.ts(1400,18): error TS2304: Cannot find name 'htmlError'.
+src/lib/ui-routes.ts(1409,18): error TS2304: Cannot find name 'htmlError'.
+src/lib/ui-routes.ts(1414,28): error TS2304: Cannot find name 'oauthManager'.
+src/lib/ui-routes.ts(1415,13): error TS2304: Cannot find name 'credentialStore'.
+src/lib/ui-routes.ts(1431,18): error TS2304: Cannot find name 'htmlSuccess'.
+src/lib/ui-routes.ts(1434,18): error TS2304: Cannot find name 'htmlError'.
+src/lib/ui-routes.ts(1448,29): error TS2304: Cannot find name 'oauthManager'.
+src/lib/ui-routes.ts(1466,26): error TS2304: Cannot find name 'oauthManager'.
+src/lib/ui-routes.ts(1468,13): error TS2304: Cannot find name 'credentialStore'.
+src/lib/ui-routes.ts(1491,29): error TS2304: Cannot find name 'factoryOAuthManager'.
+src/lib/ui-routes.ts(1508,26): error TS2304: Cannot find name 'factoryOAuthManager'.
+src/lib/ui-routes.ts(1510,13): error TS2304: Cannot find name 'credentialStore'.
+src/lib/ui-routes.ts(1533,28): error TS2304: Cannot find name 'inferBaseUrl'.
+src/lib/ui-routes.ts(1545,21): error TS2304: Cannot find name 'factoryOAuthManager'.
+src/lib/ui-routes.ts(1555,18): error TS2304: Cannot find name 'htmlError'.
+src/lib/ui-routes.ts(1564,18): error TS2304: Cannot find name 'htmlError'.
+src/lib/ui-routes.ts(1569,28): error TS2304: Cannot find name 'factoryOAuthManager'.
+src/lib/ui-routes.ts(1570,13): error TS2304: Cannot find name 'credentialStore'.
+src/lib/ui-routes.ts(1587,18): error TS2304: Cannot find name 'htmlSuccess'.
+src/lib/ui-routes.ts(1590,18): error TS2304: Cannot find name 'htmlError'.
+src/lib/ui-routes.ts(1680,28): error TS2304: Cannot find name 'resolveUiAssetPath'.
+src/lib/ui-routes.ts(1697,24): error TS2304: Cannot find name 'loadUiIndexHtml'.
+src/lib/ui-routes.ts(1807,10): error TS2304: Cannot find name 'bridgeRelay'.
+src/routes/api/ui/bridge-sse.ts(136,19): error TS2339: Property 'registerSseChannel' does not exist on type 'FederationBridgeRelay'.
+src/routes/api/ui/bridge-sse.ts(145,21): error TS2339: Property 'unregisterChannel' does not exist on type 'FederationBridgeRelay'.
+src/routes/api/ui/bridge-sse.ts(210,34): error TS2341: Property 'acceptHello' is private and only accessible within class 'FederationBridgeRelay'.
+src/routes/api/ui/bridge-sse.ts(280,33): error TS2339: Property 'getChannel' does not exist on type 'FederationBridgeRelay'.
+src/routes/api/ui/bridge-sse.ts(286,17): error TS2339: Property 'handleChannelMessage' does not exist on type 'FederationBridgeRelay'.
+src/routes/chat.ts(126,70): error TS2554: Expected 1 arguments, but got 3.
+src/routes/federation/ui.ts(638,53): error TS2339: Property 'withProjectedAccountImportLock' does not exist on type 'SqlFederationStore'.
+src/routes/federation/ui.ts(638,132): error TS7006: Parameter 'tx' implicitly has an 'any' type.
+src/routes/federation/ui.ts(639,49): error TS2551: Property 'getProjectedAccount' does not exist on type 'SqlFederationStore'. Did you mean 'upsertProjectedAccount'?
+src/routes/federation/ui.ts(652,69): error TS2554: Expected 1 arguments, but got 2.
+src/routes/federation/ui.ts(690,123): error TS2554: Expected 1 arguments, but got 2.
+src/routes/federation/ui.ts(702,49): error TS2551: Property 'getProjectedAccount' does not exist on type 'SqlFederationStore'. Did you mean 'upsertProjectedAccount'?
+src/routes/federation/ui.ts(711,21): error TS18048: 'account' is possibly 'undefined'.
+src/routes/federation/ui.ts(713,21): error TS18048: 'account' is possibly 'undefined'.
+src/routes/federation/ui.ts(713,45): error TS18048: 'account' is possibly 'undefined'.
+src/routes/federation/ui.ts(713,67): error TS18048: 'account' is possibly 'undefined'.
+src/routes/federation/ui.ts(716,21): error TS18048: 'account' is possibly 'undefined'.
+src/routes/federation/ui.ts(717,20): error TS18048: 'account' is possibly 'undefined'.
+src/routes/federation/ui.ts(718,28): error TS18048: 'account' is possibly 'undefined'.
+src/routes/federation/ui.ts(719,27): error TS18048: 'account' is possibly 'undefined'.
+src/routes/federation/ui.ts(750,52): error TS2551: Property 'getProjectedAccount' does not exist on type 'SqlFederationStore'. Did you mean 'upsertProjectedAccount'?
+src/routes/responses.ts(242,9): error TS2554: Expected 1 arguments, but got 3.
+src/tests/factory-strategy.test.ts(110,9): error TS2322: Type '{ sessionsFilePath: string; host: string; port: number; upstreamProviderId: string; upstreamFallbackProviderIds: readonly string[]; disabledProviderIds: readonly string[]; upstreamProviderBaseUrls: Readonly<Record<string, string>>; ... 65 more ...; oauthRefreshProactiveWindowMs?: number | undefined; }' is not assignable to type 'ProxyConfig'.
+  Types of property 'concurrencyThrottleMaxRetries' are incompatible.
+    Type 'number | undefined' is not assignable to type 'number'.
+      Type 'undefined' is not assignable to type 'number'.
+src/tests/federation-bridge-agent.test.ts(50,9): error TS2740: Type '{ host: string; port: number; upstreamProviderId: string; upstreamFallbackProviderIds: never[]; disabledProviderIds: never[]; upstreamProviderBaseUrls: { vivgrid: string; "ollama-cloud": string; ... 6 more ...; mistral: string; }; ... 53 more ...; oauthRefreshProactiveWindowMs: number; }' is missing the following properties from type 'ProxyConfig': sessionsFilePath, keyCooldownJitterFactor, enableKeyRandomWalk, ollamaWeeklyCooldownMultiplier, and 5 more.
+src/tests/federation-bridge-autostart.test.ts(72,3): error TS2740: Type '{ host: string; port: number; upstreamProviderId: string; upstreamFallbackProviderIds: never[]; disabledProviderIds: never[]; upstreamProviderBaseUrls: { vivgrid: string; "ollama-cloud": string; ... 6 more ...; mistral: string; }; ... 53 more ...; oauthRefreshProactiveWindowMs: number; }' is missing the following properties from type 'ProxyConfig': sessionsFilePath, keyCooldownJitterFactor, enableKeyRandomWalk, ollamaWeeklyCooldownMultiplier, and 5 more.
+src/tests/federation-bridge-relay.test.ts(43,3): error TS2740: Type '{ host: string; port: number; upstreamProviderId: string; upstreamFallbackProviderIds: never[]; disabledProviderIds: never[]; upstreamProviderBaseUrls: { vivgrid: string; "ollama-cloud": string; ... 6 more ...; mistral: string; }; ... 53 more ...; oauthRefreshProactiveWindowMs: number; }' is missing the following properties from type 'ProxyConfig': sessionsFilePath, keyCooldownJitterFactor, enableKeyRandomWalk, ollamaWeeklyCooldownMultiplier, and 5 more.
+src/tests/federation-owner-subject.test.ts(13,7): error TS2353: Object literal may only specify known properties, and 'tenantId' does not exist in type '{ readonly kind?: string | undefined; readonly subject?: string | undefined; }'.
+src/tests/federation-owner-subject.test.ts(29,7): error TS2353: Object literal may only specify known properties, and 'tenantId' does not exist in type '{ readonly kind?: string | undefined; readonly subject?: string | undefined; }'.
+src/tests/observability-routes.test.ts(22,3): error TS2741: Property 'sessionsFilePath' is missing in type '{ host: string; port: number; upstreamProviderId: string; upstreamFallbackProviderIds: never[]; disabledProviderIds: never[]; upstreamProviderBaseUrls: { vivgrid: string; openai: string; ob1: string; ... 5 more ...; mistral: string; }; ... 61 more ...; concurrencyThrottleThresholdMs: number; }' but required in type 'ProxyConfig'.
+src/tests/prompt-affinity-store.test.ts(356,9): error TS2304: Cannot find name 'withTempDir'.
+src/tests/prompt-affinity-store.test.ts(356,28): error TS7006: Parameter 'tempDir' implicitly has an 'any' type.
+src/tests/prompt-affinity-store.test.ts(357,22): error TS2304: Cannot find name 'path'.
+src/tests/prompt-affinity-store.test.ts(358,23): error TS2304: Cannot find name 'PromptAffinityStore'.
+src/tests/provider-catalog.test.ts(15,3): error TS2322: Type '{ host: string; port: number; upstreamProviderId: string; upstreamFallbackProviderIds: readonly string[]; disabledProviderIds: readonly string[]; upstreamProviderBaseUrls: Readonly<Record<string, string>>; ... 66 more ...; oauthRefreshProactiveWindowMs: number; }' is not assignable to type 'ProxyConfig'.
+  Types of property 'sessionsFilePath' are incompatible.
+    Type 'string | undefined' is not assignable to type 'string'.
+      Type 'undefined' is not assignable to type 'string'.
+src/tests/proxy.test.ts(134,9): error TS2741: Property 'sessionsFilePath' is missing in type '{ host: string; port: number; upstreamProviderId: string; upstreamFallbackProviderIds: never[]; disabledProviderIds: never[]; upstreamProviderBaseUrls: { vivgrid: string; "ollama-cloud": string; ... 7 more ...; rotussy: string; }; ... 61 more ...; concurrencyThrottleThresholdMs: number; }' but required in type 'ProxyConfig'.
+src/tests/quota-monitor.test.ts(171,7): error TS2554: Expected 2-4 arguments, but got 5.
+src/tests/quota-monitor.test.ts(247,7): error TS2554: Expected 2-4 arguments, but got 5.
+src/tests/quota-monitor.test.ts(306,34): error TS2339: Property 'refreshAccountQuota' does not exist on type 'QuotaMonitor'.
+src/tests/quota-monitor.test.ts(354,34): error TS2339: Property 'refreshAccountQuota' does not exist on type 'QuotaMonitor'.
+src/tests/quota-monitor.test.ts(366,38): error TS2339: Property 'getCooldownMsFromQuota' does not exist on type 'QuotaMonitor'.
+src/tests/quota-monitor.test.ts(407,19): error TS2339: Property 'refreshAccountQuota' does not exist on type 'QuotaMonitor'.
+src/tests/tenant-provider-policy-routes.test.ts(31,3): error TS2740: Type '{ host: string; port: number; upstreamProviderId: string; upstreamFallbackProviderIds: never[]; disabledProviderIds: never[]; upstreamProviderBaseUrls: { vivgrid: string; "ollama-cloud": string; ... 6 more ...; mistral: string; }; ... 53 more ...; oauthRefreshProactiveWindowMs: number; }' is missing the following properties from type 'ProxyConfig': sessionsFilePath, keyCooldownJitterFactor, enableKeyRandomWalk, ollamaWeeklyCooldownMultiplier, and 5 more.
+src/tests/websearch-endpoint-e2e.test.ts(94,9): error TS2740: Type '{ host: string; port: number; upstreamProviderId: string; upstreamFallbackProviderIds: never[]; disabledProviderIds: never[]; upstreamProviderBaseUrls: { vivgrid: string; "ollama-cloud": string; openai: string; openrouter: string; requesty: string; gemini: string; }; ... 39 more ...; sessionSecret: string; }' is missing the following properties from type 'ProxyConfig': openaiApiBaseUrl, openaiImagesUpstreamMode, openaiImagesGenerationsPaths, imageCostUsdDefault, and 19 more.
+src/tests/websearch-endpoint.test.ts(62,9): error TS2740: Type '{ host: string; port: number; upstreamProviderId: string; upstreamFallbackProviderIds: never[]; disabledProviderIds: never[]; upstreamProviderBaseUrls: { vivgrid: string; "ollama-cloud": string; openai: string; openrouter: string; requesty: string; gemini: string; }; ... 39 more ...; sessionSecret: string; }' is missing the following properties from type 'ProxyConfig': openaiApiBaseUrl, openaiImagesUpstreamMode, openaiImagesGenerationsPaths, imageCostUsdDefault, and 19 more.
+ ELIFECYCLE  Command failed with exit code 2.
