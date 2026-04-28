@@ -441,26 +441,54 @@ function ollamaStreamDeltaPayload(
   responseBody: Record<string, unknown>,
   streamId: string,
   fallbackModel: string,
-): { readonly chunk?: Record<string, unknown>; readonly finalChunk?: Record<string, unknown> } {
+  previous: { readonly content: string; readonly reasoning: string },
+): {
+  readonly chunk?: Record<string, unknown>;
+  readonly finalChunk?: Record<string, unknown>;
+  readonly next: { readonly content: string; readonly reasoning: string };
+} {
   const model = asString(responseBody["model"]) ?? fallbackModel;
   const created = parseCreatedAt(responseBody["created_at"]);
   const message = isRecord(responseBody["message"]) ? responseBody["message"] : null;
   const toolCalls = mapOllamaToolCalls(message);
   const content = asString(message?.["content"]) ?? "";
   const reasoning = asString(message?.["thinking"]) ?? asString(responseBody["thinking"]) ?? "";
+
+  // Some Ollama /api/chat streams emit cumulative message-so-far fields.
+  // Convert to incremental deltas to avoid duplicated prefixes like "TheThe".
+  const diffAppendedText = (prev: string, next: string): string => {
+    const previousText = prev ?? "";
+    const currentText = next ?? "";
+    if (currentText.length === 0) return "";
+    if (previousText.length === 0) return currentText;
+    if (currentText === previousText) return "";
+    if (currentText.startsWith(previousText)) return currentText.slice(previousText.length);
+
+    const maxOverlap = (left: string, right: string): number => {
+      for (let n = Math.min(left.length, right.length); n > 0; n -= 1) {
+        if (left.endsWith(right.slice(0, n))) return n;
+      }
+      return 0;
+    };
+
+    return currentText.slice(maxOverlap(previousText, currentText));
+  };
+
+  const contentDelta = diffAppendedText(previous.content, content);
+  const reasoningDelta = diffAppendedText(previous.reasoning, reasoning);
   const delta: Record<string, unknown> = {
     role: "assistant",
   };
 
-  if (reasoning.length > 0) {
-    delta["reasoning_content"] = reasoning;
+  if (reasoningDelta.length > 0) {
+    delta["reasoning_content"] = reasoningDelta;
   }
 
   if (toolCalls.length > 0) {
     delta["tool_calls"] = toolCalls;
-    delta["content"] = content.length > 0 ? content : null;
-  } else if (content.length > 0) {
-    delta["content"] = content;
+    delta["content"] = contentDelta.length > 0 ? contentDelta : null;
+  } else if (contentDelta.length > 0) {
+    delta["content"] = contentDelta;
   }
 
   const hasDeltaContent = Object.keys(delta).some((key) => key !== "role");
@@ -482,7 +510,7 @@ function ollamaStreamDeltaPayload(
 
   const done = responseBody["done"] === true;
   if (!done) {
-    return { chunk };
+    return { chunk, next: { content, reasoning } };
   }
 
   return {
@@ -500,6 +528,7 @@ function ollamaStreamDeltaPayload(
         },
       ],
     },
+    next: { content, reasoning },
   };
 }
 
@@ -513,6 +542,7 @@ export async function streamOllamaNdjsonToChatCompletionSse(
   const streamId = `chatcmpl_ollama_${Date.now()}`;
   let buffer = "";
   let sentDone = false;
+  let previous = { content: "", reasoning: "" };
 
   const processLine = (line: string): void => {
     const trimmed = line.trim();
@@ -531,7 +561,8 @@ export async function streamOllamaNdjsonToChatCompletionSse(
       return;
     }
 
-    const { chunk, finalChunk } = ollamaStreamDeltaPayload(payload, streamId, fallbackModel);
+    const { chunk, finalChunk, next } = ollamaStreamDeltaPayload(payload, streamId, fallbackModel, previous);
+    previous = next;
     if (chunk) {
       writeFn(`data: ${JSON.stringify(chunk)}\n\n`);
     }
