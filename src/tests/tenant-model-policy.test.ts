@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { tenantModelAllowed } from "../lib/policy/engine/index.js";
+import { tenantModelAllowed } from "../lib/tenant-policy-helpers.js";
 
 test("tenantModelAllowed accepts exact configured model ids", () => {
   const settings = {

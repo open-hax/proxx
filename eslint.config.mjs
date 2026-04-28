@@ -27,8 +27,6 @@ export default tseslint.config(
       "node_modules/**",
       // Config files using CommonJS
       "*.cjs",
-      // Git worktrees
-      ".worktrees/**",
     ],
   },
   {

@@ -13,7 +13,7 @@ import {
   isRecord,
   sendOpenAiError,
   toErrorMessage,
-} from "../errors/index.js";
+} from "../provider-utils.js";
 import {
   bridgeCapabilitySupportsPath,
   bridgeCapabilitySupportsModel,

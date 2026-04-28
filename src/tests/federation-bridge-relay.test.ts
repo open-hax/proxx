@@ -99,8 +99,6 @@ function buildConfig(input: {
     requestTimeoutMs: 2_000,
     streamBootstrapTimeoutMs: 2_000,
     embedMaxContextTokens: 262144,
-    embedMaxBatchItems: 128,
-    embedMaxInputChars: 250000,
     upstreamTransientRetryCount: 1,
     upstreamTransientRetryBackoffMs: 1,
     proxyAuthToken: input.proxyAuthToken,
@@ -118,8 +116,6 @@ function buildConfig(input: {
     oauthRefreshMaxConcurrency: 32,
     oauthRefreshBackgroundIntervalMs: 15_000,
     oauthRefreshProactiveWindowMs: 30 * 60_000,
-    concurrencyThrottleMaxRetries: 3,
-    concurrencyThrottleThresholdMs: 30_000,
   };
 }
 

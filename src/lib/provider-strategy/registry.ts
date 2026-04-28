@@ -5,13 +5,11 @@ import { GeminiChatProviderStrategy } from "./strategies/gemini.js";
 import { FactoryChatCompletionsProviderStrategy, FactoryMessagesProviderStrategy, FactoryResponsesPassthroughStrategy, FactoryResponsesProviderStrategy } from "./strategies/factory.js";
 import { OpenAiChatCompletionsProviderStrategy, OpenAiResponsesPassthroughStrategy, OpenAiResponsesProviderStrategy } from "./strategies/openai.js";
 import { LocalOllamaProviderStrategy, OllamaProviderStrategy } from "./strategies/ollama.js";
-import { OllamaCloudProviderStrategy } from "./strategies/ollama-cloud.js";
 import { ChatCompletionsProviderStrategy, ImagesGenerationsPassthroughStrategy, MessagesProviderStrategy, ResponsesPassthroughStrategy, ResponsesProviderStrategy, ResponsesViaChatCompletionsStrategy, ZaiChatCompletionsProviderStrategy } from "./strategies/standard.js";
 
 export const GEMINI_CHAT_STRATEGY = new GeminiChatProviderStrategy();
 export const ZAI_CHAT_STRATEGY = new ZaiChatCompletionsProviderStrategy();
 export const ROTUSSY_RESPONSES_VIA_CHAT_STRATEGY = new ResponsesViaChatCompletionsStrategy();
-export const OLLAMA_CLOUD_STRATEGY = new OllamaCloudProviderStrategy();
 
 export const PROVIDER_STRATEGIES: readonly ProviderStrategy[] = [
   new ImagesGenerationsPassthroughStrategy(),
@@ -46,11 +44,6 @@ export function selectRemoteProviderStrategyForRoute(
 
   if (normalizedProviderId === "rotussy" && context.responsesPassthrough === true && context.imagesPassthrough !== true) {
     return ROTUSSY_RESPONSES_VIA_CHAT_STRATEGY;
-  }
-
-  // ollama-cloud uses native /api/chat endpoint, not OpenAI-compatible /v1/chat/completions
-  if (normalizedProviderId === "ollama-cloud" && context.responsesPassthrough !== true && context.imagesPassthrough !== true) {
-    return OLLAMA_CLOUD_STRATEGY;
   }
 
   if (providerUsesOpenAiChatCompletions(providerId) && context.responsesPassthrough !== true && context.imagesPassthrough !== true) {

@@ -8,23 +8,17 @@ import type { IPromptAffinityStore } from "../../prompt-affinity-store.js";
 import type { ProviderRoutePheromoneStore } from "../../provider-route-pheromone-store.js";
 import type { RequestLogStore } from "../../request-log-store.js";
 import type { QuotaMonitor } from "../../quota-monitor.js";
-import {
-  buildUpstreamHeadersForCredential,
-  classifyRateLimitKind,
-  detectOllamaLimitKind,
-  extractRateLimitCooldownMs,
-  isRateLimitResponse,
-} from "../../proxy.js";
+import { buildUpstreamHeadersForCredential, detectOllamaLimitKind, extractRateLimitCooldownMs, isRateLimitResponse } from "../../proxy.js";
 import {
   responsesEventStreamToErrorPayload,
 } from "../../responses-compat.js";
 import type { ProviderRoute } from "../../provider-routing.js";
-import { fetchWithResponseTimeout } from "../../http/index.js";
 import {
+  fetchWithResponseTimeout,
   responseIndicatesQuotaError,
   summarizeUpstreamError,
   toErrorMessage,
-} from "../../errors/index.js";
+} from "../../provider-utils.js";
 import { getTelemetry } from "../../telemetry/otel.js";
 import { selectRemoteProviderStrategyForRoute } from "../registry.js";
 import {
@@ -524,23 +518,6 @@ export async function executeProviderRoutingPlan(
 
         if (isRateLimitResponse(upstreamResponse)) {
           accumulator.sawRateLimit = true;
-
-          let ollamaMultiplier = 1;
-          let ollamaLimitKind: ReturnType<typeof detectOllamaLimitKind> = "unknown";
-          let responseBody: Record<string, unknown> | undefined;
-          if (candidate.account.providerId === "ollama-cloud") {
-            try {
-              const cloned = upstreamResponse.clone();
-              responseBody = await cloned.json() as Record<string, unknown>;
-              ollamaLimitKind = detectOllamaLimitKind(responseBody);
-              if (ollamaLimitKind === "weekly") {
-                ollamaMultiplier = context.config.ollamaWeeklyCooldownMultiplier;
-              }
-            } catch {
-              // If we can't parse the body, fall back to no multiplier.
-            }
-          }
-
           let cooldownMs: number | undefined;
           if (quotaMonitor) {
             cooldownMs = quotaMonitor.getCooldownMs(candidate.account.accountId);
@@ -551,149 +528,7 @@ export async function executeProviderRoutingPlan(
           if (!cooldownMs) {
             cooldownMs = context.config.keyCooldownMs;
           }
-
-          cooldownMs = Math.round(cooldownMs * ollamaMultiplier);
-
-          // Parse the response body once for classification if not already done.
-          if (!responseBody) {
-            try {
-              responseBody = await upstreamResponse.clone().json() as Record<string, unknown>;
-            } catch {
-              responseBody = undefined;
-            }
-          }
-
-          const rateLimitKind = classifyRateLimitKind(
-            responseBody,
-            cooldownMs,
-            context.config.concurrencyThrottleThresholdMs,
-          );
-
-          if (rateLimitKind === "concurrency_throttle") {
-            // Concurrency throttle: wait for the indicated period, then retry
-            // the same credential instead of falling over to a different provider.
-            const maxRetries = context.config.concurrencyThrottleMaxRetries;
-            const waitMs = Math.min(cooldownMs, 10_000);
-            upstreamSpan.setAttribute("proxy.rate_limit_kind", "concurrency_throttle");
-            upstreamSpan.setAttribute("proxy.concurrency_retry_wait_ms", waitMs);
-
-            // Mark a short cooldown so the same account isn't selected by
-            // another concurrent request while we're waiting.
-            keyPool.markRateLimited(candidate.account, Math.min(cooldownMs, 15_000));
-
-            for (let concurrencyRetry = 0; concurrencyRetry < maxRetries; concurrencyRetry += 1) {
-              await sleep(waitMs);
-
-              // Clear the short cooldown so we can re-use this account.
-              if (keyPool.clearAccountCooldown) {
-                keyPool.clearAccountCooldown(candidate.account.providerId, candidate.account.accountId);
-              }
-
-              const retryUrl = joinUrl(providerContext.baseUrl, primaryUpstreamPath);
-              const retryHeaders = buildUpstreamHeadersForCredential(context.clientHeaders, candidate.account, {
-                useOpenAiCodexHeaderProfile: shouldUseOpenAiCodexHeaderProfile(
-                  candidate.providerId,
-                  candidate.account,
-                  context.config.openaiProviderId,
-                ),
-              });
-              candidateStrategy.applyRequestHeaders(retryHeaders, providerContext, candidatePayload.upstreamPayload);
-
-              let retryResponse: Response;
-              try {
-                retryResponse = await fetchWithResponseTimeout(retryUrl, {
-                  method: "POST",
-                  headers: retryHeaders,
-                  body: effectiveBody,
-                }, context.upstreamAttemptTimeoutMs);
-              } catch {
-                // Transport error on retry — fall through to normal fallback.
-                break;
-              }
-
-              if (!isRateLimitResponse(retryResponse)) {
-                // No longer rate-limited: handle the response normally.
-                const retryLatencyMs = Date.now() - attemptStartedAt;
-                const retryLogId = recordAttempt(requestLogStore, providerContext, {
-                  providerId: candidate.providerId,
-                  accountId: candidate.account.accountId,
-                  authType: candidate.account.authType,
-                  upstreamPath,
-                  status: retryResponse.status,
-                  latencyMs: retryLatencyMs,
-                  serviceTier: candidatePayload.serviceTier,
-                  serviceTierSource: candidatePayload.serviceTierSource,
-                  factoryDiagnostics: buildFactory4xxDiagnostics(candidatePayload.upstreamPayload, promptCacheKey),
-                }, candidateStrategy.mode);
-
-                const retryUsagePromise = updateUsageCountsFromResponse(
-                  requestLogStore,
-                  retryLogId,
-                  retryResponse,
-                  candidateStrategy.mode,
-                  context.routedModel,
-                  candidate.providerId,
-                  context.config,
-                  attemptStartedAt,
-                );
-
-                if (retryResponse.ok) {
-                  await retryUsagePromise;
-                  if (healthStore) {
-                    healthStore.recordSuccess(candidate.account, retryResponse.status);
-                  }
-                  if (candidate.account.providerId === "ollama-cloud" && keyPool.clearAccountCooldown) {
-                    keyPool.clearAccountCooldown(candidate.account.providerId, candidate.account.accountId);
-                  }
-                  await providerRoutePheromoneStore.noteSuccess(
-                    candidate.providerId,
-                    context.routedModel,
-                    clampRouteQuality(retryLatencyMs),
-                  );
-                  upstreamSpan.setStatus("ok");
-                  upstreamSpan.end();
-                  releaseInFlight();
-                  return { handled: true, candidateCount: candidates.length, summary: accumulator };
-                }
-
-                // Non-429 error on retry — accumulate and break to fallback loop.
-                accumulator.sawUpstreamServerError ||= retryResponse.status >= 500;
-                accumulator.sawUpstreamInvalidRequest ||= retryResponse.status >= 400 && retryResponse.status < 500;
-                try { await retryResponse.arrayBuffer(); } catch { /* ignore */ }
-                break;
-              }
-
-              // Still 429 on retry — re-classify and either wait again or give up.
-              let retryCooldownMs = await extractRateLimitCooldownMs(retryResponse);
-              if (!retryCooldownMs) {
-                retryCooldownMs = cooldownMs;
-              }
-              let retryBody: Record<string, unknown> | undefined;
-              try {
-                retryBody = await retryResponse.clone().json() as Record<string, unknown>;
-              } catch {
-                retryBody = undefined;
-              }
-              const retryKind = classifyRateLimitKind(retryBody, retryCooldownMs, context.config.concurrencyThrottleThresholdMs);
-              try { await retryResponse.arrayBuffer(); } catch { /* ignore */ }
-
-              if (retryKind !== "concurrency_throttle") {
-                // Escalated to quota exhaustion — stop retrying this credential.
-                keyPool.markRateLimited(candidate.account, Math.round(retryCooldownMs * ollamaMultiplier));
-                break;
-              }
-
-              // Still a concurrency throttle — mark short cooldown and loop again.
-              keyPool.markRateLimited(candidate.account, Math.min(retryCooldownMs, 15_000));
-            }
-
-            // All concurrency retries exhausted — mark normal cooldown and fall over.
-            keyPool.markRateLimited(candidate.account, cooldownMs);
-          } else {
-            // Quota exhaustion: mark rate-limited and fall over to next candidate.
-            keyPool.markRateLimited(candidate.account, cooldownMs);
-          }
-
+          keyPool.markRateLimited(candidate.account, cooldownMs);
           if (
             ollamaLimitKind === "session"
             && promptCacheKey
@@ -712,7 +547,7 @@ export async function executeProviderRoutingPlan(
           ) {
             preferredReassignmentAllowed = true;
           }
-          upstreamSpan.setStatus("error", rateLimitKind === "concurrency_throttle" ? "concurrency_throttle" : "rate_limited");
+          upstreamSpan.setStatus("error", "rate_limited");
           upstreamSpan.end();
           break;
         }

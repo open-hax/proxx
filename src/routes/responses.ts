@@ -1,27 +1,21 @@
 import type { FastifyInstance } from "fastify";
 
 import {
-  copyInjectedResponseHeaders,
-} from "../lib/request-utils.js";
-import {
   extractPromptCacheKey,
-  hashPromptCacheKey,
   summarizeResponsesRequestBody,
-} from "../lib/openai/index.js";
+  hashPromptCacheKey,
+} from "../lib/request-utils.js";
 import { isRecord } from "../lib/provider-utils.js";
 import {
   resolvableConcreteModelIds,
   resolvableConcreteModelIdsForProviders,
-} from "../lib/catalog-resolution.js";
-import {
-  filterProviderRoutesByCatalogAvailability,
   filterProviderRoutesByModelSupport,
   shouldRejectModelFromProviderCatalog,
-} from "../lib/policy/adapters/index.js";
+} from "../lib/model-routing-helpers.js";
 import {
   filterTenantProviderRoutes,
   resolveExplicitTenantProviderId,
-} from "../lib/policy/engine/index.js";
+} from "../lib/tenant-policy-helpers.js";
 import {
   buildResponsesPassthroughContext,
   executeProviderFallback,
@@ -35,8 +29,7 @@ import {
   type ProviderRoute,
 } from "../lib/provider-routing.js";
 import { orderProviderRoutesByPolicy } from "../lib/provider-policy.js";
-import { sendOpenAiError } from "../lib/provider-utils.js";
-import { toErrorMessage } from "../lib/errors/index.js";
+import { sendOpenAiError, toErrorMessage } from "../lib/provider-utils.js";
 import { isAutoModel, rankAutoModels } from "../lib/auto-model-selector.js";
 import { shouldUseResponsesUpstream } from "../lib/responses-compat.js";
 

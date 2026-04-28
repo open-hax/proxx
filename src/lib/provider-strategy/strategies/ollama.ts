@@ -6,8 +6,7 @@ import {
   ollamaToChatCompletion,
   streamOllamaNdjsonToChatCompletionSse,
 } from "../../ollama-compat.js";
-import { sendOpenAiError } from "../../provider-utils.js";
-import { toErrorMessage } from "../../errors/index.js";
+import { sendOpenAiError, toErrorMessage } from "../../provider-utils.js";
 import { BaseProviderStrategy } from "../base.js";
 import {
   buildPayloadResult,

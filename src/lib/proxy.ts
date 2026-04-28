@@ -145,20 +145,6 @@ export function isRateLimitResponse(response: Response): boolean {
   return response.status === 429;
 }
 
-/**
- * Distinguishes between two classes of rate limits:
- *
- * - `quota_exhausted`: The account has consumed its allocation (Ollama session/weekly
- *   limits, billing exhaustion, etc.). These should fall over to another account
- *   because the current one cannot serve requests until its quota resets.
- *
- * - `concurrency_throttle`: The provider is throttling because too many requests
- *   are in flight simultaneously (e.g., ZAI concurrent request limits). These
- *   should wait for the indicated retry-after period and retry the *same*
- *   credential rather than falling over to a potentially inferior provider.
- */
-export type RateLimitKind = "quota_exhausted" | "concurrency_throttle";
-
 export type OllamaLimitKind = "session" | "weekly" | "unknown";
 
 export function detectOllamaLimitKind(errorBody: unknown): OllamaLimitKind {
@@ -174,94 +160,6 @@ export function detectOllamaLimitKind(errorBody: unknown): OllamaLimitKind {
     return "session";
   }
   return "unknown";
-}
-
-/**
- * Concurrency-throttle keywords that indicate a short-lived request limit
- * rather than a quota exhaustion. Case-insensitive substring match.
- */
-const CONCURRENCY_INDICATORS: readonly string[] = [
-  "concurrent",
-  "concurrency",
-  "too many requests",
-  "request rate",
-  "requests per",
-  "rpm limit",
-  "tpm limit",
-  "capacity",
-  "temporarily limited",
-  "slow down",
-  "please wait",
-  "try again in",
-];
-
-/**
- * Classify a 429 rate-limit response as either quota exhaustion or a
- * concurrency throttle.
- *
- * Heuristics:
- * 1. Ollama session/weekly limits → quota_exhausted
- * 2. Response body contains concurrency indicators → concurrency_throttle
- * 3. Has a `retry-after` ≤ threshold (default 30s) and no quota keywords → concurrency_throttle
- * 4. Everything else → quota_exhausted (safe default: fall over to another account)
- */
-export function classifyRateLimitKind(
-  errorBody: unknown,
-  retryAfterMs: number | undefined,
-  concurrencyThresholdMs: number = 30_000,
-): RateLimitKind {
-  // Ollama session/weekly limits are always quota exhaustion.
-  const ollamaKind = detectOllamaLimitKind(errorBody);
-  if (ollamaKind === "session" || ollamaKind === "weekly") {
-    return "quota_exhausted";
-  }
-
-  const message = extractErrorMessage(errorBody);
-  if (message) {
-    const lowered = message.toLowerCase();
-
-    // Check for quota keywords FIRST - they're more specific indicators of exhaustion.
-    // A message like "Too many requests - quota exceeded" should be quota_exhausted,
-    // not concurrency_throttle, so we prioritize quota detection.
-    const quotaKeywords = [
-      "usage limit",
-      "quota",
-      "exhausted",
-      "insufficient",
-      "balance",
-      "credit",
-      "billing",
-      "payment",
-      "plan limit",
-      "monthly limit",
-      "daily limit",
-    ];
-    for (const keyword of quotaKeywords) {
-      if (lowered.includes(keyword)) {
-        return "quota_exhausted";
-      }
-    }
-
-    // Then check for concurrency indicators - these suggest transient throttling.
-    for (const indicator of CONCURRENCY_INDICATORS) {
-      if (lowered.includes(indicator)) {
-        return "concurrency_throttle";
-      }
-    }
-  }
-
-  // Short retry-after with no quota keywords → likely a concurrency throttle.
-  if (
-    typeof retryAfterMs === "number"
-    && Number.isFinite(retryAfterMs)
-    && retryAfterMs > 0
-    && retryAfterMs <= concurrencyThresholdMs
-  ) {
-    return "concurrency_throttle";
-  }
-
-  // Safe default: treat as quota exhaustion so we fall over.
-  return "quota_exhausted";
 }
 
 function extractErrorMessage(body: unknown): string | undefined {

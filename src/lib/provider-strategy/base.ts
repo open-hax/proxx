@@ -5,17 +5,15 @@ import type { FastifyReply } from "fastify";
 import { copyUpstreamHeaders } from "../proxy.js";
 import { chatCompletionToSse } from "../responses-compat.js";
 import {
-  streamPayloadHasReasoningTrace,
-  stripSseCommentLines,
-  streamPayloadHasSubstantiveChunks,
   chatCompletionHasReasoningContent,
-} from "../sse/index.js";
-import {
   responseIndicatesMissingModel,
   responseIndicatesModelNotSupportedForAccount,
+  stripSseCommentLines,
+  streamPayloadHasReasoningTrace,
+  streamPayloadHasSubstantiveChunks,
   streamPayloadIndicatesQuotaError,
   summarizeUpstreamError,
-} from "../errors/index.js";
+} from "../provider-utils.js";
 import {
   type BuildPayloadResult,
   isRecord,

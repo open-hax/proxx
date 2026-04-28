@@ -2,25 +2,8 @@ import type { ProxyConfig } from "./config.js";
 import type { KeyPool, ProviderCredential } from "./key-pool.js";
 import type { ProviderRoute, ResolvedModelCatalog } from "./provider-routing.js";
 import { parseModelIdsFromCatalogPayload, buildLargestModelAliases, dedupeModelIds } from "./provider-routing.js";
-import { fetchWithResponseTimeout } from "./http/index.js";
+import { fetchWithResponseTimeout } from "./provider-utils.js";
 import { loadDeclaredModels, loadModelPreferences, type ModelPreferences } from "./models.js";
-import { joinUrl } from "./http/index.js";
-
-const DEFAULT_CATALOG_ROUTE_TIMEOUT_MS = 15_000;
-
-function resolveCatalogRouteTimeoutMs(): number {
-  const raw = process.env.PROXY_PROVIDER_CATALOG_ROUTE_TIMEOUT_MS?.trim();
-  if (!raw) {
-    return DEFAULT_CATALOG_ROUTE_TIMEOUT_MS;
-  }
-
-  const parsed = Number.parseInt(raw, 10);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    return DEFAULT_CATALOG_ROUTE_TIMEOUT_MS;
-  }
-
-  return parsed;
-}
 
 export interface ProviderCatalogEntry {
   readonly providerId: string;

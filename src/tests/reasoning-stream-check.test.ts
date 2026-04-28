@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { streamPayloadHasReasoningTrace, chatCompletionHasReasoningContent } from "../lib/sse/index.js";
+import {
+  streamPayloadHasReasoningTrace,
+  chatCompletionHasReasoningContent,
+} from "../lib/provider-utils.js";
 
 test("streamPayloadHasReasoningTrace detects chat completions reasoning_content", () => {
   const payload = [
