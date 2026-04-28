@@ -1,16 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
+umask 077
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-RUNTIME_DIR="${FEDERATION_E2E_RUNTIME_DIR:-${ROOT_DIR}/.tmp/federation-e2e}"
+DEFAULT_RUNTIME_DIR="/tmp/proxx-federation-e2e-$(date +%s)-$$"
+RUNTIME_DIR="${FEDERATION_E2E_RUNTIME_DIR:-${DEFAULT_RUNTIME_DIR}}"
 COMPOSE_FILE="${ROOT_DIR}/docker-compose.federation-e2e.yml"
 COMPOSE_PROJECT="${FEDERATION_E2E_COMPOSE_PROJECT:-proxx-federation-e2e}"
 ADMIN_TOKEN="${FEDERATION_E2E_ADMIN_TOKEN:-federation-e2e-admin-token}"
 SESSION_SECRET="${FEDERATION_E2E_SESSION_SECRET:-federation-e2e-session-secret}"
 OWNER_DID="${FEDERATION_E2E_OWNER_DID:-did:web:cluster.federation.test}"
-SOURCE_DB_URL="${FEDERATION_E2E_GROUP_A_SOURCE_DATABASE_URL:-${DATABASE_URL:-}}"
+SOURCE_DB_URL="${FEDERATION_E2E_GROUP_A_SOURCE_DATABASE_URL:-}"
+GROUP_B_SOURCE_DB_URL="${FEDERATION_E2E_GROUP_B_SOURCE_DATABASE_URL:-}"
 KEEP_ENV="${FEDERATION_E2E_KEEP:-0}"
 NGINX_BASE_URL="http://127.0.0.1:18080"
+MOCK_OPENAI_ORIGIN="${FEDERATION_E2E_MOCK_OPENAI_ORIGIN:-http://127.0.0.1:19090}"
 PASS=0
 FAIL=0
 
@@ -44,10 +48,28 @@ cleanup() {
     return
   fi
 
+  ensure_safe_runtime_dir
   compose down -v --remove-orphans >/dev/null 2>&1 || true
+  rm -rf "${RUNTIME_DIR}"
 }
 
 trap cleanup EXIT
+
+ensure_safe_runtime_dir() {
+  if [[ -z "${RUNTIME_DIR}" || "${RUNTIME_DIR}" == "/" || "${RUNTIME_DIR}" == "${ROOT_DIR}" || "${RUNTIME_DIR}" == "/tmp" ]]; then
+    echo "Refusing to operate on unsafe RUNTIME_DIR='${RUNTIME_DIR}'" >&2
+    exit 1
+  fi
+
+  case "${RUNTIME_DIR}" in
+    /tmp/proxx-federation-e2e-*|"${ROOT_DIR}"/.tmp/federation-e2e*)
+      ;;
+    *)
+      echo "Refusing to operate on unexpected RUNTIME_DIR='${RUNTIME_DIR}'" >&2
+      exit 1
+      ;;
+  esac
+}
 
 write_empty_keys() {
   local path="$1"
@@ -68,8 +90,9 @@ copy_models_file() {
 }
 
 prepare_runtime() {
+  ensure_safe_runtime_dir
   rm -rf "${RUNTIME_DIR}"
-  mkdir -p "${RUNTIME_DIR}/db-a-init" "${RUNTIME_DIR}/db-b-init"
+  mkdir -p "${RUNTIME_DIR}/db-a-init" "${RUNTIME_DIR}/db-b-init" "${RUNTIME_DIR}/backups"
 
   for node in a1 a2 b1 b2; do
     mkdir -p "${RUNTIME_DIR}/${node}/data"
@@ -78,14 +101,21 @@ prepare_runtime() {
   done
 
   if [[ -n "${SOURCE_DB_URL}" ]] && command -v pg_dump >/dev/null 2>&1; then
-    info "Dumping source database into Group A init SQL"
-    pg_dump --no-owner --no-privileges --clean --if-exists "${SOURCE_DB_URL}" > "${RUNTIME_DIR}/db-a-init/001-source.sql"
+    info "Backing up and seeding Group A from source database"
+    pg_dump --no-owner --no-privileges --clean --if-exists "${SOURCE_DB_URL}" > "${RUNTIME_DIR}/backups/group-a-source.sql"
+    cp "${RUNTIME_DIR}/backups/group-a-source.sql" "${RUNTIME_DIR}/db-a-init/001-source.sql"
   else
     info "No source database dump available for Group A; using empty init"
     printf -- '-- no source db bootstrap\n' > "${RUNTIME_DIR}/db-a-init/000-empty.sql"
   fi
 
-  printf -- '-- fresh Group B database\n' > "${RUNTIME_DIR}/db-b-init/000-empty.sql"
+  if [[ -n "${GROUP_B_SOURCE_DB_URL}" ]] && command -v pg_dump >/dev/null 2>&1; then
+    info "Backing up and seeding Group B from source database"
+    pg_dump --no-owner --no-privileges --clean --if-exists "${GROUP_B_SOURCE_DB_URL}" > "${RUNTIME_DIR}/backups/group-b-source.sql"
+    cp "${RUNTIME_DIR}/backups/group-b-source.sql" "${RUNTIME_DIR}/db-b-init/001-source.sql"
+  else
+    printf -- '-- fresh Group B database\n' > "${RUNTIME_DIR}/db-b-init/000-empty.sql"
+  fi
 }
 
 api_json_host() {
@@ -227,6 +257,175 @@ print(len(set(values)))
 '
 }
 
+local_account_pairs_for_provider() {
+  local provider_id="$1"
+  python3 -c '
+import json, sys
+provider_id = sys.argv[1]
+payload = json.load(sys.stdin)
+for acct in payload.get("localAccounts", []):
+    if acct.get("providerId") == provider_id:
+        print("{}\t{}\t{}".format(acct.get("providerId", ""), acct.get("accountId", ""), acct.get("chatgptAccountId", "")))
+' "$provider_id"
+}
+
+local_account_count_for_provider() {
+  local provider_id="$1"
+  python3 -c '
+import json, sys
+provider_id = sys.argv[1]
+payload = json.load(sys.stdin)
+print(sum(1 for acct in payload.get("localAccounts", []) if acct.get("providerId") == provider_id))
+' "$provider_id"
+}
+
+has_local_chatgpt_account_id() {
+  local chatgpt_account_id="$1"
+  python3 -c '
+import json, sys
+target = sys.argv[1]
+payload = json.load(sys.stdin)
+print(any(acct.get("chatgptAccountId") == target for acct in payload.get("localAccounts", [])))
+' "$chatgpt_account_id"
+}
+
+host_slug() {
+  python3 -c 'import re, sys; print(re.sub(r"[^a-z0-9]+", "-", sys.argv[1].lower()).strip("-") or "unknown")' "$1"
+}
+
+rewrite_mock_authorize_url() {
+  python3 -c '
+from urllib.parse import urlsplit, urlunsplit
+import sys
+target_origin, authorize_url = sys.argv[1:3]
+origin = urlsplit(target_origin)
+url = urlsplit(authorize_url)
+print(urlunsplit((origin.scheme, origin.netloc, url.path, url.query, url.fragment)))
+' "$MOCK_OPENAI_ORIGIN" "$1"
+}
+
+redirect_location() {
+  curl -fsS --max-time 30 -D - -o /dev/null "$1" | tr -d '\r' | awk 'BEGIN{IGNORECASE=1} /^location: /{print substr($0, 11)}' | tail -1
+}
+
+callback_path_from_url() {
+  python3 -c '
+from urllib.parse import urlsplit
+import sys
+url = urlsplit(sys.argv[1])
+print(url.path + (("?" + url.query) if url.query else ""))
+' "$1"
+}
+
+callback_host_from_url() {
+  python3 -c 'from urllib.parse import urlsplit; import sys; print(urlsplit(sys.argv[1]).hostname or "")' "$1"
+}
+
+host_request() {
+  local host="$1"
+  local method="$2"
+  local path="$3"
+  local body="${4:-}"
+  local with_auth="${5:-1}"
+  local args=(
+    -fsS --max-time 30
+    -H "Host: ${host}"
+    -X "${method}"
+  )
+  if [[ "$with_auth" == "1" ]]; then
+    args+=( -H "Authorization: Bearer ${ADMIN_TOKEN}" )
+  fi
+  if [[ -n "$body" ]]; then
+    args+=( -H "Content-Type: application/json" -d "$body" )
+  fi
+  curl "${args[@]}" "${NGINX_BASE_URL}${path}"
+}
+
+capture_proxy_request() {
+  local host="$1"
+  local path="$2"
+  local body="$3"
+  local header_file="$4"
+  local body_file="$5"
+  curl -fsS --max-time 30 \
+    -D "$header_file" \
+    -o "$body_file" \
+    -H "Host: ${host}" \
+    -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+    -H "X-Open-Hax-Federation-Owner-Subject: ${OWNER_DID}" \
+    -H "Content-Type: application/json" \
+    -X POST \
+    -d "$body" \
+    "${NGINX_BASE_URL}${path}"
+}
+
+response_header_value() {
+  local header_file="$1"
+  local header_name="$2"
+  python3 -c '
+import sys
+target = sys.argv[2].lower()
+value = ""
+with open(sys.argv[1], "r", encoding="utf-8") as handle:
+    for line in handle:
+        if ":" not in line:
+            continue
+        name, raw = line.split(":", 1)
+        if name.strip().lower() == target:
+            value = raw.strip()
+print(value)
+' "$header_file" "$header_name"
+}
+
+complete_browser_oauth_for_host() {
+  local host="$1"
+  local slug
+  slug=$(host_slug "$host")
+  local expected_chatgpt_account_id="chatgpt-${slug}"
+  local start_json
+  start_json=$(api_json_host "$host" POST "/api/ui/credentials/openai/oauth/browser/start" '{}')
+  local redirect_uri authorize_url rewritten_authorize_url callback_location callback_host callback_path callback_html
+  redirect_uri=$(printf '%s' "$start_json" | json_value 'redirectUri')
+  authorize_url=$(printf '%s' "$start_json" | json_value 'authorizeUrl')
+
+  if [[ "$redirect_uri" == "http://${host}/auth/callback" || "$redirect_uri" == "https://${host}/auth/callback" ]]; then
+    pass "${host} browser OAuth redirectUri stays on host-routed callback"
+  else
+    fail "${host} browser OAuth redirectUri" "unexpected redirectUri ${redirect_uri}"
+    return 1
+  fi
+
+  rewritten_authorize_url=$(rewrite_mock_authorize_url "$authorize_url")
+  callback_location=$(redirect_location "$rewritten_authorize_url")
+  callback_host=$(callback_host_from_url "$callback_location")
+  callback_path=$(callback_path_from_url "$callback_location")
+
+  if [[ "$callback_host" == "$host" ]]; then
+    pass "${host} browser OAuth authorize step targets node callback host"
+  else
+    fail "${host} browser OAuth authorize step" "callback host ${callback_host}"
+    return 1
+  fi
+
+  callback_html=$(host_request "$host" GET "$callback_path" '' 0)
+  if printf '%s' "$callback_html" | grep -q 'Saved OpenAI OAuth account'; then
+    pass "${host} browser OAuth callback saved account"
+  else
+    fail "${host} browser OAuth callback" "success page missing"
+    return 1
+  fi
+
+  local accounts_json has_account_id
+  accounts_json=$(api_json_host "$host" GET "/api/ui/federation/accounts?ownerSubject=${OWNER_DID}")
+  has_account_id=$(printf '%s' "$accounts_json" | has_local_chatgpt_account_id "$expected_chatgpt_account_id")
+  if [[ "$has_account_id" == "True" || "$has_account_id" == "true" ]]; then
+    pass "${host} local store contains OAuth account ${expected_chatgpt_account_id}"
+  else
+    fail "${host} local OAuth account presence" "missing ${expected_chatgpt_account_id}"
+    return 1
+  fi
+}
+
 bold "=== Federation E2E cluster harness ==="
 prepare_runtime
 compose down -v --remove-orphans >/dev/null 2>&1 || true
@@ -246,10 +445,26 @@ A2_SELF=$(api_json_host "$NODE_HOST_a2" GET "/api/ui/federation/self")
 B1_SELF=$(api_json_host "$NODE_HOST_b1" GET "/api/ui/federation/self")
 B2_SELF=$(api_json_host "$NODE_HOST_b2" GET "/api/ui/federation/self")
 
-[[ "$(printf '%s' "$A1_SELF" | json_value 'nodeId')" == "a1" ]] && pass "a1 node subdomain routes to a1" || fail "a1 node subdomain" "wrong node"
-[[ "$(printf '%s' "$A2_SELF" | json_value 'nodeId')" == "a2" ]] && pass "a2 node subdomain routes to a2" || fail "a2 node subdomain" "wrong node"
-[[ "$(printf '%s' "$B1_SELF" | json_value 'nodeId')" == "b1" ]] && pass "b1 node subdomain routes to b1" || fail "b1 node subdomain" "wrong node"
-[[ "$(printf '%s' "$B2_SELF" | json_value 'nodeId')" == "b2" ]] && pass "b2 node subdomain routes to b2" || fail "b2 node subdomain" "wrong node"
+if [[ "$(printf '%s' "$A1_SELF" | json_value 'nodeId')" == "a1" ]]; then
+  pass "a1 node subdomain routes to a1"
+else
+  fail "a1 node subdomain" "wrong node"
+fi
+if [[ "$(printf '%s' "$A2_SELF" | json_value 'nodeId')" == "a2" ]]; then
+  pass "a2 node subdomain routes to a2"
+else
+  fail "a2 node subdomain" "wrong node"
+fi
+if [[ "$(printf '%s' "$B1_SELF" | json_value 'nodeId')" == "b1" ]]; then
+  pass "b1 node subdomain routes to b1"
+else
+  fail "b1 node subdomain" "wrong node"
+fi
+if [[ "$(printf '%s' "$B2_SELF" | json_value 'nodeId')" == "b2" ]]; then
+  pass "b2 node subdomain routes to b2"
+else
+  fail "b2 node subdomain" "wrong node"
+fi
 
 GROUP_A_IDS=$(for _ in 1 2 3 4 5 6; do api_json_host "$GROUP_HOST_a" GET "/api/ui/federation/self" | json_value 'nodeId'; done)
 GROUP_B_IDS=$(for _ in 1 2 3 4 5 6; do api_json_host "$GROUP_HOST_b" GET "/api/ui/federation/self" | json_value 'nodeId'; done)
@@ -274,7 +489,12 @@ else
   fail "cluster routing hits multiple nodes" "observed only ${CLUSTER_UNIQUE} unique nodes"
 fi
 
-bold "── 2. peer registration over API ──"
+bold "── 2. browser OAuth works on all four nodes ──"
+for host in "$NODE_HOST_a1" "$NODE_HOST_a2" "$NODE_HOST_b1" "$NODE_HOST_b2"; do
+  complete_browser_oauth_for_host "$host"
+done
+
+bold "── 3. peer registration over API ──"
 for peer in a2 b1 b2; do register_peer "$NODE_HOST_a1" "$peer" "${peer}.federation.test" "$( [[ "$peer" =~ ^a ]] && echo group-a || echo group-b )"; done
 for peer in a1 a2 b2; do register_peer "$NODE_HOST_b1" "$peer" "${peer}.federation.test" "$( [[ "$peer" =~ ^a ]] && echo group-a || echo group-b )"; done
 
@@ -288,23 +508,16 @@ for host in "$NODE_HOST_a1" "$NODE_HOST_a2" "$NODE_HOST_b1" "$NODE_HOST_b2"; do
   fi
 done
 
-bold "── 3. group A local credential baseline ──"
+bold "── 4. mixed local account baseline for reroute scenario ──"
 A1_ACCOUNTS=$(api_json_host "$NODE_HOST_a1" GET "/api/ui/federation/accounts?ownerSubject=${OWNER_DID}")
-A1_LOCAL_COUNT=$(printf '%s' "$A1_ACCOUNTS" | json_len 'localAccounts')
-if [[ "$A1_LOCAL_COUNT" -eq 0 ]]; then
-  info "No inherited local account on Group A; creating deterministic seed account on a1"
-  api_json_host "$NODE_HOST_a1" POST "/api/ui/credentials/api-key" '{"providerId":"openai","accountId":"federation-seed-openai","credentialValue":"federation-seed-openai-token"}' >/dev/null
-  A1_ACCOUNTS=$(api_json_host "$NODE_HOST_a1" GET "/api/ui/federation/accounts?ownerSubject=${OWNER_DID}")
-  A1_LOCAL_COUNT=$(printf '%s' "$A1_ACCOUNTS" | json_len 'localAccounts')
-fi
-
-if [[ "$A1_LOCAL_COUNT" -gt 0 ]]; then
-  pass "group A has at least one local credential"
+A1_OPENAI_LOCAL_COUNT=$(printf '%s' "$A1_ACCOUNTS" | local_account_count_for_provider "openai")
+if [[ "$A1_OPENAI_LOCAL_COUNT" -ge 1 ]]; then
+  pass "group A has OpenAI OAuth credentials after browser auth"
 else
-  fail "group A local credential baseline" "no local accounts available"
+  fail "group A OpenAI OAuth baseline" "openai local account count=${A1_OPENAI_LOCAL_COUNT}"
 fi
 
-IFS=$'\t' read -r FED_PROVIDER_ID FED_ACCOUNT_ID FED_ACCOUNT_LABEL <<< "$(printf '%s' "$A1_ACCOUNTS" | first_local_account_triplet)"
+IFS=$'\t' read -r FED_PROVIDER_ID FED_ACCOUNT_ID _ <<< "$(printf '%s' "$A1_ACCOUNTS" | local_account_pairs_for_provider "openai" | head -1)"
 if [[ -z "${FED_PROVIDER_ID}" || -z "${FED_ACCOUNT_ID}" ]]; then
   fail "select federation account" "missing provider/account id"
   exit 1
@@ -314,12 +527,44 @@ pass "selected federation account ${FED_PROVIDER_ID}/${FED_ACCOUNT_ID}"
 A2_ACCOUNTS=$(api_json_host "$NODE_HOST_a2" GET "/api/ui/federation/accounts?ownerSubject=${OWNER_DID}")
 A2_ACCOUNT_STATE=$(printf '%s' "$A2_ACCOUNTS" | known_account_state "$FED_PROVIDER_ID" "$FED_ACCOUNT_ID")
 if [[ -n "$A2_ACCOUNT_STATE" ]]; then
-  pass "group A shared DB projects local account to sibling node"
+  pass "group A shared DB exposes selected OAuth account on sibling node"
 else
   fail "group A shared DB" "a2 does not see selected account"
 fi
 
-bold "── 4. projected descriptor sync into group B ──"
+B1_ACCOUNTS=$(api_json_host "$NODE_HOST_b1" GET "/api/ui/federation/accounts?ownerSubject=${OWNER_DID}")
+B1_OPENAI_LOCAL_COUNT=$(printf '%s' "$B1_ACCOUNTS" | local_account_count_for_provider "openai")
+if [[ "$B1_OPENAI_LOCAL_COUNT" -ge 1 ]]; then
+  pass "group B also completed browser OAuth before reroute reseed"
+else
+  fail "group B browser OAuth baseline" "openai local account count=${B1_OPENAI_LOCAL_COUNT}"
+fi
+
+while IFS=$'\t' read -r provider_id account_id _chatgpt_account_id; do
+  [[ -n "$provider_id" && -n "$account_id" ]] || continue
+  api_json_host "$NODE_HOST_b1" DELETE "/api/ui/credentials/account" "$(python3 - <<'PY' "$provider_id" "$account_id"
+import json, sys
+print(json.dumps({"providerId": sys.argv[1], "accountId": sys.argv[2]}))
+PY
+)" >/dev/null
+done <<< "$(printf '%s' "$B1_ACCOUNTS" | local_account_pairs_for_provider "openai")"
+
+B1_ACCOUNTS=$(api_json_host "$NODE_HOST_b1" GET "/api/ui/federation/accounts?ownerSubject=${OWNER_DID}")
+B2_ACCOUNTS=$(api_json_host "$NODE_HOST_b2" GET "/api/ui/federation/accounts?ownerSubject=${OWNER_DID}")
+B1_OPENAI_AFTER_RESET=$(printf '%s' "$B1_ACCOUNTS" | local_account_count_for_provider "openai")
+B2_OPENAI_AFTER_RESET=$(printf '%s' "$B2_ACCOUNTS" | local_account_count_for_provider "openai")
+if [[ "$B1_OPENAI_AFTER_RESET" -eq 0 ]]; then
+  pass "group B reseed removed local OpenAI accounts from b1"
+else
+  fail "group B reseed removed local OpenAI accounts from b1" "count=${B1_OPENAI_AFTER_RESET}"
+fi
+if [[ "$B2_OPENAI_AFTER_RESET" -eq 0 ]]; then
+  pass "group B shared DB reset removed local OpenAI accounts from b2"
+else
+  fail "group B shared DB reset removed local OpenAI accounts from b2" "count=${B2_OPENAI_AFTER_RESET}"
+fi
+
+bold "── 5. projected descriptor sync into group B ──"
 SYNC_RESULT=$(api_json_host "$NODE_HOST_b1" POST "/api/ui/federation/sync/pull" "$(python3 - <<'PY' "$OWNER_DID"
 import json, sys
 print(json.dumps({"peerId": "a1", "ownerSubject": sys.argv[1], "pullUsage": False}))
@@ -347,25 +592,44 @@ for host in "$NODE_HOST_b1" "$NODE_HOST_b2"; do
   fi
 done
 
-bold "── 5. warm routing triggers full transfer ──"
-ROUTED_RESULT=''
+bold "── 6. actual request reroute and warm import ──"
+REROUTE_BODY='{"model":"gpt-5.3-codex","messages":[{"role":"user","content":"route this through federation"}],"stream":false}'
 for attempt in 1 2 3; do
-  ROUTED_RESULT=$(api_json_host "$NODE_HOST_b1" POST "/api/ui/federation/projected-accounts/routed" "$(python3 - <<'PY' "$FED_PROVIDER_ID" "$FED_ACCOUNT_ID"
-import json, sys
-provider_id, account_id = sys.argv[1:3]
-print(json.dumps({
-  "sourcePeerId": "a1",
-  "providerId": provider_id,
-  "accountId": account_id,
-}))
-PY
-)")
+  HEADER_FILE="${RUNTIME_DIR}/reroute-${attempt}.headers"
+  BODY_FILE="${RUNTIME_DIR}/reroute-${attempt}.json"
+  capture_proxy_request "$NODE_HOST_b1" "/v1/chat/completions" "$REROUTE_BODY" "$HEADER_FILE" "$BODY_FILE"
+  ROUTED_PEER=$(response_header_value "$HEADER_FILE" "x-open-hax-federation-routed-peer")
+  ROUTED_PROVIDER=$(response_header_value "$HEADER_FILE" "x-open-hax-federation-routed-provider")
+  ROUTED_ACCOUNT=$(response_header_value "$HEADER_FILE" "x-open-hax-federation-routed-account")
+  IMPORTED_FLAG=$(response_header_value "$HEADER_FILE" "x-open-hax-federation-imported")
+  RESPONSE_TEXT=$(python3 -c 'import json, sys; payload=json.load(open(sys.argv[1], "r", encoding="utf-8")); print(payload["choices"][0]["message"].get("content", ""))' "$BODY_FILE")
+
+  if [[ "$ROUTED_PEER" == "a1" ]]; then
+    pass "rerouted request ${attempt} traversed peer a1"
+  else
+    fail "rerouted request ${attempt}" "expected routed peer a1, got ${ROUTED_PEER}"
+  fi
+  if [[ "$ROUTED_PROVIDER" == "$FED_PROVIDER_ID" ]]; then
+    pass "rerouted request ${attempt} preserved provider ${FED_PROVIDER_ID}"
+  else
+    fail "rerouted request ${attempt} provider" "expected ${FED_PROVIDER_ID}, got ${ROUTED_PROVIDER}"
+  fi
+  if [[ "$ROUTED_ACCOUNT" == "$FED_ACCOUNT_ID" ]]; then
+    pass "rerouted request ${attempt} pinned projected account ${FED_ACCOUNT_ID}"
+  else
+    fail "rerouted request ${attempt} account" "expected ${FED_ACCOUNT_ID}, got ${ROUTED_ACCOUNT}"
+  fi
+  if [[ "$RESPONSE_TEXT" == *"mock federated response"* ]]; then
+    pass "rerouted request ${attempt} returned upstream payload"
+  else
+    fail "rerouted request ${attempt} body" "unexpected response payload"
+  fi
 done
-IMPORTED_CREDENTIAL=$(printf '%s' "$ROUTED_RESULT" | json_value 'importedCredential')
-if [[ "$IMPORTED_CREDENTIAL" == "True" || "$IMPORTED_CREDENTIAL" == "true" ]]; then
-  pass "warm routed projected account auto-imported credential"
+
+if [[ "$IMPORTED_FLAG" == "true" || "$IMPORTED_FLAG" == "True" ]]; then
+  pass "third rerouted request triggered warm import"
 else
-  fail "warm routed projected account auto-imported credential" "import flag=${IMPORTED_CREDENTIAL}"
+  fail "third rerouted request triggered warm import" "import flag=${IMPORTED_FLAG}"
 fi
 
 for host in "$NODE_HOST_b1" "$NODE_HOST_b2"; do
@@ -377,13 +641,23 @@ for host in "$NODE_HOST_b1" "$NODE_HOST_b2"; do
   fi
   HAS_CREDENTIALS=$(printf '%s' "$STATE_JSON" | json_value 'hasCredentials')
   if [[ "$HAS_CREDENTIALS" == "True" || "$HAS_CREDENTIALS" == "true" ]]; then
-    pass "${host} has imported credential after warm transfer"
+    pass "${host} has imported credential after repeated routed requests"
   else
-    fail "${host} imported credential after warm transfer" "still descriptor-only"
+    fail "${host} imported credential after repeated routed requests" "still descriptor-only"
   fi
 done
 
-bold "── 6. usage propagation across groups ──"
+POST_IMPORT_HEADERS="${RUNTIME_DIR}/reroute-post-import.headers"
+POST_IMPORT_BODY="${RUNTIME_DIR}/reroute-post-import.json"
+capture_proxy_request "$NODE_HOST_b1" "/v1/chat/completions" "$REROUTE_BODY" "$POST_IMPORT_HEADERS" "$POST_IMPORT_BODY"
+POST_IMPORT_ROUTED_PEER=$(response_header_value "$POST_IMPORT_HEADERS" "x-open-hax-federation-routed-peer")
+if [[ -z "$POST_IMPORT_ROUTED_PEER" ]]; then
+  pass "post-import request serves locally without an extra federation hop"
+else
+  fail "post-import request serves locally" "still routed via ${POST_IMPORT_ROUTED_PEER}"
+fi
+
+bold "── 7. usage propagation across groups ──"
 USAGE_EXPORT=$(api_json_host "$NODE_HOST_a1" GET "/api/ui/federation/usage-export?sinceMs=0&limit=5")
 USAGE_COUNT=$(printf '%s' "$USAGE_EXPORT" | json_len 'entries')
 SYNTHETIC_USAGE_ID="federation-usage-$(date +%s)"
