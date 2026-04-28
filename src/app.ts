@@ -78,7 +78,7 @@ import {
 } from "./lib/provider-utils.js";
 import { getTelemetry } from "./lib/telemetry/otel.js";
 import { RequestLogStore } from "./lib/request-log-store.js";
-import { SqlPromptAffinityStore } from "./lib/db/sql-prompt-affinity-store.js";
+import { PromptAffinityStore } from "./lib/prompt-affinity-store.js";
 import { ProviderRoutePheromoneStore } from "./lib/provider-route-pheromone-store.js";
 import { ProxySettingsStore } from "./lib/proxy-settings-store.js";
 import { QuotaMonitor } from "./lib/quota-monitor.js";
@@ -328,8 +328,11 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
   );
   await requestLogStore.warmup();
   const requestLogSseHub = new RequestLogSseHub(requestLogStore);
-  const promptAffinityStore = new SqlPromptAffinityStore(sql);
-  await promptAffinityStore.init();
+  const promptAffinityStore = new PromptAffinityStore(
+    config.promptAffinityFilePath,
+    config.promptAffinityFlushMs,
+  );
+  await promptAffinityStore.warmup();
   const providerRoutePheromoneStore = new ProviderRoutePheromoneStore(
     join(dirname(config.requestLogsFilePath), "provider-route-pheromones.json"),
     config.promptAffinityFlushMs,

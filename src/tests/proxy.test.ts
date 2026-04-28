@@ -189,7 +189,6 @@ async function withProxyApp(
     ollamaWeeklyCooldownMultiplier: 24,
     requestTimeoutMs: 2000,
     streamBootstrapTimeoutMs: 2000,
-    embedMaxContextTokens: 262144,
     upstreamTransientRetryCount: 2,
     upstreamTransientRetryBackoffMs: 1,
     proxyAuthToken: options.proxyAuthToken,
@@ -9470,8 +9469,7 @@ test("fails over stream accounts when the first upstream stream handshake times 
       keys: ["key-slow", "key-fast"],
       configOverrides: {
         requestTimeoutMs: 1000,
-        streamBootstrapTimeoutMs: 50,
-        embedMaxContextTokens: 262144,
+        streamBootstrapTimeoutMs: 50
       },
       upstreamHandler: async (request) => {
         const auth = request.headers.authorization;
@@ -9523,193 +9521,6 @@ test("fails over stream accounts when the first upstream stream handshake times 
       assert.equal(response.statusCode, 200);
       assert.ok(response.body.includes("stream-timeout-fallback-ok"));
       assert.deepEqual(observedKeys, ["key-slow", "key-fast"]);
-    }
-  );
-});
-
-test("fails over stream accounts when the first upstream stream sends headers but never boots", async () => {
-  const observedKeys: string[] = [];
-
-  await withProxyApp(
-    {
-      keys: ["key-stalled", "key-fast"],
-      configOverrides: {
-        requestTimeoutMs: 1000,
-        streamBootstrapTimeoutMs: 50,
-        embedMaxContextTokens: 262144,
-      },
-      upstreamHandler: async (request) => {
-        const auth = request.headers.authorization;
-        if (typeof auth === "string") {
-          observedKeys.push(auth.replace(/^Bearer\s+/i, ""));
-        }
-
-        if (auth === "Bearer key-stalled") {
-          return {
-            status: 200,
-            headers: {
-              "content-type": "text/event-stream"
-            },
-            streamBody: async (response) => {
-              response.flushHeaders();
-              await new Promise((resolve) => {
-                setTimeout(resolve, 200);
-              });
-              response.write(
-                "data: {\"id\":\"chatcmpl_stream_stalled\",\"object\":\"chat.completion.chunk\",\"created\":1772516802,\"model\":\"glm-5\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"too-late\"},\"finish_reason\":null}]}\n\n"
-              );
-              response.write("data: [DONE]\n\n");
-              response.end();
-            },
-          };
-        }
-
-        return {
-          status: 200,
-          headers: {
-            "content-type": "text/event-stream"
-          },
-          body:
-            "data: {\"id\":\"chatcmpl_stream_bootstrap_fallback\",\"object\":\"chat.completion.chunk\",\"created\":1772516802,\"model\":\"glm-5\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"stream-bootstrap-fallback-ok\"},\"finish_reason\":null}]}\n\n" +
-            "data: {\"id\":\"chatcmpl_stream_bootstrap_fallback\",\"object\":\"chat.completion.chunk\",\"created\":1772516802,\"model\":\"glm-5\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n" +
-            "data: [DONE]\n\n"
-        };
-      }
-    },
-    async ({ app }) => {
-      const response = await app.inject({
-        method: "POST",
-        url: "/v1/chat/completions",
-        headers: {
-          "content-type": "application/json"
-        },
-        payload: {
-          model: "glm-5",
-          messages: [{ role: "user", content: "hello" }],
-          stream: true
-        }
-      });
-
-      assert.equal(response.statusCode, 200);
-      assert.ok(response.body.includes("stream-bootstrap-fallback-ok"));
-      assert.deepEqual(observedKeys, ["key-stalled", "key-fast"]);
-    }
-  );
-});
-
-test("returns 502 when the final upstream stream has no substantive chunks", async () => {
-  await withProxyApp(
-    {
-      keys: ["key-empty"],
-      upstreamHandler: async () => ({
-        status: 200,
-        headers: {
-          "content-type": "text/event-stream"
-        },
-        body: "data: [DONE]\n\n"
-      })
-    },
-    async ({ app }) => {
-      const response = await app.inject({
-        method: "POST",
-        url: "/v1/chat/completions",
-        headers: {
-          "content-type": "application/json"
-        },
-        payload: {
-          model: "glm-5",
-          messages: [{ role: "user", content: "hello" }],
-          stream: true
-        }
-      });
-
-      assert.equal(response.statusCode, 502);
-      const payload: unknown = response.json();
-      assert.ok(isRecord(payload));
-      assert.ok(isRecord(payload.error));
-      assert.equal(payload.error.code, "upstream_unavailable");
-    }
-  );
-});
-
-test("starts hosted upstream streams after the first substantive chunk instead of buffering the full body", async () => {
-  let upstreamCompleted = false;
-
-  await withProxyApp(
-    {
-      keys: ["key-a"],
-      upstreamHandler: async () => ({
-        status: 200,
-        headers: {
-          "content-type": "text/event-stream"
-        },
-        streamBody: async (response) => {
-          response.flushHeaders();
-          response.write(
-            "data: {\"id\":\"chatcmpl_stream_early\",\"object\":\"chat.completion.chunk\",\"created\":1772516802,\"model\":\"glm-5\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"early-hosted-stream\"},\"finish_reason\":null}]}\n\n"
-          );
-          await new Promise((resolve) => {
-            setTimeout(resolve, 250);
-          });
-          response.write(
-            "data: {\"id\":\"chatcmpl_stream_early\",\"object\":\"chat.completion.chunk\",\"created\":1772516802,\"model\":\"glm-5\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n"
-          );
-          response.write("data: [DONE]\n\n");
-          upstreamCompleted = true;
-          response.end();
-        },
-      })
-    },
-    async ({ app }) => {
-      await app.listen({ host: "127.0.0.1", port: 0 });
-      const address = app.server.address();
-      if (!address || typeof address === "string") {
-        throw new Error("Failed to resolve app address");
-      }
-
-      const response = await Promise.race([
-        fetch(`http://127.0.0.1:${address.port}/v1/chat/completions`, {
-          method: "POST",
-          headers: {
-            "content-type": "application/json"
-          },
-          body: JSON.stringify({
-            model: "glm-5",
-            messages: [{ role: "user", content: "hello" }],
-            stream: true
-          })
-        }),
-        new Promise<never>((_, reject) => {
-          setTimeout(() => {
-            reject(new Error("timed out waiting for streamed response headers"));
-          }, 100);
-        })
-      ]);
-
-      assert.equal(response.status, 200);
-      assert.equal(response.headers.get("content-type"), "text/event-stream; charset=utf-8");
-      assert.ok(response.body);
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-
-      try {
-        while (!buffer.includes("\n\n")) {
-          const { done, value } = await reader.read();
-          assert.equal(done, false);
-          buffer += decoder.decode(value, { stream: true });
-        }
-      } finally {
-        await reader.cancel();
-      }
-
-      assert.equal(upstreamCompleted, false);
-      const firstEvent = parseSseDataPayloads(buffer)[0];
-      assert.ok(firstEvent);
-      const firstChunk = JSON.parse(firstEvent);
-      assert.equal(firstChunk.object, "chat.completion.chunk");
-      assert.equal(firstChunk.choices[0].delta.content, "early-hosted-stream");
     }
   );
 });

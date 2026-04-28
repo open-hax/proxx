@@ -6,46 +6,6 @@ import type { ResolvedCatalogWithPreferences } from "./provider-catalog.js";
 interface ResolvedModelCatalog {
   readonly modelIds: readonly string[];
   readonly aliasTargets: Readonly<Record<string, string>>;
-  readonly dynamicOllamaModelIds: readonly string[];
-}
-
-function normalizeModelId(modelId: string): string {
-  return modelId.trim().toLowerCase();
-}
-
-function providerCatalogEntrySupportsModel(
-  providerId: string,
-  modelId: string,
-  entry: ResolvedCatalogWithPreferences["providerCatalogs"][string] | undefined,
-): boolean {
-  if (!entry) {
-    return false;
-  }
-
-  const normalizedModelId = normalizeModelId(modelId);
-  if (entry.modelIds.some((candidateModelId) => normalizeModelId(candidateModelId) === normalizedModelId)) {
-    return true;
-  }
-
-  // Provider catalogs (rotussy, ollama-cloud) can lag newly released GLM IDs.
-  // If a provider already advertises the GLM family, keep it eligible for new glm-* models.
-  if (
-    isGlmModel(modelId)
-    && entry.modelIds.some((candidateModelId) => isGlmModel(candidateModelId))
-  ) {
-    return true;
-  }
-
-  return false;
-}
-
-export function catalogHasDynamicOllamaModel(
-  catalog: Pick<ResolvedModelCatalog, "dynamicOllamaModelIds"> | null | undefined,
-  modelId: string,
-): boolean {
-  const normalizedModelId = normalizeModelId(modelId);
-  return normalizedModelId.length > 0
-    && (catalog?.dynamicOllamaModelIds ?? []).some((candidateModelId) => normalizeModelId(candidateModelId) === normalizedModelId);
 }
 
 export function resolvableConcreteModelIds(catalog: ResolvedModelCatalog | null): string[] | undefined {
@@ -124,32 +84,6 @@ export function filterProviderRoutesByModelSupport(
   modelId: string,
 ): ProviderRoute[] {
   return routes.filter((route) => providerRouteSupportsModel(config, route.providerId, modelId));
-}
-
-export function filterProviderRoutesByCatalogAvailability(
-  providerRoutes: readonly ProviderRoute[],
-  routedModel: string,
-  catalogBundle: ResolvedCatalogWithPreferences,
-): ProviderRoute[] {
-  // For GLM models, always include all routes in case the catalog hasn't updated yet
-  if (isGlmModel(routedModel)) {
-    return [...providerRoutes];
-  }
-
-  const catalogMatchedRoutes = providerRoutes.filter((route) => {
-    const entry = catalogBundle.providerCatalogs[route.providerId];
-    return providerCatalogEntrySupportsModel(route.providerId, routedModel, entry);
-  });
-
-  if (catalogMatchedRoutes.length > 0) {
-    return catalogMatchedRoutes;
-  }
-
-  if (catalogHasDynamicOllamaModel(catalogBundle.catalog, routedModel)) {
-    return providerRoutes.filter((route) => providerIdLooksLikeOllama(route.providerId));
-  }
-
-  return [...providerRoutes];
 }
 
 export function shouldRejectModelFromProviderCatalog(

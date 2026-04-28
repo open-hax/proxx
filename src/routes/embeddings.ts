@@ -57,39 +57,6 @@ export function registerEmbeddingsRoutes(deps: AppDeps, app: FastifyInstance): v
       ...request.body,
       model: routedModel,
     });
-    const embedBudget = await ensureNativeOllamaEmbedContextFits(
-      deps.config.ollamaBaseUrl,
-      { model: routedModel, input: embedBody.input },
-      Math.min(deps.config.requestTimeoutMs, 30_000),
-    );
-
-    const maxContextTokens = Math.min(
-      deps.config.embedMaxContextTokens,
-      embedBudget?.contextLength ?? deps.config.embedMaxContextTokens,
-    );
-
-    if (embedBudget && embedBudget.estimatedInputTokens > maxContextTokens) {
-      sendOpenAiError(
-        reply,
-        400,
-        `Embedding request exceeds model context window for ${embedBudget.model}. Estimated input tokens: ${embedBudget.estimatedInputTokens}, maximum: ${maxContextTokens}. Reduce input size or split the document before embedding.`,
-        "invalid_request_error",
-        "embed_context_overflow",
-      );
-      return;
-    }
-
-    const autoNumCtx = embedBudget && embedBudget.requiredContextTokens > embedBudget.availableContextTokens
-      ? Math.min(maxContextTokens, embedBudget.recommendedNumCtx)
-      : undefined;
-
-    const upstreamBody = nativeEmbedToOllamaRequest(
-      {
-        ...request.body,
-        model: routedModel,
-      },
-      autoNumCtx ?? embedBudget?.availableContextTokens,
-    );
 
     let upstreamResponse: Response;
     try {

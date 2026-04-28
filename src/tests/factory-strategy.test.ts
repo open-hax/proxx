@@ -162,7 +162,6 @@ async function withProxyApp(
     ollamaWeeklyCooldownMultiplier: 24,
     requestTimeoutMs: 2000,
     streamBootstrapTimeoutMs: 2000,
-    embedMaxContextTokens: 262144,
     upstreamTransientRetryCount: 0,
     upstreamTransientRetryBackoffMs: 1,
     allowUnauthenticated: true,

@@ -4,7 +4,7 @@ import type { AccountHealthStore } from "../../db/account-health-store.js";
 import type { EventStore } from "../../db/event-store.js";
 import type { ProviderCredential } from "../../key-pool.js";
 import type { PolicyEngine } from "../../policy/index.js";
-import type { IPromptAffinityStore } from "../../prompt-affinity-store.js";
+import type { PromptAffinityStore } from "../../prompt-affinity-store.js";
 import type { ProviderRoutePheromoneStore } from "../../provider-route-pheromone-store.js";
 import type { RequestLogStore } from "../../request-log-store.js";
 import type { QuotaMonitor } from "../../quota-monitor.js";
@@ -35,7 +35,7 @@ export interface FallbackDeps {
   readonly strategy: ProviderStrategy;
   readonly reply: FastifyReply;
   readonly requestLogStore: RequestLogStore;
-  readonly promptAffinityStore: IPromptAffinityStore;
+  readonly promptAffinityStore: PromptAffinityStore;
   readonly providerRoutePheromoneStore: ProviderRoutePheromoneStore;
   readonly keyPool: FallbackKeyPool;
   readonly providerRoutes: readonly ProviderRoute[];

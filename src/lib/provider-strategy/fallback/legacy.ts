@@ -1,14 +1,13 @@
 import type { FastifyReply } from "fastify";
 
-import type { AccountHealthStore } from "../../db/account-health-store.js";
-import type { EventStore } from "../../db/event-store.js";
-import type { ProviderCredential } from "../../key-pool.js";
-import type { PolicyEngine } from "../../policy/index.js";
-import type { IPromptAffinityStore } from "../../prompt-affinity-store.js";
-import type { ProviderRoutePheromoneStore } from "../../provider-route-pheromone-store.js";
-import type { RequestLogStore } from "../../request-log-store.js";
-import type { QuotaMonitor } from "../../quota-monitor.js";
-import { buildUpstreamHeadersForCredential, detectOllamaLimitKind, extractRateLimitCooldownMs, isRateLimitResponse } from "../../proxy.js";
+import type { AccountHealthStore } from "../db/account-health-store.js";
+import type { EventStore } from "../db/event-store.js";
+import type { ProviderCredential } from "../key-pool.js";
+import type { PolicyEngine } from "../policy/index.js";
+import type { PromptAffinityStore } from "../prompt-affinity-store.js";
+import type { RequestLogStore } from "../request-log-store.js";
+import type { QuotaMonitor } from "../quota-monitor.js";
+import { buildUpstreamHeadersForCredential, extractRateLimitCooldownMs, isRateLimitResponse } from "../proxy.js";
 import {
   responsesEventStreamToErrorPayload,
 } from "../../responses-compat.js";
@@ -90,17 +89,11 @@ function candidateMatchesAffinity(
     && candidate.account.accountId === affinity.accountId;
 }
 
-/**
- * Executes the provider routing plan: iterates over fallback candidates,
- * attempts each one, and handles success/failure/rate-limit outcomes.
- * Supports prompt-cache-key affinity for session stickiness and
- * hidden quota error detection (200 OK with error in stream body).
- */
 export async function executeProviderRoutingPlan(
   strategy: ProviderStrategy,
   reply: FastifyReply,
   requestLogStore: RequestLogStore,
-  promptAffinityStore: IPromptAffinityStore,
+  promptAffinityStore: PromptAffinityStore,
   providerRoutePheromoneStore: ProviderRoutePheromoneStore,
   keyPool: {
     getRequestOrder(providerId: string): Promise<ProviderCredential[]>;
@@ -727,47 +720,6 @@ export async function executeProviderRoutingPlan(
         }
         if (!upstreamResponse.ok) {
           await providerRoutePheromoneStore.noteFailure(candidate.providerId, context.routedModel);
-          if (
-            preferredAffinity
-            && candidate.providerId === preferredAffinity.providerId
-            && candidate.account.accountId === preferredAffinity.accountId
-          ) {
-            preferredReassignmentAllowed = true;
-          }
-        }
-
-        /**
-         * Handle hidden upstream errors: providers that return 200 OK but carry a
-         * quota error ("stream_quota_error") or empty/invalid body ("stream_empty_or_invalid")
-         * in the SSE stream. These accounts must be put into cooldown and the sticky
-         * affinity record deleted so the fallback loop can try the next candidate.
-         */
-        if (upstreamResponse.ok && (outcome.rateLimit === true || outcome.requestError === true)) {
-          const cooldownMs = outcome.rateLimit === true
-            ? context.config.keyCooldownMs
-            : Math.min(context.config.keyCooldownMs, 10_000);
-          keyPool.markRateLimited(candidate.account, cooldownMs);
-          await providerRoutePheromoneStore.noteFailure(candidate.providerId, context.routedModel);
-          if (outcome.rateLimit === true) {
-            requestLogStore.update(requestLogEntryId, {
-              upstreamErrorCode: "stream_quota_error",
-              upstreamErrorMessage: "200 OK with quota error in stream body",
-            });
-          } else {
-            requestLogStore.update(requestLogEntryId, {
-              upstreamErrorCode: "stream_empty_or_invalid",
-              upstreamErrorMessage: "200 OK with no substantive content in stream body",
-            });
-          }
-          if (
-            candidateMatchesAffinity(candidate, preferredAffinity)
-            || candidateMatchesAffinity(candidate, provisionalAffinity)
-          ) {
-            preferredReassignmentAllowed = true;
-          }
-          if (outcome.rateLimit === true && promptCacheKey && (candidateMatchesAffinity(candidate, preferredAffinity) || candidateMatchesAffinity(candidate, provisionalAffinity))) {
-            await promptAffinityStore.delete(promptCacheKey);
-          }
         }
 
         accumulator.sawRateLimit ||= outcome.rateLimit === true;
@@ -1026,7 +978,7 @@ export async function executeProviderRoutingPlan(
   return {
     handled: false,
     candidateCount: candidates.length,
-    summary: accumulator,
+    summary: accumulator
   };
 }
 

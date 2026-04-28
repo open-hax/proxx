@@ -7,7 +7,7 @@ import type { ProviderFallbackExecutionResult } from "../shared.js";
  * Vision model fallback chain.
  *
  * Priority order:
- * 1. glm-5v-turbo - z.ai vision flagship via zai
+ * 1. glm-5v-turbo - z.ai vision flagship via rotussy
  * 2. Kimi-K2.5 - ollama-cloud fallback
  * 3. gpt-5.4-mini - cloud fallback
  * 4. qwen3.5:4b-q8_0 - local ollama last resort
@@ -88,7 +88,7 @@ export function shouldAdvanceVisionModelCandidate(input: {
 
 /**
  * Reorder provider routes for vision requests.
- * Prioritizes zai when the model is a GLM vision model.
+ * Prioritizes rotussy (z.ai gateway) when the model is a GLM vision model.
  * For ollama models, prioritizes ollama-cloud then local ollama.
  */
 export function reorderVisionProviderRoutes(
@@ -97,20 +97,20 @@ export function reorderVisionProviderRoutes(
 ): { readonly providerId: string; readonly baseUrl: string }[] {
   const normalized = normalizeModel(routedModel);
 
-  // For GLM vision models, prioritize zai
+  // For GLM vision models, prioritize rotussy (z.ai gateway)
   if (normalized === "glm-5v-turbo" || normalized === "glm-4.6v" || normalized === "glm-4.5v") {
-    const zaiRoutes: { readonly providerId: string; readonly baseUrl: string }[] = [];
+    const rotussyRoutes: { readonly providerId: string; readonly baseUrl: string }[] = [];
     const otherRoutes: { readonly providerId: string; readonly baseUrl: string }[] = [];
 
     for (const route of routes) {
-      if (route.providerId === "zai") {
-        zaiRoutes.push(route);
+      if (route.providerId === "rotussy") {
+        rotussyRoutes.push(route);
       } else {
         otherRoutes.push(route);
       }
     }
 
-    return [...zaiRoutes, ...otherRoutes];
+    return [...rotussyRoutes, ...otherRoutes];
   }
 
   // For Kimi-K2.5, prioritize ollama-cloud

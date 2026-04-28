@@ -892,16 +892,14 @@ function sumCount(value: number | undefined): number {
 function isRequestLogEntryError(entry: {
   readonly status: number;
   readonly error?: string;
-  readonly upstreamErrorCode?: string;
 }): boolean {
-  return entry.status >= 400 || typeof entry.error === "string" || typeof entry.upstreamErrorCode === "string";
+  return entry.status >= 400 || typeof entry.error === "string";
 }
 
 function countsTowardCacheKeyUse(entry: {
   readonly promptCacheKeyUsed?: boolean;
   readonly status: number;
   readonly error?: string;
-  readonly upstreamErrorCode?: string;
 }): boolean {
   return entry.promptCacheKeyUsed === true && !isRequestLogEntryError(entry);
 }
@@ -910,7 +908,6 @@ function countsTowardCacheHit(entry: {
   readonly cacheHit?: boolean;
   readonly status: number;
   readonly error?: string;
-  readonly upstreamErrorCode?: string;
 }): boolean {
   return entry.cacheHit === true && !isRequestLogEntryError(entry);
 }

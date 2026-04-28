@@ -33,10 +33,9 @@ test("auto:vision falls back to the full chain when catalog discovery has not su
   assert.deepEqual(candidates, ["glm-5v-turbo", "Kimi-K2.5", "gpt-5.4-mini", "qwen3.5:4b-q8_0"]);
 });
 
-test("auto:vision provider ordering prefers zai for GLM vision models and ollama routes for local qwen", () => {
+test("auto:vision provider ordering prefers rotussy for GLM vision models and ollama routes for local qwen", () => {
   const routes = [
-    { providerId: "vivgrid", baseUrl: "https://vivgrid.example" },
-    { providerId: "zai", baseUrl: "https://zai.example" },
+    { providerId: "openai", baseUrl: "https://openai.example" },
     { providerId: "rotussy", baseUrl: "https://rotussy.example" },
     { providerId: "ollama-cloud", baseUrl: "https://ollama.example" },
     { providerId: "ollama-stealth", baseUrl: "http://127.0.0.1:11434" },
@@ -44,16 +43,16 @@ test("auto:vision provider ordering prefers zai for GLM vision models and ollama
 
   assert.deepEqual(
     reorderVisionProviderRoutes(routes, "glm-5v-turbo").map((route) => route.providerId),
-    ["zai", "vivgrid", "rotussy", "ollama-cloud", "ollama-stealth"],
+    ["rotussy", "openai", "ollama-cloud", "ollama-stealth"],
   );
 
   assert.deepEqual(
     reorderVisionProviderRoutes(routes, "glm-4.6v").map((route) => route.providerId),
-    ["zai", "vivgrid", "rotussy", "ollama-cloud", "ollama-stealth"],
+    ["rotussy", "openai", "ollama-cloud", "ollama-stealth"],
   );
 
   assert.deepEqual(
     reorderVisionProviderRoutes(routes, "qwen3.5:4b-q8_0").map((route) => route.providerId),
-    ["ollama-cloud", "ollama-stealth", "vivgrid", "zai", "rotussy"],
+    ["ollama-cloud", "ollama-stealth", "openai", "rotussy"],
   );
 });

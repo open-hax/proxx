@@ -20,12 +20,13 @@ export const CLAUDE_OPUS_46_PROVIDER_ORDER: readonly ProviderId[] = [
 ];
 
 export const GLM_PROVIDER_ORDER: readonly ProviderId[] = [
-  "zai",
   "rotussy",
+  "zai",
   "ollama-cloud",
   "requesty",
   "factory",
   "openrouter",
+  "openai",
   "vivgrid",
 ];
 

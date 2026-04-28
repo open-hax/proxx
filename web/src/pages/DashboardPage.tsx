@@ -222,7 +222,6 @@ function serviceTierShareBars(summary: UsageOverview["summary"]): JSX.Element {
   );
 }
 
-/** Dashboard page: shows request log, provider health, and account status. */
 export function DashboardPage(): JSX.Element {
   const [overview, setOverview] = useState<UsageOverview | null>(null);
   const [keyPoolStatuses, setKeyPoolStatuses] = useState<Record<string, KeyPoolStatus>>({});
@@ -544,13 +543,8 @@ export function DashboardPage(): JSX.Element {
                 <Badge variant={entry.serviceTierSource === "fast_mode" ? "info" : "default"}>
                   {formatServiceTier(entry)}
                 </Badge>
-                <Badge variant={
-                  entry.status === 0 || entry.status >= 400 ? "error"
-                  : entry.upstreamErrorCode ? "warning"
-                  : "success"
-                }>
+                <Badge variant={entry.status === 0 || entry.status >= 400 ? "error" : "success"}>
                   {entry.status === 0 ? "ERR" : entry.status}
-                  {entry.upstreamErrorCode ? ` ${entry.upstreamErrorCode}` : ""}
                 </Badge>
                 <span>{Math.round(entry.latencyMs)} ms</span>
               </div>

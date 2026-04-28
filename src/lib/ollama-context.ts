@@ -1,8 +1,5 @@
 import { fetchWithResponseTimeout, isRecord } from "./provider-utils.js";
 
-const contextLengthCache = new Map<string, { length: number; fetchedAt: number }>();
-const CONTEXT_CACHE_TTL_MS = 5 * 60 * 1000;
-
 function asString(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
@@ -119,12 +116,6 @@ export async function fetchOllamaModelContextLength(
   model: string,
   timeoutMs: number,
 ): Promise<number | null> {
-  const cacheKey = `${baseUrl}::${model}`;
-  const cached = contextLengthCache.get(cacheKey);
-  if (cached && Date.now() - cached.fetchedAt < CONTEXT_CACHE_TTL_MS) {
-    return cached.length;
-  }
-
   let response: Awaited<ReturnType<typeof fetchWithResponseTimeout>>;
   try {
     response = await fetchWithResponseTimeout(`${baseUrl.replace(/\/+$/, "")}/api/show`, {
@@ -135,22 +126,22 @@ export async function fetchOllamaModelContextLength(
       body: JSON.stringify({ model }),
     }, timeoutMs);
   } catch {
-    return cached?.length ?? null;
+    return null;
   }
 
   if (!response.ok) {
-    return cached?.length ?? null;
+    return null;
   }
 
   let payload: unknown;
   try {
     payload = await response.json();
   } catch {
-    return cached?.length ?? null;
+    return null;
   }
 
   if (!isRecord(payload)) {
-    return cached?.length ?? null;
+    return null;
   }
 
   const modelInfo = isRecord(payload["model_info"]) ? payload["model_info"] : null;
@@ -161,12 +152,7 @@ export async function fetchOllamaModelContextLength(
     ?? asNumber(modelInfo?.["gemma3.context_length"])
     ?? asNumber(modelInfo?.["general.context_length"]);
 
-  const result = directContext ?? modelInfoContext ?? null;
-  if (result !== null) {
-    contextLengthCache.set(cacheKey, { length: result, fetchedAt: Date.now() });
-  }
-
-  return result;
+  return directContext ?? modelInfoContext ?? null;
 }
 
 export async function ensureOllamaContextFits(
