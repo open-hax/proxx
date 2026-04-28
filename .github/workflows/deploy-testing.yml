@@ -1,7 +1,7 @@
 name: deploy-testing
 
 on:
-  pull_request:
+  pull_request_target:
     types:
       - opened
       - reopened
@@ -143,7 +143,7 @@ jobs:
           DEPLOY_ENABLE_TLS: 'true'
           DEPLOY_HEALTH_TIMEOUT_SECONDS: '240'
           DEPLOY_SYNC_RUNTIME_FROM_SOURCE: 'true'
-          DEPLOY_SYNC_DB_FROM_SOURCE: ${{ vars.TESTING_SYNC_DB_FROM_SOURCE || 'false' }}
+          DEPLOY_SYNC_DB_FROM_SOURCE: 'true'
           DEPLOY_ENV_APPEND: |
             FEDERATION_CLUSTER_ID=testing-pr-${{ needs.testing-eligibility.outputs.pr_number }}
             FEDERATION_PUBLIC_HOST_SUFFIX=${{ vars.TESTING_PUBLIC_HOST || 'testing.proxx.ussy.promethean.rest' }}
@@ -218,9 +218,6 @@ jobs:
         env:
           DEV_PROXY_URL: ${{ vars.TESTING_BASE_URL || 'https://testing.proxx.ussy.promethean.rest' }}
           DEV_PROXY_AUTH_TOKEN: ${{ secrets.TESTING_PROXY_AUTH_TOKEN }}
-          E2E_SKIP_OPENAI_SMOKE: '1'
-          TENANT_API_KEY_TEST_MODEL: glm-5
-          LOAD_TEST_MODEL: glm-5
       - id: live-e2e-multitenancy
         continue-on-error: true
         run: ./scripts/e2e-multitenancy-smoke.sh
@@ -234,7 +231,6 @@ jobs:
           FEDERATION_HOST_SUFFIX: ${{ vars.TESTING_PUBLIC_HOST || 'testing.proxx.ussy.promethean.rest' }}
           FEDERATION_AUTH_TOKEN: ${{ secrets.TESTING_PROXY_AUTH_TOKEN }}
           FEDERATION_SCHEME: https
-          FEDERATION_ORIGIN: ${{ vars.TESTING_BASE_URL || 'https://testing.proxx.ussy.promethean.rest' }}
           FEDERATION_RESOLVE_ADDRESS: ${{ vars.TESTING_VERIFY_RESOLVE_ADDRESS || vars.TESTING_SSH_HOST || '' }}
       - name: assert testing live e2e suite
         if: always()
@@ -247,11 +243,7 @@ jobs:
           echo "multitenancy=${multitenancy}"
           echo "federation=${federation}"
 
-          if [[ "$core" != "success" ]]; then
-            echo "testing slot note: core upstream smoke is diagnostic-only for the shared testing slot"
-          fi
-
-          if [[ "$multitenancy" != "success" || "$federation" != "success" ]]; then
+          if [[ "$core" != "success" || "$multitenancy" != "success" || "$federation" != "success" ]]; then
             exit 1
           fi
       - name: testing live e2e failure logs
