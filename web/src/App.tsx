@@ -15,6 +15,13 @@ import { ImagesPage } from "./pages/ImagesPage";
 import { AnalyticsPage } from "./pages/AnalyticsPage";
 import { FederationPage } from "./pages/FederationPage";
 
+const LS_ONBOARDED = "open-hax-proxy.ui.onboarded";
+const LS_THEME = "open-hax-proxy.ui.theme";
+
+function parseThemeName(value: unknown): ThemeName | undefined {
+  return value === "monokai" || value === "night-owl" ? value : undefined;
+}
+
 function navClass(isActive: boolean): string {
   return isActive ? "nav-link nav-link-active" : "nav-link";
 }

@@ -65,6 +65,29 @@ export function parseOptionalProviderIds(value: unknown): readonly string[] | nu
   return normalized.length > 0 ? normalized : null;
 }
 
+export function parseOptionalModelIds(value: unknown): readonly string[] | null | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (value === null) {
+    return null;
+  }
+
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  const normalized = [...new Set(
+    value
+      .filter((entry): entry is string => typeof entry === "string")
+      .map((entry) => entry.trim().toLowerCase())
+      .filter((entry) => entry.length > 0),
+  )];
+
+  return normalized.length > 0 ? normalized : null;
+}
+
 export function parseOptionalPositiveInteger(value: unknown): number | undefined {
   if (value === undefined || value === null || value === "") {
     return undefined;
@@ -82,9 +105,9 @@ export function parseOptionalPositiveInteger(value: unknown): number | undefined
   return undefined;
 }
 
-export function getResolvedAuth(request: { readonly openHaxAuth?: unknown }): ResolvedRequestAuth | undefined {
+export function getResolvedAuth(request: { readonly openHaxAuth?: ResolvedRequestAuth | null }): ResolvedRequestAuth | undefined {
   const auth = request.openHaxAuth;
-  return typeof auth === "object" && auth !== null ? auth as ResolvedRequestAuth : undefined;
+  return typeof auth === "object" && auth !== null ? auth : undefined;
 }
 
 export function readCookieValue(cookieHeader: string | undefined, name: string): string | undefined {

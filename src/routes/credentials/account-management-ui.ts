@@ -127,4 +127,41 @@ export async function registerCredentialAccountManagementUiRoutes(
     app.log.info({ providerId, accountId }, "removed credential account");
     reply.send({ ok: true, providerId, accountId });
   });
+
+  app.post<{
+    Body: { readonly providerId?: string; readonly accountId?: string };
+  }>(resolveCredentialRoutePath("/credentials/account/disable", options), async (request, reply) => {
+    const providerId = typeof request.body?.providerId === "string" ? request.body.providerId.trim() : "";
+    const accountId = typeof request.body?.accountId === "string" ? request.body.accountId.trim() : "";
+
+    if (providerId.length === 0 || accountId.length === 0) {
+      reply.code(400).send({ error: "provider_id_and_account_id_required" });
+      return;
+    }
+
+    deps.keyPool.disableAccount(providerId, accountId);
+    app.log.info({ providerId, accountId }, "disabled credential account");
+    reply.send({ ok: true, providerId, accountId, disabled: true });
+  });
+
+  app.post<{
+    Body: { readonly providerId?: string; readonly accountId?: string };
+  }>(resolveCredentialRoutePath("/credentials/account/enable", options), async (request, reply) => {
+    const providerId = typeof request.body?.providerId === "string" ? request.body.providerId.trim() : "";
+    const accountId = typeof request.body?.accountId === "string" ? request.body.accountId.trim() : "";
+
+    if (providerId.length === 0 || accountId.length === 0) {
+      reply.code(400).send({ error: "provider_id_and_account_id_required" });
+      return;
+    }
+
+    deps.keyPool.enableAccount(providerId, accountId);
+    app.log.info({ providerId, accountId }, "enabled credential account");
+    reply.send({ ok: true, providerId, accountId, disabled: false });
+  });
+
+  app.get(resolveCredentialRoutePath("/credentials/accounts/disabled", options), async (_request, reply) => {
+    const disabledAccounts = deps.keyPool.getDisabledAccounts();
+    reply.send({ disabledAccounts });
+  });
 }

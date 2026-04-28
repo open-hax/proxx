@@ -7,23 +7,6 @@ import { normalizeEpochMilliseconds } from "../epoch.js";
 import { DEFAULT_TENANT_ID, buildTenantApiKeyPrefix, generateTenantApiKey, hashTenantApiKey, normalizeTenantId } from "../tenant-api-key.js";
 import type { CredentialAccountView, CredentialProviderView } from "../credential-store.js";
 import {
-  CREATE_TENANTS_TABLE,
-  CREATE_USERS_TABLE,
-  CREATE_TENANT_MEMBERSHIPS_TABLE,
-  CREATE_TENANT_API_KEYS_TABLE,
-  CREATE_TENANT_API_KEYS_TENANT_INDEX,
-  CREATE_TENANT_API_KEYS_HASH_INDEX,
-  CREATE_TENANT_PROVIDER_POLICIES_TABLE,
-  CREATE_TENANT_PROVIDER_POLICIES_OWNER_INDEX,
-  CREATE_PROVIDERS_TABLE,
-  CREATE_ACCOUNTS_TABLE,
-  CREATE_ACCOUNTS_INDEX,
-  CREATE_ACCOUNT_HEALTH_TABLE,
-  CREATE_ACCOUNT_HEALTH_INDEX,
-  CREATE_COOLDOWN_TABLE,
-  CREATE_MODELS_TABLE,
-  CREATE_CONFIG_TABLE,
-  CREATE_VERSION_TABLE,
   INSERT_VERSION,
   CHECK_VERSION_EXISTS,
   UPSERT_PROVIDER,
@@ -313,23 +296,12 @@ export class SqlCredentialStore {
   }
 
   private async runMigrations(): Promise<void> {
-    await this.sql.unsafe(CREATE_TENANTS_TABLE);
-    await this.sql.unsafe(CREATE_USERS_TABLE);
-    await this.sql.unsafe(CREATE_TENANT_MEMBERSHIPS_TABLE);
-    await this.sql.unsafe(CREATE_TENANT_API_KEYS_TABLE);
-    await this.sql.unsafe(CREATE_TENANT_API_KEYS_TENANT_INDEX);
-    await this.sql.unsafe(CREATE_TENANT_API_KEYS_HASH_INDEX);
-    await this.sql.unsafe(CREATE_TENANT_PROVIDER_POLICIES_TABLE);
-    await this.sql.unsafe(CREATE_TENANT_PROVIDER_POLICIES_OWNER_INDEX);
-    await this.sql.unsafe(CREATE_PROVIDERS_TABLE);
-    await this.sql.unsafe(CREATE_ACCOUNTS_TABLE);
-    await this.sql.unsafe(CREATE_ACCOUNTS_INDEX);
-    await this.sql.unsafe(CREATE_COOLDOWN_TABLE);
-    await this.sql.unsafe(CREATE_ACCOUNT_HEALTH_TABLE);
-    await this.sql.unsafe(CREATE_ACCOUNT_HEALTH_INDEX);
-    await this.sql.unsafe(CREATE_MODELS_TABLE);
-    await this.sql.unsafe(CREATE_CONFIG_TABLE);
-    await this.sql.unsafe(CREATE_VERSION_TABLE);
+    // ALL_MIGRATIONS in schema.ts is the single source of truth for schema changes.
+    // Every migration SQL is idempotent (CREATE TABLE IF NOT EXISTS / ALTER TABLE ADD COLUMN IF NOT EXISTS),
+    // so we can safely re-run all of them on every startup.
+    for (const migration of ALL_MIGRATIONS) {
+      await this.sql.unsafe(migration.sql);
+    }
 
     const versionExists = await this.sql.unsafe<Array<{ "?column?": number }>>(
       CHECK_VERSION_EXISTS,

@@ -1,4 +1,4 @@
-import { isAutoModel, rankAutoModels, selectAutoModel } from "../../auto-model-selector.js";
+import { rankAutoModels } from "../../auto-model-selector.js";
 import type { AccountHealthStore } from "../../db/account-health-store.js";
 import type { ResolvedModelCatalog } from "../../provider-routing.js";
 import type { RequestLogStore } from "../../request-log-store.js";
@@ -76,13 +76,6 @@ function preferOrderedModel(
 
 function normalizeModel(modelId: string): string {
   return modelId.trim().toLowerCase();
-}
-
-function isOllamaProvider(providerId: string): boolean {
-  const normalized = providerId.trim().toLowerCase();
-  return normalized === "ollama-cloud"
-    || normalized.startsWith("ollama-")
-    || normalized === "local-ollama";
 }
 
 export function isCephalonAutoModel(model: string): boolean {
@@ -199,10 +192,6 @@ export function reorderCephalonProviderRoutes(
   routes: readonly { readonly providerId: string; readonly baseUrl: string }[],
   dynamicOllamaProviders?: readonly { readonly providerId: string; readonly baseUrl: string }[],
 ): { readonly providerId: string; readonly baseUrl: string }[] {
-  const cephalonIndex = new Map<string, number>(
-    CEPHALON_PROVIDER_ORDER.map((providerId, index) => [providerId, index] as const),
-  );
-
   const ollamaRoutes: { readonly providerId: string; readonly baseUrl: string }[] = [];
   const cephalonRoutes: { readonly providerId: string; readonly baseUrl: string }[] = [];
   const otherRoutes: { readonly providerId: string; readonly baseUrl: string }[] = [];

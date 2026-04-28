@@ -15,7 +15,8 @@ import { type TenantProviderPolicyRecord } from "../lib/tenant-provider-policy.j
 import { KeyPool } from "../lib/key-pool.js";
 import { ProxySettingsStore } from "../lib/proxy-settings-store.js";
 import { RequestLogStore } from "../lib/request-log-store.js";
-import { registerUiRoutes } from "../lib/ui-routes.js";
+import { registerApiV1Routes } from "../routes/api/v1/index.js";
+import type { CredentialStoreLike } from "../lib/credential-store.js";
 
 function buildConfig(input: {
   readonly upstreamPort: number;
@@ -80,6 +81,9 @@ function buildConfig(input: {
     settingsFilePath: input.paths.settingsPath,
     keyReloadMs: 50,
     keyCooldownMs: 10_000,
+    keyCooldownJitterFactor: 0.4,
+    enableKeyRandomWalk: true,
+    ollamaWeeklyCooldownMultiplier: 24,
     requestTimeoutMs: 2_000,
     streamBootstrapTimeoutMs: 2_000,
     upstreamTransientRetryCount: 1,
@@ -216,7 +220,7 @@ test("tenant provider policy routes list and upsert policies", async () => {
     },
   };
 
-  await registerUiRoutes(app, {
+  await registerApiV1Routes(app, {
     config,
     keyPool,
     requestLogStore,
@@ -230,7 +234,7 @@ test("tenant provider policy routes list and upsert policies", async () => {
   try {
     const createResponse = await app.inject({
       method: "POST",
-      url: "/api/ui/federation/tenant-provider-policies",
+      url: "/api/v1/federation/tenant-provider-policies",
       headers: {
         authorization: "Bearer bridge-admin-token",
         "content-type": "application/json",
@@ -254,7 +258,7 @@ test("tenant provider policy routes list and upsert policies", async () => {
 
     const listResponse = await app.inject({
       method: "GET",
-      url: "/api/ui/federation/tenant-provider-policies?subjectDid=did:web:big.ussy.promethean.rest",
+      url: "/api/v1/federation/tenant-provider-policies?subjectDid=did:web:big.ussy.promethean.rest",
       headers: { authorization: "Bearer bridge-admin-token" },
     });
 
@@ -364,7 +368,7 @@ test("federation diff-events route validates ownerSubject and forwards parsed fi
     },
   };
 
-  await registerUiRoutes(app, {
+  await registerApiV1Routes(app, {
     config,
     keyPool,
     requestLogStore,
@@ -378,7 +382,7 @@ test("federation diff-events route validates ownerSubject and forwards parsed fi
   try {
     const missingOwnerResponse = await app.inject({
       method: "GET",
-      url: "/api/ui/federation/diff-events",
+      url: "/api/v1/federation/diff-events",
       headers: { authorization: "Bearer bridge-admin-token" },
     });
 
@@ -387,7 +391,7 @@ test("federation diff-events route validates ownerSubject and forwards parsed fi
 
     const listResponse = await app.inject({
       method: "GET",
-      url: "/api/ui/federation/diff-events?ownerSubject=did:plc:test-owner&afterSeq=5&limit=2",
+      url: "/api/v1/federation/diff-events?ownerSubject=did:plc:test-owner&afterSeq=5&limit=2",
       headers: { authorization: "Bearer bridge-admin-token" },
     });
 
@@ -515,7 +519,7 @@ test("federation accounts routes expose knowledge summaries, export api keys, an
     ]),
   };
 
-  await registerUiRoutes(app, {
+  await registerApiV1Routes(app, {
     config,
     keyPool,
     requestLogStore,
@@ -529,7 +533,7 @@ test("federation accounts routes expose knowledge summaries, export api keys, an
   try {
     const listResponse = await app.inject({
       method: "GET",
-      url: "/api/ui/federation/accounts",
+      url: "/api/v1/federation/accounts",
       headers: { authorization: "Bearer bridge-admin-token" },
     });
 
@@ -549,7 +553,7 @@ test("federation accounts routes expose knowledge summaries, export api keys, an
 
     const exportApiKeyResponse = await app.inject({
       method: "POST",
-      url: "/api/ui/federation/accounts/export",
+      url: "/api/v1/federation/accounts/export",
       headers: {
         authorization: "Bearer bridge-admin-token",
         "content-type": "application/json",
@@ -571,7 +575,7 @@ test("federation accounts routes expose knowledge summaries, export api keys, an
 
     const exportOauthResponse = await app.inject({
       method: "POST",
-      url: "/api/ui/federation/accounts/export",
+      url: "/api/v1/federation/accounts/export",
       headers: {
         authorization: "Bearer bridge-admin-token",
         "content-type": "application/json",
@@ -724,7 +728,7 @@ test("federation projected-account import route validates entries and records di
     },
   };
 
-  await registerUiRoutes(app, {
+  await registerApiV1Routes(app, {
     config,
     keyPool,
     requestLogStore,
@@ -738,7 +742,7 @@ test("federation projected-account import route validates entries and records di
   try {
     const missingAccountsResponse = await app.inject({
       method: "POST",
-      url: "/api/ui/federation/projected-accounts/import",
+      url: "/api/v1/federation/projected-accounts/import",
       headers: {
         authorization: "Bearer bridge-admin-token",
         "content-type": "application/json",
@@ -751,7 +755,7 @@ test("federation projected-account import route validates entries and records di
 
     const importResponse = await app.inject({
       method: "POST",
-      url: "/api/ui/federation/projected-accounts/import",
+      url: "/api/v1/federation/projected-accounts/import",
       headers: {
         authorization: "Bearer bridge-admin-token",
         "content-type": "application/json",
@@ -928,7 +932,7 @@ test("federation projected-account imported route blocks non-importable accounts
     },
   };
 
-  await registerUiRoutes(app, {
+  await registerApiV1Routes(app, {
     config,
     keyPool,
     requestLogStore,
@@ -942,7 +946,7 @@ test("federation projected-account imported route blocks non-importable accounts
   try {
     const blockedResponse = await app.inject({
       method: "POST",
-      url: "/api/ui/federation/projected-accounts/imported",
+      url: "/api/v1/federation/projected-accounts/imported",
       headers: {
         authorization: "Bearer bridge-admin-token",
         "content-type": "application/json",
@@ -960,7 +964,7 @@ test("federation projected-account imported route blocks non-importable accounts
 
     const importedResponse = await app.inject({
       method: "POST",
-      url: "/api/ui/federation/projected-accounts/imported",
+      url: "/api/v1/federation/projected-accounts/imported",
       headers: {
         authorization: "Bearer bridge-admin-token",
         "content-type": "application/json",
@@ -991,6 +995,492 @@ test("federation projected-account imported route blocks non-importable accounts
         resolve();
       });
     });
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("federation sync pull imports projected descriptors from aggregated peer accounts", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "proxx-federation-sync-pull-routes-"));
+  const keysPath = path.join(tempDir, "keys.json");
+  const modelsPath = path.join(tempDir, "models.json");
+  const requestLogsPath = path.join(tempDir, "request-logs.jsonl");
+  const promptAffinityPath = path.join(tempDir, "prompt-affinity.json");
+  const settingsPath = path.join(tempDir, "proxy-settings.json");
+
+  await writeFile(keysPath, JSON.stringify({ keys: ["test-key-1"] }, null, 2), "utf8");
+  await writeFile(modelsPath, JSON.stringify({ object: "list", data: [{ id: "gpt-5.2" }] }, null, 2), "utf8");
+
+  const remoteApp = Fastify({ logger: true });
+  remoteApp.decorateRequest("openHaxAuth", null);
+  remoteApp.addHook("onRequest", async (request) => {
+    const mutableRequest = request as FastifyRequest & { openHaxAuth?: unknown };
+    const authorization = typeof request.headers.authorization === "string"
+      ? request.headers.authorization.trim()
+      : "";
+
+    if (authorization === "Bearer remote-admin-token") {
+      mutableRequest.openHaxAuth = {
+        kind: "legacy_admin",
+        tenantId: "default",
+        role: "owner",
+        source: "bearer",
+        subject: "legacy:proxy-auth-token",
+      };
+    }
+  });
+
+  const remoteProjectedAccounts = [
+    {
+      sourcePeerId: "local-core",
+      ownerSubject: "did:web:proxx.promethean.rest:brethren",
+      providerId: "openai",
+      accountId: "acct-1",
+      accountSubject: "auth0|acct-1",
+      chatgptAccountId: "chatgpt-acct-1",
+      email: "acct-1@example.com",
+      planType: "free",
+      availabilityState: "descriptor" as const,
+      warmRequestCount: 0,
+      metadata: {
+        hasCredentials: true,
+        knowledgeSources: ["local_credential"],
+        authType: "oauth_bearer",
+        credentialMobility: "access_token_only",
+      },
+      createdAt: "2026-03-27T00:00:00.000Z",
+      updatedAt: "2026-03-27T00:00:00.000Z",
+    },
+  ];
+
+  const remoteSqlFederationStore = {
+    listPeers: async () => [],
+    listDiffEvents: async () => ([] as FederationDiffEventRecord[]),
+    listProjectedAccounts: async () => remoteProjectedAccounts,
+  };
+
+  const remoteCredentialStore = {
+    listProviders: async () => [],
+  };
+
+  const remoteKeyPool = {
+    warmup: async () => undefined,
+  };
+
+  const remoteRequestLogStore = new RequestLogStore(path.join(tempDir, "remote-request-logs.jsonl"), 1000, 0);
+  await remoteRequestLogStore.warmup();
+  const remoteProxySettingsStore = new ProxySettingsStore(path.join(tempDir, "remote-settings.json"));
+  await remoteProxySettingsStore.warmup();
+
+  await registerApiV1Routes(remoteApp, {
+    config: buildConfig({
+      upstreamPort: 65535,
+      paths: {
+        keysPath,
+        modelsPath,
+        requestLogsPath: path.join(tempDir, "remote-request-logs.jsonl"),
+        promptAffinityPath: path.join(tempDir, "remote-prompt-affinity.json"),
+        settingsPath: path.join(tempDir, "remote-settings.json"),
+      },
+      proxyAuthToken: "remote-admin-token",
+    }),
+    keyPool: remoteKeyPool as never,
+    requestLogStore: remoteRequestLogStore,
+    credentialStore: remoteCredentialStore as never,
+    proxySettingsStore: remoteProxySettingsStore,
+    sqlFederationStore: remoteSqlFederationStore as never,
+  });
+
+  await remoteApp.listen({ host: "127.0.0.1", port: 0 });
+  const remoteAddress = remoteApp.server.address();
+  if (!remoteAddress || typeof remoteAddress === "string") {
+    throw new Error("failed to resolve remote app address");
+  }
+
+  const config = buildConfig({
+    upstreamPort: remoteAddress.port,
+    paths: { keysPath, modelsPath, requestLogsPath, promptAffinityPath, settingsPath },
+    proxyAuthToken: "bridge-admin-token",
+  });
+
+  const app = Fastify({ logger: true });
+  app.decorateRequest("openHaxAuth", null);
+
+  app.addHook("onRequest", async (request) => {
+    const mutableRequest = request as FastifyRequest & { openHaxAuth?: unknown };
+    const authorization = typeof request.headers.authorization === "string"
+      ? request.headers.authorization.trim()
+      : "";
+
+    if (authorization === "Bearer bridge-admin-token") {
+      mutableRequest.openHaxAuth = {
+        kind: "legacy_admin",
+        tenantId: "default",
+        role: "owner",
+        source: "bearer",
+        subject: "legacy:proxy-auth-token",
+      };
+    }
+  });
+
+  const keyPool = new KeyPool({
+    keysFilePath: keysPath,
+    reloadIntervalMs: 50,
+    defaultCooldownMs: 10_000,
+    defaultProviderId: config.upstreamProviderId,
+  });
+  await keyPool.warmup();
+
+  const credentialStore = new CredentialStore(keysPath, config.upstreamProviderId);
+  const requestLogStore = new RequestLogStore(requestLogsPath, 1000, 0);
+  await requestLogStore.warmup();
+  const proxySettingsStore = new ProxySettingsStore(settingsPath);
+  await proxySettingsStore.warmup();
+
+  const peers = new Map([
+    ["peer-1", {
+      id: "peer-1",
+      ownerSubject: "did:web:proxx.promethean.rest:brethren",
+      peerDid: "did:web:federation.big.ussy.promethean.rest",
+      label: "Remote canonical",
+      baseUrl: `http://127.0.0.1:${remoteAddress.port}`,
+      controlBaseUrl: `http://127.0.0.1:${remoteAddress.port}`,
+      authMode: "at_did",
+      auth: { credential: "remote-admin-token" },
+      status: "active",
+      capabilities: { accounts: true, usage: true, audit: true },
+      createdAt: "2026-03-27T00:00:00.000Z",
+      updatedAt: "2026-03-27T00:00:00.000Z",
+    }],
+  ]);
+  const syncStates = new Map<string, { readonly peerId: string; readonly lastPulledSeq: number; readonly lastPushedSeq: number; readonly updatedAt: string; readonly lastPullAt?: string; readonly lastPushAt?: string; readonly lastError?: string }>();
+  const projectedAccounts = new Map<string, Record<string, unknown>>();
+  const diffEvents: Array<Record<string, unknown>> = [];
+
+  const sqlFederationStore = {
+    getPeer: async (peerId: string) => peers.get(peerId),
+    getSyncState: async (peerId: string) => syncStates.get(peerId),
+    upsertSyncState: async (input: {
+      readonly peerId: string;
+      readonly lastPulledSeq?: number;
+      readonly lastPushedSeq?: number;
+      readonly lastPullAt?: boolean;
+      readonly lastPushAt?: boolean;
+      readonly lastError?: string | null;
+    }) => {
+      const now = "2026-03-27T00:00:00.000Z";
+      const existing = syncStates.get(input.peerId);
+      const next = {
+        peerId: input.peerId,
+        lastPulledSeq: input.lastPulledSeq ?? existing?.lastPulledSeq ?? 0,
+        lastPushedSeq: input.lastPushedSeq ?? existing?.lastPushedSeq ?? 0,
+        lastPullAt: input.lastPullAt ? now : existing?.lastPullAt,
+        lastPushAt: input.lastPushAt ? now : existing?.lastPushAt,
+        lastError: input.lastError === undefined ? existing?.lastError : input.lastError ?? undefined,
+        updatedAt: now,
+      };
+      syncStates.set(input.peerId, next);
+      return next;
+    },
+    upsertProjectedAccount: async (input: {
+      readonly sourcePeerId: string;
+      readonly ownerSubject: string;
+      readonly providerId: string;
+      readonly accountId: string;
+      readonly accountSubject?: string;
+      readonly chatgptAccountId?: string;
+      readonly email?: string;
+      readonly planType?: string;
+      readonly availabilityState?: "descriptor" | "remote_route" | "imported";
+      readonly metadata?: Record<string, unknown>;
+    }) => {
+      const key = `${input.sourcePeerId}\0${input.providerId}\0${input.accountId}`;
+      const record = {
+        sourcePeerId: input.sourcePeerId,
+        ownerSubject: input.ownerSubject,
+        providerId: input.providerId,
+        accountId: input.accountId,
+        accountSubject: input.accountSubject,
+        chatgptAccountId: input.chatgptAccountId,
+        email: input.email,
+        planType: input.planType,
+        availabilityState: input.availabilityState ?? "descriptor",
+        warmRequestCount: 0,
+        lastRoutedAt: undefined,
+        importedAt: undefined,
+        metadata: input.metadata ?? {},
+        createdAt: "2026-03-27T00:00:00.000Z",
+        updatedAt: "2026-03-27T00:00:00.000Z",
+      };
+      projectedAccounts.set(key, record);
+      return record;
+    },
+    appendDiffEvent: async (input: Record<string, unknown>) => {
+      diffEvents.push(input);
+      return {
+        seq: diffEvents.length,
+        ownerSubject: input.ownerSubject,
+        entityType: input.entityType,
+        entityKey: input.entityKey,
+        op: input.op,
+        payload: input.payload ?? {},
+        createdAt: "2026-03-27T00:00:00.000Z",
+      };
+    },
+  };
+
+  await registerApiV1Routes(app, {
+    config,
+    keyPool,
+    requestLogStore,
+    credentialStore,
+    proxySettingsStore,
+    sqlFederationStore: sqlFederationStore as never,
+  });
+
+  await app.listen({ host: "127.0.0.1", port: 0 });
+
+  try {
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/federation/sync/pull",
+      headers: {
+        authorization: "Bearer bridge-admin-token",
+        "content-type": "application/json",
+      },
+      payload: {
+        peerId: "peer-1",
+        ownerSubject: "did:web:proxx.promethean.rest:brethren",
+        pullUsage: false,
+      },
+    });
+
+    assert.equal(response.statusCode, 200);
+    const payload = response.json() as {
+      readonly importedProjectedAccountsCount: number;
+      readonly remoteDiffCount: number;
+    };
+    assert.equal(payload.importedProjectedAccountsCount, 1);
+    assert.equal(payload.remoteDiffCount, 0);
+    assert.equal(projectedAccounts.size, 1);
+    const imported = [...projectedAccounts.values()][0] as { readonly providerId: string; readonly accountId: string; readonly sourcePeerId: string; readonly metadata: Record<string, unknown> };
+    assert.equal(imported.providerId, "openai");
+    assert.equal(imported.accountId, "acct-1");
+    assert.equal(imported.sourcePeerId, "peer-1");
+    assert.equal(imported.metadata.authType, "oauth_bearer");
+    assert.equal(diffEvents.length, 1);
+    assert.equal(diffEvents[0]?.entityType, "projected_account");
+  } finally {
+    await app.close();
+    await remoteApp.close();
+    await requestLogStore.close();
+    await remoteRequestLogStore.close();
+    await credentialStore.close();
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("credentials and quota routes merge runtime-visible oauth accounts with store metadata", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "proxx-visible-credentials-routes-"));
+  const keysPath = path.join(tempDir, "keys.json");
+  const modelsPath = path.join(tempDir, "models.json");
+  const requestLogsPath = path.join(tempDir, "request-logs.jsonl");
+  const promptAffinityPath = path.join(tempDir, "prompt-affinity.json");
+  const settingsPath = path.join(tempDir, "proxy-settings.json");
+
+  await writeFile(keysPath, JSON.stringify({ keys: ["test-key-1"] }, null, 2), "utf8");
+  await writeFile(modelsPath, JSON.stringify({ object: "list", data: [{ id: "gpt-5.4" }] }, null, 2), "utf8");
+
+  const upstream: Server = createServer((_request, response) => {
+    response.statusCode = 200;
+    response.setHeader("content-type", "application/json");
+    response.end(JSON.stringify({ ok: true }));
+  });
+  upstream.listen(0, "127.0.0.1");
+  await once(upstream, "listening");
+  const upstreamAddress = upstream.address();
+  if (!upstreamAddress || typeof upstreamAddress === "string") {
+    throw new Error("failed to resolve upstream address");
+  }
+
+  const config = buildConfig({
+    upstreamPort: upstreamAddress.port,
+    paths: { keysPath, modelsPath, requestLogsPath, promptAffinityPath, settingsPath },
+    proxyAuthToken: "bridge-admin-token",
+  });
+
+  const app = Fastify({ logger: true });
+  app.decorateRequest("openHaxAuth", null);
+  app.addHook("onRequest", async (request) => {
+    const mutableRequest = request as FastifyRequest & { openHaxAuth?: unknown };
+    const authorization = typeof request.headers.authorization === "string"
+      ? request.headers.authorization.trim()
+      : "";
+
+    if (authorization === "Bearer bridge-admin-token") {
+      mutableRequest.openHaxAuth = {
+        kind: "legacy_admin",
+        tenantId: "default",
+        role: "owner",
+        source: "bearer",
+        subject: "legacy:proxy-auth-token",
+      };
+    }
+  });
+
+  const keyPool = new KeyPool({
+    keysFilePath: keysPath,
+    reloadIntervalMs: 1_000_000,
+    defaultCooldownMs: 10_000,
+    defaultProviderId: config.upstreamProviderId,
+  });
+
+  const poolTokenA = "pool-token-a";
+  const poolTokenB = "pool-token-b";
+  const poolRefreshA = "pool-refresh-a";
+  const poolRefreshB = "pool-refresh-b";
+  const visibleAccounts = [
+    {
+      providerId: "openai",
+      accountId: "acct-a",
+      token: poolTokenA,
+      authType: "oauth_bearer" as const,
+      chatgptAccountId: "chatgpt-acct-a",
+      planType: "plus",
+      refreshToken: poolRefreshA,
+    },
+    {
+      providerId: "openai",
+      accountId: "acct-b",
+      token: poolTokenB,
+      authType: "oauth_bearer" as const,
+      chatgptAccountId: "chatgpt-acct-b",
+      planType: "pro",
+      refreshToken: poolRefreshB,
+    },
+  ];
+
+  (keyPool as unknown as { providers: Map<string, { authType: "oauth_bearer"; accounts: typeof visibleAccounts; nextOffset: number }> }).providers = new Map([
+    ["openai", { authType: "oauth_bearer", accounts: visibleAccounts, nextOffset: 0 }],
+  ]);
+  (keyPool as unknown as { lastReloadAt: number }).lastReloadAt = Date.now();
+
+  const credentialStore: CredentialStoreLike = {
+    async listProviders(revealSecrets: boolean) {
+      return [{
+        id: "openai",
+        authType: "oauth_bearer",
+        accountCount: 2,
+        accounts: [
+          {
+            id: "acct-a",
+            authType: "oauth_bearer",
+            displayName: "acct-a@example.com",
+            secretPreview: "pool...a",
+            secret: revealSecrets ? poolTokenA : undefined,
+            refreshTokenPreview: revealSecrets ? "refresh...a" : undefined,
+            refreshToken: revealSecrets ? poolRefreshA : undefined,
+            chatgptAccountId: "chatgpt-acct-a",
+            email: "acct-a@example.com",
+            subject: "acct-a-subject",
+            planType: "plus",
+          },
+          {
+            id: "acct-b",
+            authType: "oauth_bearer",
+            displayName: "acct-b@example.com",
+            secretPreview: "pool...b",
+            secret: revealSecrets ? poolTokenB : undefined,
+            refreshTokenPreview: revealSecrets ? "refresh...b" : undefined,
+            refreshToken: revealSecrets ? poolRefreshB : undefined,
+            chatgptAccountId: "chatgpt-acct-b",
+            email: "acct-b@example.com",
+            subject: "acct-b-subject",
+            planType: "pro",
+          },
+        ],
+      }];
+    },
+    async upsertApiKeyAccount(): Promise<void> {
+      throw new Error("not implemented in test");
+    },
+    async upsertOAuthAccount(): Promise<void> {
+      return;
+    },
+    async removeAccount(): Promise<boolean> {
+      return false;
+    },
+  };
+
+  const requestLogStore = new RequestLogStore(requestLogsPath, 1000, 0);
+  await requestLogStore.warmup();
+  const proxySettingsStore = new ProxySettingsStore(settingsPath);
+  await proxySettingsStore.warmup();
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input, init) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : String(input);
+    if (url.includes("/api/usage_limits")) {
+      const token = typeof init?.headers === "object" && init.headers && "authorization" in init.headers
+        ? String((init.headers as Record<string, string>).authorization ?? "")
+        : "";
+      const accountId = token.endsWith(poolTokenA) ? "acct-a" : token.endsWith(poolTokenB) ? "acct-b" : "unknown";
+      return new Response(JSON.stringify({
+        usage: {
+          rate_limit: {
+            primary: { used_percent: accountId === "acct-a" ? 25 : 75 },
+          },
+        },
+        plan_type: accountId === "acct-a" ? "plus" : "pro",
+        account_id: accountId === "acct-a" ? "chatgpt-acct-a" : "chatgpt-acct-b",
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    throw new Error(`unexpected fetch: ${url}`);
+  }) as typeof fetch;
+
+  await registerApiV1Routes(app, {
+    config,
+    keyPool,
+    requestLogStore,
+    credentialStore,
+    proxySettingsStore,
+  });
+  await app.listen({ host: "127.0.0.1", port: 0 });
+
+  try {
+    const credentialsResponse = await app.inject({
+      method: "GET",
+      url: "/api/v1/credentials?reveal=false",
+      headers: { authorization: "Bearer bridge-admin-token" },
+    });
+
+    assert.equal(credentialsResponse.statusCode, 200);
+    const credentialsPayload = credentialsResponse.json() as {
+      readonly providers: ReadonlyArray<{ readonly id: string; readonly accountCount: number; readonly accounts: ReadonlyArray<{ readonly id: string }> }>;
+    };
+    const openaiProvider = credentialsPayload.providers.find((provider) => provider.id === "openai");
+    assert.ok(openaiProvider);
+    assert.equal(openaiProvider.accountCount, 2);
+    assert.deepEqual(openaiProvider.accounts.map((account) => account.id), ["acct-a", "acct-b"]);
+
+    const quotaResponse = await app.inject({
+      method: "GET",
+      url: "/api/v1/credentials/openai/quota",
+      headers: { authorization: "Bearer bridge-admin-token" },
+    });
+
+    assert.equal(quotaResponse.statusCode, 200);
+    const quotaPayload = quotaResponse.json() as {
+      readonly accounts: ReadonlyArray<{ readonly accountId: string }>;
+    };
+    assert.deepEqual(quotaPayload.accounts.map((account) => account.accountId).sort(), ["acct-a", "acct-b"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+    await app.close();
+    await requestLogStore.close();
+    await new Promise<void>((resolve) => upstream.close(() => resolve()));
     await rm(tempDir, { recursive: true, force: true });
   }
 });

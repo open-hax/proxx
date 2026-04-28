@@ -37,11 +37,17 @@ interface Logger {
   error(obj: Record<string, unknown>, msg: string): void;
 }
 
+interface QuotaCooldownController {
+  setAccountCooldownUntil(providerId: string, accountId: string, cooldownUntil: number): void;
+  clearAccountCooldown(providerId: string, accountId: string): void;
+}
+
 export class QuotaMonitor {
   private readonly config: QuotaMonitorConfig;
   private readonly logger: Logger;
   private readonly credentialStore: CredentialStoreLike;
   private readonly healthStore?: AccountHealthStore;
+  private readonly cooldownController?: QuotaCooldownController;
   private checkTimer: ReturnType<typeof setInterval> | null = null;
   private stopped = false;
   private lastQuotaStatus = new Map<string, QuotaStatusRecord>();
@@ -52,11 +58,13 @@ export class QuotaMonitor {
     logger: Logger,
     config: Partial<QuotaMonitorConfig> = {},
     healthStore?: AccountHealthStore,
+    cooldownController?: QuotaCooldownController,
   ) {
     this.config = { ...DEFAULT_QUOTA_MONITOR_CONFIG, ...config };
     this.logger = logger;
     this.credentialStore = credentialStore;
     this.healthStore = healthStore;
+    this.cooldownController = cooldownController;
   }
 
   public start(): void {
@@ -111,34 +119,19 @@ export class QuotaMonitor {
 
     for (const account of snapshots.accounts) {
       const previousStatus = this.lastQuotaStatus.get(account.accountId);
-      const status = this.computeQuotaStatus(account);
-
-      this.lastQuotaStatus.set(account.accountId, {
-        accountId: account.accountId,
-        providerId: this.config.providerId,
-        fiveHourUsedPercent: status.fiveHourUsedPercent,
-        weeklyUsedPercent: status.weeklyUsedPercent,
-        fiveHourResetsAt: account.fiveHour?.resetsAt ?? null,
-        fiveHourResetAfterSeconds: account.fiveHour?.resetAfterSeconds ?? null,
-        weeklyResetsAt: account.weekly?.resetsAt ?? null,
-        weeklyResetAfterSeconds: account.weekly?.resetAfterSeconds ?? null,
-        isExhausted: status.isExhausted,
-        fetchedAt: Date.now(),
-      });
+      const status = this.applySnapshot(account);
 
       checkedCount++;
 
-      if (status.isExhausted) {
+      if (status.record.isExhausted) {
         exhaustedCount++;
         newExhaustedAccounts.add(account.accountId);
-        this.recordQuotaExhaustion(account);
       } else if (status.isWarning) {
         warningCount++;
       }
 
-      if (previousStatus?.isExhausted && !status.isExhausted) {
+      if (previousStatus?.isExhausted && !status.record.isExhausted) {
         resetCount++;
-        this.recordQuotaReset(account);
       }
     }
 
@@ -152,6 +145,30 @@ export class QuotaMonitor {
     }
   }
 
+  public async refreshAccountQuota(accountId: string): Promise<QuotaStatusRecord | undefined> {
+    const normalizedAccountId = accountId.trim();
+    if (normalizedAccountId.length === 0) {
+      return undefined;
+    }
+
+    const snapshots = await fetchOpenAiQuotaSnapshots(this.credentialStore, {
+      providerId: this.config.providerId,
+      accountId: normalizedAccountId,
+      fetchFn: fetch,
+    });
+
+    const snapshot = snapshots.accounts[0];
+    if (!snapshot) {
+      return this.lastQuotaStatus.get(normalizedAccountId);
+    }
+
+    return this.applySnapshot(snapshot).record;
+  }
+
+  public tracksProvider(providerId: string): boolean {
+    return providerId.trim().toLowerCase() === this.config.providerId.toLowerCase();
+  }
+
   private computeQuotaStatus(snapshot: OpenAiQuotaAccountSnapshot): {
     fiveHourUsedPercent: number | null;
     weeklyUsedPercent: number | null;
@@ -160,34 +177,73 @@ export class QuotaMonitor {
   } {
     const fiveHourUsedPercent = snapshot.fiveHour?.usedPercent ?? snapshot.weekly?.usedPercent ?? null;
     const weeklyUsedPercent = snapshot.weekly?.usedPercent ?? fiveHourUsedPercent ?? null;
+    const rateLimitReached = snapshot.rateLimit?.limitReached === true || snapshot.rateLimit?.allowed === false;
 
-    const isExhausted = fiveHourUsedPercent !== null && fiveHourUsedPercent >= this.config.quotaCriticalThreshold;
-    const isWarning = fiveHourUsedPercent !== null && fiveHourUsedPercent >= this.config.quotaWarningThreshold && !isExhausted;
+    const isExhausted = rateLimitReached
+      || (fiveHourUsedPercent !== null && fiveHourUsedPercent >= this.config.quotaCriticalThreshold)
+      || (weeklyUsedPercent !== null && weeklyUsedPercent >= this.config.quotaCriticalThreshold);
+    const isWarning = !isExhausted && (
+      (fiveHourUsedPercent !== null && fiveHourUsedPercent >= this.config.quotaWarningThreshold)
+      || (weeklyUsedPercent !== null && weeklyUsedPercent >= this.config.quotaWarningThreshold)
+    );
 
     return { fiveHourUsedPercent, weeklyUsedPercent, isExhausted, isWarning };
   }
 
-  private recordQuotaExhaustion(snapshot: OpenAiQuotaAccountSnapshot): void {
-    if (!this.healthStore) {
-      return;
+  private applySnapshot(snapshot: OpenAiQuotaAccountSnapshot): {
+    readonly record: QuotaStatusRecord;
+    readonly isWarning: boolean;
+  } {
+    const previousStatus = this.lastQuotaStatus.get(snapshot.accountId);
+    const status = this.computeQuotaStatus(snapshot);
+    const record: QuotaStatusRecord = {
+      accountId: snapshot.accountId,
+      providerId: this.config.providerId,
+      fiveHourUsedPercent: status.fiveHourUsedPercent,
+      weeklyUsedPercent: status.weeklyUsedPercent,
+      fiveHourResetsAt: snapshot.fiveHour?.resetsAt ?? null,
+      fiveHourResetAfterSeconds: snapshot.fiveHour?.resetAfterSeconds ?? null,
+      weeklyResetsAt: snapshot.weekly?.resetsAt ?? null,
+      weeklyResetAfterSeconds: snapshot.weekly?.resetAfterSeconds ?? null,
+      isExhausted: status.isExhausted,
+      fetchedAt: Date.now(),
+    };
+
+    this.lastQuotaStatus.set(snapshot.accountId, record);
+
+    if (status.isExhausted) {
+      this.knownExhaustedAccounts.add(snapshot.accountId);
+      this.recordQuotaExhaustion(snapshot, record);
+    } else {
+      this.knownExhaustedAccounts.delete(snapshot.accountId);
+      if (previousStatus?.isExhausted) {
+        this.recordQuotaReset(snapshot);
+      }
     }
 
-    this.healthStore.recordQuotaExhausted(
+    return { record, isWarning: status.isWarning };
+  }
+
+  private recordQuotaExhaustion(snapshot: OpenAiQuotaAccountSnapshot, status: QuotaStatusRecord): void {
+    const usedPercent = snapshot.fiveHour?.usedPercent ?? snapshot.weekly?.usedPercent ?? 100;
+    this.healthStore?.recordQuotaExhausted(
       this.config.providerId,
       snapshot.accountId,
-      snapshot.fiveHour?.usedPercent ?? snapshot.weekly?.usedPercent ?? 100,
+      usedPercent,
     );
+
+    const cooldownUntil = this.resolveCooldownUntil(status);
+    if (cooldownUntil !== undefined) {
+      this.cooldownController?.setAccountCooldownUntil(this.config.providerId, snapshot.accountId, cooldownUntil);
+    }
   }
 
   private recordQuotaReset(snapshot: OpenAiQuotaAccountSnapshot): void {
-    if (!this.healthStore) {
-      return;
-    }
-
-    this.healthStore.resetQuotaExhausted(
+    this.healthStore?.resetQuotaExhausted(
       this.config.providerId,
       snapshot.accountId,
     );
+    this.cooldownController?.clearAccountCooldown(this.config.providerId, snapshot.accountId);
 
     this.logger.info(
       { accountId: snapshot.accountId, usedPercent: snapshot.fiveHour?.usedPercent ?? snapshot.weekly?.usedPercent },
@@ -213,9 +269,26 @@ export class QuotaMonitor {
 
   public getCooldownMs(accountId: string): number | undefined {
     const status = this.lastQuotaStatus.get(accountId);
+    if (!status || !status.isExhausted) {
+      return undefined;
+    }
+    return this.getCooldownMsFromQuotaStatus(status);
+  }
+
+  /**
+   * Return the quota-derived cooldown for an account regardless of exhaustion status.
+   * Use this when the account is already known to be rate-limited (e.g. 429 response)
+   * and we need the quota data to determine *how long* to wait.
+   */
+  public getCooldownMsFromQuota(accountId: string): number | undefined {
+    const status = this.lastQuotaStatus.get(accountId);
     if (!status) {
       return undefined;
     }
+    return this.getCooldownMsFromQuotaStatus(status);
+  }
+
+  private getCooldownMsFromQuotaStatus(status: QuotaStatusRecord): number | undefined {
     if (status.fiveHourResetAfterSeconds !== null) {
       return status.fiveHourResetAfterSeconds * 1000;
     }
@@ -239,5 +312,14 @@ export class QuotaMonitor {
       }
     }
     return undefined;
+  }
+
+  private resolveCooldownUntil(status: QuotaStatusRecord): number | undefined {
+    const cooldownMs = this.getCooldownMs(status.accountId);
+    if (!cooldownMs) {
+      return undefined;
+    }
+
+    return Date.now() + cooldownMs;
   }
 }

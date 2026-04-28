@@ -9,6 +9,9 @@ const allowedHosts = Array.from(new Set([
   "federation.big.ussy.promethean.rest",
   "brethren.big.ussy.promethean.rest",
   "proxx.big.ussy.promethean.rest",
+  "testing.proxx.ussy.promethean.rest",
+  "staging.proxx.ussy.promethean.rest",
+  "prod.proxx.ussy.promethean.rest",
   ...(process.env.VITE_ALLOWED_HOSTS
     ? process.env.VITE_ALLOWED_HOSTS.split(",").map((entry) => entry.trim()).filter(Boolean)
     : []),

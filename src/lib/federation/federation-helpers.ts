@@ -24,14 +24,52 @@ export function resolveFederationHopCount(headers: Record<string, unknown>): num
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
 }
 
+function resolveTenantApiKeyBoundOwnerSubject(
+  requestAuth: { readonly kind?: string; readonly subject?: string; readonly tenantId?: string } | undefined,
+): string | undefined {
+  if (requestAuth?.kind !== "tenant_api_key") {
+    return undefined;
+  }
+
+  const tenantId = requestAuth.tenantId?.trim();
+  if (tenantId && tenantId.startsWith("did:")) {
+    return tenantId;
+  }
+
+  const authSubject = requestAuth.subject?.trim();
+  if (!authSubject?.startsWith("tenant_api_key:")) {
+    return undefined;
+  }
+
+  const boundOwnerSubject = authSubject.slice("tenant_api_key:".length).trim();
+  if (boundOwnerSubject.length === 0 || !boundOwnerSubject.startsWith("did:")) {
+    return undefined;
+  }
+
+  return boundOwnerSubject;
+}
+
 export function resolveFederationOwnerSubject(input: {
   readonly headers: Record<string, unknown>;
-  readonly requestAuth?: { readonly kind?: string; readonly subject?: string };
+  readonly requestAuth?: { readonly kind?: string; readonly subject?: string; readonly tenantId?: string };
   readonly hopCount?: number;
 }): string | undefined {
   const explicitHeader = readSingleHeader(input.headers, FEDERATION_OWNER_SUBJECT_HEADER)?.trim();
-  if (explicitHeader && ((input.hopCount ?? 0) > 0 || input.requestAuth?.kind === "legacy_admin")) {
+  const tenantApiKeyOwnerSubject = resolveTenantApiKeyBoundOwnerSubject(input.requestAuth);
+  if (explicitHeader && (
+    (input.hopCount ?? 0) > 0
+    || input.requestAuth?.kind === "legacy_admin"
+    || tenantApiKeyOwnerSubject === explicitHeader
+  )) {
     return explicitHeader;
+  }
+
+  if (explicitHeader && input.requestAuth?.kind === "tenant_api_key") {
+    return undefined;
+  }
+
+  if (input.requestAuth?.kind === "tenant_api_key") {
+    return tenantApiKeyOwnerSubject;
   }
 
   const authSubject = input.requestAuth?.subject?.trim();

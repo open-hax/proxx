@@ -53,7 +53,7 @@ export async function registerBridgeLeaseRoutes(
   app.get<{
     Querystring: { readonly providerId?: string; readonly limit?: string };
   }>("/api/bridge/credentials/accounts", async (request, reply) => {
-    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
+    const auth = getResolvedAuth(request);
     if (!authCanManageFederation(auth)) {
       reply.code(auth ? 403 : 401).send({ error: auth ? "forbidden" : "unauthorized" });
       return;
@@ -95,7 +95,7 @@ export async function registerBridgeLeaseRoutes(
   });
 
   app.get("/api/bridge/credentials/providers", async (request, reply) => {
-    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
+    const auth = getResolvedAuth(request);
     if (!authCanManageFederation(auth)) {
       reply.code(auth ? 403 : 401).send({ error: auth ? "forbidden" : "unauthorized" });
       return;
@@ -127,7 +127,7 @@ export async function registerBridgeLeaseRoutes(
   app.post<{
     Body: { readonly providerId?: string; readonly accountId?: string };
   }>("/api/bridge/credentials/export", async (request, reply) => {
-    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
+    const auth = getResolvedAuth(request);
     if (!authCanManageFederation(auth)) {
       reply.code(auth ? 403 : 401).send({ error: auth ? "forbidden" : "unauthorized" });
       return;

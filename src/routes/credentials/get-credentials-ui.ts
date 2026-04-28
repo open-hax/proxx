@@ -13,7 +13,7 @@ export async function registerGetCredentialsUiRoute(
 ): Promise<void> {
   app.get<{ Querystring: { readonly reveal?: string } }>(resolveCredentialRoutePath("/credentials", options), async (request, reply) => {
     const reveal = parseBoolean(request.query.reveal);
-    const providers = await ctx.credentialStore.listProviders(reveal);
+    const providers = await ctx.credentialStore.listProviders(reveal).catch(() => []);
     const requestLogSummary = deps.requestLogStore.providerSummary();
     const keyPoolStatuses = await deps.keyPool.getAllStatuses().catch(() => ({}));
 

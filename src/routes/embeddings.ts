@@ -7,15 +7,14 @@ import { buildForwardHeaders } from "../lib/proxy.js";
 import {
   nativeEmbedToOpenAiRequest,
   nativeEmbedResponseToOpenAiEmbeddings,
+  nativeEmbedToOllamaRequest,
 } from "../lib/ollama-native.js";
 import {
   selectProviderStrategy,
 } from "../lib/provider-strategy.js";
-import {
-  filterTenantProviderRoutes,
-} from "../lib/tenant-policy-helpers.js";
 import { isAutoModel } from "../lib/auto-model-selector.js";
 import { isRecord, sendOpenAiError, toErrorMessage, fetchWithResponseTimeout } from "../lib/provider-utils.js";
+import { ensureNativeOllamaEmbedContextFits } from "../lib/ollama-context.js";
 
 export function registerEmbeddingsRoutes(deps: AppDeps, app: FastifyInstance): void {
   app.post<{ Body: Record<string, unknown> }>("/v1/embeddings", async (request, reply) => {
@@ -31,7 +30,7 @@ export function registerEmbeddingsRoutes(deps: AppDeps, app: FastifyInstance): v
     }
 
     const tenantSettings = await deps.proxySettingsStore.getForTenant(
-      ((request as { readonly openHaxAuth?: { readonly tenantId?: string } }).openHaxAuth?.tenantId) ?? DEFAULT_TENANT_ID,
+      (request.openHaxAuth?.tenantId) ?? DEFAULT_TENANT_ID,
     );
     if (!tenantProviderAllowed(tenantSettings, "ollama")) {
       sendOpenAiError(reply, 403, "Provider is disabled for this tenant: ollama", "invalid_request_error", "provider_not_allowed");
@@ -48,7 +47,7 @@ export function registerEmbeddingsRoutes(deps: AppDeps, app: FastifyInstance): v
       },
       model,
       model,
-      (request as { readonly openHaxAuth?: { readonly kind: "legacy_admin" | "tenant_api_key" | "ui_session" | "unauthenticated"; readonly tenantId?: string; readonly keyId?: string; readonly subject?: string } }).openHaxAuth,
+      request.openHaxAuth ?? undefined,
     ).context;
 
     const routedModel = routingState.routedModel;
@@ -57,16 +56,37 @@ export function registerEmbeddingsRoutes(deps: AppDeps, app: FastifyInstance): v
       ...request.body,
       model: routedModel,
     });
+    const embedBudget = await ensureNativeOllamaEmbedContextFits(
+      deps.config.ollamaBaseUrl,
+      { model: routedModel, input: embedBody.input },
+      Math.min(deps.config.requestTimeoutMs, 30_000),
+    );
+
+    if (embedBudget && embedBudget.requiredContextTokens > embedBudget.availableContextTokens) {
+      sendOpenAiError(
+        reply,
+        400,
+        `Embedding request exceeds model context window for ${embedBudget.model}. Estimated input tokens: ${embedBudget.estimatedInputTokens}, available: ${embedBudget.availableContextTokens}. Reduce input size or split the document before embedding.`,
+        "invalid_request_error",
+        "ollama_context_overflow",
+      );
+      return;
+    }
+
+    const upstreamBody = nativeEmbedToOllamaRequest(
+      {
+        ...request.body,
+        model: routedModel,
+      },
+      embedBudget?.availableContextTokens,
+    );
 
     let upstreamResponse: Response;
     try {
       upstreamResponse = await fetchWithResponseTimeout(upstreamUrl, {
         method: "POST",
         headers: buildForwardHeaders(request.headers),
-        body: JSON.stringify({
-          model: embedBody.model,
-          input: embedBody.input,
-        }),
+        body: JSON.stringify(upstreamBody),
       }, deps.config.requestTimeoutMs);
     } catch (error) {
       sendOpenAiError(

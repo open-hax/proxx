@@ -118,23 +118,6 @@ function formatProviderRouteCell(entry: RequestLogEntry): string {
   return `${base}${routePart}${originPart}`;
 }
 
-function metricTone(value: number, inverse = false): string {
-  if (value <= 0) {
-    return "dashboard-metric-neutral";
-  }
-
-  const peer = entry.routedPeerLabel ?? entry.routedPeerId ?? "unknown-peer";
-  return `${entry.routeKind} → ${peer}`;
-}
-
-function formatProviderRouteCell(entry: RequestLogEntry): string {
-  const base = `${entry.providerId}/${entry.accountId}`;
-  const routePart = entry.routeKind === "local" ? "" : ` · ${formatRouteLabel(entry)}`;
-  const origin = formatRequestOrigin(entry);
-  const originPart = origin !== "unknown" && origin !== "local" ? ` · from ${origin}` : "";
-  return `${base}${routePart}${originPart}`;
-}
-
 function metricTileVariant(value: number, inverse = false): MetricTileVariant {
   if (value <= 0) return 'default';
   if (inverse) {
@@ -366,68 +349,72 @@ export function DashboardPage(): JSX.Element {
         </span>
       )}
 
-      <section className="dashboard-metrics-grid">
-        <article className={`dashboard-metric-card ${metricTone(overview?.summary.requests24h ?? 0)}`}>
-          <span>Requests / {windowLabel}</span>
-          <strong>{loading ? "..." : formatCompactNumber(overview?.summary.requests24h ?? 0)}</strong>
-          {overview ? miniBars(overview.trends.requests) : <div className="dashboard-sparkbars dashboard-sparkbars-placeholder" />}
-        </article>
-        <article className={`dashboard-metric-card ${metricTone(overview?.summary.tokens24h ?? 0)}`}>
-          <span>Tokens / {windowLabel}</span>
-          <strong>{loading ? "..." : formatCompactNumber(overview?.summary.tokens24h ?? 0)}</strong>
-          <small>
-            In {formatCompactNumber(overview?.summary.promptTokens24h ?? 0)} / Out {formatCompactNumber(overview?.summary.completionTokens24h ?? 0)}
-            {" · "}
-            Cached {formatCompactNumber(overview?.summary.cachedPromptTokens24h ?? 0)}
-            {" · "}
-            Cache hit {formatPercent(overview?.summary.cacheHitRate24h ?? 0)}
-          </small>
-        </article>
-        <article className={`dashboard-metric-card ${metricTone(overview?.summary.imageCount24h ?? 0)}`}>
-          <span>Images / {windowLabel}</span>
-          <strong>{loading ? "..." : formatCompactNumber(overview?.summary.imageCount24h ?? 0)}</strong>
-          <small>
-            Cost {formatUsd(overview?.summary.imageCostUsd24h ?? 0)}
-          </small>
-        </article>
-        <article className={`dashboard-metric-card ${metricTone(overview?.summary.errorRate24h ?? 0, true)}`}>
-          <span>Error Rate</span>
-          <strong>{loading ? "..." : formatPercent(overview?.summary.errorRate24h ?? 0)}</strong>
-          {overview ? miniBars(overview.trends.errors) : <div className="dashboard-sparkbars dashboard-sparkbars-placeholder" />}
-        </article>
-        <article className={`dashboard-metric-card ${metricTone(overview?.summary.activeAccounts ?? 0)}`}>
-          <span>Active Accounts</span>
-          <strong>{loading ? "..." : formatCompactNumber(overview?.summary.activeAccounts ?? 0)}</strong>
-          <small>
-            Top model {overview?.summary.topModel ?? "-"} · Top provider {overview?.summary.topProvider ?? "-"}
-          </small>
-        </article>
-        <article className={`dashboard-metric-card ${metricTone((overview?.summary.routingRequests24h.federated ?? 0) + (overview?.summary.routingRequests24h.bridge ?? 0))}`}>
-          <span>Projected / {windowLabel}</span>
-          <strong>{loading ? "..." : formatCompactNumber((overview?.summary.routingRequests24h.federated ?? 0) + (overview?.summary.routingRequests24h.bridge ?? 0))}</strong>
-          <small>
-            Federated {formatCompactNumber(overview?.summary.routingRequests24h.federated ?? 0)}
-            {" · "}
-            Bridge {formatCompactNumber(overview?.summary.routingRequests24h.bridge ?? 0)}
-            {" · "}
-            Top peer {overview?.summary.routingRequests24h.topPeer ?? "-"}
-          </small>
-        </article>
-        <article className={`dashboard-metric-card ${metricTone(overview?.summary.costUsd24h ?? 0)}`}>
-          <span>Est. Cost / {windowLabel}</span>
-          <strong>{loading ? "..." : formatUsd(overview?.summary.costUsd24h ?? 0)}</strong>
-          <small>
-            {formatCompactNumber((overview?.summary.energyJoules24h ?? 0) / 1000)} kJ energy
-          </small>
-        </article>
-        <article className={`dashboard-metric-card ${metricTone(overview?.summary.waterEvaporatedMl24h ?? 0)}`}>
-          <span>Water Evaporated / {windowLabel}</span>
-          <strong>{loading ? "..." : formatWater(overview?.summary.waterEvaporatedMl24h ?? 0)}</strong>
-          <small>
-            ~1.8 L/kWh DC cooling avg
-          </small>
-        </article>
-      </section>
+      <MetricTileGrid className="dashboard-metrics-grid">
+        <MetricTile
+          label={`Requests / ${windowLabel}`}
+          value={loading ? <Spinner size="sm" /> : formatCompactNumber(overview?.summary.requests24h ?? 0)}
+          sparkbar={overview?.trends.requests.map((p) => ({ value: p.v, label: p.t }))}
+          variant={metricTileVariant(overview?.summary.requests24h ?? 0)}
+        />
+        <MetricTile
+          label={`Tokens / ${windowLabel}`}
+          value={loading ? <Spinner size="sm" /> : formatCompactNumber(overview?.summary.tokens24h ?? 0)}
+          detail={
+            <>
+              In {formatCompactNumber(overview?.summary.promptTokens24h ?? 0)} / Out {formatCompactNumber(overview?.summary.completionTokens24h ?? 0)}
+              {" · "}
+              Cached {formatCompactNumber(overview?.summary.cachedPromptTokens24h ?? 0)}
+              {" · "}
+              Cache hit {formatPercent(overview?.summary.cacheHitRate24h ?? 0)}
+            </>
+          }
+          variant={metricTileVariant(overview?.summary.tokens24h ?? 0)}
+        />
+        <MetricTile
+          label={`Images / ${windowLabel}`}
+          value={loading ? <Spinner size="sm" /> : formatCompactNumber(overview?.summary.imageCount24h ?? 0)}
+          detail={<>Cost {formatUsd(overview?.summary.imageCostUsd24h ?? 0)}</>}
+          variant={metricTileVariant(overview?.summary.imageCount24h ?? 0)}
+        />
+        <MetricTile
+          label="Error Rate"
+          value={loading ? <Spinner size="sm" /> : formatPercent(overview?.summary.errorRate24h ?? 0)}
+          sparkbar={overview?.trends.errors.map((p) => ({ value: p.v, label: p.t }))}
+          variant={metricTileVariant(overview?.summary.errorRate24h ?? 0, true)}
+        />
+        <MetricTile
+          label="Active Accounts"
+          value={loading ? <Spinner size="sm" /> : formatCompactNumber(overview?.summary.activeAccounts ?? 0)}
+          detail={<>Top model {overview?.summary.topModel ?? "-"} · Top provider {overview?.summary.topProvider ?? "-"}</>}
+          variant={metricTileVariant(overview?.summary.activeAccounts ?? 0)}
+        />
+        <MetricTile
+          label={`Projected / ${windowLabel}`}
+          value={loading ? <Spinner size="sm" /> : formatCompactNumber((overview?.summary.routingRequests24h.federated ?? 0) + (overview?.summary.routingRequests24h.bridge ?? 0))}
+          detail={
+            <>
+              Federated {formatCompactNumber(overview?.summary.routingRequests24h.federated ?? 0)}
+              {" · "}
+              Bridge {formatCompactNumber(overview?.summary.routingRequests24h.bridge ?? 0)}
+              {" · "}
+              Top peer {overview?.summary.routingRequests24h.topPeer ?? "-"}
+            </>
+          }
+          variant={metricTileVariant((overview?.summary.routingRequests24h.federated ?? 0) + (overview?.summary.routingRequests24h.bridge ?? 0))}
+        />
+        <MetricTile
+          label={`Est. Cost / ${windowLabel}`}
+          value={loading ? <Spinner size="sm" /> : formatUsd(overview?.summary.costUsd24h ?? 0)}
+          detail={<>{formatCompactNumber((overview?.summary.energyJoules24h ?? 0) / 1000)} kJ energy</>}
+          variant={metricTileVariant(overview?.summary.costUsd24h ?? 0)}
+        />
+        <MetricTile
+          label={`Water Evaporated / ${windowLabel}`}
+          value={loading ? <Spinner size="sm" /> : formatWater(overview?.summary.waterEvaporatedMl24h ?? 0)}
+          detail="~1.8 L/kWh DC cooling avg"
+          variant={metricTileVariant(overview?.summary.waterEvaporatedMl24h ?? 0)}
+        />
+      </MetricTileGrid>
 
       <div className="dashboard-area-left">
         <article className="dashboard-panel panel-sheen">
