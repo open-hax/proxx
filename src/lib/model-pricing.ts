@@ -1,4 +1,4 @@
-import modelsDevPricingSnapshot from "./data/models-dev-pricing-data.js";
+import { getModelsDevPricingSnapshot } from "./models-dev.js";
 
 /**
  * Model pricing, energy, and environmental cost estimation.
@@ -59,8 +59,6 @@ interface ModelsDevResolvedCost {
 interface ModelsDevIndexedEntry extends ModelsDevResolvedCost {
   readonly aliases: readonly string[];
 }
-
-const MODELS_DEV = modelsDevPricingSnapshot as ModelsDevSnapshot;
 
 // Default data center water use efficiency: ~1.8 L/kWh (scope-1 evaporative cooling average).
 // Source: University of Illinois CEE, "AI's Challenging Waters" (2025).
@@ -166,35 +164,53 @@ function aliasesForModelsDevModelId(modelId: string): string[] {
   return [...aliases].sort((left, right) => right.length - left.length || left.localeCompare(right));
 }
 
-const MODELS_DEV_INDEX = new Map<string, readonly ModelsDevIndexedEntry[]>();
-const MODELS_DEV_ALIAS_INDEX = new Map<string, ReadonlyMap<string, ModelsDevIndexedEntry>>();
+let modelsDevIndex = new Map<string, readonly ModelsDevIndexedEntry[]>();
+let modelsDevAliasIndex = new Map<string, ReadonlyMap<string, ModelsDevIndexedEntry>>();
+let modelsDevGeneratedAt: string | null = null;
 
-for (const [providerKey, providerSnapshot] of Object.entries(MODELS_DEV.providers)) {
-  const entries: ModelsDevIndexedEntry[] = [];
-  const aliasIndex = new Map<string, ModelsDevIndexedEntry>();
+function rebuildModelsDevIndexes(snapshot: ModelsDevSnapshot): void {
+  const nextIndex = new Map<string, readonly ModelsDevIndexedEntry[]>();
+  const nextAliasIndex = new Map<string, ReadonlyMap<string, ModelsDevIndexedEntry>>();
 
-  for (const [modelId, cost] of Object.entries(providerSnapshot.models)) {
-    const entry: ModelsDevIndexedEntry = {
-      providerKey,
-      modelId,
-      cost,
-      aliases: aliasesForModelsDevModelId(modelId),
-    };
-    entries.push(entry);
+  for (const [providerKey, providerSnapshot] of Object.entries(snapshot.providers)) {
+    const entries: ModelsDevIndexedEntry[] = [];
+    const aliasIndex = new Map<string, ModelsDevIndexedEntry>();
 
-    for (const alias of entry.aliases) {
-      const existing = aliasIndex.get(alias);
-      if (!existing || existing.modelId.length > entry.modelId.length) {
-        aliasIndex.set(alias, entry);
+    for (const [modelId, cost] of Object.entries(providerSnapshot.models)) {
+      const entry: ModelsDevIndexedEntry = {
+        providerKey,
+        modelId,
+        cost,
+        aliases: aliasesForModelsDevModelId(modelId),
+      };
+      entries.push(entry);
+
+      for (const alias of entry.aliases) {
+        const existing = aliasIndex.get(alias);
+        if (!existing || existing.modelId.length > entry.modelId.length) {
+          aliasIndex.set(alias, entry);
+        }
       }
     }
+
+    nextIndex.set(providerKey, entries);
+    nextAliasIndex.set(providerKey, aliasIndex);
   }
 
-  MODELS_DEV_INDEX.set(providerKey, entries);
-  MODELS_DEV_ALIAS_INDEX.set(providerKey, aliasIndex);
+  modelsDevIndex = nextIndex;
+  modelsDevAliasIndex = nextAliasIndex;
+  modelsDevGeneratedAt = snapshot.generatedAt;
+}
+
+function ensureModelsDevIndexes(): void {
+  const snapshot = getModelsDevPricingSnapshot() as ModelsDevSnapshot;
+  if (modelsDevGeneratedAt !== snapshot.generatedAt) {
+    rebuildModelsDevIndexes(snapshot);
+  }
 }
 
 function directModelsDevProviderKey(providerId: string): string | undefined {
+  ensureModelsDevIndexes();
   const normalized = providerId.trim().toLowerCase();
   switch (normalized) {
     case "gemini":
@@ -204,7 +220,7 @@ function directModelsDevProviderKey(providerId: string): string | undefined {
     case "local":
       return undefined;
     default:
-      return MODELS_DEV_INDEX.has(normalized) ? normalized : undefined;
+      return modelsDevIndex.has(normalized) ? normalized : undefined;
   }
 }
 
@@ -252,6 +268,7 @@ function vendorFallbackProvidersForModel(model: string): readonly string[] {
 }
 
 function preferredModelsDevProviders(providerId: string, model: string): string[] {
+  ensureModelsDevIndexes();
   const result: string[] = [];
   const direct = directModelsDevProviderKey(providerId);
   if (direct) {
@@ -259,7 +276,7 @@ function preferredModelsDevProviders(providerId: string, model: string): string[
   }
 
   for (const providerKey of vendorFallbackProvidersForModel(model)) {
-    if (!result.includes(providerKey) && MODELS_DEV_INDEX.has(providerKey)) {
+    if (!result.includes(providerKey) && modelsDevIndex.has(providerKey)) {
       result.push(providerKey);
     }
   }
@@ -288,8 +305,9 @@ function matchScore(entry: ModelsDevIndexedEntry, candidate: string): number {
 }
 
 function findModelsDevCost(providerKey: string, model: string): ModelsDevResolvedCost | undefined {
-  const aliasIndex = MODELS_DEV_ALIAS_INDEX.get(providerKey);
-  const entries = MODELS_DEV_INDEX.get(providerKey);
+  ensureModelsDevIndexes();
+  const aliasIndex = modelsDevAliasIndex.get(providerKey);
+  const entries = modelsDevIndex.get(providerKey);
   if (!aliasIndex || !entries) {
     return undefined;
   }

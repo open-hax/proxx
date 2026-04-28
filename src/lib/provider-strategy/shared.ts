@@ -367,7 +367,11 @@ function providerAccountsForRequestWithPolicy(
 
 function providerUsesOpenAiChatCompletions(providerId: string): boolean {
   const normalized = providerId.trim().toLowerCase();
-  return normalized === "ob1" || normalized === "openrouter" || normalized === "requesty" || normalized === "zen";
+  return normalized === "ob1"
+    || normalized === "openrouter"
+    || normalized === "requesty"
+    || normalized === "zen"
+    || normalized === "mimo";
 }
 
 function planCostTier(planType: string | undefined): number {

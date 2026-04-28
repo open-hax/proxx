@@ -10,6 +10,7 @@ import {
   getOpenAiCredentialQuota,
   getOpenAiPromptCacheAudit,
   listCredentials,
+  listModelsDevProviders,
   listRequestLogs,
   pollFactoryDeviceOAuth,
   pollOpenAiDeviceOAuth,
@@ -20,6 +21,7 @@ import {
   type CredentialQuotaOverview,
   type CredentialQuotaWindow,
   type KeyPoolStatus,
+  type ModelsDevProviderDescriptor,
   type OpenAiAccountProbeResult,
   type PromptCacheAuditOverview,
   type ProviderRequestLogSummary,
@@ -345,6 +347,7 @@ export function CredentialsPage(): JSX.Element {
   const [selectedProvider, setSelectedProvider] = useStoredState(LS_CREDENTIALS_LOG_PROVIDER, "", validateString);
   const [selectedAccount, setSelectedAccount] = useStoredState(LS_CREDENTIALS_LOG_ACCOUNT, "", validateString);
   const [apiKeyProvider, setApiKeyProvider] = useState("vivgrid");
+  const [modelsDevProviders, setModelsDevProviders] = useState<ModelsDevProviderDescriptor[]>([]);
   const [apiKeyAccount, setApiKeyAccount] = useState("");
   const [apiKeyValue, setApiKeyValue] = useState("");
   const [deviceAuth, setDeviceAuth] = useState<DeviceAuthState | null>(null);
@@ -372,7 +375,41 @@ export function CredentialsPage(): JSX.Element {
     setProviders(payload.providers);
     setKeyPoolStatuses(payload.keyPoolStatuses);
     setRequestLogSummary(payload.requestLogSummary);
+
+    const modelsDev = await listModelsDevProviders().catch(() => ({ providers: [] }));
+    setModelsDevProviders([...modelsDev.providers]);
   }, [revealSecrets]);
+
+  const apiKeyProviderOptions = useMemo(() => {
+    const builtIns: Array<{ readonly value: string; readonly label: string }> = [
+      { value: "vivgrid", label: "Vivgrid" },
+      { value: "openai", label: "OpenAI" },
+      { value: "mimo", label: "Mimo" },
+      { value: "ollama-cloud", label: "Ollama Cloud" },
+      { value: "ollama", label: "Ollama (local)" },
+      { value: "ollama-stealth", label: "Ollama Stealth" },
+      { value: "ollama-big-ussy", label: "Ollama Big Ussy" },
+      { value: "requesty", label: "Requesty" },
+      { value: "zen", label: "Zen/ZenMux" },
+      { value: "openrouter", label: "OpenRouter" },
+      { value: "gemini", label: "Gemini" },
+      { value: "zai", label: "Z.ai (GLM)" },
+      { value: "mistral", label: "Mistral" },
+      { value: "factory", label: "Factory" },
+      { value: "ob1", label: "OB1" },
+      { value: "rotussy", label: "Rotussy" },
+    ];
+
+    const existing = new Set(builtIns.map((entry) => entry.value));
+    const dynamic = modelsDevProviders
+      .filter((entry) => !existing.has(entry.providerId))
+      .map((entry) => ({
+        value: entry.providerId,
+        label: entry.name ? `${entry.name} (${entry.providerId})` : entry.providerId,
+      }));
+
+    return [...builtIns, ...dynamic].sort((a, b) => a.label.localeCompare(b.label));
+  }, [modelsDevProviders]);
 
   const refreshLogs = useCallback(async () => {
     const entries = await listRequestLogs({
@@ -1634,20 +1671,11 @@ export function CredentialsPage(): JSX.Element {
             value={apiKeyProvider}
             onChange={(event) => setApiKeyProvider(event.currentTarget.value)}
           >
-            <option value="vivgrid">Vivgrid</option>
-            <option value="openai">OpenAI</option>
-            <option value="ollama-cloud">Ollama Cloud</option>
-            <option value="ollama">Ollama (local)</option>
-            <option value="ollama-stealth">Ollama Stealth</option>
-            <option value="ollama-big-ussy">Ollama Big Ussy</option>
-            <option value="requesty">Requesty</option>
-            <option value="zen">Zen/ZenMux</option>
-            <option value="openrouter">OpenRouter</option>
-            <option value="gemini">Gemini</option>
-            <option value="zai">Z.ai (GLM)</option>
-            <option value="mistral">Mistral</option>
-            <option value="factory">Factory</option>
-            <option value="ob1">OB1</option>
+            {apiKeyProviderOptions.map((entry) => (
+              <option key={entry.value} value={entry.value}>
+                {entry.label}
+              </option>
+            ))}
           </select>
           <input
             value={apiKeyAccount}

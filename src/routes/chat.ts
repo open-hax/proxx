@@ -21,6 +21,7 @@ import {
 import { executeLocalStrategy } from "../lib/provider-strategy.js";
 import {
   buildProviderRoutesWithDynamicBaseUrls,
+  prependModelsDevProviderRoutesForModel,
   resolveProviderRoutesForModel,
   type ProviderRoute,
 } from "../lib/provider-routing.js";
@@ -114,6 +115,14 @@ export function registerChatRoutes(deps: AppDeps, app: FastifyInstance): void {
         if (!context.openAiPrefixed && resolvedModelCatalog) {
           providerRoutes = resolveProviderRoutesForModel(providerRoutes, context.routedModel, resolvedModelCatalog);
         }
+
+        providerRoutes = await prependModelsDevProviderRoutesForModel(
+          deps.config,
+          deps.keyPool,
+          providerRoutes,
+          context.routedModel,
+          deps.dynamicProviderBaseUrlGetter,
+        );
       }
       const wantsDynamicOllamaRoutes = context.localOllama
         || isCephalonAutoModel(requestedModelInput)

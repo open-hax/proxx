@@ -426,6 +426,14 @@ function readProvidersFromEnv(): Map<string, ProviderState> {
     );
   }
 
+  const mimoKey = (process.env.XAIOMI_MIMO_API_KEY ?? process.env.MIMO_API_KEY ?? "").trim();
+  if (mimoKey) {
+    providers.set(
+      normalizeProviderId(process.env.MIMO_PROVIDER_ID ?? "mimo"),
+      createEnvProviderState(process.env.MIMO_PROVIDER_ID ?? "mimo", mimoKey),
+    );
+  }
+
   return providers;
 }
 

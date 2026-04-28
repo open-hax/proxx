@@ -8,6 +8,7 @@ import {
 import {
   filterImagesApiRoutes,
   buildProviderRoutesWithDynamicBaseUrls,
+  prependModelsDevProviderRoutesForModel,
 } from "../lib/provider-routing.js";
 import {
   orderProviderRoutesByPolicy,
@@ -60,10 +61,20 @@ export function registerImagesRoutes(deps: AppDeps, app: FastifyInstance): void 
       return;
     }
 
-    let providerRoutes = filterImagesApiRoutes(
-      await buildProviderRoutesWithDynamicBaseUrls(deps.config, context.openAiPrefixed, deps.dynamicProviderBaseUrlGetter, true),
-      deps.config.openaiProviderId,
+    let providerRoutes = await buildProviderRoutesWithDynamicBaseUrls(
+      deps.config,
+      context.openAiPrefixed,
+      deps.dynamicProviderBaseUrlGetter,
+      true,
     );
+    providerRoutes = await prependModelsDevProviderRoutesForModel(
+      deps.config,
+      deps.keyPool,
+      providerRoutes,
+      context.routedModel,
+      deps.dynamicProviderBaseUrlGetter,
+    );
+    providerRoutes = filterImagesApiRoutes(providerRoutes, deps.config.openaiProviderId);
     providerRoutes = filterTenantProviderRoutes(providerRoutes, tenantSettings);
     providerRoutes = orderProviderRoutesByPolicy(deps.policyEngine, providerRoutes, context.requestedModelInput, context.routedModel, {
       openAiPrefixed: context.openAiPrefixed,

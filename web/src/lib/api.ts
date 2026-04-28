@@ -51,6 +51,16 @@ export interface CredentialProvider {
   readonly accounts: CredentialAccount[];
 }
 
+export interface ModelsDevProviderDescriptor {
+  readonly providerId: string;
+  readonly name?: string;
+  readonly apiBaseUrl?: string;
+  readonly env?: readonly string[];
+  readonly doc?: string;
+  readonly logoUrl: string;
+  readonly hasCredentials: boolean;
+}
+
 export interface RequestLogEntry {
   readonly id: string;
   readonly timestamp: number;
@@ -773,6 +783,10 @@ export async function listCredentials(reveal: boolean): Promise<{
 }> {
   const query = reveal ? "?reveal=1" : "";
   return requestJson(`/api/v1/credentials${query}`);
+}
+
+export async function listModelsDevProviders(): Promise<{ readonly providers: readonly ModelsDevProviderDescriptor[] }> {
+  return requestJson("/api/v1/credentials/providers/models-dev");
 }
 
 export async function addApiKeyCredential(providerId: string, apiKey: string, accountId?: string): Promise<void> {

@@ -27,6 +27,7 @@ import {
 import { resolveFederationOwnerSubject } from "../lib/federation/federation-helpers.js";
 import {
   buildProviderRoutesWithDynamicBaseUrls,
+  prependModelsDevProviderRoutesForModel,
   filterResponsesApiRoutes,
   type ProviderRoute,
 } from "../lib/provider-routing.js";
@@ -230,6 +231,14 @@ export function registerResponsesRoutes(deps: AppDeps, app: FastifyInstance): vo
       } else {
         providerRoutes = await buildProviderRoutesWithDynamicBaseUrls(deps.config, context.openAiPrefixed, deps.dynamicProviderBaseUrlGetter, true);
       }
+
+      providerRoutes = await prependModelsDevProviderRoutesForModel(
+        deps.config,
+        deps.keyPool,
+        providerRoutes,
+        context.routedModel,
+        deps.dynamicProviderBaseUrlGetter,
+      );
 
       const dynamicOllamaRoutes = await discoverDynamicOllamaRoutes(
         deps.sqlCredentialStore,

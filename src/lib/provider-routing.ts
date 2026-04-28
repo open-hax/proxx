@@ -1,5 +1,9 @@
 import type { ProxyConfig } from "./config.js";
 import type { KeyPool } from "./key-pool.js";
+import {
+  findModelsDevProvidersForModel,
+  getModelsDevProviderDescriptors,
+} from "./models-dev.js";
 
 export interface ProviderRoute {
   readonly providerId: string;
@@ -394,6 +398,104 @@ export async function buildProviderRoutesWithDynamicBaseUrls(
   return routes;
 }
 
+function normalizeProviderId(providerId: string): string {
+  return providerId.trim().toLowerCase();
+}
+
+function normalizeModelForLookup(model: string): string {
+  return model.trim().toLowerCase();
+}
+
+function isModelsDevRoutingEnabled(): boolean {
+  const raw = (process.env.MODELS_DEV_ROUTING ?? "true").trim().toLowerCase();
+  return raw !== "0" && raw !== "false" && raw !== "off";
+}
+
+/**
+ * models.dev-driven provider discovery layer.
+ *
+ * This is meant to sit *before* the blind fallback route list: look up which
+ * providers claim to serve a model, then try only the providers for which we
+ * actually have credentials.
+ */
+export async function prependModelsDevProviderRoutesForModel(
+  config: ProxyConfig,
+  keyPool: Pick<KeyPool, "getRequestOrder">,
+  providerRoutes: readonly ProviderRoute[],
+  model: string,
+  getDynamicBaseUrl?: DynamicProviderBaseUrlGetter,
+): Promise<ProviderRoute[]> {
+  if (!isModelsDevRoutingEnabled()) {
+    return [...providerRoutes];
+  }
+
+  const normalizedModel = normalizeModelForLookup(model);
+  if (!normalizedModel) {
+    return [...providerRoutes];
+  }
+
+  const descriptorByProvider = new Map(
+    getModelsDevProviderDescriptors().map((entry) => [normalizeProviderId(entry.providerId), entry] as const),
+  );
+
+  const candidates = findModelsDevProvidersForModel(model)
+    .map((entry) => normalizeProviderId(entry.providerId));
+
+  const discovered: ProviderRoute[] = [];
+  const seen = new Set<string>();
+
+  for (const providerId of candidates) {
+    if (!providerId || seen.has(providerId)) {
+      continue;
+    }
+    seen.add(providerId);
+
+    if (config.disabledProviderIds.includes(providerId)) {
+      continue;
+    }
+
+    // Gate on *existing* credentials: we don't want to add a provider to the
+    // routing plan unless at least one key exists.
+    try {
+      await keyPool.getRequestOrder(providerId);
+    } catch {
+      continue;
+    }
+
+    const apiBaseUrl = descriptorByProvider.get(providerId)?.apiBaseUrl;
+
+    let baseUrl = (apiBaseUrl
+      ?? config.upstreamProviderBaseUrls[providerId]
+      ?? "")
+      .trim()
+      .replace(/\/+$/, "");
+
+    if (!baseUrl && getDynamicBaseUrl) {
+      try {
+        const dynamic = await getDynamicBaseUrl(providerId);
+        if (dynamic) {
+          baseUrl = dynamic.trim().replace(/\/+$/, "");
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    if (!baseUrl) {
+      continue;
+    }
+
+    discovered.push({ providerId, baseUrl });
+  }
+
+  if (discovered.length === 0) {
+    return [...providerRoutes];
+  }
+
+  const existing = providerRoutes.filter((route) => !seen.has(normalizeProviderId(route.providerId)));
+  return [...discovered, ...existing];
+}
+
 export async function minMsUntilAnyProviderKeyReady(keyPool: KeyPool, routes: readonly ProviderRoute[]): Promise<number> {
   let minReadyInMs = 0;
 
@@ -460,8 +562,8 @@ export function resolveProviderRoutesForModel(
   return [...ollamaRoutes, ...nonOllamaRoutes];
 }
 
-const OPENAI_COMPATIBLE_API_PROVIDERS = new Set(["vivgrid", "openai", "factory", "requesty", "zen"]);
-const RESPONSES_COMPATIBLE_API_PROVIDERS = new Set(["vivgrid", "openai", "factory", "requesty", "zen", "rotussy"]);
+const OPENAI_COMPATIBLE_API_PROVIDERS = new Set(["vivgrid", "openai", "factory", "requesty", "zen", "mimo"]);
+const RESPONSES_COMPATIBLE_API_PROVIDERS = new Set(["vivgrid", "openai", "factory", "requesty", "zen", "rotussy", "mimo"]);
 
 function providerSupportsOpenAiCompatibleApi(providerId: string, openAiProviderId?: string): boolean {
   const normalized = providerId.trim().toLowerCase();

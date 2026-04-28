@@ -6,6 +6,7 @@ import { registerCredentialAccountManagementUiRoutes } from "./account-managemen
 import { registerFactoryBrowserOAuthUiRoutes } from "./factory-browser-oauth-ui.js";
 import { registerFactoryDeviceOAuthUiRoutes } from "./factory-device-oauth-ui.js";
 import { registerGetCredentialsUiRoute } from "./get-credentials-ui.js";
+import { registerModelsDevProvidersUiRoute } from "./models-dev-providers-ui.js";
 import { registerOpenAiBrowserOAuthUiRoutes } from "./openai-browser-oauth-ui.js";
 import { registerOpenAiDeviceOAuthUiRoutes } from "./openai-device-oauth-ui.js";
 import { registerOpenAiPromptCacheAuditUiRoute } from "./openai-prompt-cache-audit-ui.js";
@@ -22,6 +23,7 @@ export async function registerCredentialUiRoutes(
   const context = createCredentialRouteContext(deps);
 
   await registerGetCredentialsUiRoute(app, deps, context, options);
+  await registerModelsDevProvidersUiRoute(app, deps, context, options);
   await registerOpenAiQuotaUiRoute(app, deps, context, options);
   await registerOpenAiPromptCacheAuditUiRoute(app, deps, context, options);
   await registerOpenAiProbeUiRoute(app, deps, context, options);
