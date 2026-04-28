@@ -1,17 +1,17 @@
 import type { FastifyInstance } from "fastify";
 
-import { type ChatCompletionRequest, extractPromptCacheKey } from "../lib/request-utils.js";
+import type { ChatCompletionRequest } from "../lib/request-utils.js";
+import { extractPromptCacheKey } from "../lib/openai/index.js";
 import { isRecord } from "../lib/provider-utils.js";
 import {
   resolvableConcreteModelIds,
   filterProviderRoutesByModelSupport,
   shouldRejectModelFromProviderCatalog,
-} from "../lib/model-routing-helpers.js";
+} from "../lib/policy/adapters/index.js";
 import {
   tenantProviderAllowed,
   filterTenantProviderRoutes,
-  resolveExplicitTenantProviderId,
-} from "../lib/tenant-policy-helpers.js";
+} from "../lib/policy/engine/index.js";
 import {
   selectProviderStrategy,
   executeProviderFallback,
@@ -25,9 +25,12 @@ import {
   type ProviderRoute,
 } from "../lib/provider-routing.js";
 import { orderProviderRoutesByPolicy } from "../lib/provider-policy.js";
-import { sendOpenAiError, toErrorMessage } from "../lib/provider-utils.js";
-import { isAutoModel, rankAutoModels } from "../lib/auto-model-selector.js";
-import { isCephalonAutoModel, buildCephalonModelCandidates, reorderCephalonProviderRoutes } from "../lib/provider-strategy/strategies/cephalon.js";
+import { sendOpenAiError } from "../lib/provider-utils.js";
+import { toErrorMessage } from "../lib/errors/index.js";
+import { handleRoutingOutcome } from "../lib/routing-outcome-handler.js";
+import { isCephalonAutoModel, reorderCephalonProviderRoutes } from "../lib/provider-strategy/strategies/cephalon.js";
+import { isVisionAutoModel, reorderVisionProviderRoutes } from "../lib/provider-strategy/strategies/vision.js";
+import { resolveFederationOwnerSubject } from "../lib/federation/federation-helpers.js";
 import { requestHasExplicitNumCtx } from "../lib/ollama-compat.js";
 import { ensureOllamaContextFits } from "../lib/ollama-context.js";
 import { executeFederatedRequestFallback } from "../lib/federation/federated-fallback.js";

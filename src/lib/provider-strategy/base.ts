@@ -39,6 +39,174 @@ function appendUpstreamIdentityHeaders(reply: FastifyReply, context: ProviderAtt
   }
 }
 
+type StreamBootstrapResult =
+  | { kind: "continue"; rateLimit?: true; requestError?: true }
+  | {
+    kind: "ready";
+    reader: ReadableStreamDefaultReader<Uint8Array>;
+    bufferedChunks: Uint8Array[];
+  };
+
+async function cancelStreamReader(reader: ReadableStreamDefaultReader<Uint8Array>): Promise<void> {
+  try {
+    await reader.cancel();
+  } catch {
+    // Ignore cancellation errors while failing over.
+  }
+}
+
+async function readStreamChunkWithTimeout(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  timeoutMs: number,
+): Promise<ReadableStreamReadResult<Uint8Array>> {
+  let timeoutHandle: NodeJS.Timeout | undefined;
+
+  try {
+    return await Promise.race([
+      reader.read(),
+      new Promise<ReadableStreamReadResult<Uint8Array>>((_, reject) => {
+        timeoutHandle = setTimeout(() => {
+          reject(new Error("stream bootstrap timeout"));
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle);
+    }
+  }
+}
+
+async function bootstrapEventStream(
+  upstreamResponse: Response,
+  context: ProviderAttemptContext,
+): Promise<StreamBootstrapResult> {
+  if (!upstreamResponse.body) {
+    return { kind: "continue", requestError: true };
+  }
+
+  const reader = upstreamResponse.body.getReader();
+  const decoder = new TextDecoder();
+  const bufferedChunks: Uint8Array[] = [];
+  let bufferedText = "";
+
+  try {
+    while (true) {
+      const { done, value } = await readStreamChunkWithTimeout(reader, context.upstreamAttemptTimeoutMs);
+
+      if (done) {
+        bufferedText += decoder.decode();
+        const sanitized = stripSseCommentLines(bufferedText);
+
+        if (streamPayloadIndicatesQuotaError(sanitized)) {
+          await cancelStreamReader(reader);
+          return { kind: "continue", rateLimit: true };
+        }
+
+        if (!streamPayloadHasSubstantiveChunks(sanitized)) {
+          await cancelStreamReader(reader);
+          return { kind: "continue", requestError: true };
+        }
+
+        if (context.needsReasoningTrace && context.hasMoreCandidates && !streamPayloadHasReasoningTrace(sanitized)) {
+          await cancelStreamReader(reader);
+          return { kind: "continue", requestError: true };
+        }
+
+        return {
+          kind: "ready",
+          reader,
+          bufferedChunks,
+        };
+      }
+
+      if (!value || value.byteLength === 0) {
+        continue;
+      }
+
+      bufferedChunks.push(value);
+      bufferedText += decoder.decode(value, { stream: true });
+      const sanitized = stripSseCommentLines(bufferedText);
+
+      if (streamPayloadIndicatesQuotaError(sanitized)) {
+        await cancelStreamReader(reader);
+        return { kind: "continue", rateLimit: true };
+      }
+
+      if (!streamPayloadHasSubstantiveChunks(sanitized)) {
+        continue;
+      }
+
+      if (context.needsReasoningTrace && context.hasMoreCandidates && !streamPayloadHasReasoningTrace(sanitized)) {
+        continue;
+      }
+
+      return {
+        kind: "ready",
+        reader,
+        bufferedChunks,
+      };
+    }
+  } catch {
+    await cancelStreamReader(reader);
+    return { kind: "continue", requestError: true };
+  }
+}
+
+async function streamEventStreamToClient(
+  reply: FastifyReply,
+  upstreamResponse: Response,
+  context: ProviderAttemptContext,
+  bootstrap: Extract<StreamBootstrapResult, { kind: "ready" }>,
+): Promise<ProviderAttemptOutcome> {
+  appendUpstreamIdentityHeaders(reply, context);
+  reply.code(upstreamResponse.status);
+  copyUpstreamHeaders(reply, upstreamResponse.headers);
+  reply.removeHeader("content-length");
+  reply.header("cache-control", "no-cache");
+  reply.header("x-accel-buffering", "no");
+  reply.header("content-type", "text/event-stream; charset=utf-8");
+  reply.hijack();
+
+  const rawResponse = reply.raw;
+  rawResponse.statusCode = upstreamResponse.status;
+  for (const [name, value] of Object.entries(reply.getHeaders())) {
+    if (value !== undefined) {
+      rawResponse.setHeader(name, value as never);
+    }
+  }
+  rawResponse.flushHeaders();
+
+  try {
+    for (const chunk of bootstrap.bufferedChunks) {
+      rawResponse.write(chunk);
+    }
+
+    while (!rawResponse.writableEnded) {
+      const { done, value } = await bootstrap.reader.read();
+      if (done) {
+        break;
+      }
+
+      if (value && value.byteLength > 0) {
+        rawResponse.write(value);
+      }
+    }
+  } finally {
+    try {
+      bootstrap.reader.releaseLock();
+    } catch {
+      // Ignore reader release errors while closing the downstream stream.
+    }
+
+    if (!rawResponse.writableEnded) {
+      rawResponse.end();
+    }
+  }
+
+  return { kind: "handled" };
+}
+
 export abstract class BaseProviderStrategy implements ProviderStrategy {
   public abstract readonly mode: UpstreamMode;
   public abstract readonly isLocal: boolean;
@@ -258,47 +426,7 @@ export abstract class BaseProviderStrategy implements ProviderStrategy {
         return bootstrap;
       }
 
-      const streamText = stripSseCommentLines(await upstreamResponse.text());
-      if (streamPayloadIndicatesQuotaError(streamText) && context.hasMoreCandidates) {
-        return {
-          kind: "continue",
-          rateLimit: true
-        };
-      }
-
-      if (!streamPayloadHasSubstantiveChunks(streamText) && context.hasMoreCandidates) {
-        return {
-          kind: "continue",
-          requestError: true
-        };
-      }
-
-      if (context.needsReasoningTrace && !streamPayloadHasReasoningTrace(streamText) && context.hasMoreCandidates) {
-        return {
-          kind: "continue",
-          requestError: true
-        };
-      }
-
-      appendUpstreamIdentityHeaders(reply, context);
-      reply.code(upstreamResponse.status);
-      copyUpstreamHeaders(reply, upstreamResponse.headers);
-      reply.removeHeader("content-length");
-      reply.header("cache-control", "no-cache");
-      reply.header("x-accel-buffering", "no");
-      reply.header("content-type", "text/event-stream; charset=utf-8");
-      reply.hijack();
-      const rawResponse = reply.raw;
-      rawResponse.statusCode = upstreamResponse.status;
-      for (const [name, value] of Object.entries(reply.getHeaders())) {
-        if (value !== undefined) {
-          rawResponse.setHeader(name, value as never);
-        }
-      }
-      rawResponse.flushHeaders();
-      rawResponse.write(streamText);
-      rawResponse.end();
-      return { kind: "handled" };
+      return streamEventStreamToClient(reply, upstreamResponse, context, bootstrap);
     }
 
     appendUpstreamIdentityHeaders(reply, context);

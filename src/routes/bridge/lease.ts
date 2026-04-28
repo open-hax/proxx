@@ -3,7 +3,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ProxyConfig } from "../../lib/config.js";
 import type { CredentialStoreLike } from "../../lib/credential-store.js";
 import type { KeyPool } from "../../lib/key-pool.js";
-import { toErrorMessage } from "../../lib/provider-utils.js";
+import { toErrorMessage } from "../../lib/errors/index.js";
 import { getResolvedAuth, authCanManageFederation } from "../shared/ui-auth.js";
 import { findCredentialForFederationExport, type FederationCredentialExport } from "../federation/account-knowledge.js";
 

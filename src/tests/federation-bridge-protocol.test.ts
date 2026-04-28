@@ -67,7 +67,7 @@ test("parseBridgeMessage parses capabilities with topology targets", () => {
         supportsResponses: true,
         supportsStreaming: true,
         supportsWarmImport: false,
-        credentialMobility: "access_token_only",
+        credentialMobility: "non_exportable",
         credentialOrigin: "localhost_oauth",
         lastHealthyAt: "2026-03-23T04:59:59.000Z",
         topologyTargets: [
