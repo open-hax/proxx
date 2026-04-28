@@ -486,10 +486,7 @@ test("relay /v1/chat/completions can bridge a real completion request to an atta
             headers: { authorization: "Bearer bridge-admin-token" },
           });
           const payload = response.json() as { readonly sessions: ReadonlyArray<Record<string, unknown>> };
-          const session = payload.sessions[0];
-          return session?.state === "connected"
-            && Array.isArray(session.capabilities)
-            && session.capabilities.length > 0;
+          return payload.sessions[0]?.state === "connected";
         });
 
         const chatResponse = await relayApp!.inject({

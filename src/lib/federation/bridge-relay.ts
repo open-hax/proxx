@@ -203,8 +203,6 @@ export class FederationBridgeRelay {
     readonly timeoutMs: number;
     readonly headers?: Readonly<Record<string, string>>;
     readonly body?: string;
-    readonly requestContext?: BridgeRequestOpenMessage["requestContext"];
-    readonly routingIntent?: BridgeRequestOpenMessage["routingIntent"];
   }): AsyncIterable<BridgeRelayResponseEvent> {
     const session = this.sessions.get(sessionId);
     if (!session || session.state !== "connected") {
@@ -230,8 +228,6 @@ export class FederationBridgeRelay {
       method: input.method ?? "GET",
       path: input.path,
       headers: input.headers ?? { accept: "application/json" },
-      requestContext: input.requestContext,
-      routingIntent: input.routingIntent,
       hopCount: 0,
     };
 
@@ -281,8 +277,6 @@ export class FederationBridgeRelay {
     readonly timeoutMs: number;
     readonly headers?: Readonly<Record<string, string>>;
     readonly body?: string;
-    readonly requestContext?: BridgeRequestOpenMessage["requestContext"];
-    readonly routingIntent?: BridgeRequestOpenMessage["routingIntent"];
   }): Promise<{ readonly status: number; readonly headers: Readonly<Record<string, string>>; readonly body: string; readonly json: unknown }> {
     const events = this.requestStream(sessionId, input);
     let status = 200;

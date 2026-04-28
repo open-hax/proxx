@@ -33,7 +33,6 @@ interface FederationBridgeAutostartDeps {
     readonly headers: Readonly<Record<string, string>>;
     readonly bodyText: string;
     readonly ownerSubject: string;
-    readonly tenantId?: string;
   }) => Promise<BridgeRequestHandlerResult>;
 }
 
@@ -86,9 +85,6 @@ function capabilityPrefixesForProvider(providerId: string, config: ProxyConfig):
   if (providerId === config.openaiProviderId) {
     return uniqueStrings([...config.responsesModelPrefixes, ...config.openaiModelPrefixes]);
   }
-  if (providerId === config.upstreamProviderId) {
-    return uniqueStrings([...config.responsesModelPrefixes, ...config.messagesModelPrefixes]);
-  }
   if (providerId === "factory") {
     return uniqueStrings([...config.factoryModelPrefixes]);
   }
@@ -103,8 +99,6 @@ function capabilityPathsForProvider(config: ProxyConfig): readonly string[] {
     "/v1/models",
     config.chatCompletionsPath,
     config.responsesPath,
-    "/v1/embeddings",
-    config.imagesGenerationsPath,
   ]);
 }
 
@@ -391,7 +385,6 @@ export function createEnvFederationBridgeAgent(deps: FederationBridgeAutostartDe
           headers: request.headers,
           bodyText,
           ownerSubject: request.ownerSubject,
-          tenantId: request.requestContext?.tenantId,
         });
       }
 
