@@ -115,198 +115,36 @@ import { seedFromJsonFile, seedFromJsonValue, seedFactoryAuthFromFiles, seedMode
 import { registerOAuthRoutes } from "./lib/oauth-routes.js";
 import { isAutoModel, rankAutoModels } from "./lib/auto-model-selector.js";
 import { RuntimeCredentialStore } from "./lib/runtime-credential-store.js";
-import { TokenRefreshManager } from "./lib/token-refresh-manager.js";
+import { createTokenRefreshManager } from "./lib/token-refresh-handlers.js";
+import { DEFAULT_TENANT_ID } from "./lib/tenant-api-key.js";
+import { resolveRequestAuth, type ResolvedRequestAuth } from "./lib/request-auth.js";
+import { createEnvFederationBridgeAgent } from "./lib/federation/bridge-agent-autostart.js";
+import type { FederationBridgeRelay } from "./lib/federation/bridge-relay.js";
+import { isAtDid } from "./lib/federation/owner-credential.js";
 import {
-  buildWebSearchPrompt,
-  extractOutputTextFromResponses,
-  extractWebSearchSourcesFromResponses,
-  normalizeOpenAiModelForWebsearch,
-  type WebSearchContextSize,
-} from "./lib/websearch.js";
-
-interface ChatCompletionRequest {
-  readonly model?: string;
-  readonly messages?: unknown;
-  readonly stream?: boolean;
-  readonly [key: string]: unknown;
-}
-
-const PROXY_AUTH_COOKIE_NAME = "open_hax_proxy_auth_token";
-
-function readCookieToken(cookieHeader: string | undefined, name: string): string | undefined {
-  if (!cookieHeader) {
-    return undefined;
-  }
-
-  for (const part of cookieHeader.split(";")) {
-    const trimmed = part.trim();
-    if (!trimmed.startsWith(`${name}=`)) {
-      continue;
-    }
-
-    const rawValue = trimmed.slice(name.length + 1);
-    try {
-      return decodeURIComponent(rawValue);
-    } catch {
-      return rawValue;
-    }
-  }
-
-  return undefined;
-}
-
-function extractPromptCacheKey(body: Record<string, unknown>): string | undefined {
-  const raw = typeof body.prompt_cache_key === "string"
-    ? body.prompt_cache_key
-    : typeof body.promptCacheKey === "string"
-      ? body.promptCacheKey
-      : undefined;
-  const normalized = raw?.trim();
-  return normalized && normalized.length > 0 ? normalized : undefined;
-}
-
-function hashPromptCacheKey(promptCacheKey: string): string {
-  const trimmed = promptCacheKey.trim();
-  if (trimmed.length === 0) {
-    return "<REDACTED>";
-  }
-
-  const digest = createHash("sha256").update(trimmed).digest("hex").slice(0, 12);
-  return `sha256:${digest}`;
-}
-
-function summarizeResponsesRequestBody(body: Record<string, unknown>): Record<string, unknown> {
-  const summary: Record<string, unknown> = {};
-
-  if (typeof body.model === "string" && body.model.trim().length > 0) {
-    summary.model = body.model;
-  }
-
-  if (typeof body.stream === "boolean") {
-    summary.stream = body.stream;
-  }
-
-  if (typeof body.max_output_tokens === "number" && Number.isFinite(body.max_output_tokens)) {
-    summary.max_output_tokens = body.max_output_tokens;
-  }
-
-  const input = body.input;
-  if (typeof input === "string") {
-    summary.input = { kind: "text", length: input.length, preview: input.slice(0, 200) };
-    return summary;
-  }
-
-  if (!Array.isArray(input)) {
-    summary.input = { kind: typeof input };
-    return summary;
-  }
-
-  let textChars = 0;
-  let firstTextPreview: string | undefined;
-  let imageCount = 0;
-
-  for (const item of input) {
-    if (!isRecord(item)) {
-      continue;
-    }
-
-    const content = item.content;
-    if (typeof content === "string") {
-      textChars += content.length;
-      if (firstTextPreview === undefined && content.length > 0) {
-        firstTextPreview = content.slice(0, 200);
-      }
-      continue;
-    }
-
-    if (!Array.isArray(content)) {
-      continue;
-    }
-
-    for (const part of content) {
-      if (!isRecord(part)) {
-        continue;
-      }
-
-      const partType = typeof part.type === "string" ? part.type.toLowerCase() : "";
-      const text = typeof part.text === "string" ? part.text : undefined;
-
-      if (text) {
-        textChars += text.length;
-        if (firstTextPreview === undefined && text.length > 0) {
-          firstTextPreview = text.slice(0, 200);
-        }
-      }
-
-      if (partType.includes("image") || part.image_url !== undefined || part.imageUrl !== undefined) {
-        imageCount += 1;
-      }
-    }
-  }
-
-  summary.input = {
-    kind: "structured",
-    itemCount: input.length,
-    textChars,
-    textPreview: firstTextPreview,
-    imageCount,
-  };
-
-  return summary;
-}
-
-function joinUrl(baseUrl: string, path: string): string {
-  const normalizedBase = baseUrl.replace(/\/+$/, "");
-  let normalizedPath = path.startsWith("/") ? path : `/${path}`;
-
-  // Avoid accidental `/v1/v1/...` joins when the provider base URL already includes the OpenAI version segment.
-  const baseLower = normalizedBase.toLowerCase();
-  const pathLower = normalizedPath.toLowerCase();
-  if (pathLower.startsWith("/v1/") && baseLower.endsWith("/v1")) {
-    normalizedPath = normalizedPath.slice(3);
-  }
-
-  return `${normalizedBase}${normalizedPath}`;
-}
-
-function parseJsonIfPossible(body: string): unknown {
-  if (body.trim().length === 0) {
-    return undefined;
-  }
-
-  try {
-    return JSON.parse(body);
-  } catch {
-    return undefined;
-  }
-}
-
-function copyInjectedResponseHeaders(reply: FastifyReply, headers: Record<string, string | string[] | undefined>): void {
-  for (const [name, value] of Object.entries(headers)) {
-    if (typeof value === "undefined" || name.toLowerCase() === "content-length") {
-      continue;
-    }
-
-    reply.header(name, value);
-  }
-}
-
-const SUPPORTED_V1_ENDPOINTS = [
-  "POST /v1/chat/completions",
-  "POST /v1/responses",
-  "POST /v1/images/generations",
-  "POST /v1/embeddings",
-  "GET /v1/models",
-  "GET /v1/models/:model"
-] as const;
-
-const SUPPORTED_NATIVE_OLLAMA_ENDPOINTS = [
-  "POST /api/chat",
-  "POST /api/generate",
-  "POST /api/embed",
-  "POST /api/embeddings",
-  "GET /api/tags"
-] as const;
+  shareModeAllowsRelay,
+  shareModeAllowsWarmImport,
+  tenantProviderPolicyAllowsUse,
+  type TenantProviderPolicyRecord,
+} from "./lib/tenant-provider-policy.js";
+import { type AppDeps } from "./lib/app-deps.js";
+import {
+  noteFederatedProjectedAccountRouted,
+  executeFederatedRequestFallback,
+} from "./lib/federation/federated-fallback.js";
+import {
+  executeBridgeRequestFallback,
+  handleBridgeRequest,
+  injectNativeBridge,
+} from "./lib/federation/bridge-fallback.js";
+import { registerChatRoutes } from "./routes/chat.js";
+import { registerResponsesRoutes } from "./routes/responses.js";
+import { registerImagesRoutes } from "./routes/images.js";
+import { registerWebsearchRoutes } from "./routes/websearch.js";
+import { registerModelsRoutes } from "./routes/models.js";
+import { registerEmbeddingsRoutes } from "./routes/embeddings.js";
+import { registerNativeOllamaRoutes } from "./routes/native-ollama.js";
+import { registerHealthRoutes } from "./routes/health.js";
 
 export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
   const app = Fastify({
@@ -314,9 +152,29 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     bodyLimit: 300 * 1024 * 1024
   });
 
-  // Enable raw zip uploads for ChatGPT export import.
-  app.addContentTypeParser(["application/zip"], { parseAs: "buffer" }, (_request, body, done) => {
-    done(null, body);
+  await app.register(fastifySwagger, {
+    openapi: {
+      info: {
+        title: "Proxx API",
+        description: "OpenAI-compatible proxy with provider account rotation",
+        version: "1.0.0",
+      },
+      servers: [{ url: `/` }],
+    },
+  });
+
+  await app.register(fastifySwaggerUi, {
+    routePrefix: "/docs",
+    staticCSP: true,
+  });
+
+  app.get("/api/v1/openapi.json", async (_request, reply) => {
+    const swaggerJson = app.swagger();
+    return reply.header("content-type", "application/json").send(swaggerJson);
+  });
+
+  app.get("/api/docs", async (_request, reply) => {
+    return reply.redirect("/docs");
   });
 
   let sql: Sql | undefined;
@@ -990,162 +848,12 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     reply.code(204).send();
   });
 
-  app.options("/api/tools/websearch", async (_request, reply) => {
+  app.options("/api/v1", async (_request, reply) => {
     reply.code(204).send();
   });
 
-  app.get("/health", async () => {
-    let keyPoolStatus: unknown;
-    let keyPoolProviders: unknown;
-    try {
-      const status = await keyPool.getStatus(config.upstreamProviderId);
-      keyPoolStatus = {
-        providerId: status.providerId,
-        authType: status.authType,
-        totalKeys: status.totalAccounts,
-        availableKeys: status.availableAccounts,
-        cooldownKeys: status.cooldownAccounts,
-        nextReadyInMs: status.nextReadyInMs
-      };
-
-      const allStatuses = await keyPool.getAllStatuses();
-      keyPoolProviders = Object.fromEntries(
-        Object.entries(allStatuses).map(([providerId, providerStatus]) => [
-          providerId,
-          {
-            providerId: providerStatus.providerId,
-            authType: providerStatus.authType,
-            totalAccounts: providerStatus.totalAccounts,
-            availableAccounts: providerStatus.availableAccounts,
-            cooldownAccounts: providerStatus.cooldownAccounts,
-            nextReadyInMs: providerStatus.nextReadyInMs
-          }
-        ])
-      );
-    } catch (error) {
-      keyPoolStatus = { error: toErrorMessage(error) };
-      keyPoolProviders = {};
-    }
-
-    return {
-      ok: true,
-      service: "open-hax-openai-proxy",
-      authMode: config.proxyAuthToken ? "token" : "unauthenticated",
-      keyPool: keyPoolStatus,
-      keyPoolProviders
-    };
-  });
-
-  app.post<{ Body: Record<string, unknown> }>("/api/tools/websearch", async (request, reply) => {
-    if (!isRecord(request.body)) {
-      sendOpenAiError(reply, 400, "Request body must be a JSON object", "invalid_request_error", "invalid_body");
-      return;
-    }
-
-    const query = typeof request.body.query === "string" ? request.body.query.trim() : "";
-    if (!query) {
-      sendOpenAiError(reply, 400, "Missing required field: query", "invalid_request_error", "missing_query");
-      return;
-    }
-
-    const requestedModel = typeof request.body.model === "string" ? request.body.model : undefined;
-    const model = normalizeOpenAiModelForWebsearch(requestedModel);
-
-    const numResultsRaw = typeof request.body.numResults === "number" ? request.body.numResults : undefined;
-    const numResults = Number.isFinite(numResultsRaw ?? NaN)
-      ? Math.max(1, Math.min(20, Math.trunc(numResultsRaw!)))
-      : 8;
-
-    const searchContextSizeRaw = typeof request.body.searchContextSize === "string"
-      ? request.body.searchContextSize
-      : undefined;
-    const searchContextSize: WebSearchContextSize =
-      searchContextSizeRaw === "low" || searchContextSizeRaw === "high" ? searchContextSizeRaw : "medium";
-
-    const allowedDomains = Array.isArray(request.body.allowedDomains)
-      ? request.body.allowedDomains.filter((d): d is string => typeof d === "string" && d.trim().length > 0)
-      : undefined;
-
-    const prompt = buildWebSearchPrompt({ query, numResults, year: new Date().getFullYear() });
-
-    const responsesPayload: Record<string, unknown> = {
-      model,
-      input: [
-        {
-          role: "user",
-          content: [{ type: "input_text", text: prompt }],
-        },
-      ],
-      tools: [
-        {
-          type: "web_search",
-          search_context_size: searchContextSize,
-          ...(allowedDomains && allowedDomains.length > 0
-            ? {
-                filters: {
-                  allowed_domains: allowedDomains,
-                },
-              }
-            : undefined),
-        },
-      ],
-      tool_choice: { type: "web_search" },
-      max_output_tokens: 900,
-      include: ["web_search_call.action.sources"],
-      stream: false,
-      store: false,
-    };
-
-    // Route through the existing /v1/responses machinery so we reuse:
-    // - OpenAI OAuth accounts
-    // - provider fallback/rotation
-    // - upstream error normalization
-    const injected = await app.inject({
-      method: "POST",
-      url: "/v1/responses",
-      headers: {
-        authorization: request.headers.authorization ?? "",
-        cookie: request.headers.cookie ?? "",
-      },
-      payload: responsesPayload,
-    });
-
-    if (injected.statusCode >= 400) {
-      reply.code(injected.statusCode);
-      for (const [name, value] of Object.entries(injected.headers)) {
-        if (typeof value === "string") reply.header(name, value);
-      }
-      reply.send(injected.body);
-      return;
-    }
-
-    let responseJson: unknown;
-    try {
-      responseJson = injected.json();
-    } catch {
-      sendOpenAiError(reply, 502, "Upstream returned non-JSON response", "server_error", "invalid_upstream");
-      return;
-    }
-
-    const output = extractOutputTextFromResponses(responseJson);
-    const sources = extractWebSearchSourcesFromResponses(responseJson);
-    const responseId = isRecord(responseJson) && typeof responseJson.id === "string" ? responseJson.id : undefined;
-
-    reply.send({
-      query,
-      model,
-      output,
-      sources,
-      responseId,
-    });
-  });
-
-  app.get("/v1/models", async (_request, reply) => {
-    const catalog = await getResolvedModelCatalog();
-    reply.send({
-      object: "list",
-      data: catalog.modelIds.map(toOpenAiModel)
-    });
+  app.options("/api/v1/*", async (_request, reply) => {
+    reply.code(204).send();
   });
 
   const deps: AppDeps = {
