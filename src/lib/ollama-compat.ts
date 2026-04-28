@@ -1,4 +1,19 @@
 import { requestWantsReasoningTrace } from "./openai/index.js";
+/**
+ * Normalize reasoning effort strings to the OpenAI-compatible set.
+ * Providers like ollama-cloud only accept: high, medium, low, max, none.
+ * We map non-standard aliases before sending upstream.
+ */
+export function normalizeReasoningEffort(raw: string): string {
+  switch (raw.toLowerCase()) {
+    case "minimal": return "low";
+    case "xhigh":   return "max";
+    case "off":     return "none";
+    case "auto":    return "medium";
+    default:         return raw.toLowerCase();
+  }
+}
+
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -277,7 +292,7 @@ export function chatRequestToOllamaRequest(
   // Pass through reasoning_effort so Ollama-compatible reasoning tiers survive end to end.
   const reasoningEffort = asString(requestBody["reasoning_effort"]) ?? asString(requestBody["reasoningEffort"]);
   if (reasoningEffort) {
-    payload["reasoning_effort"] = reasoningEffort.toLowerCase();
+    payload["reasoning_effort"] = normalizeReasoningEffort(reasoningEffort);
   }
 
   // Handle reasoning.effort object format
@@ -285,7 +300,7 @@ export function chatRequestToOllamaRequest(
   if (reasoning) {
     const effort = asString(reasoning["effort"]);
     if (effort) {
-      payload["reasoning"] = { ...reasoning, effort: effort.toLowerCase() };
+      payload["reasoning"] = { ...reasoning, effort: normalizeReasoningEffort(effort) };
     }
   }
 

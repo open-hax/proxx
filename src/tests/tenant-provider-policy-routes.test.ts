@@ -71,6 +71,7 @@ function buildConfig(input: {
     factoryModelPrefixes: ["factory/", "factory:"],
     openaiModelPrefixes: ["openai/", "openai:"],
     ollamaModelPrefixes: ["ollama/", "ollama:"],
+    llamacppModelPrefixes: ["llamacpp/", "llamacpp:", "llamacpp-embed/"],
     keysFilePath: input.paths.keysPath,
     modelsFilePath: input.paths.modelsPath,
     requestLogsFilePath: input.paths.requestLogsPath,

@@ -870,6 +870,9 @@ export async function executeProviderRoutingPlan(
         accumulator.sawRequestError ||= outcome.requestError === true;
         accumulator.sawUpstreamServerError ||= outcome.upstreamServerError === true;
         accumulator.sawUpstreamInvalidRequest ||= outcome.upstreamInvalidRequest === true;
+        if (outcome.upstreamInvalidRequest && outcome.upstreamErrorBody) {
+          accumulator.lastUpstreamError = { status: upstreamResponse.status, body: outcome.upstreamErrorBody, providerId: candidate.providerId };
+        }
         accumulator.sawModelNotFound ||= outcome.modelNotFound === true;
         accumulator.sawModelNotSupportedForAccount ||= outcome.modelNotSupportedForAccount === true;
         if (outcome.upstreamAuthError) {
@@ -1034,6 +1037,9 @@ export async function executeProviderRoutingPlan(
               accumulator.sawRequestError ||= refreshedOutcome.requestError === true;
               accumulator.sawUpstreamServerError ||= refreshedOutcome.upstreamServerError === true;
               accumulator.sawUpstreamInvalidRequest ||= refreshedOutcome.upstreamInvalidRequest === true;
+              if (refreshedOutcome.upstreamInvalidRequest && refreshedOutcome.upstreamErrorBody) {
+                accumulator.lastUpstreamError = { status: refreshedResponse.status, body: refreshedOutcome.upstreamErrorBody, providerId: candidate.providerId };
+              }
               accumulator.sawModelNotFound ||= refreshedOutcome.modelNotFound === true;
               accumulator.sawModelNotSupportedForAccount ||= refreshedOutcome.modelNotSupportedForAccount === true;
               if (!refreshedResponse.ok) {

@@ -8,12 +8,15 @@ import { LocalOllamaProviderStrategy, OllamaProviderStrategy } from "./strategie
 import { OllamaCloudProviderStrategy } from "./strategies/ollama-cloud.js";
 import { ChatCompletionsProviderStrategy, ImagesGenerationsPassthroughStrategy, MessagesProviderStrategy, ResponsesPassthroughStrategy, ResponsesProviderStrategy, ResponsesViaChatCompletionsStrategy, ZaiChatCompletionsProviderStrategy } from "./strategies/standard.js";
 import { LlamacppChatCompletionsProviderStrategy } from "./strategies/llamacpp.js";
+import { OpenAiCompatEmbeddingsStrategy, OllamaEmbeddingsStrategy } from "./strategies/embeddings.js";
 
 export const GEMINI_CHAT_STRATEGY = new GeminiChatProviderStrategy();
 export const ZAI_CHAT_STRATEGY = new ZaiChatCompletionsProviderStrategy();
 export const ROTUSSY_RESPONSES_VIA_CHAT_STRATEGY = new ResponsesViaChatCompletionsStrategy();
 export const OLLAMA_CLOUD_STRATEGY = new OllamaCloudProviderStrategy();
 export const LLAMACPP_CHAT_STRATEGY = new LlamacppChatCompletionsProviderStrategy();
+export const OPENAI_COMPAT_EMBEDDINGS_STRATEGY = new OpenAiCompatEmbeddingsStrategy();
+export const OLLAMA_EMBEDDINGS_STRATEGY = new OllamaEmbeddingsStrategy();
 
 export const PROVIDER_STRATEGIES: readonly ProviderStrategy[] = [
   new ImagesGenerationsPassthroughStrategy(),
@@ -23,6 +26,8 @@ export const PROVIDER_STRATEGIES: readonly ProviderStrategy[] = [
   // Provider-specific adapters (policy chooses when applicable)
   GEMINI_CHAT_STRATEGY,
   ZAI_CHAT_STRATEGY,
+  OPENAI_COMPAT_EMBEDDINGS_STRATEGY,
+  OLLAMA_EMBEDDINGS_STRATEGY,
   LLAMACPP_CHAT_STRATEGY,
   ROTUSSY_RESPONSES_VIA_CHAT_STRATEGY,
   OLLAMA_CLOUD_STRATEGY,

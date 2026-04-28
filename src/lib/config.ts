@@ -64,6 +64,7 @@ export interface ProxyConfig {
   readonly factoryModelPrefixes: readonly string[];
   readonly openaiModelPrefixes: readonly string[];
   readonly ollamaModelPrefixes: readonly string[];
+  readonly llamacppModelPrefixes?: readonly string[];
   readonly keysFilePath: string;
   readonly modelsFilePath: string;
   readonly requestLogsFilePath: string;
@@ -541,6 +542,7 @@ export function loadConfig(cwd: string = process.cwd()): ProxyConfig {
     factoryModelPrefixes: csvFromEnv("FACTORY_MODEL_PREFIXES", ["factory/", "factory:"]),
     openaiModelPrefixes: csvFromEnv("OPENAI_MODEL_PREFIXES", ["openai/", "openai:"]),
     ollamaModelPrefixes: csvFromEnv("OLLAMA_MODEL_PREFIXES", ["ollama/", "ollama:"]),
+    llamacppModelPrefixes: csvFromEnv("LLAMACPP_MODEL_PREFIXES", ["llamacpp/", "llamacpp:", "llamacpp-embed/", "llamacpp-embed:"]),
     keysFilePath: optionalFilePathFromEnvAliases(["PROXY_KEYS_FILE", "VIVGRID_KEYS_FILE"], cwd)
       ?? filePathFromEnvAliases(["PROXY_KEYS_FILE", "VIVGRID_KEYS_FILE"], "./keys.json", cwd),
     modelsFilePath: filePathFromEnvAliases(["PROXY_MODELS_FILE", "VIVGRID_MODELS_FILE"], "./models.json", cwd),

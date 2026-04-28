@@ -320,15 +320,17 @@ export abstract class BaseProviderStrategy implements ProviderStrategy {
     }
 
     if (upstreamResponse.status === 400 || upstreamResponse.status === 422) {
+      let upstreamErrorBody = "";
       try {
-        await upstreamResponse.text();
+        upstreamErrorBody = await upstreamResponse.text();
       } catch {
         // Ignore body read failures while failing over.
       }
       return {
         kind: "continue",
         requestError: true,
-        upstreamInvalidRequest: true
+        upstreamInvalidRequest: true,
+        upstreamErrorBody,
       };
     }
 

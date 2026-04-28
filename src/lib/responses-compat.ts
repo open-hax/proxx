@@ -501,7 +501,7 @@ export function chatRequestToResponsesRequest(requestBody: Record<string, unknow
   }
 
   const rawReasoningEffort = asString(requestBody["reasoningEffort"]) ?? asString(requestBody["reasoning_effort"]);
-  const reasoningEffort = rawReasoningEffort;
+  const reasoningEffort = rawReasoningEffort === "max" ? "xhigh" : rawReasoningEffort;
   const reasoningSummary = asString(requestBody["reasoningSummary"]) ?? asString(requestBody["reasoning_summary"]);
   if (reasoningEffort || reasoningSummary) {
     const reasoning = isRecord(payload["reasoning"]) ? { ...payload["reasoning"] } : {};
