@@ -85,6 +85,86 @@ export interface RequestLogEntry {
   readonly error?: string;
 }
 
+export interface ProxyEvent {
+  readonly id: string;
+  readonly ts: string;
+  readonly kind: "request" | "response" | "error" | "label" | "metric";
+  readonly entryId: string;
+  readonly providerId?: string;
+  readonly accountId?: string;
+  readonly model?: string;
+  readonly status?: number;
+  readonly tags: readonly string[];
+  readonly meta: Record<string, unknown>;
+  readonly payload: Record<string, unknown> | null;
+  readonly payloadBytes?: number;
+}
+
+export async function listEvents(filters: {
+  readonly kind?: string;
+  readonly entryId?: string;
+  readonly providerId?: string;
+  readonly model?: string;
+  readonly status?: number;
+  readonly statusGte?: number;
+  readonly statusLt?: number;
+  readonly tag?: string;
+  readonly since?: string;
+  readonly until?: string;
+  readonly limit?: number;
+  readonly offset?: number;
+  readonly includePayload?: boolean;
+  readonly includeCount?: boolean;
+}): Promise<{ readonly events: readonly ProxyEvent[]; readonly count: number; readonly totalCount?: number }> {
+  const query = new URLSearchParams();
+  if (filters.kind) query.set("kind", filters.kind);
+  if (filters.entryId) query.set("entry_id", filters.entryId);
+  if (filters.providerId) query.set("provider_id", filters.providerId);
+  if (filters.model) query.set("model", filters.model);
+  if (typeof filters.status === "number") query.set("status", String(filters.status));
+  if (typeof filters.statusGte === "number") query.set("status_gte", String(filters.statusGte));
+  if (typeof filters.statusLt === "number") query.set("status_lt", String(filters.statusLt));
+  if (filters.tag) query.set("tag", filters.tag);
+  if (filters.since) query.set("since", filters.since);
+  if (filters.until) query.set("until", filters.until);
+  if (typeof filters.limit === "number") query.set("limit", String(filters.limit));
+  if (typeof filters.offset === "number") query.set("offset", String(filters.offset));
+  if (filters.includePayload) query.set("include_payload", "true");
+  if (filters.includeCount) query.set("include_count", "true");
+
+  const suffix = query.toString().length > 0 ? `?${query.toString()}` : "";
+  return requestJson(`/api/v1/events${suffix}`);
+}
+
+export async function getEventById(id: string): Promise<ProxyEvent> {
+  const payload = await requestJson<{ readonly event: ProxyEvent }>(`/api/v1/events/${encodeURIComponent(id)}`);
+  return payload.event;
+}
+
+export async function listEventTags(): Promise<{ readonly tags: Record<string, number>; readonly since: string }> {
+  return requestJson("/api/v1/events/tags");
+}
+
+export async function addEventTag(eventId: string, tag: string): Promise<void> {
+  await requestJson(`/api/v1/events/${encodeURIComponent(eventId)}/tag`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ tag }),
+  });
+}
+
+export async function removeEventTag(eventId: string, tag: string): Promise<void> {
+  await requestJson(`/api/v1/events/${encodeURIComponent(eventId)}/tag`, {
+    method: "DELETE",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ tag }),
+  });
+}
+
 export interface PromptCacheAuditRow {
   readonly promptCacheKeyHash: string;
   readonly providerId: string;

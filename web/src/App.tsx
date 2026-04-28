@@ -14,6 +14,7 @@ import { ToolsPage } from "./pages/ToolsPage";
 import { ImagesPage } from "./pages/ImagesPage";
 import { AnalyticsPage } from "./pages/AnalyticsPage";
 import { FederationPage } from "./pages/FederationPage";
+import { EventsPage } from "./pages/EventsPage";
 
 const LS_ONBOARDED = "open-hax-proxy.ui.onboarded";
 const LS_THEME = "open-hax-proxy.ui.theme";
@@ -160,6 +161,9 @@ export function App(): JSX.Element {
         <NavLink to="/analytics" className={({ isActive }) => navClass(isActive)}>
           Analytics
         </NavLink>
+        <NavLink to="/events" className={({ isActive }) => navClass(isActive)}>
+          Events
+        </NavLink>
         <NavLink to="/hosts" className={({ isActive }) => navClass(isActive)}>
           Hosts
         </NavLink>
@@ -182,6 +186,7 @@ export function App(): JSX.Element {
           <Route path="/" element={<DashboardPage />} />
           <Route path="/chat" element={<ChatPage />} />
           <Route path="/analytics" element={<AnalyticsPage />} />
+          <Route path="/events" element={<EventsPage />} />
           <Route path="/hosts" element={<HostsPage />} />
           <Route path="/images" element={<ImagesPage />} />
           <Route path="/credentials" element={<CredentialsPage />} />
