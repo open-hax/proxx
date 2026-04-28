@@ -14,6 +14,10 @@ set -euo pipefail
 
 BASE="${DEV_PROXY_URL:-http://127.0.0.1:8795}"
 E2E_REQUIRE_FACTORY="${E2E_REQUIRE_FACTORY:-0}"
+E2E_SKIP_OPENAI_SMOKE="${E2E_SKIP_OPENAI_SMOKE:-0}"
+TENANT_API_KEY_TEST_MODEL="${TENANT_API_KEY_TEST_MODEL:-openai/gpt-5.2-codex}"
+OPENAI_CHAT_TEST_MODEL="${OPENAI_CHAT_TEST_MODEL:-gpt-5.2}"
+OPENAI_RESPONSES_TEST_MODEL="${OPENAI_RESPONSES_TEST_MODEL:-gpt-5.2-codex}"
 PASS=0
 FAIL=0
 SKIP=0
@@ -464,7 +468,7 @@ fi
 bold ""
 bold "── 9. Factory Prefix Routing ──"
 
-FACTORY_CREDENTIALS_JSON=$(curl_json "${BASE}/api/ui/credentials" 2>/dev/null) || FACTORY_CREDENTIALS_JSON=""
+FACTORY_CREDENTIALS_JSON=$(curl_json "${BASE}/api/v1/credentials" 2>/dev/null) || FACTORY_CREDENTIALS_JSON=""
 if [[ -n "$FACTORY_CREDENTIALS_JSON" ]]; then
   FACTORY_ACCOUNT_COUNT=$(json_provider_metric_or_zero "$FACTORY_CREDENTIALS_JSON" "factory" "accountCount")
   FACTORY_AVAILABLE_COUNT=$(json_provider_metric_or_zero "$FACTORY_CREDENTIALS_JSON" "factory" "availableAccounts")
@@ -474,10 +478,18 @@ else
 fi
 
 if [[ "$FACTORY_ACCOUNT_COUNT" -eq 0 ]]; then
-  skip "factory/ prefix routing" "factory provider has no configured live accounts"
+  if [[ "$E2E_REQUIRE_FACTORY" == "1" ]]; then
+    fail "factory/ prefix routing" "factory provider has no configured live accounts"
+  else
+    skip "factory/ prefix routing" "factory provider has no configured live accounts"
+  fi
 else
   if [[ "$FACTORY_AVAILABLE_COUNT" -eq 0 ]]; then
-    skip "factory/ prefix routing" "factory provider has no currently available accounts"
+    if [[ "$E2E_REQUIRE_FACTORY" == "1" ]]; then
+      fail "factory/ prefix routing" "factory provider has no currently available accounts"
+    else
+      skip "factory/ prefix routing" "factory provider has no currently available accounts"
+    fi
   else
     RESPONSE=$(chat_completion "factory/claude-opus-4-6" "Reply with one word: OK" 2>/dev/null) || RESPONSE=""
     if [[ -n "$RESPONSE" ]]; then

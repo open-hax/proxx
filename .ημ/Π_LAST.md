@@ -1,45 +1,30 @@
-# Π Snapshot: Federation Bridge Implementation
+# Π Snapshot: Proxx final tenant-provider-policy route test residue
 
-**Branch:** `feat/consolidate-federation-into-staging`
-**Commit:** `f33516c`
-**Date:** 2026-03-23
+- **Repo:** `open-hax/proxx`
+- **Branch:** `fix/ci-live-e2e-aggregate-conclusion`
+- **Pre-snapshot HEAD:** `55a5b11`
+- **Previous tag:** `Π/2026-03-27/045620`
+- **Intended Π tag:** `Π/2026-03-27/045911`
+- **Generated:** `2026-03-27T04:59:11Z`
 
-## Work Summary
+## What this snapshot preserves
 
-Implemented WebSocket-based federation bridge for multi-instance communication:
+This final follow-up Π handoff captures the remaining dirty `src/tests/tenant-provider-policy-routes.test.ts` diff after the earlier Proxx snapshots.
 
-### Core Components
-- **bridge-relay.ts** – WebSocket relay for routing messages between instances
-- **bridge-protocol.ts** – Wire protocol, message types, and type definitions
-- **bridge-agent.ts** – Federation agent for inter-instance coordination
-- **bridge-bridge-agent-autostart.ts** – Auto-start integration with main app
+Included work category:
+- federation diff-events route coverage and request-filter forwarding assertions in `src/tests/tenant-provider-policy-routes.test.ts`
 
-### Integration Points
-- Updated `src/app.ts` with federation agent initialization
-- Added federation status routes in `src/lib/ui-routes.ts`
-- Added GitHub Actions workflow updates for staging deployment
-- Updated `.env.example` with federation environment variables
+## Dirty state before commit
 
-### Specification
-- `specs/drafts/federation-bridge-ws-v0.md` – Protocol specification document
+### Modified
+- `src/tests/tenant-provider-policy-routes.test.ts`
 
-### Tests
-- Federation bridge agent tests
-- Federation bridge autostart tests
-- Federation bridge protocol tests
-- Federation bridge relay tests
+## Verification
 
-## Verification Status
+- Typecheck: `pnpm run typecheck` ✅
+- Prior full test run: snapshot `Π/2026-03-27/045033` recorded `pnpm test` ❌ (`419/420` on prompt-cache audit grouping)
+- Current tenant-provider-policy test residue preserved without rerunning the full suite
 
-| Check | Status |
-|-------|--------|
-| TypeScript | ✅ Pass |
-| Lint | ⚠️ 143 errors (pre-existing web/ issues, some unused vars in new code) |
-| Tests | Not run for snapshot |
+## Operator note
 
-## Next Steps
-
-1. Run tests: `pnpm test src/tests/federation-bridge*.test.ts`
-2. Address unused variables in federation modules
-3. Resolve lint warnings in web/ components (separate from this work)
-4. Merge to staging after CI gate
+This follow-up snapshot exists only to eliminate the final dirty test file so the Proxx repository ends in a clean committed state, while preserving the latest known-red full-suite observation.

@@ -33,6 +33,7 @@ interface FederationBridgeAutostartDeps {
     readonly headers: Readonly<Record<string, string>>;
     readonly bodyText: string;
     readonly ownerSubject: string;
+    readonly tenantId?: string;
   }) => Promise<BridgeRequestHandlerResult>;
 }
 
@@ -85,6 +86,9 @@ function capabilityPrefixesForProvider(providerId: string, config: ProxyConfig):
   if (providerId === config.openaiProviderId) {
     return uniqueStrings([...config.responsesModelPrefixes, ...config.openaiModelPrefixes]);
   }
+  if (providerId === config.upstreamProviderId) {
+    return uniqueStrings([...config.responsesModelPrefixes, ...config.messagesModelPrefixes]);
+  }
   if (providerId === "factory") {
     return uniqueStrings([...config.factoryModelPrefixes]);
   }
@@ -99,6 +103,8 @@ function capabilityPathsForProvider(config: ProxyConfig): readonly string[] {
     "/v1/models",
     config.chatCompletionsPath,
     config.responsesPath,
+    "/v1/embeddings",
+    config.imagesGenerationsPath,
   ]);
 }
 
@@ -134,7 +140,7 @@ function shouldEncodeChunkAsUtf8(contentType: string): boolean {
     || normalized.includes("event-stream");
 }
 
-async function* streamFetchResponseToBridgeEvents(response: Response): AsyncIterable<BridgeRequestHandlerStreamEvent> {
+async function* _streamFetchResponseToBridgeEvents(response: Response): AsyncIterable<BridgeRequestHandlerStreamEvent> {
   const headers = copyFetchHeaders(response.headers);
   const provenance = resolveLocalBridgeResponseProvenance(headers);
 
@@ -267,7 +273,7 @@ async function buildCapabilities(
       supportsResponses: true,
       supportsStreaming: true,
       supportsWarmImport: false,
-      credentialMobility: provider.authType === "oauth_bearer" ? "non_exportable" : "importable",
+      credentialMobility: provider.authType === "oauth_bearer" ? "access_token_only" : "importable",
       credentialOrigin: provider.authType === "oauth_bearer" ? "localhost_oauth" : "local_api_key",
       lastHealthyAt: provider.accountCount > 0 ? new Date().toISOString() : undefined,
       topologyTargets,
@@ -361,6 +367,17 @@ export function createEnvFederationBridgeAgent(deps: FederationBridgeAutostartDe
     getCapabilities: () => buildCapabilities(deps.config, deps.keyPool, deps.credentialStore, deps.getResolvedModelCatalog),
     getHealth: () => buildHealth(deps.keyPool, deps.credentialStore),
     handleRequest: async ({ request, bodyText }) => {
+      if (deps.handleBridgeRequest) {
+        return deps.handleBridgeRequest({
+          method: request.method,
+          path: request.path,
+          headers: request.headers,
+          bodyText,
+          ownerSubject: request.ownerSubject,
+          tenantId: request.requestContext?.tenantId,
+        });
+      }
+
       if (request.method === "GET" && request.path === "/v1/models") {
         const modelCatalog = deps.getResolvedModelCatalog
           ? await deps.getResolvedModelCatalog()
@@ -376,16 +393,6 @@ export function createEnvFederationBridgeAgent(deps: FederationBridgeAutostartDe
           servedByGroupId: process.env.FEDERATION_SELF_GROUP_ID?.trim(),
           servedByNodeId: process.env.FEDERATION_SELF_NODE_ID?.trim(),
         };
-      }
-
-      if (deps.handleBridgeRequest) {
-        return deps.handleBridgeRequest({
-          method: request.method,
-          path: request.path,
-          headers: request.headers,
-          bodyText,
-          ownerSubject: request.ownerSubject,
-        });
       }
 
       return {

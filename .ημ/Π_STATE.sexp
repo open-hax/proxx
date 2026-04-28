@@ -1,35 +1,25 @@
 ;; Π State Snapshot
-;; Generated: 2026-03-23
+;; Generated: 2026-03-27T04:59:11Z
 
 (
   :repo "open-hax/proxx"
-  :branch "feat/consolidate-federation-into-staging"
-  :commit "f33516c5ea9f4b32c1929e47469ab5323c71f362"
-  :previous-tag "Π/2026-03-22/150930-6bc392a-8-gf33516c"
+  :branch "fix/ci-live-e2e-aggregate-conclusion"
+  :head-before "55a5b116fa678b972792414deaf1050f75d4bc34"
+  :previous-tag "Π/2026-03-27/045620"
+  :intended-tag "Π/2026-03-27/045911"
+  :remote "origin/fix/ci-live-e2e-aggregate-conclusion"
+  :status-digest "660a87b95a180e9f"
 
   :work-description
-  "Federation bridge implementation: WebSocket relay, agent protocol, autostart integration, and staging deployment configuration.
+  "Final follow-up repository handoff snapshot for the remaining tenant-provider-policy-routes test diff left after the earlier Proxx snapshots.
 
-Key components:
-- src/lib/federation/bridge-relay.ts: WebSocket relay for multi-instance federation
-- src/lib/federation/bridge-protocol.ts: Message types and wire protocol
-- src/lib/federation/bridge-agent.ts: Federation agent for inter-instance communication
-- src/lib/federation/bridge-agent-autostart.ts: Auto-start integration with app
-- specs/drafts/federation-bridge-ws-v0.md: Protocol specification
-
-- Updated src/app.ts with federation agent initialization and WebSocket routes
-- Updated src/lib/ui-routes.ts with federation status endpoints
-- Updated .github/workflows for staging deployment
-- Updated .env.example with federation environment variables
-
-Current state: Implementation complete, typecheck passes, lint has pre-existing issues in web/ and some unused vars in new code."
+Includes:
+- federation diff-events route coverage in src/tests/tenant-provider-policy-routes.test.ts
+- refreshed .ημ handoff artifacts for the final test-only residue state."
 
   :dirty-state (
-    :modified (".env.example" ".github/workflows/main-pr-gate.yml" ".github/workflows/staging-pr.yml" "package.json" "receipts.log" "src/app.ts" "src/lib/ui-routes.ts")
-    :untracked ("eslint.config.mjs" "specs/drafts/federation-bridge-ws-v0.md" "src/lib/federation/" "src/tests/federation-bridge-*.test.ts"))
+    :modified ["src/tests/tenant-provider-policy-routes.test.ts"])
 
   :verification (
-    :typecheck "pass"
-    :lint "143 errors (pre-existing + some unused vars in new code)"
-    :tests "not run for snapshot")
-)
+    :typecheck "pass (pnpm run typecheck)"
+    :prior-tests "last observed full test run on snapshot Π/2026-03-27/045033 failed 419/420 on prompt-cache audit grouping; current residue preserved without rerunning the full suite"))
