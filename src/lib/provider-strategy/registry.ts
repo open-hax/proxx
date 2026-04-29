@@ -8,7 +8,7 @@ import { LocalOllamaProviderStrategy, OllamaProviderStrategy } from "./strategie
 import { OllamaCloudProviderStrategy } from "./strategies/ollama-cloud.js";
 import { ChatCompletionsProviderStrategy, ImagesGenerationsPassthroughStrategy, MessagesProviderStrategy, ResponsesPassthroughStrategy, ResponsesProviderStrategy, ResponsesViaChatCompletionsStrategy, ZaiChatCompletionsProviderStrategy } from "./strategies/standard.js";
 import { LlamacppChatCompletionsProviderStrategy } from "./strategies/llamacpp.js";
-import { OpenAiCompatEmbeddingsStrategy, OllamaEmbeddingsStrategy } from "./strategies/embeddings.js";
+import { HuggingFaceEmbeddingStrategy, OpenAiCompatEmbeddingsStrategy, OllamaEmbeddingsStrategy, OvmNpuEmbeddingStrategy, TEIEmbeddingStrategy } from "./strategies/embeddings.js";
 
 export const GEMINI_CHAT_STRATEGY = new GeminiChatProviderStrategy();
 export const ZAI_CHAT_STRATEGY = new ZaiChatCompletionsProviderStrategy();
@@ -19,6 +19,9 @@ export const OPENAI_COMPAT_EMBEDDINGS_STRATEGY = new OpenAiCompatEmbeddingsStrat
 export const OLLAMA_EMBEDDINGS_STRATEGY = new OllamaEmbeddingsStrategy();
 
 export const PROVIDER_STRATEGIES: readonly ProviderStrategy[] = [
+  new HuggingFaceEmbeddingStrategy(),
+  new TEIEmbeddingStrategy(),
+  new OvmNpuEmbeddingStrategy(),
   new ImagesGenerationsPassthroughStrategy(),
   new OpenAiResponsesPassthroughStrategy(),
   new FactoryResponsesPassthroughStrategy(),
