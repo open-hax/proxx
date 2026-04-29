@@ -8,6 +8,27 @@ interface ProviderRow {
   readonly id: string;
 }
 
+function createCljsRuntime(providerResults: readonly (readonly unknown[])[]): ProxxCljsRuntime {
+  const queued = [...providerResults];
+  return {
+    normalizeKeys: (value) => value,
+    validateEntity: (_entityType, value) => ({ status: "ok", record: value }),
+    projectPheromone: () => 0,
+    parseProviderCredentials: () => ({
+      status: "ok",
+      providers: queued.shift() ?? [],
+    }),
+  };
+}
+
+function providerSeed(providerId: string, authType: "api_key" | "oauth_bearer", accounts: readonly unknown[]) {
+  return { providerId, authType, accounts };
+}
+
+function accountSeed(providerId: string, accountId: string, token: string, authType: "api_key" | "oauth_bearer" = "api_key") {
+  return { providerId, accountId, token, authType };
+}
+
 function createFakeSql() {
   const providers = new Map<string, string>();
   const accounts = new Map<string, {
@@ -66,56 +87,42 @@ function createFakeSql() {
 
 test("seedFromJsonValue does not overwrite existing DB accounts in seed-only mode", async () => {
   const fake = createFakeSql();
+  setActiveCljsRuntime(createCljsRuntime([
+    [providerSeed("openai", "oauth_bearer", [accountSeed("openai", "acct-1", "seed-token-a", "oauth_bearer")])],
+    [providerSeed("openai", "oauth_bearer", [
+      accountSeed("openai", "acct-1", "seed-token-b", "oauth_bearer"),
+      accountSeed("openai", "acct-2", "seed-token-c", "oauth_bearer"),
+    ])],
+  ]));
 
-  await seedFromJsonValue(
-    fake.sql as never,
-    {
-      providers: {
-        openai: {
-          auth: "oauth_bearer",
-          accounts: [{ id: "acct-1", access_token: "seed-token-a" }],
-        },
-      },
-    },
-    "openai",
-    { skipExistingProviders: true },
-  );
+  try {
+    await seedFromJsonValue(
+      fake.sql as never,
+      { providers: { openai: { auth: "oauth_bearer", accounts: [{ id: "acct-1" }] } } },
+      "openai",
+      { skipExistingProviders: true },
+    );
 
-  await seedFromJsonValue(
-    fake.sql as never,
-    {
-      providers: {
-        openai: {
-          auth: "oauth_bearer",
-          accounts: [
-            { id: "acct-1", access_token: "seed-token-b" },
-            { id: "acct-2", access_token: "seed-token-c" },
-          ],
-        },
-      },
-    },
-    "openai",
-    { skipExistingProviders: true },
-  );
+    await seedFromJsonValue(
+      fake.sql as never,
+      { providers: { openai: { auth: "oauth_bearer", accounts: [{ id: "acct-1" }, { id: "acct-2" }] } } },
+      "openai",
+      { skipExistingProviders: true },
+    );
 
-  assert.equal(fake.providers.get("openai"), "oauth_bearer");
-  assert.equal(fake.accounts.get("openai:acct-1")?.token, "seed-token-a");
-  assert.equal(fake.accounts.get("openai:acct-2")?.token, "seed-token-c");
+    assert.equal(fake.providers.get("openai"), "oauth_bearer");
+    assert.equal(fake.accounts.get("openai:acct-1")?.token, "seed-token-a");
+    assert.equal(fake.accounts.get("openai:acct-2")?.token, "seed-token-c");
+  } finally {
+    setActiveCljsRuntime(undefined);
+  }
 });
 
-test("seedFromJsonValue validates provider credentials through active CLJS runtime", async () => {
+test("seedFromJsonValue uses active CLJS runtime credential output", async () => {
   const fake = createFakeSql();
-  const cljsRuntime: ProxxCljsRuntime = {
-    normalizeKeys: (value) => value,
-    validateEntity: (_entityType, value) => {
-      const record = value as { readonly id?: string };
-      return record.id === "acct-allow"
-        ? { status: "ok", record: value }
-        : { status: "error", errors: { id: ["blocked by test runtime"] } };
-    },
-    projectPheromone: () => 0,
-  };
-  setActiveCljsRuntime(cljsRuntime);
+  setActiveCljsRuntime(createCljsRuntime([
+    [providerSeed("xiaomi", "api_key", [accountSeed("xiaomi", "acct-allow", "mimo-token-a")])],
+  ]));
 
   try {
     const result = await seedFromJsonValue(
@@ -140,6 +147,42 @@ test("seedFromJsonValue validates provider credentials through active CLJS runti
   } finally {
     setActiveCljsRuntime(undefined);
   }
+});
+
+test("seedFromJsonValue skips CLJS-parsed providers with zero valid credentials", async () => {
+  const fake = createFakeSql();
+  setActiveCljsRuntime(createCljsRuntime([[]]));
+
+  try {
+    const result = await seedFromJsonValue(
+      fake.sql as never,
+      {
+        providers: {
+          xiaomi: {
+            accounts: [{ id: "acct-block", api_key: "mimo-token-b" }],
+          },
+        },
+      },
+      "xiaomi",
+    );
+
+    assert.equal(result.providers, 0);
+    assert.equal(result.accounts, 0);
+    assert.equal(fake.providers.has("xiaomi"), false);
+    assert.equal(fake.accounts.has("xiaomi:acct-block"), false);
+  } finally {
+    setActiveCljsRuntime(undefined);
+  }
+});
+
+test("seedFromJsonValue requires the CLJS runtime parser", async () => {
+  const fake = createFakeSql();
+  setActiveCljsRuntime(undefined);
+
+  await assert.rejects(
+    seedFromJsonValue(fake.sql as never, { providers: { xiaomi: { accounts: [] } } }, "xiaomi"),
+    /CLJS runtime must be active before provider credential seeding/,
+  );
 });
 
 test("seedApiKeyProvidersFromEnv seeds supported env providers into the DB", async () => {
@@ -181,6 +224,13 @@ test("seedApiKeyProvidersFromEnv seeds supported env providers into the DB", asy
   process.env.OLLAMA_CLOUD_API_KEY = "ollama-cloud-seed-token"; // pragma: allowlist secret
   process.env.MIMO_API_KEY = "xiaomi-mimo-seed-token"; // pragma: allowlist secret
 
+  setActiveCljsRuntime(createCljsRuntime([[
+    providerSeed("rotussy", "api_key", [accountSeed("rotussy", "rotussy-env-seed", "rotussy-seed-token")]),
+    providerSeed("zai", "api_key", [accountSeed("zai", "zai-env-seed", "zai-seed-token")]),
+    providerSeed("ollama-cloud", "api_key", [accountSeed("ollama-cloud", "ollama-cloud-env-seed", "ollama-cloud-seed-token")]),
+    providerSeed("xiaomi", "api_key", [accountSeed("xiaomi", "xiaomi-env-seed", "xiaomi-mimo-seed-token")]),
+  ]]));
+
   try {
     const result = await seedApiKeyProvidersFromEnv(fake.sql as never);
 
@@ -195,6 +245,7 @@ test("seedApiKeyProvidersFromEnv seeds supported env providers into the DB", asy
     assert.equal(fake.accounts.get("ollama-cloud:ollama-cloud-env-seed")?.token, "ollama-cloud-seed-token");
     assert.equal(fake.accounts.get("xiaomi:xiaomi-env-seed")?.token, "xiaomi-mimo-seed-token");
   } finally {
+    setActiveCljsRuntime(undefined);
     for (const name of envNames) {
       const value = previous.get(name);
       if (value === undefined) {
