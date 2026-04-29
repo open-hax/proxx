@@ -989,6 +989,12 @@ export function CredentialsPage(): JSX.Element {
     setApiKeyValue("");
   };
 
+  const handleAddXiaomiMimoKey = () => {
+    setApiKeyProvider("xiaomi");
+    setApiKeyAccount("");
+    setApiKeyValue("");
+  };
+
   const handleCopyField = useCallback(async (value: string, fieldKey: string) => {
     try {
       await navigator.clipboard.writeText(value);
@@ -1640,6 +1646,9 @@ export function CredentialsPage(): JSX.Element {
             <button type="button" onClick={handleAddFactoryKey} className="credentials-shortcut-button">
               Add Factory Key
             </button>
+            <button type="button" onClick={handleAddXiaomiMimoKey} className="credentials-shortcut-button">
+              Add Xiaomi MiMo Key
+            </button>
           </div>
           <select
             value={apiKeyProvider}
@@ -1656,6 +1665,7 @@ export function CredentialsPage(): JSX.Element {
             <option value="openrouter">OpenRouter</option>
             <option value="gemini">Gemini</option>
             <option value="zai">Z.ai (GLM)</option>
+            <option value="xiaomi">Xiaomi MiMo</option>
             <option value="mistral">Mistral</option>
             <option value="factory">Factory</option>
             <option value="ob1">OB1</option>

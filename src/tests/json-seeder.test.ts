@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { setActiveCljsRuntime, type ProxxCljsRuntime } from "../lib/cljs-runtime.js";
 import { seedApiKeyProvidersFromEnv, seedFromJsonValue } from "../lib/db/json-seeder.js";
 
 interface ProviderRow {
@@ -102,6 +103,45 @@ test("seedFromJsonValue does not overwrite existing DB accounts in seed-only mod
   assert.equal(fake.accounts.get("openai:acct-2")?.token, "seed-token-c");
 });
 
+test("seedFromJsonValue validates provider credentials through active CLJS runtime", async () => {
+  const fake = createFakeSql();
+  const cljsRuntime: ProxxCljsRuntime = {
+    normalizeKeys: (value) => value,
+    validateEntity: (_entityType, value) => {
+      const record = value as { readonly id?: string };
+      return record.id === "acct-allow"
+        ? { status: "ok", record: value }
+        : { status: "error", errors: { id: ["blocked by test runtime"] } };
+    },
+    projectPheromone: () => 0,
+  };
+  setActiveCljsRuntime(cljsRuntime);
+
+  try {
+    const result = await seedFromJsonValue(
+      fake.sql as never,
+      {
+        providers: {
+          xiaomi: {
+            accounts: [
+              { id: "acct-allow", api_key: "mimo-token-a" },
+              { id: "acct-block", api_key: "mimo-token-b" },
+            ],
+          },
+        },
+      },
+      "xiaomi",
+    );
+
+    assert.equal(result.providers, 1);
+    assert.equal(result.accounts, 1);
+    assert.equal(fake.accounts.get("xiaomi:acct-allow")?.token, "mimo-token-a");
+    assert.equal(fake.accounts.has("xiaomi:acct-block"), false);
+  } finally {
+    setActiveCljsRuntime(undefined);
+  }
+});
+
 test("seedApiKeyProvidersFromEnv seeds supported env providers into the DB", async () => {
   const fake = createFakeSql();
   const envNames = [
@@ -115,6 +155,10 @@ test("seedApiKeyProvidersFromEnv seeds supported env providers into the DB", asy
     "ROTUSSY_PROVIDER_ID",
     "MISTRAL_API_KEY",
     "MISTRAL_PROVIDER_ID",
+    "XIAOMI_API_KEY",
+    "MIMO_API_KEY",
+    "XIAOMI_PROVIDER_ID",
+    "MIMO_PROVIDER_ID",
     "OPENROUTER_API_KEY",
     "OPENROUTER_PROVIDER_ID",
     "REQUESTY_API_TOKEN",
@@ -135,18 +179,21 @@ test("seedApiKeyProvidersFromEnv seeds supported env providers into the DB", asy
   process.env.ROTUSSY_API_KEY = "rotussy-seed-token"; // pragma: allowlist secret
   process.env.ZAI_API_KEY = "zai-seed-token"; // pragma: allowlist secret
   process.env.OLLAMA_CLOUD_API_KEY = "ollama-cloud-seed-token"; // pragma: allowlist secret
+  process.env.MIMO_API_KEY = "xiaomi-mimo-seed-token"; // pragma: allowlist secret
 
   try {
     const result = await seedApiKeyProvidersFromEnv(fake.sql as never);
 
-    assert.equal(result.providers, 3);
-    assert.equal(result.accounts, 3);
+    assert.equal(result.providers, 4);
+    assert.equal(result.accounts, 4);
     assert.equal(fake.providers.get("rotussy"), "api_key");
     assert.equal(fake.providers.get("zai"), "api_key");
     assert.equal(fake.providers.get("ollama-cloud"), "api_key");
+    assert.equal(fake.providers.get("xiaomi"), "api_key");
     assert.equal(fake.accounts.get("rotussy:rotussy-env-seed")?.token, "rotussy-seed-token");
     assert.equal(fake.accounts.get("zai:zai-env-seed")?.token, "zai-seed-token");
     assert.equal(fake.accounts.get("ollama-cloud:ollama-cloud-env-seed")?.token, "ollama-cloud-seed-token");
+    assert.equal(fake.accounts.get("xiaomi:xiaomi-env-seed")?.token, "xiaomi-mimo-seed-token");
   } finally {
     for (const name of envNames) {
       const value = previous.get(name);

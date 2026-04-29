@@ -1,6 +1,7 @@
 import { dirname } from "node:path";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 
+import { normalizeObjectKeysWithCljs } from "./cljs-runtime.js";
 import type { Sql } from "./db/index.js";
 import { DEFAULT_TENANT_ID, normalizeTenantId } from "./tenant-api-key.js";
 
@@ -56,6 +57,10 @@ function normalizeModelIdList(value: unknown): readonly string[] | null {
   return normalized.length > 0 ? normalized : null;
 }
 
+function settingValue(record: Record<string, unknown>, camelKey: string, kebabKey: string): unknown {
+  return record[camelKey] ?? record[kebabKey];
+}
+
 function normalizeSettings(value: unknown): ProxySettings {
   if (typeof value === "string") {
     try {
@@ -69,18 +74,23 @@ function normalizeSettings(value: unknown): ProxySettings {
     return { fastMode: false, requestsPerMinute: null, allowedModels: null, allowedProviderIds: null, disabledProviderIds: null };
   }
 
-  const rawRequestsPerMinute = typeof value.requestsPerMinute === "number" && Number.isFinite(value.requestsPerMinute)
-    ? Math.max(1, Math.floor(value.requestsPerMinute))
-    : value.requestsPerMinute === null
+  const normalizedByCljs = normalizeObjectKeysWithCljs(value);
+  const settings = isRecord(normalizedByCljs) ? normalizedByCljs : value;
+  const fastMode = settingValue(settings, "fastMode", "fast-mode");
+  const requestsPerMinute = settingValue(settings, "requestsPerMinute", "requests-per-minute");
+
+  const rawRequestsPerMinute = typeof requestsPerMinute === "number" && Number.isFinite(requestsPerMinute)
+    ? Math.max(1, Math.floor(requestsPerMinute))
+    : requestsPerMinute === null
       ? null
       : undefined;
 
   return {
-    fastMode: typeof value.fastMode === "boolean" ? value.fastMode : false,
+    fastMode: typeof fastMode === "boolean" ? fastMode : false,
     requestsPerMinute: rawRequestsPerMinute ?? null,
-    allowedModels: normalizeModelIdList(value.allowedModels),
-    allowedProviderIds: normalizeProviderIdList(value.allowedProviderIds),
-    disabledProviderIds: normalizeProviderIdList(value.disabledProviderIds),
+    allowedModels: normalizeModelIdList(settingValue(settings, "allowedModels", "allowed-models")),
+    allowedProviderIds: normalizeProviderIdList(settingValue(settings, "allowedProviderIds", "allowed-provider-ids")),
+    disabledProviderIds: normalizeProviderIdList(settingValue(settings, "disabledProviderIds", "disabled-provider-ids")),
   };
 }
 

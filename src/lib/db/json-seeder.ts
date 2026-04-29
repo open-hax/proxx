@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 
 import { normalizeEpochMilliseconds } from "../epoch.js";
 import { loadFactoryAuthV2, parseJwtExpiry } from "../factory-auth.js";
+import { getActiveCljsRuntime } from "../cljs-runtime.js";
 import { loadModels } from "../models.js";
 import type { ProviderCredential, ProviderAuthType } from "../key-pool.js";
 import type { Sql } from "./index.js";
@@ -72,6 +73,22 @@ function accountIdFromRaw(providerId: string, index: number, account: unknown): 
   return `${providerId}-${index + 1}`;
 }
 
+function validateCredentialWithCljs(credential: ProviderCredential): boolean {
+  const runtime = getActiveCljsRuntime();
+  if (!runtime) {
+    return true;
+  }
+
+  const result = runtime.validateEntity("provider-credential", {
+    id: credential.accountId,
+    providerId: credential.providerId,
+    accountId: credential.accountId,
+    authType: credential.authType,
+    secret: credential.token,
+  });
+  return result.status === "ok";
+}
+
 function parseJsonCredentials(raw: unknown, defaultProviderId: string): Map<string, { authType: ProviderAuthType; accounts: ProviderCredential[] }> {
   const providers = new Map<string, { authType: ProviderAuthType; accounts: ProviderCredential[] }>();
 
@@ -90,7 +107,7 @@ function parseJsonCredentials(raw: unknown, defaultProviderId: string): Map<stri
       }
       seen.add(token);
 
-      accounts.push({
+      const credential: ProviderCredential = {
         providerId,
         accountId: accountIdFromRaw(providerId, index, rawAccount),
         token,
@@ -107,7 +124,11 @@ function parseJsonCredentials(raw: unknown, defaultProviderId: string): Map<stri
         refreshToken: isRecord(rawAccount)
           ? asString(rawAccount.refresh_token) ?? asString(rawAccount.refreshToken)
           : undefined,
-      });
+      };
+
+      if (validateCredentialWithCljs(credential)) {
+        accounts.push(credential);
+      }
     }
 
     providers.set(providerId, { authType, accounts });
@@ -174,6 +195,11 @@ const ENV_API_KEY_PROVIDER_SPECS = [
     providerIdEnvNames: ["MISTRAL_PROVIDER_ID"],
     providerIdFallback: "mistral",
     keyEnvNames: ["MISTRAL_API_KEY"],
+  },
+  {
+    providerIdEnvNames: ["XIAOMI_PROVIDER_ID", "MIMO_PROVIDER_ID"],
+    providerIdFallback: "xiaomi",
+    keyEnvNames: ["XIAOMI_API_KEY", "MIMO_API_KEY"],
   },
   {
     providerIdEnvNames: ["OPENROUTER_PROVIDER_ID"],

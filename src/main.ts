@@ -1,11 +1,23 @@
 import { initTelemetry, shutdownTelemetry } from "./lib/telemetry/otel.js";
 import { createApp } from "./app.js";
+import { assertCljsRuntimeReady, loadCljsRuntime, setActiveCljsRuntime } from "./lib/cljs-runtime.js";
 import { loadConfig } from "./lib/config.js";
 
 initTelemetry();
 
 const config = loadConfig();
+const cljsRuntime = await loadCljsRuntime({ required: process.env.PROXX_CLJS_RUNTIME_REQUIRED === "true" });
+if (cljsRuntime.loaded) {
+  await assertCljsRuntimeReady(cljsRuntime.runtime);
+  setActiveCljsRuntime(cljsRuntime.runtime);
+}
+
 const app = await createApp(config);
+if (cljsRuntime.loaded) {
+  app.log.info({ modulePath: cljsRuntime.modulePath }, "CLJS runtime loaded");
+} else {
+  app.log.warn({ reason: cljsRuntime.reason }, "CLJS runtime not loaded; TypeScript runtime remains authoritative");
+}
 
 await app.listen({ host: config.host, port: config.port });
 app.log.info({ host: config.host, port: config.port }, "open-hax-openai-proxy listening");

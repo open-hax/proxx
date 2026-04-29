@@ -1,5 +1,6 @@
 (ns proxx.boot
   (:require
+   [clojure.string        :as str]
    [goog.object           :as gobj]
    [proxx.pipeline        :as pl]
    [proxx.store.hot       :as hot]
@@ -63,19 +64,21 @@
 (defn seed-from-env-api-keys!
   "Ingest PROVIDER_API_KEY_<NAME>=<val> env vars as :provider-credential records."
   [pipeline]
-  (let [env     (js->clj (.-env js/process) :keywordize-keys true)
-        prefix  "PROVIDER_API_KEY_"
-        records (->> env
-                     (filter (fn [[k _]] (.startsWith (name k) prefix)))
-                     (mapv (fn [[k v]]
-                             (let [pid (-> (name k)
-                                           (subs (count prefix))
-                                           .toLowerCase
-                                           (.replace "_" "-"))]
-                               {:id          (str pid ":env")
-                                :provider-id pid
-                                :auth-type   "api_key"
-                                :secret      v}))))]
+  (let [prefix  "PROVIDER_API_KEY_"
+        records (->> (array-seq (js/Object.entries (.-env js/process)))
+                     (keep (fn [entry]
+                             (let [k (aget entry 0)
+                                   v (aget entry 1)]
+                               (when (.startsWith k prefix)
+                                 (let [pid (-> k
+                                               (subs (count prefix))
+                                               str/lower-case
+                                               (str/replace "_" "-"))]
+                                   {:id          (str pid ":env")
+                                    :provider-id pid
+                                    :auth-type   "api_key"
+                                    :secret      v})))))
+                     vec)]
     (ingest-source! pipeline :seed :provider-credential records)))
 
 (defn seed-static!
