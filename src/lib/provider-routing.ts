@@ -491,7 +491,7 @@ export function resolveProviderRoutesForModel(
   return [...ollamaRoutes, ...nonOllamaRoutes];
 }
 
-const OPENAI_COMPATIBLE_API_PROVIDERS = new Set(["vivgrid", "openai", "factory", "requesty", "zen"]);
+const OPENAI_COMPATIBLE_API_PROVIDERS = new Set(["vivgrid", "openai", "factory", "requesty", "zen", "xiaomi"]);
 const RESPONSES_COMPATIBLE_API_PROVIDERS = new Set(["vivgrid", "openai", "factory", "requesty", "zen", "rotussy"]);
 
 function providerSupportsOpenAiCompatibleApi(providerId: string, openAiProviderId?: string): boolean {
