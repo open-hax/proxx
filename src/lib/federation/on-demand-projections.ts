@@ -68,7 +68,7 @@ async function fetchRemoteAccounts(input: {
       credential: input.credential,
       timeoutMs: input.timeoutMs,
     });
-  } catch (error) {
+  } catch (_error) {
     // Back-compat fallback: legacy prefix.
     const legacy = `${input.controlBaseUrl}${resolveFederationRoutePath("/federation/accounts")}?ownerSubject=${encodeURIComponent(input.ownerSubject)}`;
     return await fetchFederationJson<RemoteFederationAccountsPayload>({

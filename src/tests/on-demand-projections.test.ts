@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import type { SqlFederationStore } from "../lib/db/sql-federation-store.js";
 import { ensureFederationProjectedAccountsFresh } from "../lib/federation/on-demand-projections.js";
 
 test("ensureFederationProjectedAccountsFresh pulls remote /api/v1 federation accounts when stale", async () => {
@@ -59,7 +60,7 @@ test("ensureFederationProjectedAccountsFresh pulls remote /api/v1 federation acc
         seenSyncUpdates.push(record);
         return record;
       },
-    } as any;
+    } as unknown as SqlFederationStore;
 
     const result = await ensureFederationProjectedAccountsFresh({
       sqlFederationStore,
