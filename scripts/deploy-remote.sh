@@ -17,6 +17,7 @@ DEPLOY_COMPOSE_FILES="${DEPLOY_COMPOSE_FILES:-}"
 DEPLOY_CADDY_TEMPLATE="${DEPLOY_CADDY_TEMPLATE:-deploy/Caddyfile.template}"
 DEPLOY_HEALTH_SERVICE="${DEPLOY_HEALTH_SERVICE:-open-hax-openai-proxy}"
 DEPLOY_RESTART_SERVICES="${DEPLOY_RESTART_SERVICES:-open-hax-openai-proxy}"
+DEPLOY_PRUNE_BEFORE_BUILD="${DEPLOY_PRUNE_BEFORE_BUILD:-true}"
 DEPLOY_ENV_APPEND="${DEPLOY_ENV_APPEND:-}"
 DEPLOY_SOURCE_HOST="${DEPLOY_SOURCE_HOST:-}"
 DEPLOY_SOURCE_USER="${DEPLOY_SOURCE_USER:-$DEPLOY_USER}"
@@ -161,12 +162,13 @@ EOF
 
 remote_compose_up() {
   # shellcheck disable=SC2029
-  ssh "${SSH_OPTS[@]}" "$REMOTE" bash -s -- "$DEPLOY_PATH" "$DEPLOY_ENABLE_TLS" "$REMOTE_COMPOSE_PROJECT_NAME" "$REMOTE_COMPOSE_FILES" <<'EOF'
+  ssh "${SSH_OPTS[@]}" "$REMOTE" bash -s -- "$DEPLOY_PATH" "$DEPLOY_ENABLE_TLS" "$REMOTE_COMPOSE_PROJECT_NAME" "$REMOTE_COMPOSE_FILES" "$DEPLOY_PRUNE_BEFORE_BUILD" <<'EOF'
 set -euo pipefail
 DEPLOY_PATH="$1"
 DEPLOY_ENABLE_TLS="$2"
 DEPLOY_COMPOSE_PROJECT_NAME="$3"
 DEPLOY_COMPOSE_FILES="$4"
+DEPLOY_PRUNE_BEFORE_BUILD="$5"
 if [[ "$DEPLOY_COMPOSE_PROJECT_NAME" == "__EMPTY_COMPOSE_PROJECT_NAME__" ]]; then
   DEPLOY_COMPOSE_PROJECT_NAME=""
 fi
@@ -175,6 +177,10 @@ if [[ "$DEPLOY_COMPOSE_FILES" == "__EMPTY_COMPOSE_FILES__" ]]; then
 fi
 cd "$DEPLOY_PATH"
 docker network create ai-infra >/dev/null 2>&1 || true
+if [[ "$DEPLOY_PRUNE_BEFORE_BUILD" == "true" ]]; then
+  docker builder prune -af --filter 'until=24h' || true
+  docker image prune -af || true
+fi
 compose_args=()
 if [[ -f .env ]]; then
   compose_args+=(--env-file .env)
