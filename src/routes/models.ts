@@ -10,10 +10,9 @@ export function registerModelsRoutes(deps: AppDeps, app: FastifyInstance): void 
     const tenantId = (request.openHaxAuth?.tenantId) ?? "default";
     const tenantSettings = await deps.proxySettingsStore.getForTenant(tenantId);
     const modelIds = (await deps.getMergedModelIds()).filter((modelId) => tenantModelAllowed(tenantSettings, modelId));
-    const sortedModelIds = modelIds.sort((a, b) => a.localeCompare(b));
     reply.send({
       object: "list",
-      data: sortedModelIds.map(toOpenAiModel)
+      data: modelIds.map(toOpenAiModel)
     });
   });
 

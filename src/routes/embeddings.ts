@@ -103,8 +103,6 @@ export function registerEmbeddingsRoutes(deps: AppDeps, app: FastifyInstance): v
       routeProviderId = requestProviderId;
     } else if (catalogProviderId) {
       routeProviderId = catalogProviderId;
-    } else if (routingModelInput.toLowerCase().includes("embedding")) {
-      routeProviderId = "llamacpp-embed";
     } else {
       routeProviderId = "ollama";
     }
