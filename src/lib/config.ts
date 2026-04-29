@@ -337,6 +337,14 @@ function providerBaseUrlsFromEnv(
   return parsed;
 }
 
+/**
+ * Return the default base URL for a given upstream provider identifier.
+ *
+ * Looks up a provider-specific default URL (optionally overridden by environment variables) and returns it with any trailing slashes removed.
+ *
+ * @param providerId - Provider identifier (case-insensitive). Recognized values include: "vivgrid", "ollama-cloud", "ollama-stealth", "ollama-big-ussy", "openrouter", "gemini", "mistral", "ob1", "factory", "requesty", "zen", "zai", "rotussy", and "xiaomi".
+ * @returns The normalized base URL for the specified provider; returns the Vivgrid base URL when the provider is unrecognized.
+ */
 function defaultProviderBaseUrl(providerId: string): string {
   switch (providerId.trim().toLowerCase()) {
     case "ob1":
@@ -357,6 +365,8 @@ function defaultProviderBaseUrl(providerId: string): string {
       return (process.env.ROTUSSY_BASE_URL ?? "https://api.ussyco.de/v1").replace(/\/+$/, "");
     case "mistral":
       return (process.env.MISTRAL_BASE_URL ?? "https://api.mistral.ai/v1").replace(/\/+$/, "");
+    case "xiaomi":
+      return (process.env.XIAOMI_BASE_URL ?? process.env.MIMO_BASE_URL ?? "https://api.xiaomimimo.com/v1").replace(/\/+$/, "");
     case "ollama-cloud":
       return "https://ollama.com";
     case "ollama-stealth":
@@ -369,6 +379,13 @@ function defaultProviderBaseUrl(providerId: string): string {
   }
 }
 
+/**
+ * Build a complete proxy configuration by reading environment variables, applying defaults, and validating required fields.
+ *
+ * @param cwd - Base directory used to resolve any relative filesystem paths read from environment variables
+ * @returns A fully populated `ProxyConfig` object with upstream routing, provider base URLs, OAuth settings, file paths, timing and throttling limits, and other proxy options
+ * @throws If neither `PROXY_AUTH_TOKEN` is set nor unauthenticated access is allowed, or if required provider IDs are empty
+ */
 export function loadConfig(cwd: string = process.cwd()): ProxyConfig {
   const upstreamProviderId = (process.env.UPSTREAM_PROVIDER_ID ?? "vivgrid").trim();
   const rawUpstreamBaseUrl = process.env.UPSTREAM_BASE_URL?.trim();
@@ -403,6 +420,7 @@ export function loadConfig(cwd: string = process.cwd()): ProxyConfig {
     zai: defaultProviderBaseUrl("zai"),
     rotussy: defaultProviderBaseUrl("rotussy"),
     mistral: defaultProviderBaseUrl("mistral"),
+    xiaomi: defaultProviderBaseUrl("xiaomi"),
     factory: defaultProviderBaseUrl("factory"),
     "ollama-stealth": defaultProviderBaseUrl("ollama-stealth"),
     "ollama-big-ussy": defaultProviderBaseUrl("ollama-big-ussy"),

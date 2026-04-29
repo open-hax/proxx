@@ -1,0 +1,24 @@
+{:source-paths ["src" "test"]
+
+ :dependencies
+ [[metosin/malli "0.16.4"]]
+
+ :builds
+ {:runtime
+  {:target    :esm
+   :output-dir "dist/cljs"
+   :modules   {:proxx-runtime {:exports {normalizeKeys proxx.runtime/normalize-keys-js
+                                          validateEntity proxx.runtime/validate-entity-js
+                                          projectPheromone proxx.runtime/project-pheromone-js}}}}
+
+  :node-test
+  {:target      :node-test
+   :output-to   "target/node-test.cjs"
+   :ns-regexp   "proxx\\..*-test$"
+   :compiler-options {:source-map true}}
+
+  :node-e2e
+  {:target      :node-test
+   :output-to   "target/node-e2e.cjs"
+   :ns-regexp   "proxx\\.e2e\\..*-test$"
+   :compiler-options {:source-map true}}}}
