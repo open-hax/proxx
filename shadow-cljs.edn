@@ -4,7 +4,14 @@
  [[metosin/malli "0.16.4"]]
 
  :builds
- {:node-test
+ {:runtime
+  {:target    :esm
+   :output-dir "dist/cljs"
+   :modules   {:proxx-runtime {:exports {normalizeKeys proxx.runtime/normalize-keys-js
+                                          validateEntity proxx.runtime/validate-entity-js
+                                          projectPheromone proxx.runtime/project-pheromone-js}}}}
+
+  :node-test
   {:target      :node-test
    :output-to   "target/node-test.cjs"
    :ns-regexp   "proxx\\..*-test$"

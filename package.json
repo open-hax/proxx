@@ -22,14 +22,17 @@
     "registry": "https://registry.npmjs.org"
   },
   "scripts": {
-    "dev": "node --env-file-if-exists=.env --import tsx src/main.ts",
+    "dev": "pnpm build:cljs && node --env-file-if-exists=.env --import tsx src/main.ts",
     "build": "rm -rf dist && tsc -p tsconfig.json",
+    "build:cljs": "npx shadow-cljs release runtime",
+    "build:runtime": "rm -rf dist && pnpm build:cljs && tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "start": "node --env-file-if-exists=.env dist/main.js",
     "test": "pnpm run build && node --test --test-concurrency=1 'dist/tests/**/*.test.js'",
     "test:coverage": "pnpm run build && c8 --reporter=text --reporter=json-summary --exclude 'src/**/*.test.ts' --exclude 'src/**/*.d.ts' --exclude 'src/**/types.ts' --exclude 'src/data/**' --exclude 'src/main.ts' --exclude 'src/routes/**' --exclude 'src/lib/oauth-routes.ts' --exclude 'src/lib/native-auth.ts' --exclude 'src/lib/telemetry/**' --exclude 'src/lib/observability/**' --exclude 'src/lib/chroma-*.ts' node --test --test-concurrency=1 'dist/tests/**/*.test.js'",
     "test:cljs": "npx shadow-cljs compile node-test && node target/node-test.cjs",
     "test:cljs:coverage": "npx shadow-cljs compile node-test && c8 node target/node-test.cjs",
+    "test:cljs-runtime": "pnpm build:runtime && node --input-type=module -e \"import('./dist/lib/cljs-runtime.js').then(async m => { const loaded = await m.loadCljsRuntime({ required: true }); await m.assertCljsRuntimeReady(loaded.runtime); console.log('cljs-runtime-ok'); })\"",
     "test:e2e": "./scripts/e2e-test.sh",
     "test:e2e:multitenancy": "./scripts/e2e-multitenancy-smoke.sh",
     "test:e2e:federation": "./scripts/e2e-federation-cluster.sh",
