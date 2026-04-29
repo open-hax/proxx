@@ -112,6 +112,13 @@
         s2 (p/project-pheromone more-success {:decay-half-life-ms 60000})]
     (is (< s1 s2))))
 
+(deftest pheromone-score-is-clamped-to-schema-range
+  (let [now (.now js/Date)
+        many-successes (vec (repeat 20 {:ts now :outcome :success}))
+        many-failures  (vec (repeat 30 {:ts now :outcome :failure}))]
+    (is (= 10.0 (p/project-pheromone many-successes {:decay-half-life-ms 60000})))
+    (is (= -10.0 (p/project-pheromone many-failures {:decay-half-life-ms 60000})))))
+
 ;; ══════════════════════════════════════════════════════════════
 ;; scoring tests
 ;; ══════════════════════════════════════════════════════════════
@@ -123,7 +130,15 @@
                  {:metric-key "success-rate" :weight 1.0 :transform :invert}]
         s-linear (p/compute-score metrics [(first weights)])
         s-invert (p/compute-score metrics [(second weights)])]
-    (is (> s-linear s-invert))))
+    (is (> s-linear s-invert))
+    (is (pos? s-invert))))
+
+(deftest invert-transform-handles-large-values-without-negative-scores
+  (let [metrics {:latency {:p95 300}}
+        weights [{:metric-key "latency.p95" :weight 1.0 :transform :invert}]
+        score (p/compute-score metrics weights)]
+    (is (pos? score))
+    (is (< score 0.01))))
 
 (deftest score-candidates-uses-metrics-map
   (let [candidates [{:provider-id "openai" :model-id "gpt-4o"}

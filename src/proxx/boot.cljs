@@ -1,5 +1,6 @@
 (ns proxx.boot
   (:require
+   [clojure.string        :as str]
    [goog.object           :as gobj]
    [proxx.pipeline        :as pl]
    [proxx.store.hot       :as hot]
@@ -71,8 +72,8 @@
                                (when (.startsWith k prefix)
                                  (let [pid (-> k
                                                (subs (count prefix))
-                                               .toLowerCase
-                                               (.replace "_" "-"))]
+                                               str/lower-case
+                                               (str/replace "_" "-"))]
                                    {:id          (str pid ":env")
                                     :provider-id pid
                                     :auth-type   "api_key"

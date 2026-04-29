@@ -131,31 +131,39 @@
    decay-half-life-ms: time for score to halve.
    outcome weighting: success -> +1.0, failure -> -0.5.
 
-   Returns numeric score (unbounded; schema clamps later)."
+   Returns numeric score clamped to the PheromoneState schema range
+   of -10.0..10.0."
   [events {:keys [decay-half-life-ms]
            :or   {decay-half-life-ms 60000}}]
-  (let [now (.now js/Date)]
-    (reduce (fn [acc {:keys [ts outcome]}]
-              (let [age          (- now ts)
-                    decay-factor (Math/pow 0.5 (/ age decay-half-life-ms))
-                    signal       (case outcome
-                                   :success  1.0
-                                   :failure -0.5
-                                   0.0)]
-                (+ acc (* signal decay-factor))))
-            0.0
-            events)))
+  (let [now (.now js/Date)
+        score (reduce (fn [acc {:keys [ts outcome]}]
+                        (let [age          (- now ts)
+                              decay-factor (Math/pow 0.5 (/ age decay-half-life-ms))
+                              signal       (case outcome
+                                             :success  1.0
+                                             :failure -0.5
+                                             0.0)]
+                          (+ acc (* signal decay-factor))))
+                      0.0
+                      events)]
+    (-> score
+        (max -10.0)
+        (min 10.0))))
 
 ;; ══════════════════════════════════════════════════════════════
 ;; Scoring (pure)
 ;; ══════════════════════════════════════════════════════════════
 
 (defn apply-weight-transform
-  "Transform a metric value according to a ScoringWeight transform."
+  "Transform a metric value according to a ScoringWeight transform.
+
+   :invert uses 1/(1+value), so larger non-negative values such as
+   latency become smaller scores without going negative. Inputs below
+   zero are treated as zero before inversion."
   [value transform]
   (case transform
     :linear    value
-    :invert    (- 1.0 value)
+    :invert    (/ 1.0 (+ 1.0 (max 0.0 value)))
     :normalize value  ;; true normalization needs population stats
     value))
 

@@ -82,3 +82,18 @@
       (boot/seed-from-value! pl raw)
       (let [hot-store (get-in pl [:stores :hot])]
         (is (some? (store-get hot-store :provider-credential "openai:test")))))))
+
+(deftest seed-from-env-api-keys-normalizes-all-underscores
+  (testing "env provider ids replace every underscore with a dash"
+    (boot/halt!)
+    (aset (.-env js/process) "PROVIDER_API_KEY_OPEN_AI_TEST" "sk-env")
+    (try
+      (let [pl        (boot/boot! no-external-config)
+            hot-store (get-in pl [:stores :hot])]
+        (is (= "open-ai-test"
+               (:provider-id (store-get hot-store
+                                         :provider-credential
+                                         "open-ai-test:env")))))
+      (finally
+        (js-delete (.-env js/process) "PROVIDER_API_KEY_OPEN_AI_TEST")
+        (boot/halt!)))))
