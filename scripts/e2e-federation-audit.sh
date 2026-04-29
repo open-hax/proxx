@@ -189,6 +189,12 @@ count_unique_node_ids() {
   python3 -c 'import sys; print(len(set(line.strip() for line in sys.stdin if line.strip())))'
 }
 
+sample_cluster_node_ids() {
+  for _ in 1 2 3 4 5 6 7 8; do
+    curl_json_host "$CLUSTER_HOST" GET "/api/v1/federation/self" | json_value 'nodeId'
+  done
+}
+
 register_peer() {
   local target_host="$1" peer_id="$2" peer_host="$3" group_id="$4"
   local body
@@ -260,9 +266,18 @@ fi
 
 GROUP_A_IDS=$(for _ in 1 2 3 4 5 6; do curl_json_host "$GROUP_A_HOST" GET "/api/v1/federation/self" | json_value 'nodeId'; done)
 GROUP_B_IDS=$(for _ in 1 2 3 4 5 6; do curl_json_host "$GROUP_B_HOST" GET "/api/v1/federation/self" | json_value 'nodeId'; done)
-CLUSTER_IDS=$(for _ in 1 2 3 4 5 6 7 8; do curl_json_host "$CLUSTER_HOST" GET "/api/v1/federation/self" | json_value 'nodeId'; done)
+CLUSTER_IDS=$(sample_cluster_node_ids)
 if printf '%s\n' "$GROUP_A_IDS" | grep -Ev '^(a1|a2)$' >/dev/null; then fail "group-a routing" "returned node outside group-a"; else pass "group-a routing stays within group-a"; fi
 if printf '%s\n' "$GROUP_B_IDS" | grep -Ev '^(b1|b2)$' >/dev/null; then fail "group-b routing" "returned node outside group-b"; else pass "group-b routing stays within group-b"; fi
+for _ in 1 2 3 4 5; do
+  CLUSTER_UNIQUE=$(printf '%s\n' "$CLUSTER_IDS" | count_unique_node_ids)
+  if [[ "$CLUSTER_UNIQUE" -eq 1 && "$(printf '%s\n' "$CLUSTER_IDS" | head -n 1)" == "a1" ]]; then
+    break
+  fi
+  info "cluster witness route not pinned yet; retrying after nginx failover cooldown"
+  sleep 3
+  CLUSTER_IDS=$(sample_cluster_node_ids)
+done
 CLUSTER_UNIQUE=$(printf '%s\n' "$CLUSTER_IDS" | count_unique_node_ids)
 if [[ "$CLUSTER_UNIQUE" -eq 1 && "$(printf '%s\n' "$CLUSTER_IDS" | head -n 1)" == "a1" ]]; then
   pass "cluster routing stays pinned to witness a1"
