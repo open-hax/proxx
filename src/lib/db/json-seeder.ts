@@ -55,6 +55,16 @@ function accountTokenFromRaw(account: unknown, authType: ProviderAuthType): stri
   return undefined;
 }
 
+/**
+ * Produce a stable account identifier for a parsed account entry.
+ *
+ * Chooses the first non-empty trimmed string found in the object fields `id`, `account_id`, `name`, or `label`. If `account` is not an object or none of those fields yield a non-empty value, returns the fallback `${providerId}-${index + 1}`.
+ *
+ * @param providerId - The provider identifier used when constructing the fallback id
+ * @param index - The zero-based index of the account within its provider's list, used for the fallback id
+ * @param account - The raw account entry; may be a string, object, or other value
+ * @returns The resolved account id string
+ */
 function accountIdFromRaw(providerId: string, index: number, account: unknown): string {
   if (!isRecord(account)) {
     return `${providerId}-${index + 1}`;
@@ -73,6 +83,12 @@ function accountIdFromRaw(providerId: string, index: number, account: unknown): 
   return `${providerId}-${index + 1}`;
 }
 
+/**
+ * Validate a provider credential using the active CLJS runtime, if one is available.
+ *
+ * @param credential - The provider credential to validate (identifiers and secret token are used).
+ * @returns `true` if validation succeeds or no CLJS runtime is active, `false` if validation fails.
+ */
 function validateCredentialWithCljs(credential: ProviderCredential): boolean {
   const runtime = getActiveCljsRuntime();
   if (!runtime) {
@@ -89,6 +105,15 @@ function validateCredentialWithCljs(credential: ProviderCredential): boolean {
   return result.status === "ok";
 }
 
+/**
+ * Parse a JSON value containing provider credentials into a map of provider entries.
+ *
+ * Accepts a top-level array (treated as API-key accounts for `defaultProviderId`), an object with a `keys` array, or an object with a `providers` map whose values are either arrays (API-key accounts) or objects with `auth` and `accounts`/`keys`. Duplicate accounts (by token) are deduplicated, and credentials are omitted if CLJS-backed validation rejects them (all credentials are allowed when no CLJS runtime is available).
+ *
+ * @param raw - The parsed JSON value containing credential data in one of the supported shapes.
+ * @param defaultProviderId - Provider id to use when a provider key is empty or when the top-level input is an array/keys.
+ * @returns A map keyed by provider id where each value contains `authType` and the array of parsed `ProviderCredential` accounts.
+ */
 function parseJsonCredentials(raw: unknown, defaultProviderId: string): Map<string, { authType: ProviderAuthType; accounts: ProviderCredential[] }> {
   const providers = new Map<string, { authType: ProviderAuthType; accounts: ProviderCredential[] }>();
 
