@@ -1,7 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 
-import { normalizeEpochMilliseconds } from "../epoch.js";
 import { loadFactoryAuthV2, parseJwtExpiry } from "../factory-auth.js";
 import { getActiveCljsRuntime } from "../cljs-runtime.js";
 import { loadModels } from "../models.js";
@@ -20,173 +19,83 @@ function asNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
-function normalizeAuthType(raw: unknown): ProviderAuthType {
-  const value = asString(raw)?.trim().toLowerCase();
-  if (!value || value === "api_key" || value === "api-key") {
-    return "api_key";
-  }
-  if (value === "oauth" || value === "oauth_bearer" || value === "oauth-bearer") {
-    return "oauth_bearer";
-  }
-  return "api_key";
+interface ParsedProviderSeed {
+  readonly providerId: string;
+  readonly authType: ProviderAuthType;
+  readonly accounts: readonly ProviderCredential[];
 }
 
-function accountTokenFromRaw(account: unknown, authType: ProviderAuthType): string | undefined {
-  if (typeof account === "string") {
-    const token = account.trim();
-    return token.length > 0 ? token : undefined;
-  }
-
-  if (!isRecord(account)) {
-    return undefined;
-  }
-
-  const keys = authType === "oauth_bearer"
-    ? ["access_token", "token", "bearer_token", "api_key", "key"]
-    : ["api_key", "key", "token", "access_token"];
-
-  for (const key of keys) {
-    const token = asString(account[key])?.trim();
-    if (token && token.length > 0) {
-      return token;
-    }
-  }
-
-  return undefined;
+function isProviderAuthType(value: unknown): value is ProviderAuthType {
+  return value === "api_key" || value === "oauth_bearer";
 }
 
-/**
- * Produce a stable account identifier for a parsed account entry.
- *
- * Chooses the first non-empty trimmed string found in the object fields `id`, `account_id`, `name`, or `label`. If `account` is not an object or none of those fields yield a non-empty value, returns the fallback `${providerId}-${index + 1}`.
- *
- * @param providerId - The provider identifier used when constructing the fallback id
- * @param index - The zero-based index of the account within its provider's list, used for the fallback id
- * @param account - The raw account entry; may be a string, object, or other value
- * @returns The resolved account id string
- */
-function accountIdFromRaw(providerId: string, index: number, account: unknown): string {
-  if (!isRecord(account)) {
-    return `${providerId}-${index + 1}`;
-  }
-
-  const id = asString(account.id) ??
-    asString(account.account_id) ??
-    asString(account.name) ??
-    asString(account.label);
-
-  const normalized = id?.trim();
-  if (normalized && normalized.length > 0) {
-    return normalized;
-  }
-
-  return `${providerId}-${index + 1}`;
-}
-
-/**
- * Validate a provider credential using the active CLJS runtime, if one is available.
- *
- * @param credential - The provider credential to validate (identifiers and secret token are used).
- * @returns `true` if validation succeeds or no CLJS runtime is active, `false` if validation fails.
- */
-function validateCredentialWithCljs(credential: ProviderCredential): boolean {
+function parseCredentialSeedWithCljs(raw: unknown, defaultProviderId: string): ParsedProviderSeed[] {
   const runtime = getActiveCljsRuntime();
   if (!runtime) {
-    return true;
+    throw new Error("CLJS runtime must be active before provider credential seeding");
   }
 
-  const result = runtime.validateEntity("provider-credential", {
-    id: credential.accountId,
-    providerId: credential.providerId,
-    accountId: credential.accountId,
-    authType: credential.authType,
-    secret: credential.token,
+  const result = runtime.parseProviderCredentials(raw, defaultProviderId);
+  if (result.status !== "ok") {
+    return [];
+  }
+
+  const providers = Array.isArray(result.providers) ? result.providers : [];
+  return providers.flatMap((provider): ParsedProviderSeed[] => {
+    if (!isRecord(provider)) {
+      return [];
+    }
+
+    const providerId = asString(provider.providerId)?.trim();
+    const authType = provider.authType;
+    const rawAccounts = provider.accounts;
+    if (!providerId || !isProviderAuthType(authType) || !Array.isArray(rawAccounts)) {
+      return [];
+    }
+
+    const accounts = rawAccounts.flatMap((account): ProviderCredential[] => {
+      if (!isRecord(account)) {
+        return [];
+      }
+
+      const accountId = asString(account.accountId)?.trim();
+      const token = asString(account.token)?.trim();
+      if (!accountId || !token) {
+        return [];
+      }
+
+      return [{
+        providerId,
+        accountId,
+        token,
+        authType,
+        chatgptAccountId: asString(account.chatgptAccountId),
+        planType: asString(account.planType),
+        expiresAt: asNumber(account.expiresAt),
+        refreshToken: asString(account.refreshToken),
+      }];
+    });
+
+    return accounts.length > 0 ? [{ providerId, authType, accounts }] : [];
   });
-  return result.status === "ok";
 }
 
 /**
  * Parse a JSON value containing provider credentials into a map of provider entries.
  *
- * Accepts a top-level array (treated as API-key accounts for `defaultProviderId`), an object with a `keys` array, or an object with a `providers` map whose values are either arrays (API-key accounts) or objects with `auth` and `accounts`/`keys`. Duplicate accounts (by token) are deduplicated, and credentials are omitted if CLJS-backed validation rejects them (all credentials are allowed when no CLJS runtime is available).
+ * The CLJS runtime owns accepted input shapes, normalization, duplicate removal,
+ * Malli validation, and removal of providers with no valid credentials. This
+ * TypeScript boundary only checks the JS export payload before SQL writes.
  *
- * @param raw - The parsed JSON value containing credential data in one of the supported shapes.
- * @param defaultProviderId - Provider id to use when a provider key is empty or when the top-level input is an array/keys.
- * @returns A map keyed by provider id where each value contains `authType` and the array of parsed `ProviderCredential` accounts.
+ * @param raw - The parsed JSON value containing credential seed data.
+ * @param defaultProviderId - Provider id to pass to the CLJS parser for top-level key lists.
+ * @returns A map keyed by provider id where each value contains `authType` and parsed accounts.
  */
 function parseJsonCredentials(raw: unknown, defaultProviderId: string): Map<string, { authType: ProviderAuthType; accounts: ProviderCredential[] }> {
-  const providers = new Map<string, { authType: ProviderAuthType; accounts: ProviderCredential[] }>();
-
-  function addAccounts(providerId: string, authType: ProviderAuthType, rawAccounts: unknown): void {
-    if (!Array.isArray(rawAccounts)) {
-      return;
-    }
-
-    const seen = new Set<string>();
-    const accounts: ProviderCredential[] = [];
-
-    for (const [index, rawAccount] of rawAccounts.entries()) {
-      const token = accountTokenFromRaw(rawAccount, authType);
-      if (!token || seen.has(token)) {
-        continue;
-      }
-      seen.add(token);
-
-      const credential: ProviderCredential = {
-        providerId,
-        accountId: accountIdFromRaw(providerId, index, rawAccount),
-        token,
-        authType,
-        chatgptAccountId: isRecord(rawAccount)
-          ? asString(rawAccount.chatgpt_account_id) ?? asString(rawAccount.chatgptAccountId)
-          : undefined,
-        planType: isRecord(rawAccount)
-          ? asString(rawAccount.plan_type) ?? asString(rawAccount.planType)
-          : undefined,
-        expiresAt: isRecord(rawAccount)
-          ? normalizeEpochMilliseconds(asNumber(rawAccount.expires_at) ?? asNumber(rawAccount.expiresAt))
-          : undefined,
-        refreshToken: isRecord(rawAccount)
-          ? asString(rawAccount.refresh_token) ?? asString(rawAccount.refreshToken)
-          : undefined,
-      };
-
-      if (validateCredentialWithCljs(credential)) {
-        accounts.push(credential);
-      }
-    }
-
-    providers.set(providerId, { authType, accounts });
-  }
-
-  if (Array.isArray(raw) || (isRecord(raw) && Array.isArray(raw.keys))) {
-    const accounts = Array.isArray(raw) ? raw : raw.keys;
-    addAccounts(defaultProviderId, "api_key", accounts);
-    return providers;
-  }
-
-  if (!isRecord(raw) || !isRecord(raw.providers)) {
-    return providers;
-  }
-
-  for (const [rawProviderId, rawProvider] of Object.entries(raw.providers)) {
-    const providerId = rawProviderId.trim() || defaultProviderId;
-
-    if (Array.isArray(rawProvider)) {
-      addAccounts(providerId, "api_key", rawProvider);
-      continue;
-    }
-
-    if (!isRecord(rawProvider)) {
-      continue;
-    }
-
-    const authType = normalizeAuthType(rawProvider.auth);
-    const rawAccounts = rawProvider.accounts ?? rawProvider.keys;
-    addAccounts(providerId, authType, rawAccounts);
-  }
-
-  return providers;
+  return new Map(parseCredentialSeedWithCljs(raw, defaultProviderId).map((provider) => [provider.providerId, {
+    authType: provider.authType,
+    accounts: [...provider.accounts],
+  }]));
 }
 
 function firstNonEmptyEnv(names: readonly string[]): string | undefined {
@@ -429,9 +338,9 @@ export async function seedFactoryAuthFromFiles(
 export async function seedModelsFromFile(
   sql: Sql,
   modelsFilePath: string,
-  fallbackModels: readonly string[],
+  defaultModels: readonly string[],
 ): Promise<{ seeded: boolean; count: number }> {
-  const models = await loadModels(modelsFilePath, fallbackModels);
+  const models = await loadModels(modelsFilePath, defaultModels);
   let insertedCount = 0;
   for (const modelId of models) {
     const inserted = await sql<Array<{ id: string }>>`
@@ -447,7 +356,7 @@ export async function seedModelsFromFile(
 
 /**
  * Load model IDs from the DB. Returns null if the models table is empty
- * (caller should fall back to file-based loading).
+ * (caller should use file-based loading).
  */
 export async function loadModelsFromDb(
   sql: Sql,
