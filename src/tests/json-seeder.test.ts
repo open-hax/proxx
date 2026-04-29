@@ -107,13 +107,21 @@ test("seedFromJsonValue validates provider credentials through active CLJS runti
   const fake = createFakeSql();
   const cljsRuntime: ProxxCljsRuntime = {
     normalizeKeys: (value) => value,
-    validateEntity: (_entityType, value) => {
-      const record = value as { readonly id?: string };
-      return record.id === "acct-allow"
-        ? { status: "ok", record: value }
-        : { status: "error", errors: { id: ["blocked by test runtime"] } };
-    },
+    validateEntity: (_entityType, value) => ({ status: "ok", record: value }),
     projectPheromone: () => 0,
+    parseProviderCredentials: () => ({
+      status: "ok",
+      providers: [{
+        providerId: "xiaomi",
+        authType: "api_key",
+        accounts: [{
+          providerId: "xiaomi",
+          accountId: "acct-allow",
+          token: "mimo-token-a",
+          authType: "api_key",
+        }],
+      }],
+    }),
   };
   setActiveCljsRuntime(cljsRuntime);
 
@@ -136,6 +144,38 @@ test("seedFromJsonValue validates provider credentials through active CLJS runti
     assert.equal(result.providers, 1);
     assert.equal(result.accounts, 1);
     assert.equal(fake.accounts.get("xiaomi:acct-allow")?.token, "mimo-token-a");
+    assert.equal(fake.accounts.has("xiaomi:acct-block"), false);
+  } finally {
+    setActiveCljsRuntime(undefined);
+  }
+});
+
+test("seedFromJsonValue skips CLJS-parsed providers with zero valid credentials", async () => {
+  const fake = createFakeSql();
+  const cljsRuntime: ProxxCljsRuntime = {
+    normalizeKeys: (value) => value,
+    validateEntity: (_entityType, value) => ({ status: "ok", record: value }),
+    projectPheromone: () => 0,
+    parseProviderCredentials: () => ({ status: "ok", providers: [] }),
+  };
+  setActiveCljsRuntime(cljsRuntime);
+
+  try {
+    const result = await seedFromJsonValue(
+      fake.sql as never,
+      {
+        providers: {
+          xiaomi: {
+            accounts: [{ id: "acct-block", api_key: "mimo-token-b" }],
+          },
+        },
+      },
+      "xiaomi",
+    );
+
+    assert.equal(result.providers, 0);
+    assert.equal(result.accounts, 0);
+    assert.equal(fake.providers.has("xiaomi"), false);
     assert.equal(fake.accounts.has("xiaomi:acct-block"), false);
   } finally {
     setActiveCljsRuntime(undefined);

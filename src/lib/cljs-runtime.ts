@@ -8,10 +8,17 @@ export interface CljsValidationResult {
   readonly errors?: unknown;
 }
 
+export interface ParsedProviderCredentialsResult {
+  readonly status: "ok" | "error";
+  readonly providers?: readonly unknown[];
+  readonly errors?: unknown;
+}
+
 export interface ProxxCljsRuntime {
   readonly normalizeKeys: (value: unknown) => unknown;
   readonly validateEntity: (entityType: string, value: unknown) => CljsValidationResult;
   readonly projectPheromone: (events: readonly unknown[], opts?: unknown) => number;
+  readonly parseProviderCredentials: (value: unknown, defaultProviderId: string) => ParsedProviderCredentialsResult;
 }
 
 export type CljsRuntimeLoadResult =
@@ -41,7 +48,8 @@ function isProxxCljsRuntime(value: Record<string, unknown>): value is Record<str
   return (
     typeof value.normalizeKeys === "function" &&
     typeof value.validateEntity === "function" &&
-    typeof value.projectPheromone === "function"
+    typeof value.projectPheromone === "function" &&
+    typeof value.parseProviderCredentials === "function"
   );
 }
 
@@ -168,5 +176,13 @@ export async function assertCljsRuntimeReady(runtime: ProxxCljsRuntime): Promise
   const score = runtime.projectPheromone([{ ts: Date.now(), outcome: "success" }], {});
   if (!Number.isFinite(score) || score <= 0) {
     throw new Error("CLJS runtime projectPheromone readiness check failed");
+  }
+
+  const parsedCredentials = runtime.parseProviderCredentials(
+    { providers: { openai: { accounts: [{ id: "runtime-smoke", apiKey: "runtime-secret" }] } } },
+    "openai",
+  );
+  if (parsedCredentials.status !== "ok" || parsedCredentials.providers?.length !== 1) {
+    throw new Error("CLJS runtime parseProviderCredentials readiness check failed");
   }
 }

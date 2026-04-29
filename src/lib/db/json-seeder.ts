@@ -20,6 +20,12 @@ function asNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
+interface ParsedProviderSeed {
+  readonly providerId: string;
+  readonly authType: ProviderAuthType;
+  readonly accounts: readonly ProviderCredential[];
+}
+
 function normalizeAuthType(raw: unknown): ProviderAuthType {
   const value = asString(raw)?.trim().toLowerCase();
   if (!value || value === "api_key" || value === "api-key") {
@@ -83,38 +89,79 @@ function accountIdFromRaw(providerId: string, index: number, account: unknown): 
   return `${providerId}-${index + 1}`;
 }
 
-/**
- * Validate a provider credential using the active CLJS runtime, if one is available.
- *
- * @param credential - The provider credential to validate (identifiers and secret token are used).
- * @returns `true` if validation succeeds or no CLJS runtime is active, `false` if validation fails.
- */
-function validateCredentialWithCljs(credential: ProviderCredential): boolean {
+function isProviderAuthType(value: unknown): value is ProviderAuthType {
+  return value === "api_key" || value === "oauth_bearer";
+}
+
+function parseCredentialSeedWithCljs(raw: unknown, defaultProviderId: string): ParsedProviderSeed[] | undefined {
   const runtime = getActiveCljsRuntime();
   if (!runtime) {
-    return true;
+    return undefined;
   }
 
-  const result = runtime.validateEntity("provider-credential", {
-    id: credential.accountId,
-    providerId: credential.providerId,
-    accountId: credential.accountId,
-    authType: credential.authType,
-    secret: credential.token,
+  const result = runtime.parseProviderCredentials(raw, defaultProviderId);
+  if (result.status !== "ok") {
+    return [];
+  }
+
+  const providers = Array.isArray(result.providers) ? result.providers : [];
+  return providers.flatMap((provider): ParsedProviderSeed[] => {
+    if (!isRecord(provider)) {
+      return [];
+    }
+
+    const providerId = asString(provider.providerId)?.trim();
+    const authType = provider.authType;
+    const rawAccounts = provider.accounts;
+    if (!providerId || !isProviderAuthType(authType) || !Array.isArray(rawAccounts)) {
+      return [];
+    }
+
+    const accounts = rawAccounts.flatMap((account): ProviderCredential[] => {
+      if (!isRecord(account)) {
+        return [];
+      }
+
+      const accountId = asString(account.accountId)?.trim();
+      const token = asString(account.token)?.trim();
+      if (!accountId || !token) {
+        return [];
+      }
+
+      return [{
+        providerId,
+        accountId,
+        token,
+        authType,
+        chatgptAccountId: asString(account.chatgptAccountId),
+        planType: asString(account.planType),
+        expiresAt: asNumber(account.expiresAt),
+        refreshToken: asString(account.refreshToken),
+      }];
+    });
+
+    return accounts.length > 0 ? [{ providerId, authType, accounts }] : [];
   });
-  return result.status === "ok";
 }
 
 /**
  * Parse a JSON value containing provider credentials into a map of provider entries.
  *
- * Accepts a top-level array (treated as API-key accounts for `defaultProviderId`), an object with a `keys` array, or an object with a `providers` map whose values are either arrays (API-key accounts) or objects with `auth` and `accounts`/`keys`. Duplicate accounts (by token) are deduplicated, and credentials are omitted if CLJS-backed validation rejects them (all credentials are allowed when no CLJS runtime is available).
+ * Accepts a top-level array (treated as API-key accounts for `defaultProviderId`), an object with a `keys` array, or an object with a `providers` map whose values are either arrays (API-key accounts) or objects with `auth` and `accounts`/`keys`. When a CLJS runtime is active, parsing and Malli validation happen in CLJS; otherwise the legacy TypeScript parser remains as a local fallback.
  *
  * @param raw - The parsed JSON value containing credential data in one of the supported shapes.
  * @param defaultProviderId - Provider id to use when a provider key is empty or when the top-level input is an array/keys.
  * @returns A map keyed by provider id where each value contains `authType` and the array of parsed `ProviderCredential` accounts.
  */
 function parseJsonCredentials(raw: unknown, defaultProviderId: string): Map<string, { authType: ProviderAuthType; accounts: ProviderCredential[] }> {
+  const parsedByCljs = parseCredentialSeedWithCljs(raw, defaultProviderId);
+  if (parsedByCljs) {
+    return new Map(parsedByCljs.map((provider) => [provider.providerId, {
+      authType: provider.authType,
+      accounts: [...provider.accounts],
+    }]));
+  }
+
   const providers = new Map<string, { authType: ProviderAuthType; accounts: ProviderCredential[] }>();
 
   function addAccounts(providerId: string, authType: ProviderAuthType, rawAccounts: unknown): void {
@@ -151,12 +198,12 @@ function parseJsonCredentials(raw: unknown, defaultProviderId: string): Map<stri
           : undefined,
       };
 
-      if (validateCredentialWithCljs(credential)) {
-        accounts.push(credential);
-      }
+      accounts.push(credential);
     }
 
-    providers.set(providerId, { authType, accounts });
+    if (accounts.length > 0) {
+      providers.set(providerId, { authType, accounts });
+    }
   }
 
   if (Array.isArray(raw) || (isRecord(raw) && Array.isArray(raw.keys))) {

@@ -1,5 +1,6 @@
 (ns proxx.runtime
-  (:require [proxx.processor :as processor]
+  (:require [proxx.credentials :as credentials]
+            [proxx.processor :as processor]
             [proxx.schema :as schema]))
 
 (defn normalize-keys-js
@@ -29,7 +30,10 @@
                                      (js->clj events :keywordize-keys true))
                                (js->clj (or opts #js {}) :keywordize-keys true)))
 
+(def parseProviderCredentials credentials/parse-json-credentials-js)
+
 (def exports
   #js {:normalizeKeys normalize-keys-js
        :validateEntity validate-entity-js
-       :projectPheromone project-pheromone-js})
+       :projectPheromone project-pheromone-js
+       :parseProviderCredentials parseProviderCredentials})

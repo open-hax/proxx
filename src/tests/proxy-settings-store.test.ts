@@ -112,6 +112,7 @@ test("proxy settings store normalizes file-backed keys through active CLJS runti
     }),
     validateEntity: () => ({ status: "ok" }),
     projectPheromone: () => 0,
+    parseProviderCredentials: () => ({ status: "ok", providers: [] }),
   };
   setActiveCljsRuntime(cljsRuntime);
   await writeFile(settingsPath, JSON.stringify({ fastMode: false }), "utf8");
