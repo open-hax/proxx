@@ -152,6 +152,18 @@
       [:ok record]
       [:error (me/humanize (m/explain schema record))])))
 
+(defn- sanitize-record
+  "Redact sensitive keys from a record before including in error messages."
+  [record]
+  (if (map? record)
+    (reduce-kv (fn [acc k v]
+                 (if (#{:secret :password :apiKey :api-key :token} k)
+                   (assoc acc k "[REDACTED]")
+                   (assoc acc k v)))
+               {}
+               record)
+    record))
+
 (defn assert!
   "Throws on schema failure. Use at ingest boundaries."
   [entity-type record]
@@ -161,7 +173,7 @@
       (throw (ex-info "Schema assertion failed"
                       {:entity-type entity-type
                        :errors      result
-                       :input       record})))))
+                       :input       (sanitize-record record)})))))
 
 (defn coerce
   "Attempt to coerce record via malli default-value-transformer.
