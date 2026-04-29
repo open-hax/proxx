@@ -105,6 +105,20 @@ test("defaultProviderBaseUrl returns z.ai and mistral defaults", async () => {
   );
 });
 
+test("defaultProviderBaseUrl returns Xiaomi MiMo default", async () => {
+  await withEnv(
+    {
+      PROXY_AUTH_TOKEN: "test-token",
+      XIAOMI_BASE_URL: undefined,
+      MIMO_BASE_URL: undefined,
+    },
+    () => {
+      const config = loadConfig("/tmp/provider-config-test");
+      assert.equal(config.upstreamProviderBaseUrls["xiaomi"], "https://api.xiaomimimo.com/v1");
+    },
+  );
+});
+
 // --- VAL-CONFIG-002: FACTORY_API_KEY env var creates a factory provider in KeyPool ---
 
 test("FACTORY_API_KEY env var creates factory provider in KeyPool", { concurrency: false }, async () => {
