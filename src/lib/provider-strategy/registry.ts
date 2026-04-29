@@ -1,23 +1,36 @@
 import type { ProviderStrategy, StrategyRequestContext } from "./shared.js";
-import { providerUsesOpenAiChatCompletions } from "./shared.js";
-import { shouldUseResponsesUpstream } from "../responses-compat.js";
+import type { PolicyEngine } from "../policy/index.js";
+import type { ModelInfo, RequestContext, StrategyInfo } from "../policy/schema.js";
 import { GeminiChatProviderStrategy } from "./strategies/gemini.js";
 import { FactoryChatCompletionsProviderStrategy, FactoryMessagesProviderStrategy, FactoryResponsesPassthroughStrategy, FactoryResponsesProviderStrategy } from "./strategies/factory.js";
 import { OpenAiChatCompletionsProviderStrategy, OpenAiResponsesPassthroughStrategy, OpenAiResponsesProviderStrategy } from "./strategies/openai.js";
 import { LocalOllamaProviderStrategy, OllamaProviderStrategy } from "./strategies/ollama.js";
 import { OllamaCloudProviderStrategy } from "./strategies/ollama-cloud.js";
 import { ChatCompletionsProviderStrategy, ImagesGenerationsPassthroughStrategy, MessagesProviderStrategy, ResponsesPassthroughStrategy, ResponsesProviderStrategy, ResponsesViaChatCompletionsStrategy, ZaiChatCompletionsProviderStrategy } from "./strategies/standard.js";
+import { LlamacppChatCompletionsProviderStrategy } from "./strategies/llamacpp.js";
+import { OpenAiCompatEmbeddingsStrategy, OllamaEmbeddingsStrategy } from "./strategies/embeddings.js";
 
 export const GEMINI_CHAT_STRATEGY = new GeminiChatProviderStrategy();
 export const ZAI_CHAT_STRATEGY = new ZaiChatCompletionsProviderStrategy();
 export const ROTUSSY_RESPONSES_VIA_CHAT_STRATEGY = new ResponsesViaChatCompletionsStrategy();
 export const OLLAMA_CLOUD_STRATEGY = new OllamaCloudProviderStrategy();
+export const LLAMACPP_CHAT_STRATEGY = new LlamacppChatCompletionsProviderStrategy();
+export const OPENAI_COMPAT_EMBEDDINGS_STRATEGY = new OpenAiCompatEmbeddingsStrategy();
+export const OLLAMA_EMBEDDINGS_STRATEGY = new OllamaEmbeddingsStrategy();
 
 export const PROVIDER_STRATEGIES: readonly ProviderStrategy[] = [
   new ImagesGenerationsPassthroughStrategy(),
   new OpenAiResponsesPassthroughStrategy(),
   new FactoryResponsesPassthroughStrategy(),
   new ResponsesPassthroughStrategy(),
+  // Provider-specific adapters (policy chooses when applicable)
+  GEMINI_CHAT_STRATEGY,
+  ZAI_CHAT_STRATEGY,
+  OPENAI_COMPAT_EMBEDDINGS_STRATEGY,
+  OLLAMA_EMBEDDINGS_STRATEGY,
+  LLAMACPP_CHAT_STRATEGY,
+  ROTUSSY_RESPONSES_VIA_CHAT_STRATEGY,
+  OLLAMA_CLOUD_STRATEGY,
   new OllamaProviderStrategy(),
   new LocalOllamaProviderStrategy(),
   new FactoryMessagesProviderStrategy(),
@@ -30,53 +43,110 @@ export const PROVIDER_STRATEGIES: readonly ProviderStrategy[] = [
   new ChatCompletionsProviderStrategy(),
 ];
 
+function buildPolicyRequestContext(input: {
+  readonly context: StrategyRequestContext;
+  readonly openAiPrefixed: boolean;
+}): { readonly model: ModelInfo; readonly request: RequestContext } {
+  const { context } = input;
+
+  const modelInfo: ModelInfo = {
+    requestedModel: context.requestedModelInput,
+    routedModel: context.routedModel,
+    isGptModel: context.routedModel.startsWith("gpt-"),
+    isOpenAiPrefixed: input.openAiPrefixed,
+    isLocal: context.localOllama,
+    isOllama: context.explicitOllama,
+  };
+
+  const request: RequestContext = {
+    model: modelInfo,
+    clientWantsStream: context.clientWantsStream,
+    needsReasoningTrace: context.needsReasoningTrace,
+    requestKind: context.imagesPassthrough === true
+      ? "images_passthrough"
+      : context.responsesPassthrough === true
+        ? "responses_passthrough"
+        : "chat",
+  };
+
+  return { model: modelInfo, request };
+}
+
+export function selectProviderStrategyForContext(
+  context: StrategyRequestContext,
+  policy?: PolicyEngine,
+): ProviderStrategy {
+  const providerId = (context.routeProviderId ?? context.config.upstreamProviderId).trim().toLowerCase();
+  const matchingStrategies = PROVIDER_STRATEGIES.filter((entry) => entry.matches(context));
+  if (matchingStrategies.length === 0) {
+    return PROVIDER_STRATEGIES[PROVIDER_STRATEGIES.length - 1]!;
+  }
+
+  if (!policy) {
+    return matchingStrategies[0]!;
+  }
+
+  const { request } = buildPolicyRequestContext({
+    context,
+    openAiPrefixed: context.openAiPrefixed,
+  });
+
+  const strategyInfos: StrategyInfo[] = matchingStrategies.map((strategy, index) => ({
+    mode: strategy.mode,
+    isLocal: strategy.isLocal,
+    priority: matchingStrategies.length - index,
+  }));
+
+  const selected = policy.selectStrategy(strategyInfos, providerId, request);
+  if (!selected) {
+    return matchingStrategies[0]!;
+  }
+
+  return matchingStrategies.find((strategy) => strategy.mode === selected.mode)
+    ?? matchingStrategies[0]!;
+}
+
 export function selectRemoteProviderStrategyForRoute(
   context: StrategyRequestContext,
   providerId: string,
+  policy?: PolicyEngine,
 ): ProviderStrategy {
   const normalizedProviderId = providerId.trim().toLowerCase();
 
-  if (normalizedProviderId === "gemini" && context.responsesPassthrough !== true && context.imagesPassthrough !== true) {
-    return GEMINI_CHAT_STRATEGY;
-  }
-
-  if (normalizedProviderId === "zai" && context.responsesPassthrough !== true && context.imagesPassthrough !== true) {
-    return ZAI_CHAT_STRATEGY;
-  }
-
-  if (normalizedProviderId === "rotussy" && context.responsesPassthrough === true && context.imagesPassthrough !== true) {
-    return ROTUSSY_RESPONSES_VIA_CHAT_STRATEGY;
-  }
-
-  // ollama-cloud uses native /api/chat endpoint, not OpenAI-compatible /v1/chat/completions
-  if (normalizedProviderId === "ollama-cloud" && context.responsesPassthrough !== true && context.imagesPassthrough !== true) {
-    return OLLAMA_CLOUD_STRATEGY;
-  }
-
-  if (providerUsesOpenAiChatCompletions(providerId) && context.responsesPassthrough !== true && context.imagesPassthrough !== true) {
-    // Models that need the Responses API (gpt-*) should use the responses
-    // strategy even for requesty/openrouter -- their /v1/chat/completions
-    // endpoint rejects tools+reasoning_effort for newer models.
-    const needsResponses = shouldUseResponsesUpstream(context.routedModel, context.config.responsesModelPrefixes);
-    if (!needsResponses) {
-      return PROVIDER_STRATEGIES.find((entry) => entry.mode === "chat_completions" && entry.matches({
-        ...context,
-        factoryPrefixed: false,
-        openAiPrefixed: false,
-        explicitOllama: false,
-        localOllama: false,
-      })) ?? PROVIDER_STRATEGIES[PROVIDER_STRATEGIES.length - 1]!;
-    }
-  }
-
   const routeContext: StrategyRequestContext = {
     ...context,
+    routeProviderId: normalizedProviderId,
     openAiPrefixed: providerId === context.config.openaiProviderId,
     factoryPrefixed: providerId === "factory",
     explicitOllama: false,
     localOllama: false,
   };
 
-  return PROVIDER_STRATEGIES.find((entry) => !entry.isLocal && entry.matches(routeContext))
-    ?? PROVIDER_STRATEGIES[PROVIDER_STRATEGIES.length - 1]!;
+  const matchingStrategies = PROVIDER_STRATEGIES.filter((entry) => !entry.isLocal && entry.matches(routeContext));
+  if (matchingStrategies.length === 0) {
+    return PROVIDER_STRATEGIES[PROVIDER_STRATEGIES.length - 1]!;
+  }
+
+  if (!policy) {
+    return matchingStrategies[0]!;
+  }
+
+  const { request: requestContext } = buildPolicyRequestContext({
+    context: routeContext,
+    openAiPrefixed: routeContext.openAiPrefixed,
+  });
+
+  const strategyInfos: StrategyInfo[] = matchingStrategies.map((strategy, index) => ({
+    mode: strategy.mode,
+    isLocal: strategy.isLocal,
+    priority: matchingStrategies.length - index,
+  }));
+
+  const selected = policy.selectStrategy(strategyInfos, normalizedProviderId, requestContext);
+  if (!selected) {
+    return matchingStrategies[0]!;
+  }
+
+  return matchingStrategies.find((strategy) => strategy.mode === selected.mode)
+    ?? matchingStrategies[0]!;
 }

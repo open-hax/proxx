@@ -64,6 +64,7 @@ export interface ProxyConfig {
   readonly factoryModelPrefixes: readonly string[];
   readonly openaiModelPrefixes: readonly string[];
   readonly ollamaModelPrefixes: readonly string[];
+  readonly llamacppModelPrefixes?: readonly string[];
   readonly keysFilePath: string;
   readonly modelsFilePath: string;
   readonly requestLogsFilePath: string;
@@ -72,7 +73,6 @@ export interface ProxyConfig {
   readonly promptAffinityFilePath: string;
   readonly promptAffinityFlushMs: number;
   readonly settingsFilePath: string;
-  readonly sessionsFilePath: string;
   readonly keyReloadMs: number;
   readonly keyCooldownMs: number;
   readonly keyCooldownJitterFactor: number;
@@ -153,6 +153,7 @@ export const DEFAULT_MODELS: readonly string[] = [
   "gemini-3.1-pro-preview",
   "qwen3.5:4b-q8_0",
   "qwen3.5:2b-bf16",
+  "auto:vision",
   "auto:cheapest",
   "auto:fastest",
   "auto:smartest",
@@ -541,6 +542,7 @@ export function loadConfig(cwd: string = process.cwd()): ProxyConfig {
     factoryModelPrefixes: csvFromEnv("FACTORY_MODEL_PREFIXES", ["factory/", "factory:"]),
     openaiModelPrefixes: csvFromEnv("OPENAI_MODEL_PREFIXES", ["openai/", "openai:"]),
     ollamaModelPrefixes: csvFromEnv("OLLAMA_MODEL_PREFIXES", ["ollama/", "ollama:"]),
+    llamacppModelPrefixes: csvFromEnv("LLAMACPP_MODEL_PREFIXES", ["llamacpp/", "llamacpp:", "llamacpp-embed/", "llamacpp-embed:"]),
     keysFilePath: optionalFilePathFromEnvAliases(["PROXY_KEYS_FILE", "VIVGRID_KEYS_FILE"], cwd)
       ?? filePathFromEnvAliases(["PROXY_KEYS_FILE", "VIVGRID_KEYS_FILE"], "./keys.json", cwd),
     modelsFilePath: filePathFromEnvAliases(["PROXY_MODELS_FILE", "VIVGRID_MODELS_FILE"], "./models.json", cwd),
@@ -550,10 +552,12 @@ export function loadConfig(cwd: string = process.cwd()): ProxyConfig {
     promptAffinityFilePath: filePathFromEnvAliases(["PROXY_PROMPT_AFFINITY_FILE"], "./data/prompt-affinity.json", cwd),
     promptAffinityFlushMs: nonNegativeNumberFromEnvAliases(["PROXY_PROMPT_AFFINITY_FLUSH_MS"], 250),
     settingsFilePath: filePathFromEnvAliases(["PROXY_SETTINGS_FILE"], "./data/proxy-settings.json", cwd),
-    sessionsFilePath: filePathFromEnvAliases(["PROXY_SESSIONS_FILE"], "./data/sessions.json", cwd),
     keyReloadMs: numberFromEnvAliases(["PROXY_KEY_RELOAD_MS", "VIVGRID_KEY_RELOAD_MS"], 5000),
-    keyCooldownMs: numberFromEnvAliases(["PROXY_KEY_COOLDOWN_MS", "VIVGRID_KEY_COOLDOWN_MS"], 300_000),
-    requestTimeoutMs: numberFromEnvAliases(["UPSTREAM_REQUEST_TIMEOUT_MS"], 180000),
+    keyCooldownMs: numberFromEnvAliases(["PROXY_KEY_COOLDOWN_MS", "VIVGRID_KEY_COOLDOWN_MS"], 4 * 60 * 60 * 1000),
+    keyCooldownJitterFactor: numberFromEnvAliases(["PROXY_KEY_COOLDOWN_JITTER_FACTOR"], 0.4),
+    enableKeyRandomWalk: booleanFromEnvAliases(["PROXY_KEY_RANDOM_WALK"], true),
+    ollamaWeeklyCooldownMultiplier: numberFromEnvAliases(["OLLAMA_WEEKLY_COOLDOWN_MULTIPLIER"], 24),
+    requestTimeoutMs: numberFromEnvAliases(["UPSTREAM_REQUEST_TIMEOUT_MS"], 900000),
     streamBootstrapTimeoutMs: numberFromEnvAliases(["UPSTREAM_STREAM_BOOTSTRAP_TIMEOUT_MS"], 8000),
     embedMaxContextTokens: numberFromEnvAliases(["EMBED_MAX_CONTEXT_TOKENS"], 262144),
     embedMaxBatchItems: numberFromEnvAliases(["EMBED_MAX_BATCH_ITEMS"], 128),

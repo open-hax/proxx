@@ -189,6 +189,12 @@ count_unique_node_ids() {
   python3 -c 'import sys; print(len(set(line.strip() for line in sys.stdin if line.strip())))'
 }
 
+sample_cluster_node_ids() {
+  for _ in 1 2 3 4 5 6 7 8; do
+    curl_json_host "$CLUSTER_HOST" GET "/api/v1/federation/self" | json_value 'nodeId'
+  done
+}
+
 register_peer() {
   local target_host="$1" peer_id="$2" peer_host="$3" group_id="$4"
   local body
@@ -260,9 +266,18 @@ fi
 
 GROUP_A_IDS=$(for _ in 1 2 3 4 5 6; do curl_json_host "$GROUP_A_HOST" GET "/api/v1/federation/self" | json_value 'nodeId'; done)
 GROUP_B_IDS=$(for _ in 1 2 3 4 5 6; do curl_json_host "$GROUP_B_HOST" GET "/api/v1/federation/self" | json_value 'nodeId'; done)
-CLUSTER_IDS=$(for _ in 1 2 3 4 5 6 7 8; do curl_json_host "$CLUSTER_HOST" GET "/api/v1/federation/self" | json_value 'nodeId'; done)
+CLUSTER_IDS=$(sample_cluster_node_ids)
 if printf '%s\n' "$GROUP_A_IDS" | grep -Ev '^(a1|a2)$' >/dev/null; then fail "group-a routing" "returned node outside group-a"; else pass "group-a routing stays within group-a"; fi
 if printf '%s\n' "$GROUP_B_IDS" | grep -Ev '^(b1|b2)$' >/dev/null; then fail "group-b routing" "returned node outside group-b"; else pass "group-b routing stays within group-b"; fi
+for _ in 1 2 3 4 5; do
+  CLUSTER_UNIQUE=$(printf '%s\n' "$CLUSTER_IDS" | count_unique_node_ids)
+  if [[ "$CLUSTER_UNIQUE" -eq 1 && "$(printf '%s\n' "$CLUSTER_IDS" | head -n 1)" == "a1" ]]; then
+    break
+  fi
+  info "cluster witness route not pinned yet; retrying after nginx failover cooldown"
+  sleep 3
+  CLUSTER_IDS=$(sample_cluster_node_ids)
+done
 CLUSTER_UNIQUE=$(printf '%s\n' "$CLUSTER_IDS" | count_unique_node_ids)
 if [[ "$CLUSTER_UNIQUE" -eq 1 && "$(printf '%s\n' "$CLUSTER_IDS" | head -n 1)" == "a1" ]]; then
   pass "cluster routing stays pinned to witness a1"
@@ -291,28 +306,6 @@ if [[ -z "$FED_PROVIDER_ID" || -z "$FED_ACCOUNT_ID" ]]; then
   AUDIT_WITNESS_ID="federation-audit-openai-$(date +%s)"
   info "No A1-only account candidate; seeding dedicated audit witness ${AUDIT_WITNESS_ID}"
   curl_json_host "$A1_HOST" POST "/api/v1/credentials/api-key" "$(python3 - <<'PY' "$AUDIT_WITNESS_ID"
-import json, sys
-account_id = sys.argv[1]
-print(json.dumps({
-  "providerId": "openai",
-  "accountId": account_id,
-  "credentialValue": f"{account_id}-token",
-}))
-PY
-)" >/dev/null
-  FED_PROVIDER_ID="openai"
-  FED_ACCOUNT_ID="$AUDIT_WITNESS_ID"
-fi
-B1_ACCOUNTS_FILE=$(mktemp)
-B2_ACCOUNTS_FILE=$(mktemp)
-curl_json_host "$B1_HOST" GET "/api/ui/federation/accounts?ownerSubject=${OWNER_DID}" > "$B1_ACCOUNTS_FILE"
-curl_json_host "$B2_HOST" GET "/api/ui/federation/accounts?ownerSubject=${OWNER_DID}" > "$B2_ACCOUNTS_FILE"
-IFS=$'\t' read -r FED_PROVIDER_ID FED_ACCOUNT_ID _ <<< "$(printf '%s' "$A1_ACCOUNTS" | select_audit_account_triplet "$B1_ACCOUNTS_FILE" "$B2_ACCOUNTS_FILE")"
-rm -f "$B1_ACCOUNTS_FILE" "$B2_ACCOUNTS_FILE"
-if [[ -z "$FED_PROVIDER_ID" || -z "$FED_ACCOUNT_ID" ]]; then
-  AUDIT_WITNESS_ID="federation-audit-openai-$(date +%s)"
-  info "No A1-only account candidate; seeding dedicated audit witness ${AUDIT_WITNESS_ID}"
-  curl_json_host "$A1_HOST" POST "/api/ui/credentials/api-key" "$(python3 - <<'PY' "$AUDIT_WITNESS_ID"
 import json, sys
 account_id = sys.argv[1]
 print(json.dumps({
@@ -402,10 +395,10 @@ print(json.dumps({
 }))
 PY
 )
-curl_json_host "$A1_HOST" POST "/api/ui/federation/usage-import" "$SYNTHETIC_PAYLOAD" >/dev/null
+curl_json_host "$A1_HOST" POST "/api/v1/federation/usage-import" "$SYNTHETIC_PAYLOAD" >/dev/null
 pass "synthetic usage injected on A1"
 
-USAGE_SYNC=$(curl_json_host "$B1_HOST" POST "/api/ui/federation/sync/pull" "$(python3 - <<'PY' "$OWNER_DID" "$SYNTHETIC_USAGE_TS"
+USAGE_SYNC=$(curl_json_host "$B1_HOST" POST "/api/v1/federation/sync/pull" "$(python3 - <<'PY' "$OWNER_DID" "$SYNTHETIC_USAGE_TS"
 import json, sys
 owner_did, timestamp_ms = sys.argv[1:3]
 print(json.dumps({"peerId": "a1", "ownerSubject": owner_did, "pullUsage": True, "sinceMs": max(0, int(timestamp_ms) - 1000)}))
@@ -420,31 +413,18 @@ fi
 
 HAS_SYNTHETIC='False'
 for _ in 1 2 3; do
-  B2_LOGS=$(curl_json_host "$B2_HOST" GET "/api/ui/request-logs?limit=500")
+  B2_LOGS=$(curl_json_host "$B2_HOST" GET "/api/v1/request-logs?limit=500")
   HAS_SYNTHETIC=$(printf '%s' "$B2_LOGS" | python3 -c '
 import json, sys
 payload = json.load(sys.stdin)
 target = sys.argv[1]
 print(any(entry.get("id") == target for entry in payload.get("entries", [])))
 ' "$SYNTHETIC_USAGE_ID")
-
-# Retry B2 visibility check with brief delay - shared database may have propagation latency
-if [[ "$HAS_SYNTHETIC" != "True" && "$HAS_SYNTHETIC" != "true" ]]; then
-  for _ in 1 2 3; do
-    sleep 1
-    B2_LOGS=$(curl_json_host "$B2_HOST" GET "/api/ui/request-logs?limit=200")
-    HAS_SYNTHETIC=$(printf '%s' "$B2_LOGS" | python3 -c '
-import json, sys
-payload = json.load(sys.stdin)
-target = sys.argv[1]
-print(any(entry.get("id") == target for entry in payload.get("entries", [])))
-' "$SYNTHETIC_USAGE_ID")
-    if [[ "$HAS_SYNTHETIC" == "True" || "$HAS_SYNTHETIC" == "true" ]]; then
-      break
-    fi
-  done
-fi
-
+  if [[ "$HAS_SYNTHETIC" == "True" || "$HAS_SYNTHETIC" == "true" ]]; then
+    break
+  fi
+  sleep 1
+done
 if [[ "$HAS_SYNTHETIC" == "True" || "$HAS_SYNTHETIC" == "true" ]]; then
   pass "Group B sibling sees synced usage"
 else

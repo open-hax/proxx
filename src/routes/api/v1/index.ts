@@ -62,7 +62,7 @@ const API_V1_ENDPOINTS = {
   mcp: {
     path: "/api/v1/mcp",
     legacyPath: "/api/ui/mcp-servers",
-    status: "implemented",
+    status: "planned",
     description: "MCP discovery endpoints migrating from the legacy UI surface.",
   },
 } as const satisfies Record<string, ApiV1EndpointDescriptor>;

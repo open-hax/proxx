@@ -30,7 +30,7 @@ function asString(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
-function looksLikeHostedOpenAiFamily(model: string): boolean {
+export function looksLikeHostedOpenAiFamily(model: string): boolean {
   const lowered = model.toLowerCase();
   return lowered.startsWith("gpt-")
     || lowered.startsWith("openai/")
@@ -74,10 +74,14 @@ export function shouldUseLocalOllama(model: string, patterns: readonly string[])
   }
 
   const lowered = model.toLowerCase();
+  // Newer Ollama tags sometimes include a leading letter prefix before a size
+  // designator (e.g. `:e4b`). Normalize those to the canonical `:4b` form so
+  // the default LOCAL_OLLAMA_MODEL_PATTERNS like `:4b` still match.
+  const loweredSizeTagNormalized = lowered.replace(/:([a-z]+)(\d+(?:\.\d+)?[bt])/g, ":$2");
   for (const pattern of patterns) {
     const normalizedPattern = pattern.toLowerCase();
     if (normalizedPattern.startsWith(":")) {
-      if (lowered.includes(normalizedPattern)) {
+      if (lowered.includes(normalizedPattern) || loweredSizeTagNormalized.includes(normalizedPattern)) {
         return true;
       }
       continue;
@@ -197,6 +201,7 @@ function parseModelScaleScore(modelTag: string): number | undefined {
 export function buildLargestModelAliases(modelIds: readonly string[]): Record<string, string> {
   const knownModelIds = new Set(modelIds);
   const aliases = new Map<string, { readonly modelId: string; readonly score: number; readonly tagLength: number }>();
+  const latestAliases = new Map<string, string>();
 
   for (const modelId of modelIds) {
     const separatorIndex = modelId.indexOf(":");
@@ -206,6 +211,11 @@ export function buildLargestModelAliases(modelIds: readonly string[]): Record<st
 
     const alias = modelId.slice(0, separatorIndex);
     const modelTag = modelId.slice(separatorIndex + 1);
+    const normalizedTag = modelTag.trim().toLowerCase();
+    if (normalizedTag === "latest") {
+      latestAliases.set(alias, modelId);
+    }
+
     const score = parseModelScaleScore(modelTag);
     if (!score || score <= 0) {
       continue;
@@ -218,19 +228,18 @@ export function buildLargestModelAliases(modelIds: readonly string[]): Record<st
         score,
         tagLength: modelTag.length
       });
-      continue;
-    }
+    } else {
+      const shouldReplace = score > current.score
+        || (score === current.score && modelTag.length < current.tagLength)
+        || (score === current.score && modelTag.length === current.tagLength && modelId < current.modelId);
 
-    const shouldReplace = score > current.score
-      || (score === current.score && modelTag.length < current.tagLength)
-      || (score === current.score && modelTag.length === current.tagLength && modelId < current.modelId);
-
-    if (shouldReplace) {
-      aliases.set(alias, {
-        modelId,
-        score,
-        tagLength: modelTag.length
-      });
+      if (shouldReplace) {
+        aliases.set(alias, {
+          modelId,
+          score,
+          tagLength: modelTag.length
+        });
+      }
     }
   }
 
@@ -238,6 +247,11 @@ export function buildLargestModelAliases(modelIds: readonly string[]): Record<st
   for (const [alias, selected] of aliases.entries()) {
     if (!knownModelIds.has(alias)) {
       aliasTargets[alias] = selected.modelId;
+    }
+
+    const latestAlias = latestAliases.get(alias);
+    if (latestAlias && latestAlias !== selected.modelId) {
+      aliasTargets[latestAlias] = selected.modelId;
     }
   }
 
@@ -413,13 +427,29 @@ export async function minMsUntilAnyProviderKeyReady(keyPool: KeyPool, routes: re
 }
 
 export function buildOllamaCatalogRoutes(config: ProxyConfig): ProviderRoute[] {
-  return Object.entries(config.upstreamProviderBaseUrls)
+  const localBaseUrl = config.ollamaBaseUrl.trim().replace(/\/+$/, "");
+  const localRoute: ProviderRoute | null = config.localOllamaEnabled && localBaseUrl.length > 0
+    ? { providerId: "ollama-local", baseUrl: localBaseUrl }
+    : null;
+
+  const configuredRoutes = Object.entries(config.upstreamProviderBaseUrls)
     .filter(([providerId]) => providerId.toLowerCase().includes("ollama"))
     .map(([providerId, baseUrl]) => ({
       providerId,
       baseUrl: baseUrl.replace(/\/+$/, "")
     }))
     .filter((route) => route.baseUrl.length > 0);
+
+  const merged = localRoute ? [localRoute, ...configuredRoutes] : configuredRoutes;
+  const seen = new Set<string>();
+  return merged.filter((route) => {
+    const providerId = route.providerId.trim();
+    if (providerId.length === 0 || seen.has(providerId)) {
+      return false;
+    }
+    seen.add(providerId);
+    return route.baseUrl.trim().length > 0;
+  });
 }
 
 export function providerIdLooksLikeOllama(providerId: string): boolean {
@@ -462,6 +492,7 @@ export function resolveProviderRoutesForModel(
 }
 
 const OPENAI_COMPATIBLE_API_PROVIDERS = new Set(["vivgrid", "openai", "factory", "requesty", "zen"]);
+const RESPONSES_COMPATIBLE_API_PROVIDERS = new Set(["vivgrid", "openai", "factory", "requesty", "zen", "rotussy"]);
 
 function providerSupportsOpenAiCompatibleApi(providerId: string, openAiProviderId?: string): boolean {
   const normalized = providerId.trim().toLowerCase();

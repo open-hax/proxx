@@ -6,9 +6,9 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import type { ProxyConfig } from "../lib/config.js";
-import type { KeyPool, ProviderCredential } from "../lib/key-pool.js";
 import { ProviderCatalogStore } from "../lib/provider-catalog.js";
+import type { KeyPool, ProviderCredential } from "../lib/key-pool.js";
+import type { ProxyConfig } from "../lib/config.js";
 import type { ProviderRoute } from "../lib/provider-routing.js";
 
 function buildMinimalConfig(overrides: Partial<ProxyConfig> = {}): ProxyConfig {
@@ -54,8 +54,14 @@ function buildMinimalConfig(overrides: Partial<ProxyConfig> = {}): ProxyConfig {
     settingsFilePath: "",
     keyReloadMs: 5000,
     keyCooldownMs: 10000,
+    keyCooldownJitterFactor: 0.4,
+    enableKeyRandomWalk: true,
+    ollamaWeeklyCooldownMultiplier: 24,
     requestTimeoutMs: 180000,
     streamBootstrapTimeoutMs: 5000,
+    embedMaxContextTokens: 262144,
+    embedMaxBatchItems: 128,
+    embedMaxInputChars: 250000,
     upstreamTransientRetryCount: 2,
     upstreamTransientRetryBackoffMs: 1,
     proxyAuthToken: undefined,
@@ -73,6 +79,8 @@ function buildMinimalConfig(overrides: Partial<ProxyConfig> = {}): ProxyConfig {
     oauthRefreshMaxConcurrency: 32,
     oauthRefreshBackgroundIntervalMs: 15000,
     oauthRefreshProactiveWindowMs: 1800000,
+    concurrencyThrottleMaxRetries: 3,
+    concurrencyThrottleThresholdMs: 30_000,
     ...overrides,
   };
 }
@@ -120,6 +128,7 @@ test("getCatalog completes within timeout when a route endpoint is unresponsive"
   const hangingServer = createServer((_req, res) => {
     res.writeHead(200, { "content-type": "application/json" });
     res.write("[");
+    // Never finish the response — the connection stays open forever.
   });
 
   hangingServer.listen(0, "127.0.0.1");
@@ -135,7 +144,6 @@ test("getCatalog completes within timeout when a route endpoint is unresponsive"
       res.end(JSON.stringify({ data: [{ id: "responsive-model" }] }));
       return;
     }
-
     res.writeHead(404);
     res.end();
   });
@@ -165,37 +173,39 @@ test("getCatalog completes within timeout when a route endpoint is unresponsive"
     await withCatalogRouteTimeoutMs(200, async () => {
       const config = buildMinimalConfig({ modelsFilePath: modelsPath, requestTimeoutMs: 5_000 });
       const keyPool = buildMockKeyPool(accounts);
+
       const store = new ProviderCatalogStore(config, keyPool, [hangingRoute, responsiveRoute], []);
 
       const start = Date.now();
       const catalog = await store.getCatalog(true);
       const elapsed = Date.now() - start;
 
-      assert.ok(elapsed < 2_000, `getCatalog should complete within 2s despite hanging route, took ${elapsed}ms`);
-      assert.ok(catalog.providerCatalogs["responsive-provider"], "responsive provider should appear in catalog");
-      assert.deepEqual([...catalog.providerCatalogs["responsive-provider"].modelIds], ["responsive-model"]);
-      assert.ok(!catalog.providerCatalogs["hanging-provider"], "hanging provider should NOT appear in catalog");
+      assert.ok(
+        elapsed < 2_000,
+        `getCatalog should complete within 2s despite hanging route, took ${elapsed}ms`,
+      );
+
+      assert.ok(
+        catalog.providerCatalogs["responsive-provider"],
+        "responsive provider should appear in catalog",
+      );
+      assert.deepEqual(
+        [...catalog.providerCatalogs["responsive-provider"].modelIds],
+        ["responsive-model"],
+      );
+      assert.ok(
+        !catalog.providerCatalogs["hanging-provider"],
+        "hanging provider should NOT appear in catalog",
+      );
     });
   } finally {
     hangingServer.closeAllConnections();
     await new Promise<void>((resolve, reject) => {
-      hangingServer.close((error) => {
-        if (error) {
-          reject(error);
-          return;
-        }
-        resolve();
-      });
+      hangingServer.close((err) => (err ? reject(err) : resolve()));
     });
     responsiveServer.closeAllConnections();
     await new Promise<void>((resolve, reject) => {
-      responsiveServer.close((error) => {
-        if (error) {
-          reject(error);
-          return;
-        }
-        resolve();
-      });
+      responsiveServer.close((err) => (err ? reject(err) : resolve()));
     });
     await rm(tempDir, { recursive: true, force: true });
   }
@@ -210,6 +220,7 @@ test("getCatalog returns empty catalog when all routes time out", async () => {
   const slowServer = createServer((_req, res) => {
     res.writeHead(200, { "content-type": "application/json" });
     res.write("[");
+    // Hang forever
   });
 
   slowServer.listen(0, "127.0.0.1");
@@ -232,26 +243,165 @@ test("getCatalog returns empty catalog when all routes time out", async () => {
     await withCatalogRouteTimeoutMs(200, async () => {
       const config = buildMinimalConfig({ modelsFilePath: modelsPath, requestTimeoutMs: 5_000 });
       const keyPool = buildMockKeyPool(accounts);
+
       const store = new ProviderCatalogStore(config, keyPool, [slowRoute], []);
 
       const start = Date.now();
       const catalog = await store.getCatalog(true);
       const elapsed = Date.now() - start;
 
-      assert.ok(elapsed < 2_000, `getCatalog should complete within 2s even when all routes hang, took ${elapsed}ms`);
-      assert.ok(!catalog.providerCatalogs["slow-provider"], "slow provider should NOT appear in catalog");
+      assert.ok(
+        elapsed < 2_000,
+        `getCatalog should complete within 2s even when all routes hang, took ${elapsed}ms`,
+      );
+
+      assert.ok(
+        !catalog.providerCatalogs["slow-provider"],
+        "slow provider should NOT appear in catalog",
+      );
       assert.equal(catalog.catalog.modelIds.length, 0, "catalog should have no discovered models");
     });
   } finally {
     slowServer.closeAllConnections();
     await new Promise<void>((resolve, reject) => {
-      slowServer.close((error) => {
-        if (error) {
-          reject(error);
-          return;
-        }
-        resolve();
-      });
+      slowServer.close((err) => (err ? reject(err) : resolve()));
+    });
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("getCatalog discovers local ollama models via /api/tags without requiring key-pool accounts", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "catalog-test-"));
+
+  const modelsPath = path.join(tempDir, "models.json");
+  await writeFile(modelsPath, JSON.stringify({ models: [] }), "utf8");
+
+  const ollamaServer = createServer((req, res) => {
+    if (req.url === "/api/tags") {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({
+        models: [
+          { name: "gemma4:latest" },
+          { name: "gemma4:e4b" },
+          { name: "gemma4:31b" },
+        ],
+      }));
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+
+  ollamaServer.listen(0, "127.0.0.1");
+  await once(ollamaServer, "listening");
+  const ollamaAddress = ollamaServer.address();
+  if (!ollamaAddress || typeof ollamaAddress === "string") {
+    throw new Error("Failed to resolve ollama server address");
+  }
+
+  try {
+    const config = buildMinimalConfig({
+      modelsFilePath: modelsPath,
+      ollamaBaseUrl: `http://127.0.0.1:${ollamaAddress.port}`,
+      requestTimeoutMs: 5_000,
+    });
+
+    const keyPool = buildMockKeyPool(new Map());
+
+    const store = new ProviderCatalogStore(
+      config,
+      keyPool,
+      [],
+      [{ providerId: "ollama-local", baseUrl: `http://127.0.0.1:${ollamaAddress.port}` }],
+    );
+
+    const result = await store.getCatalog(true);
+
+    assert.ok(result.providerCatalogs["ollama-local"], "local ollama provider should appear in catalog");
+    assert.deepEqual(
+      [...result.providerCatalogs["ollama-local"].modelIds],
+      ["gemma4:latest", "gemma4:e4b", "gemma4:31b"],
+    );
+
+    assert.equal(
+      result.catalog.aliasTargets["gemma4:latest"],
+      "gemma4:31b",
+      "latest-tag aliases should resolve to the largest concrete ollama variant",
+    );
+    assert.ok(
+      result.catalog.modelIds.includes("gemma4:latest"),
+      "resolved model ids may retain latest-tag aliases internally for request compatibility",
+    );
+    assert.ok(
+      result.catalog.modelIds.includes("gemma4:31b"),
+      "resolved model ids should include local ollama tag gemma4:31b",
+    );
+    assert.ok(
+      result.catalog.dynamicOllamaModelIds.includes("gemma4:31b"),
+      "dynamic ollama model ids should include concrete local tag",
+    );
+  } finally {
+    ollamaServer.closeAllConnections();
+    await new Promise<void>((resolve, reject) => {
+      ollamaServer.close((err) => (err ? reject(err) : resolve()));
+    });
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("rotussy catalog discovery falls back to /v1/models when /models is unsupported", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "catalog-test-"));
+
+  const modelsPath = path.join(tempDir, "models.json");
+  await writeFile(modelsPath, JSON.stringify({ models: [] }), "utf8");
+
+  const server = createServer((req, res) => {
+    if (req.url === "/v1/models") {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ data: [{ id: "glm-4.7-flash" }] }));
+      return;
+    }
+
+    if (req.url === "/models") {
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "unsupported" }));
+      return;
+    }
+
+    res.writeHead(404);
+    res.end();
+  });
+
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address();
+  if (!address || typeof address === "string") {
+    throw new Error("Failed to resolve rotussy catalog test server address");
+  }
+
+  try {
+    const rotussyRoute: ProviderRoute = {
+      providerId: "rotussy",
+      baseUrl: `http://127.0.0.1:${address.port}`,
+    };
+
+    const accounts = new Map<string, ProviderCredential[]>([
+      ["rotussy", [buildTestAccount("rotussy", "rotussy-test-token")]],
+    ]);
+
+    const config = buildMinimalConfig({ modelsFilePath: modelsPath, requestTimeoutMs: 5_000 });
+    const keyPool = buildMockKeyPool(accounts);
+    const store = new ProviderCatalogStore(config, keyPool, [rotussyRoute], []);
+    const catalog = await store.getCatalog(true);
+
+    assert.deepEqual(
+      [...(catalog.providerCatalogs["rotussy"]?.modelIds ?? [])],
+      ["glm-4.7-flash"],
+    );
+  } finally {
+    server.closeAllConnections();
+    await new Promise<void>((resolve, reject) => {
+      server.close((err) => (err ? reject(err) : resolve()));
     });
     await rm(tempDir, { recursive: true, force: true });
   }

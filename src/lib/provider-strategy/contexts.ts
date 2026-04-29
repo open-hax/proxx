@@ -3,15 +3,11 @@ import type { IncomingHttpHeaders } from "node:http";
 import type { ProxyConfig } from "../config.js";
 import { requestWantsReasoningTrace } from "../openai/index.js";
 import { looksLikeHostedOpenAiFamily, resolveRequestRoutingState } from "../provider-routing.js";
-import { PROVIDER_STRATEGIES } from "./registry.js";
+import { selectProviderStrategyForContext } from "./registry.js";
 import type { ResolvedRequestAuth } from "../request-auth.js";
 import type { ProviderStrategy, StrategyRequestContext } from "./shared.js";
 import { resolveAutoModel } from "./strategies/auto.js";
-
-function selectMatchingStrategy(context: StrategyRequestContext): ProviderStrategy {
-  return PROVIDER_STRATEGIES.find((entry) => entry.matches(context))
-    ?? PROVIDER_STRATEGIES[PROVIDER_STRATEGIES.length - 1]!;
-}
+import type { PolicyEngine } from "../policy/index.js";
 
 export function selectProviderStrategy(
   config: ProxyConfig,
@@ -20,6 +16,7 @@ export function selectProviderStrategy(
   requestedModelInput: string,
   routingModelInput: string,
   requestAuth?: Pick<ResolvedRequestAuth, "kind" | "tenantId" | "keyId" | "subject">,
+  policy?: PolicyEngine,
 ): {
   readonly strategy: ProviderStrategy;
   readonly context: StrategyRequestContext;
@@ -40,6 +37,13 @@ export function selectProviderStrategy(
   );
 
   const context: StrategyRequestContext = {
+    routeProviderId: routingState.factoryPrefixed
+      ? "factory"
+      : routingState.openAiPrefixed
+        ? config.openaiProviderId
+        : routingState.explicitOllama || routingState.localOllama
+          ? "ollama"
+          : config.upstreamProviderId,
     config,
     clientHeaders,
     requestBody,
@@ -56,7 +60,7 @@ export function selectProviderStrategy(
     upstreamAttemptTimeoutMs,
   };
 
-  return { strategy: selectMatchingStrategy(context), context };
+  return { strategy: selectProviderStrategyForContext(context, policy), context };
 }
 
 export function buildResponsesPassthroughContext(
@@ -66,6 +70,7 @@ export function buildResponsesPassthroughContext(
   requestedModelInput: string,
   routingModelInput: string,
   requestAuth?: Pick<ResolvedRequestAuth, "kind" | "tenantId" | "keyId" | "subject">,
+  policy?: PolicyEngine,
 ): {
   readonly strategy: ProviderStrategy;
   readonly context: StrategyRequestContext;
@@ -77,6 +82,11 @@ export function buildResponsesPassthroughContext(
     : config.requestTimeoutMs;
 
   const context: StrategyRequestContext = {
+    routeProviderId: routingState.factoryPrefixed
+      ? "factory"
+      : routingState.openAiPrefixed
+        ? config.openaiProviderId
+        : config.upstreamProviderId,
     config,
     clientHeaders,
     requestBody,
@@ -97,7 +107,7 @@ export function buildResponsesPassthroughContext(
     responsesPassthrough: true,
   };
 
-  return { strategy: selectMatchingStrategy(context), context };
+  return { strategy: selectProviderStrategyForContext(context, policy), context };
 }
 
 export function buildImagesPassthroughContext(
@@ -106,6 +116,7 @@ export function buildImagesPassthroughContext(
   requestBody: Record<string, unknown>,
   model: string,
   requestAuth?: Pick<ResolvedRequestAuth, "kind" | "tenantId" | "keyId" | "subject">,
+  policy?: PolicyEngine,
 ): {
   readonly strategy: ProviderStrategy;
   readonly context: StrategyRequestContext;
@@ -113,6 +124,11 @@ export function buildImagesPassthroughContext(
   const routingState = resolveRequestRoutingState(config, model);
 
   const context: StrategyRequestContext = {
+    routeProviderId: routingState.factoryPrefixed
+      ? "factory"
+      : routingState.openAiPrefixed
+        ? config.openaiProviderId
+        : config.upstreamProviderId,
     config,
     clientHeaders,
     requestBody,
@@ -130,5 +146,5 @@ export function buildImagesPassthroughContext(
     imagesPassthrough: true,
   };
 
-  return { strategy: selectMatchingStrategy(context), context };
+  return { strategy: selectProviderStrategyForContext(context, policy), context };
 }

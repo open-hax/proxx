@@ -12,13 +12,11 @@ import {
   responsesRequestToChatRequest,
   responsesToChatCompletion,
   responsesOutputHasReasoning,
-  shouldUseResponsesUpstream,
   writeInterleavedResponsesSse,
 } from "../../responses-compat.js";
 import {
   chatRequestToMessagesRequest,
   messagesToChatCompletion,
-  shouldUseMessagesUpstream,
 } from "../../messages-compat.js";
 import { appendCsvHeaderValue, shouldEnableInterleavedThinkingHeader } from "../../openai/index.js";
 import { chatCompletionHasReasoningContent } from "../../sse/index.js";
@@ -53,8 +51,11 @@ export class MessagesProviderStrategy extends TransformedJsonProviderStrategy {
 
   public matches(context: StrategyRequestContext): boolean {
     return !context.localOllama
+      && !context.explicitOllama
       && !context.openAiPrefixed
-      && shouldUseMessagesUpstream(context.routedModel, context.config.messagesModelPrefixes);
+      && !context.factoryPrefixed
+      && context.responsesPassthrough !== true
+      && context.imagesPassthrough !== true;
   }
 
   public getUpstreamPath(context: StrategyRequestContext): string {
@@ -85,7 +86,9 @@ export class ResponsesProviderStrategy extends TransformedJsonProviderStrategy {
     return !context.localOllama
       && !context.explicitOllama
       && !context.openAiPrefixed
-      && shouldUseResponsesUpstream(context.routedModel, context.config.responsesModelPrefixes);
+      && !context.factoryPrefixed
+      && context.responsesPassthrough !== true
+      && context.imagesPassthrough !== true;
   }
 
   public getUpstreamPath(context: StrategyRequestContext): string {
@@ -181,7 +184,12 @@ export class ChatCompletionsProviderStrategy extends BaseProviderStrategy {
   public readonly isLocal = false;
 
   public matches(_context: StrategyRequestContext): boolean {
-    return true;
+    return _context.responsesPassthrough !== true
+      && _context.imagesPassthrough !== true
+      && !_context.factoryPrefixed
+      && !_context.localOllama
+      && !_context.explicitOllama
+      && _context.routeProviderId !== "zai";
   }
 
   public getUpstreamPath(context: StrategyRequestContext): string {
@@ -196,6 +204,12 @@ export class ChatCompletionsProviderStrategy extends BaseProviderStrategy {
 }
 
 export class ZaiChatCompletionsProviderStrategy extends ChatCompletionsProviderStrategy {
+  public override matches(context: StrategyRequestContext): boolean {
+    return context.routeProviderId === "zai"
+      && context.responsesPassthrough !== true
+      && context.imagesPassthrough !== true;
+  }
+
   public override getUpstreamPath(_context: StrategyRequestContext): string {
     return "/chat/completions";
   }

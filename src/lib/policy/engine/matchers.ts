@@ -36,3 +36,20 @@ export function findMatchingProviderPreferenceRule(
 
   return undefined;
 }
+
+export function findMatchingStrategyPreferenceRule(
+  model: ModelInfo,
+  rules: readonly ModelRoutingRule[],
+): ModelRoutingRule | undefined {
+  for (const rule of rules) {
+    if (!matchesPattern(model.routedModel, rule.modelPattern)) {
+      continue;
+    }
+
+    if ((rule.preferredStrategies?.length ?? 0) > 0 || (rule.excludedStrategies?.length ?? 0) > 0) {
+      return rule;
+    }
+  }
+
+  return undefined;
+}

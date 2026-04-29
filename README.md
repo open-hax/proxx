@@ -571,6 +571,30 @@ Each bridge session displays:
 
 ### Federation Health
 
+### Dynamic Federated Fallback (Routing-time)
+
+When a request exhausts local credentials, Proxx can attempt a federated fallback using
+previously-synced projected accounts. To reduce the need for external cron/daemon syncs,
+Proxx will also (by default) perform an **on-demand pull** from configured federation peers
+when it has no projected candidates available.
+
+Relevant environment variables:
+
+```bash
+# Enable/disable routing-time on-demand projection refresh.
+# Default: true
+FEDERATION_ON_DEMAND_PULL_ENABLED=true
+
+# Minimum time between on-demand pulls per peer (ms).
+# Default: 60000
+FEDERATION_ON_DEMAND_PULL_TTL_MS=60000
+
+# How many successful federated routes must occur before Proxx imports (leases) a
+# peer credential into the local runtime credential store.
+# Default: 3
+FEDERATION_WARM_IMPORT_REQUEST_THRESHOLD=3
+```
+
 ```bash
 # Check each environment
 curl https://testing.proxx.ussy.promethean.rest/health | jq '.ok'

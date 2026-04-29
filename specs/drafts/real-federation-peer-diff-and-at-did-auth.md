@@ -1,7 +1,7 @@
 # Real federation: peer diff sync + AT DID auth
 
 ## Status
-Draft
+Active
 
 ## Goal
 Move `proxx` from the current **shared SQL control-plane shortcut** toward a real peer federation model where multiple proxy instances can:
@@ -135,7 +135,7 @@ Minimum required audit surfaces:
    - clearly distinguish whether the node:
      - has credentials
      - only knows the account exists
-     - has warmed the remote account through peer routing
+     - has warmed the remote account through peer routing (`remote_route`)
      - has fully imported it
 
 This is important because the intended E2E harness will validate behavior through API requests, not browser-driven flows.
@@ -148,8 +148,9 @@ Peers must be registerable over API, not only by static file config.
 Minimum required fields:
 - `peerDid`
 - `label`
-- `baseUrl`
+- `baseUrl` (current data-plane URL)
 - `controlBaseUrl` (optional if same as base)
+- `dataPlaneBaseUrl` (optional future alias when control-plane and data-plane URLs are fully separated in config/API)
 - `ownerCredential` (admin key or AT DID)
 - `capabilities` (optional)
 
@@ -363,6 +364,27 @@ Near-term acceptable bootstrap:
 5. How should revocation propagate when a source peer revokes an imported account?
 6. How much of analytics should be diffed raw vs pre-aggregated?
 7. What exact proof binds an AT DID to a peer registration/update request?
+
+## 2026-03-22 local validation milestone
+
+Validated locally in the 4-node federation harness:
+
+- [x] host-routed OpenAI browser OAuth on all four node hosts (`a1`, `a2`, `b1`, `b2`)
+- [x] callback URI preservation for host-routed federation domains (no forced localhost:1455 rewrite)
+- [x] peer registration + projected descriptor sync from Group A into Group B
+- [x] real request-time `/v1/chat/completions` reroute from Group B to Group A when Group B has no local OpenAI accounts
+- [x] repeated routed requests trigger warm import into Group B
+- [x] post-import requests serve locally from Group B without another federation hop
+- [x] usage export/import propagation still works after real routed traffic
+- [x] regression fix: key-pool reload now clears stale in-memory accounts when the account store becomes empty
+
+Still pending beyond this local milestone:
+
+- [ ] staging PR and CodeRabbit cleanup
+- [ ] staging deploy with federated runtime topology
+- [ ] local <-> staging federation validation
+- [ ] staging -> main -> prod promotion and equivalent prod validation
+- [ ] DID document resolution / proof verification hardening
 
 ## Implementation phases
 

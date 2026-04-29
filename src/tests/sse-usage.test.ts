@@ -19,6 +19,17 @@ test("extracts usage from OpenAI chat completions SSE stream", () => {
   assert.equal(result.totalTokens, 15);
 });
 
+test("extracts cached prompt tokens from OpenAI chat completions SSE stream", () => {
+  const streamText =
+    'data: {"id":"chatcmpl-abc","object":"chat.completion.chunk","created":1700000000,"model":"gpt-4","choices":[{"index":0,"delta":{"content":"Hi"},"finish_reason":null}]}\n\n' +
+    'data: {"id":"chatcmpl-abc","object":"chat.completion.chunk","created":1700000000,"model":"gpt-4","choices":[],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15,"prompt_tokens_details":{"cached_tokens":8}}}\n\n' +
+    "data: [DONE]\n\n";
+
+  const result = extractUsageCountsFromSseText(streamText, "chat_completions", "gpt-4");
+  assert.equal(result.promptTokens, 10);
+  assert.equal(result.cachedPromptTokens, 8);
+});
+
 // ─── Anthropic Messages SSE ─────────────────────────────────────────────────
 // Anthropic sends usage in message_start (input_tokens) and message_delta (output_tokens).
 

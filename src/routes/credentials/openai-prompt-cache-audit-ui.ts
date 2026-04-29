@@ -34,6 +34,7 @@ interface PromptCacheAuditOverview {
   readonly crossAccountHashCount: number;
   readonly crossSuccessfulAccountHashCount: number;
   readonly rows: readonly PromptCacheAuditRow[];
+  readonly watchRows: readonly PromptCacheAuditRow[];
 }
 
 type MutablePromptCacheAuditAccumulator = {
@@ -97,11 +98,15 @@ async function loadRecentOpenAiPromptCacheEntries(
   }).filter((entry) => entry.authType === "oauth_bearer");
 }
 
-function buildPromptCacheAudit(entries: readonly RequestLogEntry[], rowLimit: number): PromptCacheAuditOverview {
+function buildPromptCacheAudit(
+  entries: readonly RequestLogEntry[],
+  rowLimit: number,
+  openAiProviderId: string,
+): PromptCacheAuditOverview {
   const grouped = new Map<string, MutablePromptCacheAuditAccumulator>();
 
   for (const entry of entries) {
-    if (entry.providerId !== "openai") {
+    if (entry.providerId !== openAiProviderId) {
       continue;
     }
 
@@ -148,7 +153,9 @@ function buildPromptCacheAudit(entries: readonly RequestLogEntry[], rowLimit: nu
     current.promptTokens += typeof entry.promptTokens === "number" && Number.isFinite(entry.promptTokens)
       ? entry.promptTokens
       : 0;
-    current.latestModel = entry.model;
+    if (current.lastSeenAtMs === null || entry.timestamp >= current.lastSeenAtMs) {
+      current.latestModel = entry.model;
+    }
     current.firstSeenAtMs = current.firstSeenAtMs === null ? entry.timestamp : Math.min(current.firstSeenAtMs, entry.timestamp);
     current.lastSeenAtMs = current.lastSeenAtMs === null ? entry.timestamp : Math.max(current.lastSeenAtMs, entry.timestamp);
     grouped.set(promptCacheKeyHash, current);
@@ -194,6 +201,26 @@ function buildPromptCacheAudit(entries: readonly RequestLogEntry[], rowLimit: nu
       return right.requestCount - left.requestCount || left.promptCacheKeyHash.localeCompare(right.promptCacheKeyHash);
     });
 
+  const watchRows = allRows
+    .filter((row) => row.successfulAccountCount === 1)
+    .filter((row) => row.shapeFingerprintCount === 1)
+    .filter((row) => row.successfulRequestCount >= 4)
+    .filter((row) => row.promptTokens >= 10_000)
+    .sort((left, right) => {
+      const leftCacheRate = left.promptTokens > 0 ? left.cachedPromptTokens / left.promptTokens : 0;
+      const rightCacheRate = right.promptTokens > 0 ? right.cachedPromptTokens / right.promptTokens : 0;
+      if (leftCacheRate !== rightCacheRate) {
+        return leftCacheRate - rightCacheRate;
+      }
+
+      if (right.promptTokens !== left.promptTokens) {
+        return right.promptTokens - left.promptTokens;
+      }
+
+      return left.promptCacheKeyHash.localeCompare(right.promptCacheKeyHash);
+    })
+    .slice(0, 8);
+
   const rows = allRows.slice(0, rowLimit);
 
   return {
@@ -203,6 +230,7 @@ function buildPromptCacheAudit(entries: readonly RequestLogEntry[], rowLimit: nu
     crossAccountHashCount: allRows.filter((row) => row.accountCount > 1).length,
     crossSuccessfulAccountHashCount: allRows.filter((row) => row.successfulAccountCount > 1).length,
     rows,
+    watchRows,
   };
 }
 
@@ -218,6 +246,6 @@ export async function registerOpenAiPromptCacheAuditUiRoute(
     const rowLimit = toSafeLimit(request.query.limit, DEFAULT_ROW_LIMIT, MAX_ROW_LIMIT);
     const scanLimit = toSafeLimit(request.query.scanLimit, DEFAULT_SCAN_LIMIT, MAX_SCAN_LIMIT);
     const entries = await loadRecentOpenAiPromptCacheEntries(deps, scanLimit);
-    reply.send(buildPromptCacheAudit(entries, rowLimit));
+    reply.send(buildPromptCacheAudit(entries, rowLimit, deps.config.openaiProviderId));
   });
 }

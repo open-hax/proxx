@@ -53,3 +53,8 @@ test("unprefixed qwen local model still routes to local ollama", () => {
   const result = shouldUseLocalOllama("qwen3.5:4b-q8_0", ["mini", ":4b"]);
   assert.equal(result, true);
 });
+
+test("ollama tags like :e4b match default :4b local-ollama patterns", () => {
+  const result = shouldUseLocalOllama("gemma4:e4b", [":4b"]);
+  assert.equal(result, true);
+});

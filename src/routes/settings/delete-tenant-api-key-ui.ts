@@ -10,7 +10,7 @@ export async function registerDeleteTenantApiKeyUiRoute(
   options?: PrefixedRouteOptions,
 ): Promise<void> {
   app.delete<{ Params: { readonly tenantId: string; readonly keyId: string } }>(resolveSettingsRoutePath("/tenants/:tenantId/api-keys/:keyId", options), async (request, reply) => {
-    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
+    const auth = getResolvedAuth(request);
     if (!auth) {
       reply.code(401).send({ error: "unauthorized" });
       return;

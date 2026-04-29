@@ -20,6 +20,8 @@ export async function registerEventRoutes(
       until?: string;
       limit?: string;
       offset?: string;
+      include_payload?: string;
+      include_count?: string;
     };
   }>("/api/v1/events", async (request, reply) => {
     if (!deps.eventStore) {
@@ -28,6 +30,8 @@ export async function registerEventRoutes(
     }
 
     const q = request.query;
+    const includePayload = q.include_payload === "true";
+    const includeCount = q.include_count === "true";
     const events = await deps.eventStore.query({
       kind: q.kind as "request" | "response" | "error" | "label" | "metric" | undefined,
       entryId: q.entry_id,
@@ -41,9 +45,40 @@ export async function registerEventRoutes(
       until: q.until ? new Date(q.until) : undefined,
       limit: q.limit ? Number.parseInt(q.limit, 10) : 50,
       offset: q.offset ? Number.parseInt(q.offset, 10) : undefined,
+      includePayload,
     });
 
-    reply.send({ events, count: events.length });
+    const totalCount = includeCount
+      ? await deps.eventStore.count({
+        kind: q.kind as "request" | "response" | "error" | "label" | "metric" | undefined,
+        entryId: q.entry_id,
+        providerId: q.provider_id,
+        model: q.model,
+        status: q.status ? Number.parseInt(q.status, 10) : undefined,
+        statusGte: q.status_gte ? Number.parseInt(q.status_gte, 10) : undefined,
+        statusLt: q.status_lt ? Number.parseInt(q.status_lt, 10) : undefined,
+        tag: q.tag,
+        since: q.since ? new Date(q.since) : undefined,
+        until: q.until ? new Date(q.until) : undefined,
+      })
+      : undefined;
+
+    reply.send({ events, count: events.length, totalCount });
+  });
+
+  app.get<{ Params: { id: string } }>("/api/v1/events/:id", async (request, reply) => {
+    if (!deps.eventStore) {
+      reply.code(503).send({ error: "Event store not available" });
+      return;
+    }
+
+    const event = await deps.eventStore.getById(request.params.id);
+    if (!event) {
+      reply.code(404).send({ error: "Event not found" });
+      return;
+    }
+
+    reply.send({ event });
   });
 
   app.get("/api/v1/events/tags", async (_request, reply) => {

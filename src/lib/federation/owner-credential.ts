@@ -12,11 +12,11 @@ export type FederationOwnerCredential =
       readonly ownerSubject: string;
     };
 
-const DID_PLC_PATTERN = /^did:plc:[a-z2-7]{24}$/u;
-const DID_WEB_PATTERN = /^did:web:[a-z0-9.-]+(?::[A-Za-z0-9._~!$&'()*+,;=:@%-]+)*$/u;
+const DID_PLC_PATTERN = /^did:plc:[a-z2-7]{24}$/iu;
+const DID_WEB_PATTERN = /^did:web:[a-z0-9.-]+(?:[:/][A-Za-z0-9._~!$&'()*+,;=:@%-]+)*$/iu;
 
 export function isAtDid(value: string | undefined): boolean {
-  const normalized = value?.trim().toLowerCase();
+  const normalized = value?.trim();
   if (!normalized) {
     return false;
   }
@@ -25,11 +25,25 @@ export function isAtDid(value: string | undefined): boolean {
 }
 
 export function normalizeAtDid(value: string): string {
-  const normalized = value.trim().toLowerCase();
+  const normalized = value.trim();
   if (!isAtDid(normalized)) {
     throw new Error(`invalid at did: ${value}`);
   }
-  return normalized;
+
+  const lower = normalized.toLowerCase();
+  if (lower.startsWith("did:web:")) {
+    const identifier = normalized.slice("did:web:".length);
+    const slashIndex = identifier.indexOf("/");
+    const colonIndex = identifier.indexOf(":");
+    const separatorIndex = [slashIndex, colonIndex]
+      .filter((index) => index >= 0)
+      .sort((left, right) => left - right)[0] ?? -1;
+    const host = (separatorIndex >= 0 ? identifier.slice(0, separatorIndex) : identifier).toLowerCase();
+    const path = separatorIndex >= 0 ? identifier.slice(separatorIndex) : "";
+    return `did:web:${host}${path}`;
+  }
+
+  return lower;
 }
 
 export function fingerprintAdminKey(value: string): string {
