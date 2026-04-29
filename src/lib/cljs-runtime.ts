@@ -85,6 +85,20 @@ export async function loadCljsRuntime(options: LoadOptions = {}): Promise<CljsRu
   };
 }
 
+let activeCljsRuntime: ProxxCljsRuntime | undefined;
+
+export function setActiveCljsRuntime(runtime: ProxxCljsRuntime | undefined): void {
+  activeCljsRuntime = runtime;
+}
+
+export function getActiveCljsRuntime(): ProxxCljsRuntime | undefined {
+  return activeCljsRuntime;
+}
+
+export function normalizeObjectKeysWithCljs<T>(value: T): T | unknown {
+  return activeCljsRuntime?.normalizeKeys(value) ?? value;
+}
+
 export async function assertCljsRuntimeReady(runtime: ProxxCljsRuntime): Promise<void> {
   const normalized = runtime.normalizeKeys({ providerId: "openai", nested_value: { modelId: "gpt-4o" } });
   if (
