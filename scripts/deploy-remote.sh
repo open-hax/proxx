@@ -354,7 +354,9 @@ else
 fi
 if [[ -n "$DEPLOY_RESTART_SERVICES" ]]; then
   IFS=',' read -r -a restart_services <<< "$DEPLOY_RESTART_SERVICES"
-  docker compose "${compose_args[@]}" restart "${restart_services[@]}"
+  for service in "${restart_services[@]}"; do
+    [[ -n "$service" ]] && docker compose "${compose_args[@]}" restart "$service"
+  done
 fi
 EOF
 }
