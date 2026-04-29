@@ -16,11 +16,20 @@ import { AnalyticsPage } from "./pages/AnalyticsPage";
 import { FederationPage } from "./pages/FederationPage";
 import { EventsPage } from "./pages/EventsPage";
 
-const LS_ONBOARDED = "open-hax-proxy.ui.onboarded";
 const LS_THEME = "open-hax-proxy.ui.theme";
+const LS_ONBOARDED = "open-hax-proxy.ui.onboarded";
 
 function parseThemeName(value: unknown): ThemeName | undefined {
-  return value === "monokai" || value === "night-owl" ? value : undefined;
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+  if (trimmed === "monokai" || trimmed === "night-owl") {
+    return trimmed as ThemeName;
+  }
+
+  return undefined;
 }
 
 function navClass(isActive: boolean): string {
