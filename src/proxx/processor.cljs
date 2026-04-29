@@ -137,16 +137,22 @@
            :or   {decay-half-life-ms 60000}}]
   (let [now (.now js/Date)
         score (reduce (fn [acc {:keys [ts outcome]}]
-                        (let [age          (- now ts)
-                              decay-factor (Math/pow 0.5 (/ age decay-half-life-ms))
-                              signal       (case outcome
-                                             :success  1.0
-                                             :failure -0.5
-                                             0.0)]
-                          (+ acc (* signal decay-factor))))
+                        ;; Validate ts is a finite number before computing decay
+                        (if (and (number? ts) (js/isFinite ts))
+                          (let [age          (- now ts)
+                                decay-factor (Math/pow 0.5 (/ age decay-half-life-ms))
+                                signal       (case outcome
+                                               :success  1.0
+                                               :failure -0.5
+                                               0.0)]
+                            (+ acc (* signal decay-factor)))
+                          ;; Skip events with non-finite ts
+                          acc))
                       0.0
-                      events)]
-    (-> score
+                      events)
+        ;; Ensure final score is finite before clamping
+        final-score (if (js/isFinite score) score 0.0)]
+    (-> final-score
         (max -10.0)
         (min 10.0))))
 
