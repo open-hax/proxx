@@ -8,7 +8,7 @@
 ;; Fixtures
 ;; provider-model must satisfy ProviderModel schema:
 ;;   :provider-id :model-id :context-tokens :streaming :vision
-;; provider-credential has no schema in registry so we pass minimal keys.
+;; provider-credential must satisfy the schema used by seed ingestion.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private no-external-config
@@ -81,7 +81,4 @@
                          :secret      "sk-test"}])]
       (boot/seed-from-value! pl raw)
       (let [hot-store (get-in pl [:stores :hot])]
-        ;; provider-credential has no malli schema so ingest! will throw
-        ;; unless we skip validation — this test confirms the data path
-        ;; is wired; schema coverage is in schema_test.
-        (is (map? pl))))))
+        (is (some? (store-get hot-store :provider-credential "openai:test")))))))

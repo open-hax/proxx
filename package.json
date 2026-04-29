@@ -28,6 +28,8 @@
     "start": "node --env-file-if-exists=.env dist/main.js",
     "test": "pnpm run build && node --test --test-concurrency=1 'dist/tests/**/*.test.js'",
     "test:coverage": "pnpm run build && c8 --reporter=text --reporter=json-summary --exclude 'src/**/*.test.ts' --exclude 'src/**/*.d.ts' --exclude 'src/**/types.ts' --exclude 'src/data/**' --exclude 'src/main.ts' --exclude 'src/routes/**' --exclude 'src/lib/oauth-routes.ts' --exclude 'src/lib/native-auth.ts' --exclude 'src/lib/telemetry/**' --exclude 'src/lib/observability/**' --exclude 'src/lib/chroma-*.ts' node --test --test-concurrency=1 'dist/tests/**/*.test.js'",
+    "test:cljs": "npx shadow-cljs compile node-test && node target/node-test.cjs",
+    "test:cljs:coverage": "npx shadow-cljs compile node-test && c8 node target/node-test.cjs",
     "test:e2e": "./scripts/e2e-test.sh",
     "test:e2e:multitenancy": "./scripts/e2e-multitenancy-smoke.sh",
     "test:e2e:federation": "./scripts/e2e-federation-cluster.sh",
