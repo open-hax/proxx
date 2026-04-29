@@ -339,6 +339,15 @@ function humanIdentityLabel(entry: AccountEntry): string | null {
   return null;
 }
 
+/**
+ * Renders the Credentials Manager UI used to view, add, probe, group, and manage provider credentials and request logs.
+ *
+ * The component includes credential listing and grouping, quota and prompt-cache audit views, OpenAI/Factory OAuth flows
+ * (browser and device), API key creation shortcuts (including Xiaomi MiMo), account probe/disable/enable/remove actions,
+ * and a request logs panel with filtering. State is persisted for selected filters and reveal-secrets preference.
+ *
+ * @returns The rendered credentials management page as a JSX.Element
+ */
 export function CredentialsPage(): JSX.Element {
   // NOTE: Persisting revealSecrets can be risky on shared machines; you asked
   // for persistence so we do it, but it will auto-load on refresh.

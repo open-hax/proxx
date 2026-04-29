@@ -31,6 +31,12 @@ interface LoadOptions {
 
 const moduleFileName = "proxx-runtime.js";
 
+/**
+ * Determines whether an object implements the Proxx CLJS runtime API.
+ *
+ * @param value - Candidate module object to inspect
+ * @returns `true` if `value` exposes `normalizeKeys`, `validateEntity`, and `projectPheromone` functions; `false` otherwise.
+ */
 function isProxxCljsRuntime(value: Record<string, unknown>): value is Record<string, unknown> & ProxxCljsRuntime {
   return (
     typeof value.normalizeKeys === "function" &&
@@ -39,6 +45,11 @@ function isProxxCljsRuntime(value: Record<string, unknown>): value is Record<str
   );
 }
 
+/**
+ * Produces an ordered list of candidate filesystem paths where the CLJS runtime artifact may be located.
+ *
+ * @returns An array of absolute file paths to probe for the runtime, ordered from preferred to fallback.
+ */
 function candidateModulePaths(): readonly string[] {
   const currentDir = dirname(fileURLToPath(import.meta.url));
   return [
@@ -49,6 +60,17 @@ function candidateModulePaths(): readonly string[] {
   ];
 }
 
+/**
+ * Attempts to locate, import, and validate the CLJS runtime artifact from known candidate paths.
+ *
+ * Tries each candidate file path in turn, recording failures; on the first module that exports the expected
+ * runtime API returns its path and runtime object. If no candidate is usable and `options.required` is true,
+ * an Error is thrown containing the failure details; otherwise a `{ loaded: false, reason }` result is returned.
+ *
+ * @param options - Optional load settings. If `options.required` is `true`, a missing or invalid runtime will cause an exception.
+ * @returns When successful: `{ loaded: true, modulePath, runtime }`. When not found: `{ loaded: false, reason }`.
+ * @throws Error when `options.required` is `true` and no valid runtime could be loaded; the error message includes attempted paths and failure details.
+ */
 export async function loadCljsRuntime(options: LoadOptions = {}): Promise<CljsRuntimeLoadResult> {
   const attempted: string[] = [];
   const failures: string[] = [];
@@ -87,18 +109,42 @@ export async function loadCljsRuntime(options: LoadOptions = {}): Promise<CljsRu
 
 let activeCljsRuntime: ProxxCljsRuntime | undefined;
 
+/**
+ * Set the module's active CLJS runtime used by helper functions.
+ *
+ * @param runtime - The CLJS runtime to register, or `undefined` to clear the active runtime
+ */
 export function setActiveCljsRuntime(runtime: ProxxCljsRuntime | undefined): void {
   activeCljsRuntime = runtime;
 }
 
+/**
+ * Retrieve the currently active CLJS runtime instance.
+ *
+ * @returns The active Proxx CLJS runtime instance, or `undefined` if no runtime is set
+ */
 export function getActiveCljsRuntime(): ProxxCljsRuntime | undefined {
   return activeCljsRuntime;
 }
 
+/**
+ * Normalize object keys using the active CLJS runtime when available.
+ *
+ * @param value - The value whose object keys should be normalized
+ * @returns The value with normalized keys when a CLJS runtime is active, otherwise the original `value`
+ */
 export function normalizeObjectKeysWithCljs<T>(value: T): T | unknown {
   return activeCljsRuntime?.normalizeKeys(value) ?? value;
 }
 
+/**
+ * Performs smoke checks of a Proxx CLJS runtime to verify the required API behaviour.
+ *
+ * @param runtime - The runtime implementation to validate.
+ * @throws Error - If `runtime.normalizeKeys` does not return an object containing the keys `"provider-id"` and `"nested-value"`.
+ * @throws Error - If `runtime.validateEntity("provider", ...)` returns a validation result whose `status` is not `"ok"`.
+ * @throws Error - If `runtime.projectPheromone(...)` does not return a finite number greater than `0`.
+ */
 export async function assertCljsRuntimeReady(runtime: ProxxCljsRuntime): Promise<void> {
   const normalized = runtime.normalizeKeys({ providerId: "openai", nested_value: { modelId: "gpt-4o" } });
   if (
