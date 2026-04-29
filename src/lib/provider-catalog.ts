@@ -22,22 +22,6 @@ function resolveCatalogRouteTimeoutMs(): number {
   return parsed;
 }
 
-const DEFAULT_CATALOG_ROUTE_TIMEOUT_MS = 15_000;
-
-function resolveCatalogRouteTimeoutMs(): number {
-  const raw = process.env.PROXY_PROVIDER_CATALOG_ROUTE_TIMEOUT_MS?.trim();
-  if (!raw) {
-    return DEFAULT_CATALOG_ROUTE_TIMEOUT_MS;
-  }
-
-  const parsed = Number.parseInt(raw, 10);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    return DEFAULT_CATALOG_ROUTE_TIMEOUT_MS;
-  }
-
-  return parsed;
-}
-
 export interface ProviderCatalogEntry {
   readonly providerId: string;
   readonly modelIds: readonly string[];
@@ -280,14 +264,21 @@ export class ProviderCatalogStore {
     candidatePaths: readonly string[] = ["/v1/models"],
     signal?: AbortSignal,
   ): Promise<string[]> {
-    let accounts: ProviderCredential[];
+    const localOllamaRoute = this.isLocalOllamaCatalogRoute(route);
+
+    let accounts: ProviderCredential[] | null = null;
     try {
       accounts = await this.keyPool.getAllAccounts(route.providerId);
     } catch {
-      return [];
+      accounts = null;
     }
 
-    if (accounts.length === 0) {
+    if (!accounts || accounts.length === 0) {
+      // Local Ollama typically does not require credentials, so still attempt
+      // catalog discovery even when the key pool has no accounts.
+      if (localOllamaRoute) {
+        return await this.fetchUnauthenticatedModelCatalog(route, candidatePaths, signal);
+      }
       return [];
     }
 
@@ -300,9 +291,7 @@ export class ProviderCatalogStore {
         if (signal?.aborted) {
           return [];
         }
-        const normalizedBase = route.baseUrl.replace(/\/+$/, "");
-        const normalizedPath = candidatePath.startsWith("/") ? candidatePath : `/${candidatePath}`;
-        const url = `${normalizedBase}${normalizedPath}`;
+        const url = joinUrl(route.baseUrl, candidatePath);
         let response: Response;
         try {
           response = await fetchWithResponseTimeout(url, {
@@ -337,6 +326,68 @@ export class ProviderCatalogStore {
         if (modelIds.length > 0) {
           return modelIds;
         }
+      }
+    }
+
+    return [];
+  }
+
+  private normalizeBaseUrl(value: string): string {
+    return value.trim().replace(/\/+$/, "");
+  }
+
+  private isLocalOllamaCatalogRoute(route: ProviderRoute): boolean {
+    const routeUrl = this.normalizeBaseUrl(route.baseUrl).toLowerCase();
+    const configuredLocalUrl = this.normalizeBaseUrl(this.config.ollamaBaseUrl).toLowerCase();
+    return routeUrl.length > 0 && configuredLocalUrl.length > 0 && routeUrl === configuredLocalUrl;
+  }
+
+  private async fetchUnauthenticatedModelCatalog(
+    route: ProviderRoute,
+    candidatePaths: readonly string[],
+    signal?: AbortSignal,
+  ): Promise<string[]> {
+    for (const candidatePath of candidatePaths) {
+      if (signal?.aborted) {
+        return [];
+      }
+
+      const url = joinUrl(route.baseUrl, candidatePath);
+      const headers = new Headers({ accept: "application/json" });
+      if (this.config.ollamaApiKey) {
+        headers.set("authorization", `Bearer ${this.config.ollamaApiKey}`);
+      }
+
+      let response: Response;
+      try {
+        response = await fetchWithResponseTimeout(url, {
+          method: "GET",
+          headers,
+          signal,
+        }, Math.min(this.config.requestTimeoutMs, 45_000));
+      } catch {
+        continue;
+      }
+
+      if (!response.ok) {
+        try {
+          await response.arrayBuffer();
+        } catch {
+          // ignore body read failures
+        }
+        continue;
+      }
+
+      let payload: unknown;
+      try {
+        payload = await response.json();
+      } catch {
+        continue;
+      }
+
+      const modelIds = parseModelIdsFromCatalogPayload(payload);
+      if (modelIds.length > 0) {
+        return modelIds;
       }
     }
 

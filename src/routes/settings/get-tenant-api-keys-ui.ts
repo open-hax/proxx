@@ -10,7 +10,7 @@ export async function registerGetTenantApiKeysUiRoute(
   options?: PrefixedRouteOptions,
 ): Promise<void> {
   app.get<{ Params: { readonly tenantId: string } }>(resolveSettingsRoutePath("/tenants/:tenantId/api-keys", options), async (request, reply) => {
-    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
+    const auth = getResolvedAuth(request);
     if (!auth) {
       reply.code(401).send({ error: "unauthorized" });
       return;

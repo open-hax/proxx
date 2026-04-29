@@ -61,9 +61,14 @@ export function openAiProviderUsesCodexSurface(config: ProxyConfig): boolean {
 export function providerRouteSupportsModel(config: ProxyConfig, providerId: string, modelId: string): boolean {
   const normalizedProviderId = providerId.trim().toLowerCase();
   const normalizedModelId = modelId.trim().toLowerCase();
+  const normalizedOpenAiProviderId = config.openaiProviderId.trim().toLowerCase();
+
+  if (normalizedProviderId === normalizedOpenAiProviderId && !looksLikeHostedOpenAiFamily(normalizedModelId)) {
+    return false;
+  }
 
   if (
-    normalizedProviderId === config.openaiProviderId.trim().toLowerCase()
+    normalizedProviderId === normalizedOpenAiProviderId
     && normalizedModelId === "gpt-5.4-nano"
     && openAiProviderUsesCodexSurface(config)
   ) {

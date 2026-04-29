@@ -27,11 +27,16 @@ export interface ModelInfo {
 export type UpstreamMode =
   | "chat_completions"
   | "responses"
+  | "responses_passthrough"
   | "messages"
   | "openai_chat_completions"
   | "openai_responses"
+  | "openai_responses_passthrough"
+  | "images"
+  | "gemini_chat"
   | "ollama_chat"
-  | "local_ollama_chat";
+  | "local_ollama_chat"
+  | "embeddings";
 
 export interface StrategyInfo {
   readonly mode: UpstreamMode;
@@ -43,6 +48,11 @@ export interface RequestContext {
   readonly model: ModelInfo;
   readonly clientWantsStream: boolean;
   readonly needsReasoningTrace: boolean;
+  /**
+   * High-level request surface. This lets policy distinguish e.g. /v1/responses passthrough
+   * from /v1/chat/completions routing.
+   */
+  readonly requestKind: "chat" | "responses_passthrough" | "images_passthrough";
 }
 
 export type AccountOrderingRule =
@@ -55,6 +65,10 @@ export interface ModelRoutingRule {
   readonly modelPattern: string | RegExp;
   readonly preferredProviders?: readonly ProviderId[];
   readonly excludedProviders?: readonly ProviderId[];
+  /** Preferred upstream strategy modes for this model family/pattern. */
+  readonly preferredStrategies?: readonly UpstreamMode[];
+  /** Strategy modes to exclude for this model family/pattern. */
+  readonly excludedStrategies?: readonly UpstreamMode[];
   readonly accountOrdering?: AccountOrderingRule;
   readonly requiresPaidPlan?: boolean;
   readonly fallbackModels?: readonly ModelId[];
@@ -62,6 +76,7 @@ export interface ModelRoutingRule {
 
 export interface StrategySelectionRule {
   readonly providerPattern: string | RegExp;
+  readonly requestKind?: RequestContext["requestKind"];
   readonly preferredStrategies?: readonly UpstreamMode[];
   readonly excludedStrategies?: readonly UpstreamMode[];
 }

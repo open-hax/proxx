@@ -13,7 +13,7 @@ export async function registerPostTenantApiKeysUiRoute(
     Params: { readonly tenantId: string };
     Body: { readonly label?: string; readonly scopes?: readonly string[] };
   }>(resolveSettingsRoutePath("/tenants/:tenantId/api-keys", options), async (request, reply) => {
-    const auth = getResolvedAuth(request as { readonly openHaxAuth?: unknown });
+    const auth = getResolvedAuth(request);
     if (!auth) {
       reply.code(401).send({ error: "unauthorized" });
       return;

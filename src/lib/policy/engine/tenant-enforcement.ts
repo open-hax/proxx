@@ -6,6 +6,52 @@ export interface TenantSettings {
   readonly disabledProviderIds: readonly string[] | null;
 }
 
+function normalizeModelVariants(model: string): readonly string[] {
+  const trimmed = model.trim().toLowerCase();
+  if (trimmed.length === 0) {
+    return [];
+  }
+
+  const variants = new Set<string>([trimmed]);
+  if (trimmed.startsWith("ollama/")) {
+    variants.add(trimmed.slice("ollama/".length));
+  }
+  if (trimmed.startsWith("ollama:")) {
+    variants.add(trimmed.slice("ollama:".length));
+  }
+  return [...variants];
+}
+
+export function tenantModelAllowed(settings: TenantSettings, ...models: Array<string | undefined>): boolean {
+  if (!settings.allowedModels || settings.allowedModels.length === 0) {
+    return true;
+  }
+
+  const allowed = new Set<string>();
+  for (const allowedModel of settings.allowedModels) {
+    for (const variant of normalizeModelVariants(allowedModel)) {
+      allowed.add(variant);
+    }
+  }
+
+  const candidates = new Set<string>();
+  for (const model of models) {
+    if (typeof model !== "string") {
+      continue;
+    }
+
+    for (const variant of normalizeModelVariants(model)) {
+      candidates.add(variant);
+    }
+  }
+
+  if (candidates.size === 0) {
+    return false;
+  }
+
+  return [...candidates].some((candidate) => allowed.has(candidate));
+}
+
 export function tenantProviderAllowed(settings: TenantSettings, providerId: string): boolean {
   const normalizedProviderId = providerId.trim().toLowerCase();
   if (settings.allowedProviderIds && !settings.allowedProviderIds.includes(normalizedProviderId)) {

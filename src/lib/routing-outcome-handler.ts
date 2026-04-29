@@ -61,10 +61,13 @@ export async function handleRoutingOutcome(input: RoutingOutcomeInput): Promise<
 
   if (summary.sawUpstreamInvalidRequest) {
     log.warn({ providerRoutes, attempts: summary.attempts, upstreamMode: strategyMode }, `${prefix}all attempts exhausted due to upstream invalid-request responses`);
+    const upstreamDetail = summary.lastUpstreamError
+      ? ` Last upstream error (${summary.lastUpstreamError.providerId ?? "unknown"}, HTTP ${summary.lastUpstreamError.status}): ${summary.lastUpstreamError.body}`
+      : "";
     sendOpenAiError(
       reply,
       400,
-      "No upstream account accepted the request payload. Check model availability and request parameters.",
+      `No upstream account accepted the request payload. Check model availability and request parameters.${upstreamDetail}`,
       "invalid_request_error",
       "upstream_rejected_request",
     );
@@ -108,6 +111,18 @@ export async function handleRoutingOutcome(input: RoutingOutcomeInput): Promise<
       `Model not found across available upstream providers: ${routedModel}`,
       "invalid_request_error",
       "model_not_found",
+    );
+    return true;
+  }
+
+  if (summary.sawModelNotSupportedForAccount) {
+    log.warn({ providerRoutes, attempts: summary.attempts, upstreamMode: strategyMode }, `${prefix}all attempts exhausted due to model access restrictions`);
+    sendOpenAiError(
+      reply,
+      403,
+      `Available upstream accounts are not allowed to use model: ${routedModel}`,
+      "invalid_request_error",
+      "model_not_supported_for_account",
     );
     return true;
   }

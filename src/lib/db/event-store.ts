@@ -44,6 +44,7 @@ export interface EventQuery {
   readonly limit?: number;
   readonly offset?: number;
   readonly orderDesc?: boolean;
+  readonly includePayload?: boolean;
 }
 
 export interface EventLabeler {
@@ -63,14 +64,18 @@ interface EventRow {
   status: number | null;
   tags: string[] | string | null;
   meta: Record<string, unknown> | string | null;
-  payload: Record<string, unknown> | string | null;
-  payload_bytes: number | null;
+  payload?: Record<string, unknown> | string | null;
+  payload_bytes?: number | null;
 }
 
 function parseRow(row: EventRow): ProxyEvent {
   const tags = typeof row.tags === "string" ? JSON.parse(row.tags) : (row.tags ?? []);
   const meta = typeof row.meta === "string" ? JSON.parse(row.meta) : (row.meta ?? {});
-  const payload = typeof row.payload === "string" ? JSON.parse(row.payload) : (row.payload ?? null);
+  const payload = row.payload === undefined
+    ? null
+    : typeof row.payload === "string"
+      ? JSON.parse(row.payload)
+      : (row.payload ?? null);
 
   return {
     id: row.id,
@@ -281,11 +286,77 @@ export class EventStore {
     const limit = Math.min(filters.limit ?? 100, 1000);
     const offset = filters.offset ?? 0;
 
-    const query = `SELECT * FROM events ${where} ORDER BY ts ${order} LIMIT $${paramIndex++} OFFSET $${paramIndex++}`;
+    const selectColumns = filters.includePayload
+      ? "*"
+      : "id, ts, kind, entry_id, provider_id, account_id, model, status, tags, meta, payload_bytes";
+    const query = `SELECT ${selectColumns} FROM events ${where} ORDER BY ts ${order} LIMIT $${paramIndex++} OFFSET $${paramIndex++}`;
     values.push(limit, offset);
 
     const rows = await this.sql.unsafe<EventRow[]>(query, values as (string | number | null | Date)[]);
     return rows.map(parseRow);
+  }
+
+  public async count(filters: Omit<EventQuery, "limit" | "offset" | "orderDesc" | "includePayload">): Promise<number> {
+    const conditions: string[] = [];
+    const values: Array<string | number | null> = [];
+    let paramIndex = 1;
+
+    if (filters.kind) {
+      conditions.push(`kind = $${paramIndex++}`);
+      values.push(filters.kind);
+    }
+    if (filters.entryId) {
+      conditions.push(`entry_id = $${paramIndex++}`);
+      values.push(filters.entryId);
+    }
+    if (filters.providerId) {
+      conditions.push(`provider_id = $${paramIndex++}`);
+      values.push(filters.providerId);
+    }
+    if (filters.model) {
+      conditions.push(`model = $${paramIndex++}`);
+      values.push(filters.model);
+    }
+    if (filters.status !== undefined) {
+      conditions.push(`status = $${paramIndex++}`);
+      values.push(filters.status);
+    }
+    if (filters.statusGte !== undefined) {
+      conditions.push(`status >= $${paramIndex++}`);
+      values.push(filters.statusGte);
+    }
+    if (filters.statusLt !== undefined) {
+      conditions.push(`status < $${paramIndex++}`);
+      values.push(filters.statusLt);
+    }
+    if (filters.tag) {
+      conditions.push(`tags ? $${paramIndex++}`);
+      values.push(filters.tag);
+    }
+    if (filters.since) {
+      conditions.push(`ts >= $${paramIndex++}`);
+      values.push(filters.since.toISOString());
+    }
+    if (filters.until) {
+      conditions.push(`ts < $${paramIndex++}`);
+      values.push(filters.until.toISOString());
+    }
+
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+    const query = `SELECT COUNT(*) as count FROM events ${where}`;
+
+    const rows = await this.sql.unsafe<Array<{ count: string }>>(query, values);
+    const first = rows[0];
+    return first ? Number.parseInt(first.count, 10) : 0;
+  }
+
+  public async getById(eventId: string): Promise<ProxyEvent | null> {
+    const rows = await this.sql.unsafe<EventRow[]>(
+      "SELECT * FROM events WHERE id = $1::uuid LIMIT 1",
+      [eventId],
+    );
+    const row = rows[0];
+    return row ? parseRow(row) : null;
   }
 
   public async addTag(eventId: string, tag: string): Promise<void> {

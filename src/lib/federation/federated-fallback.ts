@@ -4,7 +4,8 @@ import type { FastifyReply, FastifyInstance } from "fastify";
 
 import { buildForwardHeaders } from "../proxy.js";
 import { normalizeRequestedModel } from "../request-utils.js";
-import { fetchWithResponseTimeout, toErrorMessage } from "../provider-utils.js";
+import { fetchWithResponseTimeout } from "../http/index.js";
+import { toErrorMessage } from "../errors/index.js";
 import {
   shareModeAllowsRelay,
   shareModeAllowsWarmImport,
@@ -29,6 +30,8 @@ import type { SqlFederationStore } from "../db/sql-federation-store.js";
 import type { SqlTenantProviderPolicyStore } from "../db/sql-tenant-provider-policy-store.js";
 import type { ProviderRoute } from "../provider-routing.js";
 import type { FederationCredentialExport } from "../../routes/federation/account-knowledge.js";
+
+import { ensureFederationProjectedAccountsFresh } from "./on-demand-projections.js";
 
 const FEDERATION_HOP_HEADER = "x-open-hax-federation-hop";
 const FEDERATION_OWNER_SUBJECT_HEADER = "x-open-hax-federation-owner-subject";
@@ -101,16 +104,30 @@ export async function noteFederatedProjectedAccountRouted(
       }
 
       try {
-        const remoteExport = await fetchFederationJson<{ readonly account: FederationCredentialExport }>({
-          url: `${peer.controlBaseUrl ?? peer.baseUrl}/api/ui/federation/accounts/export`,
-          credential,
-          timeoutMs: input.timeoutMs,
-          method: "POST",
-          body: {
-            providerId: latest.providerId,
-            accountId: latest.accountId,
-          },
-        });
+        const exportBody = {
+          providerId: latest.providerId,
+          accountId: latest.accountId,
+        };
+
+        let remoteExport: { readonly account: FederationCredentialExport };
+        try {
+          remoteExport = await fetchFederationJson<{ readonly account: FederationCredentialExport }>({
+            url: `${peer.controlBaseUrl ?? peer.baseUrl}/api/v1/federation/accounts/export`,
+            credential,
+            timeoutMs: input.timeoutMs,
+            method: "POST",
+            body: exportBody,
+          });
+        } catch {
+          // Back-compat fallback.
+          remoteExport = await fetchFederationJson<{ readonly account: FederationCredentialExport }>({
+            url: `${peer.controlBaseUrl ?? peer.baseUrl}/api/ui/federation/accounts/export`,
+            credential,
+            timeoutMs: input.timeoutMs,
+            method: "POST",
+            body: exportBody,
+          });
+        }
 
         if (remoteExport.account.authType === "oauth_bearer") {
           await runtimeCredentialStore.upsertOAuthAccount(
@@ -270,7 +287,7 @@ export async function executeFederatedRequestFallback(
     readonly policy: TenantProviderPolicyRecord | undefined;
   };
 
-  const projectedCandidates = (await Promise.all((await sqlFederationStore.getProjectedAccountsForOwner(ownerSubject))
+  const buildProjectedCandidates = async (): Promise<readonly FederatedProjectedCandidate[]> => (await Promise.all((await sqlFederationStore.getProjectedAccountsForOwner(ownerSubject))
     .filter((account) => account.availabilityState !== "imported")
     .filter((account) => localProviderIds.has(account.providerId.trim().toLowerCase()))
     .filter((account) => !localProviderAccountKeys.has(`${account.providerId.trim().toLowerCase()}\0${account.accountId}`))
@@ -298,6 +315,20 @@ export async function executeFederatedRequestFallback(
         || left.projectedAccount.accountId.localeCompare(right.projectedAccount.accountId)
         || left.projectedAccount.sourcePeerId.localeCompare(right.projectedAccount.sourcePeerId);
     });
+
+  let projectedCandidates = await buildProjectedCandidates();
+
+  // If we have no projected candidates, try an on-demand pull from peers to populate projections.
+  // This keeps federation routing dynamic without relying on an external periodic sync.
+  if (projectedCandidates.length === 0) {
+    await ensureFederationProjectedAccountsFresh({
+      logger: app.log,
+      sqlFederationStore,
+      ownerSubject,
+      timeoutMs: Math.min(input.timeoutMs, 10_000),
+    }).catch(() => undefined);
+    projectedCandidates = await buildProjectedCandidates();
+  }
 
   if (projectedCandidates.length === 0) {
     return false;

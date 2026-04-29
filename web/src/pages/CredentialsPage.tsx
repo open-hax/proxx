@@ -14,16 +14,17 @@ import {
   pollFactoryDeviceOAuth,
   pollOpenAiDeviceOAuth,
   type CredentialAccount,
+  type CredentialAccountProbeResult,
   type CredentialProvider,
   type CredentialQuotaAccountSummary,
   type CredentialQuotaRateLimit,
   type CredentialQuotaOverview,
   type CredentialQuotaWindow,
   type KeyPoolStatus,
-  type OpenAiAccountProbeResult,
   type PromptCacheAuditOverview,
   type ProviderRequestLogSummary,
   type RequestLogEntry,
+  probeOllamaCloudCredentialAccount,
   probeOpenAiCredentialAccount,
   removeCredential,
   startFactoryBrowserOAuth,
@@ -194,48 +195,12 @@ function formatQuotaRateLimitStatus(rateLimit: CredentialQuotaRateLimit | null):
   return "Unknown";
 }
 
-function quotaRateLimitBadgeClass(rateLimit: CredentialQuotaRateLimit | null): string {
-  if (rateLimit?.allowed === true) {
-    return "credentials-badge-accent";
-  }
-
-  if (rateLimit?.allowed === false || rateLimit?.limitReached === true) {
-    return "credentials-badge-danger";
-  }
-
-  return "credentials-badge-muted";
-}
-
-function probeBadgeClass(result: OpenAiAccountProbeResult | undefined): string {
-  if (!result) {
-    return "credentials-badge-muted";
-  }
-
-  return result.ok ? "credentials-badge-accent" : "credentials-badge-danger";
-}
-
 function formatAggregatePercent(value: number | null): string {
   if (value === null || !Number.isFinite(value)) {
     return "No data";
   }
 
   return value >= 10 ? `${Math.round(value)}%` : `${value.toFixed(1)}%`;
-}
-
-function quotaBadgeClassFromPercent(value: number | null): string {
-  if (value === null || !Number.isFinite(value)) {
-    return "credentials-badge-muted";
-  }
-
-  if (value <= 15) {
-    return "credentials-badge-danger";
-  }
-
-  if (value <= 40) {
-    return "credentials-badge-warning";
-  }
-
-  return "credentials-badge-accent";
 }
 
 function quotaToneClass(remainingPercent: number | null): string {
@@ -277,6 +242,10 @@ function formatRouteLabel(entry: RequestLogEntry): string {
 
   const peer = entry.routedPeerLabel ?? entry.routedPeerId ?? "unknown-peer";
   return `${entry.routeKind} → ${peer}`;
+}
+
+function probeModelForProvider(providerId: string): string {
+  return providerId === "ollama-cloud" ? "gemma4:31b" : "gpt-5.2";
 }
 
 function sortAccounts(accounts: readonly CredentialAccount[]): CredentialAccount[] {
@@ -392,8 +361,9 @@ export function CredentialsPage(): JSX.Element {
   const [quotaLoading, setQuotaLoading] = useState(false);
   const [quotaError, setQuotaError] = useState<string | null>(null);
   const [promptCacheAudit, setPromptCacheAudit] = useState<PromptCacheAuditOverview | null>(null);
-  const [accountProbeResults, setAccountProbeResults] = useState<Record<string, OpenAiAccountProbeResult>>({});
+  const [accountProbeResults, setAccountProbeResults] = useState<Record<string, CredentialAccountProbeResult>>({});
   const [accountProbeLoading, setAccountProbeLoading] = useState<Record<string, boolean>>({});
+  const [disabledAccounts, setDisabledAccounts] = useState<Set<string>>(new Set());
   const [copiedFieldKey, setCopiedFieldKey] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -436,6 +406,19 @@ export function CredentialsPage(): JSX.Element {
     try {
       const nextAudit = await getOpenAiPromptCacheAudit(40);
       setPromptCacheAudit(nextAudit);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+    }
+  }, []);
+
+  const refreshDisabledAccounts = useCallback(async () => {
+    try {
+      const payload = await getDisabledAccounts();
+      const disabledSet = new Set<string>();
+      for (const account of payload.disabledAccounts) {
+        disabledSet.add(`${account.providerId}:${account.accountId}`);
+      }
+      setDisabledAccounts(disabledSet);
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
     }
@@ -527,10 +510,10 @@ export function CredentialsPage(): JSX.Element {
     const errorAccounts = allOpenAiQuotaAccounts.filter((account) => account.status === "error");
     const generalWindows = okAccounts
       .map((account) => account.rateLimit?.primaryWindow ?? account.fiveHour)
-      .filter((window): window is CredentialQuotaWindow => window !== null);
+      .filter((window): window is CredentialQuotaWindow => window != null);
     const codeReviewWindows = okAccounts
       .map((account) => account.codeReviewRateLimit?.primaryWindow)
-      .filter((window): window is CredentialQuotaWindow => window !== null);
+      .filter((window): window is CredentialQuotaWindow => window != null);
     const generalRemainingValues = generalWindows
       .map((window) => window.remainingPercent)
       .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
@@ -549,10 +532,10 @@ export function CredentialsPage(): JSX.Element {
     const nextResetWindow = [
       ...generalBlockedAccounts
         .map((account) => account.rateLimit?.primaryWindow ?? account.fiveHour)
-        .filter((window): window is CredentialQuotaWindow => window !== null),
+        .filter((window): window is CredentialQuotaWindow => window != null),
       ...okAccounts
         .map((account) => account.rateLimit?.primaryWindow ?? account.fiveHour)
-        .filter((window): window is CredentialQuotaWindow => window !== null),
+        .filter((window): window is CredentialQuotaWindow => window != null),
     ].sort(sortWindowByReset)[0] ?? null;
 
     const average = (values: readonly number[]): number | null => {
@@ -583,30 +566,15 @@ export function CredentialsPage(): JSX.Element {
       return [];
     }
 
-    return promptCacheAudit.rows
-      .map((row) => {
-        const cacheRate = row.promptTokens > 0 ? (row.cachedPromptTokens / row.promptTokens) * 100 : 0;
-        return {
-          ...row,
-          cacheRate,
-        };
-      })
-      .filter((row) => row.successfulAccountCount === 1)
-      .filter((row) => row.shapeFingerprintCount === 1)
-      .filter((row) => row.successfulRequestCount >= 4)
-      .filter((row) => row.promptTokens >= 10_000)
-      .sort((left, right) => {
-        if (left.cacheRate !== right.cacheRate) {
-          return left.cacheRate - right.cacheRate;
-        }
+    const sourceRows = promptCacheAudit.watchRows.length > 0 ? promptCacheAudit.watchRows : promptCacheAudit.rows;
 
-        if (right.promptTokens !== left.promptTokens) {
-          return right.promptTokens - left.promptTokens;
-        }
-
-        return left.promptCacheKeyHash.localeCompare(right.promptCacheKeyHash);
-      })
-      .slice(0, 8);
+    return sourceRows.map((row) => {
+      const cacheRate = row.promptTokens > 0 ? (row.cachedPromptTokens / row.promptTokens) * 100 : 0;
+      return {
+        ...row,
+        cacheRate,
+      };
+    });
   }, [promptCacheAudit]);
 
   const sortAccountEntries = useCallback((entries: readonly AccountEntry[]): AccountEntry[] => {
@@ -1062,10 +1030,15 @@ export function CredentialsPage(): JSX.Element {
     setAccountProbeLoading((current) => ({ ...current, [stateKey]: true }));
 
     try {
-      const result = await probeOpenAiCredentialAccount(accountId);
+      const result = providerId === "ollama-cloud"
+        ? await probeOllamaCloudCredentialAccount(accountId)
+        : await probeOpenAiCredentialAccount(accountId);
       setAccountProbeResults((current) => ({ ...current, [stateKey]: result }));
-      await refreshQuota();
-      await refreshPromptCacheAudit();
+
+      if (providerId === "openai") {
+        await refreshQuota();
+        await refreshPromptCacheAudit();
+      }
     } catch (probeError) {
       const message = probeError instanceof Error ? probeError.message : String(probeError);
       setAccountProbeResults((current) => ({
@@ -1075,7 +1048,7 @@ export function CredentialsPage(): JSX.Element {
           accountId,
           displayName: `${providerId}/${accountId}`,
           testedAt: new Date().toISOString(),
-          model: "gpt-5.2",
+          model: probeModelForProvider(providerId),
           expectedText: "hello",
           status: "error",
           ok: false,
@@ -1087,6 +1060,34 @@ export function CredentialsPage(): JSX.Element {
       setAccountProbeLoading((current) => ({ ...current, [stateKey]: false }));
     }
   }, [refreshPromptCacheAudit, refreshQuota]);
+
+  const handleDisableAccount = useCallback(async (providerId: string, accountId: string, displayName: string) => {
+    setError(null);
+
+    try {
+      await disableAccount(providerId, accountId);
+      setStatus(`Disabled account ${displayName}.`);
+      setDisabledAccounts((current) => new Set(current).add(`${providerId}:${accountId}`));
+    } catch (disableError) {
+      setError(disableError instanceof Error ? disableError.message : String(disableError));
+    }
+  }, []);
+
+  const handleEnableAccount = useCallback(async (providerId: string, accountId: string, displayName: string) => {
+    setError(null);
+
+    try {
+      await enableAccount(providerId, accountId);
+      setStatus(`Enabled account ${displayName}.`);
+      setDisabledAccounts((current) => {
+        const next = new Set(current);
+        next.delete(`${providerId}:${accountId}`);
+        return next;
+      });
+    } catch (enableError) {
+      setError(enableError instanceof Error ? enableError.message : String(enableError));
+    }
+  }, []);
 
   const renderQuotaRow = (label: string, window: CredentialQuotaWindow | null) => {
     const remainingPercent = window?.remainingPercent ?? null;
@@ -1128,9 +1129,9 @@ export function CredentialsPage(): JSX.Element {
       <section key={title} className="credentials-quota-group">
         <div className="credentials-quota-group-header">
           <strong>{title}</strong>
-          <span className={`credentials-badge ${quotaRateLimitBadgeClass(rateLimit)}`}>
+          <Badge variant={rateLimit?.allowed === true ? "success" : rateLimit?.allowed === false || rateLimit?.limitReached === true ? "error" : "default"}>
             {formatQuotaRateLimitStatus(rateLimit)}
-          </span>
+          </Badge>
         </div>
         <div className="credentials-quota-list">
           {primaryWindow && renderQuotaRow(formatQuotaWindowLabel(primaryWindow, "Primary window"), primaryWindow)}
@@ -1160,7 +1161,9 @@ export function CredentialsPage(): JSX.Element {
     const duplicateCount = diagnostics?.duplicateCount ?? 0;
     const needsReauth = diagnostics?.needsReauth ?? false;
     const canReauth = providerId === "openai" && account.authType === "oauth_bearer";
-    const canProbeAccount = providerId === "openai" && account.authType === "oauth_bearer";
+    const canProbeAccount = (providerId === "openai" && account.authType === "oauth_bearer")
+      || (providerId === "ollama-cloud" && account.authType === "api_key");
+    const isAccountDisabled = disabledAccounts.has(accountKey);
 
     return (
       <article key={`${providerId}:${account.id}`} className="credentials-account-tile">
@@ -1172,11 +1175,14 @@ export function CredentialsPage(): JSX.Element {
             )}
           </div>
           <div className="credentials-provider-badges">
-            {showProviderBadge && <span className="credentials-badge credentials-badge-muted">{providerId}</span>}
-            {needsReauth && <span className="credentials-badge credentials-badge-danger">Reauth required</span>}
-            {duplicateCount > 1 && <span className="credentials-badge credentials-badge-warning">Possible duplicate ×{duplicateCount}</span>}
-            {planLabel && <span className="credentials-badge credentials-badge-accent">{planLabel}</span>}
-            <span className="credentials-badge credentials-badge-muted">{formatAuthType(account.authType)}</span>
+            <StatusChipStack items={[
+              ...(showProviderBadge ? [{ label: providerId, variant: 'default' as const }] : []),
+              ...(isAccountDisabled ? [{ label: 'Disabled', variant: 'warning' as const }] : []),
+              ...(needsReauth ? [{ label: 'Reauth required', variant: 'error' as const }] : []),
+              ...(duplicateCount > 1 ? [{ label: `Possible duplicate ×${duplicateCount}`, variant: 'warning' as const }] : []),
+              ...(planLabel ? [{ label: planLabel, variant: 'info' as const }] : []),
+              { label: formatAuthType(account.authType), variant: 'default' as const },
+            ] as StatusChipItem[]} />
           </div>
         </header>
 
@@ -1206,13 +1212,13 @@ export function CredentialsPage(): JSX.Element {
                 onClick={() => void handleProbeAccount(providerId, account.id)}
                 disabled={probeLoading}
               >
-                {probeLoading ? "Testing…" : "Test live"}
+                {probeLoading ? <><Spinner size="sm" /> Testing…</> : "Test live"}
               </button>
             )}
             {probeResult && (
-              <span className={`credentials-badge ${probeBadgeClass(probeResult)}`}>
+              <Badge variant={probeResult.ok ? "success" : "error"}>
                 {probeResult.ok ? "Live" : "Not live"}
-              </span>
+              </Badge>
             )}
           </div>
         )}
@@ -1418,9 +1424,9 @@ export function CredentialsPage(): JSX.Element {
                 </p>
               </div>
               <div className="credentials-provider-badges">
-                <span className={`credentials-badge ${quotaBadgeClassFromPercent(openAiQuotaPool.generalCombinedRemainingPercent)}`}>
-                  {formatAggregatePercent(openAiQuotaPool.generalCombinedRemainingPercent)} combined left
-                </span>
+                <Badge variant={(openAiQuotaPool.generalCombinedRemainingPercent ?? 0) > 50 ? "success" : (openAiQuotaPool.generalCombinedRemainingPercent ?? 0) > 20 ? "warning" : "error"}>
+                  {formatAggregatePercent(openAiQuotaPool.generalCombinedRemainingPercent ?? 0)} combined left
+                </Badge>
               </div>
             </header>
 
@@ -1496,15 +1502,15 @@ export function CredentialsPage(): JSX.Element {
                         {row.latestModel && <small>{row.providerId} · {row.latestModel}</small>}
                       </div>
                       <div>
-                        <span className={`credentials-badge ${row.successfulAccountCount > 1 ? "credentials-badge-warning" : "credentials-badge-accent"}`}>
+                        <Badge variant={row.successfulAccountCount > 1 ? "warning" : "success"}>
                           {row.successfulAccountCount} successful account{row.successfulAccountCount === 1 ? "" : "s"}
-                        </span>
+                        </Badge>
                         <small>{row.successfulAccountIds.join(", ") || "None"}</small>
                       </div>
                       <div>
-                        <span className={`credentials-badge ${row.failedAccountCount > 0 ? "credentials-badge-danger" : "credentials-badge-muted"}`}>
+                        <Badge variant={row.failedAccountCount > 0 ? "error" : "default"}>
                           {row.failedAccountCount} failed account{row.failedAccountCount === 1 ? "" : "s"}
-                        </span>
+                        </Badge>
                         <small>{row.failedAccountIds.join(", ") || "None"}</small>
                       </div>
                       <div>
@@ -1549,12 +1555,12 @@ export function CredentialsPage(): JSX.Element {
                       <small>{row.providerId} · {row.latestModel ?? "unknown model"}</small>
                     </div>
                     <div className="credentials-provider-badges">
-                      <span className={`credentials-badge ${quotaBadgeClassFromPercent(row.cacheRate)}`}>
-                        {formatAggregatePercent(row.cacheRate)} cache
-                      </span>
-                      <span className="credentials-badge credentials-badge-muted">
+                      <Badge variant={(row.cacheRate ?? 0) > 50 ? "success" : (row.cacheRate ?? 0) > 20 ? "warning" : "default"}>
+                        {formatAggregatePercent(row.cacheRate ?? 0)} cache
+                      </Badge>
+                      <Badge variant="default">
                         {row.successfulRequestCount} success
-                      </span>
+                      </Badge>
                     </div>
                     <dl className="credentials-watch-metrics">
                       <div>

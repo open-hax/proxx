@@ -99,8 +99,14 @@ async function withBridgeApp(
     settingsFilePath: settingsPath,
     keyReloadMs: 50,
     keyCooldownMs: 10_000,
+    keyCooldownJitterFactor: 0.4,
+    enableKeyRandomWalk: true,
+    ollamaWeeklyCooldownMultiplier: 24,
     requestTimeoutMs: 2_000,
     streamBootstrapTimeoutMs: 2_000,
+    embedMaxContextTokens: 262144,
+    embedMaxBatchItems: 128,
+    embedMaxInputChars: 250000,
     upstreamTransientRetryCount: 1,
     upstreamTransientRetryBackoffMs: 1,
     proxyAuthToken: options.proxyAuthToken ?? "bridge-admin-token",
@@ -118,6 +124,8 @@ async function withBridgeApp(
     oauthRefreshMaxConcurrency: 32,
     oauthRefreshBackgroundIntervalMs: 15_000,
     oauthRefreshProactiveWindowMs: 30 * 60_000,
+    concurrencyThrottleMaxRetries: 3,
+    concurrencyThrottleThresholdMs: 30_000,
   };
 
   const app = await createApp(config);
@@ -214,13 +222,13 @@ test("bridge agent connects, publishes capabilities/health, and stops cleanly", 
     await waitFor(async () => {
       const response = await app.inject({
         method: "GET",
-        url: "/api/ui/federation/bridges",
+        url: "/api/v1/federation/bridges",
         headers: { authorization: "Bearer bridge-admin-token" },
       });
+      assert.equal(response.statusCode, 200);
       const payload = response.json() as { readonly sessions: ReadonlyArray<Record<string, unknown>> };
       const session = payload.sessions[0];
-      return response.statusCode === 200
-        && payload.sessions.length === 1
+      return payload.sessions.length === 1
         && session?.state === "connected"
         && Array.isArray(session?.capabilities)
         && (session.capabilities as ReadonlyArray<Record<string, unknown>>).length === 1
@@ -238,9 +246,10 @@ test("bridge agent connects, publishes capabilities/health, and stops cleanly", 
     await waitFor(async () => {
       const response = await app.inject({
         method: "GET",
-        url: "/api/ui/federation/bridges",
+        url: "/api/v1/federation/bridges",
         headers: { authorization: "Bearer bridge-admin-token" },
       });
+      assert.equal(response.statusCode, 200);
       const payload = response.json() as { readonly sessions: ReadonlyArray<Record<string, unknown>> };
       return payload.sessions[0]?.state === "disconnected";
     });

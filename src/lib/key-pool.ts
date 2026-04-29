@@ -418,6 +418,14 @@ function readProvidersFromEnv(): Map<string, ProviderState> {
     );
   }
 
+  const rotussyKey = (process.env.ROTUSSY_API_KEY ?? "").trim();
+  if (rotussyKey) {
+    providers.set(
+      normalizeProviderId(process.env.ROTUSSY_PROVIDER_ID ?? "rotussy"),
+      createEnvProviderState(process.env.ROTUSSY_PROVIDER_ID ?? "rotussy", rotussyKey),
+    );
+  }
+
   return providers;
 }
 
@@ -585,6 +593,18 @@ function accountStateKey(credential: ProviderCredential): string {
   return accountStateKeyFromIds(credential.providerId, credential.accountId);
 }
 
+function normalizeModelId(modelId: string): string {
+  return modelId.trim().toLowerCase();
+}
+
+function accountModelStateKey(credential: ProviderCredential, modelId: string): string {
+  return `${accountStateKey(credential)}\0${normalizeModelId(modelId)}`;
+}
+
+function accountModelStateKeyFromIds(providerId: string, accountId: string, modelId: string): string {
+  return `${accountStateKeyFromIds(providerId, accountId)}\0${normalizeModelId(modelId)}`;
+}
+
 function resolveExpiryBufferMs(expiryBufferMs: unknown): number {
   return Number.isFinite(expiryBufferMs)
     ? Math.max(expiryBufferMs as number, 0)
@@ -593,6 +613,7 @@ function resolveExpiryBufferMs(expiryBufferMs: unknown): number {
 
 export class KeyPool {
   private readonly cooldownByAccountKey = new Map<string, number>();
+  private readonly unsupportedModelByAccountModelKey = new Map<string, number>();
   private readonly inFlightByAccountKey = new Map<string, number>();
   private readonly failureStreakByAccountKey = new Map<string, number>();
   private readonly disabledAccountKeys = new Set<string>();
@@ -953,6 +974,25 @@ export class KeyPool {
     this.persistCooldownAsync(credential.providerId, credential.accountId, cooldownUntil);
   }
 
+  public markModelUnsupported(credential: ProviderCredential, modelId: string, retryAfterMs?: number): void {
+    const normalizedModelId = normalizeModelId(modelId);
+    if (normalizedModelId.length === 0) {
+      return;
+    }
+
+    const baseCooldown = Math.max(retryAfterMs ?? this.config.defaultCooldownMs, 1000);
+    const jitterFactor = this.config.cooldownJitterFactor ?? 0.4;
+    const jitteredCooldown = this.applyJitterToCooldown(baseCooldown, jitterFactor);
+    const cooldownUntil = normalizeEpochMilliseconds(Date.now() + jitteredCooldown) ?? 0;
+    this.unsupportedModelByAccountModelKey.set(accountModelStateKey(credential, normalizedModelId), cooldownUntil);
+
+    getTelemetry().recordMetric("proxy.key_pool.model_unsupported", 1, {
+      "proxy.provider_id": credential.providerId ?? this.config.defaultProviderId,
+      "proxy.account_id": credential.accountId,
+      "proxy.model_id": normalizedModelId,
+    });
+  }
+
   private applyJitterToCooldown(baseCooldownMs: number, jitterFactor: number): number {
     const jitterRange = baseCooldownMs * jitterFactor;
     const jitter = (this.rng() - 0.5) * 2 * jitterRange;
@@ -977,6 +1017,32 @@ export class KeyPool {
     this.cooldownByAccountKey.delete(key);
     this.failureStreakByAccountKey.delete(key);
     this.clearCooldownAsync(providerId, accountId);
+  }
+
+  public isModelUnsupported(providerId: string, accountId: string, modelId: string): boolean {
+    const normalizedModelId = normalizeModelId(modelId);
+    if (normalizedModelId.length === 0) {
+      return false;
+    }
+
+    const key = accountModelStateKeyFromIds(normalizeProviderId(providerId), accountId, normalizedModelId);
+    const cooldownUntil = this.unsupportedModelByAccountModelKey.get(key) ?? 0;
+    if (cooldownUntil <= Date.now()) {
+      this.unsupportedModelByAccountModelKey.delete(key);
+      return false;
+    }
+
+    return true;
+  }
+
+  public clearModelUnsupported(providerId: string, accountId: string, modelId: string): void {
+    const normalizedModelId = normalizeModelId(modelId);
+    if (normalizedModelId.length === 0) {
+      return;
+    }
+
+    const key = accountModelStateKeyFromIds(normalizeProviderId(providerId), accountId, normalizedModelId);
+    this.unsupportedModelByAccountModelKey.delete(key);
   }
 
   public clearProviderCooldowns(providerId: string): void {
@@ -1018,21 +1084,19 @@ export class KeyPool {
 
     const now = Date.now();
     let availableAccounts = 0;
+    let cooldownAccounts = 0;
     let disabledAccounts = 0;
     let inFlightAccounts = 0;
     let minDelay = Number.POSITIVE_INFINITY;
 
     for (const credential of providerState.accounts) {
-      const key = accountStateKey(credential);
-
-      // Count disabled accounts separately
-      if (this.disabledAccountKeys.has(key)) {
+      if (this.disabledAccountKeys.has(accountStateKey(credential))) {
         disabledAccounts += 1;
         continue;
       }
 
-      const cooldownUntil = this.cooldownByAccountKey.get(key) ?? 0;
-      if ((this.inFlightByAccountKey.get(key) ?? 0) > 0) {
+      const cooldownUntil = this.cooldownByAccountKey.get(accountStateKey(credential)) ?? 0;
+      if ((this.inFlightByAccountKey.get(accountStateKey(credential)) ?? 0) > 0) {
         inFlightAccounts += 1;
       }
       if (cooldownUntil <= now) {
@@ -1053,13 +1117,14 @@ export class KeyPool {
 
     return {
       providerId: normalizedProviderId,
-        authType: providerState.authType,
-        totalAccounts,
-        availableAccounts,
-        cooldownAccounts: Math.max(totalAccounts - availableAccounts - disabledAccounts, 0),
-        inFlightAccounts,
-        nextReadyInMs
-      };
+      authType: providerState.authType,
+      totalAccounts,
+      availableAccounts,
+      cooldownAccounts,
+      disabledAccounts,
+      inFlightAccounts,
+      nextReadyInMs,
+    };
   }
 
   public async getAllStatuses(): Promise<Record<string, KeyPoolStatus>> {
@@ -1176,6 +1241,14 @@ export class KeyPool {
     for (const key of this.failureStreakByAccountKey.keys()) {
       if (!activeKeys.has(key)) {
         this.failureStreakByAccountKey.delete(key);
+      }
+    }
+
+    for (const [key, cooldownUntil] of this.unsupportedModelByAccountModelKey.entries()) {
+      const [providerId, accountId] = key.split("\0", 3);
+      const accountKey = accountStateKeyFromIds(providerId ?? "", accountId ?? "");
+      if (!activeKeys.has(accountKey) || cooldownUntil <= Date.now()) {
+        this.unsupportedModelByAccountModelKey.delete(key);
       }
     }
   }

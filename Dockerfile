@@ -20,6 +20,12 @@ COPY models.example.json ./models.example.json
 
 RUN pnpm build && pnpm web:build
 
+# Never run containers as root.
+# Use the pre-created `node` user in the base image.
+RUN chown -R node:node /app
+
+USER node
+
 ENV NODE_ENV=production
 ENV PROXY_HOST=0.0.0.0
 ENV PROXY_PORT=8789

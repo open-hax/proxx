@@ -22,11 +22,11 @@ x-proxx-node: &proxx-node
     UPSTREAM_FALLBACK_PROVIDER_IDS: ""
     DISABLED_PROVIDER_IDS: ""
     OPENAI_PROVIDER_ID: "openai"
-    OPENAI_BASE_URL: "https://chatgpt.com/backend-api"
-    OPENAI_API_BASE_URL: "https://api.openai.com"
+    OPENAI_BASE_URL: "http://federation-mock-openai:8080"
+    OPENAI_API_BASE_URL: "http://federation-mock-openai:8080"
     OPENAI_IMAGES_UPSTREAM_MODE: "auto"
     OPENAI_OAUTH_CLIENT_ID: "app_EMoamEEZ73f0CkXaXp7hrann"
-    OPENAI_OAUTH_ISSUER: "https://auth.openai.com"
+    OPENAI_OAUTH_ISSUER: "http://federation-mock-openai:8080"
     OPENAI_OAUTH_SCOPES: "openid profile email offline_access"
     OLLAMA_BASE_URL: "http://127.0.0.1:11434"
     UPSTREAM_CHAT_COMPLETIONS_PATH: "/v1/chat/completions"
@@ -48,6 +48,7 @@ x-proxx-node: &proxx-node
     VITE_ALLOWED_HOSTS: "cluster.federation.test,group-a.federation.test,group-b.federation.test,a1.federation.test,a2.federation.test,b1.federation.test,b2.federation.test,localhost,127.0.0.1"
     FEDERATION_REQUEST_TIMEOUT_MS: "5000"
     FEDERATION_SELF_CLUSTER_ID: "federation-e2e"
+    FEDERATION_DEFAULT_OWNER_SUBJECT: "did:web:cluster.federation.test"
   restart: unless-stopped
   healthcheck:
     test:
@@ -65,6 +66,19 @@ x-proxx-node: &proxx-node
     - federation-e2e
 
 services:
+  federation-mock-openai:
+    image: node:22-bookworm-slim
+    working_dir: /workspace
+    command: ["node", "./scripts/mock-openai-federation-server.mjs"]
+    environment:
+      MOCK_OPENAI_PORT: "8080"
+    ports:
+      - "127.0.0.1:19090:8080"
+    volumes:
+      - ./:/workspace:ro
+    networks:
+      - federation-e2e
+
   federation-a-db:
     image: postgres:16-bookworm
     environment:
@@ -114,7 +128,7 @@ services:
       FEDERATION_SELF_PEER_DID: did:web:a1.federation.test
       FEDERATION_SELF_PUBLIC_BASE_URL: http://a1.federation.test
     ports:
-      - "18891:8789"
+      - "127.0.0.1:18891:8789"
     volumes:
       - ${FEDERATION_E2E_RUNTIME_DIR:?set-runtime-dir}/a1/keys.json:/workspace/service-config/keys.json:ro
       - ${FEDERATION_E2E_RUNTIME_DIR:?set-runtime-dir}/a1/models.json:/workspace/service-config/models.json:ro
@@ -133,7 +147,7 @@ services:
       FEDERATION_SELF_PEER_DID: did:web:a2.federation.test
       FEDERATION_SELF_PUBLIC_BASE_URL: http://a2.federation.test
     ports:
-      - "18892:8789"
+      - "127.0.0.1:18892:8789"
     volumes:
       - ${FEDERATION_E2E_RUNTIME_DIR:?set-runtime-dir}/a2/keys.json:/workspace/service-config/keys.json:ro
       - ${FEDERATION_E2E_RUNTIME_DIR:?set-runtime-dir}/a2/models.json:/workspace/service-config/models.json:ro
@@ -152,7 +166,7 @@ services:
       FEDERATION_SELF_PEER_DID: did:web:b1.federation.test
       FEDERATION_SELF_PUBLIC_BASE_URL: http://b1.federation.test
     ports:
-      - "18893:8789"
+      - "127.0.0.1:18893:8789"
     volumes:
       - ${FEDERATION_E2E_RUNTIME_DIR:?set-runtime-dir}/b1/keys.json:/workspace/service-config/keys.json:ro
       - ${FEDERATION_E2E_RUNTIME_DIR:?set-runtime-dir}/b1/models.json:/workspace/service-config/models.json:ro
@@ -171,7 +185,7 @@ services:
       FEDERATION_SELF_PEER_DID: did:web:b2.federation.test
       FEDERATION_SELF_PUBLIC_BASE_URL: http://b2.federation.test
     ports:
-      - "18894:8789"
+      - "127.0.0.1:18894:8789"
     volumes:
       - ${FEDERATION_E2E_RUNTIME_DIR:?set-runtime-dir}/b2/keys.json:/workspace/service-config/keys.json:ro
       - ${FEDERATION_E2E_RUNTIME_DIR:?set-runtime-dir}/b2/models.json:/workspace/service-config/models.json:ro
@@ -189,7 +203,7 @@ services:
       federation-proxx-b2:
         condition: service_healthy
     ports:
-      - "18080:80"
+      - "127.0.0.1:18080:80"
     volumes:
       - ./deploy/nginx.federation-e2e.conf:/etc/nginx/nginx.conf:ro
     networks:

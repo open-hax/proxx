@@ -320,7 +320,7 @@ function requiredStringRecord(record: Record<string, unknown>, fieldName: string
   return normalized;
 }
 
-function optionalStringRecord(record: Record<string, unknown>, fieldName: string): Readonly<Record<string, string>> | undefined {
+function _optionalStringRecord(record: Record<string, unknown>, fieldName: string): Readonly<Record<string, string>> | undefined {
   if (record[fieldName] === undefined) {
     return undefined;
   }

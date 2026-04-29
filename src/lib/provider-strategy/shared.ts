@@ -20,6 +20,7 @@ import {
   messagesToChatCompletion,
 } from "../messages-compat.js";
 import {
+  normalizeReasoningEffort,
   ollamaToChatCompletion,
 } from "../ollama-compat.js";
 import {
@@ -157,9 +158,12 @@ type UpstreamMode =
   | "openai_chat_completions"
   | "openai_responses"
   | "ollama_chat"
-  | "local_ollama_chat";
+  | "local_ollama_chat"
+  | "embeddings";
 
 interface StrategyRequestContext {
+  /** Provider id for which we're selecting an upstream strategy. */
+  readonly routeProviderId?: string;
   readonly config: ProxyConfig;
   readonly clientHeaders: IncomingHttpHeaders;
   readonly requestBody: Record<string, unknown>;
@@ -176,6 +180,7 @@ interface StrategyRequestContext {
   readonly upstreamAttemptTimeoutMs: number;
   readonly responsesPassthrough?: boolean;
   readonly imagesPassthrough?: boolean;
+  readonly embeddingsPassthrough?: boolean;
 }
 
 interface ProviderAttemptContext extends StrategyRequestContext {
@@ -200,6 +205,7 @@ interface ProviderAttemptOutcomeContinue {
   readonly requestError?: boolean;
   readonly upstreamServerError?: boolean;
   readonly upstreamInvalidRequest?: boolean;
+  readonly upstreamErrorBody?: string;
   readonly modelNotFound?: boolean;
   readonly modelNotSupportedForAccount?: boolean;
   readonly upstreamAuthError?: {
@@ -215,6 +221,7 @@ interface FallbackAccumulator {
   sawRequestError: boolean;
   sawUpstreamServerError: boolean;
   sawUpstreamInvalidRequest: boolean;
+  lastUpstreamError?: { status: number; body: string; providerId?: string };
   sawModelNotFound: boolean;
   sawModelNotSupportedForAccount: boolean;
   attempts: number;
@@ -879,6 +886,19 @@ function buildRequestBodyForUpstream(context: StrategyRequestContext): Record<st
 
   delete upstreamBody["open_hax"];
 
+  const reasoningEffort = asString(upstreamBody["reasoning_effort"]) ?? asString(upstreamBody["reasoningEffort"]);
+  if (reasoningEffort) {
+    upstreamBody["reasoning_effort"] = normalizeReasoningEffort(reasoningEffort);
+  }
+
+  const reasoning = isRecord(upstreamBody["reasoning"]) ? upstreamBody["reasoning"] : null;
+  if (reasoning) {
+    const effort = asString(reasoning["effort"]);
+    if (effort) {
+      upstreamBody["reasoning"] = { ...reasoning, effort: normalizeReasoningEffort(effort) };
+    }
+  }
+
   if (isGlmModel(context.routedModel)) {
     return applyGlmThinking(upstreamBody, context.routedModel);
   }
@@ -1349,8 +1369,18 @@ function extractUsageFromOpenAiChatSse(streamText: string): UsageCounts {
       const completionTokens = asNumber(usage["completion_tokens"]);
       const totalTokens = asNumber(usage["total_tokens"])
         ?? (promptTokens !== undefined && completionTokens !== undefined ? promptTokens + completionTokens : undefined);
+      const cachedPromptTokens = cachedPromptTokensFromUsage(usage);
 
       if (promptTokens !== undefined || completionTokens !== undefined) {
+        if (cachedPromptTokens !== undefined) {
+          return { promptTokens, completionTokens, totalTokens, cachedPromptTokens };
+        }
+
+        if (promptTokens !== undefined) {
+          // Normalize to 0 so dashboards can distinguish "no cache hit" from "no usage provided".
+          return { promptTokens, completionTokens, totalTokens, cachedPromptTokens: 0 };
+        }
+
         return { promptTokens, completionTokens, totalTokens };
       }
     } catch {

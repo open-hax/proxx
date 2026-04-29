@@ -19,7 +19,7 @@ CREATE INDEX IF NOT EXISTS idx_account_health_score ON account_health(
 );
 `;
 
-export const SCHEMA_VERSION = 6;
+export const SCHEMA_VERSION = 8;
 
 export const CREATE_TENANTS_TABLE = `
 CREATE TABLE IF NOT EXISTS tenants (
@@ -267,6 +267,8 @@ export const ALL_MIGRATIONS = [
   { version: 5, sql: CREATE_TENANT_PROVIDER_POLICIES_TABLE },
   { version: 5, sql: CREATE_TENANT_PROVIDER_POLICIES_OWNER_INDEX },
   { version: 6, sql: "ALTER TABLE providers ADD COLUMN IF NOT EXISTS base_url TEXT;" },
+  { version: 7, sql: "ALTER TABLE accounts ADD COLUMN IF NOT EXISTS disabled BOOLEAN NOT NULL DEFAULT FALSE;" },
+  { version: 8, sql: CREATE_PROMPT_AFFINITY_TABLE },
 ];
 
 export const UPSERT_TENANT = `

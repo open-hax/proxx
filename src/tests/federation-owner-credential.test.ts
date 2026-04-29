@@ -22,8 +22,10 @@ test("isAtDid rejects non-atproto subjects", () => {
   assert.equal(isAtDid("did:key:z6Mkabc"), false);
 });
 
-test("normalizeAtDid lowercases and validates", () => {
+test("normalizeAtDid lowercases did:web hosts while preserving path case", () => {
   assert.equal(normalizeAtDid("DID:WEB:PROXX.PROMETHEAN.REST"), "did:web:proxx.promethean.rest");
+  assert.equal(normalizeAtDid("did:web:Proxx.Promethean.Rest:Peer:Local"), "did:web:proxx.promethean.rest:Peer:Local");
+  assert.equal(normalizeAtDid("did:web:Proxx.Promethean.Rest/Peer/Local"), "did:web:proxx.promethean.rest/Peer/Local");
   assert.throws(() => normalizeAtDid("did:key:z6Mkabc"));
 });
 

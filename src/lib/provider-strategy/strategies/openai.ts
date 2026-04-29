@@ -9,7 +9,6 @@ import {
   responsesEventStreamToChatCompletion,
   responsesEventStreamToErrorPayload,
   responsesToChatCompletion,
-  shouldUseResponsesUpstream,
   streamResponsesSseToChatCompletionChunks,
 } from "../../responses-compat.js";
 import { BaseProviderStrategy, TransformedJsonProviderStrategy } from "../base.js";
@@ -52,8 +51,8 @@ export class OpenAiResponsesProviderStrategy extends TransformedJsonProviderStra
 
   public matches(context: StrategyRequestContext): boolean {
     return context.openAiPrefixed
-      && (context.routedModel === "gpt-5.4"
-        || shouldUseResponsesUpstream(context.routedModel, context.config.responsesModelPrefixes));
+      && context.responsesPassthrough !== true
+      && context.imagesPassthrough !== true;
   }
 
   public getUpstreamPath(context: StrategyRequestContext): string {
@@ -160,7 +159,9 @@ export class OpenAiChatCompletionsProviderStrategy extends TransformedJsonProvid
   public readonly isLocal = false;
 
   public matches(context: StrategyRequestContext): boolean {
-    return context.openAiPrefixed;
+    return context.openAiPrefixed
+      && context.responsesPassthrough !== true
+      && context.imagesPassthrough !== true;
   }
 
   public getUpstreamPath(context: StrategyRequestContext): string {
