@@ -8818,6 +8818,49 @@ test("returns true streaming chat-completion SSE for ollama stream requests", as
   );
 });
 
+test("collapses duplicated first thinking token in ollama stream reasoning", async () => {
+  await withProxyApp(
+    {
+      keys: [],
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: {
+          "content-type": "application/x-ndjson"
+        },
+        body:
+          '{"model":"gemma3:latest","created_at":"2026-03-03T00:00:00.000Z","message":{"role":"assistant","thinking":"The"},"done":false}\n' +
+          '{"model":"gemma3:latest","created_at":"2026-03-03T00:00:00.000Z","message":{"role":"assistant","thinking":"TheThe model should reason once.","content":"answer"},"done":false}\n' +
+          '{"model":"gemma3:latest","created_at":"2026-03-03T00:00:00.000Z","message":{"role":"assistant","thinking":"TheThe model should reason once.","content":"answer"},"done":true,"done_reason":"stop"}\n'
+      })
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json"
+        },
+        payload: {
+          model: "ollama:gemma3:latest",
+          messages: [{ role: "user", content: "hello" }],
+          reasoning_effort: "high",
+          stream: true
+        }
+      });
+
+      assert.equal(response.statusCode, 200);
+      const chunks = parseSseDataPayloads(response.body)
+        .filter((payload) => payload !== "[DONE]")
+        .map((payload) => JSON.parse(payload));
+      const reasoning = chunks
+        .map((chunk) => chunk.choices?.[0]?.delta?.reasoning_content ?? "")
+        .join("");
+
+      assert.equal(reasoning, "The model should reason once.");
+    }
+  );
+});
+
 test("preserves ollama stream content when tool calls are present", async () => {
   await withProxyApp(
     {
