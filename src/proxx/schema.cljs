@@ -113,6 +113,34 @@
    [:enabled                         :boolean]
    [:provenance                      {:optional true} Provenance]])
 
+(def EvalOp [:enum :all :some :none :not :assert])
+
+(def EvalNode
+  [:map
+   [:eval/op EvalOp]
+   [:eval/target {:optional true} :keyword]
+   [:eval/forms [:vector :any]]])
+
+(def PolicyOutcome [:enum :apply :try :next :reduce])
+
+(def TraceEntry
+  [:map
+   [:trace/node-id :keyword]
+   [:trace/op EvalOp]
+   [:trace/outcome [:enum :pass :fail :skip]]
+   [:trace/elapsed-ms :int]
+   [:trace/reason {:optional true} :string]])
+
+(def Policy
+  [:map
+   [:contract/id :keyword]
+   [:contract/kind [:enum :policy :strategy :model-family :model]]
+   [:policy/condition {:optional true} [:ref :proxx/eval-node]]
+   [:policy/filters {:optional true} [:vector [:ref :proxx/eval-node]]]
+   [:policy/outcome PolicyOutcome]
+   [:policy/strategy {:optional true} :symbol]
+   [:policy/children {:optional true} [:vector [:ref :proxx/policy]]]])
+
 ;; ══════════════════════════════════════════════════════════════
 ;; Registry — single source of truth
 ;; ══════════════════════════════════════════════════════════════
@@ -127,7 +155,12 @@
    :pheromone-state   PheromoneState
    :scoring-weight    ScoringWeight
    :routing-policy    RoutingPolicy
-   :affinity-policy   AffinityPolicy})
+   :affinity-policy   AffinityPolicy
+   :proxx/eval-op     EvalOp
+   :proxx/eval-node   EvalNode
+   :proxx/outcome     PolicyOutcome
+   :proxx/trace-entry TraceEntry
+   :proxx/policy      Policy})
 
 (mr/set-default-registry!
   (mr/composite-registry
