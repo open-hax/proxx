@@ -141,7 +141,8 @@
                                                         (or query-registry {})))
           stores      (filterv some? [hot-store redis-store lmdb-store pg-store])]
       (try
-        (let [policies    (if policy-path
+        (let [prev-state  @state
+              policies    (if policy-path
                             (policy-loader/load-policies! policy-path)
                             [])
               pipeline    (pl/make-pipeline
@@ -163,6 +164,8 @@
             (seed-from-models! pipeline models-value))
           pipeline)
         (catch :default e
+          ;; Restore previous state before cleaning up stores on failure
+          (reset! state prev-state)
           ;; Clean up stores on failure
           (doseq [s (reverse stores)]
             (try
@@ -174,7 +177,10 @@
   "Close all open stores in reverse order and reset state. Returns :halted."
   []
   (doseq [s (reverse (:stores @state))]
-    (store-close s))
+    (try
+      (store-close s)
+      (catch :default e
+        (js/console.error "Failed to close store" s ":" e))))
   (reset! state {:pipeline nil :policies [] :stores []})
   :halted)
 
