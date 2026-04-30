@@ -470,14 +470,22 @@ function ollamaStreamDeltaPayload(
   const reasoning = asString(message?.["thinking"]) ?? asString(responseBody["thinking"]) ?? "";
 
   // Some Ollama /api/chat streams emit cumulative message-so-far fields.
-  // Convert to incremental deltas to avoid duplicated prefixes like "TheThe".
+  // Convert to incremental deltas and defensively collapse the occasional
+  // duplicated first-token prefix seen in hosted Gemma thinking streams, e.g.
+  // previous "The" followed by cumulative "TheThe answer".
   const diffAppendedText = (prev: string, next: string): string => {
     const previousText = prev ?? "";
     const currentText = next ?? "";
     if (currentText.length === 0) return "";
     if (previousText.length === 0) return currentText;
     if (currentText === previousText) return "";
-    if (currentText.startsWith(previousText)) return currentText.slice(previousText.length);
+    if (currentText.startsWith(previousText)) {
+      const appended = currentText.slice(previousText.length);
+      const duplicatedFirstToken = /^[^\s]+$/.test(previousText)
+        && appended.startsWith(previousText)
+        && /^[\s\p{P}\p{S}]/u.test(appended.slice(previousText.length));
+      return duplicatedFirstToken ? appended.slice(previousText.length) : appended;
+    }
 
     const maxOverlap = (left: string, right: string): number => {
       for (let n = Math.min(left.length, right.length); n > 0; n -= 1) {

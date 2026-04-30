@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
+import { setActiveCljsRuntime, type ProxxCljsRuntime } from "../lib/cljs-runtime.js";
 import type { Sql } from "../lib/db/index.js";
 import { ProxySettingsStore } from "../lib/proxy-settings-store.js";
 
@@ -96,6 +97,38 @@ test("proxy settings store scopes SQL-backed settings by tenant", async () => {
     assert.deepEqual(mock.values.get("proxy_settings"), { fastMode: false, requestsPerMinute: null, allowedModels: null, allowedProviderIds: null, disabledProviderIds: null });
     assert.deepEqual(mock.values.get("proxy_settings:acme"), { fastMode: true, requestsPerMinute: 3, allowedModels: ["ollama/gpt-oss:20b"], allowedProviderIds: ["factory"], disabledProviderIds: ["openai"] });
   } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("proxy settings store normalizes file-backed keys through active CLJS runtime", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "proxx-settings-store-"));
+  const settingsPath = path.join(tempDir, "proxy-settings.json");
+  const cljsRuntime: ProxxCljsRuntime = {
+    normalizeKeys: () => ({
+      "fast-mode": true,
+      "requests-per-minute": 12,
+      "allowed-provider-ids": [" OPENAI ", "openai", "ollama"],
+    }),
+    validateEntity: () => ({ status: "ok" }),
+    projectPheromone: () => 0,
+    routePolicy: () => ({ status: "error", trace: [] }),
+  };
+  setActiveCljsRuntime(cljsRuntime);
+  await writeFile(settingsPath, JSON.stringify({ fastMode: false }), "utf8");
+
+  const store = new ProxySettingsStore(settingsPath);
+  try {
+    await store.warmup();
+    assert.deepEqual(store.get(), {
+      fastMode: true,
+      requestsPerMinute: 12,
+      allowedModels: null,
+      allowedProviderIds: ["openai", "ollama"],
+      disabledProviderIds: null,
+    });
+  } finally {
+    setActiveCljsRuntime(undefined);
     await rm(tempDir, { recursive: true, force: true });
   }
 });

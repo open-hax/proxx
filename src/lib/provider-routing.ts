@@ -456,6 +456,21 @@ export function providerIdLooksLikeOllama(providerId: string): boolean {
   return providerId.toLowerCase().includes("ollama");
 }
 
+/**
+ * Selects and orders provider routes for a given model based on the resolved model catalog and Ollama availability.
+ *
+ * Uses the catalog to decide whether to keep routes unchanged, prefer Ollama providers, or restrict to non-Ollama providers:
+ * - If there is at most one candidate route, returns a shallow copy of `routes`.
+ * - If the model is a statically configured model (and not listed as a dynamic Ollama model), returns the routes unchanged.
+ * - If no dynamic Ollama models are defined, returns the routes unchanged.
+ * - If the model is not known on Ollama and is not a GLM model, returns only non-Ollama routes when any exist; otherwise returns all routes.
+ * - Otherwise, returns Ollama routes first followed by non-Ollama routes, preserving relative order within each group.
+ *
+ * @param routes - Candidate provider routes to filter and order.
+ * @param routedModel - The model identifier being routed (compared case-insensitively).
+ * @param catalog - Resolved model catalog including `modelIds` and `dynamicOllamaModelIds`.
+ * @returns The filtered and/or reordered list of provider routes appropriate for `routedModel`.
+ */
 export function resolveProviderRoutesForModel(
   routes: readonly ProviderRoute[],
   routedModel: string,
@@ -491,9 +506,16 @@ export function resolveProviderRoutesForModel(
   return [...ollamaRoutes, ...nonOllamaRoutes];
 }
 
-const OPENAI_COMPATIBLE_API_PROVIDERS = new Set(["vivgrid", "openai", "factory", "requesty", "zen"]);
+const OPENAI_COMPATIBLE_API_PROVIDERS = new Set(["vivgrid", "openai", "factory", "requesty", "zen", "xiaomi"]);
 const RESPONSES_COMPATIBLE_API_PROVIDERS = new Set(["vivgrid", "openai", "factory", "requesty", "zen", "rotussy"]);
 
+/**
+ * Determine whether a provider ID is treated as supporting the OpenAI-compatible API.
+ *
+ * @param providerId - The provider identifier to check.
+ * @param openAiProviderId - Optional configured OpenAI provider identifier that should be treated as OpenAI-compatible when it matches `providerId`.
+ * @returns `true` if the provider ID is in the built-in OpenAI-compatible list or equals `openAiProviderId` (case-insensitive), `false` otherwise.
+ */
 function providerSupportsOpenAiCompatibleApi(providerId: string, openAiProviderId?: string): boolean {
   const normalized = providerId.trim().toLowerCase();
   if (OPENAI_COMPATIBLE_API_PROVIDERS.has(normalized)) {
