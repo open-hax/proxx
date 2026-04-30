@@ -132,14 +132,26 @@
    [:trace/reason {:optional true} :string]])
 
 (def Policy
-  [:map
-   [:contract/id :keyword]
-   [:contract/kind [:enum :policy :strategy :model-family :model]]
-   [:policy/condition {:optional true} [:ref :proxx/eval-node]]
-   [:policy/filters {:optional true} [:vector [:ref :proxx/eval-node]]]
-   [:policy/outcome PolicyOutcome]
-   [:policy/strategy {:optional true} :symbol]
-   [:policy/children {:optional true} [:vector [:ref :proxx/policy]]]])
+  [:and
+   [:map
+    [:contract/id :keyword]
+    [:contract/kind [:enum :policy :strategy :model-family :model]]
+    [:policy/condition {:optional true} [:ref :proxx/eval-node]]
+    [:policy/filters {:optional true} [:vector [:ref :proxx/eval-node]]]
+    [:policy/outcome PolicyOutcome]
+    [:policy/strategy {:optional true} :symbol]
+    [:policy/children {:optional true} [:vector [:ref :proxx/policy]]]]
+   [:fn {:error/message ":reduce outcome requires :policy/children"}
+    (fn [m]
+      (if (= :reduce (:policy/outcome m))
+        (and (contains? m :policy/children)
+             (seq (:policy/children m)))
+        true))]
+   [:fn {:error/message ":apply or :try outcome requires :policy/strategy"}
+    (fn [m]
+      (if (#{:apply :try} (:policy/outcome m))
+        (some? (:policy/strategy m))
+        true))]])
 
 ;; ══════════════════════════════════════════════════════════════
 ;; Registry — single source of truth
