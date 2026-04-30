@@ -148,6 +148,7 @@ async function withProxyApp(
       zai: `http://127.0.0.1:${address.port}/api/paas/v4`,
       mistral: `http://127.0.0.1:${address.port}/v1`,
       rotussy: `http://127.0.0.1:${address.port}/v1`,
+      "llamacpp-embed": `http://127.0.0.1:${address.port}`,
     },
     upstreamBaseUrl: `http://127.0.0.1:${address.port}`,
     openaiProviderId: "openai",
@@ -174,6 +175,7 @@ async function withProxyApp(
     factoryModelPrefixes: ["factory/", "factory:"],
     openaiModelPrefixes: ["openai/", "openai:"],
     ollamaModelPrefixes: ["ollama/", "ollama:"],
+    llamacppModelPrefixes: ["llamacpp/", "llamacpp:", "llamacpp-embed/", "llamacpp-embed:"],
     keysFilePath: keysPath,
     modelsFilePath: modelsPath,
     requestLogsFilePath: requestLogsPath,
@@ -9309,6 +9311,98 @@ test("serves /v1/embeddings from local ollama-compatible upstream and expands em
       assert.ok(Array.isArray(payload.data));
       assert.deepEqual(payload.data[0]?.embedding, [0.1, 0.2, 0.3]);
     }
+  );
+});
+
+test("routes bare qwen3 embedding aliases to configured llama.cpp embed provider", async () => {
+  await withEnv({ EMBED_MODEL_PROVIDER_ALIASES: "qwen3-embedding:0.6b=llamacpp-embed" }, async () => {
+    let observedPath = "";
+    let observedBody: unknown;
+
+    await withProxyApp(
+      {
+        keys: [],
+        upstreamHandler: async (request, body) => {
+          observedPath = request.url ?? "";
+          observedBody = body.length > 0 ? JSON.parse(body) : undefined;
+          return {
+            status: 200,
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              object: "list",
+              model: "qwen3-embedding-0.6b",
+              data: [{ object: "embedding", index: 0, embedding: [0.1, 0.2, 0.3] }],
+            }),
+          };
+        },
+      },
+      async ({ app }) => {
+        const response = await app.inject({
+          method: "POST",
+          url: "/v1/embeddings",
+          payload: {
+            model: "qwen3-embedding:0.6b",
+            input: "hello world",
+          },
+        });
+
+        assert.equal(response.statusCode, 200);
+        assert.equal(observedPath, "/v1/embeddings");
+        assert.ok(isRecord(observedBody));
+        assert.equal(observedBody.model, "qwen3-embedding-0.6b");
+        const payload: unknown = response.json();
+        assert.ok(isRecord(payload));
+        assert.equal(payload.model, "qwen3-embedding-0.6b");
+        assert.ok(Array.isArray(payload.data));
+        assert.deepEqual(payload.data[0]?.embedding, [0.1, 0.2, 0.3]);
+      },
+    );
+  });
+});
+
+test("strips explicit llama.cpp embed prefixes before forwarding embeddings", async () => {
+  let observedPath = "";
+  let observedBody: unknown;
+
+  await withProxyApp(
+    {
+      keys: [],
+      configOverrides: {
+        llamacppModelPrefixes: ["llamacpp-embed:", "llamacpp-embed/"],
+      },
+      upstreamHandler: async (request, body) => {
+        observedPath = request.url ?? "";
+        observedBody = body.length > 0 ? JSON.parse(body) : undefined;
+        return {
+          status: 200,
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            object: "list",
+            model: "qwen3-embedding-0.6b",
+            data: [{ object: "embedding", index: 0, embedding: [0.4, 0.5, 0.6] }],
+          }),
+        };
+      },
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/embeddings",
+        payload: {
+          model: "llamacpp-embed:qwen3-embedding:0.6b",
+          input: "hello world",
+        },
+      });
+
+      assert.equal(response.statusCode, 200);
+      assert.equal(observedPath, "/v1/embeddings");
+      assert.ok(isRecord(observedBody));
+      assert.equal(observedBody.model, "qwen3-embedding-0.6b");
+      const payload: unknown = response.json();
+      assert.ok(isRecord(payload));
+      assert.ok(Array.isArray(payload.data));
+      assert.deepEqual(payload.data[0]?.embedding, [0.4, 0.5, 0.6]);
+    },
   );
 });
 

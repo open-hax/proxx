@@ -17,7 +17,8 @@ import { fetchWithResponseTimeout } from "../lib/http/index.js";
 import { ensureNativeOllamaEmbedContextFits } from "../lib/ollama-context.js";
 import { isOpenAiCompatEmbedProvider } from "../lib/provider-strategy/strategies/embeddings.js";
 import { normalizeLlamacppModelName } from "../lib/provider-strategy/strategies/llamacpp.js";
-import { hasModelPrefix } from "../lib/provider-routing.js";
+import { hasModelPrefix, stripModelPrefix } from "../lib/provider-routing.js";
+import { resolveEmbeddingProviderAlias } from "../lib/embeddings-strategy.js";
 
 function summarizeEmbeddingInput(
   input: string | readonly string[],
@@ -94,13 +95,26 @@ export function registerEmbeddingsRoutes(deps: AppDeps, app: FastifyInstance): v
 
     const { routingModelInput, resolvedCatalogBundle } = modelRouting;
 
+    const routingModelWithoutProviderPrefix = explicitlyLlamaCpp
+      ? stripModelPrefix(routingModelInput, deps.config.llamacppModelPrefixes ?? [])
+      : explicitlyOllama
+        ? stripModelPrefix(routingModelInput, deps.config.ollamaModelPrefixes)
+        : routingModelInput;
+
+    const aliasProviderId = resolveEmbeddingProviderAlias(routingModelWithoutProviderPrefix);
+    const configuredAliasProviderId = aliasProviderId && deps.config.upstreamProviderBaseUrls[aliasProviderId]
+      ? aliasProviderId
+      : undefined;
+
     // Resolve from catalog for fallback
-    const catalogProviderId = resolveEmbedProvider(resolvedCatalogBundle, routingModelInput);
+    const catalogProviderId = resolveEmbedProvider(resolvedCatalogBundle, routingModelWithoutProviderPrefix);
 
     // Override provider with explicitly specified provider from model prefix
     let routeProviderId: string;
     if (requestProviderId) {
       routeProviderId = requestProviderId;
+    } else if (configuredAliasProviderId) {
+      routeProviderId = configuredAliasProviderId;
     } else if (catalogProviderId) {
       routeProviderId = catalogProviderId;
     } else {
@@ -119,8 +133,8 @@ export function registerEmbeddingsRoutes(deps: AppDeps, app: FastifyInstance): v
 
     // Normalize model name for the target provider.
     const routedModel = isOllamaProvider
-      ? routingModelInput
-      : normalizeLlamacppModelName(routingModelInput);
+      ? routingModelWithoutProviderPrefix
+      : normalizeLlamacppModelName(routingModelWithoutProviderPrefix);
 
     const embedBody = nativeEmbedToOpenAiRequest({ ...request.body, model: routedModel });
     const inputSummary = summarizeEmbeddingInput(embedBody.input);
