@@ -1,0 +1,35 @@
+[{:contract/id :router/root
+  :contract/kind :policy
+  :policy/outcome :reduce
+  :policy/children
+  [{:contract/id :router/openai-compatible
+    :contract/kind :policy
+    :policy/condition {:eval/op :all
+                       :eval/forms [(= (get ctx :endpoint-type) :openai-chat)]}
+    :policy/filters [{:eval/op :all
+                      :eval/target :credentials
+                      :eval/forms [(= (get it :provider-id) "openai")
+                                   (not (get it :disabled?))
+                                   (not (get it :rate-limited?))]}]
+    :policy/outcome :reduce
+    :policy/children
+    [{:contract/id :strategy/openai-chat-completions
+      :contract/kind :strategy
+      :policy/outcome :try
+      :policy/strategy proxx.strategies.openai/chat-completions-passthrough}]}
+
+   {:contract/id :router/anthropic-messages
+    :contract/kind :policy
+    :policy/condition {:eval/op :all
+                       :eval/forms [(= (get ctx :endpoint-type) :anthropic-messages)]}
+    :policy/filters [{:eval/op :all
+                      :eval/target :credentials
+                      :eval/forms [(= (get it :provider-id) "anthropic")
+                                   (not (get it :disabled?))
+                                   (not (get it :rate-limited?))]}]
+    :policy/outcome :reduce
+    :policy/children
+    [{:contract/id :strategy/anthropic-messages
+      :contract/kind :strategy
+      :policy/outcome :try
+      :policy/strategy proxx.strategies.anthropic/messages-passthrough}]}]}]

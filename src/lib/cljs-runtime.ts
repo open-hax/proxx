@@ -8,10 +8,19 @@ export interface CljsValidationResult {
   readonly errors?: unknown;
 }
 
+export interface CljsPolicyRouteResult {
+  readonly status: "ok" | "error";
+  readonly result?: unknown;
+  readonly trace?: readonly unknown[];
+  readonly error?: string;
+  readonly data?: unknown;
+}
+
 export interface ProxxCljsRuntime {
   readonly normalizeKeys: (value: unknown) => unknown;
   readonly validateEntity: (entityType: string, value: unknown) => CljsValidationResult;
   readonly projectPheromone: (events: readonly unknown[], opts?: unknown) => number;
+  readonly routePolicy: (policies: readonly unknown[], ctx: unknown) => CljsPolicyRouteResult;
 }
 
 export type CljsRuntimeLoadResult =
@@ -35,20 +44,21 @@ const moduleFileName = "proxx-runtime.js";
  * Determines whether an object implements the Proxx CLJS runtime API.
  *
  * @param value - Candidate module object to inspect
- * @returns `true` if `value` exposes `normalizeKeys`, `validateEntity`, and `projectPheromone` functions; `false` otherwise.
+ * @returns `true` if `value` exposes the expected CLJS runtime functions; `false` otherwise.
  */
 function isProxxCljsRuntime(value: Record<string, unknown>): value is Record<string, unknown> & ProxxCljsRuntime {
   return (
     typeof value.normalizeKeys === "function" &&
     typeof value.validateEntity === "function" &&
-    typeof value.projectPheromone === "function"
+    typeof value.projectPheromone === "function" &&
+    typeof value.routePolicy === "function"
   );
 }
 
 /**
  * Produces an ordered list of candidate filesystem paths where the CLJS runtime artifact may be located.
  *
- * @returns An array of absolute file paths to probe for the runtime, ordered from preferred to fallback.
+ * @returns An array of absolute file paths to probe for the runtime, ordered by preference.
  */
 function candidateModulePaths(): readonly string[] {
   const currentDir = dirname(fileURLToPath(import.meta.url));
@@ -144,6 +154,7 @@ export function normalizeObjectKeysWithCljs<T>(value: T): T | unknown {
  * @throws Error - If `runtime.normalizeKeys` does not return an object containing the keys `"provider-id"` and `"nested-value"`.
  * @throws Error - If `runtime.validateEntity("provider", ...)` returns a validation result whose `status` is not `"ok"`.
  * @throws Error - If `runtime.projectPheromone(...)` does not return a finite number greater than `0`.
+ * @throws Error - If `runtime.routePolicy(...)` cannot evaluate a minimal policy tree.
  */
 export async function assertCljsRuntimeReady(runtime: ProxxCljsRuntime): Promise<void> {
   const normalized = runtime.normalizeKeys({ providerId: "openai", nested_value: { modelId: "gpt-4o" } });
@@ -168,5 +179,16 @@ export async function assertCljsRuntimeReady(runtime: ProxxCljsRuntime): Promise
   const score = runtime.projectPheromone([{ ts: Date.now(), outcome: "success" }], {});
   if (!Number.isFinite(score) || score <= 0) {
     throw new Error("CLJS runtime projectPheromone readiness check failed");
+  }
+
+  const routeResult = runtime.routePolicy([
+    {
+      "contract/id": "runtime/root",
+      "contract/kind": "policy",
+      "policy/outcome": "next",
+    },
+  ], {});
+  if (routeResult.status !== "error") {
+    throw new Error("CLJS runtime routePolicy readiness check failed");
   }
 }

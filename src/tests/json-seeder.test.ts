@@ -114,6 +114,7 @@ test("seedFromJsonValue validates provider credentials through active CLJS runti
         : { status: "error", errors: { id: ["blocked by test runtime"] } };
     },
     projectPheromone: () => 0,
+    routePolicy: () => ({ status: "error", trace: [] }),
   };
   setActiveCljsRuntime(cljsRuntime);
 
