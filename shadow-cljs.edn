@@ -9,7 +9,8 @@
    :output-dir "dist/cljs"
    :modules   {:proxx-runtime {:exports {normalizeKeys proxx.runtime/normalize-keys-js
                                           validateEntity proxx.runtime/validate-entity-js
-                                          projectPheromone proxx.runtime/project-pheromone-js}}}}
+                                          projectPheromone proxx.runtime/project-pheromone-js
+                                          routePolicy proxx.runtime/route-policy-js}}}}
 
   :node-test
   {:target      :node-test

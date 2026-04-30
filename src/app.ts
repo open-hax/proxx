@@ -7,6 +7,7 @@ import fastifySwaggerUi from "@fastify/swagger-ui";
 import "./lib/fastify-types.js";
 
 import { DEFAULT_MODELS, type ProxyConfig } from "./lib/config.js";
+import { getActiveCljsRuntime } from "./lib/cljs-runtime.js";
 import {
   PROXY_AUTH_COOKIE_NAME,
   readCookieToken,
@@ -281,6 +282,9 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
   } catch (error) {
     app.log.warn({ error: toErrorMessage(error) }, "failed to load policy config; using defaults");
     policyEngine = createPolicyEngine(DEFAULT_POLICY_CONFIG);
+  }
+  if (getActiveCljsRuntime()) {
+    app.log.info("CLJS policy router runtime boundary available");
   }
 
   const credentialStore = new CredentialStore(config.keysFilePath, config.upstreamProviderId);

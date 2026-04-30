@@ -1,6 +1,10 @@
 (ns proxx.runtime
-  (:require [proxx.processor :as processor]
-            [proxx.schema :as schema]))
+  (:require [proxx.policy :as policy]
+            [proxx.policy.router :as router]
+            [proxx.processor :as processor]
+            [proxx.schema :as schema]
+            [proxx.strategies.anthropic :as anthropic]
+            [proxx.strategies.openai :as openai]))
 
 (defn normalize-keys-js
   "Normalize JS object keys through the CLJS data-layer processor."
@@ -29,7 +33,25 @@
                                      (js->clj events :keywordize-keys true))
                                (js->clj (or opts #js {}) :keywordize-keys true)))
 
+(defn route-policy-js [policies ctx]
+  (policy/register-strategy! 'proxx.strategies.openai/chat-completions-passthrough
+                             openai/chat-completions-passthrough)
+  (policy/register-strategy! 'proxx.strategies.anthropic/messages-passthrough
+                             anthropic/messages-passthrough)
+  (let [trace (atom [])]
+    (try
+      (let [result (router/route-request! (js->clj policies :keywordize-keys true)
+                                          (js->clj ctx :keywordize-keys true)
+                                          trace)]
+        (clj->js {:status "ok" :result result :trace @trace}))
+      (catch :default e
+        (clj->js {:status "error"
+                  :error (.-message e)
+                  :data (ex-data e)
+                  :trace @trace})))))
+
 (def exports
   #js {:normalizeKeys normalize-keys-js
        :validateEntity validate-entity-js
-       :projectPheromone project-pheromone-js})
+       :projectPheromone project-pheromone-js
+       :routePolicy route-policy-js})
