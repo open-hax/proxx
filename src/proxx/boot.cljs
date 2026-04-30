@@ -3,6 +3,7 @@
    [clojure.string        :as str]
    [goog.object           :as gobj]
    [proxx.pipeline        :as pl]
+   [proxx.policy.loader   :as policy-loader]
    [proxx.store.hot       :as hot]
    [proxx.store.redis     :as redis]
    [proxx.store.lmdb      :as lmdb]
@@ -15,6 +16,7 @@
 
 (defonce ^:private state
   (atom {:pipeline nil
+         :policies []
          :stores   []}))
 
 ;; ---------------------------------------------------------------------------
@@ -125,10 +127,11 @@
     :query-registry — entity-type query map (required when :database-url set)
     :fixture-map    — {entity-type [records]} for static seed (optional)
     :models-value   — parsed JS models array (optional)
+    :policy-path    — EDN policy file path (optional)
 
   Idempotent: returns existing pipeline when already booted."
   [{:keys [redis-url lmdb-path database-url query-registry
-           fixture-map models-value]}]
+           fixture-map models-value policy-path]}]
   (if-let [existing (:pipeline @state)]
     existing
     (let [hot-store   (make-hot-store)
@@ -136,35 +139,51 @@
           lmdb-store  (when lmdb-path    (make-lmdb-store lmdb-path))
           pg-store    (when database-url (make-pg-store database-url
                                                         (or query-registry {})))
-          stores      (filterv some? [hot-store redis-store lmdb-store pg-store])
-          pipeline    (pl/make-pipeline
-                       {:hot      hot-store
-                        :redis    redis-store
-                        :lmdb     lmdb-store
-                        :postgres pg-store})]
-      (swap! state assoc :pipeline pipeline :stores stores)
-      ;; Seed priority: static < env-api-keys < inline-json < models
-      (when fixture-map
-        (seed-static! pipeline fixture-map))
-      (seed-from-env-api-keys! pipeline)
-      (let [proc-env (.-env js/process)
-            kj       (or (gobj/get proc-env "PROXY_KEYS_JSON")
-                         (gobj/get proc-env "UPSTREAM_KEYS_JSON"))]
-        (when (and kj (pos? (.-length (.trim kj))))
-          (seed-from-value! pipeline (js/JSON.parse kj))))
-      (when models-value
-        (seed-from-models! pipeline models-value))
-      pipeline)))
+          stores      (filterv some? [hot-store redis-store lmdb-store pg-store])]
+      (try
+        (let [policies    (if policy-path
+                            (policy-loader/load-policies! policy-path)
+                            [])
+              pipeline    (pl/make-pipeline
+                           {:hot      hot-store
+                            :redis    redis-store
+                            :lmdb     lmdb-store
+                            :postgres pg-store})]
+          (swap! state assoc :pipeline pipeline :policies policies :stores stores)
+          ;; Seed priority: static < env-api-keys < inline-json < models
+          (when fixture-map
+            (seed-static! pipeline fixture-map))
+          (seed-from-env-api-keys! pipeline)
+          (let [proc-env (.-env js/process)
+                kj       (or (gobj/get proc-env "PROXY_KEYS_JSON")
+                             (gobj/get proc-env "UPSTREAM_KEYS_JSON"))]
+            (when (and kj (pos? (.-length (.trim kj))))
+              (seed-from-value! pipeline (js/JSON.parse kj))))
+          (when models-value
+            (seed-from-models! pipeline models-value))
+          pipeline)
+        (catch :default e
+          ;; Clean up stores on failure
+          (doseq [s (reverse stores)]
+            (try
+              (store-close s)
+              (catch :default _ nil)))
+          (throw e))))))
 
 (defn halt!
   "Close all open stores in reverse order and reset state. Returns :halted."
   []
   (doseq [s (reverse (:stores @state))]
     (store-close s))
-  (reset! state {:pipeline nil :stores []})
+  (reset! state {:pipeline nil :policies [] :stores []})
   :halted)
 
 (defn pipeline
   "Return the live pipeline map, or nil if not booted."
   []
   (:pipeline @state))
+
+(defn policies
+  "Return the loaded policy vector."
+  []
+  (:policies @state))
