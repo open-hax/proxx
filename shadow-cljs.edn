@@ -3,6 +3,8 @@
  :dependencies
  [[metosin/malli "0.16.4"]]
 
+ :js-options {:js-provider :import}
+
  :builds
  {:runtime
   {:target    :esm
@@ -11,7 +13,11 @@
                                           validateEntity proxx.runtime/validate-entity-js
                                           projectPheromone proxx.runtime/project-pheromone-js
                                           routePolicy proxx.runtime/route-policy-js
-                                          previewPolicyDecision proxx.runtime/preview-policy-decision-js}}}}
+                                          previewPolicyDecision proxx.runtime/preview-policy-decision-js}}}
+   :js-options {:js-provider :import
+                :keep-as-import #{"node:fs" "node:path"}}
+   :compiler-options {:output-feature-set :es-next
+                      :infer-externs :auto}}
 
   :node-test
   {:target      :node-test

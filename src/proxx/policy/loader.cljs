@@ -1,10 +1,9 @@
 (ns proxx.policy.loader
-  (:require [cljs.reader :as reader]
+  (:require ["node:fs" :as fs]
+            ["node:path" :as path]
+            [cljs.reader :as reader]
             [clojure.string :as str]
             [proxx.schema :as schema]))
-
-(def ^:private fs (.getBuiltinModule js/process "fs"))
-(def ^:private path (.getBuiltinModule js/process "path"))
 
 (defn- read-file [file-path]
   (.readFileSync fs file-path "utf8"))
