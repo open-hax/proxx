@@ -36,6 +36,7 @@ import {
 } from "../lib/provider-routing.js";
 import { discoverDynamicOllamaRoutes, prependDynamicOllamaRoutes } from "../lib/dynamic-ollama-routes.js";
 import { orderProviderRoutesByPolicy } from "../lib/provider-policy.js";
+import { shadowPreviewProviderPolicy } from "../lib/policy/cljs-shadow.js";
 import { sendOpenAiError } from "../lib/provider-utils.js";
 import { toErrorMessage } from "../lib/errors/index.js";
 import { isAutoModel, rankAutoModels } from "../lib/auto-model-selector.js";
@@ -253,6 +254,15 @@ export function registerResponsesRoutes(deps: AppDeps, app: FastifyInstance): vo
         openAiPrefixed: context.openAiPrefixed,
         localOllama: false,
         explicitOllama: false,
+      });
+      shadowPreviewProviderPolicy({
+        config: deps.config,
+        log: request.log,
+        requestKind: "responses-passthrough",
+        requestedModel: context.requestedModelInput,
+        routedModel: context.routedModel,
+        tenantSettings,
+        providerRoutes,
       });
 
       if (providerRoutes.length === 0) {

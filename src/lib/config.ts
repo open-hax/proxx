@@ -96,6 +96,8 @@ export interface ProxyConfig {
   readonly proxyTokenPepper: string;
   readonly allowUnauthenticated: boolean;
   readonly policyConfigPath?: string;
+  readonly cljsPolicyManifestPath?: string;
+  readonly cljsPolicyShadowMode?: boolean;
   readonly databaseUrl?: string;
   readonly githubOAuthClientId?: string;
   readonly githubOAuthClientSecret?: string;
@@ -588,6 +590,8 @@ export function loadConfig(cwd: string = process.cwd()): ProxyConfig {
     proxyTokenPepper,
     allowUnauthenticated,
     policyConfigPath: process.env.PROXY_POLICY_CONFIG_FILE ?? undefined,
+    cljsPolicyManifestPath: filePathFromEnvAliases(["PROXX_CLJS_POLICY_MANIFEST", "PROXY_CLJS_POLICY_MANIFEST"], "./resources/policies/runtime/00-manifest.edn", cwd),
+    cljsPolicyShadowMode: booleanFromEnvAliases(["PROXX_CLJS_POLICY_SHADOW", "PROXY_CLJS_POLICY_SHADOW"], false),
     databaseUrl,
     githubOAuthClientId,
     githubOAuthClientSecret,

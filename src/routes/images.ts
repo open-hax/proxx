@@ -12,6 +12,7 @@ import {
 import {
   orderProviderRoutesByPolicy,
 } from "../lib/provider-policy.js";
+import { shadowPreviewProviderPolicy } from "../lib/policy/cljs-shadow.js";
 import {
   inspectProviderAvailability,
   executeProviderRoutingPlan,
@@ -71,6 +72,15 @@ export function registerImagesRoutes(deps: AppDeps, app: FastifyInstance): void 
       openAiPrefixed: context.openAiPrefixed,
       localOllama: false,
       explicitOllama: false,
+    });
+    shadowPreviewProviderPolicy({
+      config: deps.config,
+      log: request.log,
+      requestKind: "images-passthrough",
+      requestedModel: context.requestedModelInput,
+      routedModel: context.routedModel,
+      tenantSettings,
+      providerRoutes,
     });
 
     if (providerRoutes.length === 0) {

@@ -26,6 +26,7 @@ import {
   type ProviderRoute,
 } from "../lib/provider-routing.js";
 import { orderProviderRoutesByPolicy } from "../lib/provider-policy.js";
+import { shadowPreviewProviderPolicy } from "../lib/policy/cljs-shadow.js";
 import { sendOpenAiError } from "../lib/provider-utils.js";
 import { toErrorMessage } from "../lib/errors/index.js";
 import { handleRoutingOutcome } from "../lib/routing-outcome-handler.js";
@@ -141,6 +142,15 @@ export function registerChatRoutes(deps: AppDeps, app: FastifyInstance): void {
         openAiPrefixed: context.openAiPrefixed,
         localOllama: context.localOllama,
         explicitOllama: context.explicitOllama,
+      });
+      shadowPreviewProviderPolicy({
+        config: deps.config,
+        log: request.log,
+        requestKind: "chat",
+        requestedModel: context.requestedModelInput,
+        routedModel: context.routedModel,
+        tenantSettings: proxySettings,
+        providerRoutes,
       });
 
       if (isCephalonAutoModel(requestedModelInput) || isCephalonAutoModel(routingModelInput)) {
