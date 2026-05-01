@@ -1,5 +1,14 @@
 (ns proxx.policy.contracts)
 
+(defn pattern-matches?
+  "Return true when regex pattern text matches value."
+  [pattern value]
+  (let [s (str value)]
+    (cond
+      (string? pattern) (boolean (re-find (re-pattern pattern) s))
+      (instance? js/RegExp pattern) (.test pattern s)
+      :else (= pattern value))))
+
 (defn index-contracts
   "Build a deterministic contract index and fail on duplicate ids."
   [contracts]
@@ -83,6 +92,46 @@
 
 (defn root-program [idx]
   (some #(when (= :policy-program (:contract/kind %)) %) (:contracts idx)))
+
+(defn routing-clause-matches-model?
+  "Return true when a compiled routing clause's family pattern matches model-id."
+  [clause model-id]
+  (let [pattern (get-in clause [:match/family-contract :match/model-pattern])]
+    (pattern-matches? pattern model-id)))
+
+(defn select-routing-clause
+  "Select the first routing clause whose family pattern matches model-id."
+  [compiled model-id]
+  (some #(when (routing-clause-matches-model? % model-id) %)
+        (:routing-clauses compiled)))
+
+(defn provider-clause-matches?
+  "Return true when a provider/request capability clause applies."
+  [clause provider-id request-kind]
+  (and (pattern-matches? (:match/provider-pattern clause) provider-id)
+       (or (nil? (:match/request-kind clause))
+           (= request-kind (:match/request-kind clause)))))
+
+(defn strategy-preference-clauses
+  "Return provider capability and request-surface clauses that apply in order."
+  [compiled provider-id request-kind]
+  (->> (concat (:provider-capabilities compiled)
+               (:request-surface-defaults compiled))
+       (filterv #(provider-clause-matches? % provider-id request-kind))))
+
+(defn order-provider-candidates
+  "Filter excluded provider ids and order preferred providers before original order."
+  [route provider-ids]
+  (let [original-order (zipmap provider-ids (range))
+        excluded (set (:exclude/providers route))
+        filtered (filterv #(not (contains? excluded %)) provider-ids)
+        preferred (:prefer/provider-order route)
+        preferred-order (zipmap preferred (range))
+        fallback-rank (count preferred)]
+    (sort-by (fn [provider-id]
+               [(get preferred-order provider-id fallback-rank)
+                (get original-order provider-id 0)])
+             filtered)))
 
 (defn compile-contracts
   "Compile loaded declarative policy contracts into phase-oriented indexes.

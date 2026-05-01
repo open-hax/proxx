@@ -163,6 +163,36 @@
     (is (= 50 (:fallback/max-attempts (:fallback-policy compiled))))
     (is (= :router/root (get-in compiled [:root-program :contract/id])))))
 
+(deftest compiler-selects-first-matching-routing-clause
+  (let [compiled (contracts/compile-contracts
+                  (loader/load-policy-contracts! "resources/policies/runtime/00-manifest.edn"))]
+    (is (= :route/gpt-free-blocked
+           (:contract/id (contracts/select-routing-clause compiled "gpt-5-mini"))))
+    (is (= :route/gpt-oss
+           (:contract/id (contracts/select-routing-clause compiled "gpt-oss-120b"))))
+    (is (= :route/claude-opus-4-6
+           (:contract/id (contracts/select-routing-clause compiled "claude-opus-4-6-fast"))))
+    (is (= :route/gpt
+           (:contract/id (contracts/select-routing-clause compiled "gpt-5.2"))))
+    (is (= :route/default
+           (:contract/id (contracts/select-routing-clause compiled "mistral-large"))))))
+
+(deftest compiler-applies-provider-and-strategy-matching-helpers
+  (let [compiled (contracts/compile-contracts
+                  (loader/load-policy-contracts! "resources/policies/runtime/00-manifest.edn"))
+        gpt-route (contracts/select-routing-clause compiled "gpt-5.2")]
+    (is (= ["openai" "factory" "requesty" "vivgrid" "anthropic"]
+           (contracts/order-provider-candidates
+            gpt-route
+            ["anthropic" "rotussy" "requesty" "factory" "openai" "vivgrid"])))
+    (is (= [:provider-capability/openai-compatible-chat]
+           (mapv :contract/id
+                 (contracts/strategy-preference-clauses compiled "openrouter" :chat))))
+    (is (= [:provider-capability/rotussy-responses-passthrough
+            :request-surface/responses-passthrough]
+           (mapv :contract/id
+                 (contracts/strategy-preference-clauses compiled "rotussy" :responses-passthrough))))))
+
 (deftest compiler-rejects-duplicate-contract-ids
   (is (thrown-with-msg? js/Error #"Duplicate policy contract id"
                         (contracts/index-contracts [{:contract/id :dupe :contract/kind :x}
