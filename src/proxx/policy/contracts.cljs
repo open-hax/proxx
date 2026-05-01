@@ -91,6 +91,9 @@
                  (assoc :require/plan-set
                         (maybe-resolve-items idx (:require/plans constraint))))))))
 
+(defn default-strategy-order [idx]
+  (:preference/items (require-contract idx :domain/default-strategy-order)))
+
 (defn tenant-authorization-clauses [idx]
   (->> (:contracts idx)
        (filter #(= :authorization-clause (:contract/kind %)))
@@ -212,6 +215,56 @@
     {:ordered (vec (order-accounts ordering quota-filtered))
      :applies-constraint (:applies-constraint constrained)}))
 
+(defn- strategy-mode [strategy]
+  (or (:mode strategy)
+      (:strategy/mode strategy)
+      strategy))
+
+(defn- first-rank-map [items]
+  (reduce-kv (fn [acc idx item]
+               (if (contains? acc item)
+                 acc
+                 (assoc acc item idx)))
+             {}
+             (vec items)))
+
+(defn strategy-policy
+  "Derive combined strategy preferences/exclusions for route/provider/request."
+  [compiled route provider-id request-kind]
+  (let [clauses (strategy-preference-clauses compiled provider-id request-kind)
+        provider-preferred (mapcat :prefer/strategies clauses)
+        provider-excluded (mapcat :exclude/strategies clauses)
+        model-preferred (:prefer/strategies route)
+        model-excluded (:exclude/strategies route)]
+    {:preference-order (vec (concat provider-preferred
+                                    model-preferred
+                                    (:default-strategy-order compiled)))
+     :excluded (set (concat provider-excluded model-excluded))
+     :clauses clauses}))
+
+(defn order-strategy-candidates
+  "Order strategy candidates by declarative provider/model/default preferences.
+
+  If every candidate is excluded, returns original candidates to preserve the
+  current fallback behavior of trying the first original strategy."
+  [compiled route provider-id request-kind strategies]
+  (let [{:keys [preference-order excluded]} (strategy-policy compiled route provider-id request-kind)
+        original-order (zipmap strategies (range))
+        allowed (filterv #(not (contains? excluded (strategy-mode %))) strategies)
+        candidates (if (seq allowed) allowed strategies)
+        preference-rank (first-rank-map preference-order)
+        fallback-rank (count preference-order)]
+    (vec (sort-by (fn [strategy]
+                    [(get preference-rank (strategy-mode strategy) fallback-rank)
+                     (- (or (:priority strategy) 0))
+                     (get original-order strategy 0)])
+                  candidates))))
+
+(defn select-strategy-candidate
+  "Select the first declaratively ordered strategy candidate."
+  [compiled route provider-id request-kind strategies]
+  (first (order-strategy-candidates compiled route provider-id request-kind strategies)))
+
 (defn compile-contracts
   "Compile loaded declarative policy contracts into phase-oriented indexes.
 
@@ -225,6 +278,7 @@
      :request-surface-defaults (request-surface-defaults idx)
      :account-orderings (account-orderings idx)
      :account-constraints (account-constraints idx)
+     :default-strategy-order (default-strategy-order idx)
      :tenant-authorization-clauses (tenant-authorization-clauses idx)
      :fallback-policy (fallback-policy idx)
      :root-program (root-program idx)}))

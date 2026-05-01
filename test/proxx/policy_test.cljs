@@ -237,6 +237,66 @@
            (mapv :account-id (:ordered result))))
     (is (= true (:applies-constraint result)))))
 
+(deftest compiler-orders-strategies-from-route-provider-and-request-clauses
+  (let [compiled (contracts/compile-contracts
+                  (loader/load-policy-contracts! "resources/policies/runtime/00-manifest.edn"))
+        route (contracts/select-routing-clause compiled "gpt-5.2")]
+    (is (= [:openai-responses :chat-completions]
+           (mapv :mode
+                 (contracts/order-strategy-candidates
+                  compiled
+                  route
+                  "openrouter"
+                  :chat
+                  [{:mode :messages :priority 100}
+                   {:mode :chat-completions :priority 1}
+                   {:mode :openai-responses :priority 0}]))))
+    (is (= :chat-completions
+           (:mode (contracts/select-strategy-candidate
+                   compiled
+                   route
+                   "rotussy"
+                   :responses-passthrough
+                   [{:mode :responses-passthrough :priority 100}
+                    {:mode :openai-responses-passthrough :priority 1}
+                    {:mode :chat-completions :priority 0}]))))))
+
+(deftest compiler-falls-back-to-default-strategy-order-and-priority
+  (let [compiled (contracts/compile-contracts
+                  (loader/load-policy-contracts! "resources/policies/runtime/00-manifest.edn"))]
+    (is (= [:ollama-chat :responses :chat-completions]
+           (mapv :mode
+                 (contracts/order-strategy-candidates
+                  compiled
+                  {}
+                  "unknown"
+                  :chat
+                  [{:mode :chat-completions :priority 99}
+                   {:mode :responses :priority 1}
+                   {:mode :ollama-chat :priority 0}]))))
+    (is (= [:custom-b :custom-a]
+           (mapv :mode
+                 (contracts/order-strategy-candidates
+                  compiled
+                  {}
+                  "unknown"
+                  :chat
+                  [{:mode :custom-a :priority 1}
+                   {:mode :custom-b :priority 5}]))))))
+
+(deftest compiler-keeps-original-strategies-when-all-are-excluded
+  (let [compiled (contracts/compile-contracts
+                  (loader/load-policy-contracts! "resources/policies/runtime/00-manifest.edn"))
+        route (contracts/select-routing-clause compiled "gpt-5.2")]
+    (is (= [:responses-passthrough]
+           (mapv :mode
+                 (contracts/order-strategy-candidates
+                  compiled
+                  route
+                  "rotussy"
+                  :responses-passthrough
+                  [{:mode :responses-passthrough :priority 100}]))))))
+
 (deftest compiler-rejects-duplicate-contract-ids
   (is (thrown-with-msg? js/Error #"Duplicate policy contract id"
                         (contracts/index-contracts [{:contract/id :dupe :contract/kind :x}
