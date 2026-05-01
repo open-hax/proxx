@@ -297,6 +297,65 @@
                   :responses-passthrough
                   [{:mode :responses-passthrough :priority 100}]))))))
 
+(deftest compiler-applies-tenant-model-authorization
+  (is (= true (contracts/tenant-model-allowed? {:allowed-models []} "anything")))
+  (is (= true (contracts/tenant-model-allowed? {:allowed-models ["ollama/qwen3.5:2b"]}
+                                               "qwen3.5:2b")))
+  (is (= true (contracts/tenant-model-allowed? {:allowedModels ["qwen3.5:2b"]}
+                                               "ollama:qwen3.5:2b")))
+  (is (= false (contracts/tenant-model-allowed? {:allowed-models ["ollama/gpt-oss:20b"]}
+                                                "ollama/gemma3:27b")))
+  ;; No requested model candidate.
+  (is (= false (contracts/tenant-model-allowed? {:allowed-models ["gpt-5.2"]}))))
+
+(deftest compiler-applies-tenant-provider-authorization
+  (is (= true (contracts/tenant-provider-allowed? {:allowed-provider-ids nil
+                                                   :disabled-provider-ids nil}
+                                                  "OpenAI")))
+  (is (= true (contracts/tenant-provider-allowed? {:allowed-provider-ids ["openai" "factory"]}
+                                                  "OPENAI")))
+  (is (= false (contracts/tenant-provider-allowed? {:allowed-provider-ids ["factory"]}
+                                                   "openai")))
+  (is (= false (contracts/tenant-provider-allowed? {:allowedProviderIds ["openai"]
+                                                    :disabledProviderIds ["openai"]}
+                                                   "openai"))))
+
+(deftest compiler-applies-federated-tenant-provider-share-policy
+  (let [policy {:owner-subject "did:plc:owner"
+                :provider-kind "peer_proxx"
+                :share-mode "warm_import"
+                :allowed-models ["gpt-5.2"]}]
+    (is (= true (contracts/tenant-provider-policy-allows-use?
+                 policy
+                 {:owner-subject "did:plc:owner"
+                  :provider-kind "peer_proxx"
+                  :requested-model "gpt-5.2"
+                  :required-share-mode "relay"})))
+    (is (= true (contracts/tenant-provider-policy-allows-use?
+                 policy
+                 {:owner-subject "did:plc:owner"
+                  :provider-kind "peer_proxx"
+                  :requested-model "gpt-5.2"
+                  :required-share-mode "warm_import"})))
+    (is (= false (contracts/tenant-provider-policy-allows-use?
+                  policy
+                  {:owner-subject "did:plc:owner"
+                   :provider-kind "peer_proxx"
+                   :requested-model "gpt-5.2"
+                   :required-share-mode "project_credentials"})))
+    (is (= false (contracts/tenant-provider-policy-allows-use?
+                  policy
+                  {:owner-subject "did:plc:other"
+                   :provider-kind "peer_proxx"
+                   :requested-model "gpt-5.2"
+                   :required-share-mode "relay"})))
+    (is (= false (contracts/tenant-provider-policy-allows-use?
+                  policy
+                  {:owner-subject "did:plc:owner"
+                   :provider-kind "peer_proxx"
+                   :requested-model "gpt-6"
+                   :required-share-mode "relay"})))))
+
 (deftest compiler-rejects-duplicate-contract-ids
   (is (thrown-with-msg? js/Error #"Duplicate policy contract id"
                         (contracts/index-contracts [{:contract/id :dupe :contract/kind :x}

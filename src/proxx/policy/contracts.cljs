@@ -1,4 +1,5 @@
-(ns proxx.policy.contracts)
+(ns proxx.policy.contracts
+  (:require [clojure.string :as str]))
 
 (defn pattern-matches?
   "Return true when regex pattern text matches value."
@@ -264,6 +265,91 @@
   "Select the first declaratively ordered strategy candidate."
   [compiled route provider-id request-kind strategies]
   (first (order-strategy-candidates compiled route provider-id request-kind strategies)))
+
+(defn- get-any [m ks]
+  (some #(get m %) ks))
+
+(defn- non-empty-values [xs]
+  (->> xs
+       (filter string?)
+       (map str/trim)
+       (remove str/blank?)
+       vec))
+
+(defn- normalize-model-variants [model]
+  (let [trimmed (str/lower-case (str/trim (str model)))]
+    (if (str/blank? trimmed)
+      []
+      (cond-> #{trimmed}
+        (str/starts-with? trimmed "ollama/")
+        (conj (subs trimmed (count "ollama/")))
+
+        (str/starts-with? trimmed "ollama:")
+        (conj (subs trimmed (count "ollama:")))))))
+
+(defn tenant-model-allowed?
+  "Apply declarative tenant model allow-list semantics."
+  [settings & models]
+  (let [allowed-models (non-empty-values (or (get-any settings [:allowed-models :allowedModels]) []))]
+    (if (empty? allowed-models)
+      true
+      (let [allowed (set (mapcat normalize-model-variants allowed-models))
+            candidates (set (mapcat normalize-model-variants (filter string? models)))]
+        (boolean (and (seq candidates)
+                      (some allowed candidates)))))))
+
+(defn- normalize-provider-id [provider-id]
+  (str/lower-case (str/trim (str provider-id))))
+
+(defn tenant-provider-allowed?
+  "Apply declarative tenant provider allow/disabled-list semantics."
+  [settings provider-id]
+  (let [normalized (normalize-provider-id provider-id)
+        allowed (set (map normalize-provider-id
+                          (or (get-any settings [:allowed-provider-ids :allowedProviderIds]) [])))
+        disabled (set (map normalize-provider-id
+                           (or (get-any settings [:disabled-provider-ids :disabledProviderIds]) [])))]
+    (and (not (str/blank? normalized))
+         (or (empty? allowed) (contains? allowed normalized))
+         (not (contains? disabled normalized)))))
+
+(defn- normalize-mode [mode]
+  (when mode
+    (keyword (str/replace (name mode) #"_" "-"))))
+
+(defn share-mode-allows-relay? [mode]
+  (contains? #{:relay-only :warm-import :project-credentials}
+             (normalize-mode mode)))
+
+(defn share-mode-allows-warm-import? [mode]
+  (contains? #{:warm-import :project-credentials}
+             (normalize-mode mode)))
+
+(defn share-mode-allows-credential-projection? [mode]
+  (= :project-credentials (normalize-mode mode)))
+
+(defn- share-mode-satisfies? [mode required]
+  (case (normalize-mode required)
+    :project-credentials (share-mode-allows-credential-projection? mode)
+    :warm-import (share-mode-allows-warm-import? mode)
+    :relay (share-mode-allows-relay? mode)
+    (share-mode-allows-relay? mode)))
+
+(defn tenant-provider-policy-allows-use?
+  "Apply federated tenant provider share policy semantics."
+  [policy input]
+  (let [requested-model (str/trim (str (or (get-any input [:requested-model :requestedModel]) "")))
+        allowed-models (non-empty-values (or (get-any policy [:allowed-models :allowedModels]) []))]
+    (and (some? policy)
+         (= (get-any policy [:owner-subject :ownerSubject])
+            (get-any input [:owner-subject :ownerSubject]))
+         (= (get-any policy [:provider-kind :providerKind])
+            (get-any input [:provider-kind :providerKind]))
+         (or (str/blank? requested-model)
+             (empty? allowed-models)
+             (contains? (set allowed-models) requested-model))
+         (share-mode-satisfies? (get-any policy [:share-mode :shareMode])
+                                (get-any input [:required-share-mode :requiredShareMode])))))
 
 (defn compile-contracts
   "Compile loaded declarative policy contracts into phase-oriented indexes.
