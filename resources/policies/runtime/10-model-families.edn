@@ -1,0 +1,41 @@
+[{:contract/id :model-family/glm
+  :contract/kind :model-family
+  :match/model-pattern "^glm-"}
+
+ {:contract/id :model-family/claude-opus-4-6
+  :contract/kind :model-family
+  :match/model-pattern "^claude-opus-4-6(?:-fast)?$"}
+
+ {:contract/id :model-family/claude
+  :contract/kind :model-family
+  :match/model-pattern "^claude-"}
+
+ {:contract/id :model-family/gpt-oss
+  :contract/kind :model-family
+  :match/model-pattern "^gpt-oss"}
+
+ {:contract/id :model/gpt-5.3-codex
+  :contract/kind :model
+  :model/id "gpt-5.3-codex"
+  :model/free-tier-blocked? true}
+
+ {:contract/id :model/gpt-5-mini
+  :contract/kind :model
+  :model/id "gpt-5-mini"
+  :model/free-tier-blocked? true}
+
+ {:contract/id :model-family/gpt-free-blocked
+  :contract/kind :model-family
+  :match/model-pattern "^(?:gpt-5\\.3-codex|gpt-5-mini)$"}
+
+ {:contract/id :model-family/gpt-6-plus
+  :contract/kind :model-family
+  :match/model-pattern "^gpt-[6-9]"}
+
+ {:contract/id :model-family/gpt
+  :contract/kind :model-family
+  :match/model-pattern "^gpt-"}
+
+ {:contract/id :model-family/default
+  :contract/kind :model-family
+  :match/model-pattern ".*"}]

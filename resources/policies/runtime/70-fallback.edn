@@ -1,0 +1,11 @@
+[{:contract/id :fallback/default
+  :contract/kind :fallback-policy
+  :fallback/max-attempts 50
+  :fallback/retry-delay-ms 1000
+  :fallback/retry-backoff-multiplier 2
+  :fallback/transient-retry-count 2
+  :fallback/transient-status-codes [502 503 504]
+  :fallback/skip-on-rate-limit true
+  :fallback/skip-on-model-not-found false
+  :fallback/skip-on-account-incompatible true
+  :fallback/skip-on-server-error false}]

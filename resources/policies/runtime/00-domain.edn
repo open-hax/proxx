@@ -1,0 +1,45 @@
+[{:contract/id :domain/request-kinds
+  :contract/kind :enum
+  :enum/values [:chat :responses-passthrough :images-passthrough :embeddings]}
+
+ {:contract/id :domain/upstream-modes
+  :contract/kind :enum
+  :enum/values [:chat-completions
+                :responses
+                :responses-passthrough
+                :messages
+                :openai-chat-completions
+                :openai-responses
+                :openai-responses-passthrough
+                :images
+                :gemini-chat
+                :ollama-chat
+                :local-ollama-chat
+                :embeddings
+                :hf-embeddings
+                :tei-embeddings
+                :ovm-embeddings]}
+
+ {:contract/id :domain/plan-weights
+  :contract/kind :scoring-table
+  :score/by-plan {:plus 5
+                  :pro 4
+                  :business 4
+                  :enterprise 4
+                  :team 2
+                  :unknown 1
+                  :free 0}}
+
+ {:contract/id :domain/paid-plans
+  :contract/kind :set
+  :set/items [:plus :pro :business :enterprise :team]}
+
+ {:contract/id :domain/default-strategy-order
+  :contract/kind :preference-order
+  :preference/items [:local-ollama-chat
+                     :ollama-chat
+                     :openai-responses
+                     :openai-chat-completions
+                     :responses
+                     :messages
+                     :chat-completions]}]

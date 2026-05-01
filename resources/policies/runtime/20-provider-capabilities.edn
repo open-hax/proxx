@@ -1,0 +1,53 @@
+[{:contract/id :provider-order/gpt-default
+  :contract/kind :preference-order
+  :preference/items ["openai" "factory" "openrouter" "requesty" "vivgrid"]}
+
+ {:contract/id :provider-order/gpt-oss
+  :contract/kind :preference-order
+  :preference/items ["ollama-cloud"]}
+
+ {:contract/id :provider-order/claude-opus-4-6
+  :contract/kind :preference-order
+  :preference/items ["factory" "openrouter" "requesty" "vivgrid"]}
+
+ {:contract/id :provider-order/glm
+  :contract/kind :preference-order
+  :preference/items ["zai" "rotussy" "requesty" "factory" "openrouter" "vivgrid" "ollama-cloud"]}
+
+ {:contract/id :provider-capability/gemini-chat
+  :contract/kind :provider-capability
+  :match/provider-pattern "^gemini$"
+  :match/request-kind :chat
+  :prefer/strategies [:gemini-chat]}
+
+ {:contract/id :provider-capability/zai-chat
+  :contract/kind :provider-capability
+  :match/provider-pattern "^zai$"
+  :match/request-kind :chat
+  :prefer/strategies [:chat-completions]
+  :exclude/strategies [:responses :messages]}
+
+ {:contract/id :provider-capability/rotussy-responses-passthrough
+  :contract/kind :provider-capability
+  :match/provider-pattern "^rotussy$"
+  :match/request-kind :responses-passthrough
+  :prefer/strategies [:chat-completions]
+  :exclude/strategies [:responses-passthrough]}
+
+ {:contract/id :provider-capability/openai-compatible-chat
+  :contract/kind :provider-capability
+  :match/provider-pattern "^(openrouter|requesty|ob1|zen)$"
+  :match/request-kind :chat
+  :exclude/strategies [:messages]}
+
+ {:contract/id :request-surface/images-passthrough
+  :contract/kind :request-surface-default
+  :match/provider-pattern ".*"
+  :match/request-kind :images-passthrough
+  :prefer/strategies [:images]}
+
+ {:contract/id :request-surface/responses-passthrough
+  :contract/kind :request-surface-default
+  :match/provider-pattern ".*"
+  :match/request-kind :responses-passthrough
+  :prefer/strategies [:openai-responses-passthrough :responses-passthrough :chat-completions]}]

@@ -1,0 +1,64 @@
+[{:contract/id :route/glm
+  :contract/kind :routing-clause
+  :match/family :model-family/glm
+  :prefer/providers :provider-order/glm
+  :exclude/providers ["openai"]
+  :prefer/strategies [:ollama-chat :chat-completions]
+  :account/order :account-order/prefer-free}
+
+ {:contract/id :route/claude-opus-4-6
+  :contract/kind :routing-clause
+  :match/family :model-family/claude-opus-4-6
+  :prefer/providers :provider-order/claude-opus-4-6
+  :exclude/providers ["openai" "ollama-cloud"]
+  :prefer/strategies [:messages :chat-completions]
+  :account/order :account-order/prefer-free}
+
+ {:contract/id :route/claude
+  :contract/kind :routing-clause
+  :match/family :model-family/claude
+  :prefer/providers :provider-order/claude-opus-4-6
+  :exclude/providers ["openai" "ollama-cloud"]
+  :prefer/strategies [:messages :chat-completions]
+  :account/order :account-order/prefer-free}
+
+ {:contract/id :route/gpt-oss
+  :contract/kind :routing-clause
+  :match/family :model-family/gpt-oss
+  :prefer/providers :provider-order/gpt-oss
+  :prefer/strategies [:ollama-chat :chat-completions]
+  :account/order :account-order/prefer-free}
+
+ {:contract/id :route/gpt-free-blocked
+  :contract/kind :routing-clause
+  :match/family :model-family/gpt-free-blocked
+  :require/plans :domain/paid-plans
+  :exclude/plans [:free]
+  :prefer/providers :provider-order/gpt-default
+  :exclude/providers ["ollama-cloud" "rotussy"]
+  :prefer/strategies [:openai-responses :responses :openai-chat-completions :chat-completions]
+  :account/order :account-order/paid-plan-weight}
+
+ {:contract/id :route/gpt-6-plus
+  :contract/kind :routing-clause
+  :match/family :model-family/gpt-6-plus
+  :require/plans :domain/paid-plans
+  :exclude/plans [:free]
+  :prefer/providers :provider-order/gpt-default
+  :exclude/providers ["ollama-cloud" "rotussy"]
+  :prefer/strategies [:openai-responses :responses :openai-chat-completions :chat-completions]
+  :account/order :account-order/paid-plan-weight}
+
+ {:contract/id :route/gpt
+  :contract/kind :routing-clause
+  :match/family :model-family/gpt
+  :prefer/providers :provider-order/gpt-default
+  :exclude/providers ["ollama-cloud" "rotussy"]
+  :prefer/strategies [:openai-responses :responses :openai-chat-completions :chat-completions]
+  :account/order :account-order/prefer-free}
+
+ {:contract/id :route/default
+  :contract/kind :routing-clause
+  :match/family :model-family/default
+  :prefer/strategies [:chat-completions]
+  :account/order :account-order/prefer-free}]
