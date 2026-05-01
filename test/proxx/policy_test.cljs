@@ -1,6 +1,7 @@
 (ns proxx.policy-test
   (:require [cljs.test :refer [deftest is]]
             [proxx.policy :as policy]
+            [proxx.policy.contracts :as contracts]
             [proxx.policy.loader :as loader]
             [proxx.policy.router :as router]))
 
@@ -134,6 +135,38 @@
     (is (some #{:route/gpt-free-blocked} ids))
     (is (some #{:tenant/provider-share-policy} ids))
     (is (every? #(and (:contract/id %) (:contract/kind %)) contracts))))
+
+(deftest compiler-derives-runtime-contract-phases
+  (let [loaded (loader/load-policy-contracts! "resources/policies/runtime/00-manifest.edn")
+        compiled (contracts/compile-contracts loaded)
+        route-ids (mapv :contract/id (:routing-clauses compiled))
+        gpt-paid (first (filter #(= :route/gpt-free-blocked (:contract/id %))
+                                (:routing-clauses compiled)))]
+    (is (= [:route/glm
+            :route/claude-opus-4-6
+            :route/claude
+            :route/gpt-oss
+            :route/gpt-free-blocked
+            :route/gpt-6-plus
+            :route/gpt
+            :route/default]
+           route-ids))
+    (is (= "^(?:gpt-5\\.3-codex|gpt-5-mini)$"
+           (get-in gpt-paid [:match/family-contract :match/model-pattern])))
+    (is (= ["openai" "factory" "openrouter" "requesty" "vivgrid"]
+           (:prefer/provider-order gpt-paid)))
+    (is (= [:plus :pro :business :enterprise :team]
+           (:require/plan-set gpt-paid)))
+    (is (= 4 (count (:provider-capabilities compiled))))
+    (is (= 2 (count (:request-surface-defaults compiled))))
+    (is (= 4 (count (:tenant-authorization-clauses compiled))))
+    (is (= 50 (:fallback/max-attempts (:fallback-policy compiled))))
+    (is (= :router/root (get-in compiled [:root-program :contract/id])))))
+
+(deftest compiler-rejects-duplicate-contract-ids
+  (is (thrown-with-msg? js/Error #"Duplicate policy contract id"
+                        (contracts/index-contracts [{:contract/id :dupe :contract/kind :x}
+                                                    {:contract/id :dupe :contract/kind :y}]))))
 
 (deftest malformed-policy-edn-fails-loader-validation
   (let [fs (js/require "fs")
