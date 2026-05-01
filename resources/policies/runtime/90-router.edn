@@ -10,7 +10,7 @@
                    :filter-account-candidates
                    :order-account-candidates
                    :execute-selected-strategy
-                   :fallback-and-backtrack]
+                   :exhaust-if-unhandled]
   :program/backtracking [:provider-candidate :account-candidate :strategy-candidate]
   :program/exhausted-result :policy-tree-exhausted}
 

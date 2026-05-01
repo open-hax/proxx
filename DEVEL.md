@@ -94,7 +94,6 @@ Notes:
 - `PROXY_HOST` (default: `127.0.0.1`)
 - `PROXY_PORT` (default: `8789`; falls back to `PORT` for Render-style runtimes)
 - `UPSTREAM_PROVIDER_ID` (default: `vivgrid`; provider id to target for routing; if you still use seed files, it also names the legacy default file provider)
-- `UPSTREAM_FALLBACK_PROVIDER_IDS` (default: auto `ollama-cloud` when primary is `vivgrid`, or `vivgrid` when primary is `ollama-cloud`; comma-separated)
 - `UPSTREAM_BASE_URL` (optional override; when unset or blank, the proxy derives it from `UPSTREAM_PROVIDER_ID` / `UPSTREAM_PROVIDER_BASE_URLS`)
 - `UPSTREAM_PROVIDER_BASE_URLS` (optional mapping: `provider=url,provider=url`; defaults include `vivgrid=https://api.vivgrid.com`, `ollama-cloud=https://ollama.com`, `ob1=https://dashboard.openblocklabs.com/api`, `openrouter=https://openrouter.ai/api/v1`, and `requesty=https://router.requesty.ai/v1`)
 - `OPENAI_PROVIDER_ID` (default: `openai`; provider id for OpenAI-routed accounts)

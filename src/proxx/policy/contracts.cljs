@@ -375,6 +375,28 @@
       (lookup-provider-value by-provider provider-id [])
       (or (:strategies input) []))))
 
+(defn- evidence-model-variants [model-id]
+  (let [model (str model-id)]
+    (vec (distinct [model (str/replace model #":" "-")]))))
+
+(defn- evidence-has-model? [evidence provider-id model-id]
+  (boolean
+   (some (fn [candidate]
+           (or (get-in evidence [provider-id candidate])
+               (get-in evidence [(keyword provider-id) candidate])))
+         (evidence-model-variants model-id))))
+
+(defn- provider-model-evidenced? [input provider-id model-id]
+  (let [models-dev (or (get-any input [:models-dev/provider-models :modelsDevProviderModels]) {})
+        snapshots (or (get-any input [:provider-model-snapshots :providerModelSnapshots]) {})]
+    (or (evidence-has-model? models-dev provider-id model-id)
+        (evidence-has-model? snapshots provider-id model-id))))
+
+(defn- evidence-filtered-provider-ids [route input provider-ids model-id]
+  (if (= :route/default (:contract/id route))
+    (filterv #(provider-model-evidenced? input % model-id) provider-ids)
+    provider-ids))
+
 (defn preview-policy-decision
   "Produce a pure policy decision preview from compiled declarative contracts.
 
@@ -390,7 +412,8 @@
        :model-id model-id}
       (if-let [route (select-routing-clause compiled model-id)]
         (let [provider-ids (or (get-any input [:provider-ids :providerIds]) [])
-              tenant-allowed-providers (filterv #(tenant-provider-allowed? tenant-settings %) provider-ids)
+              evidenced-providers (evidence-filtered-provider-ids route input provider-ids model-id)
+              tenant-allowed-providers (filterv #(tenant-provider-allowed? tenant-settings %) evidenced-providers)
               ordered-providers (vec (order-provider-candidates route tenant-allowed-providers))
               provider-id (first ordered-providers)]
           (if-not provider-id

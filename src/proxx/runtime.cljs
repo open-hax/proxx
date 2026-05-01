@@ -1,6 +1,7 @@
 (ns proxx.runtime
   (:require [proxx.policy :as policy]
             [proxx.policy.contracts :as policy-contracts]
+            [proxx.policy.evidence :as policy-evidence]
             [proxx.policy.loader :as policy-loader]
             [proxx.policy.router :as router]
             [proxx.processor :as processor]
@@ -52,6 +53,14 @@
                   :data (ex-data e)
                   :trace @trace})))))
 
+(defn load-policy-evidence-js
+  "Load models.dev and /v1/models provider snapshot evidence for policy context."
+  [opts]
+  (-> (policy-evidence/load-policy-evidence! (js->clj (or opts #js {}) :keywordize-keys true))
+      (.then (fn [evidence]
+               #js {"models-dev/provider-models" (clj->js (:models-dev/provider-models evidence))
+                    "provider-model-snapshots" (clj->js (:provider-model-snapshots evidence))}))))
+
 (defn preview-policy-decision-js
   "Load declarative policy contracts from manifest-path and return a pure decision preview."
   [manifest-path input]
@@ -72,4 +81,5 @@
        :validateEntity validate-entity-js
        :projectPheromone project-pheromone-js
        :routePolicy route-policy-js
+       :loadPolicyEvidence load-policy-evidence-js
        :previewPolicyDecision preview-policy-decision-js})

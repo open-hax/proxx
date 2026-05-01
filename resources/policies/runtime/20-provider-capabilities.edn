@@ -14,6 +14,14 @@
   :contract/kind :preference-order
   :preference/items ["zai" "rotussy" "requesty" "factory" "openrouter" "vivgrid" "ollama-cloud"]}
 
+ {:contract/id :provider-order/mimo
+  :contract/kind :preference-order
+  :preference/items ["xiaomi" "openrouter" "requesty" "factory" "vivgrid"]}
+
+ {:contract/id :provider-order/embeddings
+  :contract/kind :preference-order
+  :preference/items ["llamacpp-embed" "ollama"]}
+
  {:contract/id :provider-capability/gemini-chat
   :contract/kind :provider-capability
   :match/provider-pattern "^gemini$"
@@ -36,7 +44,7 @@
 
  {:contract/id :provider-capability/openai-compatible-chat
   :contract/kind :provider-capability
-  :match/provider-pattern "^(openrouter|requesty|ob1|zen)$"
+  :match/provider-pattern "^(openrouter|requesty|ob1|zen|xiaomi)$"
   :match/request-kind :chat
   :exclude/strategies [:messages]}
 
@@ -50,4 +58,10 @@
   :contract/kind :request-surface-default
   :match/provider-pattern ".*"
   :match/request-kind :responses-passthrough
-  :prefer/strategies [:openai-responses-passthrough :responses-passthrough :chat-completions]}]
+  :prefer/strategies [:openai-responses-passthrough :responses-passthrough :chat-completions]}
+
+ {:contract/id :request-surface/embeddings
+  :contract/kind :request-surface-default
+  :match/provider-pattern "^(llamacpp-embed|ollama)$"
+  :match/request-kind :embeddings
+  :prefer/strategies [:embeddings]}]

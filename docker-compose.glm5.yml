@@ -23,7 +23,6 @@ services:
       PROXY_MODELS_FILE: /workspace/service-config/models.json
       PROXY_REQUEST_LOGS_FILE: /app/data/request-logs.jsonl
       UPSTREAM_PROVIDER_ID: "ollama-cloud"
-      UPSTREAM_FALLBACK_PROVIDER_IDS: ""
       DISABLED_PROVIDER_IDS: "vivgrid,openai"
       UPSTREAM_BASE_URL: "https://ollama.com"
       UPSTREAM_PROVIDER_BASE_URLS: "ollama-cloud=https://ollama.com"

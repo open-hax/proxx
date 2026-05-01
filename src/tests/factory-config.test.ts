@@ -157,21 +157,6 @@ test("FACTORY_API_KEY env var creates factory provider in KeyPool", { concurrenc
   );
 });
 
-// --- VAL-CONFIG-003: Factory provider appears in fallback list when configured ---
-
-test("Factory provider appears in fallback list when UPSTREAM_FALLBACK_PROVIDER_IDS includes factory", async () => {
-  await withEnv(
-    {
-      PROXY_AUTH_TOKEN: "test-token",
-      UPSTREAM_FALLBACK_PROVIDER_IDS: "factory,ollama-cloud",
-    },
-    () => {
-      const config = loadConfig("/tmp/factory-config-test");
-      assert.ok(config.upstreamFallbackProviderIds.includes("factory"));
-    },
-  );
-});
-
 // --- VAL-CONFIG-005: Factory provider excluded when in DISABLED_PROVIDER_IDS ---
 
 test("Factory provider excluded when DISABLED_PROVIDER_IDS=factory", async () => {

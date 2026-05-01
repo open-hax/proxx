@@ -219,7 +219,7 @@ interface ProviderAttemptOutcomeContinue {
 
 type ProviderAttemptOutcome = ProviderAttemptOutcomeHandled | ProviderAttemptOutcomeContinue;
 
-interface FallbackAccumulator {
+interface RoutingAccumulator {
   sawRateLimit: boolean;
   sawRequestError: boolean;
   sawUpstreamServerError: boolean;
@@ -234,10 +234,10 @@ interface FallbackAccumulator {
   };
 }
 
-export interface ProviderFallbackExecutionResult {
+export interface ProviderRoutingExecutionResult {
   readonly handled: boolean;
   readonly candidateCount: number;
-  readonly summary: FallbackAccumulator;
+  readonly summary: RoutingAccumulator;
 }
 
 interface PreferredAffinity {
@@ -1813,7 +1813,7 @@ export type {
   ProviderAttemptContext,
   LocalAttemptContext,
   ProviderAttemptOutcome,
-  FallbackAccumulator,
+  RoutingAccumulator,
   PreferredAffinity,
   BuildPayloadResult,
   ProviderStrategy,

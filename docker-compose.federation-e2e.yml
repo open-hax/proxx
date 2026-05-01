@@ -19,7 +19,6 @@ x-proxx-node: &proxx-node
     PROXY_REQUEST_LOGS_FLUSH_MS: "250"
     PROXY_PROMPT_AFFINITY_FLUSH_MS: "250"
     UPSTREAM_PROVIDER_ID: "openai"
-    UPSTREAM_FALLBACK_PROVIDER_IDS: ""
     DISABLED_PROVIDER_IDS: ""
     OPENAI_PROVIDER_ID: "openai"
     OPENAI_BASE_URL: "http://federation-mock-openai:8080"

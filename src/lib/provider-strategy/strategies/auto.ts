@@ -2,7 +2,7 @@ import { isAutoModel, rankAutoModels, selectAutoModel } from "../../auto-model-s
 import type { AccountHealthStore } from "../../db/account-health-store.js";
 import type { ResolvedModelCatalog } from "../../provider-routing.js";
 import type { RequestLogStore } from "../../request-log-store.js";
-import type { ProviderFallbackExecutionResult } from "../shared.js";
+import type { ProviderRoutingExecutionResult } from "../shared.js";
 
 const DEFAULT_AUTO_MODEL_MAX_CANDIDATES = 8;
 
@@ -78,7 +78,7 @@ export function buildAutoModelCandidates(input: {
 export function shouldAdvanceAutoModelCandidate(input: {
   readonly routingModelInput: string;
   readonly hasMoreModelCandidates: boolean;
-  readonly execution: ProviderFallbackExecutionResult;
+  readonly execution: ProviderRoutingExecutionResult;
 }): boolean {
   if (!input.hasMoreModelCandidates || !isAutoModel(input.routingModelInput)) {
     return false;

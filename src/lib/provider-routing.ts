@@ -313,13 +313,13 @@ async function routeForProvider(
 export async function buildProviderRoutes(
   config: ProxyConfig,
   useOpenAiUpstream: boolean,
-  includeOpenAiFallback: boolean = false
+  includeOpenAiProvider: boolean = false
 ): Promise<ProviderRoute[]> {
   if (useOpenAiUpstream) {
     const routes: ProviderRoute[] = [];
     const seen = new Set<string>();
 
-    for (const providerId of [config.openaiProviderId, config.upstreamProviderId, "factory", ...config.upstreamFallbackProviderIds]) {
+    for (const providerId of [config.openaiProviderId, config.upstreamProviderId, "factory"]) {
       if (seen.has(providerId)) {
         continue;
       }
@@ -338,9 +338,9 @@ export async function buildProviderRoutes(
 
   const routes: ProviderRoute[] = [];
   const seen = new Set<string>();
-  const providerIds = includeOpenAiFallback
-    ? [config.upstreamProviderId, config.openaiProviderId, "factory", ...config.upstreamFallbackProviderIds]
-    : [config.upstreamProviderId, "factory", ...config.upstreamFallbackProviderIds];
+  const providerIds = includeOpenAiProvider
+    ? [config.upstreamProviderId, config.openaiProviderId, "factory"]
+    : [config.upstreamProviderId, "factory"];
 
   for (const providerId of providerIds) {
     if (seen.has(providerId)) {
@@ -363,13 +363,13 @@ export async function buildProviderRoutesWithDynamicBaseUrls(
   config: ProxyConfig,
   useOpenAiUpstream: boolean,
   getDynamicBaseUrl: DynamicProviderBaseUrlGetter | undefined,
-  includeOpenAiFallback: boolean = false
+  includeOpenAiProvider: boolean = false
 ): Promise<ProviderRoute[]> {
   if (useOpenAiUpstream) {
     const routes: ProviderRoute[] = [];
     const seen = new Set<string>();
 
-    for (const providerId of [config.openaiProviderId, config.upstreamProviderId, "factory", ...config.upstreamFallbackProviderIds]) {
+    for (const providerId of [config.openaiProviderId, config.upstreamProviderId, "factory"]) {
       if (seen.has(providerId)) {
         continue;
       }
@@ -388,9 +388,9 @@ export async function buildProviderRoutesWithDynamicBaseUrls(
 
   const routes: ProviderRoute[] = [];
   const seen = new Set<string>();
-  const providerIds = includeOpenAiFallback
-    ? [config.upstreamProviderId, config.openaiProviderId, "factory", ...config.upstreamFallbackProviderIds]
-    : [config.upstreamProviderId, "factory", ...config.upstreamFallbackProviderIds];
+  const providerIds = includeOpenAiProvider
+    ? [config.upstreamProviderId, config.openaiProviderId, "factory"]
+    : [config.upstreamProviderId, "factory"];
 
   for (const providerId of providerIds) {
     if (seen.has(providerId)) {

@@ -115,6 +115,7 @@ test("seedFromJsonValue validates provider credentials through active CLJS runti
     },
     projectPheromone: () => 0,
     routePolicy: () => ({ status: "error", trace: [] }),
+    loadPolicyEvidence: async () => ({}),
     previewPolicyDecision: () => ({ status: "error" }),
   };
   setActiveCljsRuntime(cljsRuntime);

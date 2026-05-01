@@ -111,7 +111,6 @@ async function withProxyApp(
     host: "127.0.0.1",
     port: 0,
     upstreamProviderId: "vivgrid",
-    upstreamFallbackProviderIds: [],
     disabledProviderIds: [],
     upstreamProviderBaseUrls: {
       vivgrid: `http://127.0.0.1:${address.port}`,
@@ -646,7 +645,6 @@ test("claude-opus-4-6 automatically routes to Factory first", { concurrency: fal
           },
           configOverrides: {
             upstreamProviderId: "openai",
-            upstreamFallbackProviderIds: ["requesty"],
           },
           upstreamHandler: async (request, _body) => {
             capturedUrl = request.url ?? "";
@@ -719,7 +717,6 @@ test("claude-opus-4-6 auto routing applies safe xhigh thinking budget mapping", 
           },
           configOverrides: {
             upstreamProviderId: "openai",
-            upstreamFallbackProviderIds: ["requesty"],
           },
           upstreamHandler: async (request, body) => {
             capturedUrls.push(request.url ?? "");
@@ -869,7 +866,6 @@ test("/v1/responses routes gpt-* to Factory responses endpoint", { concurrency: 
           keysPayload: { providers: {} },
           configOverrides: {
             upstreamProviderId: "factory",
-            upstreamFallbackProviderIds: [],
           },
           upstreamHandler: async (request, body) => {
             capturedUrl = request.url ?? "";
@@ -934,7 +930,6 @@ test("Factory 4xx responses persist sanitized prompt-rejection diagnostics", { c
           keysPayload: { providers: {} },
           configOverrides: {
             upstreamProviderId: "factory",
-            upstreamFallbackProviderIds: [],
           },
           upstreamHandler: async () => ({
             status: 403,

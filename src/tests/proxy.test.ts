@@ -135,7 +135,6 @@ async function withProxyApp(
     host: "127.0.0.1",
     port: 0,
     upstreamProviderId: "vivgrid",
-    upstreamFallbackProviderIds: [],
     disabledProviderIds: [],
     upstreamProviderBaseUrls: {
       vivgrid: `http://127.0.0.1:${address.port}`,
@@ -330,7 +329,6 @@ async function withZaiProxyApp(
           keysPayload: { providers: {} },
           configOverrides: {
             upstreamProviderId: "zai",
-            upstreamFallbackProviderIds: [],
             localOllamaEnabled: false,
           },
           upstreamHandler,
@@ -418,7 +416,6 @@ test("routes claude models through chat completions for the openrouter provider"
           keysPayload: { providers: {} },
           configOverrides: {
             upstreamProviderId: "openrouter",
-            upstreamFallbackProviderIds: [],
           },
           upstreamHandler: async (request, body) => {
             if (request.url === "/api/embed" || request.url === "/api/embeddings") {
@@ -478,7 +475,6 @@ test("routes claude models through chat completions for the requesty provider", 
           keysPayload: { providers: {} },
           configOverrides: {
             upstreamProviderId: "requesty",
-            upstreamFallbackProviderIds: [],
           },
           upstreamHandler: async (request, body) => {
             if (request.url === "/api/embed" || request.url === "/api/embeddings") {
@@ -536,7 +532,6 @@ test("routes claude models through chat completions for the ob1 provider", { con
       },
       configOverrides: {
         upstreamProviderId: "ob1",
-        upstreamFallbackProviderIds: [],
       },
       upstreamHandler: async (request, body) => {
         if (request.url === "/api/embed" || request.url === "/api/embeddings") {
@@ -600,7 +595,6 @@ test("routes /v1/responses through requesty when REQUESTY_API_KEY is configured"
           keysPayload: { providers: {} },
           configOverrides: {
             upstreamProviderId: "requesty",
-            upstreamFallbackProviderIds: [],
           },
           upstreamHandler: async (request, body) => {
             if (request.url === "/api/embed" || request.url === "/api/embeddings") {
@@ -667,7 +661,6 @@ test("requesty gpt chat requests route through /v1/responses with prefixed model
           keysPayload: { providers: {} },
           configOverrides: {
             upstreamProviderId: "requesty",
-            upstreamFallbackProviderIds: [],
           },
           upstreamHandler: async (request, body) => {
             if (request.url === "/api/embed" || request.url === "/api/embeddings") {
@@ -772,7 +765,6 @@ test("requesty /v1/responses preserves nested reasoning summary for gpt models",
           keysPayload: { providers: {} },
           configOverrides: {
             upstreamProviderId: "requesty",
-            upstreamFallbackProviderIds: [],
           },
           upstreamHandler: async (request, body) => {
             if (request.url === "/api/embed" || request.url === "/api/embeddings") {
@@ -874,7 +866,6 @@ test("routes /v1/images/generations through requesty", { concurrency: false }, a
           keysPayload: { providers: {} },
           configOverrides: {
             upstreamProviderId: "requesty",
-            upstreamFallbackProviderIds: [],
           },
           upstreamHandler: async (request, body) => {
             if (request.url === "/api/embed" || request.url === "/api/embeddings") {
@@ -968,7 +959,6 @@ test("OpenAI images auto mode routes OAuth tokens to Platform API only", { concu
           },
           configOverrides: {
             upstreamProviderId: "openai",
-            upstreamFallbackProviderIds: [],
             openaiProviderId: "openai",
             openaiImagesUpstreamMode: "auto",
             openaiApiBaseUrl,
@@ -1079,7 +1069,6 @@ test("OpenAI images auto mode falls back to Codex Responses image_generation whe
           },
           configOverrides: {
             upstreamProviderId: "openai",
-            upstreamFallbackProviderIds: [],
             openaiProviderId: "openai",
             openaiImagesUpstreamMode: "auto",
             openaiApiBaseUrl,
@@ -1147,7 +1136,6 @@ test("routes chat completions through native Gemini generateContent when GEMINI_
           keysPayload: { providers: {} },
           configOverrides: {
             upstreamProviderId: "gemini",
-            upstreamFallbackProviderIds: [],
           },
           upstreamHandler: async (request, body) => {
             if (request.url === "/api/embed" || request.url === "/api/embeddings") {
@@ -1219,7 +1207,6 @@ test("maps Gemini 2.5 Flash reasoning effort to thinkingBudget and reasoning_con
           keysPayload: { providers: {} },
           configOverrides: {
             upstreamProviderId: "gemini",
-            upstreamFallbackProviderIds: [],
           },
           upstreamHandler: async (request, body) => {
             if (request.url === "/api/embed" || request.url === "/api/embeddings") {
@@ -1298,7 +1285,6 @@ test("maps Gemini 3.1 Pro reasoning effort to thinkingLevel", { concurrency: fal
           keysPayload: { providers: {} },
           configOverrides: {
             upstreamProviderId: "gemini",
-            upstreamFallbackProviderIds: [],
           },
           upstreamHandler: async (request, body) => {
             if (request.url === "/api/embed" || request.url === "/api/embeddings") {
@@ -1501,7 +1487,6 @@ test("routes mistral chat requests through env-backed Mistral provider", { concu
           keysPayload: { providers: {} },
           configOverrides: {
             upstreamProviderId: "mistral",
-            upstreamFallbackProviderIds: [],
             localOllamaEnabled: false,
           },
           upstreamHandler: async (request, body) => {
@@ -1669,7 +1654,6 @@ test("reassigns ollama session-limited prompt_cache_key affinity after one fallb
       },
       configOverrides: {
         upstreamProviderId: "ollama-cloud",
-        upstreamFallbackProviderIds: [],
         keyCooldownJitterFactor: 0,
       },
       upstreamHandler: async (request) => {
@@ -2262,7 +2246,6 @@ test("prefers zai over vivgrid for glm shared models when both are available", a
       },
       configOverrides: {
         upstreamProviderId: "vivgrid",
-        upstreamFallbackProviderIds: ["zai"]
       },
       upstreamHandler: async (request) => {
         const auth = request.headers.authorization;
@@ -2345,7 +2328,6 @@ test("continues trying accounts after model-not-found response", async () => {
       },
       configOverrides: {
         upstreamProviderId: "requesty",
-        upstreamFallbackProviderIds: ["vivgrid"]
       },
       upstreamHandler: async (request, body) => {
         const auth = request.headers.authorization;
@@ -2491,7 +2473,6 @@ test("glm provider ordering uses zai before vivgrid candidate keys", async () =>
       },
       configOverrides: {
         upstreamProviderId: "vivgrid",
-        upstreamFallbackProviderIds: ["zai"]
       },
       upstreamHandler: async (request) => {
         const auth = request.headers.authorization;
@@ -2566,7 +2547,6 @@ test("falls back from openai-prefixed codex route to standard fallback providers
       },
       configOverrides: {
         upstreamProviderId: "vivgrid",
-        upstreamFallbackProviderIds: [],
       },
       upstreamHandler: async (request, body) => {
         if (request.url === "/api/embed" || request.url === "/api/embeddings") {
@@ -2676,7 +2656,6 @@ test("de-prioritizes vivgrid behind codex oauth accounts for gpt routing", async
       },
       configOverrides: {
         upstreamProviderId: "vivgrid",
-        upstreamFallbackProviderIds: []
       },
       upstreamHandler: async (request, body) => {
         if (request.url === "/api/embed" || request.url === "/api/embeddings") {
@@ -2798,7 +2777,6 @@ test("prefers free codex oauth accounts for gpt-5.4 before paid accounts (falls 
       },
       configOverrides: {
         upstreamProviderId: "vivgrid",
-        upstreamFallbackProviderIds: []
       },
       upstreamHandler: async (request, body) => {
         if (request.url === "/api/embed" || request.url === "/api/embeddings") {
@@ -2919,7 +2897,6 @@ test("prefers free codex oauth accounts for gpt-5.2-codex before paid accounts",
       },
       configOverrides: {
         upstreamProviderId: "openai",
-        upstreamFallbackProviderIds: []
       },
       upstreamHandler: async (request, body) => {
         const auth = request.headers.authorization;
@@ -3051,7 +3028,6 @@ test("refreshes expired openai fallback accounts before gpt-5.4 fallback", async
           },
           configOverrides: {
             upstreamProviderId: "vivgrid",
-            upstreamFallbackProviderIds: [],
           },
           upstreamHandler: async (request, body) => {
             if (request.url === "/api/embed" || request.url === "/api/embeddings") {
@@ -3190,7 +3166,6 @@ test("refreshes oauth tokens on 401 unauthorized before marking rate-limited", a
           },
           configOverrides: {
             upstreamProviderId: "openai",
-            upstreamFallbackProviderIds: [],
           },
           upstreamHandler: async (request, _body) => {
             const auth = request.headers.authorization;
@@ -3317,7 +3292,6 @@ test("terminal OpenAI refresh failures clear the refresh token and do not retry 
           },
           configOverrides: {
             upstreamProviderId: "openai",
-            upstreamFallbackProviderIds: [],
           },
           upstreamHandler: async () => ({
             status: 200,
@@ -3379,7 +3353,6 @@ test("falls back from ollama-cloud to vivgrid for shared models when primary pro
       },
       configOverrides: {
         upstreamProviderId: "ollama-cloud",
-        upstreamFallbackProviderIds: ["vivgrid"]
       },
       upstreamHandler: async (request) => {
         const auth = request.headers.authorization;
@@ -3463,7 +3436,6 @@ test("skips ollama-cloud entirely when routing gpt models", async () => {
       },
       configOverrides: {
         upstreamProviderId: "ollama-cloud",
-        upstreamFallbackProviderIds: ["vivgrid"]
       },
       upstreamHandler: async (request, body) => {
         const auth = request.headers.authorization;
@@ -3558,7 +3530,6 @@ test("skips ollama-cloud entirely when routing gpt-5.2 models", async () => {
       },
       configOverrides: {
         upstreamProviderId: "ollama-cloud",
-        upstreamFallbackProviderIds: ["vivgrid"]
       },
       upstreamHandler: async (request, body) => {
         if (request.method !== "POST") {
@@ -3860,7 +3831,6 @@ test("ollama weekly limit applies the multiplied cooldown until it expires", asy
         },
         configOverrides: {
           upstreamProviderId: "ollama-cloud",
-          upstreamFallbackProviderIds: [],
         },
         upstreamHandler: async () => {
           upstreamCalls += 1;
@@ -4033,7 +4003,6 @@ test("model-gated glm-5 accounts stay usable for gemma4", async () => {
       },
       configOverrides: {
         upstreamProviderId: "ollama-cloud",
-        upstreamFallbackProviderIds: [],
         localOllamaEnabled: false,
         keyCooldownJitterFactor: 0,
       },
@@ -6800,7 +6769,6 @@ test("routes gpt-5.4 through responses for openai oauth accounts", async () => {
       },
       configOverrides: {
         upstreamProviderId: "openai",
-        upstreamFallbackProviderIds: [],
       },
       upstreamHandler: async (request, body) => {
         observedPath = request.url ?? "";
@@ -6895,7 +6863,6 @@ test("buffers openai responses SSE deltas into chat content when the terminal re
       },
       configOverrides: {
         upstreamProviderId: "openai",
-        upstreamFallbackProviderIds: [],
       },
       upstreamHandler: async () => ({
         status: 200,
@@ -6955,7 +6922,6 @@ test("reuses the same openai oauth codex account for repeated gpt prompt_cache_k
       },
       configOverrides: {
         upstreamProviderId: "openai",
-        upstreamFallbackProviderIds: [],
       },
       upstreamHandler: async (request, body) => {
         const parsedBody = JSON.parse(body) as Record<string, unknown>;
@@ -7047,7 +7013,6 @@ test("reassigns openai oauth codex prompt_cache_key affinity when the pinned gpt
       },
       configOverrides: {
         upstreamProviderId: "openai",
-        upstreamFallbackProviderIds: [],
       },
       upstreamHandler: async (request) => {
         const auth = typeof request.headers.authorization === "string"
@@ -7140,7 +7105,6 @@ test("does not immediately promote fallback affinity after one successful reassi
       },
       configOverrides: {
         upstreamProviderId: "openai",
-        upstreamFallbackProviderIds: [],
       },
       upstreamHandler: async (request) => {
         const auth = typeof request.headers.authorization === "string"
@@ -7224,7 +7188,6 @@ test("groups prompt cache audit rows by hash and distinct accounts touched", asy
       },
       configOverrides: {
         upstreamProviderId: "openai",
-        upstreamFallbackProviderIds: [],
       },
       upstreamHandler: async (request) => {
         const auth = typeof request.headers.authorization === "string"
@@ -7379,7 +7342,6 @@ test("prompt cache audit respects configured openai provider id and keeps latest
       configOverrides: {
         openaiProviderId: "chatgpt-oauth",
         upstreamProviderId: "chatgpt-oauth",
-        upstreamFallbackProviderIds: [],
       },
       upstreamHandler: async () => ({
         status: 200,
@@ -7519,7 +7481,6 @@ test("injects instructions for gpt-5.2 routed through openai oauth (regression: 
       },
       configOverrides: {
         upstreamProviderId: "openai",
-        upstreamFallbackProviderIds: [],
       },
       upstreamHandler: async (request, body) => {
         observedPath = request.url ?? "";
@@ -7592,7 +7553,6 @@ test("openai passthrough coerces null instructions to empty string (regression: 
       },
       configOverrides: {
         upstreamProviderId: "openai",
-        upstreamFallbackProviderIds: [],
       },
       upstreamHandler: async (request, body) => {
         observedBody = JSON.parse(body);
@@ -7650,7 +7610,6 @@ test("openai passthrough still reaches codex when provider catalog lookup is una
       },
       configOverrides: {
         upstreamProviderId: "openai",
-        upstreamFallbackProviderIds: [],
       },
       upstreamHandler: async (request, body) => {
         observedPath = request.url ?? "";
@@ -7707,7 +7666,6 @@ test("openai passthrough strips max_output_tokens for codex path (regression: un
       },
       configOverrides: {
         upstreamProviderId: "openai",
-        upstreamFallbackProviderIds: [],
       },
       upstreamHandler: async (request, body) => {
         observedBody = JSON.parse(body);
@@ -7765,7 +7723,6 @@ test("/api/tools/websearch proxies via Responses web_search and extracts url cit
       proxyAuthToken: "proxy-token",
       configOverrides: {
         upstreamProviderId: "openai",
-        upstreamFallbackProviderIds: [],
       },
       upstreamHandler: async (request, body) => {
         observedPath = request.url ?? "";
@@ -7897,7 +7854,6 @@ test("/api/tools/websearch falls back to Exa when OpenAI fails", async () => {
         proxyAuthToken: "proxy-token",
         configOverrides: {
           upstreamProviderId: "openai",
-          upstreamFallbackProviderIds: [],
         },
         upstreamHandler: async () => {
           callOrder.push("openai");
@@ -7987,7 +7943,6 @@ test("/api/tools/websearch falls back to Exa when OpenAI returns empty output", 
         proxyAuthToken: "proxy-token",
         configOverrides: {
           upstreamProviderId: "openai",
-          upstreamFallbackProviderIds: [],
         },
         upstreamHandler: async () => {
           callOrder.push("openai");
@@ -8062,7 +8017,6 @@ test("records token usage from codex SSE responses with missing content-type (re
       },
       configOverrides: {
         upstreamProviderId: "openai",
-        upstreamFallbackProviderIds: [],
         responsesModelPrefixes: ["gpt-"],
       },
       upstreamHandler: async () => {
@@ -8195,7 +8149,6 @@ test("openai chat completions strategy converts GPT requests to responses format
       models: ["gpt-5.4"],
       configOverrides: {
         upstreamProviderId: "openai",
-        upstreamFallbackProviderIds: [],
         responsesModelPrefixes: ["gpt-"],
       },
       upstreamHandler: async (request, body) => {
@@ -8282,7 +8235,6 @@ test("glm chat requests route to rotussy instead of ollama-cloud or the openai p
           models: ["glm-5"],
           configOverrides: {
             upstreamProviderId: "openai",
-            upstreamFallbackProviderIds: ["ollama-cloud", "rotussy", "zai"],
             localOllamaEnabled: false,
           },
           upstreamHandler: async (request, body) => {
@@ -8380,7 +8332,6 @@ test("glm chat requests skip ollama-cloud when provider catalog does not adverti
           models: ["glm-4.7-flash"],
           configOverrides: {
             upstreamProviderId: "openai",
-            upstreamFallbackProviderIds: ["ollama-cloud", "rotussy", "zai"],
             localOllamaEnabled: false,
           },
           upstreamHandler: async (request, body) => {
@@ -8486,7 +8437,6 @@ test("glm /v1/responses requests route through rotussy chat-completions compatib
           models: ["glm-5"],
           configOverrides: {
             upstreamProviderId: "openai",
-            upstreamFallbackProviderIds: ["rotussy", "requesty"],
             localOllamaEnabled: false,
           },
           upstreamHandler: async (request, body) => {
@@ -8996,7 +8946,6 @@ test("routes local-only ollama models even when ollama-cloud is also configured"
       handleModelCatalog: true,
       configOverrides: {
         upstreamProviderId: "zai",
-        upstreamFallbackProviderIds: ["ollama-cloud"],
       },
       upstreamHandler: async (request, body) => {
         const authorization = typeof request.headers.authorization === "string"
@@ -9185,7 +9134,6 @@ test("serves native /api/tags from the discovered model catalog", async () => {
       },
       configOverrides: {
         upstreamProviderId: "ollama-cloud",
-        upstreamFallbackProviderIds: []
       },
       upstreamHandler: async (request) => {
         observedPath = request.url ?? "";
@@ -11492,7 +11440,6 @@ test("serves preferred model ordering from models JSON file", async () => {
       },
       configOverrides: {
         upstreamProviderId: "vivgrid",
-        upstreamFallbackProviderIds: [],
       },
       upstreamHandler: async (request) => ({
         status: 200,
@@ -11551,7 +11498,6 @@ test("publishes declared static and synthetic models from models JSON alongside 
       },
       configOverrides: {
         upstreamProviderId: "vivgrid",
-        upstreamFallbackProviderIds: [],
       },
       upstreamHandler: async (request) => ({
         status: 200,
@@ -11609,7 +11555,6 @@ test("routes declared alias models without requiring provider catalog discovery"
       },
       configOverrides: {
         upstreamProviderId: "vivgrid",
-        upstreamFallbackProviderIds: [],
       },
       upstreamHandler: async (request, body) => {
         if (request.method === "POST" && request.url === "/v1/chat/completions") {
@@ -11711,7 +11656,6 @@ test("auto:cheapest falls through to the next ranked model when the cheapest pri
       },
       configOverrides: {
         upstreamProviderId: "openai",
-        upstreamFallbackProviderIds: ["ollama-cloud"],
         localOllamaEnabled: false,
       },
       upstreamHandler: async (request, body) => {
@@ -11821,7 +11765,6 @@ test("/v1/responses auto:cheapest ranks only models reachable by responses provi
       },
       configOverrides: {
         upstreamProviderId: "openai",
-        upstreamFallbackProviderIds: ["ollama-cloud"],
         localOllamaEnabled: false,
       },
       upstreamHandler: async (request, body) => {
@@ -11918,7 +11861,6 @@ test("returns 403 when requested model is disabled", async () => {
       },
       configOverrides: {
         upstreamProviderId: "vivgrid",
-        upstreamFallbackProviderIds: [],
       },
       upstreamHandler: async (request) => ({
         status: 200,
@@ -13040,7 +12982,6 @@ test("includes ollama provider catalog models and largest-size aliases in /v1/mo
       },
       configOverrides: {
         upstreamProviderId: "ollama-cloud",
-        upstreamFallbackProviderIds: []
       },
       upstreamHandler: async (request) => {
         if (request.method === "GET" && request.url === "/v1/models") {
@@ -13114,7 +13055,6 @@ test("returns 404 when requested model is not in provider catalogs", async () =>
       },
       configOverrides: {
         upstreamProviderId: "vivgrid",
-        upstreamFallbackProviderIds: [],
       },
       upstreamHandler: async (request) => ({
         status: 200,
@@ -13169,7 +13109,6 @@ test("rewrites largest-model alias requests for ollama catalog models", async ()
       },
       configOverrides: {
         upstreamProviderId: "ollama-cloud",
-        upstreamFallbackProviderIds: []
       },
       upstreamHandler: async (request, body) => {
         if (request.method === "GET" && request.url === "/v1/models") {

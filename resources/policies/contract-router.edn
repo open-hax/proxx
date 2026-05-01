@@ -1,0 +1,73 @@
+[{:contract/id :router/contract-root
+  :contract/kind :policy
+  :policy/outcome :reduce
+  :policy/children
+  [{:contract/id :router/mimo-chat
+    :contract/kind :policy
+    :policy/condition {:eval/op :all
+                       :eval/forms [(= (get ctx :request-kind) :chat)
+                                    (contract/apply [:authorization-clause :model-allow-list] ctx)
+                                    (contract/apply [:routing-clause :mimo] ctx)]}
+    :policy/filters [{:eval/op :all
+                      :eval/target :credentials
+                      :eval/forms [(contract/apply [:provider-capability :openai-compatible-chat] ctx)
+                                   (contract/apply [:authorization-clause :provider-allow-list] ctx)
+                                   (contract/apply [:authorization-clause :provider-disabled-list] ctx)
+                                   (contract/apply [:account-constraint :free-blocked-models] ctx)
+                                   (not (get it :disabled?))
+                                   (not (get it :rate-limited?))]}]
+    :policy/outcome :project
+    :policy/project [{:project/from :credentials
+                      :project/to :provider-ids
+                      :project/form (get it :provider-id)
+                      :project/distinct? true}]
+    :policy/children
+    [{:contract/id :router/sort-mimo-credentials
+      :contract/kind :policy
+      :policy/outcome :sorted
+      :policy/sort {:eval/op :all
+                    :eval/target :credentials
+                    :eval/forms [(get it :rank)
+                                 (get it :account-id)]}
+      :policy/children
+      [{:contract/id :strategy/mimo-chat-completions
+        :contract/kind :strategy
+        :policy/outcome :try
+        :policy/strategy proxx.strategies.openai/chat-completions-passthrough}]}]}
+
+   {:contract/id :router/default-evidenced-chat
+    :contract/kind :policy
+    :policy/condition {:eval/op :all
+                       :eval/forms [(= (get ctx :request-kind) :chat)
+                                    (contract/apply [:authorization-clause :model-allow-list] ctx)]}
+    :policy/filters [{:eval/op :all
+                      :eval/target :credentials
+                      :eval/forms [(or (get-in ctx [:models-dev/provider-models
+                                                    (get it :provider-id)
+                                                    (get ctx :model-id)])
+                                       (get-in ctx [:provider-model-snapshots
+                                                    (get it :provider-id)
+                                                    (get ctx :model-id)]))
+                                   (contract/apply [:authorization-clause :provider-allow-list] ctx)
+                                   (contract/apply [:authorization-clause :provider-disabled-list] ctx)
+                                   (contract/apply [:account-constraint :free-blocked-models] ctx)
+                                   (not (get it :disabled?))
+                                   (not (get it :rate-limited?))]}]
+    :policy/outcome :project
+    :policy/project [{:project/from :credentials
+                      :project/to :provider-ids
+                      :project/form (get it :provider-id)
+                      :project/distinct? true}]
+    :policy/children
+    [{:contract/id :router/sort-default-credentials
+      :contract/kind :policy
+      :policy/outcome :sorted
+      :policy/sort {:eval/op :all
+                    :eval/target :credentials
+                    :eval/forms [(get it :rank)
+                                 (get it :account-id)]}
+      :policy/children
+      [{:contract/id :strategy/default-chat-completions
+        :contract/kind :strategy
+        :policy/outcome :try
+        :policy/strategy proxx.strategies.openai/chat-completions-passthrough}]}]}]}]

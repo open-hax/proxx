@@ -54,6 +54,19 @@ test("loadConfig defaults OPENAI_RESPONSES_PATH to /codex/responses", async () =
   );
 });
 
+test("loadConfig reads CLJS policy authoritative flag", async () => {
+  await withEnv(
+    {
+      PROXY_AUTH_TOKEN: "test-token",
+      PROXX_CLJS_POLICY_AUTHORITATIVE: "true",
+    },
+    () => {
+      const config = loadConfig("/tmp/open-hax-openai-proxy-config-test");
+      assert.equal(config.cljsPolicyAuthoritative, true);
+    },
+  );
+});
+
 test("loadConfig preserves OPENAI_RESPONSES_PATH override", async () => {
   await withEnv(
     {

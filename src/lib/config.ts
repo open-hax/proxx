@@ -4,7 +4,6 @@ export interface ProxyConfig {
   readonly host: string;
   readonly port: number;
   readonly upstreamProviderId: string;
-  readonly upstreamFallbackProviderIds: readonly string[];
   readonly disabledProviderIds: readonly string[];
   readonly upstreamProviderBaseUrls: Readonly<Record<string, string>>;
   readonly upstreamBaseUrl: string;
@@ -98,6 +97,7 @@ export interface ProxyConfig {
   readonly policyConfigPath?: string;
   readonly cljsPolicyManifestPath?: string;
   readonly cljsPolicyShadowMode?: boolean;
+  readonly cljsPolicyAuthoritative?: boolean;
   readonly databaseUrl?: string;
   readonly githubOAuthClientId?: string;
   readonly githubOAuthClientSecret?: string;
@@ -394,23 +394,7 @@ export function loadConfig(cwd: string = process.cwd()): ProxyConfig {
   const upstreamBaseUrl = ((rawUpstreamBaseUrl && rawUpstreamBaseUrl.length > 0)
     ? rawUpstreamBaseUrl
     : defaultProviderBaseUrl(upstreamProviderId)).replace(/\/+$/, "");
-  const defaultFallbackProviders = upstreamProviderId === "vivgrid"
-    ? ["ollama-cloud"]
-    : upstreamProviderId === "ollama-cloud"
-      ? ["vivgrid"]
-      : [];
-  const rawFallbackProviders = process.env.UPSTREAM_FALLBACK_PROVIDER_IDS;
-  const parsedFallbackProviders = rawFallbackProviders === undefined
-    ? [...defaultFallbackProviders]
-    : rawFallbackProviders
-      .split(",")
-      .map((entry) => entry.trim())
-      .filter((entry) => entry.length > 0);
   const disabledProviderIds = normalizeProviderList(csvFromEnv("DISABLED_PROVIDER_IDS", []));
-  const disabledProviderSet = new Set(disabledProviderIds);
-  const upstreamFallbackProviderIds = normalizeProviderList(
-    parsedFallbackProviders.filter((entry) => entry !== upstreamProviderId && !disabledProviderSet.has(entry))
-  );
   const upstreamProviderBaseUrls = providerBaseUrlsFromEnv("UPSTREAM_PROVIDER_BASE_URLS", {
     vivgrid: "https://api.vivgrid.com",
     "ollama-cloud": "https://ollama.com",
@@ -531,7 +515,6 @@ export function loadConfig(cwd: string = process.cwd()): ProxyConfig {
     host: process.env.PROXY_HOST ?? process.env.HOST ?? "127.0.0.1",
     port: numberFromEnvAliases(["PROXY_PORT", "PORT"], 8789),
     upstreamProviderId,
-    upstreamFallbackProviderIds,
     disabledProviderIds,
     upstreamProviderBaseUrls,
     upstreamBaseUrl,
@@ -592,6 +575,7 @@ export function loadConfig(cwd: string = process.cwd()): ProxyConfig {
     policyConfigPath: process.env.PROXY_POLICY_CONFIG_FILE ?? undefined,
     cljsPolicyManifestPath: filePathFromEnvAliases(["PROXX_CLJS_POLICY_MANIFEST", "PROXY_CLJS_POLICY_MANIFEST"], "./resources/policies/runtime/00-manifest.edn", cwd),
     cljsPolicyShadowMode: booleanFromEnvAliases(["PROXX_CLJS_POLICY_SHADOW", "PROXY_CLJS_POLICY_SHADOW"], false),
+    cljsPolicyAuthoritative: booleanFromEnvAliases(["PROXX_CLJS_POLICY_AUTHORITATIVE", "PROXY_CLJS_POLICY_AUTHORITATIVE"], false),
     databaseUrl,
     githubOAuthClientId,
     githubOAuthClientSecret,

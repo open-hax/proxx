@@ -348,13 +348,13 @@ export class ResponsesViaChatCompletionsStrategy extends BaseProviderStrategy {
     if (context.clientWantsStream) {
       if (isEventStream) {
         try {
-          const fallbackResponse = chatCompletionEventStreamToResponsesResponse(
+          const compatResponse = chatCompletionEventStreamToResponsesResponse(
             await upstreamResponse.text(),
             context.routedModel,
           );
           reply.code(200);
           reply.header("content-type", "application/json");
-          reply.send(fallbackResponse);
+          reply.send(compatResponse);
           return { kind: "handled" };
         } catch {
           return { kind: "continue", requestError: true };

@@ -36,7 +36,8 @@ import {
 } from "../lib/provider-routing.js";
 import { discoverDynamicOllamaRoutes, prependDynamicOllamaRoutes } from "../lib/dynamic-ollama-routes.js";
 import { orderProviderRoutesByPolicy } from "../lib/provider-policy.js";
-import { shadowPreviewProviderPolicy } from "../lib/policy/cljs-shadow.js";
+import { getActiveCljsRuntime } from "../lib/cljs-runtime.js";
+import { applyCljsProviderPolicy } from "../lib/policy/cljs-shadow.js";
 import { sendOpenAiError } from "../lib/provider-utils.js";
 import { toErrorMessage } from "../lib/errors/index.js";
 import { isAutoModel, rankAutoModels } from "../lib/auto-model-selector.js";
@@ -255,7 +256,13 @@ export function registerResponsesRoutes(deps: AppDeps, app: FastifyInstance): vo
         localOllama: false,
         explicitOllama: false,
       });
-      shadowPreviewProviderPolicy({
+      const policyEvidence = deps.config.cljsPolicyShadowMode === true || deps.config.cljsPolicyAuthoritative === true
+        ? await getActiveCljsRuntime()?.loadPolicyEvidence({ providerRoutes }).catch((error: unknown) => {
+          request.log.warn({ error, model: context.routedModel }, "CLJS policy evidence load failed");
+          return undefined;
+        })
+        : undefined;
+      providerRoutes = applyCljsProviderPolicy({
         config: deps.config,
         log: request.log,
         requestKind: "responses-passthrough",
@@ -263,6 +270,7 @@ export function registerResponsesRoutes(deps: AppDeps, app: FastifyInstance): vo
         routedModel: context.routedModel,
         tenantSettings,
         providerRoutes,
+        policyEvidence,
       });
 
       if (providerRoutes.length === 0) {

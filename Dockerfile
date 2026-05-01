@@ -17,6 +17,7 @@ RUN pnpm install --no-frozen-lockfile
 
 COPY src ./src
 COPY web ./web
+COPY resources ./resources
 COPY ecosystem.container.config.cjs ./ecosystem.container.config.cjs
 COPY keys.example.json ./keys.example.json
 COPY models.example.json ./models.example.json

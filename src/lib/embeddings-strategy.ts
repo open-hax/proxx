@@ -64,22 +64,24 @@ export interface EmbeddingsConfig {
   tei: EmbeddingProviderConfig;
   'ovm-npu': EmbeddingProviderConfig;
   defaultProvider: EmbeddingProvider;
-  fallbackProvider?: EmbeddingProvider;
   providerByModel: Readonly<Record<string, EmbeddingProvider>>;
 }
 
-const DEFAULT_PROVIDER_BY_MODEL: Readonly<Record<string, EmbeddingProvider>> = {};
+const DEFAULT_PROVIDER_BY_MODEL: Readonly<Record<string, EmbeddingProvider>> = {
+  "qwen3-embedding:0.6b": "llamacpp-embed",
+  "qwen3-embedding-0.6b": "llamacpp-embed",
+};
 
 export function normalizeEmbeddingModelId(model: string): string {
   return model.trim().toLowerCase().replace(/:/g, '-');
 }
 
 function parseProviderByModel(raw: string | undefined): Record<string, EmbeddingProvider> {
-  if (raw === undefined) {
+  if (raw === undefined || raw.trim().length === 0) {
     return { ...DEFAULT_PROVIDER_BY_MODEL };
   }
 
-  const parsed: Record<string, EmbeddingProvider> = {};
+  const parsed: Record<string, EmbeddingProvider> = { ...DEFAULT_PROVIDER_BY_MODEL };
   for (const item of raw.split(',').map((entry) => entry.trim()).filter((entry) => entry.length > 0)) {
     const separatorIndex = item.indexOf('=');
     if (separatorIndex <= 0 || separatorIndex === item.length - 1) {
@@ -148,7 +150,6 @@ export function loadEmbeddingsConfig(): EmbeddingsConfig {
         : undefined,
     },
     defaultProvider: (process.env.EMBED_DEFAULT_PROVIDER as EmbeddingProvider) ?? 'ollama',
-    fallbackProvider: process.env.EMBED_FALLBACK_PROVIDER as EmbeddingProvider | undefined,
     providerByModel,
   };
 }

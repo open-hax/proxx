@@ -57,6 +57,20 @@
   :prefer/strategies [:openai-responses :responses :openai-chat-completions :chat-completions]
   :account/order :account-order/prefer-free}
 
+ {:contract/id :route/mimo
+  :contract/kind :routing-clause
+  :match/family :model-family/mimo
+  :prefer/providers :provider-order/mimo
+  :prefer/strategies [:chat-completions]
+  :account/order :account-order/prefer-free}
+
+ {:contract/id :route/qwen3-embedding
+  :contract/kind :routing-clause
+  :match/family :model-family/qwen3-embedding
+  :prefer/providers :provider-order/embeddings
+  :prefer/strategies [:embeddings]
+  :account/order :account-order/prefer-free}
+
  {:contract/id :route/default
   :contract/kind :routing-clause
   :match/family :model-family/default

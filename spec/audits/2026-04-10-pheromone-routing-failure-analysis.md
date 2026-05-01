@@ -8,7 +8,6 @@
 
 ## Signal
 
-The `UPSTREAM_FALLBACK_PROVIDER_IDS=ollama-cloud,rotussy,zai,requesty` causes **ollama-cloud** to be tried first for every non-prefixed model request. The pheromone/ACO system only influences **dedicated Ollama routes** (provider IDs starting with `ollama-` but not `ollama-cloud`), not the primary fallback chain.
 
 **Result:** 207,130 failed requests to ollama-cloud for `glm-4.5-flash` while zai sat ready with pheromone=1.0 and 0 failures.
 
@@ -131,7 +130,6 @@ But the **model routing rules** in policy config don't have a hook for pheromone
 
 ### RC-4: The Fallback Concept Itself
 
-The `UPSTREAM_FALLBACK_PROVIDER_IDS` env var encodes a **bad assumption**: that any provider might be able to serve any model, so we should try them in order.
 
 **Reality:**
 - OpenAI OAuth accounts → only serve OpenAI models (need hardcoded paths)
@@ -326,9 +324,7 @@ const MODEL_PROVIDER_PREFERENCES: Record<string, {
 
 ### Phase 1: Immediate Mitigation (1 SP)
 
-1. Reorder `UPSTREAM_FALLBACK_PROVIDER_IDS` to put capable providers first:
    ```
-   UPSTREAM_FALLBACK_PROVIDER_IDS=zai,rotussy,ollama-cloud,requesty
    ```
 
 2. Add `isGlmModel()` check to force zai/rotussy routing before fallback chain.
@@ -363,7 +359,6 @@ const MODEL_PROVIDER_PREFERENCES: Record<string, {
 
 ### Phase 5: Deprecate Fallback Env (2 SP)
 
-1. Mark `UPSTREAM_FALLBACK_PROVIDER_IDS` as deprecated.
 2. Default behavior: use model-provider registry + pheromones.
 3. Keep env for backwards compatibility but warn on startup.
 

@@ -11,8 +11,8 @@ import type { QuotaMonitor } from "../../quota-monitor.js";
 import type { ProviderRoute } from "../../provider-routing.js";
 import type {
   BuildPayloadResult,
-  FallbackAccumulator,
-  ProviderFallbackExecutionResult,
+  RoutingAccumulator,
+  ProviderRoutingExecutionResult,
   ProviderStrategy,
   StrategyRequestContext,
 } from "../shared.js";
@@ -22,7 +22,7 @@ export function clampRouteQuality(latencyMs: number): number {
   return Math.max(0.05, 1 - ((clampedLatency - 250) / (30_000 - 250)));
 }
 
-export interface FallbackKeyPool {
+export interface RoutingKeyPool {
   getRequestOrder(providerId: string): Promise<ProviderCredential[]>;
   markInFlight(credential: ProviderCredential): () => void;
   markRateLimited(credential: ProviderCredential, retryAfterMs?: number): void;
@@ -34,13 +34,13 @@ export interface FallbackKeyPool {
   disableAccount?(providerId: string, accountId: string): void;
 }
 
-export interface FallbackDeps {
+export interface RoutingDeps {
   readonly strategy: ProviderStrategy;
   readonly reply: FastifyReply;
   readonly requestLogStore: RequestLogStore;
   readonly promptAffinityStore: IPromptAffinityStore;
   readonly providerRoutePheromoneStore: ProviderRoutePheromoneStore;
-  readonly keyPool: FallbackKeyPool;
+  readonly keyPool: RoutingKeyPool;
   readonly providerRoutes: readonly ProviderRoute[];
   readonly context: StrategyRequestContext;
   readonly payload: BuildPayloadResult;
@@ -52,13 +52,13 @@ export interface FallbackDeps {
   readonly quotaMonitor?: QuotaMonitor;
 }
 
-export interface FallbackCandidate {
+export interface RoutingCandidate {
   readonly providerId: string;
   readonly baseUrl: string;
   readonly account: ProviderCredential;
 }
 
-export function createAccumulator(): FallbackAccumulator {
+export function createAccumulator(): RoutingAccumulator {
   return {
     sawRateLimit: false,
     sawRequestError: false,
@@ -70,7 +70,7 @@ export function createAccumulator(): FallbackAccumulator {
   };
 }
 
-export function emptyResult(candidateCount: number): ProviderFallbackExecutionResult {
+export function emptyResult(candidateCount: number): ProviderRoutingExecutionResult {
   return {
     handled: false,
     candidateCount,
@@ -80,13 +80,13 @@ export function emptyResult(candidateCount: number): ProviderFallbackExecutionRe
 
 export function successResult(
   candidateCount: number,
-  accumulator: FallbackAccumulator,
-  deps: FallbackDeps,
-  candidate: FallbackCandidate,
+  accumulator: RoutingAccumulator,
+  deps: RoutingDeps,
+  candidate: RoutingCandidate,
   latencyMs: number,
   preferredAffinity: { readonly providerId: string; readonly accountId: string } | undefined,
   preferredReassignmentAllowed: boolean,
-): Promise<ProviderFallbackExecutionResult> {
+): Promise<ProviderRoutingExecutionResult> {
   const { promptAffinityStore, providerRoutePheromoneStore, promptCacheKey, context } = deps;
 
   void providerRoutePheromoneStore.noteSuccess(

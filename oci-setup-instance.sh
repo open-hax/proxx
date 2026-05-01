@@ -75,7 +75,6 @@ services:
       PROXY_KEYS_FILE: /workspace/keys.json
       PROXY_MODELS_FILE: /workspace/models.json
       UPSTREAM_PROVIDER_ID: "${UPSTREAM_PROVIDER_ID:-openai}"
-      UPSTREAM_FALLBACK_PROVIDER_IDS: "${UPSTREAM_FALLBACK_PROVIDER_IDS:-ollama-cloud,vivgrid}"
       DISABLED_PROVIDER_IDS: "${DISABLED_PROVIDER_IDS:-}"
       UPSTREAM_BASE_URL: "https://chatgpt.com/backend-api"
       UPSTREAM_PROVIDER_BASE_URLS: "ollama-cloud=https://ollama.com,openai=https://chatgpt.com/backend-api,vivgrid=https://api.vivgrid.com"

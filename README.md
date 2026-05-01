@@ -75,7 +75,6 @@ Env-backed providers:
 - `GEMINI_API_KEY` automatically exposes a `gemini` provider route (native Gemini REST via `generateContent`).
 - `ZAI_API_KEY` (or `ZHIPU_API_KEY`) automatically exposes a `zai` provider route (z.ai GLM chat via `https://api.z.ai/api/paas/v4`).
 - `openrouter` and `requesty` default to OpenAI-compatible `/v1/chat/completions` routing.
-- You can target them by setting `UPSTREAM_PROVIDER_ID=openrouter|requesty|gemini|zai`, or by listing them in `UPSTREAM_FALLBACK_PROVIDER_IDS`.
 
 Additional provider ids:
 
@@ -196,7 +195,6 @@ Notes:
 - `STREAM_CHUNK_DELAY_MS` (optional; default: `0`; fixed delay added between synthetic SSE chunks)
 - `STREAM_CHUNK_DELAY_MS_MIN` / `STREAM_CHUNK_DELAY_MS_MAX` (optional; default: unset; random delay range between chunks)
 - `UPSTREAM_PROVIDER_ID` (default: `vivgrid`; provider id to target for routing; if you still use seed files, it also names the legacy default file provider)
-- `UPSTREAM_FALLBACK_PROVIDER_IDS` (default: auto `ollama-cloud` when primary is `vivgrid`, or `vivgrid` when primary is `ollama-cloud`; comma-separated)
 - `UPSTREAM_BASE_URL` (default: `https://api.vivgrid.com`)
 - `UPSTREAM_PROVIDER_BASE_URLS` (optional mapping: `provider=url,provider=url`; defaults include `vivgrid=https://api.vivgrid.com`, `ollama-cloud=https://ollama.com`, `zai=https://api.z.ai/api/paas/v4`, `openrouter=https://openrouter.ai/api/v1`, `requesty=https://router.requesty.ai/v1`, `gemini=https://generativelanguage.googleapis.com/v1beta`, and `factory=https://api.factory.ai`)
 - `OPENAI_PROVIDER_ID` (default: `openai`; provider id for OpenAI-routed accounts)

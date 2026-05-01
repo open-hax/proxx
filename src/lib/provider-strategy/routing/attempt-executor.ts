@@ -42,7 +42,7 @@ import {
   type BuildPayloadResult,
   type ProviderAttemptContext,
   type ProviderAvailabilitySummary,
-  type ProviderFallbackExecutionResult,
+  type ProviderRoutingExecutionResult,
   type ProviderStrategy,
   type StrategyRequestContext,
 } from "../shared.js";
@@ -53,8 +53,8 @@ import {
   shouldRetrySameCredentialForServerError,
 } from "./error-classifier.js";
 import { requestyModelProvider } from "../../model-family.js";
-import { buildFallbackCandidates } from "./candidate-builder.js";
-import { clampRouteQuality, createAccumulator, emptyResult, type FallbackDeps } from "./types.js";
+import { buildRoutingCandidates } from "./candidate-builder.js";
+import { clampRouteQuality, createAccumulator, emptyResult, type RoutingDeps } from "./types.js";
 
 function shouldUseOpenAiCodexHeaderProfile(
   providerId: string,
@@ -80,7 +80,7 @@ function candidateMatchesAffinity(
 }
 
 /**
- * Executes the provider routing plan: iterates over fallback candidates,
+ * Executes the provider routing plan: iterates over routing candidates,
  * attempts each one, and handles success/failure/rate-limit outcomes.
  * Supports prompt-cache-key affinity for session stickiness and
  * hidden quota error detection (200 OK with error in stream body).
@@ -111,16 +111,16 @@ export async function executeProviderRoutingPlan(
   healthStore?: AccountHealthStore,
   eventStore?: EventStore,
   quotaMonitor?: QuotaMonitor,
-): Promise<ProviderFallbackExecutionResult> {
+): Promise<ProviderRoutingExecutionResult> {
   const accumulator = createAccumulator();
 
-  const deps: FallbackDeps = {
+  const deps: RoutingDeps = {
     strategy, reply, requestLogStore, promptAffinityStore, providerRoutePheromoneStore,
     keyPool, providerRoutes, context, payload, promptCacheKey, refreshExpiredToken,
     policy, healthStore, eventStore, quotaMonitor,
   };
 
-  const { candidates, preferredAffinity, provisionalAffinity } = await buildFallbackCandidates(deps);
+  const { candidates, preferredAffinity, provisionalAffinity } = await buildRoutingCandidates(deps);
 
   if (candidates.length === 0) {
     return emptyResult(0);
@@ -178,7 +178,7 @@ export async function executeProviderRoutingPlan(
         readonly upstreamPath: string;
         readonly kind: UpstreamStepKind;
         /** HTTP statuses that should fall through to the *next base URL* step (used for platform → ChatGPT). */
-        readonly fallbackToNextBaseOnStatuses?: readonly number[];
+        readonly tryNextBaseOnStatuses?: readonly number[];
       };
 
       const upstreamSteps: readonly UpstreamStep[] = (() => {
@@ -213,7 +213,7 @@ export async function executeProviderRoutingPlan(
             baseUrl: context.config.openaiApiBaseUrl,
             upstreamPath: primaryUpstreamPath,
             kind: "openai_platform" as const,
-            fallbackToNextBaseOnStatuses: [401, 403],
+            tryNextBaseOnStatuses: [401, 403],
           },
           {
             baseUrl: context.config.openaiBaseUrl,
@@ -255,7 +255,7 @@ export async function executeProviderRoutingPlan(
           "proxy.model": context.routedModel,
           "proxy.requested_model": context.requestedModelInput,
           "proxy.base_url": providerContext.baseUrl,
-          "proxy.fallback_attempt": accumulator.attempts,
+          "proxy.routing_attempt": accumulator.attempts,
         });
         upstreamSpan.setAttributes({
           "proxy.service_tier": candidatePayload.serviceTier,
@@ -398,18 +398,18 @@ export async function executeProviderRoutingPlan(
         // scope/auth failures.
         if (isOpenAiImages) {
           const nextStep = stepIndex < upstreamSteps.length - 1 ? upstreamSteps[stepIndex + 1] : undefined;
-          const canFallbackToNextBase =
-            step.fallbackToNextBaseOnStatuses?.includes(upstreamResponse.status) === true
+          const canTryNextBase =
+            step.tryNextBaseOnStatuses?.includes(upstreamResponse.status) === true
             && nextStep
             && nextStep.baseUrl !== step.baseUrl;
 
-          if (canFallbackToNextBase) {
+          if (canTryNextBase) {
             try {
               await upstreamResponse.arrayBuffer();
             } catch {
               // ignore
             }
-            upstreamSpan.setStatus("error", "openai_images_fallback_to_next_base");
+            upstreamSpan.setStatus("error", "openai_images_try_next_base");
             upstreamSpan.end();
             continue;
           }
@@ -517,7 +517,7 @@ export async function executeProviderRoutingPlan(
                   body: effectiveBody,
                 }, context.upstreamAttemptTimeoutMs);
               } catch {
-                // Transport error on retry — fall through to normal fallback.
+                // Transport error on retry — fall through to normal routing.
                 break;
               }
 
@@ -566,7 +566,7 @@ export async function executeProviderRoutingPlan(
                   return { handled: true, candidateCount: candidates.length, summary: accumulator };
                 }
 
-                // Non-429 error on retry — accumulate and break to fallback loop.
+                // Non-429 error on retry — accumulate and break to routing loop.
                 accumulator.sawUpstreamServerError ||= retryResponse.status >= 500;
                 accumulator.sawUpstreamInvalidRequest ||= retryResponse.status >= 400 && retryResponse.status < 500;
                 try { await retryResponse.arrayBuffer(); } catch { /* ignore */ }
@@ -836,7 +836,7 @@ export async function executeProviderRoutingPlan(
          * Handle hidden upstream errors: providers that return 200 OK but carry a
          * quota error ("stream_quota_error") or empty/invalid body ("stream_empty_or_invalid")
          * in the SSE stream. These accounts must be put into cooldown and the sticky
-         * affinity record deleted so the fallback loop can try the next candidate.
+         * affinity record deleted so the routing loop can try the next candidate.
          */
         if (upstreamResponse.ok && (outcome.rateLimit === true || outcome.requestError === true)) {
           const cooldownMs = outcome.rateLimit === true
@@ -1115,7 +1115,7 @@ export async function executeProviderRoutingPlan(
           await summarizeUpstreamError(upstreamResponse);
         }
 
-        upstreamSpan.setStatus("error", `fallback_continue_${upstreamResponse.status}`);
+        upstreamSpan.setStatus("error", `routing_continue_${upstreamResponse.status}`);
         upstreamSpan.end();
         break;
       }
@@ -1141,7 +1141,6 @@ export async function executeProviderRoutingPlan(
   };
 }
 
-export const executeProviderFallback = executeProviderRoutingPlan;
 
 export async function inspectProviderAvailability(
   keyPool: {

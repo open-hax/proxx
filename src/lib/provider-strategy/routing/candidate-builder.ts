@@ -6,7 +6,7 @@ import {
   reorderAccountsForLatency,
   reorderCandidatesForAffinities,
 } from "./credential-selector.js";
-import type { FallbackCandidate, FallbackDeps } from "./types.js";
+import type { RoutingCandidate, RoutingDeps } from "./types.js";
 
 function resolveForcedCredentialSelection(context: StrategyRequestContext): {
   readonly providerId?: string;
@@ -30,17 +30,17 @@ function readHeaderValue(headers: Record<string, unknown>, name: string): string
 }
 
 export interface BuildCandidatesResult {
-  readonly candidates: readonly FallbackCandidate[];
+  readonly candidates: readonly RoutingCandidate[];
   readonly preferredAffinity: { readonly providerId: string; readonly accountId: string } | undefined;
   readonly provisionalAffinity: { readonly providerId: string; readonly accountId: string } | undefined;
 }
 
-export async function buildFallbackCandidates(
-  deps: FallbackDeps,
+export async function buildRoutingCandidates(
+  deps: RoutingDeps,
 ): Promise<BuildCandidatesResult> {
   const { keyPool, providerRoutes, context, promptAffinityStore, promptCacheKey, policy, healthStore, quotaMonitor, strategy, requestLogStore } = deps;
 
-  const candidatesByProvider: Record<string, FallbackCandidate[]> = {};
+  const candidatesByProvider: Record<string, RoutingCandidate[]> = {};
   const forcedCredentialSelection = resolveForcedCredentialSelection(context);
 
   for (const route of providerRoutes) {

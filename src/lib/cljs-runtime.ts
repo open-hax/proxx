@@ -28,6 +28,7 @@ export interface ProxxCljsRuntime {
   readonly validateEntity: (entityType: string, value: unknown) => CljsValidationResult;
   readonly projectPheromone: (events: readonly unknown[], opts?: unknown) => number;
   readonly routePolicy: (policies: readonly unknown[], ctx: unknown) => CljsPolicyRouteResult;
+  readonly loadPolicyEvidence: (opts: unknown) => Promise<unknown>;
   readonly previewPolicyDecision: (manifestPath: string, input: unknown) => CljsPolicyDecisionPreviewResult;
 }
 
@@ -60,6 +61,7 @@ function isProxxCljsRuntime(value: Record<string, unknown>): value is Record<str
     typeof value.validateEntity === "function" &&
     typeof value.projectPheromone === "function" &&
     typeof value.routePolicy === "function" &&
+    typeof value.loadPolicyEvidence === "function" &&
     typeof value.previewPolicyDecision === "function"
   );
 }

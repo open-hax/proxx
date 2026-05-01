@@ -121,7 +121,7 @@
    [:eval/target {:optional true} :keyword]
    [:eval/forms [:vector :any]]])
 
-(def PolicyOutcome [:enum :apply :try :next :reduce])
+(def PolicyOutcome [:enum :apply :try :next :reduce :sorted :project])
 
 (def TraceEntry
   [:map
@@ -139,13 +139,31 @@
     [:policy/condition {:optional true} [:ref :proxx/eval-node]]
     [:policy/filters {:optional true} [:vector [:ref :proxx/eval-node]]]
     [:policy/outcome PolicyOutcome]
+    [:policy/sort {:optional true} [:ref :proxx/eval-node]]
+    [:policy/project {:optional true} [:vector [:map
+                                                [:project/to :keyword]
+                                                [:project/from {:optional true} :keyword]
+                                                [:project/form :any]
+                                                [:project/distinct? {:optional true} :boolean]
+                                                [:project/compact? {:optional true} :boolean]]]]
     [:policy/strategy {:optional true} :symbol]
     [:policy/children {:optional true} [:vector [:ref :proxx/policy]]]]
    [:fn {:error/message ":reduce outcome requires :policy/children"}
     (fn [m]
-      (if (= :reduce (:policy/outcome m))
+      (if (#{:reduce :sorted :project} (:policy/outcome m))
         (and (contains? m :policy/children)
              (seq (:policy/children m)))
+        true))]
+   [:fn {:error/message ":sorted outcome requires :policy/sort"}
+    (fn [m]
+      (if (= :sorted (:policy/outcome m))
+        (some? (:policy/sort m))
+        true))]
+   [:fn {:error/message ":project outcome requires :policy/project"}
+    (fn [m]
+      (if (= :project (:policy/outcome m))
+        (and (contains? m :policy/project)
+             (seq (:policy/project m)))
         true))]
    [:fn {:error/message ":apply or :try outcome requires :policy/strategy"}
     (fn [m]

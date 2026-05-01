@@ -43,6 +43,7 @@
 (defn- eval-form* [form ctx injected-fns]
   (cond
     (symbol? form) (resolve-symbol form ctx injected-fns)
+    (vector? form) (mapv #(eval-form* % ctx injected-fns) form)
     (seq? form) (let [[op & args] form]
                   (if (= op 'contract/apply)
                     (let [[fn-key value] (eval-args args ctx injected-fns)]

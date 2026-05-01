@@ -39,11 +39,11 @@ export default tseslint.config(
       // ============================================================
       // COMPLEXITY RULES - CALIBRATED FOR GRADUAL IMPROVEMENT
       // ============================================================
-      // 
+      //
       // Relaxed thresholds to allow migration to route structure
       // Will tighten as code is reorganized
       // ============================================================
-      
+
       // Cyclomatic complexity
       "complexity": ["warn", 20],
 
@@ -53,10 +53,10 @@ export default tseslint.config(
       // ============================================================
       // LINE COUNT RULES - CALIBRATED FOR GRADUAL IMPROVEMENT
       // ============================================================
-      // 
+      //
       // Relaxed thresholds to allow migration to route structure
       // ============================================================
-      
+
       // Function line count (ESLint core)
       "max-lines-per-function": ["warn", {
         "max": 100,
@@ -92,7 +92,7 @@ export default tseslint.config(
       "complexity": ["error", 200],
       "sonarjs/cognitive-complexity": ["error", 500],
       "max-lines-per-function": ["error", {
-        "max": 3000,
+        "max": 1000,
         "skipBlankLines": true,
         "skipComments": true
       }],

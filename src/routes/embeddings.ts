@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import type { AppDeps } from "../lib/app-deps.js";
 import { DEFAULT_TENANT_ID } from "../lib/tenant-api-key.js";
 import { joinUrl } from "../lib/http/index.js";
+import { getActiveCljsRuntime } from "../lib/cljs-runtime.js";
 import { tenantProviderAllowed } from "../lib/policy/engine/index.js";
 import { buildForwardHeaders } from "../lib/proxy.js";
 import {
@@ -17,7 +18,8 @@ import { fetchWithResponseTimeout } from "../lib/http/index.js";
 import { ensureNativeOllamaEmbedContextFits } from "../lib/ollama-context.js";
 import { isOpenAiCompatEmbedProvider } from "../lib/provider-strategy/strategies/embeddings.js";
 import { normalizeLlamacppModelName } from "../lib/provider-strategy/strategies/llamacpp.js";
-import { hasModelPrefix, stripModelPrefix } from "../lib/provider-routing.js";
+import { hasModelPrefix, stripModelPrefix, type ProviderRoute } from "../lib/provider-routing.js";
+import { applyCljsProviderPolicy } from "../lib/policy/cljs-shadow.js";
 import { resolveEmbeddingProviderAlias } from "../lib/embeddings-strategy.js";
 
 function summarizeEmbeddingInput(
@@ -37,6 +39,13 @@ function summarizeEmbeddingInput(
  * Returns the first providerId whose discovered model list includes the model,
  * or undefined if not found (caller falls back to ollamaBaseUrl).
  */
+function embeddingModelKnown(
+  resolvedCatalogBundle: import("../lib/provider-catalog.js").ResolvedCatalogWithPreferences | null,
+  routedModel: string,
+): boolean {
+  return resolveEmbedProvider(resolvedCatalogBundle, routedModel) !== undefined;
+}
+
 function resolveEmbedProvider(
   resolvedCatalogBundle: import("../lib/provider-catalog.js").ResolvedCatalogWithPreferences | null,
   routedModel: string,
@@ -44,11 +53,15 @@ function resolveEmbedProvider(
   if (!resolvedCatalogBundle) {
     return undefined;
   }
-  // Normalize colon separators to hyphens to match llamacpp catalog format
-  // (e.g. qwen3-embedding:0.6b -> qwen3-embedding-0.6b)
-  const normalized = routedModel.trim().toLowerCase().replace(/:/g, "-");
+  // Normalize both colon and hyphen separators: Ollama-style model ids commonly
+  // use `name:tag`, while llama.cpp and some catalogs expose `name-tag`.
+  const trimmed = routedModel.trim().toLowerCase();
+  const candidates = new Set([trimmed, trimmed.replace(/:/g, "-")]);
   for (const [providerId, entry] of Object.entries(resolvedCatalogBundle.providerCatalogs)) {
-    if (entry.modelIds.some((id) => id.trim().toLowerCase() === normalized)) {
+    if (entry.modelIds.some((id) => {
+      const catalogId = id.trim().toLowerCase();
+      return candidates.has(catalogId) || candidates.has(catalogId.replace(/:/g, "-"));
+    })) {
       return providerId;
     }
   }
@@ -106,20 +119,69 @@ export function registerEmbeddingsRoutes(deps: AppDeps, app: FastifyInstance): v
       ? aliasProviderId
       : undefined;
 
-    // Resolve from catalog for fallback
     const catalogProviderId = resolveEmbedProvider(resolvedCatalogBundle, routingModelWithoutProviderPrefix);
+    const requestedRouteProviderId = requestProviderId
+      ?? configuredAliasProviderId
+      ?? catalogProviderId
+      ?? "ollama";
 
-    // Override provider with explicitly specified provider from model prefix
-    let routeProviderId: string;
-    if (requestProviderId) {
-      routeProviderId = requestProviderId;
-    } else if (configuredAliasProviderId) {
-      routeProviderId = configuredAliasProviderId;
-    } else if (catalogProviderId) {
-      routeProviderId = catalogProviderId;
-    } else {
-      routeProviderId = "ollama";
+    let routeProviderId = requestedRouteProviderId;
+
+    if (deps.config.cljsPolicyAuthoritative === true) {
+      const runtime = getActiveCljsRuntime();
+      if (!runtime) {
+        sendOpenAiError(reply, 503, "CLJS policy runtime is required for embeddings routing.", "server_error", "cljs_policy_runtime_unavailable");
+        return;
+      }
+
+      const providerBaseUrl = deps.config.upstreamProviderBaseUrls[requestedRouteProviderId]
+        ?? (requestedRouteProviderId === "ollama" ? deps.config.ollamaBaseUrl : undefined);
+      const providerRoutes: ProviderRoute[] = providerBaseUrl
+        ? [{ providerId: requestedRouteProviderId, baseUrl: providerBaseUrl }]
+        : [];
+      const loadedPolicyEvidence = await runtime.loadPolicyEvidence({ providerRoutes });
+      const explicitEvidenceProviderId = requestProviderId
+        ?? configuredAliasProviderId
+        ?? catalogProviderId
+        ?? (requestedRouteProviderId === "ollama" && embeddingModelKnown(resolvedCatalogBundle, routingModelWithoutProviderPrefix) ? "ollama" : undefined);
+      const explicitSnapshots: Record<string, Record<string, boolean>> | undefined = explicitEvidenceProviderId
+        ? {
+            [explicitEvidenceProviderId]: {
+              [routingModelWithoutProviderPrefix]: true,
+              [routingModelWithoutProviderPrefix.replace(/:/g, "-")]: true,
+            },
+          }
+        : undefined;
+      const loadedEvidence = loadedPolicyEvidence && typeof loadedPolicyEvidence === "object"
+        ? loadedPolicyEvidence as Record<string, unknown>
+        : undefined;
+      const loadedSnapshots = loadedEvidence?.["provider-model-snapshots"] as Record<string, unknown> | undefined;
+      const policyEvidence = explicitSnapshots
+        ? {
+            ...loadedEvidence,
+            "provider-model-snapshots": {
+              ...loadedSnapshots,
+              ...explicitSnapshots,
+            },
+          }
+        : loadedPolicyEvidence;
+      const selectedRoutes = applyCljsProviderPolicy({
+        config: deps.config,
+        log: request.log,
+        requestKind: "embeddings",
+        requestedModel: model,
+        routedModel: routingModelWithoutProviderPrefix,
+        tenantSettings: proxySettings,
+        providerRoutes,
+        policyEvidence,
+      });
+      if (selectedRoutes.length === 0) {
+        sendOpenAiError(reply, 403, "CLJS embedding policy found no allowed provider for this model.", "invalid_request_error", "provider_not_allowed");
+        return;
+      }
+      routeProviderId = selectedRoutes[0]!.providerId;
     }
+
     const isOllamaProvider = !isOpenAiCompatEmbedProvider(routeProviderId);
 
     if (!tenantProviderAllowed(proxySettings, isOllamaProvider ? "ollama" : routeProviderId)) {
