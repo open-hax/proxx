@@ -3,8 +3,8 @@
             [clojure.string :as str]
             [proxx.schema :as schema]))
 
-(def ^:private fs (js/require "fs"))
-(def ^:private path (js/require "path"))
+(def ^:private fs (.getBuiltinModule js/process "fs"))
+(def ^:private path (.getBuiltinModule js/process "path"))
 
 (defn- read-file [file-path]
   (.readFileSync fs file-path "utf8"))

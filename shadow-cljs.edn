@@ -10,7 +10,8 @@
    :modules   {:proxx-runtime {:exports {normalizeKeys proxx.runtime/normalize-keys-js
                                           validateEntity proxx.runtime/validate-entity-js
                                           projectPheromone proxx.runtime/project-pheromone-js
-                                          routePolicy proxx.runtime/route-policy-js}}}}
+                                          routePolicy proxx.runtime/route-policy-js
+                                          previewPolicyDecision proxx.runtime/preview-policy-decision-js}}}}
 
   :node-test
   {:target      :node-test

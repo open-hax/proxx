@@ -155,10 +155,16 @@
         (some #(when (= :account-order/prefer-free (:contract/id %)) %)
               (:account-orderings compiled)))))
 
+(defn- normalized-keyword [value]
+  (cond
+    (keyword? value) value
+    (string? value) (keyword (str/replace value #"_" "-"))
+    :else value))
+
 (defn- account-plan [account]
-  (or (:plan-type account)
-      (:planType account)
-      :unknown))
+  (normalized-keyword (or (:plan-type account)
+                          (:planType account)
+                          :unknown)))
 
 (defn- quota-exhausted? [account]
   (true? (or (:quota-exhausted? account)
@@ -217,9 +223,9 @@
      :applies-constraint (:applies-constraint constrained)}))
 
 (defn- strategy-mode [strategy]
-  (or (:mode strategy)
-      (:strategy/mode strategy)
-      strategy))
+  (normalized-keyword (or (:mode strategy)
+                          (:strategy/mode strategy)
+                          strategy)))
 
 (defn- first-rank-map [items]
   (reduce-kv (fn [acc idx item]

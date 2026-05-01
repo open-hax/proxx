@@ -16,11 +16,19 @@ export interface CljsPolicyRouteResult {
   readonly data?: unknown;
 }
 
+export interface CljsPolicyDecisionPreviewResult {
+  readonly status: "ok" | "error";
+  readonly decision?: unknown;
+  readonly error?: string;
+  readonly data?: unknown;
+}
+
 export interface ProxxCljsRuntime {
   readonly normalizeKeys: (value: unknown) => unknown;
   readonly validateEntity: (entityType: string, value: unknown) => CljsValidationResult;
   readonly projectPheromone: (events: readonly unknown[], opts?: unknown) => number;
   readonly routePolicy: (policies: readonly unknown[], ctx: unknown) => CljsPolicyRouteResult;
+  readonly previewPolicyDecision: (manifestPath: string, input: unknown) => CljsPolicyDecisionPreviewResult;
 }
 
 export type CljsRuntimeLoadResult =
@@ -51,7 +59,8 @@ function isProxxCljsRuntime(value: Record<string, unknown>): value is Record<str
     typeof value.normalizeKeys === "function" &&
     typeof value.validateEntity === "function" &&
     typeof value.projectPheromone === "function" &&
-    typeof value.routePolicy === "function"
+    typeof value.routePolicy === "function" &&
+    typeof value.previewPolicyDecision === "function"
   );
 }
 
@@ -155,6 +164,7 @@ export function normalizeObjectKeysWithCljs<T>(value: T): T | unknown {
  * @throws Error - If `runtime.validateEntity("provider", ...)` returns a validation result whose `status` is not `"ok"`.
  * @throws Error - If `runtime.projectPheromone(...)` does not return a finite number greater than `0`.
  * @throws Error - If `runtime.routePolicy(...)` cannot evaluate a minimal policy tree.
+ * @throws Error - If `runtime.previewPolicyDecision(...)` cannot preview the declarative policy manifest.
  */
 export async function assertCljsRuntimeReady(runtime: ProxxCljsRuntime): Promise<void> {
   const normalized = runtime.normalizeKeys({ providerId: "openai", nested_value: { modelId: "gpt-4o" } });
@@ -190,5 +200,19 @@ export async function assertCljsRuntimeReady(runtime: ProxxCljsRuntime): Promise
   ], {});
   if (routeResult.status !== "error") {
     throw new Error("CLJS runtime routePolicy readiness check failed");
+  }
+
+  const previewResult = runtime.previewPolicyDecision("resources/policies/runtime/00-manifest.edn", {
+    modelId: "gpt-5-mini",
+    providerIds: ["openai", "factory"],
+    accountsByProvider: {
+      openai: [{ accountId: "plus", planType: "plus" }],
+    },
+    strategiesByProvider: {
+      openai: [{ mode: "chat-completions", priority: 1 }],
+    },
+  });
+  if (previewResult.status !== "ok") {
+    throw new Error("CLJS runtime previewPolicyDecision readiness check failed");
   }
 }

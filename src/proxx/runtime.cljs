@@ -1,5 +1,7 @@
 (ns proxx.runtime
   (:require [proxx.policy :as policy]
+            [proxx.policy.contracts :as policy-contracts]
+            [proxx.policy.loader :as policy-loader]
             [proxx.policy.router :as router]
             [proxx.processor :as processor]
             [proxx.schema :as schema]
@@ -50,8 +52,24 @@
                   :data (ex-data e)
                   :trace @trace})))))
 
+(defn preview-policy-decision-js
+  "Load declarative policy contracts from manifest-path and return a pure decision preview."
+  [manifest-path input]
+  (try
+    (let [contracts (policy-loader/load-policy-contracts! manifest-path)
+          compiled (policy-contracts/compile-contracts contracts)
+          decision (policy-contracts/preview-policy-decision
+                    compiled
+                    (js->clj input :keywordize-keys true))]
+      (clj->js {:status "ok" :decision decision}))
+    (catch :default e
+      (clj->js {:status "error"
+                :error (.-message e)
+                :data (ex-data e)}))))
+
 (def exports
   #js {:normalizeKeys normalize-keys-js
        :validateEntity validate-entity-js
        :projectPheromone project-pheromone-js
-       :routePolicy route-policy-js})
+       :routePolicy route-policy-js
+       :previewPolicyDecision preview-policy-decision-js})
