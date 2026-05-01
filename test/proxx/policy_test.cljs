@@ -193,6 +193,50 @@
            (mapv :contract/id
                  (contracts/strategy-preference-clauses compiled "rotussy" :responses-passthrough))))))
 
+(deftest compiler-orders-accounts-by-free-preference-and-quota
+  (let [compiled (contracts/compile-contracts
+                  (loader/load-policy-contracts! "resources/policies/runtime/00-manifest.edn"))
+        route (contracts/select-routing-clause compiled "gpt-5.2")
+        result (contracts/order-account-candidates
+                compiled
+                route
+                [{:account-id "plus" :plan-type :plus}
+                 {:account-id "free-limited" :plan-type :free :quota-exhausted? true}
+                 {:account-id "free" :plan-type :free}
+                 {:account-id "team" :plan-type :team}])]
+    (is (= ["free" "plus" "team"]
+           (mapv :account-id (:ordered result))))
+    (is (= false (:applies-constraint result)))))
+
+(deftest compiler-applies-paid-plan-constraints-and-weight-ordering
+  (let [compiled (contracts/compile-contracts
+                  (loader/load-policy-contracts! "resources/policies/runtime/00-manifest.edn"))
+        route (contracts/select-routing-clause compiled "gpt-5-mini")
+        result (contracts/order-account-candidates
+                compiled
+                route
+                [{:account-id "free" :plan-type :free}
+                 {:account-id "team" :plan-type :team}
+                 {:account-id "pro" :plan-type :pro}
+                 {:account-id "plus" :plan-type :plus :quota-exhausted? true}])]
+    (is (= ["pro" "team"]
+           (mapv :account-id (:ordered result))))
+    (is (= true (:applies-constraint result)))))
+
+(deftest compiler-keeps-quota-exhausted-accounts-when-all-qualified-are-exhausted
+  (let [compiled (contracts/compile-contracts
+                  (loader/load-policy-contracts! "resources/policies/runtime/00-manifest.edn"))
+        route (contracts/select-routing-clause compiled "gpt-5-mini")
+        result (contracts/order-account-candidates
+                compiled
+                route
+                [{:account-id "free" :plan-type :free}
+                 {:account-id "plus" :plan-type :plus :quota-exhausted? true}
+                 {:account-id "team" :plan-type :team :quota-exhausted? true}])]
+    (is (= ["plus" "team"]
+           (mapv :account-id (:ordered result))))
+    (is (= true (:applies-constraint result)))))
+
 (deftest compiler-rejects-duplicate-contract-ids
   (is (thrown-with-msg? js/Error #"Duplicate policy contract id"
                         (contracts/index-contracts [{:contract/id :dupe :contract/kind :x}

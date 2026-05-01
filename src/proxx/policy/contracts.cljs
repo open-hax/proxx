@@ -82,6 +82,15 @@
                  (assoc ordering :score/table (:score/by-plan (require-contract idx score-ref)))
                  ordering)))))
 
+(defn account-constraints [idx]
+  (->> (:contracts idx)
+       (filter #(= :account-constraint (:contract/kind %)))
+       (mapv (fn [constraint]
+               (cond-> constraint
+                 (:require/plans constraint)
+                 (assoc :require/plan-set
+                        (maybe-resolve-items idx (:require/plans constraint))))))))
+
 (defn tenant-authorization-clauses [idx]
   (->> (:contracts idx)
        (filter #(= :authorization-clause (:contract/kind %)))
@@ -133,6 +142,76 @@
                 (get original-order provider-id 0)])
              filtered)))
 
+(defn select-account-ordering
+  "Return the account ordering contract declared by a route."
+  [compiled route]
+  (let [ordering-id (:account/order route)]
+    (or (some #(when (= ordering-id (:contract/id %)) %)
+              (:account-orderings compiled))
+        (some #(when (= :account-order/prefer-free (:contract/id %)) %)
+              (:account-orderings compiled)))))
+
+(defn- account-plan [account]
+  (or (:plan-type account)
+      (:planType account)
+      :unknown))
+
+(defn- quota-exhausted? [account]
+  (true? (or (:quota-exhausted? account)
+             (:is-quota-exhausted? account)
+             (:isQuotaExhausted account))))
+
+(defn- constrain-accounts-by-plan [route accounts]
+  (let [required (set (:require/plan-set route))
+        excluded (set (:exclude/plans route))
+        required-matches (if (seq required)
+                           (filterv #(contains? required (account-plan %)) accounts)
+                           accounts)
+        after-required (if (and (seq required) (seq required-matches))
+                         required-matches
+                         accounts)
+        excluded-filtered (if (seq excluded)
+                            (filterv #(not (contains? excluded (account-plan %))) after-required)
+                            after-required)
+        after-excluded (if (and (seq excluded) (seq excluded-filtered))
+                         excluded-filtered
+                         after-required)]
+    {:accounts after-excluded
+     :applies-constraint (not= (count after-excluded) (count accounts))}))
+
+(defn- filter-quota-exhausted [accounts]
+  (let [available (filterv #(not (quota-exhausted? %)) accounts)]
+    (if (seq available) available accounts)))
+
+(defn- order-accounts [ordering accounts]
+  (let [original-order (zipmap accounts (range))
+        selection-order (:selection/order ordering)
+        preferred-plan (:prefer/plan (first (filter map? selection-order)))
+        score-table (:score/table ordering)]
+    (cond
+      preferred-plan
+      (sort-by (fn [account]
+                 [(if (= preferred-plan (account-plan account)) 0 1)
+                  (get original-order account 0)])
+               accounts)
+
+      score-table
+      (sort-by (fn [account]
+                 [(- (get score-table (account-plan account) 0))
+                  (get original-order account 0)])
+               accounts)
+
+      :else accounts)))
+
+(defn order-account-candidates
+  "Apply route plan constraints, quota fallback, and declared account ordering."
+  [compiled route accounts]
+  (let [ordering (select-account-ordering compiled route)
+        constrained (constrain-accounts-by-plan route accounts)
+        quota-filtered (filter-quota-exhausted (:accounts constrained))]
+    {:ordered (vec (order-accounts ordering quota-filtered))
+     :applies-constraint (:applies-constraint constrained)}))
+
 (defn compile-contracts
   "Compile loaded declarative policy contracts into phase-oriented indexes.
 
@@ -145,6 +224,7 @@
      :provider-capabilities (provider-capabilities idx)
      :request-surface-defaults (request-surface-defaults idx)
      :account-orderings (account-orderings idx)
+     :account-constraints (account-constraints idx)
      :tenant-authorization-clauses (tenant-authorization-clauses idx)
      :fallback-policy (fallback-policy idx)
      :root-program (root-program idx)}))
