@@ -124,6 +124,17 @@
   (let [policies (loader/load-policies! "resources/policies/model-router.edn")]
     (is (= :router/root (-> policies first :contract/id)))))
 
+(deftest loader-loads-runtime-policy-contract-manifest-in-order
+  (let [manifest (loader/load-policy-manifest! "resources/policies/runtime/00-manifest.edn")
+        contracts (loader/load-policy-contracts! "resources/policies/runtime/00-manifest.edn")
+        ids (mapv :contract/id contracts)]
+    (is (= :proxx.policy.runtime/manifest (:contract/id manifest)))
+    (is (= :domain/request-kinds (first ids)))
+    (is (= :router/anthropic-messages (last ids)))
+    (is (some #{:route/gpt-free-blocked} ids))
+    (is (some #{:tenant/provider-share-policy} ids))
+    (is (every? #(and (:contract/id %) (:contract/kind %)) contracts))))
+
 (deftest malformed-policy-edn-fails-loader-validation
   (let [fs (js/require "fs")
         os (js/require "os")

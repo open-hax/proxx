@@ -153,6 +153,20 @@
         (some? (:policy/strategy m))
         true))]])
 
+(def PolicyManifest
+  [:map
+   [:contract/id :keyword]
+   [:contract/kind [:enum :policy-manifest]]
+   [:policy.dsl/version :int]
+   [:policy.dsl/status :keyword]
+   [:policy.loader/order [:vector [:string {:min 1}]]]
+   [:policy.loader/invariant {:optional true} [:string {:min 1}]]])
+
+(def PolicyContract
+  [:map
+   [:contract/id :keyword]
+   [:contract/kind :keyword]])
+
 ;; ══════════════════════════════════════════════════════════════
 ;; Registry — single source of truth
 ;; ══════════════════════════════════════════════════════════════
@@ -168,11 +182,13 @@
    :scoring-weight    ScoringWeight
    :routing-policy    RoutingPolicy
    :affinity-policy   AffinityPolicy
-   :proxx/eval-op     EvalOp
-   :proxx/eval-node   EvalNode
-   :proxx/outcome     PolicyOutcome
-   :proxx/trace-entry TraceEntry
-   :proxx/policy      Policy})
+   :proxx/eval-op         EvalOp
+   :proxx/eval-node       EvalNode
+   :proxx/outcome         PolicyOutcome
+   :proxx/trace-entry     TraceEntry
+   :proxx/policy          Policy
+   :proxx/policy-manifest PolicyManifest
+   :proxx/policy-contract PolicyContract})
 
 (mr/set-default-registry!
   (mr/composite-registry

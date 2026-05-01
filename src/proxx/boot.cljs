@@ -139,10 +139,10 @@
           lmdb-store  (when lmdb-path    (make-lmdb-store lmdb-path))
           pg-store    (when database-url (make-pg-store database-url
                                                         (or query-registry {})))
-          stores      (filterv some? [hot-store redis-store lmdb-store pg-store])]
+          stores      (filterv some? [hot-store redis-store lmdb-store pg-store])
+          prev-state  @state]
       (try
-        (let [prev-state  @state
-              policies    (if policy-path
+        (let [policies    (if policy-path
                             (policy-loader/load-policies! policy-path)
                             [])
               pipeline    (pl/make-pipeline
