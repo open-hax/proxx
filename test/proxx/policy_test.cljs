@@ -356,6 +356,47 @@
                    :requested-model "gpt-6"
                    :required-share-mode "relay"})))))
 
+(deftest compiler-previews-policy-decision
+  (let [compiled (contracts/compile-contracts
+                  (loader/load-policy-contracts! "resources/policies/runtime/00-manifest.edn"))
+        decision (contracts/preview-policy-decision
+                  compiled
+                  {:model-id "gpt-5-mini"
+                   :request-kind :chat
+                   :tenant-settings {:allowed-provider-ids ["factory" "openai"]}
+                   :provider-ids ["rotussy" "factory" "openai"]
+                   :accounts-by-provider {"openai" [{:account-id "free" :plan-type :free}
+                                                     {:account-id "plus" :plan-type :plus}]
+                                          "factory" [{:account-id "team" :plan-type :team}
+                                                     {:account-id "pro" :plan-type :pro}]}
+                   :strategies-by-provider {"openai" [{:mode :chat-completions :priority 1}]
+                                            "factory" [{:mode :messages :priority 100}
+                                                       {:mode :openai-responses :priority 0}]}})]
+    (is (= :ok (:status decision)))
+    (is (= :route/gpt-free-blocked (:route-id decision)))
+    (is (= ["openai" "factory"] (:providers decision)))
+    (is (= "openai" (:provider-id decision)))
+    (is (= "plus" (get-in decision [:account :account-id])))
+    (is (= true (:applies-account-constraint decision)))
+    (is (= :chat-completions (get-in decision [:strategy :mode])))))
+
+(deftest compiler-preview-denies-tenant-model-and-exhausts-providers
+  (let [compiled (contracts/compile-contracts
+                  (loader/load-policy-contracts! "resources/policies/runtime/00-manifest.edn"))]
+    (is (= {:status :denied
+            :reason :tenant-model-not-allowed
+            :model-id "gpt-5.2"}
+           (contracts/preview-policy-decision
+            compiled
+            {:model-id "gpt-5.2"
+             :tenant-settings {:allowed-models ["gpt-oss:20b"]}})))
+    (is (= :exhausted
+           (:status (contracts/preview-policy-decision
+                     compiled
+                     {:model-id "gpt-5.2"
+                      :tenant-settings {:allowed-provider-ids ["factory"]}
+                      :provider-ids ["openai"]}))))))
+
 (deftest compiler-rejects-duplicate-contract-ids
   (is (thrown-with-msg? js/Error #"Duplicate policy contract id"
                         (contracts/index-contracts [{:contract/id :dupe :contract/kind :x}

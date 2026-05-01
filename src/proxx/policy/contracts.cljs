@@ -351,6 +351,70 @@
          (share-mode-satisfies? (get-any policy [:share-mode :shareMode])
                                 (get-any input [:required-share-mode :requiredShareMode])))))
 
+(defn- lookup-provider-value [m provider-id fallback]
+  (cond
+    (contains? m provider-id) (get m provider-id)
+    (contains? m (keyword provider-id)) (get m (keyword provider-id))
+    :else fallback))
+
+(defn- accounts-for-provider [input provider-id]
+  (let [by-provider (or (get-any input [:accounts-by-provider :accountsByProvider]) {})]
+    (if (seq by-provider)
+      (lookup-provider-value by-provider provider-id [])
+      (or (:accounts input) []))))
+
+(defn- strategies-for-provider [input provider-id]
+  (let [by-provider (or (get-any input [:strategies-by-provider :strategiesByProvider]) {})]
+    (if (seq by-provider)
+      (lookup-provider-value by-provider provider-id [])
+      (or (:strategies input) []))))
+
+(defn preview-policy-decision
+  "Produce a pure policy decision preview from compiled declarative contracts.
+
+  This function is intentionally side-effect-free. It exists for parity tests and
+  live-runtime cutover preparation; it does not execute a provider strategy."
+  [compiled input]
+  (let [model-id (or (get-any input [:model-id :modelId :requested-model :requestedModel]) "")
+        request-kind (or (get-any input [:request-kind :requestKind]) :chat)
+        tenant-settings (or (get-any input [:tenant-settings :tenantSettings]) {})]
+    (if-not (tenant-model-allowed? tenant-settings model-id)
+      {:status :denied
+       :reason :tenant-model-not-allowed
+       :model-id model-id}
+      (if-let [route (select-routing-clause compiled model-id)]
+        (let [provider-ids (or (get-any input [:provider-ids :providerIds]) [])
+              tenant-allowed-providers (filterv #(tenant-provider-allowed? tenant-settings %) provider-ids)
+              ordered-providers (vec (order-provider-candidates route tenant-allowed-providers))
+              provider-id (first ordered-providers)]
+          (if-not provider-id
+            {:status :exhausted
+             :reason :no-provider-candidates
+             :model-id model-id
+             :route-id (:contract/id route)
+             :providers []}
+            (let [account-result (order-account-candidates compiled route (accounts-for-provider input provider-id))
+                  ordered-accounts (:ordered account-result)
+                  ordered-strategies (order-strategy-candidates compiled
+                                                                route
+                                                                provider-id
+                                                                request-kind
+                                                                (strategies-for-provider input provider-id))]
+              {:status :ok
+               :model-id model-id
+               :request-kind request-kind
+               :route-id (:contract/id route)
+               :providers ordered-providers
+               :provider-id provider-id
+               :accounts ordered-accounts
+               :account (first ordered-accounts)
+               :applies-account-constraint (:applies-constraint account-result)
+               :strategies ordered-strategies
+               :strategy (first ordered-strategies)})))
+        {:status :exhausted
+         :reason :no-routing-clause
+         :model-id model-id}))))
+
 (defn compile-contracts
   "Compile loaded declarative policy contracts into phase-oriented indexes.
 
