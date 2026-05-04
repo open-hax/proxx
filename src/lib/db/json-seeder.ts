@@ -200,53 +200,37 @@ function firstNonEmptyEnv(names: readonly string[]): string | undefined {
   return undefined;
 }
 
-const ENV_API_KEY_PROVIDER_SPECS = [
-  {
-    providerIdEnvNames: ["GEMINI_PROVIDER_ID"],
-    providerIdFallback: "gemini",
-    keyEnvNames: ["GEMINI_API_KEY"],
-  },
-  {
-    providerIdEnvNames: ["ZAI_PROVIDER_ID", "ZHIPU_PROVIDER_ID"],
-    providerIdFallback: "zai",
-    keyEnvNames: ["ZAI_API_KEY", "ZHIPU_API_KEY"],
-  },
-  {
-    providerIdEnvNames: ["ROTUSSY_PROVIDER_ID"],
-    providerIdFallback: "rotussy",
-    keyEnvNames: ["ROTUSSY_API_KEY"],
-  },
-  {
-    providerIdEnvNames: ["MISTRAL_PROVIDER_ID"],
-    providerIdFallback: "mistral",
-    keyEnvNames: ["MISTRAL_API_KEY"],
-  },
-  {
-    providerIdEnvNames: ["XIAOMI_PROVIDER_ID", "MIMO_PROVIDER_ID"],
-    providerIdFallback: "xiaomi",
-    keyEnvNames: ["XIAOMI_API_KEY", "MIMO_API_KEY"],
-  },
-  {
-    providerIdEnvNames: ["OPENROUTER_PROVIDER_ID"],
-    providerIdFallback: "openrouter",
-    keyEnvNames: ["OPENROUTER_API_KEY"],
-  },
-  {
-    providerIdEnvNames: ["REQUESTY_PROVIDER_ID"],
-    providerIdFallback: "requesty",
-    keyEnvNames: ["REQUESTY_API_TOKEN", "REQUESTY_API_KEY"],
-  },
-  {
-    providerIdEnvNames: ["OLLAMA_CLOUD_PROVIDER_ID"],
-    providerIdFallback: "ollama-cloud",
-    keyEnvNames: ["OLLAMA_CLOUD_API_KEY"],
-  },
-  {
-    providerIdEnvNames: ["ZEN_PROVIDER_ID"],
-    providerIdFallback: "zen",
-    keyEnvNames: ["ZEN_API_KEY", "ZENMUX_API_KEY"],
-  },
-] as const;
+export interface EnvProviderSeedSpec {
+  readonly providerIdEnvNames: readonly string[];
+  readonly providerIdFallback: string;
+  readonly keyEnvNames: readonly string[];
+}
+
+function readStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((n): n is string => typeof n === "string") : [];
+}
+
+export function parseEnvProviderSeedSpecs(raw: unknown): EnvProviderSeedSpec[] {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  return raw.flatMap((entry): EnvProviderSeedSpec[] => {
+    if (typeof entry !== "object" || entry === null) {
+      return [];
+    }
+    const record = entry as Record<string, unknown>;
+    // Accept both camelCase (TS convention) and hyphenated (CLJS convention) keys
+    const providerIdEnvNames = readStringArray(record.providerIdEnvNames ?? record["provider-id-env-names"]);
+    const providerIdFallback = typeof (record.providerIdFallback ?? record["provider-id-fallback"]) === "string"
+      ? String(record.providerIdFallback ?? record["provider-id-fallback"]).trim()
+      : "";
+    const keyEnvNames = readStringArray(record.keyEnvNames ?? record["key-env-names"]);
+    if (!providerIdFallback || keyEnvNames.length === 0) {
+      return [];
+    }
+    return [{ providerIdEnvNames, providerIdFallback, keyEnvNames }];
+  });
+}
 
 export async function seedFromJsonFile(
   sql: Sql,
@@ -346,12 +330,21 @@ export async function seedFromJsonValue(
  * After startup, the DB remains the runtime source of truth and these env vars
  * should no longer affect live routing directly.
  */
+/**
+ * Seed env-backed API-key providers into the database.
+ * After startup, the DB remains the runtime source of truth and these env vars
+ * should no longer affect live routing directly.
+ *
+ * Provider specs are loaded from `:provider-seed` contracts via the CLJS runtime.
+ */
 export async function seedApiKeyProvidersFromEnv(
   sql: Sql,
+  specs?: readonly EnvProviderSeedSpec[],
 ): Promise<{ providers: number; accounts: number }> {
+  const resolvedSpecs = specs ? [...specs] : [];
   const providers: Record<string, { auth: "api_key"; accounts: [{ id: string; api_key: string }] }> = {};
 
-  for (const spec of ENV_API_KEY_PROVIDER_SPECS) {
+  for (const spec of resolvedSpecs) {
     const apiKey = firstNonEmptyEnv(spec.keyEnvNames);
     if (!apiKey) {
       continue;

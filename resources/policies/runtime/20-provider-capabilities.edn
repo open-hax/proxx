@@ -1,6 +1,6 @@
 [{:contract/id :provider-order/gpt-default
   :contract/kind :preference-order
-  :preference/items ["openai" "factory" "openrouter" "requesty" "vivgrid"]}
+  :preference/items ["openai"]}
 
  {:contract/id :provider-order/gpt-oss
   :contract/kind :preference-order
@@ -14,9 +14,22 @@
   :contract/kind :preference-order
   :preference/items ["zai" "rotussy" "requesty" "factory" "openrouter" "vivgrid" "ollama-cloud"]}
 
+ {:contract/id :provider-order/kimi
+  :contract/kind :preference-order
+  :preference/items ["kimi" "moonshotai" "factory" "openrouter" "requesty" "vivgrid"]}
+
+ {:contract/id :provider-route/kimi
+  :contract/kind :provider-route
+  :provider/id "kimi"
+  :provider/base-url "https://api.moonshot.ai/v1"}
+
+ {:contract/id :provider-order/mimo-official
+  :contract/kind :preference-order
+  :preference/items ["xiaomi"]}
+
  {:contract/id :provider-order/mimo
   :contract/kind :preference-order
-  :preference/items ["xiaomi" "openrouter" "requesty" "factory" "vivgrid"]}
+  :preference/items ["xiaomi"]}
 
  {:contract/id :provider-order/embeddings
   :contract/kind :preference-order
@@ -41,6 +54,13 @@
   :match/request-kind :responses-passthrough
   :prefer/strategies [:chat-completions]
   :exclude/strategies [:responses-passthrough]}
+
+ {:contract/id :provider-capability/kimi-chat
+  :contract/kind :provider-capability
+  :match/provider-pattern "^(kimi|moonshotai)$"
+  :match/request-kind :chat
+  :prefer/strategies [:chat-completions]
+  :exclude/strategies [:ollama-chat :responses :messages]}
 
  {:contract/id :provider-capability/openai-compatible-chat
   :contract/kind :provider-capability

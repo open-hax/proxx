@@ -26,6 +26,7 @@
     "build": "rm -rf dist && tsc -p tsconfig.json",
     "build:cljs": "npx shadow-cljs release runtime",
     "build:runtime": "rm -rf dist && pnpm build:cljs && tsc -p tsconfig.json",
+    "pricing:update": "node scripts/update-models-dev-pricing.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "start": "node --env-file-if-exists=.env dist/main.js",
     "test": "pnpm run build && node --test --test-concurrency=1 'dist/tests/**/*.test.js'",

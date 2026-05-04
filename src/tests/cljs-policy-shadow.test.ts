@@ -11,6 +11,8 @@ function createRuntime(providers: readonly string[], seenInputs?: unknown[]): Pr
     projectPheromone: () => 1,
     routePolicy: () => ({ status: "error", trace: [] }),
     loadPolicyEvidence: async () => ({}),
+    loadModelPricingOverrides: () => ([]),
+    loadProviderSeedSpecs: () => ([]),
     previewPolicyDecision: (_manifestPath, input) => {
       seenInputs?.push(input);
       return {
@@ -129,6 +131,45 @@ test("applyCljsProviderPolicy filters and reorders routes in authoritative mode"
 
   assert.ok(debug.some((entry) => Array.isArray(entry.providerIds)));
   assert.equal(warn.length, 1);
+});
+
+test("applyCljsProviderPolicy lets authoritative policy select configured provider outside legacy route candidates", () => {
+  const seenInputs: unknown[] = [];
+  const routes = [
+    { providerId: "openai", baseUrl: "https://api.openai.com" },
+    { providerId: "factory", baseUrl: "https://api.factory.ai" },
+  ];
+
+  setActiveCljsRuntime(createRuntime(["xiaomi"], seenInputs));
+  try {
+    const ordered = applyCljsProviderPolicy({
+      config: {
+        cljsPolicyManifestPath: "resources/policies/runtime/00-manifest.edn",
+        cljsPolicyShadowMode: false,
+        cljsPolicyAuthoritative: true,
+        disabledProviderIds: [],
+        openaiProviderId: "openai",
+        openaiBaseUrl: "https://api.openai.com",
+        upstreamProviderBaseUrls: {
+          factory: "https://api.factory.ai",
+          xiaomi: "https://api.xiaomimimo.com/v1",
+        },
+      },
+      log: {
+        debug: () => undefined,
+        warn: () => undefined,
+      },
+      requestKind: "chat",
+      requestedModel: "mimo-v2.5-pro",
+      routedModel: "mimo-v2.5-pro",
+      tenantSettings: {},
+      providerRoutes: routes,
+    });
+    assert.deepEqual(ordered, [{ providerId: "xiaomi", baseUrl: "https://api.xiaomimimo.com/v1" }]);
+    assert.deepEqual((seenInputs[0] as Record<string, unknown>).providerIds, ["openai", "factory", "xiaomi"]);
+  } finally {
+    setActiveCljsRuntime(undefined);
+  }
 });
 
 test("applyCljsProviderPolicy fails closed in authoritative mode when runtime is unavailable", () => {

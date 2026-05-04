@@ -1,0 +1,59 @@
+[{:contract/id :provider-seed/gemini
+  :contract/kind :provider-seed
+  :provider-id-env-names ["GEMINI_PROVIDER_ID"]
+  :provider-id-fallback "gemini"
+  :key-env-names ["GEMINI_API_KEY"]}
+
+ {:contract/id :provider-seed/zai
+  :contract/kind :provider-seed
+  :provider-id-env-names ["ZAI_PROVIDER_ID" "ZHIPU_PROVIDER_ID"]
+  :provider-id-fallback "zai"
+  :key-env-names ["ZAI_API_KEY" "ZHIPU_API_KEY"]}
+
+ {:contract/id :provider-seed/kimi
+  :contract/kind :provider-seed
+  :provider-id-env-names ["KIMI_PROVIDER_ID" "MOONSHOT_PROVIDER_ID"]
+  :provider-id-fallback "moonshotai"
+  :key-env-names ["KIMI_API_KEY" "MOONSHOT_API_KEY"]}
+
+ {:contract/id :provider-seed/rotussy
+  :contract/kind :provider-seed
+  :provider-id-env-names ["ROTUSSY_PROVIDER_ID"]
+  :provider-id-fallback "rotussy"
+  :key-env-names ["ROTUSSY_API_KEY"]}
+
+ {:contract/id :provider-seed/mistral
+  :contract/kind :provider-seed
+  :provider-id-env-names ["MISTRAL_PROVIDER_ID"]
+  :provider-id-fallback "mistral"
+  :key-env-names ["MISTRAL_API_KEY"]}
+
+ {:contract/id :provider-seed/xiaomi
+  :contract/kind :provider-seed
+  :provider-id-env-names ["XIAOMI_PROVIDER_ID" "MIMO_PROVIDER_ID"]
+  :provider-id-fallback "xiaomi"
+  :key-env-names ["XIAOMI_API_KEY" "MIMO_API_KEY"]}
+
+ {:contract/id :provider-seed/openrouter
+  :contract/kind :provider-seed
+  :provider-id-env-names ["OPENROUTER_PROVIDER_ID"]
+  :provider-id-fallback "openrouter"
+  :key-env-names ["OPENROUTER_API_KEY"]}
+
+ {:contract/id :provider-seed/requesty
+  :contract/kind :provider-seed
+  :provider-id-env-names ["REQUESTY_PROVIDER_ID"]
+  :provider-id-fallback "requesty"
+  :key-env-names ["REQUESTY_API_TOKEN" "REQUESTY_API_KEY"]}
+
+ {:contract/id :provider-seed/ollama-cloud
+  :contract/kind :provider-seed
+  :provider-id-env-names ["OLLAMA_CLOUD_PROVIDER_ID"]
+  :provider-id-fallback "ollama-cloud"
+  :key-env-names ["OLLAMA_CLOUD_API_KEY"]}
+
+ {:contract/id :provider-seed/zen
+  :contract/kind :provider-seed
+  :provider-id-env-names ["ZEN_PROVIDER_ID"]
+  :provider-id-fallback "zen"
+  :key-env-names ["ZEN_API_KEY" "ZENMUX_API_KEY"]}]

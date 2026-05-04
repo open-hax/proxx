@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
+import { refreshModelsDevPricingIndex } from "../lib/model-pricing.js";
 import { RequestLogStore } from "../lib/request-log-store.js";
 
 function parseJsonlEntries(contents: string): unknown[] {
@@ -578,6 +579,54 @@ test("request log rollups remove cache counters when an updated entry becomes an
     assert.equal(accumulators.length, 1);
     assert.equal(accumulators[0]?.cacheKeyUseCount, 0);
     assert.equal(accumulators[0]?.cacheHitCount, 0);
+
+    await store.close();
+  });
+});
+
+test("request log store can reprice token usage after live pricing refresh", async () => {
+  await withTempDir(async (tempDir) => {
+    const filePath = path.join(tempDir, "request-logs.jsonl");
+    const store = new RequestLogStore(filePath, 100);
+    await store.warmup();
+
+    store.record({
+      providerId: "freshprovider",
+      accountId: "acct-1",
+      authType: "api_key",
+      model: "fresh-model-2026",
+      upstreamMode: "chat_completions",
+      upstreamPath: "/v1/chat/completions",
+      status: 200,
+      latencyMs: 100,
+      promptTokens: 1000,
+      completionTokens: 1000,
+      totalTokens: 2000,
+    });
+
+    assert.equal(store.snapshot()[0]?.costUsd, undefined);
+
+    const fetchFn: typeof fetch = async () => new Response(JSON.stringify({
+      freshprovider: {
+        models: {
+          "fresh-model-2026": {
+            cost: {
+              input: 0.25,
+              output: 0.75,
+            },
+          },
+        },
+      },
+    }), { status: 200 });
+    await refreshModelsDevPricingIndex({
+      sourceUrl: "https://example.test/models-dev-api.json",
+      fetchFn,
+      timeoutMs: 1000,
+    });
+
+    assert.equal(store.refreshDerivedEstimates(), 1);
+    assert.equal(store.snapshot()[0]?.costUsd, 0.001);
+    assert.equal(store.snapshotHourlyBuckets()[0]?.costUsd, 0.001);
 
     await store.close();
   });

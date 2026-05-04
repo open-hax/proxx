@@ -4,7 +4,9 @@
  :policy.dsl/status :target-contract
  :policy.loader/order
  ["00-domain.edn"
+  "05-provider-seed.edn"
   "10-model-families.edn"
+  "15-model-pricing-overrides.edn"
   "20-provider-capabilities.edn"
   "30-model-routing.edn"
   "40-strategy-selection.edn"

@@ -1,0 +1,12 @@
+[{:contract/id :model-pricing-override/gemma4-31b-weighted-average
+  :contract/kind :model-pricing-override
+  :match/model-pattern "(?i)^gemma4:31b$"
+  ;; Weighted average across providers (OpenRouter observed, past hour).
+  ;; Input:  $0.134 / 1M tokens
+  ;; Output: $0.395 / 1M tokens
+  :pricing/input-per-1m-tokens 0.134
+  :pricing/output-per-1m-tokens 0.395
+  ;; Only apply when models.dev has no price.
+  :override/mode :fallback-unpriced
+  :override/source "openrouter-weighted-average"
+  :override/notes "Manual override while models.dev lacks gemma4:31b pricing; update/remove once upstream pricing lands."}]

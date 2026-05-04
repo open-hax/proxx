@@ -265,6 +265,14 @@
          (policy/eval-form '(contract/apply [:routing-clause :mimo] ctx)
                            {:model-id "xiaomi/mimo-v2-omni"}
                            (atom []))))
+  (is (= true
+         (policy/eval-form '(contract/apply [:model-family :mimo-v2-5-pro] (get ctx :model))
+                           {:model "mimo-v2.5-pro"}
+                           (atom []))))
+  (is (= true
+         (policy/eval-form '(contract/apply [:routing-clause :mimo-v2-5-pro] ctx)
+                           {:model-id "xiaomi/mimo-v2.5-pro"}
+                           (atom []))))
   (is (nil?
        (policy/eval-form '(contract/apply [:routing-clause :mimo] ctx)
                          {:model-id "gpt-5.2"}
@@ -487,8 +495,10 @@
             :route/gpt-free-blocked
             :route/gpt-6-plus
             :route/gpt
+            :route/mimo-v2-5-pro
             :route/mimo
             :route/qwen3-embedding
+            :route/kimi
             :route/default]
            route-ids))
     (is (= "^(?:gpt-5\\.3-codex|gpt-5-mini)$"
@@ -497,7 +507,8 @@
            (:prefer/provider-order gpt-paid)))
     (is (= [:plus :pro :business :enterprise :team]
            (:require/plan-set gpt-paid)))
-    (is (= 4 (count (:provider-capabilities compiled))))
+    (is (= 5 (count (:provider-capabilities compiled))))
+    (is (= 1 (count (:provider-routes compiled))))
     (is (= 3 (count (:request-surface-defaults compiled))))
     (is (= 4 (count (:tenant-authorization-clauses compiled))))
     (is (= :router/root (get-in compiled [:root-program :contract/id])))))
@@ -513,8 +524,16 @@
            (:contract/id (contracts/select-routing-clause compiled "claude-opus-4-6-fast"))))
     (is (= :route/gpt
            (:contract/id (contracts/select-routing-clause compiled "gpt-5.2"))))
+    (is (= :route/mimo-v2-5-pro
+           (:contract/id (contracts/select-routing-clause compiled "mimo-v2.5-pro"))))
+    (is (= :route/mimo-v2-5-pro
+           (:contract/id (contracts/select-routing-clause compiled "xiaomi/mimo-v2.5-pro"))))
+    (is (= :route/mimo
+           (:contract/id (contracts/select-routing-clause compiled "mimo-v2-omni"))))
     (is (= :route/qwen3-embedding
            (:contract/id (contracts/select-routing-clause compiled "qwen3-embedding:0.6b"))))
+    (is (= :route/kimi
+           (:contract/id (contracts/select-routing-clause compiled "kimi-k2.6"))))
     (is (= :route/default
            (:contract/id (contracts/select-routing-clause compiled "mistral-large"))))))
 
@@ -721,6 +740,56 @@
     (is (= true (:applies-account-constraint decision)))
     (is (= :chat-completions (get-in decision [:strategy :mode])))))
 
+(deftest compiler-previews-mimo-v2-5-pro-official-xiaomi-policy-decision
+  (let [compiled (contracts/compile-contracts
+                  (loader/load-policy-contracts! "resources/policies/runtime/00-manifest.edn"))
+        decision (contracts/preview-policy-decision
+                  compiled
+                  {:model-id "mimo-v2.5-pro"
+                   :request-kind :chat
+                   :tenant-settings {:allowed-provider-ids ["xiaomi" "requesty" "factory"]}
+                   :provider-ids ["requesty" "factory" "xiaomi"]
+                   :accounts-by-provider {"xiaomi" [{:account-id "xiaomi-ready" :plan-type :free}]
+                                          "requesty" [{:account-id "requesty-ready" :plan-type :free}]
+                                          "factory" [{:account-id "factory-ready" :plan-type :team}]}
+                   :strategies-by-provider {"xiaomi" [{:mode :chat-completions :priority 0}]
+                                            "requesty" [{:mode :chat-completions :priority 0}]
+                                            "factory" [{:mode :chat-completions :priority 0}]}})]
+    (is (= :ok (:status decision)))
+    (is (= :route/mimo-v2-5-pro (:route-id decision)))
+    (is (= ["xiaomi"] (:providers decision)))
+    (is (= "xiaomi" (:provider-id decision)))
+    (is (= "xiaomi-ready" (get-in decision [:account :account-id])))
+    (is (= :chat-completions (get-in decision [:strategy :mode])))))
+
+(deftest compiler-preview-derives-provider-candidates-from-route-policy
+  (let [compiled (contracts/compile-contracts
+                  (loader/load-policy-contracts! "resources/policies/runtime/00-manifest.edn"))
+        decision (contracts/preview-policy-decision
+                  compiled
+                  {:model-id "mimo-v2.5-pro"
+                   :request-kind :chat
+                   :tenant-settings {:allowed-provider-ids ["xiaomi" "requesty"]}
+                   :accounts-by-provider {"xiaomi" [{:account-id "xiaomi-ready" :plan-type :free}]}
+                   :strategies-by-provider {"xiaomi" [{:mode :chat-completions :priority 0}]}})]
+    (is (= :ok (:status decision)))
+    (is (= :route/mimo-v2-5-pro (:route-id decision)))
+    (is (= ["xiaomi"] (:providers decision)))
+    (is (= "xiaomi" (:provider-id decision)))
+    (is (= "xiaomi-ready" (get-in decision [:account :account-id])))))
+
+(deftest compiler-preview-default-route-does-not-invent-provider-candidates
+  (let [compiled (contracts/compile-contracts
+                  (loader/load-policy-contracts! "resources/policies/runtime/00-manifest.edn"))
+        decision (contracts/preview-policy-decision
+                  compiled
+                  {:model-id "unknown-model"
+                   :request-kind :chat})]
+    (is (= :exhausted (:status decision)))
+    (is (= :no-provider-candidates (:reason decision)))
+    (is (= :route/default (:route-id decision)))
+    (is (= [] (:providers decision)))))
+
 (deftest compiler-previews-embedding-policy-decision
   (let [compiled (contracts/compile-contracts
                   (loader/load-policy-contracts! "resources/policies/runtime/00-manifest.edn"))
@@ -754,7 +823,7 @@
            (:status (contracts/preview-policy-decision
                      compiled
                      {:model-id "gpt-5.2"
-                      :tenant-settings {:allowed-provider-ids ["factory"]}
+                      :tenant-settings {:allowed-provider-ids ["no-such-provider"]}
                       :provider-ids ["openai"]}))))))
 
 (deftest compiler-rejects-duplicate-contract-ids

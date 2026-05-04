@@ -35,6 +35,7 @@
   :require/plans :domain/paid-plans
   :exclude/plans [:free]
   :prefer/providers :provider-order/gpt-default
+  :prefer/providers-strict? true
   :exclude/providers ["ollama-cloud" "rotussy"]
   :prefer/strategies [:openai-responses :responses :openai-chat-completions :chat-completions]
   :account/order :account-order/paid-plan-weight}
@@ -45,6 +46,7 @@
   :require/plans :domain/paid-plans
   :exclude/plans [:free]
   :prefer/providers :provider-order/gpt-default
+  :prefer/providers-strict? true
   :exclude/providers ["ollama-cloud" "rotussy"]
   :prefer/strategies [:openai-responses :responses :openai-chat-completions :chat-completions]
   :account/order :account-order/paid-plan-weight}
@@ -53,14 +55,25 @@
   :contract/kind :routing-clause
   :match/family :model-family/gpt
   :prefer/providers :provider-order/gpt-default
+  :prefer/providers-strict? true
   :exclude/providers ["ollama-cloud" "rotussy"]
   :prefer/strategies [:openai-responses :responses :openai-chat-completions :chat-completions]
+  :account/order :account-order/prefer-free}
+
+ {:contract/id :route/mimo-v2-5-pro
+  :contract/kind :routing-clause
+  :match/family :model-family/mimo-v2-5-pro
+  :prefer/providers :provider-order/mimo-official
+  :prefer/providers-strict? true
+  :exclude/providers ["openai" "openrouter" "requesty" "factory" "vivgrid" "ollama-cloud" "ollama" "zai" "rotussy" "gemini" "mistral" "zen" "ob1" "llamacpp" "llamacpp-embed"]
+  :prefer/strategies [:chat-completions]
   :account/order :account-order/prefer-free}
 
  {:contract/id :route/mimo
   :contract/kind :routing-clause
   :match/family :model-family/mimo
   :prefer/providers :provider-order/mimo
+  :prefer/providers-strict? true
   :prefer/strategies [:chat-completions]
   :account/order :account-order/prefer-free}
 
@@ -69,6 +82,14 @@
   :match/family :model-family/qwen3-embedding
   :prefer/providers :provider-order/embeddings
   :prefer/strategies [:embeddings]
+  :account/order :account-order/prefer-free}
+
+ {:contract/id :route/kimi
+  :contract/kind :routing-clause
+  :match/family :model-family/kimi
+  :prefer/providers :provider-order/kimi
+  :exclude/providers ["openai"]
+  :prefer/strategies [:chat-completions]
   :account/order :account-order/prefer-free}
 
  {:contract/id :route/default

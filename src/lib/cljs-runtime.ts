@@ -29,6 +29,8 @@ export interface ProxxCljsRuntime {
   readonly projectPheromone: (events: readonly unknown[], opts?: unknown) => number;
   readonly routePolicy: (policies: readonly unknown[], ctx: unknown) => CljsPolicyRouteResult;
   readonly loadPolicyEvidence: (opts: unknown) => Promise<unknown>;
+  readonly loadModelPricingOverrides: (manifestPath: string) => unknown;
+  readonly loadProviderSeedSpecs: (manifestPath: string) => unknown;
   readonly previewPolicyDecision: (manifestPath: string, input: unknown) => CljsPolicyDecisionPreviewResult;
 }
 
@@ -62,6 +64,7 @@ function isProxxCljsRuntime(value: Record<string, unknown>): value is Record<str
     typeof value.projectPheromone === "function" &&
     typeof value.routePolicy === "function" &&
     typeof value.loadPolicyEvidence === "function" &&
+    typeof value.loadModelPricingOverrides === "function" &&
     typeof value.previewPolicyDecision === "function"
   );
 }

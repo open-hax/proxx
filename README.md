@@ -16,6 +16,7 @@ DEVEL instructions live in `DEVEL.md`.
 - Global fast-mode toggle for Responses traffic: the proxy can inject `service_tier: "priority"` for GPT/Responses requests, with per-request overrides still respected.
 - Model-aware routing to Ollama base API: models prefixed with `ollama/` or `ollama:` are sent to Ollama `POST /api/chat`.
 - Built-in React/Vite console with a usage dashboard plus Chat, Credentials, and Tools/MCP pages.
+- Runtime model pricing refresh from `https://models.dev/api.json` so new model analytics can pick up fresh token-price data without waiting for a code snapshot update.
 - OpenAI OAuth browser + device flows based on OpenCode Codex plugin behavior (PKCE, state, callback exchange, account extraction).
 - Chroma-backed semantic history search with lexical fallback for chat session recall.
 - `GET /v1/models` and `GET /v1/models/:id` model listing.
@@ -221,6 +222,11 @@ Notes:
 - `PROXY_REQUEST_LOGS_FILE` (default: `./data/request-logs.jsonl`)
 - `PROXY_REQUEST_LOGS_MAX_ENTRIES` (default: `100000`; retained raw request-log entries used for backfill/debug/recent views)
 - `PROXY_SETTINGS_FILE` (default: `./data/proxy-settings.json`)
+- `MODELS_DEV_PRICING_URL` (default: `https://models.dev/api.json`; source for the live model price index)
+- `PROXY_MODEL_PRICING_REFRESH_MS` / `MODELS_DEV_PRICING_REFRESH_MS` (default: `21600000`; background price-index refresh interval, set `0` with startup refresh disabled to turn off live refresh)
+- `PROXY_MODEL_PRICING_STARTUP_REFRESH` / `MODELS_DEV_PRICING_STARTUP_REFRESH` (default: `true`; refresh the price index once when the API starts)
+- `PROXY_MODEL_PRICING_REFRESH_TIMEOUT_MS` / `MODELS_DEV_PRICING_REFRESH_TIMEOUT_MS` (default: `10000`; timeout for each models.dev fetch)
+- **Pricing override commandment**: token-price overrides MUST be expressed as **EDN policy contracts** (see `resources/policies/runtime/15-model-pricing-overrides.edn` or service-mounted `/etc/proxx/policies/runtime/15-model-pricing-overrides.edn`). Do **not** add JSON override blobs or hard-coded TypeScript pricing tables for one-off models.
 - `PROXY_KEY_RELOAD_MS` (default: `5000`, fallback: `VIVGRID_KEY_RELOAD_MS`)
 - `PROXY_KEY_COOLDOWN_MS` (default: `30000`, fallback: `VIVGRID_KEY_COOLDOWN_MS`)
 - `UPSTREAM_REQUEST_TIMEOUT_MS` (default: `180000`)

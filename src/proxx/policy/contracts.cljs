@@ -70,6 +70,19 @@
        (filter #(= :provider-capability (:contract/kind %)))
        vec))
 
+(defn provider-routes [idx]
+  (->> (:contracts idx)
+       (filter #(= :provider-route (:contract/kind %)))
+       vec))
+
+(defn provider-seed-specs [idx]
+  (->> (:contracts idx)
+       (filter #(= :provider-seed (:contract/kind %)))
+       (mapv (fn [contract]
+               {:provider-id-env-names (vec (or (:provider-id-env-names contract) []))
+                :provider-id-fallback (or (:provider-id-fallback contract) (some-> (:contract/id contract) name))
+                :key-env-names (vec (or (:key-env-names contract) []))}))))
+
 (defn request-surface-defaults [idx]
   (->> (:contracts idx)
        (filter #(= :request-surface-default (:contract/kind %)))
@@ -133,18 +146,28 @@
        (filterv #(provider-clause-matches? % provider-id request-kind))))
 
 (defn order-provider-candidates
-  "Filter excluded provider ids and order preferred providers before original order."
+  "Filter excluded provider ids and order preferred providers before original order.
+
+  When :prefer/providers-strict? is true and a preferred provider order exists,
+  only providers explicitly listed in that order remain eligible. This lets
+  specific model families fail closed on their canonical upstream instead of
+  spilling into the ambient configured provider universe."
   [route provider-ids]
   (let [original-order (zipmap provider-ids (range))
         excluded (set (:exclude/providers route))
         filtered (filterv #(not (contains? excluded %)) provider-ids)
         preferred (:prefer/provider-order route)
+        strict? (true? (:prefer/providers-strict? route))
+        preferred-set (set preferred)
+        candidates (if (and strict? (seq preferred))
+                     (filterv #(contains? preferred-set %) filtered)
+                     filtered)
         preferred-order (zipmap preferred (range))
         fallback-rank (count preferred)]
     (sort-by (fn [provider-id]
                [(get preferred-order provider-id fallback-rank)
                 (get original-order provider-id 0)])
-             filtered)))
+             candidates)))
 
 (defn select-account-ordering
   "Return the account ordering contract declared by a route."
@@ -392,6 +415,48 @@
     (or (evidence-has-model? models-dev provider-id model-id)
         (evidence-has-model? snapshots provider-id model-id))))
 
+(defn- route-default-provider-ids [route]
+  (if (= :route/default (:contract/id route))
+    []
+    (vec (:prefer/provider-order route))))
+
+(defn- dedupe-provider-ids [provider-ids]
+  (vec (distinct (remove str/blank? (map str provider-ids)))))
+
+(defn- request-or-route-provider-ids [route input]
+  (let [requested-provider-ids (vec (or (get-any input [:provider-ids :providerIds]) []))]
+    (dedupe-provider-ids (concat (route-default-provider-ids route)
+                                 requested-provider-ids))))
+
+(defn- provider-route-provider-id [route]
+  (or (:provider/id route)
+      (:provider-id route)
+      (:providerId route)
+      (some-> (:contract/id route) name)))
+
+(defn- provider-route-base-url [route]
+  (or (:provider/base-url route)
+      (:provider/baseUrl route)
+      (:base-url route)
+      (:baseUrl route)))
+
+(defn- provider-route-by-id [compiled]
+  (into {}
+        (keep (fn [route]
+                (let [provider-id (provider-route-provider-id route)
+                      base-url (provider-route-base-url route)]
+                  (when (and (string? provider-id)
+                             (not (str/blank? provider-id))
+                             (string? base-url)
+                             (not (str/blank? base-url)))
+                    [provider-id {:provider-id provider-id
+                                  :base-url base-url}]))))
+        (:provider-routes compiled)))
+
+(defn- selected-provider-routes [compiled provider-ids]
+  (let [by-id (provider-route-by-id compiled)]
+    (vec (keep by-id provider-ids))))
+
 (defn- evidence-filtered-provider-ids [route input provider-ids model-id]
   (if (= :route/default (:contract/id route))
     (filterv #(provider-model-evidenced? input % model-id) provider-ids)
@@ -411,7 +476,7 @@
        :reason :tenant-model-not-allowed
        :model-id model-id}
       (if-let [route (select-routing-clause compiled model-id)]
-        (let [provider-ids (or (get-any input [:provider-ids :providerIds]) [])
+        (let [provider-ids (request-or-route-provider-ids route input)
               evidenced-providers (evidence-filtered-provider-ids route input provider-ids model-id)
               tenant-allowed-providers (filterv #(tenant-provider-allowed? tenant-settings %) evidenced-providers)
               ordered-providers (vec (order-provider-candidates route tenant-allowed-providers))
@@ -434,6 +499,7 @@
                :request-kind request-kind
                :route-id (:contract/id route)
                :providers ordered-providers
+               :provider-routes (selected-provider-routes compiled ordered-providers)
                :provider-id provider-id
                :accounts ordered-accounts
                :account (first ordered-accounts)
@@ -454,6 +520,8 @@
     {:index idx
      :routing-clauses (routing-clauses idx)
      :provider-capabilities (provider-capabilities idx)
+     :provider-routes (provider-routes idx)
+     :provider-seed-specs (provider-seed-specs idx)
      :request-surface-defaults (request-surface-defaults idx)
      :account-orderings (account-orderings idx)
      :account-constraints (account-constraints idx)

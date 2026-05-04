@@ -61,6 +61,45 @@
                #js {"models-dev/provider-models" (clj->js (:models-dev/provider-models evidence))
                     "provider-model-snapshots" (clj->js (:provider-model-snapshots evidence))}))))
 
+(defn load-model-pricing-overrides-js
+  "Load declarative pricing override contracts from a policy manifest.
+
+  Returns a JS array of objects shaped as:
+    {modelPattern, providerPattern?, mode, inputPer1MTokens, outputPer1MTokens, cacheReadPer1MTokens, cacheWritePer1MTokens, source?, notes?}
+
+  Commandment: pricing overrides are policy EDN only — do not add JSON or TypeScript pricing tables."
+  [manifest-path]
+  (let [contracts (policy-loader/load-policy-contracts! manifest-path)
+        overrides (->> contracts
+                       (filter #(= :model-pricing-override (:contract/kind %)))
+                       (map (fn [contract]
+                              {:contractId (str (:contract/id contract))
+                               :modelPattern (:match/model-pattern contract)
+                               :providerPattern (:match/provider-pattern contract)
+                               :mode (or (:override/mode contract) :fallback-unpriced)
+                               :inputPer1MTokens (:pricing/input-per-1m-tokens contract)
+                               :outputPer1MTokens (:pricing/output-per-1m-tokens contract)
+                               :reasoningPer1MTokens (:pricing/reasoning-per-1m-tokens contract)
+                               :cacheReadPer1MTokens (:pricing/cache-read-per-1m-tokens contract)
+                               :cacheWritePer1MTokens (:pricing/cache-write-per-1m-tokens contract)
+                               :source (:override/source contract)
+                               :notes (:override/notes contract)}))
+                       vec)]
+    (clj->js overrides)))
+
+(defn load-provider-seed-specs-js
+  "Load provider seed specs from :provider-seed contracts in the manifest.
+
+  Returns a JS array of objects shaped as:
+    {providerIdEnvNames: string[], providerIdFallback: string, keyEnvNames: string[]}
+
+  This replaces hardcoded TypeScript env-provider spec arrays with declarative contract data."
+  [manifest-path]
+  (let [contracts (policy-loader/load-policy-contracts! manifest-path)
+        idx (policy-contracts/index-contracts contracts)
+        specs (policy-contracts/provider-seed-specs idx)]
+    (clj->js specs)))
+
 (defn preview-policy-decision-js
   "Load declarative policy contracts from manifest-path and return a pure decision preview."
   [manifest-path input]
@@ -82,4 +121,6 @@
        :projectPheromone project-pheromone-js
        :routePolicy route-policy-js
        :loadPolicyEvidence load-policy-evidence-js
+       :loadModelPricingOverrides load-model-pricing-overrides-js
+       :loadProviderSeedSpecs load-provider-seed-specs-js
        :previewPolicyDecision preview-policy-decision-js})

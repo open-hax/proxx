@@ -36,13 +36,21 @@
   :contract/kind :model-family
   :match/model-pattern "^gpt-"}
 
+ {:contract/id :model-family/mimo-v2-5-pro
+  :contract/kind :model-family
+  :match/model-pattern "(?i)^(?:xiaomi/|xiaomimimo/)?mimo-v2\\.5-pro$"}
+
  {:contract/id :model-family/mimo
   :contract/kind :model-family
-  :match/model-pattern "(?i)^(?:xiaomi/|xiaomimimo/)?mimo-v2-"}
+  :match/model-pattern "(?i)^(?:xiaomi/|xiaomimimo/)?mimo-v2(?:-|\\.)"}
 
  {:contract/id :model-family/qwen3-embedding
   :contract/kind :model-family
   :match/model-pattern "(?i)^qwen3-embedding(?::|-).*"}
+
+ {:contract/id :model-family/kimi
+  :contract/kind :model-family
+  :match/model-pattern "(?i)^(?:kimi-|moonshot-v1-)"}
 
  {:contract/id :model-family/default
   :contract/kind :model-family

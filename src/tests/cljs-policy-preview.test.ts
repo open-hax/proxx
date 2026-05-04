@@ -55,3 +55,40 @@ test("CLJS runtime previews declarative policy decisions from manifest", async (
   assert.equal(decision.account?.accountId, "plus");
   assert.equal(decision.strategy?.mode, "chat-completions");
 });
+
+test("CLJS runtime keeps gpt and mimo routes pinned to their canonical providers", async (t) => {
+  const loaded = await loadCljsRuntime({ required: false });
+  if (!loaded.loaded) {
+    t.skip(`CLJS runtime artifact not built: ${loaded.reason}`);
+    return;
+  }
+  await assertCljsRuntimeReady(loaded.runtime);
+
+  const gptResult = loaded.runtime.previewPolicyDecision("resources/policies/runtime/00-manifest.edn", {
+    modelId: "gpt-5.4",
+    requestKind: "chat",
+    tenantSettings: {},
+    providerIds: ["openai", "factory", "requesty", "vivgrid"],
+  });
+  assert.equal(gptResult.status, "ok");
+  const gptDecision = gptResult.decision as {
+    readonly "route-id"?: string;
+    readonly providers?: readonly string[];
+  };
+  assert.equal(gptDecision["route-id"], "gpt");
+  assert.deepEqual(gptDecision.providers, ["openai"]);
+
+  const mimoResult = loaded.runtime.previewPolicyDecision("resources/policies/runtime/00-manifest.edn", {
+    modelId: "mimo-v2.5-pro",
+    requestKind: "chat",
+    tenantSettings: {},
+    providerIds: ["openai", "xiaomi", "requesty", "vivgrid"],
+  });
+  assert.equal(mimoResult.status, "ok");
+  const mimoDecision = mimoResult.decision as {
+    readonly "route-id"?: string;
+    readonly providers?: readonly string[];
+  };
+  assert.equal(mimoDecision["route-id"], "mimo-v2-5-pro");
+  assert.deepEqual(mimoDecision.providers, ["xiaomi"]);
+});

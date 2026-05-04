@@ -116,6 +116,8 @@ test("seedFromJsonValue validates provider credentials through active CLJS runti
     projectPheromone: () => 0,
     routePolicy: () => ({ status: "error", trace: [] }),
     loadPolicyEvidence: async () => ({}),
+    loadModelPricingOverrides: () => ([]),
+    loadProviderSeedSpecs: () => ([]),
     previewPolicyDecision: () => ({ status: "error" }),
   };
   setActiveCljsRuntime(cljsRuntime);
@@ -145,33 +147,13 @@ test("seedFromJsonValue validates provider credentials through active CLJS runti
   }
 });
 
-test("seedApiKeyProvidersFromEnv seeds supported env providers into the DB", async () => {
+test("seedApiKeyProvidersFromEnv seeds providers from contract specs into the DB", async () => {
   const fake = createFakeSql();
   const envNames = [
-    "GEMINI_API_KEY",
-    "GEMINI_PROVIDER_ID",
-    "ZAI_API_KEY",
-    "ZHIPU_API_KEY",
-    "ZAI_PROVIDER_ID",
-    "ZHIPU_PROVIDER_ID",
     "ROTUSSY_API_KEY",
-    "ROTUSSY_PROVIDER_ID",
-    "MISTRAL_API_KEY",
-    "MISTRAL_PROVIDER_ID",
-    "XIAOMI_API_KEY",
-    "MIMO_API_KEY",
-    "XIAOMI_PROVIDER_ID",
-    "MIMO_PROVIDER_ID",
-    "OPENROUTER_API_KEY",
-    "OPENROUTER_PROVIDER_ID",
-    "REQUESTY_API_TOKEN",
-    "REQUESTY_API_KEY",
-    "REQUESTY_PROVIDER_ID",
+    "ZAI_API_KEY",
     "OLLAMA_CLOUD_API_KEY",
-    "OLLAMA_CLOUD_PROVIDER_ID",
-    "ZEN_API_KEY",
-    "ZENMUX_API_KEY",
-    "ZEN_PROVIDER_ID",
+    "MIMO_API_KEY",
   ] as const;
   const previous = new Map(envNames.map((name) => [name, process.env[name]]));
 
@@ -184,8 +166,15 @@ test("seedApiKeyProvidersFromEnv seeds supported env providers into the DB", asy
   process.env.OLLAMA_CLOUD_API_KEY = "ollama-cloud-seed-token"; // pragma: allowlist secret
   process.env.MIMO_API_KEY = "xiaomi-mimo-seed-token"; // pragma: allowlist secret
 
+  const specs = [
+    { providerIdEnvNames: ["ZAI_PROVIDER_ID", "ZHIPU_PROVIDER_ID"], providerIdFallback: "zai", keyEnvNames: ["ZAI_API_KEY", "ZHIPU_API_KEY"] },
+    { providerIdEnvNames: ["ROTUSSY_PROVIDER_ID"], providerIdFallback: "rotussy", keyEnvNames: ["ROTUSSY_API_KEY"] },
+    { providerIdEnvNames: ["XIAOMI_PROVIDER_ID", "MIMO_PROVIDER_ID"], providerIdFallback: "xiaomi", keyEnvNames: ["XIAOMI_API_KEY", "MIMO_API_KEY"] },
+    { providerIdEnvNames: ["OLLAMA_CLOUD_PROVIDER_ID"], providerIdFallback: "ollama-cloud", keyEnvNames: ["OLLAMA_CLOUD_API_KEY"] },
+  ];
+
   try {
-    const result = await seedApiKeyProvidersFromEnv(fake.sql as never);
+    const result = await seedApiKeyProvidersFromEnv(fake.sql as never, specs);
 
     assert.equal(result.providers, 4);
     assert.equal(result.accounts, 4);

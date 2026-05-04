@@ -14,6 +14,8 @@
                                           projectPheromone proxx.runtime/project-pheromone-js
                                           routePolicy proxx.runtime/route-policy-js
                                           loadPolicyEvidence proxx.runtime/load-policy-evidence-js
+                                          loadModelPricingOverrides proxx.runtime/load-model-pricing-overrides-js
+                                          loadProviderSeedSpecs proxx.runtime/load-provider-seed-specs-js
                                           previewPolicyDecision proxx.runtime/preview-policy-decision-js}}}
    :js-options {:js-provider :import
                 :keep-as-import #{"node:fs" "node:path"}}

@@ -7,8 +7,11 @@ interface LoggerLike {
   readonly warn: (bindings: Record<string, unknown>, message: string) => void;
 }
 
+type CljsPolicyConfig = Pick<ProxyConfig, "cljsPolicyManifestPath" | "cljsPolicyShadowMode" | "cljsPolicyAuthoritative">
+  & Partial<Pick<ProxyConfig, "disabledProviderIds" | "openaiProviderId" | "openaiBaseUrl" | "upstreamProviderBaseUrls">>;
+
 interface CljsProviderPolicyInput {
-  readonly config: Pick<ProxyConfig, "cljsPolicyManifestPath" | "cljsPolicyShadowMode" | "cljsPolicyAuthoritative">;
+  readonly config: CljsPolicyConfig;
   readonly log: LoggerLike;
   readonly requestKind: "chat" | "responses-passthrough" | "images-passthrough" | "embeddings";
   readonly requestedModel: string;
@@ -18,10 +21,21 @@ interface CljsProviderPolicyInput {
   readonly policyEvidence?: unknown;
 }
 
+interface PreviewDecisionProviderRoute {
+  readonly providerId?: string;
+  readonly provider_id?: string;
+  readonly "provider-id"?: string;
+  readonly baseUrl?: string;
+  readonly base_url?: string;
+  readonly "base-url"?: string;
+}
+
 interface PreviewDecisionShape {
   readonly status?: string;
   readonly reason?: string;
   readonly providers?: readonly string[];
+  readonly "provider-routes"?: readonly PreviewDecisionProviderRoute[];
+  readonly providerRoutes?: readonly PreviewDecisionProviderRoute[];
   readonly "route-id"?: string;
   readonly "provider-id"?: string;
 }
@@ -36,6 +50,58 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function providerIds(routes: readonly ProviderRoute[]): readonly string[] {
   return routes.map((route) => route.providerId);
+}
+
+function configuredProviderRoutes(config: CljsPolicyConfig): ProviderRoute[] {
+  const routes: ProviderRoute[] = [];
+  const seen = new Set<string>();
+  const disabled = new Set(config.disabledProviderIds ?? []);
+  const addRoute = (providerId: string | undefined, baseUrl: string | undefined): void => {
+    const normalizedProviderId = providerId?.trim();
+    const normalizedBaseUrl = baseUrl?.trim().replace(/\/+$/, "");
+    if (!normalizedProviderId || !normalizedBaseUrl || seen.has(normalizedProviderId) || disabled.has(normalizedProviderId)) {
+      return;
+    }
+    seen.add(normalizedProviderId);
+    routes.push({ providerId: normalizedProviderId, baseUrl: normalizedBaseUrl });
+  };
+
+  addRoute(config.openaiProviderId, config.openaiBaseUrl);
+  for (const [providerId, baseUrl] of Object.entries(config.upstreamProviderBaseUrls ?? {})) {
+    addRoute(providerId, baseUrl);
+  }
+  return routes;
+}
+
+function mergeProviderRoutes(primary: readonly ProviderRoute[], secondary: readonly ProviderRoute[]): ProviderRoute[] {
+  const seen = new Set<string>();
+  const merged: ProviderRoute[] = [];
+  for (const route of [...primary, ...secondary]) {
+    const providerId = route.providerId.trim();
+    const baseUrl = route.baseUrl.trim().replace(/\/+$/, "");
+    if (!providerId || !baseUrl || seen.has(providerId)) {
+      continue;
+    }
+    seen.add(providerId);
+    merged.push({ providerId, baseUrl });
+  }
+  return merged;
+}
+
+function providerRoutesFromDecision(decision: PreviewDecisionShape | undefined): ProviderRoute[] {
+  const rawRoutes = decision?.["provider-routes"] ?? decision?.providerRoutes ?? [];
+  return rawRoutes.flatMap((route) => {
+    const providerId = (route.providerId ?? route.provider_id ?? route["provider-id"] ?? "").trim();
+    const baseUrl = (route.baseUrl ?? route.base_url ?? route["base-url"] ?? "").trim().replace(/\/+$/, "");
+    return providerId && baseUrl ? [{ providerId, baseUrl }] : [];
+  });
+}
+
+function candidateProviderRoutes(input: CljsProviderPolicyInput): ProviderRoute[] {
+  if (input.config.cljsPolicyAuthoritative !== true) {
+    return [...input.providerRoutes];
+  }
+  return mergeProviderRoutes(input.providerRoutes, configuredProviderRoutes(input.config));
 }
 
 function orderRoutesFromPolicy(routes: readonly ProviderRoute[], policyProviderIds: readonly string[]): ProviderRoute[] {
@@ -58,7 +124,8 @@ function previewProviderPolicy(input: CljsProviderPolicyInput): PreviewDecisionS
     return undefined;
   }
 
-  const inputProviderIds = providerIds(input.providerRoutes);
+  const candidateRoutes = candidateProviderRoutes(input);
+  const inputProviderIds = providerIds(candidateRoutes);
   const result = runtime.previewPolicyDecision(input.config.cljsPolicyManifestPath ?? "resources/policies/runtime/00-manifest.edn", {
     modelId: input.routedModel || input.requestedModel,
     requestKind: input.requestKind,
@@ -118,7 +185,10 @@ export function applyCljsProviderPolicy(input: CljsProviderPolicyInput): Provide
       return [];
     }
 
-    const orderedRoutes = orderRoutesFromPolicy(input.providerRoutes, decision.providers ?? []);
+    const orderedRoutes = orderRoutesFromPolicy(
+      mergeProviderRoutes(candidateProviderRoutes(input), providerRoutesFromDecision(decision)),
+      decision.providers ?? [],
+    );
     input.log.debug({
       model: input.routedModel,
       routeId: decision["route-id"],

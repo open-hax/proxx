@@ -96,20 +96,36 @@ export function filterProviderRoutesByCatalogAvailability(
     return [...providerRoutes];
   }
 
-  const catalogMatchedRoutes = providerRoutes.filter((route) => {
+  // Routes with no catalog entry (e.g. added by CLJS policy from provider-route contracts)
+  // are always eligible — the policy already vouched for them.
+  const [routesWithoutCatalog, routesWithCatalog] = partitionWith(
+    providerRoutes,
+    (route) => !catalogBundle.providerCatalogs[route.providerId],
+  );
+
+  const catalogMatchedRoutes = routesWithCatalog.filter((route) => {
     const entry = catalogBundle.providerCatalogs[route.providerId];
     return providerCatalogEntrySupportsModel(route.providerId, routedModel, entry);
   });
 
   if (catalogMatchedRoutes.length > 0) {
-    return catalogMatchedRoutes;
+    return [...routesWithoutCatalog, ...catalogMatchedRoutes];
   }
 
   if (catalogHasDynamicOllamaModel(catalogBundle.catalog, routedModel)) {
-    return providerRoutes.filter((route) => providerIdLooksLikeOllama(route.providerId));
+    return [...routesWithoutCatalog, ...routesWithCatalog.filter((route) => providerIdLooksLikeOllama(route.providerId))];
   }
 
   return [...providerRoutes];
+}
+
+function partitionWith<T>(items: readonly T[], predicate: (item: T) => boolean): [T[], T[]] {
+  const matched: T[] = [];
+  const rest: T[] = [];
+  for (const item of items) {
+    (predicate(item) ? matched : rest).push(item);
+  }
+  return [matched, rest];
 }
 
 export function shouldRejectModelFromProviderCatalog(

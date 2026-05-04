@@ -114,6 +114,8 @@ test("proxy settings store normalizes file-backed keys through active CLJS runti
     projectPheromone: () => 0,
     routePolicy: () => ({ status: "error", trace: [] }),
     loadPolicyEvidence: async () => ({}),
+    loadModelPricingOverrides: () => ([]),
+    loadProviderSeedSpecs: () => ([]),
     previewPolicyDecision: () => ({ status: "error" }),
   };
   setActiveCljsRuntime(cljsRuntime);

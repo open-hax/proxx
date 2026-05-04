@@ -58,7 +58,7 @@ import { SqlRequestUsageStore } from "./lib/db/sql-request-usage-store.js";
 import { SqlFederationStore } from "./lib/db/sql-federation-store.js";
 import { SqlTenantProviderPolicyStore } from "./lib/db/sql-tenant-provider-policy-store.js";
 import { SqlAuthPersistence } from "./lib/auth/sql-persistence.js";
-import { seedApiKeyProvidersFromEnv, seedFromJsonFile, seedFromJsonValue, seedFactoryAuthFromFiles, seedModelsFromFile } from "./lib/db/json-seeder.js";
+import { seedApiKeyProvidersFromEnv, seedFromJsonFile, seedFromJsonValue, seedFactoryAuthFromFiles, seedModelsFromFile, parseEnvProviderSeedSpecs } from "./lib/db/json-seeder.js";
 import { RuntimeCredentialStore } from "./lib/runtime-credential-store.js";
 import {
   createTokenRefreshRuntime,
@@ -195,7 +195,10 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       }
 
       try {
-        const envSeedResult = await seedApiKeyProvidersFromEnv(sql);
+        const activeRuntime = getActiveCljsRuntime();
+        const manifestPath = config.cljsPolicyManifestPath ?? "resources/policies/runtime/00-manifest.edn";
+        const rawSpecs = activeRuntime?.loadProviderSeedSpecs(manifestPath);
+        const envSeedResult = await seedApiKeyProvidersFromEnv(sql, parseEnvProviderSeedSpecs(rawSpecs));
         if (envSeedResult.providers > 0 || envSeedResult.accounts > 0) {
           app.log.info({ providers: envSeedResult.providers, accounts: envSeedResult.accounts }, "seeded api-key providers from env into database");
         }

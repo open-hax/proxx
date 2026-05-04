@@ -1161,6 +1161,59 @@ export class RequestLogStore {
     return next;
   }
 
+  public refreshDerivedEstimates(): number {
+    if (this.closed) {
+      return 0;
+    }
+
+    let updatedCount = 0;
+    for (let index = 0; index < this.entries.length; index += 1) {
+      const current = this.entries[index];
+      if (!current) {
+        continue;
+      }
+
+      const promptTokens = sanitizeOptionalCount(current.promptTokens) ?? 0;
+      const completionTokens = sanitizeOptionalCount(current.completionTokens) ?? 0;
+      if (promptTokens <= 0 && completionTokens <= 0) {
+        continue;
+      }
+
+      const estimate = estimateRequestCost(current.providerId, current.model, promptTokens, completionTokens);
+      const changed = Math.abs(sumCount(current.costUsd) - estimate.costUsd) > 1e-12
+        || Math.abs(sumCount(current.energyJoules) - estimate.energyJoules) > 1e-12
+        || Math.abs(sumCount(current.waterEvaporatedMl) - estimate.waterEvaporatedMl) > 1e-12;
+      if (!changed) {
+        continue;
+      }
+
+      const next: RequestLogEntry = {
+        ...current,
+        costUsd: estimate.costUsd,
+        energyJoules: estimate.energyJoules,
+        waterEvaporatedMl: estimate.waterEvaporatedMl,
+      };
+
+      this.entries.splice(index, 1, next);
+      this.applyEntryDeltaToHourlyBuckets(next, current);
+      this.applyEntryDeltaToDailyBuckets(next, current);
+      this.applyEntryDeltaToDailyModelBuckets(next, current);
+      this.applyEntryDeltaToDailyAccountBuckets(next, current);
+      this.applyEntryDeltaToAccountAccumulator(next, current);
+      this.updatePerfIndexFromEntry(next);
+      this.pendingJournalEntries.push(next);
+      this.queueMirror(next);
+      this.emit({ type: "update", entry: next });
+      updatedCount += 1;
+    }
+
+    if (updatedCount > 0) {
+      this.schedulePersist();
+    }
+
+    return updatedCount;
+  }
+
   public snapshot(): RequestLogEntry[] {
     return [...this.entries];
   }

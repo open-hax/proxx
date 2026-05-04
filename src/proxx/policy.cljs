@@ -192,6 +192,14 @@
           (or (nil? (:match/request-kind contract))
               (= (:match/request-kind contract) (value-request-kind value))))))
   (register-contract-kind!
+   :provider-route
+   (fn [contract value]
+     (= (or (:provider/id contract)
+            (:provider-id contract)
+            (:providerId contract)
+            (some-> (:contract/id contract) name))
+        (value-provider-id value))))
+  (register-contract-kind!
    :routing-clause
    (fn [contract value]
      (if-let [family-id (:match/family contract)]
@@ -210,7 +218,7 @@
   (register-contract-kind!
    :account-constraint
    account-satisfies-constraint?)
-  [:model :model-family :provider-capability :routing-clause :authorization-clause :account-constraint])
+  [:model :model-family :provider-capability :provider-route :routing-clause :authorization-clause :account-constraint])
 
 (defn- now-ms [] (.now js/Date))
 

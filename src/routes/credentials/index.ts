@@ -11,6 +11,5 @@ export async function registerCredentialsRoutes(
 ): Promise<void> {
   await registerCredentialUiRoutes(app, deps, {
     prefix: API_V1_CREDENTIAL_ROUTE_PREFIX,
-    registerSharedAuthCallbacks: false,
   });
 }
