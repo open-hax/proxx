@@ -87,6 +87,15 @@
                        vec)]
     (clj->js overrides)))
 
+(defonce ^:private compiled-policy-cache (atom {}))
+
+(defn- compiled-policy-for-manifest [manifest-path]
+  (or (get @compiled-policy-cache manifest-path)
+      (let [contracts (policy-loader/load-policy-contracts! manifest-path)
+            compiled (policy-contracts/compile-contracts contracts)]
+        (swap! compiled-policy-cache assoc manifest-path compiled)
+        compiled)))
+
 (defn load-provider-seed-specs-js
   "Load provider seed specs from :provider-seed contracts in the manifest.
 
@@ -104,12 +113,38 @@
   "Load declarative policy contracts from manifest-path and return a pure decision preview."
   [manifest-path input]
   (try
-    (let [contracts (policy-loader/load-policy-contracts! manifest-path)
-          compiled (policy-contracts/compile-contracts contracts)
+    (let [compiled (compiled-policy-for-manifest manifest-path)
           decision (policy-contracts/preview-policy-decision
                     compiled
                     (js->clj input :keywordize-keys true))]
       (clj->js {:status "ok" :decision decision}))
+    (catch :default e
+      (clj->js {:status "error"
+                :error (.-message e)
+                :data (ex-data e)}))))
+
+(defn normalize-reasoning-request-js
+  "Load declarative policy contracts and normalize request reasoning controls for
+  the selected model family before a TypeScript strategy builds its network payload."
+  [manifest-path input]
+  (try
+    (let [compiled (compiled-policy-for-manifest manifest-path)
+          decision (policy-contracts/normalize-reasoning-request
+                    compiled
+                    (js->clj input :keywordize-keys true))]
+      (clj->js {:status "ok" :decision decision}))
+    (catch :default e
+      (clj->js {:status "error"
+                :error (.-message e)
+                :data (ex-data e)}))))
+
+(defn resolve-model-alias-js
+  "Load declarative policy contracts and resolve a provider-specific model alias."
+  [manifest-path model-id provider-id]
+  (try
+    (let [compiled (compiled-policy-for-manifest manifest-path)
+          alias (policy-contracts/resolve-model-alias compiled model-id provider-id)]
+      (clj->js {:status "ok" :alias alias}))
     (catch :default e
       (clj->js {:status "error"
                 :error (.-message e)
@@ -123,4 +158,6 @@
        :loadPolicyEvidence load-policy-evidence-js
        :loadModelPricingOverrides load-model-pricing-overrides-js
        :loadProviderSeedSpecs load-provider-seed-specs-js
-       :previewPolicyDecision preview-policy-decision-js})
+       :previewPolicyDecision preview-policy-decision-js
+       :normalizeReasoningRequest normalize-reasoning-request-js
+       :resolveModelAlias resolve-model-alias-js})

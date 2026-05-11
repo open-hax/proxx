@@ -78,6 +78,7 @@ import {
 import { registerChatRoutes } from "./routes/chat.js";
 import { registerResponsesRoutes } from "./routes/responses.js";
 import { registerImagesRoutes } from "./routes/images.js";
+import { registerMediaGenerationRoutes } from "./routes/media-generations.js";
 import { registerWebsearchRoutes } from "./routes/websearch.js";
 import { registerModelsRoutes } from "./routes/models.js";
 import { registerEmbeddingsRoutes } from "./routes/embeddings.js";
@@ -723,6 +724,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
   registerChatRoutes(deps, app);
   registerResponsesRoutes(deps, app);
   registerImagesRoutes(deps, app);
+  registerMediaGenerationRoutes(deps, app);
   registerEmbeddingsRoutes(deps, app);
   registerNativeOllamaRoutes(deps, app);
 

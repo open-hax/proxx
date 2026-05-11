@@ -71,6 +71,7 @@
 (def PromptAffinityRecord
   [:map
    [:prompt-cache-key           PromptHash]
+   [:model-id                   {:optional true} ModelId]
    [:provider-id                ProviderId]
    [:account-id                 AccountId]
    [:provisional-provider-id    {:optional true} ProviderId]
@@ -180,10 +181,229 @@
    [:policy.loader/order [:vector [:string {:min 1}]]]
    [:policy.loader/invariant {:optional true} [:string {:min 1}]]])
 
-(def PolicyContract
+(def ContractBase
   [:map
    [:contract/id :keyword]
    [:contract/kind :keyword]])
+
+(def NonEmptyStringVector [:vector [:string {:min 1}]])
+(def KeywordVector [:vector :keyword])
+(def ProviderIdVector [:vector ProviderId])
+
+(def DomainEnumContract
+  [:and
+   ContractBase
+   [:map
+    [:contract/kind [:enum :enum]]
+    [:enum/items {:optional true} [:vector :keyword]]
+    [:enum/values {:optional true} [:vector :keyword]]]
+   [:fn {:error/message "enum contract requires :enum/items or :enum/values"}
+    (fn [m] (boolean (or (:enum/items m) (:enum/values m))))]])
+
+(def DomainSetContract
+  [:and
+   ContractBase
+   [:map
+    [:contract/kind [:enum :set]]
+    [:set/items [:vector :any]]]])
+
+(def ScoringTableContract
+  [:and
+   ContractBase
+   [:map
+    [:contract/kind [:enum :scoring-table]]
+    [:score/by-plan [:map-of :keyword [:double {:min 0.0}]]]]])
+
+(def PreferenceOrderContract
+  [:and
+   ContractBase
+   [:map
+    [:contract/kind [:enum :preference-order]]
+    [:preference/items [:vector :any]]]])
+
+(def ProviderSeedContract
+  [:and
+   ContractBase
+   [:map
+    [:contract/kind [:enum :provider-seed]]
+    [:provider-id-env-names {:optional true} NonEmptyStringVector]
+    [:provider-id-fallback ProviderId]
+    [:provider/base-url {:optional true} [:string {:min 1}]]
+    [:provider/baseUrl {:optional true} [:string {:min 1}]]
+    [:base-url {:optional true} [:string {:min 1}]]
+    [:baseUrl {:optional true} [:string {:min 1}]]
+    [:key-env-names NonEmptyStringVector]]])
+
+(def ProviderRouteContract
+  [:and
+   ContractBase
+   [:map
+    [:contract/kind [:enum :provider-route]]
+    [:provider/id {:optional true} ProviderId]
+    [:provider-id {:optional true} ProviderId]
+    [:providerId {:optional true} ProviderId]
+    [:provider/base-url {:optional true} [:string {:min 1}]]
+    [:provider/baseUrl {:optional true} [:string {:min 1}]]
+    [:base-url {:optional true} [:string {:min 1}]]
+    [:baseUrl {:optional true} [:string {:min 1}]]]
+   [:fn {:error/message "provider-route requires a provider id"}
+    (fn [m] (boolean (or (:provider/id m) (:provider-id m) (:providerId m))))]
+   [:fn {:error/message "provider-route requires a base URL"}
+    (fn [m] (boolean (or (:provider/base-url m) (:provider/baseUrl m) (:base-url m) (:baseUrl m))))]])
+
+(def ModelFamilyContract
+  [:and
+   ContractBase
+   [:map
+    [:contract/kind [:enum :model-family]]
+    [:match/model-pattern [:string {:min 1}]]
+    [:reasoning/control {:optional true} [:enum :none :effort-level :budget-tokens]]
+    [:reasoning/native-efforts {:optional true} [:vector [:or :keyword [:string {:min 1}]]]]
+    [:reasoning/budget-by-effort {:optional true} [:map-of :keyword [:int {:min 0}]]]]])
+
+(def ModelContract
+  [:and
+   ContractBase
+   [:map
+    [:contract/kind [:enum :model]]
+    [:model/id ModelId]
+    [:model/family {:optional true} :keyword]
+    [:model/provider {:optional true} ProviderId]]])
+
+(def ProviderCapabilityContract
+  [:and
+   ContractBase
+   [:map
+    [:contract/kind [:enum :provider-capability]]
+    [:match/provider-pattern [:string {:min 1}]]
+    [:match/request-kind {:optional true} :keyword]
+    [:prefer/strategies {:optional true} KeywordVector]
+    [:exclude/strategies {:optional true} KeywordVector]]])
+
+(def RequestSurfaceDefaultContract
+  [:and
+   ContractBase
+   [:map
+    [:contract/kind [:enum :request-surface-default]]
+    [:match/provider-pattern [:string {:min 1}]]
+    [:match/request-kind :keyword]
+    [:prefer/strategies {:optional true} KeywordVector]
+    [:exclude/strategies {:optional true} KeywordVector]]])
+
+(def RoutingClauseContract
+  [:and
+   ContractBase
+   [:map
+    [:contract/kind [:enum :routing-clause]]
+    [:match/family :keyword]
+    [:prefer/providers {:optional true} [:or :keyword ProviderIdVector]]
+    [:prefer/providers-strict? {:optional true} :boolean]
+    [:exclude/providers {:optional true} ProviderIdVector]
+    [:require/plans {:optional true} [:or :keyword KeywordVector]]
+    [:exclude/plans {:optional true} KeywordVector]
+    [:prefer/strategies {:optional true} KeywordVector]
+    [:account/order {:optional true} :keyword]]])
+
+(def SelectionRuleContract
+  [:and
+   ContractBase
+   [:map
+    [:contract/kind [:enum :selection-rule]]
+    [:match/request-kind {:optional true} :keyword]
+    [:match/provider-pattern {:optional true} [:string {:min 1}]]
+    [:prefer/strategies {:optional true} KeywordVector]
+    [:exclude/strategies {:optional true} KeywordVector]]])
+
+(def AccountOrderingContract
+  [:and
+   ContractBase
+   [:map
+    [:contract/kind [:enum :account-ordering]]
+    [:selection/order [:vector :any]]]])
+
+(def AccountConstraintContract
+  [:and
+   ContractBase
+   [:map
+    [:contract/kind [:enum :account-constraint]]
+    [:require/plans {:optional true} [:or :keyword KeywordVector]]
+    [:exclude/plans {:optional true} KeywordVector]]])
+
+(def AuthorizationClauseContract
+  [:and
+   ContractBase
+   [:map
+    [:contract/kind [:enum :authorization-clause]]
+    [:authz/domain :keyword]]])
+
+(def ModelPricingOverrideContract
+  [:and
+   ContractBase
+   [:map
+    [:contract/kind [:enum :model-pricing-override]]
+    [:match/model-pattern [:string {:min 1}]]]])
+
+(def ModelAliasContract
+  [:and
+   ContractBase
+   [:map
+    [:contract/kind [:enum :model-alias]]
+    [:match/model-pattern [:string {:min 1}]]
+    [:match/provider-pattern [:string {:min 1}]]
+    [:alias/model-id [:string {:min 1}]]]])
+
+(def ReasoningNormalizationContract
+  [:and
+   ContractBase
+   [:map
+    [:contract/kind [:enum :reasoning-normalization]]
+    [:match/family :keyword]
+    [:normalize/from :keyword]
+    [:normalize/effort-map [:map-of :keyword [:or :keyword [:int {:min 0}]]]]
+    [:normalize/default {:optional true} [:or :keyword [:int {:min 0}]]]]])
+
+(def PolicyProgramContract
+  [:and
+   ContractBase
+   [:map
+    [:contract/kind [:enum :policy-program]]
+    [:program/phases [:vector :keyword]]]])
+
+(def StrategyBindingContract
+  [:and
+   ContractBase
+   [:map
+    [:contract/kind [:enum :strategy-binding]]
+    [:strategy/mode {:optional true} :keyword]
+    [:match/strategy {:optional true} :keyword]
+    [:policy/strategy {:optional true} :symbol]]
+   [:fn {:error/message "strategy-binding requires :strategy/mode, :match/strategy, or :policy/strategy"}
+    (fn [m] (boolean (or (:strategy/mode m) (:match/strategy m) (:policy/strategy m))))]])
+
+(def PolicyContract
+  [:multi {:dispatch :contract/kind}
+   [:enum DomainEnumContract]
+   [:set DomainSetContract]
+   [:scoring-table ScoringTableContract]
+   [:preference-order PreferenceOrderContract]
+   [:provider-seed ProviderSeedContract]
+   [:provider-route ProviderRouteContract]
+   [:model-family ModelFamilyContract]
+   [:model ModelContract]
+   [:provider-capability ProviderCapabilityContract]
+   [:request-surface-default RequestSurfaceDefaultContract]
+   [:routing-clause RoutingClauseContract]
+   [:selection-rule SelectionRuleContract]
+   [:account-ordering AccountOrderingContract]
+   [:account-constraint AccountConstraintContract]
+   [:authorization-clause AuthorizationClauseContract]
+    [:model-pricing-override ModelPricingOverrideContract]
+    [:model-alias ModelAliasContract]
+    [:reasoning-normalization ReasoningNormalizationContract]
+   [:policy-program PolicyProgramContract]
+   [:strategy-binding StrategyBindingContract]
+   [:policy Policy]
+   [:strategy Policy]])
 
 ;; ══════════════════════════════════════════════════════════════
 ;; Registry — single source of truth
@@ -206,6 +426,27 @@
    :proxx/trace-entry     TraceEntry
    :proxx/policy          Policy
    :proxx/policy-manifest PolicyManifest
+   :proxx/contract-base ContractBase
+   :proxx/contract-enum DomainEnumContract
+   :proxx/contract-set DomainSetContract
+   :proxx/contract-scoring-table ScoringTableContract
+   :proxx/contract-preference-order PreferenceOrderContract
+   :proxx/contract-provider-seed ProviderSeedContract
+   :proxx/contract-provider-route ProviderRouteContract
+   :proxx/contract-model-family ModelFamilyContract
+   :proxx/contract-model ModelContract
+   :proxx/contract-provider-capability ProviderCapabilityContract
+   :proxx/contract-request-surface-default RequestSurfaceDefaultContract
+   :proxx/contract-routing-clause RoutingClauseContract
+   :proxx/contract-selection-rule SelectionRuleContract
+   :proxx/contract-account-ordering AccountOrderingContract
+   :proxx/contract-account-constraint AccountConstraintContract
+   :proxx/contract-authorization-clause AuthorizationClauseContract
+    :proxx/contract-model-pricing-override ModelPricingOverrideContract
+    :proxx/contract-model-alias ModelAliasContract
+    :proxx/contract-reasoning-normalization ReasoningNormalizationContract
+   :proxx/contract-policy-program PolicyProgramContract
+   :proxx/contract-strategy-binding StrategyBindingContract
    :proxx/policy-contract PolicyContract})
 
 (mr/set-default-registry!

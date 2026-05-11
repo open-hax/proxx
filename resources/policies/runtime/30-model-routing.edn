@@ -1,4 +1,28 @@
-[{:contract/id :route/glm
+[{:contract/id :route/gemma4
+  :contract/kind :routing-clause
+  :match/family :model-family/gemma4
+  :prefer/providers :provider-order/gemma4
+  :prefer/providers-strict? true
+  :prefer/strategies [:gemini-chat :ollama-chat :chat-completions]
+  :account/order :account-order/prefer-free}
+
+ {:contract/id :route/gemma-e
+  :contract/kind :routing-clause
+  :match/family :model-family/gemma-e
+  :prefer/providers :provider-order/gemma-e
+  :prefer/providers-strict? true
+  :prefer/strategies [:chat-completions]
+  :account/order :account-order/prefer-free}
+
+ {:contract/id :route/gemma
+  :contract/kind :routing-clause
+  :match/family :model-family/gemma
+  :prefer/providers :provider-order/gemma
+  :prefer/providers-strict? true
+  :prefer/strategies [:ollama-chat :chat-completions]
+  :account/order :account-order/prefer-free}
+
+ {:contract/id :route/glm
   :contract/kind :routing-clause
   :match/family :model-family/glm
   :prefer/providers :provider-order/glm
@@ -65,7 +89,6 @@
   :match/family :model-family/mimo-v2-5-pro
   :prefer/providers :provider-order/mimo-official
   :prefer/providers-strict? true
-  :exclude/providers ["openai" "openrouter" "requesty" "factory" "vivgrid" "ollama-cloud" "ollama" "zai" "rotussy" "gemini" "mistral" "zen" "ob1" "llamacpp" "llamacpp-embed"]
   :prefer/strategies [:chat-completions]
   :account/order :account-order/prefer-free}
 
@@ -88,8 +111,56 @@
   :contract/kind :routing-clause
   :match/family :model-family/kimi
   :prefer/providers :provider-order/kimi
-  :exclude/providers ["openai"]
+  :exclude/providers ["openai" "ollama-cloud"]
   :prefer/strategies [:chat-completions]
+  :account/order :account-order/prefer-free}
+
+ {:contract/id :route/blaze-text
+  :contract/kind :routing-clause
+  :match/family :model-family/blaze-text
+  :prefer/providers :provider-order/blaze
+  :prefer/providers-strict? true
+  :prefer/strategies [:chat-completions]
+  :account/order :account-order/prefer-free}
+
+ {:contract/id :route/blaze-images
+  :contract/kind :routing-clause
+  :match/family :model-family/blaze-images
+  :prefer/providers :provider-order/blaze
+  :prefer/providers-strict? true
+  :prefer/strategies [:images]
+  :account/order :account-order/prefer-free}
+
+ {:contract/id :route/blaze-video
+  :contract/kind :routing-clause
+  :match/family :model-family/blaze-video
+  :prefer/providers :provider-order/blaze
+  :prefer/providers-strict? true
+  :prefer/strategies [:video]
+  :account/order :account-order/prefer-free}
+
+ {:contract/id :route/blaze-music
+  :contract/kind :routing-clause
+  :match/family :model-family/blaze-music
+  :prefer/providers :provider-order/blaze
+  :prefer/providers-strict? true
+  :prefer/strategies [:music]
+  :account/order :account-order/prefer-free}
+
+ {:contract/id :route/minimax-music
+  :contract/kind :routing-clause
+  :match/family :model-family/minimax-music
+  :prefer/providers :provider-order/minimax
+  :prefer/providers-strict? true
+  :prefer/strategies [:music]
+  :account/order :account-order/prefer-free}
+
+ {:contract/id :route/blaze-tts
+  :contract/kind :routing-clause
+  :match/family :model-family/blaze-tts
+  :prefer/providers :provider-order/blaze
+  :prefer/providers-strict? true
+  :prefer/strategies [:tts]
   :account/order :account-order/prefer-free}
 
  {:contract/id :route/default

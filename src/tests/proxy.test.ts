@@ -6146,7 +6146,7 @@ test("preserves xhigh reasoning effort for gpt chat requests routed to responses
   );
 });
 
-test.skip("normalizes xhigh reasoning effort to max for ollama-cloud provider", async () => {
+test.skip("CLJS policy normalizes xhigh reasoning effort to max for ollama-cloud provider", async () => {
   await withProxyApp(
     {
       keys: [],

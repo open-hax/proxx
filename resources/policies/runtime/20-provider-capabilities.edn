@@ -1,4 +1,12 @@
-[{:contract/id :provider-order/gpt-default
+[ {:contract/id :provider-order/blaze
+  :contract/kind :preference-order
+  :preference/items ["blaze"]}
+
+ {:contract/id :provider-order/minimax
+  :contract/kind :preference-order
+  :preference/items ["minimax"]}
+
+ {:contract/id :provider-order/gpt-default
   :contract/kind :preference-order
   :preference/items ["openai"]}
 
@@ -8,7 +16,7 @@
 
  {:contract/id :provider-order/claude-opus-4-6
   :contract/kind :preference-order
-  :preference/items ["factory" "openrouter" "requesty" "vivgrid"]}
+  :preference/items ["factory" "blaze" "openrouter" "requesty" "vivgrid"]}
 
  {:contract/id :provider-order/glm
   :contract/kind :preference-order
@@ -16,12 +24,7 @@
 
  {:contract/id :provider-order/kimi
   :contract/kind :preference-order
-  :preference/items ["kimi" "moonshotai" "factory" "openrouter" "requesty" "vivgrid"]}
-
- {:contract/id :provider-route/kimi
-  :contract/kind :provider-route
-  :provider/id "kimi"
-  :provider/base-url "https://api.moonshot.ai/v1"}
+  :preference/items ["kimi" "moonshotai" "blaze" "factory" "openrouter" "requesty" "vivgrid"]}
 
  {:contract/id :provider-order/mimo-official
   :contract/kind :preference-order
@@ -34,6 +37,56 @@
  {:contract/id :provider-order/embeddings
   :contract/kind :preference-order
   :preference/items ["llamacpp-embed" "ollama"]}
+
+ {:contract/id :provider-order/gemma
+  :contract/kind :preference-order
+  :preference/items ["ollama-cloud" "ollama"]}
+
+ {:contract/id :provider-order/gemma-e
+  :contract/kind :preference-order
+  :preference/items ["llamacpp"]}
+
+ {:contract/id :provider-order/gemma4
+  :contract/kind :preference-order
+  :preference/items ["gemini" "ollama-cloud" "ollama"]}
+
+
+ {:contract/id :provider-capability/blaze-chat
+  :contract/kind :provider-capability
+  :match/provider-pattern "^blaze$"
+  :match/request-kind :chat
+  :prefer/strategies [:chat-completions]
+  :exclude/strategies [:messages :openai-responses :openai-responses-passthrough]}
+
+ {:contract/id :provider-capability/blaze-images
+  :contract/kind :provider-capability
+  :match/provider-pattern "^blaze$"
+  :match/request-kind :images
+  :prefer/strategies [:images]}
+
+ {:contract/id :provider-capability/blaze-video
+  :contract/kind :provider-capability
+  :match/provider-pattern "^blaze$"
+  :match/request-kind :video
+  :prefer/strategies [:video]}
+
+ {:contract/id :provider-capability/blaze-music
+  :contract/kind :provider-capability
+  :match/provider-pattern "^blaze$"
+  :match/request-kind :music
+  :prefer/strategies [:music]}
+
+ {:contract/id :provider-capability/blaze-tts
+   :contract/kind :provider-capability
+   :match/provider-pattern "^blaze$"
+   :match/request-kind :tts
+   :prefer/strategies [:tts]}
+
+ {:contract/id :provider-capability/minimax-music
+   :contract/kind :provider-capability
+   :match/provider-pattern "^minimax$"
+   :match/request-kind :music
+   :prefer/strategies [:music]}
 
  {:contract/id :provider-capability/gemini-chat
   :contract/kind :provider-capability
@@ -73,6 +126,30 @@
   :match/provider-pattern ".*"
   :match/request-kind :images-passthrough
   :prefer/strategies [:images]}
+
+ {:contract/id :request-surface/images
+  :contract/kind :request-surface-default
+  :match/provider-pattern ".*"
+  :match/request-kind :images
+  :prefer/strategies [:images]}
+
+ {:contract/id :request-surface/video
+  :contract/kind :request-surface-default
+  :match/provider-pattern ".*"
+  :match/request-kind :video
+  :prefer/strategies [:video]}
+
+ {:contract/id :request-surface/music
+  :contract/kind :request-surface-default
+  :match/provider-pattern ".*"
+  :match/request-kind :music
+  :prefer/strategies [:music]}
+
+ {:contract/id :request-surface/tts
+  :contract/kind :request-surface-default
+  :match/provider-pattern ".*"
+  :match/request-kind :tts
+  :prefer/strategies [:tts]}
 
  {:contract/id :request-surface/responses-passthrough
   :contract/kind :request-surface-default

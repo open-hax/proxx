@@ -70,10 +70,53 @@
        (filter #(= :provider-capability (:contract/kind %)))
        vec))
 
-(defn provider-routes [idx]
+(defn model-families [idx]
   (->> (:contracts idx)
-       (filter #(= :provider-route (:contract/kind %)))
+       (filter #(= :model-family (:contract/kind %)))
        vec))
+
+(defn reasoning-normalizations [idx]
+  (->> (:contracts idx)
+       (filter #(= :reasoning-normalization (:contract/kind %)))
+       vec))
+
+(defn model-aliases [idx]
+  (->> (:contracts idx)
+       (filter #(= :model-alias (:contract/kind %)))
+       vec))
+
+(defn- provider-route-provider-id [route]
+  (or (:provider/id route)
+      (:provider-id route)
+      (:providerId route)
+      (:provider-id-fallback route)
+      (some-> (:contract/id route) name)))
+
+(defn- provider-route-base-url [route]
+  (or (:provider/base-url route)
+      (:provider/baseUrl route)
+      (:base-url route)
+      (:baseUrl route)))
+
+(defn- provider-seed-route [contract]
+  (let [provider-id (provider-route-provider-id contract)
+        base-url (provider-route-base-url contract)]
+    (when (and (string? provider-id)
+               (not (str/blank? provider-id))
+               (string? base-url)
+               (not (str/blank? base-url)))
+      {:contract/id (:contract/id contract)
+       :contract/kind :provider-route
+       :provider/id provider-id
+       :provider/base-url base-url})))
+
+(defn provider-routes [idx]
+  (let [seed-routes (keep #(when (= :provider-seed (:contract/kind %))
+                             (provider-seed-route %))
+                          (:contracts idx))
+        explicit-routes (filter #(= :provider-route (:contract/kind %))
+                                (:contracts idx))]
+    (vec (concat seed-routes explicit-routes))))
 
 (defn provider-seed-specs [idx]
   (->> (:contracts idx)
@@ -298,6 +341,38 @@
 (defn- get-any [m ks]
   (some #(get m %) ks))
 
+(defn- prompt-cache-key [input]
+  (some-> (get-any input [:prompt-cache-key :promptCacheKey]) str str/trim))
+
+(defn- affinity-record [input]
+  (get-any input [:prompt-affinity :promptAffinity :affinity-record :affinityRecord]))
+
+(defn- affinity-value [record kebab-key camel-key]
+  (when (map? record)
+    (get-any record [kebab-key camel-key])))
+
+(defn- model-scoped-affinity-matches? [input model-id]
+  (let [record (affinity-record input)
+        input-cache-key (prompt-cache-key input)
+        affinity-cache-key (some-> (affinity-value record :prompt-cache-key :promptCacheKey) str str/trim)
+        affinity-model-id (some-> (affinity-value record :model-id :modelId) str str/trim)]
+    (and (not (str/blank? input-cache-key))
+         (= input-cache-key affinity-cache-key)
+         (not (str/blank? affinity-model-id))
+         (= (str model-id) affinity-model-id))))
+
+(defn- affinity-bound-provider-id [input]
+  (some-> (affinity-value (affinity-record input) :provider-id :providerId) str str/trim))
+
+(defn- affinity-bound-account [input]
+  (let [record (affinity-record input)
+        provider-id (affinity-bound-provider-id input)
+        account-id (some-> (affinity-value record :account-id :accountId) str str/trim)]
+    (when (and (not (str/blank? provider-id))
+               (not (str/blank? account-id)))
+      {:provider-id provider-id
+       :account-id account-id})))
+
 (defn- non-empty-values [xs]
   (->> xs
        (filter string?)
@@ -428,18 +503,6 @@
     (dedupe-provider-ids (concat (route-default-provider-ids route)
                                  requested-provider-ids))))
 
-(defn- provider-route-provider-id [route]
-  (or (:provider/id route)
-      (:provider-id route)
-      (:providerId route)
-      (some-> (:contract/id route) name)))
-
-(defn- provider-route-base-url [route]
-  (or (:provider/base-url route)
-      (:provider/baseUrl route)
-      (:base-url route)
-      (:baseUrl route)))
-
 (defn- provider-route-by-id [compiled]
   (into {}
         (keep (fn [route]
@@ -456,6 +519,134 @@
 (defn- selected-provider-routes [compiled provider-ids]
   (let [by-id (provider-route-by-id compiled)]
     (vec (keep by-id provider-ids))))
+
+(defn model-family-for-model
+  "Return the first compiled model-family contract matching model-id."
+  [compiled model-id]
+  (some #(when (pattern-matches? (:match/model-pattern %) model-id) %)
+        (:model-families compiled)))
+
+(defn resolve-model-alias
+  "Return the provider-specific model alias for a model-id, or nil if none."
+  [compiled model-id provider-id]
+  (some #(when (and (pattern-matches? (:match/model-pattern %) model-id)
+                    (pattern-matches? (:match/provider-pattern %) provider-id))
+           (:alias/model-id %))
+        (:model-aliases compiled)))
+
+(defn- reasoning-token [value]
+  (when (some? value)
+    (let [s (-> (str value)
+                str/trim
+                str/lower-case
+                (str/replace #"_" "-")
+                (str/replace #"\\s+" "-"))]
+      (when-not (str/blank? s)
+        (keyword (case s
+                   ("disable" "disabled" "off") "none"
+                   ("normal" "auto") "medium"
+                   ("x-high" "very-high" "extra-high") "xhigh"
+                   s))))))
+
+(defn- wire-effort [value]
+  (cond
+    (keyword? value) (name value)
+    (string? value) value
+    :else value))
+
+(defn- family-native-efforts [family]
+  (set (keep reasoning-token (:reasoning/native-efforts family))))
+
+(defn- reasoning-normalization-for-family [compiled family-id]
+  (some #(when (= family-id (:match/family %)) %)
+        (:reasoning-normalizations compiled)))
+
+(defn- normalize-effort-value [compiled family value]
+  (let [token (reasoning-token value)
+        clause (reasoning-normalization-for-family compiled (:contract/id family))
+        effort-map (:normalize/effort-map clause)
+        mapped (when token (get effort-map token))
+        default (:normalize/default clause)
+        native-efforts (family-native-efforts family)]
+    (cond
+      (some? mapped) mapped
+      (and token (contains? native-efforts token)) token
+      (some? default) default
+      :else token)))
+
+(defn- top-level-reasoning-effort-key [body]
+  (some #(when (contains? body %) %)
+        [:reasoning_effort :reasoningEffort :reasoning-effort]))
+
+(defn- nested-reasoning-effort [body]
+  (let [reasoning (:reasoning body)]
+    (when (map? reasoning)
+      (:effort reasoning))))
+
+(defn- requested-reasoning-effort [body]
+  (or (nested-reasoning-effort body)
+      (some->> (top-level-reasoning-effort-key body) (get body))))
+
+(defn- dissoc-top-level-reasoning-effort [body]
+  (apply dissoc body [:reasoning_effort :reasoningEffort :reasoning-effort]))
+
+(defn- remove-nested-reasoning-effort [body]
+  (if (map? (:reasoning body))
+    (update body :reasoning dissoc :effort)
+    body))
+
+(defn- apply-budget-reasoning [body normalized]
+  (let [budget (if (number? normalized) normalized nil)
+        disabled? (or (= :none normalized)
+                      (= 0 budget))]
+    (cond-> (-> body
+                dissoc-top-level-reasoning-effort
+                remove-nested-reasoning-effort)
+      true (assoc :thinking (if disabled?
+                              {:type "disabled"}
+                              {:type "enabled"
+                               :budget_tokens (or budget 12288)})))))
+
+(defn- apply-effort-reasoning [body normalized]
+  (let [effort (wire-effort normalized)
+        top-key (top-level-reasoning-effort-key body)]
+    (cond-> body
+      top-key (assoc top-key effort)
+      (map? (:reasoning body)) (assoc-in [:reasoning :effort] effort))))
+
+(defn normalize-reasoning-request
+  "Normalize flexible client reasoning language into the target model family's
+  contract-native representation. This is pure policy: strategies receive the
+  returned request body and should not reinterpret reasoning aliases."
+  [compiled input]
+  (let [body (or (get-any input [:request-body :requestBody]) {})
+        model-id (or (get-any input [:model-id :modelId :routed-model :routedModel])
+                     (:model body))
+        family (model-family-for-model compiled model-id)
+        requested (requested-reasoning-effort body)]
+    (if (or (not (map? body)) (nil? requested) (nil? family))
+      {:status :ok
+       :request-body body
+       :reasoning {:normalized? false
+                   :reason :no-reasoning-effort-or-family
+                   :model-id model-id}}
+      (let [normalized (normalize-effort-value compiled family requested)
+            control (or (:reasoning/control family) :effort-level)
+            request-body (if (= :budget-tokens control)
+                           (apply-budget-reasoning body normalized)
+                           (apply-effort-reasoning body normalized))]
+        {:status :ok
+         :request-body request-body
+         :reasoning {:normalized? (not= (reasoning-token requested) (reasoning-token normalized))
+                     :model-id model-id
+                     :family-id (:contract/id family)
+                     :control control
+                     :input-effort (wire-effort (reasoning-token requested))
+                     :output-effort (wire-effort normalized)}}))))
+
+(defn- missing-provider-route-ids [compiled provider-ids]
+  (let [by-id (provider-route-by-id compiled)]
+    (filterv #(not (contains? by-id %)) provider-ids)))
 
 (defn- evidence-filtered-provider-ids [route input provider-ids model-id]
   (if (= :route/default (:contract/id route))
@@ -475,8 +666,39 @@
       {:status :denied
        :reason :tenant-model-not-allowed
        :model-id model-id}
-      (if-let [route (select-routing-clause compiled model-id)]
-        (let [provider-ids (request-or-route-provider-ids route input)
+      (if-let [bound-account (and (model-scoped-affinity-matches? input model-id)
+                                  (affinity-bound-account input))]
+        (let [provider-id (:provider-id bound-account)]
+          (if-let [missing-route (first (missing-provider-route-ids compiled [provider-id]))]
+            {:status :exhausted
+             :reason :missing-provider-route
+             :model-id model-id
+             :route-id :route/prompt-affinity
+             :providers [provider-id]
+             :missing-provider-routes [missing-route]}
+            {:status :ok
+             :reason :prompt-affinity-bound
+             :model-id model-id
+             :request-kind request-kind
+             :route-id :route/prompt-affinity
+             :providers [provider-id]
+             :provider-routes (selected-provider-routes compiled [provider-id])
+             :provider-id provider-id
+             :accounts [bound-account]
+             :account bound-account
+             :applies-account-constraint true
+             :strategies (order-strategy-candidates compiled
+                                                     nil
+                                                     provider-id
+                                                     request-kind
+                                                     (strategies-for-provider input provider-id))
+             :strategy (select-strategy-candidate compiled
+                                                  nil
+                                                  provider-id
+                                                  request-kind
+                                                  (strategies-for-provider input provider-id))}))
+        (if-let [route (select-routing-clause compiled model-id)]
+          (let [provider-ids (request-or-route-provider-ids route input)
               evidenced-providers (evidence-filtered-provider-ids route input provider-ids model-id)
               tenant-allowed-providers (filterv #(tenant-provider-allowed? tenant-settings %) evidenced-providers)
               ordered-providers (vec (order-provider-candidates route tenant-allowed-providers))
@@ -487,28 +709,35 @@
              :model-id model-id
              :route-id (:contract/id route)
              :providers []}
-            (let [account-result (order-account-candidates compiled route (accounts-for-provider input provider-id))
+            (if-let [missing-route (first (missing-provider-route-ids compiled ordered-providers))]
+              {:status :exhausted
+               :reason :missing-provider-route
+               :model-id model-id
+               :route-id (:contract/id route)
+               :providers ordered-providers
+               :missing-provider-routes (missing-provider-route-ids compiled ordered-providers)}
+              (let [account-result (order-account-candidates compiled route (accounts-for-provider input provider-id))
                   ordered-accounts (:ordered account-result)
                   ordered-strategies (order-strategy-candidates compiled
                                                                 route
                                                                 provider-id
                                                                 request-kind
                                                                 (strategies-for-provider input provider-id))]
-              {:status :ok
-               :model-id model-id
-               :request-kind request-kind
-               :route-id (:contract/id route)
-               :providers ordered-providers
-               :provider-routes (selected-provider-routes compiled ordered-providers)
-               :provider-id provider-id
-               :accounts ordered-accounts
-               :account (first ordered-accounts)
-               :applies-account-constraint (:applies-constraint account-result)
-               :strategies ordered-strategies
-               :strategy (first ordered-strategies)})))
-        {:status :exhausted
-         :reason :no-routing-clause
-         :model-id model-id}))))
+                {:status :ok
+                 :model-id model-id
+                 :request-kind request-kind
+                 :route-id (:contract/id route)
+                 :providers ordered-providers
+                 :provider-routes (selected-provider-routes compiled ordered-providers)
+                 :provider-id provider-id
+                 :accounts ordered-accounts
+                 :account (first ordered-accounts)
+                 :applies-account-constraint (:applies-constraint account-result)
+                 :strategies ordered-strategies
+                 :strategy (first ordered-strategies)}))))
+          {:status :exhausted
+           :reason :no-routing-clause
+           :model-id model-id})))))
 
 (defn compile-contracts
   "Compile loaded declarative policy contracts into phase-oriented indexes.
@@ -517,15 +746,18 @@
   can compare the declarative program with current runtime behavior."
   [contracts]
   (let [idx (index-contracts contracts)]
-    {:index idx
-     :routing-clauses (routing-clauses idx)
-     :provider-capabilities (provider-capabilities idx)
-     :provider-routes (provider-routes idx)
-     :provider-seed-specs (provider-seed-specs idx)
-     :request-surface-defaults (request-surface-defaults idx)
-     :account-orderings (account-orderings idx)
-     :account-constraints (account-constraints idx)
-     :default-strategy-order (default-strategy-order idx)
-     :tenant-authorization-clauses (tenant-authorization-clauses idx)
-     :fallback-policy (fallback-policy idx)
-     :root-program (root-program idx)}))
+     {:index idx
+      :routing-clauses (routing-clauses idx)
+      :provider-capabilities (provider-capabilities idx)
+      :model-families (model-families idx)
+      :reasoning-normalizations (reasoning-normalizations idx)
+      :model-aliases (model-aliases idx)
+      :provider-routes (provider-routes idx)
+      :provider-seed-specs (provider-seed-specs idx)
+      :request-surface-defaults (request-surface-defaults idx)
+      :account-orderings (account-orderings idx)
+      :account-constraints (account-constraints idx)
+      :default-strategy-order (default-strategy-order idx)
+      :tenant-authorization-clauses (tenant-authorization-clauses idx)
+      :fallback-policy (fallback-policy idx)
+      :root-program (root-program idx)}))

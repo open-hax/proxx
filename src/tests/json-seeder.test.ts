@@ -119,6 +119,8 @@ test("seedFromJsonValue validates provider credentials through active CLJS runti
     loadModelPricingOverrides: () => ([]),
     loadProviderSeedSpecs: () => ([]),
     previewPolicyDecision: () => ({ status: "error" }),
+    normalizeReasoningRequest: (_manifestPath, input) => ({ status: "ok", decision: { "request-body": (input as { readonly requestBody?: unknown }).requestBody } }),
+    resolveModelAlias: () => ({ status: "ok", alias: null }),
   };
   setActiveCljsRuntime(cljsRuntime);
 

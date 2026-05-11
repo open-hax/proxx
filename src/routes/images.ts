@@ -92,7 +92,7 @@ export function registerImagesRoutes(deps: AppDeps, app: FastifyInstance): void 
     });
 
     if (providerRoutes.length === 0) {
-      sendOpenAiError(reply, 403, "No upstream providers are allowed for this tenant and request.", "invalid_request_error", "provider_not_allowed");
+      sendOpenAiError(reply, 403, "No allowed providers are available for this tenant and request.", "invalid_request_error", "provider_not_allowed");
       return;
     }
 

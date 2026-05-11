@@ -351,6 +351,52 @@ test("warmup backfills missing derived cost/env estimates from token counts and 
   });
 });
 
+test("warmup backfills missing cost even when energy/water estimates are already present", async () => {
+  await withTempDir(async (tempDir) => {
+    const filePath = path.join(tempDir, "request-logs.jsonl");
+    const payload = {
+      entries: [
+        {
+          id: "entry-1",
+          timestamp: Date.UTC(2026, 2, 16, 23, 15, 0),
+          providerId: "openai",
+          accountId: "acct-1",
+          authType: "oauth_bearer",
+          model: "gpt-5.4",
+          upstreamMode: "responses",
+          upstreamPath: "/v1/responses",
+          status: 200,
+          latencyMs: 250,
+          promptTokens: 1000,
+          completionTokens: 200,
+          totalTokens: 1200,
+          costUsd: 0,
+          energyJoules: 50,
+          waterEvaporatedMl: 0.025,
+        },
+      ],
+      hourlyBuckets: [],
+      dailyBuckets: [],
+      dailyModelBuckets: [],
+      dailyAccountBuckets: [],
+      accountAccumulators: [],
+    };
+
+    await writeFile(filePath, JSON.stringify(payload, null, 2), "utf8");
+
+    const store = new RequestLogStore(filePath, 100);
+    await store.warmup();
+
+    const entries = store.snapshot();
+    assert.equal(entries.length, 1);
+    assert.ok((entries[0]?.costUsd ?? 0) > 0, "costUsd should be backfilled from default pricing");
+    assert.equal(entries[0]?.energyJoules, 50, "energyJoules should remain unchanged");
+    assert.equal(entries[0]?.waterEvaporatedMl, 0.025, "waterEvaporatedMl should remain unchanged");
+
+    await store.close();
+  });
+});
+
 test("request log store tracks tenant usage attribution separately", async () => {
   await withTempDir(async (tempDir) => {
     const filePath = path.join(tempDir, "request-logs.jsonl");

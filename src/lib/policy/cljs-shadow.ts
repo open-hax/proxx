@@ -7,8 +7,7 @@ interface LoggerLike {
   readonly warn: (bindings: Record<string, unknown>, message: string) => void;
 }
 
-type CljsPolicyConfig = Pick<ProxyConfig, "cljsPolicyManifestPath" | "cljsPolicyShadowMode" | "cljsPolicyAuthoritative">
-  & Partial<Pick<ProxyConfig, "disabledProviderIds" | "openaiProviderId" | "openaiBaseUrl" | "upstreamProviderBaseUrls">>;
+type CljsPolicyConfig = Pick<ProxyConfig, "cljsPolicyManifestPath" | "cljsPolicyShadowMode" | "cljsPolicyAuthoritative">;
 
 interface CljsProviderPolicyInput {
   readonly config: CljsPolicyConfig;
@@ -52,42 +51,6 @@ function providerIds(routes: readonly ProviderRoute[]): readonly string[] {
   return routes.map((route) => route.providerId);
 }
 
-function configuredProviderRoutes(config: CljsPolicyConfig): ProviderRoute[] {
-  const routes: ProviderRoute[] = [];
-  const seen = new Set<string>();
-  const disabled = new Set(config.disabledProviderIds ?? []);
-  const addRoute = (providerId: string | undefined, baseUrl: string | undefined): void => {
-    const normalizedProviderId = providerId?.trim();
-    const normalizedBaseUrl = baseUrl?.trim().replace(/\/+$/, "");
-    if (!normalizedProviderId || !normalizedBaseUrl || seen.has(normalizedProviderId) || disabled.has(normalizedProviderId)) {
-      return;
-    }
-    seen.add(normalizedProviderId);
-    routes.push({ providerId: normalizedProviderId, baseUrl: normalizedBaseUrl });
-  };
-
-  addRoute(config.openaiProviderId, config.openaiBaseUrl);
-  for (const [providerId, baseUrl] of Object.entries(config.upstreamProviderBaseUrls ?? {})) {
-    addRoute(providerId, baseUrl);
-  }
-  return routes;
-}
-
-function mergeProviderRoutes(primary: readonly ProviderRoute[], secondary: readonly ProviderRoute[]): ProviderRoute[] {
-  const seen = new Set<string>();
-  const merged: ProviderRoute[] = [];
-  for (const route of [...primary, ...secondary]) {
-    const providerId = route.providerId.trim();
-    const baseUrl = route.baseUrl.trim().replace(/\/+$/, "");
-    if (!providerId || !baseUrl || seen.has(providerId)) {
-      continue;
-    }
-    seen.add(providerId);
-    merged.push({ providerId, baseUrl });
-  }
-  return merged;
-}
-
 function providerRoutesFromDecision(decision: PreviewDecisionShape | undefined): ProviderRoute[] {
   const rawRoutes = decision?.["provider-routes"] ?? decision?.providerRoutes ?? [];
   return rawRoutes.flatMap((route) => {
@@ -98,10 +61,10 @@ function providerRoutesFromDecision(decision: PreviewDecisionShape | undefined):
 }
 
 function candidateProviderRoutes(input: CljsProviderPolicyInput): ProviderRoute[] {
-  if (input.config.cljsPolicyAuthoritative !== true) {
-    return [...input.providerRoutes];
+  if (input.config.cljsPolicyAuthoritative === true) {
+    return [];
   }
-  return mergeProviderRoutes(input.providerRoutes, configuredProviderRoutes(input.config));
+  return [...input.providerRoutes];
 }
 
 function orderRoutesFromPolicy(routes: readonly ProviderRoute[], policyProviderIds: readonly string[]): ProviderRoute[] {
@@ -185,10 +148,17 @@ export function applyCljsProviderPolicy(input: CljsProviderPolicyInput): Provide
       return [];
     }
 
-    const orderedRoutes = orderRoutesFromPolicy(
-      mergeProviderRoutes(candidateProviderRoutes(input), providerRoutesFromDecision(decision)),
-      decision.providers ?? [],
-    );
+    const decisionProviderIds = decision.providers ?? [];
+    const orderedRoutes = orderRoutesFromPolicy(providerRoutesFromDecision(decision), decisionProviderIds);
+    if (orderedRoutes.length !== decisionProviderIds.length) {
+      input.log.warn({
+        model: input.routedModel,
+        routeId: decision["route-id"],
+        providerIds: decisionProviderIds,
+        providerRouteIds: orderedRoutes.map((route) => route.providerId),
+      }, "CLJS policy authoritative routing missing provider route facts");
+      return [];
+    }
     input.log.debug({
       model: input.routedModel,
       routeId: decision["route-id"],

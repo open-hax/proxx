@@ -23,6 +23,20 @@ export interface CljsPolicyDecisionPreviewResult {
   readonly data?: unknown;
 }
 
+export interface CljsReasoningNormalizationResult {
+  readonly status: "ok" | "error";
+  readonly decision?: unknown;
+  readonly error?: string;
+  readonly data?: unknown;
+}
+
+export interface CljsModelAliasResult {
+  readonly status: "ok" | "error";
+  readonly alias?: string | null;
+  readonly error?: string;
+  readonly data?: unknown;
+}
+
 export interface ProxxCljsRuntime {
   readonly normalizeKeys: (value: unknown) => unknown;
   readonly validateEntity: (entityType: string, value: unknown) => CljsValidationResult;
@@ -32,6 +46,8 @@ export interface ProxxCljsRuntime {
   readonly loadModelPricingOverrides: (manifestPath: string) => unknown;
   readonly loadProviderSeedSpecs: (manifestPath: string) => unknown;
   readonly previewPolicyDecision: (manifestPath: string, input: unknown) => CljsPolicyDecisionPreviewResult;
+  readonly normalizeReasoningRequest: (manifestPath: string, input: unknown) => CljsReasoningNormalizationResult;
+  readonly resolveModelAlias: (manifestPath: string, modelId: string, providerId: string) => CljsModelAliasResult;
 }
 
 export type CljsRuntimeLoadResult =
@@ -65,7 +81,9 @@ function isProxxCljsRuntime(value: Record<string, unknown>): value is Record<str
     typeof value.routePolicy === "function" &&
     typeof value.loadPolicyEvidence === "function" &&
     typeof value.loadModelPricingOverrides === "function" &&
-    typeof value.previewPolicyDecision === "function"
+    typeof value.previewPolicyDecision === "function" &&
+    typeof value.normalizeReasoningRequest === "function" &&
+    typeof value.resolveModelAlias === "function"
   );
 }
 
@@ -161,6 +179,78 @@ export function normalizeObjectKeysWithCljs<T>(value: T): T | unknown {
   return activeCljsRuntime?.normalizeKeys(value) ?? value;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function extractDecisionRequestBody(decision: unknown): Record<string, unknown> | undefined {
+  if (!isRecord(decision)) {
+    return undefined;
+  }
+
+  const requestBody = decision["request-body"] ?? decision.requestBody;
+  return isRecord(requestBody) ? requestBody : undefined;
+}
+
+/**
+ * Normalize client reasoning controls through CLJS policy contracts when the runtime is active.
+ * If the CLJS runtime is unavailable or cannot return a normalized request body, this is a no-op.
+ */
+export function normalizeReasoningRequestWithCljs(input: {
+  readonly manifestPath?: string;
+  readonly requestBody: Record<string, unknown>;
+  readonly modelId: string;
+  readonly providerId?: string;
+  readonly strategyMode?: string;
+}): Record<string, unknown> {
+  const runtime = activeCljsRuntime;
+  if (!runtime) {
+    return input.requestBody;
+  }
+
+  try {
+    const result = runtime.normalizeReasoningRequest(input.manifestPath ?? "resources/policies/runtime/00-manifest.edn", {
+      requestBody: input.requestBody,
+      modelId: input.modelId,
+      providerId: input.providerId,
+      strategyMode: input.strategyMode,
+    });
+    if (result.status !== "ok") {
+      return input.requestBody;
+    }
+
+    return extractDecisionRequestBody(result.decision) ?? input.requestBody;
+  } catch {
+    return input.requestBody;
+  }
+}
+
+export function resolveModelAliasWithCljs(input: {
+  readonly manifestPath?: string;
+  readonly modelId: string;
+  readonly providerId: string;
+}): string | undefined {
+  const runtime = getActiveCljsRuntime();
+  if (!runtime) {
+    return undefined;
+  }
+
+  try {
+    const manifestPath = input.manifestPath ?? "resources/policies/runtime/00-manifest.edn";
+    const result = runtime.resolveModelAlias(
+      manifestPath,
+      input.modelId,
+      input.providerId,
+    );
+    if (result.status !== "ok") {
+      return undefined;
+    }
+    return result.alias ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * Performs smoke checks of a Proxx CLJS runtime to verify the required API behaviour.
  *
@@ -219,5 +309,18 @@ export async function assertCljsRuntimeReady(runtime: ProxxCljsRuntime): Promise
   });
   if (previewResult.status !== "ok") {
     throw new Error("CLJS runtime previewPolicyDecision readiness check failed");
+  }
+
+  const reasoningResult = runtime.normalizeReasoningRequest("resources/policies/runtime/00-manifest.edn", {
+    modelId: "gpt-5.2",
+    requestBody: {
+      model: "gpt-5.2",
+      reasoning: { effort: "max" },
+    },
+  });
+  const normalizedRequestBody = extractDecisionRequestBody(reasoningResult.decision);
+  const normalizedReasoning = isRecord(normalizedRequestBody?.reasoning) ? normalizedRequestBody.reasoning : undefined;
+  if (reasoningResult.status !== "ok" || !isRecord(normalizedReasoning) || normalizedReasoning.effort !== "xhigh") {
+    throw new Error("CLJS runtime normalizeReasoningRequest readiness check failed");
   }
 }

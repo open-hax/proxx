@@ -6,12 +6,13 @@ import { FactoryChatCompletionsProviderStrategy, FactoryMessagesProviderStrategy
 import { OpenAiChatCompletionsProviderStrategy, OpenAiResponsesPassthroughStrategy, OpenAiResponsesProviderStrategy } from "./strategies/openai.js";
 import { LocalOllamaProviderStrategy, OllamaProviderStrategy } from "./strategies/ollama.js";
 import { OllamaCloudProviderStrategy } from "./strategies/ollama-cloud.js";
-import { ChatCompletionsProviderStrategy, ImagesGenerationsPassthroughStrategy, MessagesProviderStrategy, ResponsesPassthroughStrategy, ResponsesProviderStrategy, ResponsesViaChatCompletionsStrategy, ZaiChatCompletionsProviderStrategy } from "./strategies/standard.js";
+import { BlazeChatCompletionsProviderStrategy, BlazeImagesGenerationsPassthroughStrategy, ChatCompletionsProviderStrategy, ImagesGenerationsPassthroughStrategy, MessagesProviderStrategy, ResponsesPassthroughStrategy, ResponsesProviderStrategy, ResponsesViaChatCompletionsStrategy, ZaiChatCompletionsProviderStrategy } from "./strategies/standard.js";
 import { LlamacppChatCompletionsProviderStrategy } from "./strategies/llamacpp.js";
 import { HuggingFaceEmbeddingStrategy, OpenAiCompatEmbeddingsStrategy, OllamaEmbeddingsStrategy, OvmNpuEmbeddingStrategy, TEIEmbeddingStrategy } from "./strategies/embeddings.js";
 
 export const GEMINI_CHAT_STRATEGY = new GeminiChatProviderStrategy();
 export const ZAI_CHAT_STRATEGY = new ZaiChatCompletionsProviderStrategy();
+export const BLAZE_CHAT_STRATEGY = new BlazeChatCompletionsProviderStrategy();
 export const ROTUSSY_RESPONSES_VIA_CHAT_STRATEGY = new ResponsesViaChatCompletionsStrategy();
 export const OLLAMA_CLOUD_STRATEGY = new OllamaCloudProviderStrategy();
 export const LLAMACPP_CHAT_STRATEGY = new LlamacppChatCompletionsProviderStrategy();
@@ -22,6 +23,7 @@ export const PROVIDER_STRATEGIES: readonly ProviderStrategy[] = [
   new HuggingFaceEmbeddingStrategy(),
   new TEIEmbeddingStrategy(),
   new OvmNpuEmbeddingStrategy(),
+  new BlazeImagesGenerationsPassthroughStrategy(),
   new ImagesGenerationsPassthroughStrategy(),
   new OpenAiResponsesPassthroughStrategy(),
   new FactoryResponsesPassthroughStrategy(),
@@ -29,6 +31,7 @@ export const PROVIDER_STRATEGIES: readonly ProviderStrategy[] = [
   // Provider-specific adapters (policy chooses when applicable)
   GEMINI_CHAT_STRATEGY,
   ZAI_CHAT_STRATEGY,
+  BLAZE_CHAT_STRATEGY,
   OPENAI_COMPAT_EMBEDDINGS_STRATEGY,
   OLLAMA_EMBEDDINGS_STRATEGY,
   LLAMACPP_CHAT_STRATEGY,
@@ -152,4 +155,29 @@ export function selectRemoteProviderStrategyForRoute(
 
   return matchingStrategies.find((strategy) => strategy.mode === selected.mode)
     ?? matchingStrategies[0]!;
+}
+
+export function selectExecutionStrategyForProviderRoutes(
+  context: StrategyRequestContext,
+  defaultStrategy: ProviderStrategy,
+  providerIds: readonly string[],
+  policy?: PolicyEngine,
+): ProviderStrategy {
+  if (providerIds.length === 0) {
+    return defaultStrategy;
+  }
+
+  const normalizedProviderIds = providerIds
+    .map((providerId) => providerId.trim().toLowerCase())
+    .filter((providerId) => providerId.length > 0);
+  if (normalizedProviderIds.length === 0) {
+    return defaultStrategy;
+  }
+
+  const localOllamaOnly = normalizedProviderIds.every((providerId) => providerId === "ollama" || providerId === "ollama-local");
+  if (localOllamaOnly) {
+    return defaultStrategy;
+  }
+
+  return selectRemoteProviderStrategyForRoute(context, normalizedProviderIds[0]!, policy);
 }

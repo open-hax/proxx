@@ -2,6 +2,8 @@
   (:require [clojure.string :as str]))
 
 (def default-models-dev-url "https://models.dev/api.json")
+(def default-evidence-cache-ttl-ms 300000)
+(defonce ^:private policy-evidence-cache (atom {}))
 
 (defn- js-fetch []
   (.-fetch js/globalThis))
@@ -95,16 +97,59 @@
        (.then (fn [entries]
                 (into {} (js->clj entries)))))))
 
+(defn- now-ms [] (.now js/Date))
+
+(defn- route-cache-key [route]
+  [(provider-id route) (base-url route) (vec (catalog-paths route))])
+
+(defn- evidence-cache-key [opts routes]
+  [(or (:models-dev-url opts) (:modelsDevUrl opts) default-models-dev-url)
+   (mapv route-cache-key routes)])
+
+(defn- cache-ttl-ms [opts]
+  (or (:evidence-cache-ttl-ms opts)
+      (:evidenceCacheTtlMs opts)
+      default-evidence-cache-ttl-ms))
+
+(defn- fresh-cache-entry [cache-key ttl-ms]
+  (let [entry (get @policy-evidence-cache cache-key)]
+    (when (and (:evidence entry)
+               (< (- (now-ms) (:cached-at-ms entry 0)) ttl-ms))
+      entry)))
+
+(defn- store-cache-success! [cache-key evidence]
+  (swap! policy-evidence-cache assoc cache-key {:cached-at-ms (now-ms)
+                                                :evidence evidence})
+  evidence)
+
 (defn load-policy-evidence!
   "Build the evidence slice expected by contract-router.edn default policy.
+
+  Evidence is cached in the CLJS policy runtime so request routing does not pay
+  models.dev and /v1/models network round trips on every chat TTFT path.
 
   Returns {:models-dev/provider-models {...}
            :provider-model-snapshots {...}}."
   ([opts] (load-policy-evidence! opts (js-fetch)))
   ([opts fetch-fn]
-   (let [routes (or (:provider-routes opts) (:providerRoutes opts) [])]
-     (-> (js/Promise.all #js [(load-models-dev-provider-models! opts fetch-fn)
-                              (load-provider-model-snapshots! routes fetch-fn)])
-         (.then (fn [[models-dev snapshots]]
-                  {:models-dev/provider-models models-dev
-                   :provider-model-snapshots snapshots}))))))
+   (let [routes (or (:provider-routes opts) (:providerRoutes opts) [])
+         ttl-ms (cache-ttl-ms opts)
+         cache-key (evidence-cache-key opts routes)]
+     (if-let [entry (fresh-cache-entry cache-key ttl-ms)]
+       (js/Promise.resolve (:evidence entry))
+       (let [inflight (:inflight (get @policy-evidence-cache cache-key))]
+         (if inflight
+           inflight
+           (let [request (-> (js/Promise.all #js [(load-models-dev-provider-models! opts fetch-fn)
+                                                  (load-provider-model-snapshots! routes fetch-fn)])
+                             (.then (fn [[models-dev snapshots]]
+                                      (store-cache-success!
+                                       cache-key
+                                       {:models-dev/provider-models models-dev
+                                        :provider-model-snapshots snapshots})))
+                             (.catch (fn [error]
+                                       (swap! policy-evidence-cache dissoc cache-key)
+                                       (throw error))))]
+             (swap! policy-evidence-cache assoc cache-key {:cached-at-ms (now-ms)
+                                                           :inflight request})
+             request)))))))

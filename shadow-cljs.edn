@@ -16,7 +16,9 @@
                                           loadPolicyEvidence proxx.runtime/load-policy-evidence-js
                                           loadModelPricingOverrides proxx.runtime/load-model-pricing-overrides-js
                                           loadProviderSeedSpecs proxx.runtime/load-provider-seed-specs-js
-                                          previewPolicyDecision proxx.runtime/preview-policy-decision-js}}}
+                                           previewPolicyDecision proxx.runtime/preview-policy-decision-js
+                                           normalizeReasoningRequest proxx.runtime/normalize-reasoning-request-js
+                                           resolveModelAlias proxx.runtime/resolve-model-alias-js}}}
    :js-options {:js-provider :import
                 :keep-as-import #{"node:fs" "node:path"}}
    :compiler-options {:output-feature-set :es-next

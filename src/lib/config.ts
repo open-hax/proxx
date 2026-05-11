@@ -369,6 +369,8 @@ function defaultProviderBaseUrl(providerId: string): string {
       return (process.env.MISTRAL_BASE_URL ?? "https://api.mistral.ai/v1").replace(/\/+$/, "");
     case "xiaomi":
       return (process.env.XIAOMI_BASE_URL ?? process.env.MIMO_BASE_URL ?? "https://api.xiaomimimo.com/v1").replace(/\/+$/, "");
+    case "blaze":
+      return (process.env.BLAZE_BASE_URL ?? process.env.BLAZEAI_BASE_URL ?? "https://blazeai.boxu.dev/api").replace(/\/+$/, "");
     case "ollama-cloud":
       return "https://ollama.com";
     case "ollama-stealth":
@@ -407,6 +409,7 @@ export function loadConfig(cwd: string = process.cwd()): ProxyConfig {
     rotussy: defaultProviderBaseUrl("rotussy"),
     mistral: defaultProviderBaseUrl("mistral"),
     xiaomi: defaultProviderBaseUrl("xiaomi"),
+    blaze: defaultProviderBaseUrl("blaze"),
     factory: defaultProviderBaseUrl("factory"),
     "ollama-stealth": defaultProviderBaseUrl("ollama-stealth"),
     "ollama-big-ussy": defaultProviderBaseUrl("ollama-big-ussy"),

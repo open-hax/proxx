@@ -81,18 +81,20 @@
       :delete nil
 
       :upsert
-      {:prompt-cache-key (or (:prompt-cache-key state) prompt-cache-key)
-       :provider-id      provider-id
-       :account-id       account-id
-       :updated-at       now}
+      (cond-> {:prompt-cache-key (or (:prompt-cache-key state) prompt-cache-key)
+               :provider-id      provider-id
+               :account-id       account-id
+               :updated-at       now}
+        (:model-id event) (assoc :model-id (:model-id event)))
 
       :note-success
       (cond
         (nil? state)
-        {:prompt-cache-key prompt-cache-key
-         :provider-id      provider-id
-         :account-id       account-id
-         :updated-at       now}
+        (cond-> {:prompt-cache-key prompt-cache-key
+                 :provider-id      provider-id
+                 :account-id       account-id
+                 :updated-at       now}
+          (:model-id event) (assoc :model-id (:model-id event)))
 
         (and (= (:provider-id state) provider-id)
              (= (:account-id state) account-id))
@@ -109,10 +111,12 @@
                                   (inc (or (:provisional-success-count state) 1))
                                   1)]
           (if (>= new-count promotion-threshold)
-            {:prompt-cache-key (:prompt-cache-key state)
-             :provider-id      provider-id
-             :account-id       account-id
-             :updated-at       now}
+            (cond-> {:prompt-cache-key (:prompt-cache-key state)
+                     :provider-id      provider-id
+                     :account-id       account-id
+                     :updated-at       now}
+              (:model-id state) (assoc :model-id (:model-id state))
+              (:model-id event) (assoc :model-id (:model-id event)))
             (-> state
                 (assoc :provisional-provider-id   provider-id
                        :provisional-account-id    account-id

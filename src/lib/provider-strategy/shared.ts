@@ -20,9 +20,9 @@ import {
   messagesToChatCompletion,
 } from "../messages-compat.js";
 import {
-  normalizeReasoningEffort,
   ollamaToChatCompletion,
 } from "../ollama-compat.js";
+import { normalizeReasoningRequestWithCljs } from "../cljs-runtime.js";
 import {
   isGlmModel,
   applyGlmThinking,
@@ -879,28 +879,22 @@ function buildPayloadResult(upstreamPayload: Record<string, unknown>, context?: 
 }
 
 function buildRequestBodyForUpstream(context: StrategyRequestContext): Record<string, unknown> {
-  const upstreamBody: Record<string, unknown> = {
+  const rawUpstreamBody: Record<string, unknown> = {
     ...context.requestBody,
   };
 
   if (context.routedModel !== context.requestedModelInput) {
-    upstreamBody.model = context.routedModel;
+    rawUpstreamBody.model = context.routedModel;
   }
 
-  delete upstreamBody["open_hax"];
+  delete rawUpstreamBody["open_hax"];
 
-  const reasoningEffort = asString(upstreamBody["reasoning_effort"]) ?? asString(upstreamBody["reasoningEffort"]);
-  if (reasoningEffort) {
-    upstreamBody["reasoning_effort"] = normalizeReasoningEffort(reasoningEffort);
-  }
-
-  const reasoning = isRecord(upstreamBody["reasoning"]) ? upstreamBody["reasoning"] : null;
-  if (reasoning) {
-    const effort = asString(reasoning["effort"]);
-    if (effort) {
-      upstreamBody["reasoning"] = { ...reasoning, effort: normalizeReasoningEffort(effort) };
-    }
-  }
+  const upstreamBody = normalizeReasoningRequestWithCljs({
+    manifestPath: context.config.cljsPolicyManifestPath,
+    requestBody: rawUpstreamBody,
+    modelId: context.routedModel,
+    providerId: context.routeProviderId,
+  });
 
   if (isGlmModel(context.routedModel)) {
     return applyGlmThinking(upstreamBody, context.routedModel);

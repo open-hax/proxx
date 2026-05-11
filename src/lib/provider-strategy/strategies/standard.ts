@@ -215,6 +215,39 @@ export class ZaiChatCompletionsProviderStrategy extends ChatCompletionsProviderS
   }
 }
 
+export class BlazeChatCompletionsProviderStrategy extends ChatCompletionsProviderStrategy {
+  public override matches(context: StrategyRequestContext): boolean {
+    return context.routeProviderId === "blaze"
+      && context.responsesPassthrough !== true
+      && context.imagesPassthrough !== true;
+  }
+
+  public override getUpstreamPath(_context: StrategyRequestContext): string {
+    return "/chat/completions";
+  }
+}
+
+export class BlazeImagesGenerationsPassthroughStrategy extends BaseProviderStrategy {
+  public readonly mode = "images" as const;
+
+  public readonly isLocal = false;
+
+  public matches(context: StrategyRequestContext): boolean {
+    return context.routeProviderId === "blaze"
+      && context.imagesPassthrough === true;
+  }
+
+  public getUpstreamPath(_context: StrategyRequestContext): string {
+    return "/images/generations";
+  }
+
+  public buildPayload(context: StrategyRequestContext): BuildPayloadResult {
+    const upstreamPayload: Record<string, unknown> = { ...context.requestBody };
+    delete upstreamPayload["open_hax"];
+    return buildPayloadResult(upstreamPayload, context);
+  }
+}
+
 export class ImagesGenerationsPassthroughStrategy extends BaseProviderStrategy {
   public readonly mode = "images" as const;
 

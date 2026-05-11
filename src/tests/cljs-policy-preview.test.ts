@@ -45,6 +45,7 @@ test("CLJS runtime previews declarative policy decisions from manifest", async (
     readonly status?: string;
     readonly "route-id"?: string;
     readonly "provider-id"?: string;
+    readonly "provider-routes"?: readonly { readonly "provider-id"?: string; readonly "base-url"?: string }[];
     readonly account?: { readonly accountId?: string };
     readonly strategy?: { readonly mode?: string };
   };
@@ -52,6 +53,9 @@ test("CLJS runtime previews declarative policy decisions from manifest", async (
   assert.equal(decision.status, "ok");
   assert.equal(decision["route-id"], "gpt-free-blocked");
   assert.equal(decision["provider-id"], "openai");
+  assert.deepEqual(decision["provider-routes"], [
+    { "provider-id": "openai", "base-url": "https://chatgpt.com/backend-api" },
+  ]);
   assert.equal(decision.account?.accountId, "plus");
   assert.equal(decision.strategy?.mode, "chat-completions");
 });
@@ -74,9 +78,13 @@ test("CLJS runtime keeps gpt and mimo routes pinned to their canonical providers
   const gptDecision = gptResult.decision as {
     readonly "route-id"?: string;
     readonly providers?: readonly string[];
+    readonly "provider-routes"?: readonly { readonly "provider-id"?: string; readonly "base-url"?: string }[];
   };
   assert.equal(gptDecision["route-id"], "gpt");
   assert.deepEqual(gptDecision.providers, ["openai"]);
+  assert.deepEqual(gptDecision["provider-routes"], [
+    { "provider-id": "openai", "base-url": "https://chatgpt.com/backend-api" },
+  ]);
 
   const mimoResult = loaded.runtime.previewPolicyDecision("resources/policies/runtime/00-manifest.edn", {
     modelId: "mimo-v2.5-pro",
@@ -88,7 +96,11 @@ test("CLJS runtime keeps gpt and mimo routes pinned to their canonical providers
   const mimoDecision = mimoResult.decision as {
     readonly "route-id"?: string;
     readonly providers?: readonly string[];
+    readonly "provider-routes"?: readonly { readonly "provider-id"?: string; readonly "base-url"?: string }[];
   };
   assert.equal(mimoDecision["route-id"], "mimo-v2-5-pro");
   assert.deepEqual(mimoDecision.providers, ["xiaomi"]);
+  assert.deepEqual(mimoDecision["provider-routes"], [
+    { "provider-id": "xiaomi", "base-url": "https://api.xiaomimimo.com/v1" },
+  ]);
 });

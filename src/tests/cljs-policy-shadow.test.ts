@@ -4,7 +4,11 @@ import test from "node:test";
 import { setActiveCljsRuntime, type ProxxCljsRuntime } from "../lib/cljs-runtime.js";
 import { applyCljsProviderPolicy, shadowPreviewProviderPolicy } from "../lib/policy/cljs-shadow.js";
 
-function createRuntime(providers: readonly string[], seenInputs?: unknown[]): ProxxCljsRuntime {
+function createRuntime(
+  providers: readonly string[],
+  seenInputs?: unknown[],
+  providerRoutes?: readonly { readonly providerId: string; readonly baseUrl: string }[],
+): ProxxCljsRuntime {
   return {
     normalizeKeys: (value) => value,
     validateEntity: () => ({ status: "ok" }),
@@ -13,6 +17,8 @@ function createRuntime(providers: readonly string[], seenInputs?: unknown[]): Pr
     loadPolicyEvidence: async () => ({}),
     loadModelPricingOverrides: () => ([]),
     loadProviderSeedSpecs: () => ([]),
+    normalizeReasoningRequest: (_manifestPath, input) => ({ status: "ok", decision: { "request-body": (input as { readonly requestBody?: unknown }).requestBody } }),
+    resolveModelAlias: () => ({ status: "ok", alias: null }),
     previewPolicyDecision: (_manifestPath, input) => {
       seenInputs?.push(input);
       return {
@@ -20,6 +26,7 @@ function createRuntime(providers: readonly string[], seenInputs?: unknown[]): Pr
         decision: {
           status: "ok",
           providers,
+          "provider-routes": providerRoutes,
           "route-id": "gpt",
         },
       };
@@ -97,7 +104,7 @@ test("shadowPreviewProviderPolicy passes policy evidence into preview input", ()
   });
 });
 
-test("applyCljsProviderPolicy filters and reorders routes in authoritative mode", () => {
+test("applyCljsProviderPolicy returns exact routes from authoritative policy decision", () => {
   const debug: Array<Record<string, unknown>> = [];
   const warn: Array<Record<string, unknown>> = [];
   const routes = [
@@ -106,7 +113,10 @@ test("applyCljsProviderPolicy filters and reorders routes in authoritative mode"
     { providerId: "factory", baseUrl: "https://api.factory.ai" },
   ];
 
-  setActiveCljsRuntime(createRuntime(["requesty", "factory"]));
+  setActiveCljsRuntime(createRuntime(["requesty", "factory"], undefined, [
+    { providerId: "requesty", baseUrl: "https://router.requesty.ai/v1" },
+    { providerId: "factory", baseUrl: "https://api.factory.ai" },
+  ]));
   try {
     const ordered = applyCljsProviderPolicy({
       config: {
@@ -133,27 +143,22 @@ test("applyCljsProviderPolicy filters and reorders routes in authoritative mode"
   assert.equal(warn.length, 1);
 });
 
-test("applyCljsProviderPolicy lets authoritative policy select configured provider outside legacy route candidates", () => {
+test("applyCljsProviderPolicy does not use ambient provider routes as authoritative inputs", () => {
   const seenInputs: unknown[] = [];
   const routes = [
     { providerId: "openai", baseUrl: "https://api.openai.com" },
     { providerId: "factory", baseUrl: "https://api.factory.ai" },
   ];
 
-  setActiveCljsRuntime(createRuntime(["xiaomi"], seenInputs));
+  setActiveCljsRuntime(createRuntime(["xiaomi"], seenInputs, [
+    { providerId: "xiaomi", baseUrl: "https://api.xiaomimimo.com/v1" },
+  ]));
   try {
     const ordered = applyCljsProviderPolicy({
       config: {
         cljsPolicyManifestPath: "resources/policies/runtime/00-manifest.edn",
         cljsPolicyShadowMode: false,
         cljsPolicyAuthoritative: true,
-        disabledProviderIds: [],
-        openaiProviderId: "openai",
-        openaiBaseUrl: "https://api.openai.com",
-        upstreamProviderBaseUrls: {
-          factory: "https://api.factory.ai",
-          xiaomi: "https://api.xiaomimimo.com/v1",
-        },
       },
       log: {
         debug: () => undefined,
@@ -166,7 +171,32 @@ test("applyCljsProviderPolicy lets authoritative policy select configured provid
       providerRoutes: routes,
     });
     assert.deepEqual(ordered, [{ providerId: "xiaomi", baseUrl: "https://api.xiaomimimo.com/v1" }]);
-    assert.deepEqual((seenInputs[0] as Record<string, unknown>).providerIds, ["openai", "factory", "xiaomi"]);
+    assert.deepEqual((seenInputs[0] as Record<string, unknown>).providerIds, []);
+  } finally {
+    setActiveCljsRuntime(undefined);
+  }
+});
+
+test("applyCljsProviderPolicy fails closed when policy omits selected provider route", () => {
+  setActiveCljsRuntime(createRuntime(["xiaomi"]));
+  try {
+    const ordered = applyCljsProviderPolicy({
+      config: {
+        cljsPolicyManifestPath: "resources/policies/runtime/00-manifest.edn",
+        cljsPolicyShadowMode: false,
+        cljsPolicyAuthoritative: true,
+      },
+      log: {
+        debug: () => undefined,
+        warn: () => undefined,
+      },
+      requestKind: "chat",
+      requestedModel: "mimo-v2.5-pro",
+      routedModel: "mimo-v2.5-pro",
+      tenantSettings: {},
+      providerRoutes: [{ providerId: "xiaomi", baseUrl: "https://ambient.invalid" }],
+    });
+    assert.deepEqual(ordered, []);
   } finally {
     setActiveCljsRuntime(undefined);
   }

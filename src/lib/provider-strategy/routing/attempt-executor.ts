@@ -162,6 +162,7 @@ export async function executeProviderRoutingPlan(
     for (let retryIndex = 0; retryIndex <= context.config.upstreamTransientRetryCount; retryIndex += 1) {
       const baseProviderContext: Omit<ProviderAttemptContext, "attempt"> = {
         ...context,
+        routeProviderId: candidate.providerId,
         providerId: candidate.providerId,
         // This may be overridden per-attempt when `OPENAI_IMAGES_UPSTREAM_MODE=platform|auto`.
         baseUrl: candidate.baseUrl,

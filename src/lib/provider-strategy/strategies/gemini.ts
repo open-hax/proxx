@@ -1,5 +1,6 @@
 import { TransformedJsonProviderStrategy } from "../base.js";
 import { requestWantsReasoningTrace } from "../../openai/index.js";
+import { resolveModelAliasWithCljs } from "../../cljs-runtime.js";
 import {
   asNumber,
   asString,
@@ -145,7 +146,14 @@ export class GeminiChatProviderStrategy extends TransformedJsonProviderStrategy 
   }
 
   public getUpstreamPath(context: StrategyRequestContext): string {
-    const model = encodeURIComponent(context.routedModel);
+    const manifestPath = context.config.cljsPolicyManifestPath;
+    const providerId = (context as { providerId?: string }).providerId ?? context.routeProviderId ?? "gemini";
+    const alias = resolveModelAliasWithCljs({
+      manifestPath,
+      modelId: context.routedModel,
+      providerId,
+    });
+    const model = encodeURIComponent(alias ?? context.routedModel);
     return `/models/${model}:generateContent`;
   }
 

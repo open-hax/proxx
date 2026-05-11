@@ -1,6 +1,6 @@
 [{:contract/id :domain/request-kinds
   :contract/kind :enum
-  :enum/values [:chat :responses-passthrough :images-passthrough :embeddings]}
+  :enum/values [:chat :responses-passthrough :images-passthrough :images :video :music :tts :stt :embeddings]}
 
  {:contract/id :domain/upstream-modes
   :contract/kind :enum
@@ -12,6 +12,10 @@
                 :openai-responses
                 :openai-responses-passthrough
                 :images
+                :video
+                :music
+                :tts
+                :stt
                 :gemini-chat
                 :ollama-chat
                 :local-ollama-chat
@@ -42,4 +46,9 @@
                      :openai-chat-completions
                      :responses
                      :messages
-                     :chat-completions]}]
+                     :chat-completions
+                     :images
+                     :video
+                     :music
+                     :tts
+                     :stt]}]

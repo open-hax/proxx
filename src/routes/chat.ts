@@ -19,6 +19,7 @@ import {
   executeProviderRoutingPlan,
   inspectProviderAvailability,
 } from "../lib/provider-strategy.js";
+import { selectExecutionStrategyForProviderRoutes } from "../lib/provider-strategy/registry.js";
 import { executeLocalStrategy } from "../lib/provider-strategy.js";
 import {
   buildProviderRoutesWithDynamicBaseUrls,
@@ -174,14 +175,21 @@ export function registerChatRoutes(deps: AppDeps, app: FastifyInstance): void {
         providerRoutes = reorderVisionProviderRoutes(providerRoutes, context.routedModel);
       }
 
+      const executionStrategy = selectExecutionStrategyForProviderRoutes(
+        context,
+        strategy,
+        providerRoutes.map((route) => route.providerId),
+        deps.policyEngine,
+      );
+
       if (providerRoutes.length === 0) {
-        if (strategy.isLocal) {
+        if (executionStrategy.isLocal) {
           // Tenant policy can intentionally clear hosted providers to force the configured local/Ollama edge path.
         } else {
           if (hasMoreModelCandidates) {
             continue;
           }
-          sendOpenAiError(reply, 403, "No upstream providers are allowed for this tenant and request.", "invalid_request_error", "provider_not_allowed");
+          sendOpenAiError(reply, 403, "No allowed providers are available for this tenant and request.", "invalid_request_error", "provider_not_allowed");
           return;
         }
       }
@@ -197,13 +205,13 @@ export function registerChatRoutes(deps: AppDeps, app: FastifyInstance): void {
           return;
         }
 
-        if (!strategy.isLocal) {
+        if (!executionStrategy.isLocal) {
           providerRoutes = filterProviderRoutesByCatalogAvailability(providerRoutes, context.routedModel, catalogBundle);
-          if (wantsDynamicOllamaRoutes) {
+          if (wantsDynamicOllamaRoutes && executionStrategy.mode !== "chat_completions") {
             const ranked = await rankProviderRoutesWithAco({
               providerRoutes,
               model: context.routedModel,
-              upstreamMode: strategy.mode,
+              upstreamMode: executionStrategy.mode,
               keyPool: deps.keyPool,
               requestLogStore: deps.requestLogStore,
               healthStore: deps.accountHealthStore,
@@ -232,9 +240,9 @@ export function registerChatRoutes(deps: AppDeps, app: FastifyInstance): void {
         request.log.warn({ error: toErrorMessage(error) }, "failed to verify provider model catalog; continuing without gating");
       }
 
-      let payload: ReturnType<typeof strategy.buildPayload>;
+      let payload: ReturnType<typeof executionStrategy.buildPayload>;
       try {
-        payload = strategy.buildPayload(context);
+        payload = executionStrategy.buildPayload(context);
       } catch (error) {
         if (hasMoreModelCandidates) {
           continue;
@@ -243,7 +251,7 @@ export function registerChatRoutes(deps: AppDeps, app: FastifyInstance): void {
         return;
       }
 
-      if (strategy.mode === "ollama_chat" || strategy.mode === "local_ollama_chat") {
+      if (executionStrategy.mode === "ollama_chat" || executionStrategy.mode === "local_ollama_chat") {
         const candidateRequestBody = payload.upstreamPayload;
         if (isRecord(candidateRequestBody) && !requestHasExplicitNumCtx(requestBody) && !hasDedicatedOllamaRoutes(providerRoutes)) {
           const ollamaUrl = providerRoutes.length > 0 ? providerRoutes[0]!.baseUrl : deps.config.ollamaBaseUrl;
@@ -264,7 +272,7 @@ export function registerChatRoutes(deps: AppDeps, app: FastifyInstance): void {
         }
       }
 
-      if (strategy.isLocal) {
+      if (executionStrategy.isLocal) {
         if (!tenantProviderAllowed(proxySettings, "ollama")) {
           if (hasMoreModelCandidates) {
             continue;
@@ -273,7 +281,7 @@ export function registerChatRoutes(deps: AppDeps, app: FastifyInstance): void {
           return;
         }
 
-        await executeLocalStrategy(strategy, reply, deps.requestLogStore, context, payload);
+        await executeLocalStrategy(executionStrategy, reply, deps.requestLogStore, context, payload);
         return;
       }
 
@@ -302,7 +310,7 @@ export function registerChatRoutes(deps: AppDeps, app: FastifyInstance): void {
       }
 
       const execution = await executeProviderRoutingPlan(
-        strategy,
+        executionStrategy,
         reply,
         deps.requestLogStore,
         deps.promptAffinityStore,
@@ -347,6 +355,7 @@ export function registerChatRoutes(deps: AppDeps, app: FastifyInstance): void {
         requestHeaders: request.headers,
         requestBody,
         requestAuth: request.openHaxAuth ?? undefined,
+        allowedProviderIds: providerRoutes.map((route) => route.providerId),
         upstreamPath: "/v1/chat/completions",
         reply,
         timeoutMs: context.upstreamAttemptTimeoutMs,
@@ -365,7 +374,7 @@ export function registerChatRoutes(deps: AppDeps, app: FastifyInstance): void {
         execution,
         availability,
         providerRoutes,
-        strategyMode: strategy.mode,
+        strategyMode: executionStrategy.mode,
         routedModel: context.routedModel,
         log: app.log,
       });
@@ -374,6 +383,6 @@ export function registerChatRoutes(deps: AppDeps, app: FastifyInstance): void {
       }
     }
 
-    sendOpenAiError(reply, 502, "Upstream rejected the request with no successful fallback.", "server_error", "upstream_unavailable");
+    sendOpenAiError(reply, 502, "All allowed providers rejected the request.", "server_error", "provider_unavailable");
   });
 }

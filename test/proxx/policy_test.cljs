@@ -488,7 +488,9 @@
         route-ids (mapv :contract/id (:routing-clauses compiled))
         gpt-paid (first (filter #(= :route/gpt-free-blocked (:contract/id %))
                                 (:routing-clauses compiled)))]
-    (is (= [:route/glm
+    (is (= [:route/gemma-e
+            :route/gemma
+            :route/glm
             :route/claude-opus-4-6
             :route/claude
             :route/gpt-oss
@@ -499,17 +501,22 @@
             :route/mimo
             :route/qwen3-embedding
             :route/kimi
+            :route/blaze-text
+            :route/blaze-images
+            :route/blaze-video
+            :route/blaze-music
+            :route/blaze-tts
             :route/default]
            route-ids))
     (is (= "^(?:gpt-5\\.3-codex|gpt-5-mini)$"
            (get-in gpt-paid [:match/family-contract :match/model-pattern])))
-    (is (= ["openai" "factory" "openrouter" "requesty" "vivgrid"]
+    (is (= ["openai"]
            (:prefer/provider-order gpt-paid)))
     (is (= [:plus :pro :business :enterprise :team]
            (:require/plan-set gpt-paid)))
-    (is (= 5 (count (:provider-capabilities compiled))))
-    (is (= 1 (count (:provider-routes compiled))))
-    (is (= 3 (count (:request-surface-defaults compiled))))
+    (is (= 10 (count (:provider-capabilities compiled))))
+    (is (= 18 (count (:provider-routes compiled))))
+    (is (= 7 (count (:request-surface-defaults compiled))))
     (is (= 4 (count (:tenant-authorization-clauses compiled))))
     (is (= :router/root (get-in compiled [:root-program :contract/id])))))
 
@@ -541,13 +548,17 @@
   (let [compiled (contracts/compile-contracts
                   (loader/load-policy-contracts! "resources/policies/runtime/00-manifest.edn"))
         gpt-route (contracts/select-routing-clause compiled "gpt-5.2")]
-    (is (= ["openai" "factory" "requesty" "vivgrid" "anthropic"]
+    (is (= ["openai"]
            (contracts/order-provider-candidates
             gpt-route
             ["anthropic" "rotussy" "requesty" "factory" "openai" "vivgrid"])))
     (is (= [:provider-capability/openai-compatible-chat]
            (mapv :contract/id
                  (contracts/strategy-preference-clauses compiled "openrouter" :chat))))
+    (is (= [:provider-capability/blaze-music
+            :request-surface/music]
+           (mapv :contract/id
+                 (contracts/strategy-preference-clauses compiled "blaze" :music))))
     (is (= [:provider-capability/rotussy-responses-passthrough
             :request-surface/responses-passthrough]
            (mapv :contract/id
@@ -596,6 +607,31 @@
     (is (= ["plus" "team"]
            (mapv :account-id (:ordered result))))
     (is (= true (:applies-constraint result)))))
+
+(deftest compiler-normalizes-reasoning-by-model-family-contract
+  (let [compiled (contracts/compile-contracts
+                  (loader/load-policy-contracts! "resources/policies/runtime/00-manifest.edn"))]
+    (is (= "xhigh"
+           (get-in (contracts/normalize-reasoning-request
+                    compiled
+                    {:model-id "gpt-5.2"
+                     :request-body {:model "gpt-5.2"
+                                    :reasoning {:effort "max"}}})
+                   [:request-body :reasoning :effort])))
+    (is (= "max"
+           (get-in (contracts/normalize-reasoning-request
+                    compiled
+                    {:model-id "glm-5"
+                     :request-body {:model "glm-5"
+                                    :reasoning {:effort "xhigh"}}})
+                   [:request-body :reasoning :effort])))
+    (is (= {:type "enabled" :budget_tokens 24576}
+           (get-in (contracts/normalize-reasoning-request
+                    compiled
+                    {:model-id "claude-opus-4-6"
+                     :request-body {:model "claude-opus-4-6"
+                                    :reasoning_effort "high"}})
+                   [:request-body :thinking])))))
 
 (deftest compiler-orders-strategies-from-route-provider-and-request-clauses
   (let [compiled (contracts/compile-contracts
@@ -734,7 +770,10 @@
                                                        {:mode :openai-responses :priority 0}]}})]
     (is (= :ok (:status decision)))
     (is (= :route/gpt-free-blocked (:route-id decision)))
-    (is (= ["openai" "factory"] (:providers decision)))
+    (is (= ["openai"] (:providers decision)))
+    (is (= [{:provider-id "openai"
+             :base-url "https://chatgpt.com/backend-api"}]
+           (:provider-routes decision)))
     (is (= "openai" (:provider-id decision)))
     (is (= "plus" (get-in decision [:account :account-id])))
     (is (= true (:applies-account-constraint decision)))
@@ -758,6 +797,9 @@
     (is (= :ok (:status decision)))
     (is (= :route/mimo-v2-5-pro (:route-id decision)))
     (is (= ["xiaomi"] (:providers decision)))
+    (is (= [{:provider-id "xiaomi"
+             :base-url "https://api.xiaomimimo.com/v1"}]
+           (:provider-routes decision)))
     (is (= "xiaomi" (:provider-id decision)))
     (is (= "xiaomi-ready" (get-in decision [:account :account-id])))
     (is (= :chat-completions (get-in decision [:strategy :mode])))))
@@ -775,6 +817,9 @@
     (is (= :ok (:status decision)))
     (is (= :route/mimo-v2-5-pro (:route-id decision)))
     (is (= ["xiaomi"] (:providers decision)))
+    (is (= [{:provider-id "xiaomi"
+             :base-url "https://api.xiaomimimo.com/v1"}]
+           (:provider-routes decision)))
     (is (= "xiaomi" (:provider-id decision)))
     (is (= "xiaomi-ready" (get-in decision [:account :account-id])))))
 
@@ -806,8 +851,43 @@
     (is (= :ok (:status decision)))
     (is (= :route/qwen3-embedding (:route-id decision)))
     (is (= ["llamacpp-embed" "ollama"] (:providers decision)))
+    (is (= [{:provider-id "llamacpp-embed"
+             :base-url "http://llamacpp-embed:8081"}
+            {:provider-id "ollama"
+             :base-url "http://ollama:11434"}]
+           (:provider-routes decision)))
     (is (= "llamacpp-embed" (:provider-id decision)))
     (is (= :embeddings (get-in decision [:strategy :mode])))))
+
+(deftest compiler-previews-blaze-media-policy-decision
+  (let [compiled (contracts/compile-contracts
+                  (loader/load-policy-contracts! "resources/policies/runtime/00-manifest.edn"))
+        music-decision (contracts/preview-policy-decision
+                        compiled
+                        {:model-id "MiniMax-music-2.6-highspeed"
+                         :request-kind :music
+                         :tenant-settings {:allowed-provider-ids ["blaze"]}
+                         :accounts-by-provider {"blaze" [{:account-id "blaze-free" :plan-type :free}]}
+                         :strategies-by-provider {"blaze" [{:mode :music :priority 0}
+                                                            {:mode :chat-completions :priority 1}]}})
+        video-decision (contracts/preview-policy-decision
+                        compiled
+                        {:model-id "qwen3.6-plus-video"
+                         :request-kind :video
+                         :tenant-settings {:allowed-provider-ids ["blaze"]}
+                         :accounts-by-provider {"blaze" [{:account-id "blaze-free" :plan-type :free}]}
+                         :strategies-by-provider {"blaze" [{:mode :video :priority 0}
+                                                            {:mode :chat-completions :priority 1}]}})]
+    (is (= :ok (:status music-decision)))
+    (is (= :route/blaze-music (:route-id music-decision)))
+    (is (= "blaze" (:provider-id music-decision)))
+    (is (= :music (get-in music-decision [:strategy :mode])))
+    (is (= [{:provider-id "blaze"
+             :base-url "https://blazeai.boxu.dev/api"}]
+           (:provider-routes music-decision)))
+    (is (= :ok (:status video-decision)))
+    (is (= "blaze" (:provider-id video-decision)))
+    (is (= :video (get-in video-decision [:strategy :mode])))))
 
 (deftest compiler-preview-denies-tenant-model-and-exhausts-providers
   (let [compiled (contracts/compile-contracts

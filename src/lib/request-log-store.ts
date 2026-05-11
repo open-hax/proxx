@@ -2208,130 +2208,21 @@ export class RequestLogStore {
     };
   }
 
-  private applyLoadedDb(db: RequestLogDb): void {
+  private async applyLoadedDb(db: RequestLogDb): Promise<void> {
     this.resetState();
     this.entries.splice(0, this.entries.length, ...db.entries);
-    this.repairDerivedEstimates();
+    await this.repairDerivedEstimates();
 
-    this.hourlyBuckets.clear();
-    for (const bucket of db.hourlyBuckets ?? []) {
-      this.hourlyBuckets.set(bucket.startMs, {
-        startMs: bucket.startMs,
-        requestCount: bucket.requestCount,
-        errorCount: bucket.errorCount,
-        totalTokens: bucket.totalTokens,
-        promptTokens: bucket.promptTokens,
-        completionTokens: bucket.completionTokens,
-        cachedPromptTokens: bucket.cachedPromptTokens,
-        imageCount: bucket.imageCount,
-        imageCostUsd: bucket.imageCostUsd,
-        cacheHitCount: bucket.cacheHitCount,
-        cacheKeyUseCount: bucket.cacheKeyUseCount,
-        fastModeRequestCount: bucket.fastModeRequestCount,
-        priorityRequestCount: bucket.priorityRequestCount,
-        standardRequestCount: bucket.standardRequestCount,
-        costUsd: bucket.costUsd,
-        energyJoules: bucket.energyJoules,
-        waterEvaporatedMl: bucket.waterEvaporatedMl,
-      });
-    }
-
-    if ((db.hourlyBuckets?.length ?? 0) === 0 && this.entries.length > 0) {
-      this.rebuildHourlyBucketsFromEntries();
-    }
-
-    this.dailyBuckets.clear();
-    for (const bucket of db.dailyBuckets ?? []) {
-      this.dailyBuckets.set(bucket.startMs, {
-        startMs: bucket.startMs,
-        requestCount: bucket.requestCount,
-        errorCount: bucket.errorCount,
-        totalTokens: bucket.totalTokens,
-        promptTokens: bucket.promptTokens,
-        completionTokens: bucket.completionTokens,
-        cachedPromptTokens: bucket.cachedPromptTokens,
-        imageCount: bucket.imageCount,
-        imageCostUsd: bucket.imageCostUsd,
-        cacheHitCount: bucket.cacheHitCount,
-        cacheKeyUseCount: bucket.cacheKeyUseCount,
-        fastModeRequestCount: bucket.fastModeRequestCount,
-        priorityRequestCount: bucket.priorityRequestCount,
-        standardRequestCount: bucket.standardRequestCount,
-        costUsd: bucket.costUsd,
-        energyJoules: bucket.energyJoules,
-        waterEvaporatedMl: bucket.waterEvaporatedMl,
-      });
-    }
-
-    if ((db.dailyBuckets?.length ?? 0) === 0 && this.entries.length > 0) {
-      this.rebuildDailyBucketsFromEntries();
-    }
-
-    this.dailyModelBuckets.clear();
-    for (const bucket of db.dailyModelBuckets ?? []) {
-      const key = dailyModelBucketKey(bucket.startMs, bucket.providerId, bucket.model);
-      this.dailyModelBuckets.set(key, { ...bucket });
-    }
-
-    if ((db.dailyModelBuckets?.length ?? 0) === 0 && this.entries.length > 0) {
-      this.rebuildDailyModelBucketsFromEntries();
-    }
-
-    this.dailyAccountBuckets.clear();
-    for (const bucket of db.dailyAccountBuckets ?? []) {
-      const key = dailyAccountBucketKey(bucket.startMs, bucket.providerId, bucket.accountId, bucket.tenantId, bucket.issuer, bucket.keyId);
-      this.dailyAccountBuckets.set(key, { ...bucket });
-    }
-
-    if ((db.dailyAccountBuckets?.length ?? 0) === 0 && this.entries.length > 0) {
-      this.rebuildDailyAccountBucketsFromEntries();
-    }
-
+    // Always rebuild buckets from entries on load so that any prior
+    // entry repairs (or schema changes) are reflected in dashboard
+    // aggregations. With the current max of 100k entries this is
+    // cheap enough to do on every startup.
+    this.rebuildHourlyBucketsFromEntries();
+    this.rebuildDailyBucketsFromEntries();
+    this.rebuildDailyModelBucketsFromEntries();
+    this.rebuildDailyAccountBucketsFromEntries();
     this.rebuildPerfIndex();
-
-    this.accountAccumulators.clear();
-    if (Array.isArray(db.accountAccumulators) && db.accountAccumulators.length > 0) {
-      for (const acc of db.accountAccumulators) {
-        if (isRecord(acc) && typeof acc.providerId === "string" && typeof acc.accountId === "string") {
-          const key = accountAccumulatorKey(
-            acc.providerId as string,
-            acc.accountId as string,
-            typeof acc.tenantId === "string" ? acc.tenantId : undefined,
-            typeof acc.issuer === "string" ? acc.issuer : undefined,
-            typeof acc.keyId === "string" ? acc.keyId : undefined,
-          );
-          this.accountAccumulators.set(key, {
-            tenantId: typeof acc.tenantId === "string" ? acc.tenantId : undefined,
-            issuer: typeof acc.issuer === "string" ? acc.issuer : undefined,
-            keyId: typeof acc.keyId === "string" ? acc.keyId : undefined,
-            providerId: acc.providerId as string,
-            accountId: acc.accountId as string,
-            authType: (acc.authType as RequestAuthType) ?? "api_key",
-            requestCount: asNumber(acc.requestCount) ?? 0,
-            totalTokens: asNumber(acc.totalTokens) ?? 0,
-            promptTokens: asNumber(acc.promptTokens) ?? 0,
-            completionTokens: asNumber(acc.completionTokens) ?? 0,
-            cachedPromptTokens: asNumber(acc.cachedPromptTokens) ?? 0,
-            imageCount: asNumber(acc.imageCount) ?? 0,
-            imageCostUsd: asNumber(acc.imageCostUsd) ?? 0,
-            cacheHitCount: asNumber(acc.cacheHitCount) ?? 0,
-            cacheKeyUseCount: asNumber(acc.cacheKeyUseCount) ?? 0,
-            ttftSum: asNumber(acc.ttftSum) ?? 0,
-            ttftCount: asNumber(acc.ttftCount) ?? 0,
-            tpsSum: asNumber(acc.tpsSum) ?? 0,
-            tpsCount: asNumber(acc.tpsCount) ?? 0,
-            endToEndTpsSum: asNumber(acc.endToEndTpsSum) ?? 0,
-            endToEndTpsCount: asNumber(acc.endToEndTpsCount) ?? 0,
-            lastUsedAtMs: asNumber(acc.lastUsedAtMs) ?? 0,
-            costUsd: asNumber(acc.costUsd) ?? 0,
-            energyJoules: asNumber(acc.energyJoules) ?? 0,
-            waterEvaporatedMl: asNumber(acc.waterEvaporatedMl) ?? 0,
-          });
-        }
-      }
-    } else {
-      this.rebuildAccountAccumulators();
-    }
+    this.rebuildAccountAccumulators();
   }
 
   private rebuildHourlyBucketsFromEntries(): void {
@@ -2616,7 +2507,7 @@ export class RequestLogStore {
     }
 
     const db = hydrateDb(parsed, this.maxEntries);
-    this.applyLoadedDb(db);
+    await this.applyLoadedDb(db);
     this.journalLineCount = this.entries.length;
     return true;
   }
@@ -2665,7 +2556,7 @@ export class RequestLogStore {
       dailyAccountBuckets: metadata.dailyAccountBuckets,
       accountAccumulators: metadata.accountAccumulators,
     }, this.maxEntries);
-    this.applyLoadedDb(db);
+    await this.applyLoadedDb(db);
     this.journalLineCount = jsonlLoad.lineCount;
 
     if (jsonlLoad.malformedLines.length > 0) {
@@ -2679,7 +2570,8 @@ export class RequestLogStore {
     }
   }
 
-  private repairDerivedEstimates(): void {
+  private async repairDerivedEstimates(): Promise<boolean> {
+    let repairedAny = false;
     for (let index = 0; index < this.entries.length; index += 1) {
       const entry = this.entries[index];
       if (!entry) {
@@ -2689,22 +2581,38 @@ export class RequestLogStore {
       const promptTokens = sanitizeOptionalCount(entry.promptTokens) ?? 0;
       const completionTokens = sanitizeOptionalCount(entry.completionTokens) ?? 0;
       const hasTokenUsage = promptTokens > 0 || completionTokens > 0;
-      const missingDerivedEstimates = sumCount(entry.costUsd) === 0
-        && sumCount(entry.energyJoules) === 0
-        && sumCount(entry.waterEvaporatedMl) === 0;
+      if (!hasTokenUsage) {
+        continue;
+      }
 
-      if (!hasTokenUsage || !missingDerivedEstimates) {
+      const missingCost = sumCount(entry.costUsd) === 0;
+      const missingEnergy = sumCount(entry.energyJoules) === 0;
+      const missingWater = sumCount(entry.waterEvaporatedMl) === 0;
+      if (!missingCost && !missingEnergy && !missingWater) {
         continue;
       }
 
       const repaired = estimateRequestCost(entry.providerId, entry.model, promptTokens, completionTokens);
-      this.entries[index] = {
+      const repairedEntry: RequestLogEntry = {
         ...entry,
-        costUsd: repaired.costUsd,
-        energyJoules: repaired.energyJoules,
-        waterEvaporatedMl: repaired.waterEvaporatedMl,
+        ...(missingCost ? { costUsd: repaired.costUsd } : {}),
+        ...(missingEnergy ? { energyJoules: repaired.energyJoules } : {}),
+        ...(missingWater ? { waterEvaporatedMl: repaired.waterEvaporatedMl } : {}),
       };
+      this.entries[index] = repairedEntry;
+      repairedAny = true;
+
+      // Sync repaired entry to the SQL mirror so dashboard analytics
+      // reflect the corrected costs.
+      if (this.mirror) {
+        try {
+          await this.mirror.upsertEntry(repairedEntry);
+        } catch (error) {
+          console.warn(`[request-log-store] Failed to mirror repaired entry ${repairedEntry.id}: ${formatErrorMessage(error)}`);
+        }
+      }
     }
+    return repairedAny;
   }
 
   private schedulePersist(): void {

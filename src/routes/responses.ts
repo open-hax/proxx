@@ -277,7 +277,7 @@ export function registerResponsesRoutes(deps: AppDeps, app: FastifyInstance): vo
         if (hasMoreModelCandidates) {
           continue;
         }
-        sendOpenAiError(reply, 403, "No upstream providers are allowed for this tenant and request.", "invalid_request_error", "provider_not_allowed");
+        sendOpenAiError(reply, 403, "No allowed providers are available for this tenant and request.", "invalid_request_error", "provider_not_allowed");
         return;
       }
 
@@ -376,6 +376,6 @@ export function registerResponsesRoutes(deps: AppDeps, app: FastifyInstance): vo
       }
     }
 
-    sendOpenAiError(reply, 502, "Upstream rejected the request with no successful fallback.", "server_error", "upstream_unavailable");
+    sendOpenAiError(reply, 502, "All allowed providers rejected the request.", "server_error", "provider_unavailable");
   });
 }
