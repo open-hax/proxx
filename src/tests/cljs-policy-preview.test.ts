@@ -103,4 +103,28 @@ test("CLJS runtime keeps gpt and mimo routes pinned to their canonical providers
   assert.deepEqual(mimoDecision["provider-routes"], [
     { "provider-id": "xiaomi", "base-url": "https://api.xiaomimimo.com/v1" },
   ]);
+
+  const gemma4E4bResult = loaded.runtime.previewPolicyDecision("resources/policies/runtime/00-manifest.edn", {
+    modelId: "gemma4:e4b",
+    requestKind: "chat",
+    tenantSettings: {},
+    providerIds: ["ollama", "ollama-cloud", "ollama-lan"],
+    strategies: [
+      { mode: "chat_completions", priority: 1 },
+      { mode: "ollama_chat", priority: 2 },
+    ],
+  });
+  assert.equal(gemma4E4bResult.status, "ok");
+  const gemma4E4bDecision = gemma4E4bResult.decision as {
+    readonly "route-id"?: string;
+    readonly providers?: readonly string[];
+    readonly "provider-routes"?: readonly { readonly "provider-id"?: string; readonly "base-url"?: string }[];
+    readonly strategy?: { readonly mode?: string };
+  };
+  assert.equal(gemma4E4bDecision["route-id"], "gemma4-e4b");
+  assert.deepEqual(gemma4E4bDecision.providers, ["ollama-lan"]);
+  assert.deepEqual(gemma4E4bDecision["provider-routes"], [
+    { "provider-id": "ollama-lan", "base-url": "http://192.168.12.68:11434", "auth-required?": false },
+  ]);
+  assert.equal(gemma4E4bDecision.strategy?.mode, "chat_completions");
 });

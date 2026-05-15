@@ -1,32 +1,52 @@
-# Π Snapshot: Proxx dashboard Night Owl completion
+# Π Fork Tax Snapshot: open-hax-proxx
 
-- **Repo:** `open-hax/proxx`
-- **Branch:** `fork-tax/20260404-033121-proxx-night-owl-dashboard-finish`
-- **Base branch:** `fix/prompt-cache-audit-followups`
-- **Previous tag:** `Π/20260404-010801-request-log-cache-rollup-failure-exclusion`
-- **Intended Π tag:** `Π/20260404-033121-proxx-night-owl-dashboard-finish`
-- **Generated:** `2026-04-04T03:31:21Z`
+- timestamp: 2026-05-15T06:01:45Z
+- repo: /home/err/devel/orgs/open-hax/proxx
+- branch: feat/policy-polish
+- head-before: 63759ac970550e5b28b5f6ecacf426d615f9f886
+- origin: git@github.com:open-hax/proxx.git
+- scope: .
+- note: Proxx policy/routing snapshot.
 
-## What this snapshot preserves
+## Dirty summary before commit
 
-This Π handoff captures the downstream Proxx integration of the published UXX theming runtime. The app now persists a theme preference, exposes a Monokai/Night Owl toggle, and themes the full dashboard surface instead of only the UXX metric cards.
+```text
+## feat/policy-polish
+ M .env.example
+ M DEVEL.md
+ M README.md
+ M docker-compose.yml
+ M receipts.edn
+ M resources/policies/runtime/05-provider-seed.edn
+ M resources/policies/runtime/10-model-families.edn
+ M resources/policies/runtime/20-provider-capabilities.edn
+ M resources/policies/runtime/30-model-routing.edn
+ M src/lib/catalog-alias-resolver.ts
+ M src/lib/config.ts
+ M src/lib/policy/cljs-shadow.ts
+ M src/lib/policy/engine/tenant-enforcement.ts
+ M src/lib/provider-routing.ts
+ M src/lib/provider-strategy/registry.ts
+ M src/lib/provider-strategy/routing/attempt-executor.ts
+ M src/lib/provider-strategy/routing/candidate-builder.ts
+ M src/lib/provider-strategy/shared.ts
+ M src/lib/provider-strategy/strategies/ollama.ts
+ M src/proxx/policy/contracts.cljs
+ M src/routes/chat.ts
+ M src/routes/embeddings.ts
+ M src/routes/media-generations.ts
+ M src/tests/cljs-policy-preview.test.ts
+ M src/tests/model-alias-resolution.test.ts
+ M src/tests/provider-routing.test.ts
+ M test/proxx/policy_test.cljs
+```
 
-### App wiring
-- `package.json` — upgraded to `@open-hax/uxx@0.1.3`
-- `web/src/App.tsx` — `ThemeProvider` wrapper plus persisted theme toggle
+## Verification plan
 
-### Consumer CSS alignment
-- `web/src/styles.css` — moved theme-derived aliases and page background from `:root` to `.app-theme-root`
-- This fixes the scoped-variable mismatch where UXX primitives updated but Proxx-owned panels, nav, and inputs kept default-theme values
+- git diff --cached --check after staging
+- push branch and tag
+- create or update GitHub PR
 
-### Runtime validation
-- Local build and web build pass
-- `services/proxx` recreated successfully
-- Browser verification confirmed Night Owl across dashboard cards, panels, nav, and controls
+## Concurrent/residual dirt policy
 
-## Verification
-
-- Build: `pnpm build` ✅
-- Web build: `pnpm web:build` ✅
-- Service recreate: `docker compose up -d --build --force-recreate` ✅
-- Runtime: `docker compose ps` healthy on `http://127.0.0.1:5174` ✅
+Unrelated dirty paths outside the scope are intentionally left untouched. Nested submodules with local-only dirt that are not part of the requested scope are recorded as residual rather than cleaned.

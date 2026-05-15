@@ -19,6 +19,12 @@ function normalizeModelVariants(model: string): readonly string[] {
   if (trimmed.startsWith("ollama:")) {
     variants.add(trimmed.slice("ollama:".length));
   }
+  if (trimmed.startsWith("ollama-lan/")) {
+    variants.add(trimmed.slice("ollama-lan/".length));
+  }
+  if (trimmed.startsWith("ollama-lan:")) {
+    variants.add(trimmed.slice("ollama-lan:".length));
+  }
   return [...variants];
 }
 

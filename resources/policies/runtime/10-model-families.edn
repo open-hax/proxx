@@ -82,6 +82,12 @@
   :reasoning/control :effort-level
   :reasoning/native-efforts [:none :low :medium :high :max]}
 
+ {:contract/id :model-family/gemma4-e4b
+  :contract/kind :model-family
+  :match/model-pattern "(?i)^gemma4:e4b$"
+  :reasoning/control :effort-level
+  :reasoning/native-efforts [:none :low :medium :high :max]}
+
  {:contract/id :model-family/gemma4
   :contract/kind :model-family
   :match/model-pattern "(?i)^gemma4"
@@ -93,6 +99,12 @@
   :match/model-pattern "(?i)^gemma4:31b$"
   :match/provider-pattern "^gemini$"
   :alias/model-id "gemma-4-31b-it"}
+
+ {:contract/id :model-alias/gemma4-e4b-ollama-lan-128k
+  :contract/kind :model-alias
+  :match/model-pattern "(?i)^gemma4:e4b$"
+  :match/provider-pattern "^ollama-lan$"
+  :alias/model-id "gemma4:e4b-128k"}
 
  {:contract/id :model-family/blaze-text
   :contract/kind :model-family
@@ -125,6 +137,11 @@
  {:contract/id :model-family/blaze-tts
   :contract/kind :model-family
   :match/model-pattern "(?i)^MiniMax-speech-2\\.8-hd-highspeed$"
+  :reasoning/control :none}
+
+ {:contract/id :model-family/musicgen
+  :contract/kind :model-family
+  :match/model-pattern "(?i)^musicgen(?::|-).*"
   :reasoning/control :none}
 
  {:contract/id :model-family/default

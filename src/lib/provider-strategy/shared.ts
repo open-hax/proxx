@@ -22,7 +22,7 @@ import {
 import {
   ollamaToChatCompletion,
 } from "../ollama-compat.js";
-import { normalizeReasoningRequestWithCljs } from "../cljs-runtime.js";
+import { normalizeReasoningRequestWithCljs, resolveModelAliasWithCljs } from "../cljs-runtime.js";
 import {
   isGlmModel,
   applyGlmThinking,
@@ -184,6 +184,8 @@ interface StrategyRequestContext {
   readonly responsesPassthrough?: boolean;
   readonly imagesPassthrough?: boolean;
   readonly embeddingsPassthrough?: boolean;
+  /** Strategy mode selected by the authoritative declarative policy, when available. */
+  readonly policyPreferredStrategyMode?: UpstreamMode;
 }
 
 interface ProviderAttemptContext extends StrategyRequestContext {
@@ -875,6 +877,33 @@ function buildPayloadResult(upstreamPayload: Record<string, unknown>, context?: 
     bodyText: JSON.stringify(upstreamPayload),
     serviceTier,
     serviceTierSource,
+  };
+}
+
+function applyProviderModelAliasToPayload(
+  payload: BuildPayloadResult,
+  context: StrategyRequestContext,
+  providerId: string,
+): BuildPayloadResult {
+  const currentModel = payload.upstreamPayload.model;
+  if (typeof currentModel !== "string" || currentModel.length === 0) {
+    return payload;
+  }
+
+  const alias = resolveModelAliasWithCljs({
+    manifestPath: context.config.cljsPolicyManifestPath,
+    modelId: context.routedModel,
+    providerId,
+  });
+  if (!alias || alias === currentModel) {
+    return payload;
+  }
+
+  const upstreamPayload = { ...payload.upstreamPayload, model: alias };
+  return {
+    ...payload,
+    upstreamPayload,
+    bodyText: JSON.stringify(upstreamPayload),
   };
 }
 
@@ -1834,6 +1863,7 @@ export {
   updateFailedAttemptDiagnostics,
   stripTrailingAssistantPrefill,
   buildPayloadResult,
+  applyProviderModelAliasToPayload,
   buildRequestBodyForUpstream,
   ensureChatCompletionsUsageInStream,
   readHeaderValue,

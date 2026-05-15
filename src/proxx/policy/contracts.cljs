@@ -389,7 +389,13 @@
         (conj (subs trimmed (count "ollama/")))
 
         (str/starts-with? trimmed "ollama:")
-        (conj (subs trimmed (count "ollama:")))))))
+        (conj (subs trimmed (count "ollama:")))
+
+        (str/starts-with? trimmed "ollama-lan/")
+        (conj (subs trimmed (count "ollama-lan/")))
+
+        (str/starts-with? trimmed "ollama-lan:")
+        (conj (subs trimmed (count "ollama-lan:")))))))
 
 (defn tenant-model-allowed?
   "Apply declarative tenant model allow-list semantics."
@@ -512,8 +518,12 @@
                              (not (str/blank? provider-id))
                              (string? base-url)
                              (not (str/blank? base-url)))
-                    [provider-id {:provider-id provider-id
-                                  :base-url base-url}]))))
+                    [provider-id (cond-> {:provider-id provider-id
+                                           :base-url base-url}
+                                   (contains? route :auth/required?)
+                                   (assoc :auth-required? (:auth/required? route))
+                                   (contains? route :auth-required?)
+                                   (assoc :auth-required? (:auth-required? route)))]))))
         (:provider-routes compiled)))
 
 (defn- selected-provider-routes [compiled provider-ids]
@@ -660,7 +670,7 @@
   live-runtime cutover preparation; it does not execute a provider strategy."
   [compiled input]
   (let [model-id (or (get-any input [:model-id :modelId :requested-model :requestedModel]) "")
-        request-kind (or (get-any input [:request-kind :requestKind]) :chat)
+        request-kind (normalized-keyword (or (get-any input [:request-kind :requestKind]) :chat))
         tenant-settings (or (get-any input [:tenant-settings :tenantSettings]) {})]
     (if-not (tenant-model-allowed? tenant-settings model-id)
       {:status :denied

@@ -178,6 +178,14 @@ function isMinimaxMusicModel(model: string): boolean {
   return model.toLowerCase().startsWith("minimax-music-");
 }
 
+function isMusicgenModel(model: string): boolean {
+  return model.toLowerCase().startsWith("musicgen");
+}
+
+function musicgenBaseUrl(deps: AppDeps): string {
+  return (deps.config.upstreamProviderBaseUrls.musicgen ?? "http://musicgen:8080").replace(/\/+$/, "");
+}
+
 function transformToMinimaxBody(body: Record<string, unknown>): Record<string, unknown> {
   const model = typeof body.model === "string" ? body.model : "";
   const minimaxModel = model.replace(/^MiniMax-music-/i, "music-").replace(/-highspeed$/i, "");
@@ -381,6 +389,175 @@ async function forwardMinimaxMusicRequest(
   }
 }
 
+async function forwardMusicgenRequest(
+  deps: AppDeps,
+  route: BlazeMediaRoute,
+  request: FastifyRequest,
+  reply: FastifyReply,
+): Promise<void> {
+  const requestStartedAt = Date.now();
+  const rawToolCallId = request.headers["x-open-hax-tool-call-id"];
+  const toolCallId = typeof rawToolCallId === "string" ? rawToolCallId : undefined;
+
+  if (!isRecord(request.body)) {
+    sendOpenAiError(reply, 400, "Request body must be a JSON object", "invalid_request_error", "invalid_body");
+    return;
+  }
+
+  const model = typeof request.body.model === "string" ? request.body.model : "";
+  const prompt = typeof request.body.prompt === "string" ? request.body.prompt : "";
+
+  if (!prompt) {
+    sendOpenAiError(reply, 400, "Missing required field: prompt", "invalid_request_error", "missing_prompt");
+    return;
+  }
+
+  deps.app.log.info({
+    toolCallId,
+    mode: route.label,
+    localPath: route.localPath,
+    model,
+    provider: "musicgen",
+  }, "MusicGen proxy request start");
+
+  const duration = typeof request.body.duration === "number" ? request.body.duration : 30;
+  const musicgenBody = { prompt, duration };
+  const bodyText = JSON.stringify(musicgenBody);
+  const upstreamUrl = joinUrl(musicgenBaseUrl(deps), "/generate");
+  const entryId = toolCallId ?? `${route.label}:${model}:${Date.now()}`;
+
+  const headers = new Headers();
+  headers.set("Content-Type", "application/json");
+  if (toolCallId) {
+    headers.set("X-Open-Hax-Tool-Call-Id", toolCallId);
+  }
+
+  deps.eventStore?.emitRequest(entryId, "musicgen", "musicgen-local", model, musicgenBody, {
+    upstreamMode: route.label,
+    upstreamPath: "/generate",
+    upstreamUrl,
+  });
+
+  try {
+    const upstreamResponse = await postBlazeMediaJson(
+      upstreamUrl,
+      headers,
+      bodyText,
+      deps.config.requestTimeoutMs,
+    );
+    const { text } = upstreamResponse;
+
+    let logicalFailure: string | undefined;
+    if (upstreamResponse.status >= 200 && upstreamResponse.status < 300) {
+      if (!hasValidMediaOutput(text, route.label)) {
+        logicalFailure = `missing or empty ${route.label} output`;
+      }
+    }
+
+    const status = logicalFailure ? 502 : upstreamResponse.status;
+
+    deps.app.log.info({
+      toolCallId,
+      mode: route.label,
+      model,
+      upstreamStatus: upstreamResponse.status,
+      logicalFailure,
+      elapsedMs: Date.now() - requestStartedAt,
+      responseBytes: Buffer.byteLength(text),
+    }, "MusicGen proxy upstream attempt complete");
+
+    if (logicalFailure) {
+      deps.app.log.warn({
+        toolCallId,
+        mode: route.label,
+        model,
+        logicalFailure,
+        elapsedMs: Date.now() - requestStartedAt,
+      }, "MusicGen proxy logical failure payload");
+      deps.eventStore?.emitError(entryId, "musicgen", "musicgen-local", model, status, {
+        error: logicalFailure,
+        responsePreview: text.slice(0, 500),
+      }, { elapsedMs: Date.now() - requestStartedAt });
+
+      sendOpenAiError(reply, status, `MusicGen generation failed: ${logicalFailure}`, "upstream_error", "provider_failed");
+      return;
+    }
+
+    // Transform MusicGen response to OpenAI-compatible format
+    let parsedPayload: Record<string, unknown> | null = null;
+    try {
+      parsedPayload = JSON.parse(text) as Record<string, unknown>;
+    } catch {
+      parsedPayload = { raw: text };
+    }
+
+    const dataField = isRecord(parsedPayload) ? parsedPayload.data : null;
+    let openAiResponse: Record<string, unknown>;
+
+    if (isRecord(dataField) && typeof dataField.audio === "string") {
+      const rawAudio = dataField.audio as string;
+      const audioBytes = Buffer.from(rawAudio, "base64");
+      const fileName = `${entryId.replace(/[:\/]/g, "-")}.wav`;
+      const filePath = `/app/data/blaze_generated/${fileName}`;
+      try {
+        await mkdir("/app/data/blaze_generated", { recursive: true });
+        await writeFile(filePath, audioBytes);
+        await writeFile(filePath.replace(/\.wav$/i, ".json"), text, "utf8");
+      } catch {
+        // ignore write errors
+      }
+
+      openAiResponse = {
+        status: "success",
+        data: {
+          audio: rawAudio,
+          format: "wav",
+          duration: dataField.duration ?? duration,
+          sample_rate: dataField.sample_rate ?? 32000,
+        },
+        _savedPath: filePath,
+        _savedBytes: audioBytes.length,
+      };
+
+      deps.eventStore?.emitResponse(entryId, "musicgen", "musicgen-local", model, upstreamResponse.status, {
+        ...openAiResponse,
+        data: {
+          ...(isRecord(dataField) ? dataField : {}),
+          audio: `[STRIPPED: ${audioBytes.length} bytes saved to ${filePath}]`,
+        },
+      }, {
+        elapsedMs: Date.now() - requestStartedAt,
+        responseBytes: Buffer.byteLength(text),
+      });
+    } else {
+      openAiResponse = parsedPayload ?? {};
+      deps.eventStore?.emitResponse(entryId, "musicgen", "musicgen-local", model, upstreamResponse.status, openAiResponse, {
+        elapsedMs: Date.now() - requestStartedAt,
+        responseBytes: Buffer.byteLength(text),
+      });
+    }
+
+    copyUpstreamHeaders(reply, upstreamResponse.headers);
+    reply.header("x-open-hax-upstream-provider", "musicgen");
+    reply.header("x-open-hax-upstream-mode", route.label);
+    reply.header("x-open-hax-upstream-path", "/generate");
+    reply.code(200).send(JSON.stringify(openAiResponse));
+  } catch (error) {
+    const errorMsg = toErrorMessage(error);
+    deps.app.log.warn({
+      toolCallId,
+      mode: route.label,
+      model,
+      error: errorMsg,
+      elapsedMs: Date.now() - requestStartedAt,
+    }, "MusicGen proxy upstream attempt error");
+    deps.eventStore?.emitError(entryId, "musicgen", "musicgen-local", model, 0, {
+      error: errorMsg,
+    }, { elapsedMs: Date.now() - requestStartedAt });
+    sendOpenAiError(reply, 502, `MusicGen generation failed: ${errorMsg}`, "upstream_error", "provider_failed");
+  }
+}
+
 async function forwardBlazeMediaRequest(deps: AppDeps, route: BlazeMediaRoute, request: FastifyRequest, reply: FastifyReply): Promise<void> {
   const requestStartedAt = Date.now();
   const rawToolCallId = request.headers["x-open-hax-tool-call-id"];
@@ -399,6 +576,11 @@ async function forwardBlazeMediaRequest(deps: AppDeps, route: BlazeMediaRoute, r
   // Route MiniMax music models directly to MiniMax API
   if (isMinimaxMusicModel(model) && route.label === "music") {
     return forwardMinimaxMusicRequest(deps, route, request, reply);
+  }
+
+  // Route MusicGen models to local MusicGen service
+  if (isMusicgenModel(model) && route.label === "music") {
+    return forwardMusicgenRequest(deps, route, request, reply);
   }
 
   deps.app.log.info({

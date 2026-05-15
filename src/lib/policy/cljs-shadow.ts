@@ -18,6 +18,13 @@ interface CljsProviderPolicyInput {
   readonly tenantSettings: unknown;
   readonly providerRoutes: readonly ProviderRoute[];
   readonly policyEvidence?: unknown;
+  readonly strategies?: unknown;
+  readonly strategiesByProvider?: unknown;
+}
+
+interface CljsProviderPolicyResult {
+  readonly providerRoutes: ProviderRoute[];
+  readonly decision?: PreviewDecisionShape;
 }
 
 interface PreviewDecisionProviderRoute {
@@ -27,6 +34,11 @@ interface PreviewDecisionProviderRoute {
   readonly baseUrl?: string;
   readonly base_url?: string;
   readonly "base-url"?: string;
+  readonly authRequired?: boolean;
+  readonly auth_required?: boolean;
+  readonly "auth-required"?: boolean;
+  readonly "auth-required?"?: boolean;
+  readonly "auth/required?"?: boolean;
 }
 
 interface PreviewDecisionShape {
@@ -37,6 +49,7 @@ interface PreviewDecisionShape {
   readonly providerRoutes?: readonly PreviewDecisionProviderRoute[];
   readonly "route-id"?: string;
   readonly "provider-id"?: string;
+  readonly strategy?: { readonly mode?: string } | string;
 }
 
 function isPreviewDecisionShape(value: unknown): value is PreviewDecisionShape {
@@ -56,7 +69,14 @@ function providerRoutesFromDecision(decision: PreviewDecisionShape | undefined):
   return rawRoutes.flatMap((route) => {
     const providerId = (route.providerId ?? route.provider_id ?? route["provider-id"] ?? "").trim();
     const baseUrl = (route.baseUrl ?? route.base_url ?? route["base-url"] ?? "").trim().replace(/\/+$/, "");
-    return providerId && baseUrl ? [{ providerId, baseUrl }] : [];
+    const authRequired = route.authRequired
+      ?? route.auth_required
+      ?? route["auth-required"]
+      ?? route["auth-required?"]
+      ?? route["auth/required?"];
+    return providerId && baseUrl
+      ? [{ providerId, baseUrl, ...(typeof authRequired === "boolean" ? { authRequired } : {}) }]
+      : [];
   });
 }
 
@@ -95,6 +115,8 @@ function previewProviderPolicy(input: CljsProviderPolicyInput): PreviewDecisionS
     tenantSettings: input.tenantSettings,
     providerIds: inputProviderIds,
     ...(isRecord(input.policyEvidence) ? input.policyEvidence : {}),
+    ...(typeof input.strategies !== "undefined" ? { strategies: input.strategies } : {}),
+    ...(typeof input.strategiesByProvider !== "undefined" ? { strategiesByProvider: input.strategiesByProvider } : {}),
   });
 
   if (result.status !== "ok" || !isPreviewDecisionShape(result.decision)) {
@@ -131,21 +153,21 @@ function previewProviderPolicy(input: CljsProviderPolicyInput): PreviewDecisionS
  * filtering out providers the CLJS policy did not select. If authoritative preview cannot produce a decision,
  * it fails closed by returning an empty route list.
  */
-export function applyCljsProviderPolicy(input: CljsProviderPolicyInput): ProviderRoute[] {
+export function applyCljsProviderPolicyWithDecision(input: CljsProviderPolicyInput): CljsProviderPolicyResult {
   const enabled = input.config.cljsPolicyShadowMode === true || input.config.cljsPolicyAuthoritative === true;
   if (!enabled) {
-    return [...input.providerRoutes];
+    return { providerRoutes: [...input.providerRoutes] };
   }
 
   try {
     const decision = previewProviderPolicy(input);
     if (input.config.cljsPolicyAuthoritative !== true) {
-      return [...input.providerRoutes];
+      return { providerRoutes: [...input.providerRoutes], decision };
     }
 
     if (!decision || decision.status !== "ok") {
       input.log.warn({ model: input.routedModel, decision }, "CLJS policy authoritative routing exhausted");
-      return [];
+      return { providerRoutes: [], decision };
     }
 
     const decisionProviderIds = decision.providers ?? [];
@@ -157,18 +179,23 @@ export function applyCljsProviderPolicy(input: CljsProviderPolicyInput): Provide
         providerIds: decisionProviderIds,
         providerRouteIds: orderedRoutes.map((route) => route.providerId),
       }, "CLJS policy authoritative routing missing provider route facts");
-      return [];
+      return { providerRoutes: [], decision };
     }
     input.log.debug({
       model: input.routedModel,
       routeId: decision["route-id"],
       providerIds: orderedRoutes.map((route) => route.providerId),
+      strategy: typeof decision.strategy === "object" && decision.strategy !== null ? decision.strategy.mode : decision.strategy,
     }, "CLJS policy authoritative provider order applied");
-    return orderedRoutes;
+    return { providerRoutes: orderedRoutes, decision };
   } catch (error) {
     input.log.warn({ model: input.routedModel, error }, "CLJS policy preview threw");
-    return input.config.cljsPolicyAuthoritative === true ? [] : [...input.providerRoutes];
+    return { providerRoutes: input.config.cljsPolicyAuthoritative === true ? [] : [...input.providerRoutes] };
   }
+}
+
+export function applyCljsProviderPolicy(input: CljsProviderPolicyInput): ProviderRoute[] {
+  return applyCljsProviderPolicyWithDecision(input).providerRoutes;
 }
 
 /** Backwards-compatible shadow-only wrapper for tests and callers that only want observability. */

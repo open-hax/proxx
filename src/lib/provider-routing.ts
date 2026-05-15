@@ -5,6 +5,7 @@ import { isGlmModel } from "./glm-compat.js";
 export interface ProviderRoute {
   readonly providerId: string;
   readonly baseUrl: string;
+  readonly authRequired?: boolean;
 }
 
 export interface ResolvedModelCatalog {

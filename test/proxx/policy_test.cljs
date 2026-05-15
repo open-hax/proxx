@@ -488,7 +488,9 @@
         route-ids (mapv :contract/id (:routing-clauses compiled))
         gpt-paid (first (filter #(= :route/gpt-free-blocked (:contract/id %))
                                 (:routing-clauses compiled)))]
-    (is (= [:route/gemma-e
+    (is (= [:route/gemma4-e4b
+            :route/gemma4
+            :route/gemma-e
             :route/gemma
             :route/glm
             :route/claude-opus-4-6
@@ -505,6 +507,8 @@
             :route/blaze-images
             :route/blaze-video
             :route/blaze-music
+            :route/minimax-music
+            :route/musicgen
             :route/blaze-tts
             :route/default]
            route-ids))
@@ -514,8 +518,8 @@
            (:prefer/provider-order gpt-paid)))
     (is (= [:plus :pro :business :enterprise :team]
            (:require/plan-set gpt-paid)))
-    (is (= 10 (count (:provider-capabilities compiled))))
-    (is (= 18 (count (:provider-routes compiled))))
+    (is (= 13 (count (:provider-capabilities compiled))))
+    (is (= 23 (count (:provider-routes compiled))))
     (is (= 7 (count (:request-surface-defaults compiled))))
     (is (= 4 (count (:tenant-authorization-clauses compiled))))
     (is (= :router/root (get-in compiled [:root-program :contract/id])))))
@@ -525,6 +529,8 @@
                   (loader/load-policy-contracts! "resources/policies/runtime/00-manifest.edn"))]
     (is (= :route/gpt-free-blocked
            (:contract/id (contracts/select-routing-clause compiled "gpt-5-mini"))))
+    (is (= :route/gemma4-e4b
+           (:contract/id (contracts/select-routing-clause compiled "gemma4:e4b"))))
     (is (= :route/gpt-oss
            (:contract/id (contracts/select-routing-clause compiled "gpt-oss-120b"))))
     (is (= :route/claude-opus-4-6

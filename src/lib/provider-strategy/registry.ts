@@ -1,10 +1,10 @@
-import type { ProviderStrategy, StrategyRequestContext } from "./shared.js";
+import type { ProviderStrategy, StrategyRequestContext, UpstreamMode } from "./shared.js";
 import type { PolicyEngine } from "../policy/index.js";
 import type { ModelInfo, RequestContext, StrategyInfo } from "../policy/schema.js";
 import { GeminiChatProviderStrategy } from "./strategies/gemini.js";
 import { FactoryChatCompletionsProviderStrategy, FactoryMessagesProviderStrategy, FactoryResponsesPassthroughStrategy, FactoryResponsesProviderStrategy } from "./strategies/factory.js";
 import { OpenAiChatCompletionsProviderStrategy, OpenAiResponsesPassthroughStrategy, OpenAiResponsesProviderStrategy } from "./strategies/openai.js";
-import { LocalOllamaProviderStrategy, OllamaProviderStrategy } from "./strategies/ollama.js";
+import { LocalOllamaProviderStrategy, OllamaProviderStrategy, RemoteOllamaProviderStrategy } from "./strategies/ollama.js";
 import { OllamaCloudProviderStrategy } from "./strategies/ollama-cloud.js";
 import { BlazeChatCompletionsProviderStrategy, BlazeImagesGenerationsPassthroughStrategy, ChatCompletionsProviderStrategy, ImagesGenerationsPassthroughStrategy, MessagesProviderStrategy, ResponsesPassthroughStrategy, ResponsesProviderStrategy, ResponsesViaChatCompletionsStrategy, ZaiChatCompletionsProviderStrategy } from "./strategies/standard.js";
 import { LlamacppChatCompletionsProviderStrategy } from "./strategies/llamacpp.js";
@@ -37,6 +37,7 @@ export const PROVIDER_STRATEGIES: readonly ProviderStrategy[] = [
   LLAMACPP_CHAT_STRATEGY,
   ROTUSSY_RESPONSES_VIA_CHAT_STRATEGY,
   OLLAMA_CLOUD_STRATEGY,
+  new RemoteOllamaProviderStrategy(),
   new OllamaProviderStrategy(),
   new LocalOllamaProviderStrategy(),
   new FactoryMessagesProviderStrategy(),
@@ -112,12 +113,22 @@ export function selectProviderStrategyForContext(
     ?? matchingStrategies[0]!;
 }
 
+export function allProviderStrategyInfos(): StrategyInfo[] {
+  return PROVIDER_STRATEGIES.map((strategy, index) => ({
+    mode: strategy.mode,
+    isLocal: strategy.isLocal,
+    priority: PROVIDER_STRATEGIES.length - index,
+  }));
+}
+
 export function selectRemoteProviderStrategyForRoute(
   context: StrategyRequestContext,
   providerId: string,
   policy?: PolicyEngine,
+  policyPreferredStrategyMode?: UpstreamMode,
 ): ProviderStrategy {
   const normalizedProviderId = providerId.trim().toLowerCase();
+  const effectivePolicyPreferredStrategyMode = policyPreferredStrategyMode ?? context.policyPreferredStrategyMode;
 
   const routeContext: StrategyRequestContext = {
     ...context,
@@ -126,11 +137,17 @@ export function selectRemoteProviderStrategyForRoute(
     factoryPrefixed: providerId === "factory",
     explicitOllama: false,
     localOllama: false,
+    policyPreferredStrategyMode: effectivePolicyPreferredStrategyMode,
   };
 
   const matchingStrategies = PROVIDER_STRATEGIES.filter((entry) => !entry.isLocal && entry.matches(routeContext));
   if (matchingStrategies.length === 0) {
     return PROVIDER_STRATEGIES[PROVIDER_STRATEGIES.length - 1]!;
+  }
+
+  if (effectivePolicyPreferredStrategyMode) {
+    return matchingStrategies.find((strategy) => strategy.mode === effectivePolicyPreferredStrategyMode)
+      ?? matchingStrategies[0]!;
   }
 
   if (!policy) {
@@ -162,6 +179,7 @@ export function selectExecutionStrategyForProviderRoutes(
   defaultStrategy: ProviderStrategy,
   providerIds: readonly string[],
   policy?: PolicyEngine,
+  policyPreferredStrategyMode?: UpstreamMode,
 ): ProviderStrategy {
   if (providerIds.length === 0) {
     return defaultStrategy;
@@ -179,5 +197,5 @@ export function selectExecutionStrategyForProviderRoutes(
     return defaultStrategy;
   }
 
-  return selectRemoteProviderStrategyForRoute(context, normalizedProviderIds[0]!, policy);
+  return selectRemoteProviderStrategyForRoute(context, normalizedProviderIds[0]!, policy, policyPreferredStrategyMode);
 }

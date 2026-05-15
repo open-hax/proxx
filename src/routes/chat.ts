@@ -19,7 +19,7 @@ import {
   executeProviderRoutingPlan,
   inspectProviderAvailability,
 } from "../lib/provider-strategy.js";
-import { selectExecutionStrategyForProviderRoutes } from "../lib/provider-strategy/registry.js";
+import { allProviderStrategyInfos, selectExecutionStrategyForProviderRoutes } from "../lib/provider-strategy/registry.js";
 import { executeLocalStrategy } from "../lib/provider-strategy.js";
 import {
   buildProviderRoutesWithDynamicBaseUrls,
@@ -28,7 +28,7 @@ import {
 } from "../lib/provider-routing.js";
 import { orderProviderRoutesByPolicy } from "../lib/provider-policy.js";
 import { getActiveCljsRuntime } from "../lib/cljs-runtime.js";
-import { applyCljsProviderPolicy } from "../lib/policy/cljs-shadow.js";
+import { applyCljsProviderPolicyWithDecision } from "../lib/policy/cljs-shadow.js";
 import { sendOpenAiError } from "../lib/provider-utils.js";
 import { toErrorMessage } from "../lib/errors/index.js";
 import { handleRoutingOutcome } from "../lib/routing-outcome-handler.js";
@@ -39,8 +39,20 @@ import { requestHasExplicitNumCtx } from "../lib/ollama-compat.js";
 import { ensureOllamaContextFits } from "../lib/ollama-context.js";
 import { executeBridgeRequestFallback } from "../lib/federation/bridge-fallback.js";
 import type { AppDeps } from "../lib/app-deps.js";
+import type { UpstreamMode } from "../lib/provider-strategy/shared.js";
 import { discoverDynamicOllamaRoutes, filterDedicatedOllamaRoutes, hasDedicatedOllamaRoutes, prependDynamicOllamaRoutes } from "../lib/dynamic-ollama-routes.js";
 import { rankProviderRoutesWithAco } from "../lib/provider-route-aco.js";
+
+function policyStrategyModeFromDecision(decision: { readonly strategy?: { readonly mode?: string } | string } | undefined): UpstreamMode | undefined {
+  const rawMode = typeof decision?.strategy === "string"
+    ? decision.strategy
+    : decision?.strategy?.mode;
+  if (!rawMode) {
+    return undefined;
+  }
+
+  return rawMode.replace(/-/g, "_") as UpstreamMode;
+}
 
 export function registerChatRoutes(deps: AppDeps, app: FastifyInstance): void {
   app.post<{ Body: ChatCompletionRequest }>("/v1/chat/completions", async (request, reply) => {
@@ -151,7 +163,7 @@ export function registerChatRoutes(deps: AppDeps, app: FastifyInstance): void {
           return undefined;
         })
         : undefined;
-      providerRoutes = applyCljsProviderPolicy({
+      const cljsPolicyResult = applyCljsProviderPolicyWithDecision({
         config: deps.config,
         log: request.log,
         requestKind: "chat",
@@ -160,7 +172,13 @@ export function registerChatRoutes(deps: AppDeps, app: FastifyInstance): void {
         tenantSettings: proxySettings,
         providerRoutes,
         policyEvidence,
+        strategies: allProviderStrategyInfos(),
       });
+      providerRoutes = cljsPolicyResult.providerRoutes;
+      const policyPreferredStrategyMode = policyStrategyModeFromDecision(cljsPolicyResult.decision);
+      if (policyPreferredStrategyMode) {
+        reply.header("x-open-hax-policy-strategy", policyPreferredStrategyMode);
+      }
 
       if (isCephalonAutoModel(requestedModelInput) || isCephalonAutoModel(routingModelInput)) {
         const prioritizedDynamicOllamaRoutes = dynamicOllamaModelIds && resolvedModelCatalog
@@ -175,12 +193,17 @@ export function registerChatRoutes(deps: AppDeps, app: FastifyInstance): void {
         providerRoutes = reorderVisionProviderRoutes(providerRoutes, context.routedModel);
       }
 
+      const executionContext = policyPreferredStrategyMode
+        ? { ...context, policyPreferredStrategyMode }
+        : context;
       const executionStrategy = selectExecutionStrategyForProviderRoutes(
-        context,
+        executionContext,
         strategy,
         providerRoutes.map((route) => route.providerId),
         deps.policyEngine,
+        policyPreferredStrategyMode,
       );
+      reply.header("x-open-hax-upstream-mode", executionStrategy.mode);
 
       if (providerRoutes.length === 0) {
         if (executionStrategy.isLocal) {
@@ -242,7 +265,7 @@ export function registerChatRoutes(deps: AppDeps, app: FastifyInstance): void {
 
       let payload: ReturnType<typeof executionStrategy.buildPayload>;
       try {
-        payload = executionStrategy.buildPayload(context);
+        payload = executionStrategy.buildPayload(executionContext);
       } catch (error) {
         if (hasMoreModelCandidates) {
           continue;
@@ -281,7 +304,7 @@ export function registerChatRoutes(deps: AppDeps, app: FastifyInstance): void {
           return;
         }
 
-        await executeLocalStrategy(executionStrategy, reply, deps.requestLogStore, context, payload);
+        await executeLocalStrategy(executionStrategy, reply, deps.requestLogStore, executionContext, payload);
         return;
       }
 
@@ -291,7 +314,8 @@ export function registerChatRoutes(deps: AppDeps, app: FastifyInstance): void {
 
       const availability = await inspectProviderAvailability(deps.keyPool, providerRoutes);
       const promptCacheKey = extractPromptCacheKey(requestBody);
-      const shouldPreferFederatedProjectedAccounts = dynamicOllamaRoutes.length > 0
+      const shouldPreferFederatedProjectedAccounts = policyPreferredStrategyMode === undefined
+        && dynamicOllamaRoutes.length > 0
         && (context.localOllama || isCephalonAutoModel(requestedModelInput) || isCephalonAutoModel(routingModelInput));
 
       if (shouldPreferFederatedProjectedAccounts) {
@@ -317,7 +341,7 @@ export function registerChatRoutes(deps: AppDeps, app: FastifyInstance): void {
         deps.providerRoutePheromoneStore,
         deps.keyPool,
         providerRoutes,
-        context,
+        executionContext,
         payload,
         promptCacheKey,
         deps.refreshExpiredOAuthAccount,

@@ -179,9 +179,120 @@ export function registerEmbeddingsRoutes(deps: AppDeps, app: FastifyInstance): v
         sendOpenAiError(reply, 403, "CLJS embedding policy found no allowed provider for this model.", "invalid_request_error", "provider_not_allowed");
         return;
       }
-      routeProviderId = selectedRoutes[0]!.providerId;
+      // Try each CLJS-selected provider in order with graceful fallback on 5xx / network failure.
+      for (const candidate of selectedRoutes) {
+        const candidateId = candidate.providerId;
+        const candidateIsOllama = !isOpenAiCompatEmbedProvider(candidateId);
+        if (!tenantProviderAllowed(proxySettings, candidateIsOllama ? "ollama" : candidateId)) {
+          request.log.debug({ providerId: candidateId }, "tenant disabled provider, skipping");
+          continue;
+        }
+        const candidateModel = candidateIsOllama
+          ? routingModelWithoutProviderPrefix
+          : normalizeLlamacppModelName(routingModelWithoutProviderPrefix);
+        const candidateEmbedBody = nativeEmbedToOpenAiRequest({ ...request.body, model: candidateModel });
+        const inputSummary = summarizeEmbeddingInput(candidateEmbedBody.input);
+        if (inputSummary.itemCount > deps.config.embedMaxBatchItems) {
+          sendOpenAiError(
+            reply, 400,
+            `Embedding batch is too large. Received ${inputSummary.itemCount} items, maximum: ${deps.config.embedMaxBatchItems}.`,
+            "invalid_request_error", "embed_batch_too_large",
+          );
+          return;
+        }
+        if (inputSummary.totalChars > deps.config.embedMaxInputChars) {
+          sendOpenAiError(
+            reply, 400,
+            `Embedding input is too large. Received ${inputSummary.totalChars} chars, maximum: ${deps.config.embedMaxInputChars}.`,
+            "invalid_request_error", "embed_input_too_large",
+          );
+          return;
+        }
+        const embedBudget = candidateIsOllama
+          ? await ensureNativeOllamaEmbedContextFits(
+              deps.config.ollamaBaseUrl,
+              { model: candidateModel, input: candidateEmbedBody.input },
+              Math.min(deps.config.requestTimeoutMs, 30_000),
+            )
+          : undefined;
+        const maxContextTokens = Math.min(
+          deps.config.embedMaxContextTokens,
+          embedBudget?.contextLength ?? deps.config.embedMaxContextTokens,
+        );
+        if (embedBudget && embedBudget.estimatedInputTokens > maxContextTokens) {
+          sendOpenAiError(
+            reply, 400,
+            `Embedding request exceeds model context window for ${embedBudget.model}. ` +
+              `Estimated: ${embedBudget.estimatedInputTokens} tokens, maximum: ${maxContextTokens}.`,
+            "invalid_request_error", "embed_context_overflow",
+          );
+          return;
+        }
+        const autoNumCtx = embedBudget && embedBudget.requiredContextTokens > embedBudget.availableContextTokens
+          ? Math.min(maxContextTokens, embedBudget.recommendedNumCtx)
+          : undefined;
+        let upstreamResponse: Response | undefined;
+        try {
+          if (candidateIsOllama) {
+            const upstreamBody = nativeEmbedToOllamaRequest(
+              { ...request.body, model: candidateModel },
+              autoNumCtx ?? embedBudget?.availableContextTokens,
+            );
+            upstreamResponse = await fetchWithResponseTimeout(
+              joinUrl(deps.config.ollamaBaseUrl, "/api/embed"),
+              { method: "POST", headers: buildForwardHeaders(request.headers), body: JSON.stringify(upstreamBody) },
+              deps.config.requestTimeoutMs,
+            );
+          } else {
+            const providerBaseUrl = deps.config.upstreamProviderBaseUrls[candidateId] ?? "";
+            if (!providerBaseUrl) {
+              request.log.warn({ providerId: candidateId }, "no base URL for provider, skipping");
+              continue;
+            }
+            upstreamResponse = await fetchWithResponseTimeout(
+              joinUrl(providerBaseUrl, "/v1/embeddings"),
+              { method: "POST", headers: buildForwardHeaders(request.headers), body: JSON.stringify({ ...candidateEmbedBody, model: candidateModel }) },
+              deps.config.requestTimeoutMs,
+            );
+          }
+        } catch (error) {
+          request.log.warn({ providerId: candidateId, err: toErrorMessage(error) }, "embedding provider fetch failed, will try next");
+          continue;
+        }
+        if (!upstreamResponse.ok) {
+          const responseText = await upstreamResponse.text();
+          if (upstreamResponse.status >= 500) {
+            request.log.warn({ providerId: candidateId, status: upstreamResponse.status, response: responseText.slice(0, 200) }, "embedding provider 5xx, will try next");
+            continue;
+          }
+          // 4xx is a client error, don't retry other providers.
+          sendOpenAiError(
+            reply,
+            upstreamResponse.status,
+            `Embedding upstream rejected the request: ${responseText}`,
+            "invalid_request_error",
+            "embedding_upstream_error",
+          );
+          return;
+        }
+        const upstreamJson = await upstreamResponse.json() as Record<string, unknown>;
+        reply.send(
+          candidateIsOllama
+            ? nativeEmbedResponseToOpenAiEmbeddings(upstreamJson, candidateEmbedBody.model)
+            : { ...upstreamJson, model: candidateEmbedBody.model },
+        );
+        return;
+      }
+      // All candidates exhausted.
+      sendOpenAiError(
+        reply, 502,
+        "All embedding providers failed for this model.",
+        "server_error", "embedding_upstream_unavailable",
+      );
+      return;
     }
 
+    // Non-authoritative path: single provider (existing behavior for non-CLJS mode).
     const isOllamaProvider = !isOpenAiCompatEmbedProvider(routeProviderId);
 
     if (!tenantProviderAllowed(proxySettings, isOllamaProvider ? "ollama" : routeProviderId)) {

@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { loadConfig } from "../lib/config.js";
+import { selectProviderStrategy } from "../lib/provider-strategy.js";
+import { selectExecutionStrategyForProviderRoutes } from "../lib/provider-strategy/registry.js";
 import { resolveRequestRoutingState, shouldUseLocalOllama } from "../lib/provider-routing.js";
 
 function withEnv<T>(overrides: Record<string, string | undefined>, fn: () => T): T {
@@ -38,6 +40,7 @@ test("explicit ollama prefix still wins even for hosted-looking model names", ()
     {
       PROXY_AUTH_TOKEN: "test-token",
       DATABASE_URL: undefined,
+      OLLAMA_MODEL_PREFIXES: undefined,
       PROXY_ALLOW_UNAUTHENTICATED: "false",
     },
     () => loadConfig(),
@@ -47,6 +50,50 @@ test("explicit ollama prefix still wins even for hosted-looking model names", ()
   assert.equal(routed.explicitOllama, true);
   assert.equal(routed.localOllama, true);
   assert.equal(routed.routedModel, "gpt-5.4-mini");
+});
+
+test("explicit ollama-lan prefix strips to the LAN Ollama model id", () => {
+  const config = withEnv(
+    {
+      PROXY_AUTH_TOKEN: "test-token",
+      DATABASE_URL: undefined,
+      OLLAMA_MODEL_PREFIXES: undefined,
+      PROXY_ALLOW_UNAUTHENTICATED: "false",
+    },
+    () => loadConfig(),
+  );
+
+  const routed = resolveRequestRoutingState(config, "ollama-lan/gemma4:e4b");
+  assert.equal(routed.explicitOllama, true);
+  assert.equal(routed.localOllama, true);
+  assert.equal(routed.routedModel, "gemma4:e4b");
+});
+
+test("policy-selected ollama_chat strategy is not tied to a hard-coded provider id", () => {
+  const config = withEnv(
+    {
+      PROXY_AUTH_TOKEN: "test-token",
+      DATABASE_URL: undefined,
+      PROXY_ALLOW_UNAUTHENTICATED: "false",
+    },
+    () => loadConfig(),
+  );
+  const { strategy, context } = selectProviderStrategy(
+    config,
+    {},
+    { model: "gemma4:e4b", messages: [{ role: "user", content: "hi" }] },
+    "gemma4:e4b",
+    "gemma4:e4b",
+  );
+
+  const selected = selectExecutionStrategyForProviderRoutes(
+    context,
+    strategy,
+    ["policy-named-ollama-node"],
+    undefined,
+    "ollama_chat",
+  );
+  assert.equal(selected.mode, "ollama_chat");
 });
 
 test("unprefixed qwen local model still routes to local ollama", () => {

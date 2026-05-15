@@ -1,4 +1,12 @@
-[{:contract/id :route/gemma4
+[{:contract/id :route/gemma4-e4b
+  :contract/kind :routing-clause
+  :match/family :model-family/gemma4-e4b
+  :prefer/providers :provider-order/gemma4-e4b
+  :prefer/providers-strict? true
+  :prefer/strategies [:ollama-chat :chat-completions]
+  :account/order :account-order/prefer-free}
+
+ {:contract/id :route/gemma4
   :contract/kind :routing-clause
   :match/family :model-family/gemma4
   :prefer/providers :provider-order/gemma4
@@ -148,12 +156,20 @@
   :account/order :account-order/prefer-free}
 
  {:contract/id :route/minimax-music
-  :contract/kind :routing-clause
-  :match/family :model-family/minimax-music
-  :prefer/providers :provider-order/minimax
-  :prefer/providers-strict? true
-  :prefer/strategies [:music]
-  :account/order :account-order/prefer-free}
+   :contract/kind :routing-clause
+   :match/family :model-family/minimax-music
+   :prefer/providers :provider-order/minimax
+   :prefer/providers-strict? true
+   :prefer/strategies [:music]
+   :account/order :account-order/prefer-free}
+
+ {:contract/id :route/musicgen
+   :contract/kind :routing-clause
+   :match/family :model-family/musicgen
+   :prefer/providers :provider-order/musicgen
+   :prefer/providers-strict? true
+   :prefer/strategies [:music]
+   :account/order :account-order/prefer-free}
 
  {:contract/id :route/blaze-tts
   :contract/kind :routing-clause

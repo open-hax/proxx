@@ -42,9 +42,17 @@
   :contract/kind :preference-order
   :preference/items ["ollama-cloud" "ollama"]}
 
+ {:contract/id :provider-order/musicgen
+  :contract/kind :preference-order
+  :preference/items ["musicgen" "minimax" "blaze"]}
+
  {:contract/id :provider-order/gemma-e
   :contract/kind :preference-order
   :preference/items ["llamacpp"]}
+
+ {:contract/id :provider-order/gemma4-e4b
+  :contract/kind :preference-order
+  :preference/items ["ollama-lan"]}
 
  {:contract/id :provider-order/gemma4
   :contract/kind :preference-order
@@ -88,6 +96,12 @@
    :match/request-kind :music
    :prefer/strategies [:music]}
 
+ {:contract/id :provider-capability/musicgen-music
+   :contract/kind :provider-capability
+   :match/provider-pattern "^musicgen$"
+   :match/request-kind :music
+   :prefer/strategies [:music]}
+
  {:contract/id :provider-capability/gemini-chat
   :contract/kind :provider-capability
   :match/provider-pattern "^gemini$"
@@ -120,6 +134,13 @@
   :match/provider-pattern "^(openrouter|requesty|ob1|zen|xiaomi)$"
   :match/request-kind :chat
   :exclude/strategies [:messages]}
+
+ {:contract/id :provider-capability/ollama-lan-chat
+  :contract/kind :provider-capability
+  :match/provider-pattern "^ollama-lan$"
+  :match/request-kind :chat
+  :prefer/strategies [:chat-completions]
+  :exclude/strategies [:ollama-chat :messages :responses :openai-responses]}
 
  {:contract/id :request-surface/images-passthrough
   :contract/kind :request-surface-default

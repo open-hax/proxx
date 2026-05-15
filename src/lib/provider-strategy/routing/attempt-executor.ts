@@ -28,6 +28,7 @@ import {
 import { getTelemetry } from "../../telemetry/otel.js";
 import { selectRemoteProviderStrategyForRoute } from "../registry.js";
 import {
+  applyProviderModelAliasToPayload,
   buildCodexResponsesImagesBody,
   buildFactory4xxDiagnostics,
   extractImagesFromCodexEventStream,
@@ -143,6 +144,7 @@ export async function executeProviderRoutingPlan(
     let candidatePayload = candidateStrategy === strategy
       ? payload
       : candidateStrategy.buildPayload(context);
+    candidatePayload = applyProviderModelAliasToPayload(candidatePayload, context, candidate.providerId);
 
     // Requesty requires model names in "provider/model" format (e.g., "openai/gpt-5.4").
     if (candidate.providerId.trim().toLowerCase() === "requesty") {

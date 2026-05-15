@@ -59,7 +59,20 @@ export async function buildRoutingCandidates(
           }, healthStore)
         : providerAccountsForRequest(rawAccounts, route.providerId, context.routedModel);
     } catch {
-      continue;
+      if (route.authRequired !== false) {
+        continue;
+      }
+      routeAccounts = [];
+    }
+
+    if (route.authRequired === false) {
+      routeAccounts = [{
+        providerId: route.providerId,
+        accountId: `${route.providerId}-no-auth`,
+        token: "local-no-auth",
+        authType: "api_key",
+        planType: "free",
+      }];
     }
 
     if (quotaMonitor?.tracksProvider(route.providerId)) {

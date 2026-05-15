@@ -21,7 +21,7 @@ import {
 export class LocalOllamaProviderStrategy extends BaseProviderStrategy {
   public readonly mode = "local_ollama_chat" as const;
 
-  public readonly isLocal = true;
+  public readonly isLocal: boolean = true;
 
   public matches(context: StrategyRequestContext): boolean {
     return context.localOllama && !context.explicitOllama;
@@ -79,7 +79,7 @@ export class LocalOllamaProviderStrategy extends BaseProviderStrategy {
 export class OllamaProviderStrategy extends BaseProviderStrategy {
   public readonly mode = "ollama_chat" as const;
 
-  public readonly isLocal = true;
+  public readonly isLocal: boolean = true;
 
   public matches(context: StrategyRequestContext): boolean {
     return context.explicitOllama;
@@ -89,12 +89,16 @@ export class OllamaProviderStrategy extends BaseProviderStrategy {
     return context.config.ollamaChatPath;
   }
 
+  protected getReasoningProviderId(context: StrategyRequestContext): string {
+    return context.routeProviderId ?? "ollama";
+  }
+
   public buildPayload(context: StrategyRequestContext): BuildPayloadResult {
     const requestBody = normalizeReasoningRequestWithCljs({
       manifestPath: context.config.cljsPolicyManifestPath,
       requestBody: context.requestBody,
       modelId: context.routedModel,
-      providerId: "ollama",
+      providerId: this.getReasoningProviderId(context),
       strategyMode: this.mode,
     });
     return buildPayloadResult(chatRequestToOllamaRequest(requestBody, context.config.ollamaModelPrefixes), context);
@@ -171,5 +175,15 @@ export class OllamaProviderStrategy extends BaseProviderStrategy {
 
     reply.header("content-type", "application/json");
     reply.send(chatCompletion);
+  }
+}
+
+export class RemoteOllamaProviderStrategy extends OllamaProviderStrategy {
+  public override readonly isLocal = false;
+
+  public override matches(context: StrategyRequestContext): boolean {
+    return context.policyPreferredStrategyMode === "ollama_chat"
+      && context.responsesPassthrough !== true
+      && context.imagesPassthrough !== true;
   }
 }
