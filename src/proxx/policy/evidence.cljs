@@ -2,6 +2,7 @@
   (:require [clojure.string :as str]))
 
 (def default-models-dev-url "https://models.dev/api.json")
+(def default-models-dev-timeout-ms 10000)
 (def default-evidence-cache-ttl-ms 300000)
 (defonce ^:private policy-evidence-cache (atom {}))
 
@@ -57,12 +58,20 @@
   (-> (fetch-fn url opts)
       (.then parse-json-response)))
 
+(defn- models-dev-timeout-ms [opts]
+  (or (:models-dev-timeout-ms opts)
+      (:modelsDevTimeoutMs opts)
+      default-models-dev-timeout-ms))
+
 (defn load-models-dev-provider-models!
   ([opts] (load-models-dev-provider-models! opts (js-fetch)))
   ([opts fetch-fn]
-   (let [url (or (:models-dev-url opts) (:modelsDevUrl opts) default-models-dev-url)]
-     (-> (fetch-json! fetch-fn url #js {})
-         (.then #(models-dev-provider-models (js->clj % :keywordize-keys true)))))))
+   (let [url (or (:models-dev-url opts) (:modelsDevUrl opts) default-models-dev-url)
+         controller (js/AbortController.)
+         timeout-id (js/setTimeout #(.abort controller) (models-dev-timeout-ms opts))]
+     (-> (fetch-json! fetch-fn url #js {:signal (.-signal controller)})
+         (.then #(models-dev-provider-models (js->clj % :keywordize-keys true)))
+         (.finally #(js/clearTimeout timeout-id))))))
 
 (defn- route-url [route path]
   (str (base-url route) path))
