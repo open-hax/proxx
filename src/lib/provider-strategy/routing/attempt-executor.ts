@@ -67,6 +67,23 @@ function shouldUseOpenAiCodexHeaderProfile(
 
 const MAX_STICKY_TRANSPORT_FAILURE_CANDIDATES = 4;
 
+function transportErrorMessage(error: unknown): string {
+  const base = toErrorMessage(error);
+  if (typeof error !== "object" || error === null || !("cause" in error)) {
+    return base;
+  }
+
+  const cause = (error as { readonly cause?: unknown }).cause;
+  if (typeof cause !== "object" || cause === null) {
+    return base;
+  }
+
+  const causeRecord = cause as { readonly code?: unknown; readonly name?: unknown; readonly message?: unknown };
+  const causeParts = [causeRecord.code, causeRecord.name, causeRecord.message]
+    .filter((part): part is string => typeof part === "string" && part.length > 0);
+  return causeParts.length > 0 ? `${base} (${causeParts.join(": ")})` : base;
+}
+
 function requestyModelPrefix(model: string): string {
   return requestyModelProvider(model);
 }
@@ -315,12 +332,12 @@ export async function executeProviderRoutingPlan(
             serviceTier: candidatePayload.serviceTier,
             serviceTierSource: candidatePayload.serviceTierSource,
             factoryDiagnostics: buildFactory4xxDiagnostics(candidatePayload.upstreamPayload, promptCacheKey),
-            error: toErrorMessage(error)
+            error: transportErrorMessage(error)
           }, candidateStrategy.mode);
 
           if (eventStore) {
             eventStore.emitError(attemptEntryId, candidate.providerId, candidate.account.accountId, context.routedModel, 0, {
-              error: toErrorMessage(error),
+              error: transportErrorMessage(error),
               logEntryId,
             }, { latencyMs });
           }

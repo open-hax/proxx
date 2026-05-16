@@ -20,6 +20,7 @@ const BLOCKED_REQUEST_HEADERS = new Set([
   "connection",
   "content-length",
   "cookie",
+  "expect",
   "host",
   "proxy-authenticate",
   "proxy-authorization",

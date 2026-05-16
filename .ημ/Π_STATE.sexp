@@ -1,10 +1,8 @@
-(fork-tax-snapshot
-  (name "open-hax-proxx")
-  (timestamp "2026-05-15T06:01:45Z")
-  (repo "/home/err/devel/orgs/open-hax/proxx")
+(fork-tax-state
+  (repo "proxx")
   (branch "feat/policy-polish")
-  (head-before "63759ac970550e5b28b5f6ecacf426d615f9f886")
-  (origin "git@github.com:open-hax/proxx.git")
-  (scope ["."])
-  (note "Proxx policy/routing snapshot.")
-  (status-lines ["## feat/policy-polish", " M .env.example", " M DEVEL.md", " M README.md", " M docker-compose.yml", " M receipts.edn", " M resources/policies/runtime/05-provider-seed.edn", " M resources/policies/runtime/10-model-families.edn", " M resources/policies/runtime/20-provider-capabilities.edn", " M resources/policies/runtime/30-model-routing.edn", " M src/lib/catalog-alias-resolver.ts", " M src/lib/config.ts", " M src/lib/policy/cljs-shadow.ts", " M src/lib/policy/engine/tenant-enforcement.ts", " M src/lib/provider-routing.ts", " M src/lib/provider-strategy/registry.ts", " M src/lib/provider-strategy/routing/attempt-executor.ts", " M src/lib/provider-strategy/routing/candidate-builder.ts", " M src/lib/provider-strategy/shared.ts", " M src/lib/provider-strategy/strategies/ollama.ts", " M src/proxx/policy/contracts.cljs", " M src/routes/chat.ts", " M src/routes/embeddings.ts", " M src/routes/media-generations.ts", " M src/tests/cljs-policy-preview.test.ts", " M src/tests/model-alias-resolution.test.ts", " M src/tests/provider-routing.test.ts", " M test/proxx/policy_test.cljs"]))
+  (base "8b47c6921996")
+  (timestamp "20260516T185547Z")
+  (scope "expect-header-stripping transport-error-cause")
+  (verification "git diff --cached --check passed" "pnpm exec tsx --test src/tests/proxy-headers.test.ts passed")
+  (residual "auxiliary proxx worktrees left untouched"))
