@@ -18,11 +18,16 @@
                                           loadProviderSeedSpecs proxx.runtime/load-provider-seed-specs-js
                                            previewPolicyDecision proxx.runtime/preview-policy-decision-js
                                            normalizeReasoningRequest proxx.runtime/normalize-reasoning-request-js
-                                           resolveModelAlias proxx.runtime/resolve-model-alias-js}}}
+                                           resolveModelAlias proxx.runtime/resolve-model-alias-js
+                                           filterProviderRoutes proxx.runtime/filter-provider-routes-js
+                                           runModelCandidates proxx.runtime/run-model-candidates-js
+                                           resolveQueuePolicy proxx.runtime/resolve-queue-policy-js
+                                           runQueued proxx.runtime/run-queued-js}}}
    :js-options {:js-provider :import
                 :keep-as-import #{"node:fs" "node:path"}}
    :compiler-options {:output-feature-set :es-next
-                      :infer-externs :auto}}
+                      :infer-externs :auto
+                      :source-map true}}
 
   :node-test
   {:target      :node-test

@@ -186,6 +186,8 @@ interface StrategyRequestContext {
   readonly embeddingsPassthrough?: boolean;
   /** Strategy mode selected by the authoritative declarative policy, when available. */
   readonly policyPreferredStrategyMode?: UpstreamMode;
+  /** Per-provider path overrides from CLJS contract routes, keyed by path kind (chat-completions, messages, responses, images-generations). */
+  readonly providerPaths?: Readonly<Record<string, string>>;
 }
 
 interface ProviderAttemptContext extends StrategyRequestContext {

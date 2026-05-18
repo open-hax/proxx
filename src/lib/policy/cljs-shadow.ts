@@ -7,7 +7,17 @@ interface LoggerLike {
   readonly warn: (bindings: Record<string, unknown>, message: string) => void;
 }
 
-type CljsPolicyConfig = Pick<ProxyConfig, "cljsPolicyManifestPath" | "cljsPolicyShadowMode" | "cljsPolicyAuthoritative">;
+type CljsPolicyConfig = Pick<ProxyConfig,
+  | "cljsPolicyManifestPath"
+  | "cljsPolicyShadowMode"
+  | "cljsPolicyAuthoritative"
+> & Partial<Pick<ProxyConfig,
+  | "openaiProviderId"
+  | "openaiBaseUrl"
+  | "upstreamProviderBaseUrls"
+  | "openaiResponsesPath"
+  | "openaiChatCompletionsPath"
+>>;
 
 interface CljsProviderPolicyInput {
   readonly config: CljsPolicyConfig;
@@ -15,8 +25,14 @@ interface CljsProviderPolicyInput {
   readonly requestKind: "chat" | "responses-passthrough" | "images-passthrough" | "embeddings";
   readonly requestedModel: string;
   readonly routedModel: string;
-  readonly tenantSettings: unknown;
+  readonly tenantSettings: {
+    readonly allowedModels?: readonly string[] | null;
+    readonly allowedProviderIds?: readonly string[] | null;
+    readonly disabledProviderIds?: readonly string[] | null;
+  };
   readonly providerRoutes: readonly ProviderRoute[];
+  readonly catalogBundle?: unknown;
+  readonly catalogAvailability?: boolean;
   readonly policyEvidence?: unknown;
   readonly strategies?: unknown;
   readonly strategiesByProvider?: unknown;
@@ -25,6 +41,10 @@ interface CljsProviderPolicyInput {
 interface CljsProviderPolicyResult {
   readonly providerRoutes: ProviderRoute[];
   readonly decision?: PreviewDecisionShape;
+  readonly catalog?: {
+    readonly disabled?: boolean;
+    readonly rejected?: boolean;
+  };
 }
 
 interface PreviewDecisionProviderRoute {
@@ -64,20 +84,73 @@ function providerIds(routes: readonly ProviderRoute[]): readonly string[] {
   return routes.map((route) => route.providerId);
 }
 
-function providerRoutesFromDecision(decision: PreviewDecisionShape | undefined): ProviderRoute[] {
-  const rawRoutes = decision?.["provider-routes"] ?? decision?.providerRoutes ?? [];
-  return rawRoutes.flatMap((route) => {
-    const providerId = (route.providerId ?? route.provider_id ?? route["provider-id"] ?? "").trim();
-    const baseUrl = (route.baseUrl ?? route.base_url ?? route["base-url"] ?? "").trim().replace(/\/+$/, "");
-    const authRequired = route.authRequired
-      ?? route.auth_required
-      ?? route["auth-required"]
-      ?? route["auth-required?"]
-      ?? route["auth/required?"];
+function providerRoutesFromRaw(rawRoutes: unknown): ProviderRoute[] | undefined {
+  if (!Array.isArray(rawRoutes)) {
+    return undefined;
+  }
+
+  return rawRoutes.flatMap((rawRoute) => {
+    if (!isRecord(rawRoute)) {
+      return [];
+    }
+
+    const providerId = String(rawRoute.providerId ?? rawRoute.provider_id ?? rawRoute["provider-id"] ?? "").trim();
+    const baseUrl = String(rawRoute.baseUrl ?? rawRoute.base_url ?? rawRoute["base-url"] ?? "").trim().replace(/\/+$/, "");
+    const authRequired = rawRoute.authRequired
+      ?? rawRoute.auth_required
+      ?? rawRoute["auth-required"]
+      ?? rawRoute["auth-required?"]
+      ?? rawRoute["auth/required?"];
+
+    let paths: Record<string, string> | undefined;
+    const rawPaths = rawRoute.paths ?? rawRoute["paths"];
+    if (isRecord(rawPaths)) {
+      paths = {};
+      for (const [key, value] of Object.entries(rawPaths)) {
+        if (typeof value === "string" && value.trim().length > 0) {
+          paths[key] = value.trim();
+        }
+      }
+      if (Object.keys(paths).length === 0) {
+        paths = undefined;
+      }
+    }
+
     return providerId && baseUrl
-      ? [{ providerId, baseUrl, ...(typeof authRequired === "boolean" ? { authRequired } : {}) }]
+      ? [{ providerId, baseUrl, ...(typeof authRequired === "boolean" ? { authRequired } : {}), ...(paths ? { paths } : {}) }]
       : [];
   });
+}
+
+function providerRoutesFromDecision(decision: PreviewDecisionShape | undefined): ProviderRoute[] {
+  return providerRoutesFromRaw(decision?.["provider-routes"] ?? decision?.providerRoutes ?? []) ?? [];
+}
+
+export function filterProviderRoutesWithCljs(input: CljsProviderPolicyInput): CljsProviderPolicyResult {
+  const runtime = getActiveCljsRuntime();
+  if (!runtime?.filterProviderRoutes) {
+    return { providerRoutes: [...input.providerRoutes] };
+  }
+
+  const result = runtime.filterProviderRoutes(input.config.cljsPolicyManifestPath ?? "resources/policies/runtime/00-manifest.edn", {
+    config: input.config,
+    modelId: input.routedModel || input.requestedModel,
+    requestKind: input.requestKind,
+    tenantSettings: input.tenantSettings,
+    providerRoutes: input.providerRoutes,
+    ...(typeof input.catalogBundle !== "undefined" ? { catalogBundle: input.catalogBundle } : {}),
+    ...(typeof input.catalogAvailability !== "undefined" ? { catalogAvailability: input.catalogAvailability } : {}),
+  });
+  if (result.status !== "ok") {
+    input.log.warn({ model: input.routedModel, result }, "CLJS provider route filtering failed");
+    return { providerRoutes: [...input.providerRoutes] };
+  }
+
+  const providerRoutes = providerRoutesFromRaw(result.providerRoutes ?? result["provider-routes"]);
+  return {
+    providerRoutes: providerRoutes ?? [...input.providerRoutes],
+    catalog: result.catalog,
+  };
 }
 
 function candidateProviderRoutes(input: CljsProviderPolicyInput): ProviderRoute[] {
@@ -87,10 +160,19 @@ function candidateProviderRoutes(input: CljsProviderPolicyInput): ProviderRoute[
   return [...input.providerRoutes];
 }
 
-function orderRoutesFromPolicy(routes: readonly ProviderRoute[], policyProviderIds: readonly string[]): ProviderRoute[] {
+function concreteRouteFromConfig(config: CljsPolicyConfig, providerId: string): ProviderRoute | undefined {
+  const baseUrl = (providerId === config.openaiProviderId
+    ? config.openaiBaseUrl ?? ""
+    : config.upstreamProviderBaseUrls?.[providerId] ?? "")
+    .trim()
+    .replace(/\/+$/, "");
+  return baseUrl.length > 0 ? { providerId, baseUrl } : undefined;
+}
+
+function orderRoutesFromPolicy(config: CljsPolicyConfig, routes: readonly ProviderRoute[], policyProviderIds: readonly string[]): ProviderRoute[] {
   const byProviderId = new Map(routes.map((route) => [route.providerId, route]));
   return policyProviderIds.flatMap((providerId) => {
-    const route = byProviderId.get(providerId);
+    const route = byProviderId.get(providerId) ?? concreteRouteFromConfig(config, providerId);
     return route ? [route] : [];
   });
 }
@@ -154,48 +236,102 @@ function previewProviderPolicy(input: CljsProviderPolicyInput): PreviewDecisionS
  * it fails closed by returning an empty route list.
  */
 export function applyCljsProviderPolicyWithDecision(input: CljsProviderPolicyInput): CljsProviderPolicyResult {
-  const enabled = input.config.cljsPolicyShadowMode === true || input.config.cljsPolicyAuthoritative === true;
+  const cljsFiltered = filterProviderRoutesWithCljs(input);
+  const eligibleInput: CljsProviderPolicyInput = {
+    ...input,
+    providerRoutes: cljsFiltered.providerRoutes,
+  };
+  const enabled = eligibleInput.config.cljsPolicyShadowMode === true || eligibleInput.config.cljsPolicyAuthoritative === true;
   if (!enabled) {
-    return { providerRoutes: [...input.providerRoutes] };
+    return { providerRoutes: [...eligibleInput.providerRoutes], catalog: cljsFiltered.catalog };
   }
 
   try {
-    const decision = previewProviderPolicy(input);
-    if (input.config.cljsPolicyAuthoritative !== true) {
-      return { providerRoutes: [...input.providerRoutes], decision };
+    const decision = previewProviderPolicy(eligibleInput);
+    if (eligibleInput.config.cljsPolicyAuthoritative !== true) {
+      if (eligibleInput.requestedModel.trim().toLowerCase().startsWith("auto:")) {
+        return { providerRoutes: [...eligibleInput.providerRoutes], decision, catalog: cljsFiltered.catalog };
+      }
+      const decisionProviderIds = decision?.providers ?? [];
+      const orderedRoutes = decision?.status === "ok"
+        ? orderRoutesFromPolicy(eligibleInput.config, eligibleInput.providerRoutes, decisionProviderIds)
+        : [];
+      return {
+        providerRoutes: orderedRoutes.length > 0 ? orderedRoutes : [...eligibleInput.providerRoutes],
+        decision,
+        catalog: cljsFiltered.catalog,
+      };
     }
 
     if (!decision || decision.status !== "ok") {
-      input.log.warn({ model: input.routedModel, decision }, "CLJS policy authoritative routing exhausted");
-      return { providerRoutes: [], decision };
+      eligibleInput.log.warn({ model: eligibleInput.routedModel, decision }, "CLJS policy authoritative routing exhausted");
+      return { providerRoutes: [], decision, catalog: cljsFiltered.catalog };
     }
 
     const decisionProviderIds = decision.providers ?? [];
-    const orderedRoutes = orderRoutesFromPolicy(providerRoutesFromDecision(decision), decisionProviderIds);
+    const orderedRoutes = orderRoutesFromPolicy(eligibleInput.config, eligibleInput.providerRoutes, decisionProviderIds);
     if (orderedRoutes.length !== decisionProviderIds.length) {
-      input.log.warn({
-        model: input.routedModel,
+      eligibleInput.log.warn({
+        model: eligibleInput.routedModel,
         routeId: decision["route-id"],
         providerIds: decisionProviderIds,
         providerRouteIds: orderedRoutes.map((route) => route.providerId),
-      }, "CLJS policy authoritative routing missing provider route facts");
-      return { providerRoutes: [], decision };
+      }, "CLJS policy authoritative routing selected providers without concrete route facts");
     }
-    input.log.debug({
-      model: input.routedModel,
+    if (orderedRoutes.length === 0) {
+      return { providerRoutes: [], decision, catalog: cljsFiltered.catalog };
+    }
+    eligibleInput.log.debug({
+      model: eligibleInput.routedModel,
       routeId: decision["route-id"],
       providerIds: orderedRoutes.map((route) => route.providerId),
       strategy: typeof decision.strategy === "object" && decision.strategy !== null ? decision.strategy.mode : decision.strategy,
     }, "CLJS policy authoritative provider order applied");
-    return { providerRoutes: orderedRoutes, decision };
+    return { providerRoutes: orderedRoutes, decision, catalog: cljsFiltered.catalog };
   } catch (error) {
-    input.log.warn({ model: input.routedModel, error }, "CLJS policy preview threw");
-    return { providerRoutes: input.config.cljsPolicyAuthoritative === true ? [] : [...input.providerRoutes] };
+    eligibleInput.log.warn({ model: eligibleInput.routedModel, error }, "CLJS policy preview threw");
+    return { providerRoutes: eligibleInput.config.cljsPolicyAuthoritative === true ? [] : [...eligibleInput.providerRoutes], catalog: cljsFiltered.catalog };
   }
 }
 
 export function applyCljsProviderPolicy(input: CljsProviderPolicyInput): ProviderRoute[] {
   return applyCljsProviderPolicyWithDecision(input).providerRoutes;
+}
+
+/**
+ * Build provider routes exclusively from CLJS policy contracts, replacing
+ * the env-var-driven buildProviderRoutesWithDynamicBaseUrls.
+ *
+ * Returns routes from :provider-route and :provider-seed contracts in the
+ * manifest. When the CLJS runtime is unavailable, falls back to the config's
+ * upstreamProviderBaseUrls so tests and development environments still work.
+ */
+export function getContractProviderRoutes(config: Pick<ProxyConfig, "cljsPolicyManifestPath" | "upstreamProviderBaseUrls" | "openaiProviderId" | "openaiBaseUrl">): ProviderRoute[] {
+  const runtime = getActiveCljsRuntime();
+
+  if (runtime?.getProviderRoutes) {
+    try {
+      const manifestPath = config.cljsPolicyManifestPath ?? "resources/policies/runtime/00-manifest.edn";
+      const result = runtime.getProviderRoutes(manifestPath);
+      if (result.status === "ok") {
+        return providerRoutesFromRaw(result.providerRoutes ?? result["provider-routes"]) ?? [];
+      }
+    } catch {
+      /* fall through to env-var fallback */
+    }
+  }
+
+  const seen = new Set<string>();
+  const routes: ProviderRoute[] = [];
+  for (const [providerId, baseUrl] of Object.entries(config.upstreamProviderBaseUrls ?? {})) {
+    const id = providerId.trim();
+    const url = (typeof baseUrl === "string" ? baseUrl : "").trim().replace(/\/+$/, "");
+    if (id && url && !seen.has(id)) {
+      seen.add(id);
+      routes.push({ providerId: id, baseUrl: url });
+    }
+  }
+  return routes;
 }
 
 /** Backwards-compatible shadow-only wrapper for tests and callers that only want observability. */

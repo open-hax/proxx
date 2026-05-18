@@ -48,7 +48,14 @@ export function catalogHasDynamicOllamaModel(
     && (catalog?.dynamicOllamaModelIds ?? []).some((candidateModelId) => normalizeModelId(candidateModelId) === normalizedModelId);
 }
 
-export function openAiProviderUsesCodexSurface(config: ProxyConfig): boolean {
+type ProviderRouteSupportConfig = Pick<ProxyConfig,
+  | "openaiProviderId"
+  | "openaiBaseUrl"
+  | "openaiResponsesPath"
+  | "openaiChatCompletionsPath"
+>;
+
+export function openAiProviderUsesCodexSurface(config: ProviderRouteSupportConfig): boolean {
   const openAiBaseUrl = config.openaiBaseUrl.trim().toLowerCase();
   const openAiResponsesPath = config.openaiResponsesPath.trim().toLowerCase();
   const openAiChatCompletionsPath = config.openaiChatCompletionsPath.trim().toLowerCase();
@@ -58,7 +65,7 @@ export function openAiProviderUsesCodexSurface(config: ProxyConfig): boolean {
     || openAiChatCompletionsPath.includes("/codex/");
 }
 
-export function providerRouteSupportsModel(config: ProxyConfig, providerId: string, modelId: string): boolean {
+export function providerRouteSupportsModel(config: ProviderRouteSupportConfig, providerId: string, modelId: string): boolean {
   const normalizedProviderId = providerId.trim().toLowerCase();
   const normalizedModelId = modelId.trim().toLowerCase();
   const normalizedOpenAiProviderId = config.openaiProviderId.trim().toLowerCase();
@@ -79,7 +86,7 @@ export function providerRouteSupportsModel(config: ProxyConfig, providerId: stri
 }
 
 export function filterProviderRoutesByModelSupport(
-  config: ProxyConfig,
+  config: ProviderRouteSupportConfig,
   routes: readonly ProviderRoute[],
   modelId: string,
 ): ProviderRoute[] {
@@ -153,3 +160,4 @@ export function shouldRejectModelFromProviderCatalog(
 
   return sawCatalogForCandidate;
 }
+

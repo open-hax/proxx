@@ -21,7 +21,8 @@ export async function executeLocalStrategy(
   reply: FastifyReply,
   requestLogStore: RequestLogStore,
   context: StrategyRequestContext,
-  payload: BuildPayloadResult
+  payload: BuildPayloadResult,
+  queueSignal?: AbortSignal,
 ): Promise<void> {
   reply.header("x-open-hax-upstream-provider", "local-ollama");
   const upstreamPath = strategy.getUpstreamPath(context);
@@ -50,7 +51,8 @@ export async function executeLocalStrategy(
     upstreamResponse = await fetchWithResponseTimeout(upstreamUrl, {
       method: "POST",
       headers: upstreamHeaders,
-      body: payload.bodyText
+      body: payload.bodyText,
+      signal: queueSignal,
     }, context.upstreamAttemptTimeoutMs);
   } catch (error) {
     const latencyMs = Date.now() - attemptStartedAt;

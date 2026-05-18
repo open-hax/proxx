@@ -8,6 +8,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { AppDeps } from "../lib/app-deps.js";
 import { joinUrl } from "../lib/http/index.js";
 import { buildUpstreamHeadersForCredential, copyUpstreamHeaders } from "../lib/proxy.js";
+import { getActiveCljsRuntime } from "../lib/cljs-runtime.js";
 import { isRecord, sendOpenAiError } from "../lib/provider-utils.js";
 import { toErrorMessage } from "../lib/errors/index.js";
 
@@ -174,12 +175,30 @@ function postBlazeMediaJson(upstreamUrl: string, headers: Headers, bodyText: str
   });
 }
 
-function isMinimaxMusicModel(model: string): boolean {
-  return model.toLowerCase().startsWith("minimax-music-");
-}
+function mediaProviderFromPolicy(deps: AppDeps, route: BlazeMediaRoute, model: string): string {
+  const runtime = getActiveCljsRuntime();
+  if (!runtime) {
+    return "blaze";
+  }
 
-function isMusicgenModel(model: string): boolean {
-  return model.toLowerCase().startsWith("musicgen");
+  try {
+    const result = runtime.previewPolicyDecision(
+      deps.config.cljsPolicyManifestPath ?? "resources/policies/runtime/00-manifest.edn",
+      {
+        modelId: model,
+        requestKind: route.label,
+        tenantSettings: {},
+      },
+    );
+    if (result.status !== "ok" || !isRecord(result.decision)) {
+      return "blaze";
+    }
+    const providerId = result.decision["provider-id"];
+    return typeof providerId === "string" && providerId.length > 0 ? providerId : "blaze";
+  } catch (error) {
+    deps.app.log.warn({ model, requestKind: route.label, error: toErrorMessage(error) }, "CLJS media policy preview failed");
+    return "blaze";
+  }
 }
 
 function musicgenBaseUrl(deps: AppDeps): string {
@@ -573,13 +592,11 @@ async function forwardBlazeMediaRequest(deps: AppDeps, route: BlazeMediaRoute, r
     return;
   }
 
-  // Route MiniMax music models directly to MiniMax API
-  if (isMinimaxMusicModel(model) && route.label === "music") {
+  const policyProviderId = mediaProviderFromPolicy(deps, route, model);
+  if (route.label === "music" && policyProviderId === "minimax") {
     return forwardMinimaxMusicRequest(deps, route, request, reply);
   }
-
-  // Route MusicGen models to local MusicGen service
-  if (isMusicgenModel(model) && route.label === "music") {
+  if (route.label === "music" && policyProviderId === "musicgen") {
     return forwardMusicgenRequest(deps, route, request, reply);
   }
 
@@ -593,15 +610,15 @@ async function forwardBlazeMediaRequest(deps: AppDeps, route: BlazeMediaRoute, r
 
   let accounts;
   try {
-    await deps.ensureFreshAccounts("blaze");
-    accounts = await deps.keyPool.getRequestOrder("blaze");
+    await deps.ensureFreshAccounts(policyProviderId);
+    accounts = await deps.keyPool.getRequestOrder(policyProviderId);
   } catch (error) {
-    sendOpenAiError(reply, 503, `No BlazeAPI account is available: ${toErrorMessage(error)}`, "invalid_request_error", "provider_not_configured");
+    sendOpenAiError(reply, 503, `No ${policyProviderId} account is available: ${toErrorMessage(error)}`, "invalid_request_error", "provider_not_configured");
     return;
   }
 
   if (accounts.length === 0) {
-    sendOpenAiError(reply, 503, "No ready BlazeAPI account is available.", "rate_limit_error", "provider_unavailable");
+    sendOpenAiError(reply, 503, `No ready ${policyProviderId} account is available.`, "rate_limit_error", "provider_unavailable");
     return;
   }
 
@@ -621,7 +638,7 @@ async function forwardBlazeMediaRequest(deps: AppDeps, route: BlazeMediaRoute, r
         accountId: account.accountId,
         upstreamPath: route.upstreamPath,
       }, "Blaze media proxy upstream attempt start");
-      deps.eventStore?.emitRequest(entryId, "blaze", account.accountId, model, request.body as Record<string, unknown>, {
+      deps.eventStore?.emitRequest(entryId, policyProviderId, account.accountId, model, request.body as Record<string, unknown>, {
         upstreamMode: route.label,
         upstreamPath: route.upstreamPath,
         upstreamUrl,
@@ -668,7 +685,7 @@ async function forwardBlazeMediaRequest(deps: AppDeps, route: BlazeMediaRoute, r
           logicalFailure,
           elapsedMs: Date.now() - requestStartedAt,
         }, "Blaze media proxy logical failure payload");
-        deps.eventStore?.emitError(entryId, "blaze", account.accountId, model, lastStatus, {
+        deps.eventStore?.emitError(entryId, policyProviderId, account.accountId, model, lastStatus, {
           error: lastError,
           logicalFailure,
           responsePreview: text.slice(0, 500),
@@ -713,7 +730,7 @@ async function forwardBlazeMediaRequest(deps: AppDeps, route: BlazeMediaRoute, r
           eventPayload = parsedPayload ?? {};
         }
 
-        deps.eventStore?.emitResponse(entryId, "blaze", account.accountId, model, upstreamResponse.status, eventPayload, {
+        deps.eventStore?.emitResponse(entryId, policyProviderId, account.accountId, model, upstreamResponse.status, eventPayload, {
           elapsedMs: Date.now() - requestStartedAt,
           responseBytes: Buffer.byteLength(text),
         });

@@ -1,4 +1,4 @@
-export { buildResponsesPassthroughContext, buildImagesPassthroughContext, selectProviderStrategy } from "./provider-strategy/contexts.js";
+export { selectProviderStrategy } from "./provider-strategy/contexts.js";
 export { executeLocalStrategy } from "./provider-strategy/local.js";
 export { executeProviderRoutingPlan, inspectProviderAvailability } from "./provider-strategy/routing/index.js";
 export { extractUsageCountsFromSseText } from "./provider-strategy/shared.js";

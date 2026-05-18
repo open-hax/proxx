@@ -217,6 +217,55 @@
   (policy/clear-contracts!)
   (policy/clear-contract-kinds!))
 
+(deftest provider-route-filtering-applies-tenant-and-openai-model-support-in-cljs
+  (let [result (contracts/filter-provider-routes
+                {}
+                {:model-id "mimo-v2-omni"
+                 :config {:openaiProviderId "openai"
+                          :openaiBaseUrl "https://chatgpt.com/backend-api"
+                          :openaiResponsesPath "/codex/responses"
+                          :openaiChatCompletionsPath "/codex/responses/compact"}
+                 :tenantSettings {:disabledProviderIds ["vivgrid"]}
+                 :providerRoutes [{:providerId "openai" :baseUrl "https://api.openai.test"}
+                                  {:providerId "vivgrid" :baseUrl "https://vivgrid.test"}
+                                  {:providerId "xiaomi" :baseUrl "https://xiaomi.test"}]})]
+    (is (= ["xiaomi"]
+           (mapv :providerId (:providerRoutes result))))))
+
+(deftest provider-route-filtering-applies-catalog-rules-in-cljs
+  (let [base-input {:model-id "target-model"
+                    :config {:openaiProviderId "openai"}
+                    :tenantSettings {}
+                    :providerRoutes [{:providerId "requesty" :baseUrl "https://requesty.test"}
+                                     {:providerId "openrouter" :baseUrl "https://openrouter.test"}]}
+        filtered (contracts/filter-provider-routes
+                  {}
+                  (assoc base-input
+                         :catalogBundle {:catalog {:declaredModelIds []
+                                                   :dynamicOllamaModelIds []}
+                                         :preferences {:disabled []}
+                                         :providerCatalogs {"requesty" {:modelIds ["other-model"]}
+                                                            "openrouter" {:modelIds ["target-model"]}}}))
+        rejected (contracts/filter-provider-routes
+                  {}
+                  (assoc base-input
+                         :providerRoutes [{:providerId "requesty" :baseUrl "https://requesty.test"}]
+                         :catalogBundle {:catalog {:declaredModelIds []
+                                                   :dynamicOllamaModelIds []}
+                                         :preferences {:disabled []}
+                                         :providerCatalogs {"requesty" {:modelIds ["other-model"]}}}))
+        disabled (contracts/filter-provider-routes
+                  {}
+                  (assoc base-input
+                         :catalogBundle {:catalog {:declaredModelIds []
+                                                   :dynamicOllamaModelIds []}
+                                         :preferences {:disabled ["target-model"]}
+                                         :providerCatalogs {}}))]
+    (is (= ["openrouter"]
+           (mapv :providerId (:providerRoutes filtered))))
+    (is (= true (get-in rejected [:catalog :rejected])))
+    (is (= true (get-in disabled [:catalog :disabled])))))
+
 (deftest decision-tree-policy-can-call-contract-apply-in-condition
   (policy/clear-strategies!)
   (policy/clear-contracts!)
@@ -506,7 +555,6 @@
             :route/blaze-text
             :route/blaze-images
             :route/blaze-video
-            :route/blaze-music
             :route/minimax-music
             :route/musicgen
             :route/blaze-tts
@@ -872,10 +920,10 @@
                         compiled
                         {:model-id "MiniMax-music-2.6-highspeed"
                          :request-kind :music
-                         :tenant-settings {:allowed-provider-ids ["blaze"]}
-                         :accounts-by-provider {"blaze" [{:account-id "blaze-free" :plan-type :free}]}
-                         :strategies-by-provider {"blaze" [{:mode :music :priority 0}
-                                                            {:mode :chat-completions :priority 1}]}})
+                         :tenant-settings {:allowed-provider-ids ["minimax"]}
+                         :accounts-by-provider {"minimax" [{:account-id "minimax-key" :plan-type :free}]}
+                         :strategies-by-provider {"minimax" [{:mode :music :priority 0}
+                                                              {:mode :chat-completions :priority 1}]}})
         video-decision (contracts/preview-policy-decision
                         compiled
                         {:model-id "qwen3.6-plus-video"
@@ -885,11 +933,11 @@
                          :strategies-by-provider {"blaze" [{:mode :video :priority 0}
                                                             {:mode :chat-completions :priority 1}]}})]
     (is (= :ok (:status music-decision)))
-    (is (= :route/blaze-music (:route-id music-decision)))
-    (is (= "blaze" (:provider-id music-decision)))
+    (is (= :route/minimax-music (:route-id music-decision)))
+    (is (= "minimax" (:provider-id music-decision)))
     (is (= :music (get-in music-decision [:strategy :mode])))
-    (is (= [{:provider-id "blaze"
-             :base-url "https://blazeai.boxu.dev/api"}]
+    (is (= [{:provider-id "minimax"
+             :base-url "https://api.minimax.io"}]
            (:provider-routes music-decision)))
     (is (= :ok (:status video-decision)))
     (is (= "blaze" (:provider-id video-decision)))

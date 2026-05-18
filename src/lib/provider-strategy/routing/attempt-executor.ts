@@ -129,6 +129,7 @@ export async function executeProviderRoutingPlan(
   healthStore?: AccountHealthStore,
   eventStore?: EventStore,
   quotaMonitor?: QuotaMonitor,
+  queueSignal?: AbortSignal,
 ): Promise<ProviderRoutingExecutionResult> {
   const accumulator = createAccumulator();
 
@@ -187,6 +188,7 @@ export async function executeProviderRoutingPlan(
         baseUrl: candidate.baseUrl,
         account: candidate.account,
         hasMoreCandidates,
+        ...(candidate.paths ? { providerPaths: candidate.paths } : {}),
       };
 
       const primaryUpstreamPath = candidateStrategy.getUpstreamPath(baseProviderContext);
@@ -312,7 +314,8 @@ export async function executeProviderRoutingPlan(
           upstreamResponse = await fetchWithResponseTimeout(upstreamUrl, {
             method: "POST",
             headers: upstreamHeaders,
-            body: effectiveBody
+            body: effectiveBody,
+            signal: queueSignal,
           }, context.upstreamAttemptTimeoutMs);
         } catch (error) {
           const latencyMs = Date.now() - attemptStartedAt;
@@ -535,6 +538,7 @@ export async function executeProviderRoutingPlan(
                   method: "POST",
                   headers: retryHeaders,
                   body: effectiveBody,
+                  signal: queueSignal,
                 }, context.upstreamAttemptTimeoutMs);
               } catch {
                 // Transport error on retry — fall through to normal routing.
@@ -918,7 +922,8 @@ export async function executeProviderRoutingPlan(
               refreshedResponse = await fetchWithResponseTimeout(upstreamUrl, {
                 method: "POST",
                 headers: refreshedHeaders,
-                body: effectiveBody
+                body: effectiveBody,
+                signal: queueSignal,
               }, context.upstreamAttemptTimeoutMs);
             } catch (error) {
               refreshedRelease();

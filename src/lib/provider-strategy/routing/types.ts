@@ -56,6 +56,7 @@ export interface RoutingCandidate {
   readonly providerId: string;
   readonly baseUrl: string;
   readonly account: ProviderCredential;
+  readonly paths?: Readonly<Record<string, string>>;
 }
 
 export function createAccumulator(): RoutingAccumulator {

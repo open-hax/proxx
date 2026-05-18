@@ -2,32 +2,27 @@ import type { FastifyInstance } from "fastify";
 import type { AppDeps } from "../lib/app-deps.js";
 import { DEFAULT_TENANT_ID } from "../lib/tenant-api-key.js";
 import {
-  resolveExplicitTenantProviderId,
-  filterTenantProviderRoutes,
-} from "../lib/policy/engine/index.js";
-import {
   filterImagesApiRoutes,
-  buildProviderRoutesWithDynamicBaseUrls,
 } from "../lib/provider-routing.js";
-import {
-  orderProviderRoutesByPolicy,
-} from "../lib/provider-policy.js";
 import { getActiveCljsRuntime } from "../lib/cljs-runtime.js";
-import { applyCljsProviderPolicy } from "../lib/policy/cljs-shadow.js";
+import { applyCljsProviderPolicy, getContractProviderRoutes } from "../lib/policy/cljs-shadow.js";
 import {
   inspectProviderAvailability,
   executeProviderRoutingPlan,
+  selectProviderStrategy,
 } from "../lib/provider-strategy.js";
-import { buildImagesPassthroughContext } from "../lib/provider-strategy.js";
-import { isRecord, sendOpenAiError } from "../lib/provider-utils.js";
+import { isRecord, OpenAiHttpError, runCljsQueued, sendQueueError } from "../lib/provider-utils.js";
 import { toErrorMessage } from "../lib/errors/index.js";
 import { handleRoutingOutcome } from "../lib/routing-outcome-handler.js";
+
+function openAiRouteError(statusCode: number, message: string, type: string, code: string, meta?: Record<string, unknown>, cause?: unknown): OpenAiHttpError {
+  return new OpenAiHttpError({ statusCode, message, type, code, meta, cause });
+}
 
 export function registerImagesRoutes(deps: AppDeps, app: FastifyInstance): void {
   app.post<{ Body: Record<string, unknown> }>("/v1/images/generations", async (request, reply) => {
     if (!isRecord(request.body)) {
-      sendOpenAiError(reply, 400, "Request body must be a JSON object", "invalid_request_error", "invalid_body");
-      return;
+      throw openAiRouteError(400, "Request body must be a JSON object", "invalid_request_error", "invalid_body");
     }
 
     const tenantSettings = await deps.proxySettingsStore.getForTenant(
@@ -36,23 +31,18 @@ export function registerImagesRoutes(deps: AppDeps, app: FastifyInstance): void 
     const requestBody = request.body;
     const model = typeof requestBody.model === "string" ? requestBody.model : "";
     if (model.length === 0) {
-      sendOpenAiError(reply, 400, "Missing required field: model", "invalid_request_error", "missing_model");
-      return;
+      throw openAiRouteError(400, "Missing required field: model", "invalid_request_error", "missing_model");
     }
 
-    const explicitlyBlockedProviderId = resolveExplicitTenantProviderId(deps.config, model, tenantSettings);
-    if (explicitlyBlockedProviderId) {
-      sendOpenAiError(reply, 403, `Provider is disabled for this tenant: ${explicitlyBlockedProviderId}`, "invalid_request_error", "provider_not_allowed");
-      return;
-    }
-
-    const { strategy, context } = buildImagesPassthroughContext(
+    const { strategy, context } = selectProviderStrategy(
       deps.config,
       request.headers,
       requestBody,
       model,
+      model,
       request.openHaxAuth ?? undefined,
       deps.policyEngine,
+      { surface: "images-passthrough" },
     );
     reply.header("x-open-hax-upstream-mode", strategy.mode);
 
@@ -60,20 +50,13 @@ export function registerImagesRoutes(deps: AppDeps, app: FastifyInstance): void 
     try {
       payload = strategy.buildPayload(context);
     } catch (error) {
-      sendOpenAiError(reply, 400, toErrorMessage(error), "invalid_request_error", "invalid_provider_options");
-      return;
+      throw openAiRouteError(400, toErrorMessage(error), "invalid_request_error", "invalid_provider_options", { requestedModel: model }, error);
     }
 
     let providerRoutes = filterImagesApiRoutes(
-      await buildProviderRoutesWithDynamicBaseUrls(deps.config, context.openAiPrefixed, deps.dynamicProviderBaseUrlGetter, true),
+      getContractProviderRoutes(deps.config),
       deps.config.openaiProviderId,
     );
-    providerRoutes = filterTenantProviderRoutes(providerRoutes, tenantSettings);
-    providerRoutes = orderProviderRoutesByPolicy(deps.policyEngine, providerRoutes, context.requestedModelInput, context.routedModel, {
-      openAiPrefixed: context.openAiPrefixed,
-      localOllama: false,
-      explicitOllama: false,
-    });
     const policyEvidence = deps.config.cljsPolicyShadowMode === true || deps.config.cljsPolicyAuthoritative === true
       ? await getActiveCljsRuntime()?.loadPolicyEvidence({ providerRoutes }).catch((error: unknown) => {
         request.log.warn({ error, model: context.routedModel }, "CLJS policy evidence load failed");
@@ -92,8 +75,7 @@ export function registerImagesRoutes(deps: AppDeps, app: FastifyInstance): void 
     });
 
     if (providerRoutes.length === 0) {
-      sendOpenAiError(reply, 403, "No allowed providers are available for this tenant and request.", "invalid_request_error", "provider_not_allowed");
-      return;
+      throw openAiRouteError(403, "No allowed providers are available for this tenant and request.", "invalid_request_error", "provider_not_allowed", { routedModel: context.routedModel });
     }
 
     for (const providerId of new Set(providerRoutes.map((route) => route.providerId))) {
@@ -101,37 +83,59 @@ export function registerImagesRoutes(deps: AppDeps, app: FastifyInstance): void 
     }
 
     const availability = await inspectProviderAvailability(deps.keyPool, providerRoutes);
-    const execution = await executeProviderRoutingPlan(
-      strategy,
-      reply,
-      deps.requestLogStore,
-      deps.promptAffinityStore,
-      deps.providerRoutePheromoneStore,
-      deps.keyPool,
-      providerRoutes,
-      context,
-      payload,
-      undefined,
-      deps.refreshExpiredOAuthAccount,
-      deps.policyEngine,
-      deps.accountHealthStore,
-      deps.eventStore,
-      deps.quotaMonitor,
-    );
+    let execution: Awaited<ReturnType<typeof executeProviderRoutingPlan>>;
+    try {
+      execution = await runCljsQueued(
+        deps.config.cljsPolicyManifestPath,
+        {
+          "tenant-id": request.openHaxAuth?.tenantId ?? "default",
+          "provider-id": providerRoutes[0]?.providerId,
+          "request-kind": "images",
+        },
+        async (controller) => await executeProviderRoutingPlan(
+          strategy,
+          reply,
+          deps.requestLogStore,
+          deps.promptAffinityStore,
+          deps.providerRoutePheromoneStore,
+          deps.keyPool,
+          providerRoutes,
+          context,
+          payload,
+          undefined,
+          deps.refreshExpiredOAuthAccount,
+          deps.policyEngine,
+          deps.accountHealthStore,
+          deps.eventStore,
+          deps.quotaMonitor,
+          controller.signal,
+        ),
+      );
+    } catch (error) {
+      if (sendQueueError(reply, error)) {
+        return;
+      }
+      throw error;
+    }
 
     if (execution.handled) {
       return;
     }
 
-    const federatedImagesHandled = await deps.executeFederatedRequestFallback({
-      requestHeaders: request.headers,
-      requestBody,
-      requestAuth: request.openHaxAuth ?? undefined,
-      providerRoutes,
-      upstreamPath: "/v1/images/generations",
-      reply,
-      timeoutMs: context.upstreamAttemptTimeoutMs,
-    });
+    const federatedImagesHandled = await runCljsQueued(
+      deps.config.cljsPolicyManifestPath,
+      { "tenant-id": request.openHaxAuth?.tenantId ?? "default", "provider-id": providerRoutes[0]?.providerId, "request-kind": "images" },
+      async (controller) => await deps.executeFederatedRequestFallback({
+        requestHeaders: request.headers,
+        requestBody,
+        requestAuth: request.openHaxAuth ?? undefined,
+        providerRoutes,
+        upstreamPath: "/v1/images/generations",
+        reply,
+        timeoutMs: context.upstreamAttemptTimeoutMs,
+        signal: controller.signal,
+      }),
+    );
     if (federatedImagesHandled) {
       return;
     }
@@ -150,5 +154,7 @@ export function registerImagesRoutes(deps: AppDeps, app: FastifyInstance): void 
     if (sent) {
       return;
     }
+
+    throw openAiRouteError(502, "All allowed image providers rejected the request.", "server_error", "provider_unavailable", { routedModel: context.routedModel });
   });
 }

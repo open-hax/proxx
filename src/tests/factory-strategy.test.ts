@@ -617,7 +617,7 @@ test("factory/claude-* clamps thinking budget below injected default max_tokens"
   );
 });
 
-test("claude-opus-4-6 automatically routes to Factory first", { concurrency: false }, async () => {
+test("claude-opus-4-6 without factory prefix routes through default provider chat completions", { concurrency: false }, async () => {
   let capturedUrl = "";
   let capturedHeaders: Record<string, string> = {};
 
@@ -659,12 +659,12 @@ test("claude-opus-4-6 automatically routes to Factory first", { concurrency: fal
               status: 200,
               headers: { "content-type": "application/json" },
               body: JSON.stringify({
-                id: "msg_factory_auto",
-                type: "message",
-                role: "assistant",
-                content: [{ type: "text", text: "Factory auto route OK" }],
+                id: "chatcmpl-default",
+                object: "chat.completion",
+                created: 123,
                 model: "claude-opus-4-6",
-                usage: { input_tokens: 10, output_tokens: 5 },
+                choices: [{ index: 0, message: { role: "assistant", content: "default provider OK" }, finish_reason: "stop" }],
+                usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
               }),
             };
           },
@@ -680,16 +680,16 @@ test("claude-opus-4-6 automatically routes to Factory first", { concurrency: fal
           });
 
           assert.equal(response.statusCode, 200);
-          assert.equal(capturedUrl, "/api/llm/a/v1/messages");
-          assert.equal(capturedHeaders["x-api-provider"], "anthropic");
-          assert.equal(response.headers["x-open-hax-upstream-provider"], "factory");
+          assert.equal(capturedUrl, "/v1/chat/completions");
+          assert.equal(capturedHeaders["x-api-provider"], undefined);
+          assert.equal(response.headers["x-open-hax-upstream-provider"], "openai");
         },
       );
     },
   );
 });
 
-test("claude-opus-4-6 auto routing applies safe xhigh thinking budget mapping", { concurrency: false }, async () => {
+test("claude-opus-4-6 without factory prefix routes reasoning request through default provider chat completions", { concurrency: false }, async () => {
   const capturedUrls: string[] = [];
   let capturedBody = "";
 
@@ -722,33 +722,15 @@ test("claude-opus-4-6 auto routing applies safe xhigh thinking budget mapping", 
             capturedUrls.push(request.url ?? "");
             capturedBody = body;
 
-            if (request.url === "/api/llm/a/v1/messages") {
-              return {
-                status: 200,
-                headers: { "content-type": "application/json" },
-                body: JSON.stringify({
-                  id: "msg_factory_auto_reasoning",
-                  type: "message",
-                  role: "assistant",
-                  content: [
-                    { type: "thinking", thinking: "auto-route-thinking" },
-                    { type: "text", text: "Factory auto route reasoning OK" },
-                  ],
-                  model: "claude-opus-4-6",
-                  usage: { input_tokens: 10, output_tokens: 5 },
-                }),
-              };
-            }
-
             return {
               status: 200,
               headers: { "content-type": "application/json" },
               body: JSON.stringify({
-                id: "chatcmpl_factory_auto_reasoning_fallback",
+                id: "chatcmpl-default-reasoning",
                 object: "chat.completion",
                 created: 123,
                 model: "claude-opus-4-6",
-                choices: [{ index: 0, message: { role: "assistant", content: "fallback", reasoning_content: "fallback-thinking" }, finish_reason: "stop" }],
+                choices: [{ index: 0, message: { role: "assistant", content: "default reasoning OK", reasoning_content: "default-thinking" }, finish_reason: "stop" }],
                 usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
               }),
             };
@@ -766,13 +748,8 @@ test("claude-opus-4-6 auto routing applies safe xhigh thinking budget mapping", 
           });
 
           assert.equal(response.statusCode, 200);
-          assert.deepEqual(capturedUrls, ["/api/llm/a/v1/messages"]);
-          assert.equal(response.headers["x-open-hax-upstream-provider"], "factory");
-
-          const parsedBody = JSON.parse(capturedBody) as Record<string, unknown>;
-          assert.equal(parsedBody["max_tokens"], 4096);
-          assert.ok(isRecord(parsedBody["thinking"]));
-          assert.equal(parsedBody["thinking"]["budget_tokens"], 4095);
+          assert.deepEqual(capturedUrls, ["/v1/chat/completions"]);
+          assert.equal(response.headers["x-open-hax-upstream-provider"], "openai");
         },
       );
     },

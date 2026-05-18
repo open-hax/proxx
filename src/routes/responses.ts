@@ -8,39 +8,29 @@ import {
   hashPromptCacheKey,
   summarizeResponsesRequestBody,
 } from "../lib/openai/index.js";
-import { isRecord } from "../lib/provider-utils.js";
+import { isRecord, OpenAiHttpError, runCljsQueued, sendQueueError } from "../lib/provider-utils.js";
 import {
-  resolvableConcreteModelIds,
   resolvableConcreteModelIdsForProviders,
 } from "../lib/catalog-resolution.js";
 import {
-  filterProviderRoutesByCatalogAvailability,
-  filterProviderRoutesByModelSupport,
-  shouldRejectModelFromProviderCatalog,
-} from "../lib/policy/adapters/index.js";
-import {
   tenantModelAllowed,
   filterTenantProviderRoutes,
-  resolveExplicitTenantProviderId,
 } from "../lib/policy/engine/index.js";
 import {
-  buildResponsesPassthroughContext,
+  selectProviderStrategy,
   executeProviderRoutingPlan,
   inspectProviderAvailability,
 } from "../lib/provider-strategy.js";
 import { resolveFederationOwnerSubject } from "../lib/federation/federation-helpers.js";
 import {
-  buildProviderRoutesWithDynamicBaseUrls,
   filterResponsesApiRoutes,
   type ProviderRoute,
 } from "../lib/provider-routing.js";
+import { getContractProviderRoutes } from "../lib/policy/cljs-shadow.js";
 import { discoverDynamicOllamaRoutes, prependDynamicOllamaRoutes } from "../lib/dynamic-ollama-routes.js";
-import { orderProviderRoutesByPolicy } from "../lib/provider-policy.js";
 import { getActiveCljsRuntime } from "../lib/cljs-runtime.js";
-import { applyCljsProviderPolicy } from "../lib/policy/cljs-shadow.js";
-import { sendOpenAiError } from "../lib/provider-utils.js";
+import { applyCljsProviderPolicy, filterProviderRoutesWithCljs } from "../lib/policy/cljs-shadow.js";
 import { toErrorMessage } from "../lib/errors/index.js";
-import { isAutoModel, rankAutoModels } from "../lib/auto-model-selector.js";
 import { handleRoutingOutcome } from "../lib/routing-outcome-handler.js";
 import {
   chatCompletionToSse,
@@ -56,6 +46,10 @@ import { resolveCatalogAndAlias } from "../lib/catalog-alias-resolver.js";
 function requestedModelIsExplicitOllama(model: string): boolean {
   const normalized = model.trim().toLowerCase();
   return normalized.startsWith("ollama/") || normalized.startsWith("ollama:");
+}
+
+function openAiRouteError(statusCode: number, message: string, type: string, code: string, meta?: Record<string, unknown>, cause?: unknown): OpenAiHttpError {
+  return new OpenAiHttpError({ statusCode, message, type, code, meta, cause });
 }
 
 async function handleOllamaResponsesCompatibility(
@@ -86,14 +80,12 @@ async function handleOllamaResponsesCompatibility(
   let parsedBody: unknown;
   try {
     parsedBody = JSON.parse(bridgeResponse.body ?? "null");
-  } catch {
-    sendOpenAiError(reply, 502, "Failed to parse proxied Ollama chat completion response", "server_error", "responses_translation_failed");
-    return;
+  } catch (error) {
+    throw openAiRouteError(502, "Failed to parse proxied Ollama chat completion response", "server_error", "responses_translation_failed", { requestedModel: requestedModelInput }, error);
   }
 
   if (!isRecord(parsedBody) || !Array.isArray(parsedBody["choices"])) {
-    sendOpenAiError(reply, 502, "Invalid proxied Ollama chat completion response", "server_error", "responses_translation_failed");
-    return;
+    throw openAiRouteError(502, "Invalid proxied Ollama chat completion response", "server_error", "responses_translation_failed", { requestedModel: requestedModelInput });
   }
 
   if (requestBody["stream"] === true) {
@@ -104,8 +96,7 @@ async function handleOllamaResponsesCompatibility(
         requestedModelInput,
       );
     } catch (error) {
-      sendOpenAiError(reply, 502, toErrorMessage(error), "server_error", "responses_stream_translation_failed");
-      return;
+      throw openAiRouteError(502, toErrorMessage(error), "server_error", "responses_stream_translation_failed", { requestedModel: requestedModelInput }, error);
     }
 
     reply.code(200);
@@ -124,8 +115,7 @@ async function handleOllamaResponsesCompatibility(
 export function registerResponsesRoutes(deps: AppDeps, app: FastifyInstance): void {
   app.post<{ Body: Record<string, unknown> }>("/v1/responses", async (request, reply) => {
     if (!isRecord(request.body)) {
-      sendOpenAiError(reply, 400, "Request body must be a JSON object", "invalid_request_error", "invalid_body");
-      return;
+      throw openAiRouteError(400, "Request body must be a JSON object", "invalid_request_error", "invalid_body");
     }
 
     const tenantSettings = await deps.proxySettingsStore.getForTenant(
@@ -142,19 +132,11 @@ export function registerResponsesRoutes(deps: AppDeps, app: FastifyInstance): vo
 
     const requestedModelInput = typeof requestBody.model === "string" ? requestBody.model : "";
     if (requestedModelInput.length === 0) {
-      sendOpenAiError(reply, 400, "Missing required field: model", "invalid_request_error", "missing_model");
-      return;
+      throw openAiRouteError(400, "Missing required field: model", "invalid_request_error", "missing_model");
     }
 
     if (!tenantModelAllowed(tenantSettings, requestedModelInput)) {
-      sendOpenAiError(reply, 403, `Model is disabled for this tenant: ${requestedModelInput}`, "invalid_request_error", "model_not_allowed");
-      return;
-    }
-
-    const explicitlyBlockedProviderId = resolveExplicitTenantProviderId(deps.config, requestedModelInput, tenantSettings);
-    if (explicitlyBlockedProviderId) {
-      sendOpenAiError(reply, 403, `Provider is disabled for this tenant: ${explicitlyBlockedProviderId}`, "invalid_request_error", "provider_not_allowed");
-      return;
+      throw openAiRouteError(403, `Model is disabled for this tenant: ${requestedModelInput}`, "invalid_request_error", "model_not_allowed", { requestedModel: requestedModelInput });
     }
 
     const catalogResult = await resolveCatalogAndAlias(
@@ -179,40 +161,41 @@ export function registerResponsesRoutes(deps: AppDeps, app: FastifyInstance): vo
       return;
     }
 
-    const autoCandidateProviderIds = filterTenantProviderRoutes(
-      filterResponsesApiRoutes(await buildProviderRoutesWithDynamicBaseUrls(deps.config, false, deps.dynamicProviderBaseUrlGetter, true), deps.config.openaiProviderId),
-      tenantSettings,
-    ).map((route) => route.providerId);
-    const concreteModelIds = isAutoModel(routingModelInput)
-      ? resolvableConcreteModelIdsForProviders(
+    const autoModel = routingModelInput.toLowerCase().startsWith("auto:");
+    const autoCandidateProviderIds = autoModel
+      ? filterTenantProviderRoutes(
+          filterResponsesApiRoutes(getContractProviderRoutes(deps.config), deps.config.openaiProviderId),
+          tenantSettings,
+        ).map((route) => route.providerId)
+      : [];
+    const concreteModelIds = autoModel
+      ? (resolvableConcreteModelIdsForProviders(
           resolvedCatalogBundle,
           autoCandidateProviderIds,
           (modelId: string) => shouldUseResponsesUpstream(modelId, deps.config.responsesModelPrefixes),
+        ) ?? [])
+      : [];
+    const autoDecision = autoModel
+      ? getActiveCljsRuntime()?.resolveAutoModelCandidates?.(
+          deps.config.cljsPolicyManifestPath ?? "resources/policies/runtime/00-manifest.edn",
+          { modelId: routingModelInput, requestBody, availableModels: concreteModelIds },
         )
-      : resolvableConcreteModelIds(resolvedModelCatalog);
-    const routingModelCandidates = isAutoModel(routingModelInput)
-      ? rankAutoModels(
-          routingModelInput,
-          requestBody,
-          concreteModelIds,
-          deps.config.upstreamProviderId,
-          deps.requestLogStore,
-          deps.accountHealthStore,
-        ).map((entry) => entry.modelId)
+      : undefined;
+    const routingModelCandidates = autoModel
+      ? [...(autoDecision?.status === "ok" ? (autoDecision.candidates ?? []) : concreteModelIds)]
       : [routingModelInput];
 
     if (routingModelCandidates.length === 0) {
-      sendOpenAiError(reply, 404, `Model not found: ${requestedModelInput}`, "invalid_request_error", "model_not_found");
-      return;
+      throw openAiRouteError(404, `Model not found: ${requestedModelInput}`, "invalid_request_error", "model_not_found", { requestedModel: requestedModelInput });
     }
 
-    if (isAutoModel(routingModelInput)) {
+    if (autoModel) {
       reply.header("x-open-hax-auto-model-candidates", routingModelCandidates.slice(0, 12).join(","));
     }
 
     for (const [candidateIndex, candidateRoutingModel] of routingModelCandidates.entries()) {
       const hasMoreModelCandidates = candidateIndex < routingModelCandidates.length - 1;
-      const { strategy, context } = buildResponsesPassthroughContext(
+      const { strategy, context } = selectProviderStrategy(
         deps.config,
         request.headers,
         requestBody,
@@ -220,6 +203,7 @@ export function registerResponsesRoutes(deps: AppDeps, app: FastifyInstance): vo
         candidateRoutingModel,
         request.openHaxAuth ?? undefined,
         deps.policyEngine,
+        { surface: "responses-passthrough" },
       );
       reply.header("x-open-hax-upstream-mode", strategy.mode);
       const requestAuth = request.openHaxAuth ?? undefined;
@@ -231,12 +215,11 @@ export function registerResponsesRoutes(deps: AppDeps, app: FastifyInstance): vo
 
       let providerRoutes: ProviderRoute[];
       if (context.factoryPrefixed) {
-        const factoryBaseUrl = deps.config.upstreamProviderBaseUrls["factory"] ?? "https://api.factory.ai";
-        providerRoutes = deps.config.disabledProviderIds.includes("factory")
-          ? []
-          : [{ providerId: "factory", baseUrl: factoryBaseUrl }];
+        providerRoutes = getContractProviderRoutes(deps.config).filter(
+          (route) => route.providerId === "factory",
+        );
       } else {
-        providerRoutes = await buildProviderRoutesWithDynamicBaseUrls(deps.config, context.openAiPrefixed, deps.dynamicProviderBaseUrlGetter, true);
+        providerRoutes = getContractProviderRoutes(deps.config);
       }
 
       const dynamicOllamaRoutes = await discoverDynamicOllamaRoutes(
@@ -248,14 +231,7 @@ export function registerResponsesRoutes(deps: AppDeps, app: FastifyInstance): vo
         providerRoutes = prependDynamicOllamaRoutes(providerRoutes, dynamicOllamaRoutes);
       }
 
-      providerRoutes = filterProviderRoutesByModelSupport(deps.config, providerRoutes, context.routedModel);
       providerRoutes = filterResponsesApiRoutes(providerRoutes, deps.config.openaiProviderId);
-      providerRoutes = filterTenantProviderRoutes(providerRoutes, tenantSettings);
-      providerRoutes = orderProviderRoutesByPolicy(deps.policyEngine, providerRoutes, context.requestedModelInput, context.routedModel, {
-        openAiPrefixed: context.openAiPrefixed,
-        localOllama: false,
-        explicitOllama: false,
-      });
       const policyEvidence = deps.config.cljsPolicyShadowMode === true || deps.config.cljsPolicyAuthoritative === true
         ? await getActiveCljsRuntime()?.loadPolicyEvidence({ providerRoutes }).catch((error: unknown) => {
           request.log.warn({ error, model: context.routedModel }, "CLJS policy evidence load failed");
@@ -277,31 +253,37 @@ export function registerResponsesRoutes(deps: AppDeps, app: FastifyInstance): vo
         if (hasMoreModelCandidates) {
           continue;
         }
-        sendOpenAiError(reply, 403, "No allowed providers are available for this tenant and request.", "invalid_request_error", "provider_not_allowed");
-        return;
+        throw openAiRouteError(403, "No allowed providers are available for this tenant and request.", "invalid_request_error", "provider_not_allowed", { routedModel: context.routedModel });
       }
 
       try {
-        const catalogBundle = await deps.providerCatalogStore.getCatalog();
-        const disabledSet = new Set(catalogBundle.preferences.disabled);
-        if (disabledSet.has(context.routedModel)) {
+        const catalogResult = filterProviderRoutesWithCljs({
+          config: deps.config,
+          log: request.log,
+          requestKind: "responses-passthrough",
+          requestedModel: context.requestedModelInput,
+          routedModel: context.routedModel,
+          tenantSettings,
+          providerRoutes,
+          catalogBundle: await deps.providerCatalogStore.getCatalog(),
+        });
+        providerRoutes = catalogResult.providerRoutes;
+        if (catalogResult.catalog?.disabled) {
           if (hasMoreModelCandidates) {
             continue;
           }
-          sendOpenAiError(reply, 403, `Model is disabled: ${context.routedModel}`, "invalid_request_error", "model_disabled");
-          return;
+          throw openAiRouteError(403, `Model is disabled: ${context.routedModel}`, "invalid_request_error", "model_disabled", { routedModel: context.routedModel });
         }
-
-        providerRoutes = filterProviderRoutesByCatalogAvailability(providerRoutes, context.routedModel, catalogBundle);
-
-        if (shouldRejectModelFromProviderCatalog(providerRoutes, context.routedModel, catalogBundle)) {
+        if (catalogResult.catalog?.rejected) {
           if (hasMoreModelCandidates) {
             continue;
           }
-          sendOpenAiError(reply, 404, `Model not found: ${context.routedModel}`, "invalid_request_error", "model_not_found");
-          return;
+          throw openAiRouteError(404, `Model not found: ${context.routedModel}`, "invalid_request_error", "model_not_found", { routedModel: context.routedModel });
         }
       } catch (error) {
+        if (error instanceof OpenAiHttpError) {
+          throw error;
+        }
         request.log.warn({ error: toErrorMessage(error) }, "failed to verify provider model catalog for /v1/responses; continuing without gating");
       }
 
@@ -312,8 +294,7 @@ export function registerResponsesRoutes(deps: AppDeps, app: FastifyInstance): vo
         if (hasMoreModelCandidates) {
           continue;
         }
-        sendOpenAiError(reply, 400, toErrorMessage(error), "invalid_request_error", "invalid_provider_options");
-        return;
+        throw openAiRouteError(400, toErrorMessage(error), "invalid_request_error", "invalid_provider_options", { routedModel: context.routedModel }, error);
       }
 
       for (const providerId of new Set(providerRoutes.map((route) => route.providerId))) {
@@ -321,37 +302,59 @@ export function registerResponsesRoutes(deps: AppDeps, app: FastifyInstance): vo
       }
 
       const availability = await inspectProviderAvailability(deps.keyPool, providerRoutes, promptCacheKey);
-      const execution = await executeProviderRoutingPlan(
-        strategy,
-        reply,
-        deps.requestLogStore,
-        deps.promptAffinityStore,
-        deps.providerRoutePheromoneStore,
-        deps.keyPool,
-        providerRoutes,
-        context,
-        payload,
-        availability.prompt_cache_key,
-        deps.refreshExpiredOAuthAccount,
-        deps.policyEngine,
-        deps.accountHealthStore,
-        deps.eventStore,
-        deps.quotaMonitor,
-      );
+      let execution: Awaited<ReturnType<typeof executeProviderRoutingPlan>>;
+      try {
+        execution = await runCljsQueued(
+          deps.config.cljsPolicyManifestPath,
+          {
+            "tenant-id": request.openHaxAuth?.tenantId ?? "default",
+            "provider-id": providerRoutes[0]?.providerId,
+            "request-kind": "responses",
+          },
+          async (controller) => await executeProviderRoutingPlan(
+            strategy,
+            reply,
+            deps.requestLogStore,
+            deps.promptAffinityStore,
+            deps.providerRoutePheromoneStore,
+            deps.keyPool,
+            providerRoutes,
+            context,
+            payload,
+            availability.prompt_cache_key,
+            deps.refreshExpiredOAuthAccount,
+            deps.policyEngine,
+            deps.accountHealthStore,
+            deps.eventStore,
+            deps.quotaMonitor,
+            controller.signal,
+          ),
+        );
+      } catch (error) {
+        if (sendQueueError(reply, error)) {
+          return;
+        }
+        throw error;
+      }
 
       if (execution.handled) {
         return;
       }
 
-      const federatedResponsesHandled = await deps.executeFederatedRequestFallback({
-        requestHeaders: request.headers,
-        requestBody,
-        requestAuth: request.openHaxAuth ?? undefined,
-        providerRoutes,
-        upstreamPath: "/v1/responses",
-        reply,
-        timeoutMs: context.upstreamAttemptTimeoutMs,
-      });
+      const federatedResponsesHandled = await runCljsQueued(
+        deps.config.cljsPolicyManifestPath,
+        { "tenant-id": request.openHaxAuth?.tenantId ?? "default", "provider-id": providerRoutes[0]?.providerId, "request-kind": "responses" },
+        async (controller) => await deps.executeFederatedRequestFallback({
+          requestHeaders: request.headers,
+          requestBody,
+          requestAuth: request.openHaxAuth ?? undefined,
+          providerRoutes,
+          upstreamPath: "/v1/responses",
+          reply,
+          timeoutMs: context.upstreamAttemptTimeoutMs,
+          signal: controller.signal,
+        }),
+      );
       if (federatedResponsesHandled) {
         return;
       }
@@ -376,6 +379,6 @@ export function registerResponsesRoutes(deps: AppDeps, app: FastifyInstance): vo
       }
     }
 
-    sendOpenAiError(reply, 502, "All allowed providers rejected the request.", "server_error", "provider_unavailable");
+    throw openAiRouteError(502, "All allowed providers rejected the request.", "server_error", "provider_unavailable", { requestedModel: requestedModelInput });
   });
 }

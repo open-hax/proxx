@@ -85,6 +85,16 @@
        (filter #(= :model-alias (:contract/kind %)))
        vec))
 
+(defn queue-templates [idx]
+  (->> (:contracts idx)
+       (filter #(= :request-queue-template (:contract/kind %)))
+       vec))
+
+(defn queue-instances [idx]
+  (->> (:contracts idx)
+       (filter #(= :request-queue-instance (:contract/kind %)))
+       vec))
+
 (defn- provider-route-provider-id [route]
   (or (:provider/id route)
       (:provider-id route)
@@ -423,6 +433,190 @@
          (or (empty? allowed) (contains? allowed normalized))
          (not (contains? disabled normalized)))))
 
+(defn- hosted-openai-family? [model-id]
+  (let [lowered (str/lower-case (str model-id))]
+    (or (str/starts-with? lowered "gpt-")
+        (str/starts-with? lowered "openai/")
+        (str/starts-with? lowered "openai:")
+        (str/starts-with? lowered "chatgpt-")
+        (= lowered "o1")
+        (= lowered "o3")
+        (= lowered "o4")
+        (str/starts-with? lowered "o1-")
+        (str/starts-with? lowered "o3-")
+        (str/starts-with? lowered "o4-"))))
+
+(defn- glm-model? [model-id]
+  (str/starts-with? (str/lower-case (str/trim (str model-id))) "glm-"))
+
+(defn- provider-route-id-from-input [route]
+  (some-> (get-any route [:provider-id :providerId :provider/id]) str str/trim))
+
+(defn- provider-route-base-url-from-input [route]
+  (some-> (get-any route [:base-url :baseUrl :provider/base-url :provider/baseUrl]) str str/trim))
+
+(defn- normalize-provider-route-input [route]
+  (let [provider-id (provider-route-id-from-input route)
+        base-url (provider-route-base-url-from-input route)
+        auth-required (get-any route [:auth-required :authRequired :auth-required? :auth/required?])]
+    (when (and (not (str/blank? provider-id))
+               (not (str/blank? base-url)))
+      (cond-> {:providerId provider-id
+               :baseUrl (str/replace base-url #"/+$" "")}
+        (boolean? auth-required)
+        (assoc :authRequired auth-required)))))
+
+(defn- input-provider-routes [input]
+  (vec (keep normalize-provider-route-input
+             (or (get-any input [:provider-routes :providerRoutes]) []))))
+
+(defn- openai-provider-id [config]
+  (normalize-provider-id (or (get-any config [:openai-provider-id :openaiProviderId]) "openai")))
+
+(defn- openai-codex-surface? [config]
+  (let [base-url (str/lower-case (str (get-any config [:openai-base-url :openaiBaseUrl])))
+        responses-path (str/lower-case (str (get-any config [:openai-responses-path :openaiResponsesPath])))
+        chat-path (str/lower-case (str (get-any config [:openai-chat-completions-path :openaiChatCompletionsPath])))]
+    (or (str/includes? base-url "chatgpt.com/backend-api")
+        (str/includes? responses-path "/codex/")
+        (str/includes? chat-path "/codex/"))))
+
+(defn- provider-route-supports-model? [config route model-id]
+  (let [provider-id (normalize-provider-id (provider-route-id-from-input route))
+        openai-id (openai-provider-id config)
+        normalized-model (str/lower-case (str/trim (str model-id)))]
+    (cond
+      (and (= provider-id openai-id)
+           (not (hosted-openai-family? normalized-model)))
+      false
+
+      (and (= provider-id openai-id)
+           (= normalized-model "gpt-5.4-nano")
+           (openai-codex-surface? config))
+      false
+
+      :else true)))
+
+(defn- provider-entry [catalog-bundle provider-id]
+  (let [provider-catalogs (or (get-any catalog-bundle [:provider-catalogs :providerCatalogs]) {})
+        normalized (normalize-provider-id provider-id)]
+    (or (get provider-catalogs provider-id)
+        (get provider-catalogs (keyword provider-id))
+        (get provider-catalogs normalized)
+        (get provider-catalogs (keyword normalized)))))
+
+(defn- catalog-model-ids [entry]
+  (vec (or (get-any entry [:model-ids :modelIds]) [])))
+
+(defn- catalog-entry-supports-model? [model-id entry]
+  (let [normalized-model (str/lower-case (str/trim (str model-id)))
+        ids (catalog-model-ids entry)
+        normalized-ids (set (map #(str/lower-case (str/trim (str %))) ids))]
+    (or (contains? normalized-ids normalized-model)
+        (and (glm-model? normalized-model)
+             (some glm-model? ids)))))
+
+(defn- catalog-dynamic-ollama-model? [catalog-bundle model-id]
+  (let [normalized-model (str/lower-case (str/trim (str model-id)))
+        dynamic-ids (or (get-any (get-any catalog-bundle [:catalog])
+                                 [:dynamic-ollama-model-ids :dynamicOllamaModelIds])
+                        [])]
+    (boolean (some #(= normalized-model (str/lower-case (str/trim (str %)))) dynamic-ids))))
+
+(defn- provider-id-looks-like-ollama? [provider-id]
+  (str/includes? (normalize-provider-id provider-id) "ollama"))
+
+(defn- partition-with [pred items]
+  (reduce (fn [[matched rest] item]
+            (if (pred item)
+              [(conj matched item) rest]
+              [matched (conj rest item)]))
+          [[] []]
+          items))
+
+(defn- filter-provider-routes-by-catalog [routes model-id catalog-bundle]
+  (if (glm-model? model-id)
+    (vec routes)
+    (let [[routes-without-catalog routes-with-catalog]
+          (partition-with #(nil? (provider-entry catalog-bundle (provider-route-id-from-input %))) routes)
+          catalog-matched (filterv #(catalog-entry-supports-model?
+                                     model-id
+                                     (provider-entry catalog-bundle (provider-route-id-from-input %)))
+                                   routes-with-catalog)]
+      (cond
+        (seq catalog-matched)
+        (vec (concat routes-without-catalog catalog-matched))
+
+        (catalog-dynamic-ollama-model? catalog-bundle model-id)
+        (vec (concat routes-without-catalog
+                     (filter #(provider-id-looks-like-ollama?
+                               (provider-route-id-from-input %))
+                             routes-with-catalog)))
+
+        :else
+        (vec routes)))))
+
+(defn- catalog-declared-model? [catalog-bundle model-id]
+  (let [normalized-model (str/lower-case (str/trim (str model-id)))
+        declared (or (get-any (get-any catalog-bundle [:catalog])
+                              [:declared-model-ids :declaredModelIds])
+                     [])]
+    (boolean (some #(= normalized-model (str/lower-case (str/trim (str %)))) declared))))
+
+(defn- catalog-disabled-model? [catalog-bundle model-id]
+  (let [normalized-model (str/lower-case (str/trim (str model-id)))
+        disabled (or (get-any (get-any catalog-bundle [:preferences])
+                              [:disabled])
+                     [])]
+    (boolean (some #(= normalized-model (str/lower-case (str/trim (str %)))) disabled))))
+
+(defn- catalog-rejects-model? [routes model-id catalog-bundle]
+  (if (catalog-declared-model? catalog-bundle model-id)
+    false
+    (loop [remaining routes
+           saw-catalog? false]
+      (if-let [route (first remaining)]
+        (let [entry (provider-entry catalog-bundle (provider-route-id-from-input route))]
+          (cond
+            (nil? entry) false
+            (catalog-entry-supports-model? model-id entry) false
+            :else (recur (rest remaining) true)))
+        saw-catalog?))))
+
+(defn filter-provider-routes
+  "Apply provider route eligibility in CLJS policy space.
+
+  This owns model-support gates, tenant provider allow/deny gates, and optional
+  provider-catalog availability/rejection semantics so route handlers do not
+  decide provider eligibility locally."
+  [_compiled input]
+  (let [model-id (or (get-any input [:model-id :modelId :routed-model :routedModel]) "")
+        config (or (get-any input [:config]) {})
+        tenant-settings (or (get-any input [:tenant-settings :tenantSettings]) {})
+        catalog-bundle (get-any input [:catalog-bundle :catalogBundle])
+        apply-catalog-availability? (not= false (get-any input [:catalog-availability? :catalogAvailability]))
+        routes (->> (input-provider-routes input)
+                    (filter #(provider-route-supports-model? config % model-id))
+                    (filter #(tenant-provider-allowed? tenant-settings
+                                                        (provider-route-id-from-input %)))
+                    vec)]
+    (if (map? catalog-bundle)
+      (if (catalog-disabled-model? catalog-bundle model-id)
+        {:providerRoutes routes
+         :catalog {:disabled true
+                   :rejected false}}
+        (if apply-catalog-availability?
+          (let [catalog-routes (filter-provider-routes-by-catalog routes model-id catalog-bundle)]
+            {:providerRoutes catalog-routes
+             :catalog {:disabled false
+                       :rejected (catalog-rejects-model? catalog-routes model-id catalog-bundle)}})
+          {:providerRoutes routes
+           :catalog {:disabled false
+                     :rejected false}}))
+      {:providerRoutes routes
+       :catalog {:disabled false
+                 :rejected false}})))
+
 (defn- normalize-mode [mode]
   (when mode
     (keyword (str/replace (name mode) #"_" "-"))))
@@ -523,7 +717,9 @@
                                    (contains? route :auth/required?)
                                    (assoc :auth-required? (:auth/required? route))
                                    (contains? route :auth-required?)
-                                   (assoc :auth-required? (:auth-required? route)))]))))
+                                   (assoc :auth-required? (:auth-required? route))
+                                   (contains? route :paths)
+                                   (assoc :paths (:paths route)))]))))
         (:provider-routes compiled)))
 
 (defn- selected-provider-routes [compiled provider-ids]
@@ -762,6 +958,8 @@
       :model-families (model-families idx)
       :reasoning-normalizations (reasoning-normalizations idx)
       :model-aliases (model-aliases idx)
+      :queue-templates (queue-templates idx)
+      :queue-instances (queue-instances idx)
       :provider-routes (provider-routes idx)
       :provider-seed-specs (provider-seed-specs idx)
       :request-surface-defaults (request-surface-defaults idx)

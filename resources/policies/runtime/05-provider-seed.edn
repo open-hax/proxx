@@ -92,43 +92,59 @@
  {:contract/id :provider-route/openai
   :contract/kind :provider-route
   :provider/id "openai"
-  :provider/base-url "https://chatgpt.com/backend-api"}
+  :provider/base-url "https://chatgpt.com/backend-api"
+  :paths {:chat-completions "/codex/responses/compact"
+          :responses "/codex/responses"
+          :images-generations "/images/generations"}}
 
  {:contract/id :provider-route/factory
   :contract/kind :provider-route
   :provider/id "factory"
-  :provider/base-url "https://api.factory.ai"}
+  :provider/base-url "https://api.factory.ai"
+  :paths {:chat-completions "/v1/chat/completions"
+          :responses "/v1/responses"
+          :images-generations "/v1/images/generations"}}
 
  {:contract/id :provider-route/vivgrid
   :contract/kind :provider-route
   :provider/id "vivgrid"
-  :provider/base-url "https://api.vivgrid.com"}
+  :provider/base-url "https://api.vivgrid.com"
+  :paths {:chat-completions "/v1/chat/completions"
+          :responses "/v1/responses"
+          :messages "/v1/messages"
+          :images-generations "/v1/images/generations"}}
 
  {:contract/id :provider-route/kimi
   :contract/kind :provider-route
   :provider/id "kimi"
-  :provider/base-url "https://api.moonshot.ai/v1"}
+  :provider/base-url "https://api.moonshot.ai/v1"
+  :paths {:chat-completions "/v1/chat/completions"
+          :images-generations "/v1/images/generations"}}
 
  {:contract/id :provider-route/ollama
   :contract/kind :provider-route
   :provider/id "ollama"
-  :provider/base-url "http://ollama:11434"}
+  :provider/base-url "http://ollama:11434"
+  :paths {:chat-completions "/v1/chat/completions"}}
 
  {:contract/id :provider-route/ollama-lan
   :contract/kind :provider-route
   :provider/id "ollama-lan"
   :provider/base-url "http://192.168.12.68:11434"
-  :auth/required? false}
+  :auth/required? false
+  :paths {:chat-completions "/v1/chat/completions"}}
 
  {:contract/id :provider-route/llamacpp
   :contract/kind :provider-route
   :provider/id "llamacpp"
-  :provider/base-url "http://127.0.0.1:8082"}
+  :provider/base-url "http://127.0.0.1:8082"
+  :paths {:chat-completions "/v1/chat/completions"}}
 
  {:contract/id :provider-route/llamacpp-embed
   :contract/kind :provider-route
   :provider/id "llamacpp-embed"
-  :provider/base-url "http://llamacpp-embed:8081"}
+  :provider/base-url "http://llamacpp-embed:8081"
+  :paths {:chat-completions "/v1/chat/completions"}}
 
  {:contract/id :provider-seed/musicgen
   :contract/kind :provider-seed
@@ -140,4 +156,5 @@
  {:contract/id :provider-route/musicgen
   :contract/kind :provider-route
   :provider/id "musicgen"
-  :provider/base-url "http://musicgen:8080"}]
+  :provider/base-url "http://musicgen:8080"
+  :paths {:chat-completions "/v1/chat/completions"}}]

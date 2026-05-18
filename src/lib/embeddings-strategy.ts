@@ -67,10 +67,7 @@ export interface EmbeddingsConfig {
   providerByModel: Readonly<Record<string, EmbeddingProvider>>;
 }
 
-const DEFAULT_PROVIDER_BY_MODEL: Readonly<Record<string, EmbeddingProvider>> = {
-  "qwen3-embedding:0.6b": "llamacpp-embed",
-  "qwen3-embedding-0.6b": "llamacpp-embed",
-};
+const DEFAULT_PROVIDER_BY_MODEL: Readonly<Record<string, EmbeddingProvider>> = {};
 
 export function normalizeEmbeddingModelId(model: string): string {
   return model.trim().toLowerCase().replace(/:/g, '-');

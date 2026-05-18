@@ -54,7 +54,7 @@ test("CLJS runtime previews declarative policy decisions from manifest", async (
   assert.equal(decision["route-id"], "gpt-free-blocked");
   assert.equal(decision["provider-id"], "openai");
   assert.deepEqual(decision["provider-routes"], [
-    { "provider-id": "openai", "base-url": "https://chatgpt.com/backend-api" },
+    { "provider-id": "openai", "base-url": "https://chatgpt.com/backend-api", paths: { "chat-completions": "/codex/responses/compact", responses: "/codex/responses", "images-generations": "/images/generations" } },
   ]);
   assert.equal(decision.account?.accountId, "plus");
   assert.equal(decision.strategy?.mode, "chat-completions");
@@ -83,7 +83,7 @@ test("CLJS runtime keeps gpt and mimo routes pinned to their canonical providers
   assert.equal(gptDecision["route-id"], "gpt");
   assert.deepEqual(gptDecision.providers, ["openai"]);
   assert.deepEqual(gptDecision["provider-routes"], [
-    { "provider-id": "openai", "base-url": "https://chatgpt.com/backend-api" },
+    { "provider-id": "openai", "base-url": "https://chatgpt.com/backend-api", paths: { "chat-completions": "/codex/responses/compact", responses: "/codex/responses", "images-generations": "/images/generations" } },
   ]);
 
   const mimoResult = loaded.runtime.previewPolicyDecision("resources/policies/runtime/00-manifest.edn", {
@@ -124,7 +124,7 @@ test("CLJS runtime keeps gpt and mimo routes pinned to their canonical providers
   assert.equal(gemma4E4bDecision["route-id"], "gemma4-e4b");
   assert.deepEqual(gemma4E4bDecision.providers, ["ollama-lan"]);
   assert.deepEqual(gemma4E4bDecision["provider-routes"], [
-    { "provider-id": "ollama-lan", "base-url": "http://192.168.12.68:11434", "auth-required?": false },
+    { "provider-id": "ollama-lan", "base-url": "http://192.168.12.68:11434", "auth-required?": false, paths: { "chat-completions": "/v1/chat/completions" } },
   ]);
   assert.equal(gemma4E4bDecision.strategy?.mode, "chat_completions");
 });

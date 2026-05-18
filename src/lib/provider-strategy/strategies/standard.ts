@@ -59,7 +59,7 @@ export class MessagesProviderStrategy extends TransformedJsonProviderStrategy {
   }
 
   public getUpstreamPath(context: StrategyRequestContext): string {
-    return context.config.messagesPath;
+    return context.providerPaths?.messages ?? context.config.messagesPath;
   }
 
   public buildPayload(context: StrategyRequestContext): BuildPayloadResult {
@@ -92,7 +92,7 @@ export class ResponsesProviderStrategy extends TransformedJsonProviderStrategy {
   }
 
   public getUpstreamPath(context: StrategyRequestContext): string {
-    return context.config.responsesPath;
+    return context.providerPaths?.responses ?? context.config.responsesPath;
   }
 
   public buildPayload(context: StrategyRequestContext): BuildPayloadResult {
@@ -193,7 +193,7 @@ export class ChatCompletionsProviderStrategy extends BaseProviderStrategy {
   }
 
   public getUpstreamPath(context: StrategyRequestContext): string {
-    return context.config.chatCompletionsPath;
+    return context.providerPaths?.["chat-completions"] ?? context.config.chatCompletionsPath;
   }
 
   public buildPayload(context: StrategyRequestContext): BuildPayloadResult {
@@ -258,7 +258,7 @@ export class ImagesGenerationsPassthroughStrategy extends BaseProviderStrategy {
   }
 
   public getUpstreamPath(context: StrategyRequestContext): string {
-    return context.config.imagesGenerationsPath;
+    return context.providerPaths?.["images-generations"] ?? context.config.imagesGenerationsPath;
   }
 
   public buildPayload(context: StrategyRequestContext): BuildPayloadResult {
@@ -279,7 +279,7 @@ export class ResponsesPassthroughStrategy extends BaseProviderStrategy {
   }
 
   public getUpstreamPath(context: StrategyRequestContext): string {
-    return context.config.responsesPath;
+    return context.providerPaths?.responses ?? context.config.responsesPath;
   }
 
   public buildPayload(context: StrategyRequestContext): BuildPayloadResult {
@@ -354,7 +354,7 @@ export class ResponsesViaChatCompletionsStrategy extends BaseProviderStrategy {
   }
 
   public getUpstreamPath(context: StrategyRequestContext): string {
-    return context.config.chatCompletionsPath;
+    return context.providerPaths?.["chat-completions"] ?? context.config.chatCompletionsPath;
   }
 
   public buildPayload(context: StrategyRequestContext): BuildPayloadResult {

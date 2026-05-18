@@ -1,22 +1,28 @@
 # Π Fork Tax Snapshot — proxx
 
-- Timestamp: 20260516T185547Z
-- Branch: feat/policy-polish
-- Base: 8b47c6921996
-- Scope: large request transport header hardening.
+- Timestamp: 20260518T034823Z
+- Branch: chore/consolidate-examples
+- Base: a504f3ee4fe7
+- Scope: CLJS queue runtime, route consolidation, provider strategy refactoring.
 
 ## Included work
 
-- Stripped `Expect` from forwarded upstream request headers.
-- Preserved transport error cause details for provider routing logs/events.
-- Added regression assertion for `expect` header stripping.
-- Recorded recursive fork-tax receipts and manifest artifacts.
+- CLJS queue runtime (`src/proxx/queue/`, `test/proxx/queue/`)
+- Policy contracts and runtime extensions (`src/proxx/policy/contracts.cljs`, `src/proxx/runtime.cljs`)
+- Route consolidation for chat, embeddings, images, media-generations, responses
+- Provider strategy refactoring: contexts, attempt-executor, candidate-builder
+- Provider utils extracted (`src/lib/provider-utils.ts`)
+- CLJS policy shadow bridge expanded (`src/lib/policy/cljs-shadow.ts`)
+- Spec/audit moved from `spec/` to `specs/`
+- Workspace config added (`pnpm-workspace.yaml`)
+- Emacs lock file and LSP artifacts excluded from commit
 
 ## Verification
 
+- `pnpm build` passed (tsc + shadow-cljs).
 - `git diff --cached --check` passed.
-- `pnpm exec tsx --test src/tests/proxy-headers.test.ts` passed.
 
 ## Residual dirt
 
-- Proxx auxiliary worktrees under `.worktrees/` remain separate branch scopes and were left untouched.
+- `.clj-kondo/imports/` and `.lsp/` are tooling artifacts left uncommitted.
+- Proxx auxiliary worktrees under `.worktrees/` remain separate branch scopes.

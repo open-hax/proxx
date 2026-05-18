@@ -27,6 +27,7 @@ export interface ExecuteFederatedRequestFallbackInput {
   readonly upstreamPath: string;
   readonly reply: FastifyReply;
   readonly timeoutMs: number;
+  readonly signal?: AbortSignal;
 }
 
 export interface InjectNativeBridgeResult {

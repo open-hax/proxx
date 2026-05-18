@@ -9,6 +9,8 @@ import type { ProviderStrategy, StrategyRequestContext } from "./shared.js";
 import { resolveAutoModel } from "./strategies/auto.js";
 import type { PolicyEngine } from "../policy/index.js";
 
+type RequestSurface = "chat" | "responses-passthrough" | "images-passthrough";
+
 export function selectProviderStrategy(
   config: ProxyConfig,
   clientHeaders: IncomingHttpHeaders,
@@ -17,33 +19,40 @@ export function selectProviderStrategy(
   routingModelInput: string,
   requestAuth?: Pick<ResolvedRequestAuth, "kind" | "tenantId" | "keyId" | "subject">,
   policy?: PolicyEngine,
+  options?: { readonly surface?: RequestSurface },
 ): {
   readonly strategy: ProviderStrategy;
   readonly context: StrategyRequestContext;
 } {
   const routingState = resolveRequestRoutingState(config, routingModelInput);
-  const clientWantsStream = requestBody.stream === true;
-  const needsReasoningTrace = requestWantsReasoningTrace(requestBody);
+  const surface = options?.surface ?? "chat";
+  const chatSurface = surface === "chat";
+  const responsesPassthrough = surface === "responses-passthrough";
+  const imagesPassthrough = surface === "images-passthrough";
+  const clientWantsStream = imagesPassthrough ? false : requestBody.stream === true;
+  const needsReasoningTrace = chatSurface ? requestWantsReasoningTrace(requestBody) : false;
   const upstreamAttemptTimeoutMs = clientWantsStream
     ? Math.min(config.requestTimeoutMs, config.streamBootstrapTimeoutMs)
     : config.requestTimeoutMs;
 
-  let routedModel = routingState.routedModel;
-  routedModel = resolveAutoModel(
-    routedModel,
-    requestBody,
-    undefined,
-    config.upstreamProviderId,
-  );
+  const routedModel = chatSurface
+    ? resolveAutoModel(
+        routingState.routedModel,
+        requestBody,
+        undefined,
+        config.upstreamProviderId,
+      )
+    : routingState.routedModel;
+  const routeProviderId = routingState.factoryPrefixed
+    ? "factory"
+    : routingState.openAiPrefixed
+      ? config.openaiProviderId
+      : chatSurface && (routingState.explicitOllama || routingState.localOllama)
+        ? "ollama"
+        : config.upstreamProviderId;
 
   const context: StrategyRequestContext = {
-    routeProviderId: routingState.factoryPrefixed
-      ? "factory"
-      : routingState.openAiPrefixed
-        ? config.openaiProviderId
-        : routingState.explicitOllama || routingState.localOllama
-          ? "ollama"
-          : config.upstreamProviderId,
+    routeProviderId,
     config,
     clientHeaders,
     requestBody,
@@ -51,99 +60,20 @@ export function selectProviderStrategy(
     requestedModelInput,
     routingModelInput,
     routedModel,
-    explicitOllama: routingState.explicitOllama,
-    openAiPrefixed: routingState.openAiPrefixed,
+    explicitOllama: chatSurface ? routingState.explicitOllama : false,
+    openAiPrefixed: responsesPassthrough
+      ? routingState.openAiPrefixed
+        || (!routingState.factoryPrefixed
+          && config.upstreamProviderId === config.openaiProviderId
+          && looksLikeHostedOpenAiFamily(routedModel))
+      : routingState.openAiPrefixed,
     factoryPrefixed: routingState.factoryPrefixed,
-    localOllama: routingState.localOllama,
+    localOllama: chatSurface ? routingState.localOllama : false,
     clientWantsStream,
     needsReasoningTrace,
     upstreamAttemptTimeoutMs,
-  };
-
-  return { strategy: selectProviderStrategyForContext(context, policy), context };
-}
-
-export function buildResponsesPassthroughContext(
-  config: ProxyConfig,
-  clientHeaders: IncomingHttpHeaders,
-  requestBody: Record<string, unknown>,
-  requestedModelInput: string,
-  routingModelInput: string,
-  requestAuth?: Pick<ResolvedRequestAuth, "kind" | "tenantId" | "keyId" | "subject">,
-  policy?: PolicyEngine,
-): {
-  readonly strategy: ProviderStrategy;
-  readonly context: StrategyRequestContext;
-} {
-  const routingState = resolveRequestRoutingState(config, routingModelInput);
-  const clientWantsStream = requestBody.stream === true;
-  const upstreamAttemptTimeoutMs = clientWantsStream
-    ? Math.min(config.requestTimeoutMs, config.streamBootstrapTimeoutMs)
-    : config.requestTimeoutMs;
-
-  const context: StrategyRequestContext = {
-    routeProviderId: routingState.factoryPrefixed
-      ? "factory"
-      : routingState.openAiPrefixed
-        ? config.openaiProviderId
-        : config.upstreamProviderId,
-    config,
-    clientHeaders,
-    requestBody,
-    requestAuth,
-    requestedModelInput,
-    routingModelInput,
-    routedModel: routingState.routedModel,
-    explicitOllama: false,
-    openAiPrefixed: routingState.openAiPrefixed
-      || (!routingState.factoryPrefixed
-        && config.upstreamProviderId === config.openaiProviderId
-        && looksLikeHostedOpenAiFamily(routingState.routedModel)),
-    factoryPrefixed: routingState.factoryPrefixed,
-    localOllama: false,
-    clientWantsStream,
-    needsReasoningTrace: false,
-    upstreamAttemptTimeoutMs,
-    responsesPassthrough: true,
-  };
-
-  return { strategy: selectProviderStrategyForContext(context, policy), context };
-}
-
-export function buildImagesPassthroughContext(
-  config: ProxyConfig,
-  clientHeaders: IncomingHttpHeaders,
-  requestBody: Record<string, unknown>,
-  model: string,
-  requestAuth?: Pick<ResolvedRequestAuth, "kind" | "tenantId" | "keyId" | "subject">,
-  policy?: PolicyEngine,
-): {
-  readonly strategy: ProviderStrategy;
-  readonly context: StrategyRequestContext;
-} {
-  const routingState = resolveRequestRoutingState(config, model);
-
-  const context: StrategyRequestContext = {
-    routeProviderId: routingState.factoryPrefixed
-      ? "factory"
-      : routingState.openAiPrefixed
-        ? config.openaiProviderId
-        : config.upstreamProviderId,
-    config,
-    clientHeaders,
-    requestBody,
-    requestAuth,
-    requestedModelInput: model,
-    routingModelInput: model,
-    routedModel: routingState.routedModel,
-    explicitOllama: false,
-    openAiPrefixed: routingState.openAiPrefixed,
-    factoryPrefixed: routingState.factoryPrefixed,
-    localOllama: false,
-    clientWantsStream: false,
-    needsReasoningTrace: false,
-    upstreamAttemptTimeoutMs: config.requestTimeoutMs,
-    imagesPassthrough: true,
+    responsesPassthrough,
+    imagesPassthrough,
   };
 
   return { strategy: selectProviderStrategyForContext(context, policy), context };

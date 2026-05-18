@@ -104,7 +104,7 @@ test("shadowPreviewProviderPolicy passes policy evidence into preview input", ()
   });
 });
 
-test("applyCljsProviderPolicy returns exact routes from authoritative policy decision", () => {
+test("applyCljsProviderPolicy returns concrete input routes in authoritative policy order", () => {
   const debug: Array<Record<string, unknown>> = [];
   const warn: Array<Record<string, unknown>> = [];
   const routes = [
@@ -143,7 +143,7 @@ test("applyCljsProviderPolicy returns exact routes from authoritative policy dec
   assert.equal(warn.length, 1);
 });
 
-test("applyCljsProviderPolicy does not use ambient provider routes as authoritative inputs", () => {
+test("applyCljsProviderPolicy uses policy provider IDs but requires concrete input route facts", () => {
   const seenInputs: unknown[] = [];
   const routes = [
     { providerId: "openai", baseUrl: "https://api.openai.com" },
@@ -170,14 +170,14 @@ test("applyCljsProviderPolicy does not use ambient provider routes as authoritat
       tenantSettings: {},
       providerRoutes: routes,
     });
-    assert.deepEqual(ordered, [{ providerId: "xiaomi", baseUrl: "https://api.xiaomimimo.com/v1" }]);
+    assert.deepEqual(ordered, []);
     assert.deepEqual((seenInputs[0] as Record<string, unknown>).providerIds, []);
   } finally {
     setActiveCljsRuntime(undefined);
   }
 });
 
-test("applyCljsProviderPolicy fails closed when policy omits selected provider route", () => {
+test("applyCljsProviderPolicy can execute selected provider when input has concrete route fact", () => {
   setActiveCljsRuntime(createRuntime(["xiaomi"]));
   try {
     const ordered = applyCljsProviderPolicy({
@@ -196,7 +196,7 @@ test("applyCljsProviderPolicy fails closed when policy omits selected provider r
       tenantSettings: {},
       providerRoutes: [{ providerId: "xiaomi", baseUrl: "https://ambient.invalid" }],
     });
-    assert.deepEqual(ordered, []);
+    assert.deepEqual(ordered, [{ providerId: "xiaomi", baseUrl: "https://ambient.invalid" }]);
   } finally {
     setActiveCljsRuntime(undefined);
   }

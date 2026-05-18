@@ -37,6 +37,37 @@ export interface CljsModelAliasResult {
   readonly data?: unknown;
 }
 
+export interface CljsQueuePolicyResult {
+  readonly status: "ok" | "error";
+  readonly policy?: unknown;
+  readonly error?: string;
+  readonly data?: unknown;
+}
+
+export interface CljsAutoModelCandidatesResult {
+  readonly status: "ok" | "error";
+  readonly candidates?: readonly string[];
+  readonly error?: string;
+  readonly data?: unknown;
+}
+
+export interface CljsProviderRoutesResult {
+  readonly status: "ok" | "error";
+  readonly providerRoutes?: readonly unknown[];
+  readonly "provider-routes"?: readonly unknown[];
+  readonly catalog?: {
+    readonly disabled?: boolean;
+    readonly rejected?: boolean;
+  };
+  readonly error?: string;
+  readonly data?: unknown;
+}
+
+export interface CljsModelCandidatesRunResult {
+  readonly status: string;
+  readonly [key: string]: unknown;
+}
+
 export interface ProxxCljsRuntime {
   readonly normalizeKeys: (value: unknown) => unknown;
   readonly validateEntity: (entityType: string, value: unknown) => CljsValidationResult;
@@ -48,6 +79,16 @@ export interface ProxxCljsRuntime {
   readonly previewPolicyDecision: (manifestPath: string, input: unknown) => CljsPolicyDecisionPreviewResult;
   readonly normalizeReasoningRequest: (manifestPath: string, input: unknown) => CljsReasoningNormalizationResult;
   readonly resolveModelAlias: (manifestPath: string, modelId: string, providerId: string) => CljsModelAliasResult;
+  readonly resolveAutoModelCandidates?: (manifestPath: string, input: unknown) => CljsAutoModelCandidatesResult;
+  readonly getProviderRoutes?: (manifestPath: string) => CljsProviderRoutesResult;
+  readonly filterProviderRoutes?: (manifestPath: string, input: unknown) => CljsProviderRoutesResult;
+  readonly runModelCandidates?: (
+    manifestPath: string,
+    input: unknown,
+    executeCandidate: (candidate: string, hasMore: boolean, index: number) => Promise<CljsModelCandidatesRunResult> | CljsModelCandidatesRunResult,
+  ) => Promise<CljsModelCandidatesRunResult>;
+  readonly resolveQueuePolicy?: (manifestPath: string, ctx: unknown) => CljsQueuePolicyResult;
+  readonly runQueued?: <T>(manifestPath: string, ctx: unknown, task: (controller: AbortController) => Promise<T>) => Promise<T>;
 }
 
 export type CljsRuntimeLoadResult =
@@ -83,7 +124,13 @@ function isProxxCljsRuntime(value: Record<string, unknown>): value is Record<str
     typeof value.loadModelPricingOverrides === "function" &&
     typeof value.previewPolicyDecision === "function" &&
     typeof value.normalizeReasoningRequest === "function" &&
-    typeof value.resolveModelAlias === "function"
+    typeof value.resolveModelAlias === "function" &&
+    (value.resolveAutoModelCandidates === undefined || typeof value.resolveAutoModelCandidates === "function") &&
+    (value.filterProviderRoutes === undefined || typeof value.filterProviderRoutes === "function") &&
+    (value.runModelCandidates === undefined || typeof value.runModelCandidates === "function") &&
+    (value.resolveQueuePolicy === undefined || typeof value.resolveQueuePolicy === "function") &&
+    (value.getProviderRoutes === undefined || typeof value.getProviderRoutes === "function") &&
+    (value.runQueued === undefined || typeof value.runQueued === "function")
   );
 }
 

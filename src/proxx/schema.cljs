@@ -189,6 +189,8 @@
 (def NonEmptyStringVector [:vector [:string {:min 1}]])
 (def KeywordVector [:vector :keyword])
 (def ProviderIdVector [:vector ProviderId])
+(def RetryBackoff [:enum :fixed :incremental :exponential :immediate])
+(def QueueStatus [:enum :active :paused :draining :disabled])
 
 (def DomainEnumContract
   [:and
@@ -245,7 +247,8 @@
     [:provider/base-url {:optional true} [:string {:min 1}]]
     [:provider/baseUrl {:optional true} [:string {:min 1}]]
     [:base-url {:optional true} [:string {:min 1}]]
-    [:baseUrl {:optional true} [:string {:min 1}]]]
+    [:baseUrl {:optional true} [:string {:min 1}]]
+    [:paths {:optional true} [:map-of :keyword [:string {:min 1}]]]]
    [:fn {:error/message "provider-route requires a provider id"}
     (fn [m] (boolean (or (:provider/id m) (:provider-id m) (:providerId m))))]
    [:fn {:error/message "provider-route requires a base URL"}
@@ -362,6 +365,74 @@
     [:normalize/effort-map [:map-of :keyword [:or :keyword [:int {:min 0}]]]]
     [:normalize/default {:optional true} [:or :keyword [:int {:min 0}]]]]])
 
+(def RequestQueueTemplateContract
+  [:and
+   ContractBase
+   [:map
+    [:contract/kind [:enum :request-queue-template]]
+    [:queue/name [:string {:min 1}]]
+    [:queue/status {:optional true :default :active} QueueStatus]
+    [:queue/concurrency-limit [:int {:min 1 :max 256}]]
+    [:queue/max-queue-size [:int {:min 0 :max 10000}]]
+    [:queue/overflow-policy [:enum :drop :reject]]
+    [:queue/attempt-timeout-ms [:int {:min 100}]]
+    [:queue/total-timeout-ms {:optional true} [:int {:min 100}]]
+    [:queue/max-retries [:int {:min 0 :max 20}]]
+    [:queue/retry-backoff RetryBackoff]
+    [:queue/fail-fast? {:optional true :default false} :boolean]
+    [:queue/jitter-factor {:optional true :default 0.2} [:double {:min 0.0 :max 1.0}]]
+    [:queue/base-interval-ms {:optional true} [:int {:min 0}]]
+    [:queue/retry-after-respect? {:optional true :default true} :boolean]
+    [:provenance {:optional true} Provenance]]
+   [:fn {:error/message ":queue/total-timeout-ms must exceed :queue/attempt-timeout-ms"}
+    (fn [m]
+      (if (and (:queue/total-timeout-ms m) (:queue/attempt-timeout-ms m))
+        (> (:queue/total-timeout-ms m) (:queue/attempt-timeout-ms m))
+        true))]
+   [:fn {:error/message ":queue/base-interval-ms required for :fixed, :incremental, or :exponential backoff"}
+    (fn [m]
+      (if (#{:fixed :incremental :exponential} (:queue/retry-backoff m))
+        (some? (:queue/base-interval-ms m))
+        true))]])
+
+(def RequestQueueInstanceContract
+  [:and
+   ContractBase
+   [:map
+    [:contract/kind [:enum :request-queue-instance]]
+    [:queue/template-id :keyword]
+    [:queue/tenant-id {:optional true} TenantId]
+    [:queue/provider-id {:optional true} ProviderId]
+    [:match/family {:optional true} :keyword]
+    [:match/request-kind {:optional true} :keyword]
+    [:queue/status {:optional true} [:maybe QueueStatus]]
+    [:queue/concurrency-limit {:optional true} [:maybe [:int {:min 1 :max 256}]]]
+    [:queue/max-queue-size {:optional true} [:maybe [:int {:min 0 :max 10000}]]]
+    [:queue/overflow-policy {:optional true} [:maybe [:enum :drop :reject]]]
+    [:queue/attempt-timeout-ms {:optional true} [:maybe [:int {:min 100}]]]
+    [:queue/total-timeout-ms {:optional true} [:maybe [:int {:min 100}]]]
+    [:queue/max-retries {:optional true} [:maybe [:int {:min 0 :max 20}]]]
+    [:queue/retry-backoff {:optional true} [:maybe RetryBackoff]]
+    [:queue/fail-fast? {:optional true} [:maybe :boolean]]
+    [:queue/jitter-factor {:optional true} [:maybe [:double {:min 0.0 :max 1.0}]]]
+    [:queue/base-interval-ms {:optional true} [:maybe [:int {:min 0}]]]
+    [:queue/retry-after-respect? {:optional true} [:maybe :boolean]]
+    [:queue/active-count {:optional true} [:int {:min 0}]]
+    [:queue/queued-count {:optional true} [:int {:min 0}]]
+    [:queue/last-enqueued-at {:optional true} EpochMs]
+    [:provenance {:optional true} Provenance]]
+   [:fn {:error/message ":request-queue-instance requires at least one scope key"}
+    (fn [m]
+      (boolean (or (:queue/tenant-id m)
+                   (:queue/provider-id m)
+                   (:match/family m)
+                   (:match/request-kind m))))]
+   [:fn {:error/message ":queue/total-timeout-ms must exceed :queue/attempt-timeout-ms"}
+    (fn [m]
+      (if (and (:queue/total-timeout-ms m) (:queue/attempt-timeout-ms m))
+        (> (:queue/total-timeout-ms m) (:queue/attempt-timeout-ms m))
+        true))]])
+
 (def PolicyProgramContract
   [:and
    ContractBase
@@ -400,6 +471,8 @@
     [:model-pricing-override ModelPricingOverrideContract]
     [:model-alias ModelAliasContract]
     [:reasoning-normalization ReasoningNormalizationContract]
+   [:request-queue-template RequestQueueTemplateContract]
+   [:request-queue-instance RequestQueueInstanceContract]
    [:policy-program PolicyProgramContract]
    [:strategy-binding StrategyBindingContract]
    [:policy Policy]
@@ -445,6 +518,10 @@
     :proxx/contract-model-pricing-override ModelPricingOverrideContract
     :proxx/contract-model-alias ModelAliasContract
     :proxx/contract-reasoning-normalization ReasoningNormalizationContract
+   :proxx/retry-backoff RetryBackoff
+   :proxx/queue-status QueueStatus
+   :proxx/contract-request-queue-template RequestQueueTemplateContract
+   :proxx/contract-request-queue-instance RequestQueueInstanceContract
    :proxx/contract-policy-program PolicyProgramContract
    :proxx/contract-strategy-binding StrategyBindingContract
    :proxx/policy-contract PolicyContract})
@@ -495,12 +572,22 @@
                        :errors      result
                        :input       (sanitize-record record)})))))
 
+(defn- apply-policy-contract-defaults [record]
+  (if (= :request-queue-template (:contract/kind record))
+    (merge {:queue/status :active
+            :queue/jitter-factor 0.2
+            :queue/fail-fast? false
+            :queue/retry-after-respect? true}
+           record)
+    record))
+
 (defn coerce
   "Attempt to coerce record via malli default-value-transformer.
    Returns coerced record or nil on failure."
   [entity-type record]
   (let [schema (schema-for entity-type)]
     (try
-      (let [coerced (m/coerce schema record (mt/default-value-transformer))]
+      (let [coerced (apply-policy-contract-defaults
+                     (m/coerce schema record (mt/default-value-transformer)))]
         (when (m/validate schema coerced) coerced))
       (catch :default _ nil))))

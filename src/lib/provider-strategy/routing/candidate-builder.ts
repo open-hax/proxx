@@ -89,6 +89,7 @@ export async function buildRoutingCandidates(
       providerId: route.providerId,
       baseUrl: route.baseUrl,
       account,
+      ...(route.paths ? { paths: route.paths } : {}),
     }));
 
     if (routeCandidates.length > 0) {

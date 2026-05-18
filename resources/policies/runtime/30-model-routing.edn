@@ -147,14 +147,6 @@
   :prefer/strategies [:video]
   :account/order :account-order/prefer-free}
 
- {:contract/id :route/blaze-music
-  :contract/kind :routing-clause
-  :match/family :model-family/blaze-music
-  :prefer/providers :provider-order/blaze
-  :prefer/providers-strict? true
-  :prefer/strategies [:music]
-  :account/order :account-order/prefer-free}
-
  {:contract/id :route/minimax-music
    :contract/kind :routing-clause
    :match/family :model-family/minimax-music

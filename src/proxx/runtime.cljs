@@ -1,10 +1,13 @@
 (ns proxx.runtime
-  (:require [proxx.policy :as policy]
+  (:require [clojure.string]
+            [proxx.policy :as policy]
             [proxx.policy.contracts :as policy-contracts]
             [proxx.policy.evidence :as policy-evidence]
             [proxx.policy.loader :as policy-loader]
             [proxx.policy.router :as router]
             [proxx.processor :as processor]
+            [proxx.queue.policy :as queue-policy]
+            [proxx.queue.runtime :as queue-runtime]
             [proxx.schema :as schema]
             [proxx.strategies.anthropic :as anthropic]
             [proxx.strategies.openai :as openai]))
@@ -150,6 +153,110 @@
                 :error (.-message e)
                 :data (ex-data e)}))))
 
+(defn get-provider-routes-js
+  "Load all provider routes from :provider-route and :provider-seed contracts
+   in the manifest. Returns a JS object with :status and :provider-routes array
+   of {provider-id, base-url, paths?, auth-required?}."
+  [manifest-path]
+  (try
+    (let [compiled (compiled-policy-for-manifest manifest-path)
+          routes (:provider-routes compiled)]
+      (clj->js {:status "ok" :provider-routes (vec routes)}))
+    (catch :default e
+      (clj->js {:status "error"
+                :error (.-message e)
+                :data (ex-data e)}))))
+
+(defn resolve-auto-model-candidates-js
+  "Resolve concrete model candidates for an auto:* selector from policy inputs.
+
+  Candidate discovery is supplied by the caller from catalog/policy evidence; the
+  runtime boundary owns the auto selector decision so route handlers do not rank
+  model candidates locally."
+  [_manifest-path input]
+  (try
+    (let [m (js->clj (or input #js {}) :keywordize-keys true)
+          model-id (clojure.string/lower-case (str (or (:model-id m) (:modelId m) "")))
+          candidates (vec (or (:available-models m) (:availableModels m) []))]
+      (clj->js (if (clojure.string/starts-with? model-id "auto:")
+                {:status "ok" :candidates candidates}
+                {:status "ok" :candidates [(or (:model-id m) (:modelId m))]})))
+    (catch :default e
+      (clj->js {:status "error"
+                :error (.-message e)
+                :data (ex-data e)}))))
+
+(defn filter-provider-routes-js
+  "Apply provider route eligibility in CLJS policy space. TypeScript callers
+  pass request context and route facts; CLJS owns model-support, tenant-provider,
+  and optional provider-catalog availability decisions."
+  [manifest-path input]
+  (try
+    (let [compiled (compiled-policy-for-manifest manifest-path)
+          result (policy-contracts/filter-provider-routes
+                  compiled
+                  (js->clj (or input #js {}) :keywordize-keys true))]
+      (clj->js (assoc result :status "ok")))
+    (catch :default e
+      (clj->js {:status "error"
+                :error (.-message e)
+                :data (ex-data e)}))))
+
+(defn run-model-candidates-js
+  "Run model candidate attempts in CLJS so route handlers do not own the retry loop.
+
+  execute-candidate is a JS async function of (candidate, hasMore, index). It
+  returns a map/object whose :status is continue to try the next candidate;
+  any other status terminates the loop and is returned to the caller."
+  [_manifest-path input execute-candidate]
+  (let [m (js->clj (or input #js {}) :keywordize-keys true)
+        candidates (vec (or (:candidates m) (:model-candidates m) (:modelCandidates m) []))
+        total (count candidates)]
+    (letfn [(step [idx]
+              (if (< idx total)
+                (let [candidate (nth candidates idx)
+                      has-more (< idx (dec total))]
+                  (-> (js/Promise.resolve (execute-candidate candidate has-more idx))
+                      (.then (fn [result]
+                               (let [result-map (js->clj (or result #js {}) :keywordize-keys true)
+                                     status (str (or (:status result-map) (:kind result-map) "handled"))]
+                                 (if (= "continue" status)
+                                   (step (inc idx))
+                                   (clj->js (assoc result-map :status status))))))))
+                (js/Promise.resolve #js {:status "exhausted"})))]
+      (step 0))))
+
+(defn resolve-queue-policy-js
+  "Resolve the effective request queue policy for a request context."
+  [manifest-path ctx]
+  (try
+    (let [compiled (compiled-policy-for-manifest manifest-path)
+          queue-policy (queue-policy/resolve-queue-policy
+                        compiled
+                        (js->clj (or ctx #js {}) :keywordize-keys true))]
+      (clj->js {:status "ok" :policy queue-policy}))
+    (catch :default e
+      (clj->js {:status "error"
+                :error (.-message e)
+                :data (ex-data e)}))))
+
+(defn run-queued-js
+  "Resolve queue policy from manifest/context and run a JS task through it.
+
+  The JS task receives an AbortController. When no queue instance matches, the
+  task is executed directly with a fresh controller."
+  [manifest-path ctx task]
+  (try
+    (let [compiled (compiled-policy-for-manifest manifest-path)
+          queue-policy (queue-policy/resolve-queue-policy
+                        compiled
+                        (js->clj (or ctx #js {}) :keywordize-keys true))]
+      (if queue-policy
+        (queue-runtime/run! task queue-policy)
+        (task (js/AbortController.))))
+    (catch :default e
+      (js/Promise.reject e))))
+
 (def exports
   #js {:normalizeKeys normalize-keys-js
        :validateEntity validate-entity-js
@@ -160,4 +267,10 @@
        :loadProviderSeedSpecs load-provider-seed-specs-js
        :previewPolicyDecision preview-policy-decision-js
        :normalizeReasoningRequest normalize-reasoning-request-js
-       :resolveModelAlias resolve-model-alias-js})
+       :resolveModelAlias resolve-model-alias-js
+       :getProviderRoutes get-provider-routes-js
+       :resolveAutoModelCandidates resolve-auto-model-candidates-js
+       :filterProviderRoutes filter-provider-routes-js
+       :runModelCandidates run-model-candidates-js
+       :resolveQueuePolicy resolve-queue-policy-js
+       :runQueued run-queued-js})

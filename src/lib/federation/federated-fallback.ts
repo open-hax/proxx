@@ -214,6 +214,7 @@ export async function executeFederatedRequestFallback(
     readonly upstreamPath: string;
     readonly reply: FastifyReply;
     readonly timeoutMs: number;
+    readonly signal?: AbortSignal;
   },
 ): Promise<boolean> {
   const { app, sqlFederationStore, runtimeCredentialStore, sqlTenantProviderPolicyStore } = deps;
@@ -352,6 +353,7 @@ export async function executeFederatedRequestFallback(
           method: "POST",
           headers,
           body: bodyText,
+          signal: input.signal,
         },
         input.timeoutMs,
       );

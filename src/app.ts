@@ -28,13 +28,15 @@ import {
   buildOllamaCatalogRoutes,
   parseModelIdsFromCatalogPayload,
   type ResolvedModelCatalog,
-  buildProviderRoutesWithDynamicBaseUrls,
   createDynamicProviderBaseUrlGetter,
 } from "./lib/provider-routing.js";
+import { getContractProviderRoutes } from "./lib/policy/cljs-shadow.js";
 import { discoverDynamicOllamaRoutes, prependDynamicOllamaRoutes } from "./lib/dynamic-ollama-routes.js";
 import {
+  isOpenAiHttpError,
   sendOpenAiError,
 } from "./lib/provider-utils.js";
+import { openAiError } from "./lib/proxy.js";
 import { toErrorMessage } from "./lib/errors/index.js";
 import { getTelemetry } from "./lib/telemetry/otel.js";
 import { RequestLogStore } from "./lib/request-log-store.js";
@@ -89,6 +91,29 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
   const app = Fastify({
     logger: true,
     bodyLimit: 300 * 1024 * 1024
+  });
+
+  app.setErrorHandler(async (error, request, reply) => {
+    if (isOpenAiHttpError(error)) {
+      request.log.warn({
+        err: error,
+        code: error.code,
+        type: error.type,
+        meta: error.meta,
+        tenantId: request.openHaxAuth?.tenantId,
+      }, "request failed with typed OpenAI error");
+      if (error.code) {
+        reply.header("x-open-hax-error-code", error.code);
+      }
+      reply.code(error.statusCode).send(openAiError(error.message, error.type, error.code));
+      return;
+    }
+
+    request.log.error({
+      err: error,
+      tenantId: request.openHaxAuth?.tenantId,
+    }, "request failed with unhandled error");
+    reply.code(500).send(openAiError("Internal server error", "server_error", "internal_error"));
   });
 
   await app.register(fastifySwagger, {
@@ -182,7 +207,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
         }
       }
 
-      const inlineKeysJson = process.env.PROXY_KEYS_JSON ?? process.env.UPSTREAM_KEYS_JSON ?? process.env.VIVGRID_KEYS_JSON;
+      const inlineKeysJson = process.env.PROXY_KEYS_JSON ?? process.env.VIVGRID_KEYS_JSON;
       if (typeof inlineKeysJson === "string" && inlineKeysJson.trim().length > 0) {
         try {
           const parsedInlineKeys: unknown = JSON.parse(inlineKeysJson);
@@ -448,8 +473,9 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     federatedDynamicOllamaRoutes,
   );
   const providerCatalogRoutes = prependDynamicOllamaRoutes(
-    (await buildProviderRoutesWithDynamicBaseUrls(config, false, dynamicProviderBaseUrlGetter, true))
-      .filter((route) => route.providerId !== "factory" || !config.disabledProviderIds.includes("factory")),
+    getContractProviderRoutes(config).filter(
+      (route) => route.providerId !== "factory" || !config.disabledProviderIds.includes("factory"),
+    ),
     federatedDynamicOllamaRoutes,
   );
   const providerCatalogStore = new ProviderCatalogStore(

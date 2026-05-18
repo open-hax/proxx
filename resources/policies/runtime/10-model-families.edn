@@ -124,11 +124,6 @@
   :reasoning/control :effort-level
   :reasoning/native-efforts [:none :low :medium :high]}
 
- {:contract/id :model-family/blaze-music
-  :contract/kind :model-family
-  :match/model-pattern "(?i)^MiniMax-music-2\\.[56]-(?:highspeed|free)$"
-  :reasoning/control :none}
-
  {:contract/id :model-family/minimax-music
   :contract/kind :model-family
   :match/model-pattern "(?i)^MiniMax-music-2\\.[56]-(?:highspeed|free)$"

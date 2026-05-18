@@ -10,6 +10,7 @@ import test from "node:test";
 import type { FastifyInstance } from "fastify";
 
 import { createApp } from "../app.js";
+import { getActiveCljsRuntime, loadCljsRuntime, setActiveCljsRuntime } from "../lib/cljs-runtime.js";
 import type { ProxyConfig } from "../lib/config.js";
 
 interface TestContext {
@@ -17,6 +18,13 @@ interface TestContext {
   readonly upstream: Server;
   readonly tempDir: string;
 }
+
+const testCljsRuntimePromise = loadCljsRuntime({ required: true }).then((result) => {
+  if (!result.loaded) {
+    throw new Error(result.reason);
+  }
+  return result.runtime;
+});
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -212,6 +220,9 @@ async function withProxyApp(
     oauthRefreshProactiveWindowMs: options.configOverrides?.oauthRefreshProactiveWindowMs ?? 30 * 60_000,
     concurrencyThrottleMaxRetries: options.configOverrides?.concurrencyThrottleMaxRetries ?? 3,
     concurrencyThrottleThresholdMs: options.configOverrides?.concurrencyThrottleThresholdMs ?? 30_000,
+    cljsPolicyManifestPath: "resources/policies/runtime/00-manifest.edn",
+    cljsPolicyAuthoritative: options.configOverrides?.cljsPolicyAuthoritative ?? false,
+    cljsPolicyShadowMode: options.configOverrides?.cljsPolicyShadowMode ?? false,
   };
 
   const config: ProxyConfig = {
@@ -223,11 +234,14 @@ async function withProxyApp(
     },
   };
 
+  const previousCljsRuntime = getActiveCljsRuntime();
+  setActiveCljsRuntime(await testCljsRuntimePromise);
   const app = await createApp(config);
   try {
     await fn({ app, upstream, tempDir });
   } finally {
     await app.close();
+    setActiveCljsRuntime(previousCljsRuntime);
     await new Promise<void>((resolve, reject) => {
       upstream.close((error) => {
         if (error) {
@@ -2639,7 +2653,7 @@ test("falls back from openai-prefixed codex route to standard fallback providers
   );
 });
 
-test("de-prioritizes vivgrid behind codex oauth accounts for gpt routing", async () => {
+test("falls back from vivgrid to codex oauth accounts for gpt routing", async () => {
   const observedPaths: string[] = [];
   const observedAuth: string[] = [];
 
@@ -2674,6 +2688,18 @@ test("de-prioritizes vivgrid behind codex oauth accounts for gpt routing", async
         }
         observedPaths.push(request.url ?? "");
 
+        if (auth === "Bearer vivgrid-rate-limited") {
+          const ratelimitHeaders: Record<string, string> = {
+            "content-type": "application/json",
+            "retry-after": "60",
+          };
+          return {
+            status: 429,
+            headers: ratelimitHeaders,
+            body: JSON.stringify({ error: { message: "rate limit" } }),
+          };
+        }
+
         const parsedBody = JSON.parse(body);
         assert.ok(isRecord(parsedBody));
         if (parsedBody.model === "nomic-embed-text:latest") {
@@ -2681,7 +2707,7 @@ test("de-prioritizes vivgrid behind codex oauth accounts for gpt routing", async
             status: 200,
             headers: {
               "content-type": "application/json"
-            },
+            } as Record<string, string>,
             body: JSON.stringify({ embeddings: [[0.1, 0.2, 0.3]] })
           };
         }
@@ -2733,8 +2759,8 @@ test("de-prioritizes vivgrid behind codex oauth accounts for gpt routing", async
       assert.equal(response.statusCode, 200);
       assert.equal(response.headers["x-open-hax-upstream-provider"], "openai");
       assert.equal(response.headers["x-open-hax-upstream-mode"], "openai_responses");
-      assert.deepEqual(observedPaths, ["/v1/responses"]);
-      assert.deepEqual(observedAuth, ["openai-codex-working"]);
+      assert.deepEqual(observedPaths, ["/v1/responses", "/v1/responses"]);
+      assert.deepEqual(observedAuth, ["vivgrid-rate-limited", "openai-codex-working"]);
 
       const payload: unknown = response.json();
       assert.ok(isRecord(payload));
@@ -2747,7 +2773,7 @@ test("de-prioritizes vivgrid behind codex oauth accounts for gpt routing", async
   );
 });
 
-test("prefers free codex oauth accounts for gpt-5.4 before paid accounts (falls back when unsupported)", async () => {
+test("falls back from vivgrid through free codex oauth to paid accounts for gpt-5.4", async () => {
   const observedAuth: string[] = [];
 
   await withProxyApp(
@@ -2782,7 +2808,7 @@ test("prefers free codex oauth accounts for gpt-5.4 before paid accounts (falls 
         if (request.url === "/api/embed" || request.url === "/api/embeddings") {
           return {
             status: 200,
-            headers: { "content-type": "application/json" },
+            headers: { "content-type": "application/json" } as Record<string, string>,
             body: JSON.stringify({ embeddings: [[0.1, 0.2, 0.3]] })
           };
         }
@@ -2792,10 +2818,18 @@ test("prefers free codex oauth accounts for gpt-5.4 before paid accounts (falls 
           observedAuth.push(auth.replace(/^Bearer\s+/i, ""));
         }
 
+        if (auth === "Bearer vivgrid-failing-key") {
+          return {
+            status: 401,
+            headers: { "content-type": "application/json" } as Record<string, string>,
+            body: JSON.stringify({ error: { message: "unauthorized" } })
+          };
+        }
+
         if (auth === "Bearer openai-free-unsupported") {
           return {
             status: 400,
-            headers: { "content-type": "application/json" },
+            headers: { "content-type": "application/json" } as Record<string, string>,
             body: JSON.stringify({ detail: "The 'gpt-5.4' model is not supported when using Codex with a ChatGPT account." })
           };
         }
@@ -2805,7 +2839,7 @@ test("prefers free codex oauth accounts for gpt-5.4 before paid accounts (falls 
         if (parsedBody.model !== "gpt-5.4") {
           return {
             status: 200,
-            headers: { "content-type": "application/json" },
+            headers: { "content-type": "application/json" } as Record<string, string>,
             body: JSON.stringify({ embeddings: [[0.1, 0.2, 0.3]] })
           };
         }
@@ -2814,7 +2848,7 @@ test("prefers free codex oauth accounts for gpt-5.4 before paid accounts (falls 
 
         return {
           status: 200,
-          headers: { "content-type": "application/json" },
+          headers: { "content-type": "application/json" } as Record<string, string>,
           body: JSON.stringify({
             id: "resp-paid-openai-fallback",
             object: "response",
@@ -2855,7 +2889,7 @@ test("prefers free codex oauth accounts for gpt-5.4 before paid accounts (falls 
       assert.equal(response.statusCode, 200);
       assert.equal(response.headers["x-open-hax-upstream-provider"], "openai");
       assert.equal(response.headers["x-open-hax-upstream-mode"], "openai_responses");
-      assert.deepEqual(observedAuth, ["openai-free-unsupported", "openai-plus-working"]);
+      assert.deepEqual(observedAuth, ["vivgrid-failing-key", "openai-free-unsupported", "openai-plus-working"]);
 
       const payload: unknown = response.json();
       assert.ok(isRecord(payload));
@@ -2970,7 +3004,7 @@ test("prefers free codex oauth accounts for gpt-5.2-codex before paid accounts",
   );
 });
 
-test("refreshes expired openai fallback accounts before gpt-5.4 fallback", async () => {
+test("falls back from vivgrid to expired openai account which refreshes token before gpt-5.4 fallback", async () => {
   const observedAuth: string[] = [];
   const refreshedAccessToken = makeJwt({
     chatgpt_account_id: "cgpt-refreshed",
@@ -3033,7 +3067,7 @@ test("refreshes expired openai fallback accounts before gpt-5.4 fallback", async
             if (request.url === "/api/embed" || request.url === "/api/embeddings") {
               return {
                 status: 200,
-                headers: { "content-type": "application/json" },
+                headers: { "content-type": "application/json" } as Record<string, string>,
                 body: JSON.stringify({ embeddings: [[0.1, 0.2, 0.3]] }),
               };
             }
@@ -3041,6 +3075,18 @@ test("refreshes expired openai fallback accounts before gpt-5.4 fallback", async
             const auth = request.headers.authorization;
             if (typeof auth === "string") {
               observedAuth.push(auth.replace(/^Bearer\s+/i, ""));
+            }
+
+            if (auth === "Bearer vivgrid-failing-key") {
+              const ratelimitHeaders: Record<string, string> = {
+                "content-type": "application/json",
+                "retry-after": "60",
+              };
+              return {
+                status: 429,
+                headers: ratelimitHeaders,
+                body: JSON.stringify({ error: { message: "rate limit" } }),
+              };
             }
 
             assert.equal(auth, `Bearer ${refreshedAccessToken}`);
@@ -3052,7 +3098,7 @@ test("refreshes expired openai fallback accounts before gpt-5.4 fallback", async
 
             return {
               status: 200,
-              headers: { "content-type": "application/json" },
+              headers: { "content-type": "application/json" } as Record<string, string>,
               body: JSON.stringify({
                 id: "resp-refreshed-openai-fallback",
                 object: "response",
@@ -3093,7 +3139,7 @@ test("refreshes expired openai fallback accounts before gpt-5.4 fallback", async
           assert.equal(response.headers["x-open-hax-upstream-provider"], "openai");
           assert.equal(response.headers["x-open-hax-upstream-mode"], "openai_responses");
           assert.equal(refreshCalls, 1);
-          assert.deepEqual(observedAuth, [refreshedAccessToken]);
+          assert.deepEqual(observedAuth, ["vivgrid-failing-key", refreshedAccessToken]);
 
           const payload: unknown = response.json();
           assert.ok(isRecord(payload));
@@ -8236,6 +8282,7 @@ test("glm chat requests route to rotussy instead of ollama-cloud or the openai p
           configOverrides: {
             upstreamProviderId: "openai",
             localOllamaEnabled: false,
+            cljsPolicyShadowMode: true,
           },
           upstreamHandler: async (request, body) => {
             if (request.method === "GET" && request.url === "/models") {
@@ -8333,6 +8380,7 @@ test("glm chat requests skip ollama-cloud when provider catalog does not adverti
           configOverrides: {
             upstreamProviderId: "openai",
             localOllamaEnabled: false,
+            cljsPolicyShadowMode: true,
           },
           upstreamHandler: async (request, body) => {
             const auth = request.headers.authorization;
@@ -8438,6 +8486,7 @@ test("glm /v1/responses requests route through rotussy chat-completions compatib
           configOverrides: {
             upstreamProviderId: "openai",
             localOllamaEnabled: false,
+            cljsPolicyShadowMode: true,
           },
           upstreamHandler: async (request, body) => {
             if (request.method === "GET" && request.url === "/models") {

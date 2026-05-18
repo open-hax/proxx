@@ -52,6 +52,19 @@ For changes to `Dockerfile`, `docker-compose.yml`, frontend package deps, or bui
 - `pnpm web:test:e2e` is the browser smoke layer that locks the frontend surfaces being migrated to `@open-hax/uxx`.
 - If a touched surface has no test yet, add at least a smoke test before calling the work complete.
 
+## ClojureScript async style
+
+- New ClojureScript async code uses `defn ^:async` / `deftest ^:async` with bare `(await ...)`.
+- Do not add `shadow.cljs.modern/js-await` to new code.
+- Tests should prefer `deftest ^:async` over `cljs.test/async` callback style for Promise flows.
+- Compile immediately after changing CLJS async code; do not rewrite working `^:async` code into TypeScript or Promise-chain helpers.
+
+## Request queue integration
+
+- The request queue runtime lives in ClojureScript (`src/proxx/queue/*`) and is exposed through the compiled CLJS runtime.
+- Do not add new TypeScript queue modules for queue semantics; TypeScript route code should call the CLJS runtime boundary (`runQueued` / `resolveQueuePolicy`) and keep only minimal HTTP response mapping at the route edge.
+- Queue policies belong in `resources/policies/runtime/*.edn` and must be loaded through `00-manifest.edn`.
+
 ## RELEVANT SKILLS
 These skills are configured for this directory's technology stack and workflow.
 
