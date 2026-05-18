@@ -2,7 +2,6 @@ import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { URL } from "node:url";
 import { mkdir, writeFile } from "node:fs/promises";
-import { randomUUID } from "node:crypto";
 import type { IncomingHttpHeaders } from "node:http";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { AppDeps } from "../lib/app-deps.js";
