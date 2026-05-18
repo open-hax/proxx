@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { assertCljsRuntimeReady, loadCljsRuntime, setActiveCljsRuntime } from "../lib/cljs-runtime.js";
+import { assertCljsRuntimeReady, loadCljsRuntime } from "../lib/cljs-runtime.js";
 import { getModelPricing, estimateRequestCost, setPolicyModelPricingOverrides } from "../lib/model-pricing.js";
 
 test("CLJS runtime loads gemma4 pricing override from manifest", async (t) => {
