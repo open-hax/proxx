@@ -1,28 +1,25 @@
 # Π Fork Tax Snapshot — proxx
 
-- Timestamp: 20260518T034823Z
+- Timestamp: 20260518T061200Z
 - Branch: chore/consolidate-examples
-- Base: a504f3ee4fe7
-- Scope: CLJS queue runtime, route consolidation, provider strategy refactoring.
+- Base: c9c2800d3df4
+- Scope: CI workflow Java setup for shadow-cljs + eslint CJS ignore fix.
 
 ## Included work
 
-- CLJS queue runtime (`src/proxx/queue/`, `test/proxx/queue/`)
-- Policy contracts and runtime extensions (`src/proxx/policy/contracts.cljs`, `src/proxx/runtime.cljs`)
-- Route consolidation for chat, embeddings, images, media-generations, responses
-- Provider strategy refactoring: contexts, attempt-executor, candidate-builder
-- Provider utils extracted (`src/lib/provider-utils.ts`)
-- CLJS policy shadow bridge expanded (`src/lib/policy/cljs-shadow.ts`)
-- Spec/audit moved from `spec/` to `specs/`
-- Workspace config added (`pnpm-workspace.yaml`)
-- Emacs lock file and LSP artifacts excluded from commit
+- Added `actions/setup-java@v4` (temurin, Java 21) to all workflows running `pnpm build`/`pnpm test`
+- Added `actions/cache@v4` for `.shadow-cljs` and `~/.m2/repository` alongside Java setup
+- Workflows fixed: `main-pr-gate.yml`, `staging-pr.yml`, `deploy-testing.yml`, `deploy-staging.yml`, `deploy-production.yml`
+- Fixed eslint `ignores` pattern: `"*.cjs"` → `"**/*.cjs"` so CJS files in subdirectories are ignored
 
 ## Verification
 
 - `pnpm build` passed (tsc + shadow-cljs).
-- `git diff --cached --check` passed.
+- `npx tsx --test src/tests/schema-migration.test.ts` passed (5/5).
+- `actionlint` passed on all modified workflow files.
+- `pnpm run typecheck` passed.
 
 ## Residual dirt
 
 - `.clj-kondo/imports/` and `.lsp/` are tooling artifacts left uncommitted.
-- Proxx auxiliary worktrees under `.worktrees/` remain separate branch scopes.
+- `.#route-filtering.ts` emacs lock file left untracked.
