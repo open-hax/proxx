@@ -27,6 +27,17 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: actions/cache@v4
+        with:
+          path: |
+            .shadow-cljs
+            ~/.m2/repository
+          key: shadow-cljs-${{ runner.os }}-${{ hashFiles('shadow-cljs.edn') }}
+          restore-keys: shadow-cljs-${{ runner.os }}-
       - run: sudo apt-get update && sudo apt-get install -y shellcheck
       - run: go install github.com/rhysd/actionlint/cmd/actionlint@latest
       - run: chmod +x scripts/*.sh
