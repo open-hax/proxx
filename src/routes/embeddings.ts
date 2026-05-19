@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import type { AppDeps } from "../lib/app-deps.js";
 import { DEFAULT_TENANT_ID } from "../lib/tenant-api-key.js";
 import { joinUrl } from "../lib/http/index.js";
-import { tenantProviderAllowed } from "../lib/policy/engine/index.js";
+import { getActiveCljsRuntime } from "../lib/cljs-runtime.js";
 import { buildForwardHeaders } from "../lib/proxy.js";
 import {
   nativeEmbedToOpenAiRequest,
@@ -10,14 +10,18 @@ import {
   nativeEmbedToOllamaRequest,
 } from "../lib/ollama-native.js";
 import { resolveModelRouting } from "../lib/model-routing-pipeline.js";
-import { isAutoModel } from "../lib/auto-model-selector.js";
-import { isRecord, sendOpenAiError } from "../lib/provider-utils.js";
+import { isRecord, OpenAiHttpError, runCljsQueued, sendQueueError } from "../lib/provider-utils.js";
 import { toErrorMessage } from "../lib/errors/index.js";
 import { fetchWithResponseTimeout } from "../lib/http/index.js";
 import { ensureNativeOllamaEmbedContextFits } from "../lib/ollama-context.js";
 import { isOpenAiCompatEmbedProvider } from "../lib/provider-strategy/strategies/embeddings.js";
 import { normalizeLlamacppModelName } from "../lib/provider-strategy/strategies/llamacpp.js";
-import { hasModelPrefix } from "../lib/provider-routing.js";
+import { filterDeclaredProviderRoutes, getDeclaredProviderRoutes, hasModelPrefix, stripModelPrefix, type ProviderRoute } from "../lib/provider-routing.js";
+import { resolveEmbeddingProviderAlias } from "../lib/embeddings-strategy.js";
+
+function openAiRouteError(statusCode: number, message: string, type: string, code: string, meta?: Record<string, unknown>, cause?: unknown): OpenAiHttpError {
+  return new OpenAiHttpError({ statusCode, message, type, code, meta, cause });
+}
 
 function summarizeEmbeddingInput(
   input: string | readonly string[],
@@ -31,40 +35,15 @@ function summarizeEmbeddingInput(
   };
 }
 
-/**
- * Resolve which provider serves a given model by scanning the live catalog.
- * Returns the first providerId whose discovered model list includes the model,
- * or undefined if not found (caller falls back to ollamaBaseUrl).
- */
-function resolveEmbedProvider(
-  resolvedCatalogBundle: import("../lib/provider-catalog.js").ResolvedCatalogWithPreferences | null,
-  routedModel: string,
-): string | undefined {
-  if (!resolvedCatalogBundle) {
-    return undefined;
-  }
-  // Normalize colon separators to hyphens to match llamacpp catalog format
-  // (e.g. qwen3-embedding:0.6b -> qwen3-embedding-0.6b)
-  const normalized = routedModel.trim().toLowerCase().replace(/:/g, "-");
-  for (const [providerId, entry] of Object.entries(resolvedCatalogBundle.providerCatalogs)) {
-    if (entry.modelIds.some((id) => id.trim().toLowerCase() === normalized)) {
-      return providerId;
-    }
-  }
-  return undefined;
-}
-
 export function registerEmbeddingsRoutes(deps: AppDeps, app: FastifyInstance): void {
   app.post<{ Body: Record<string, unknown> }>("/v1/embeddings", async (request, reply) => {
     if (!isRecord(request.body)) {
-      sendOpenAiError(reply, 400, "Request body must be a JSON object", "invalid_request_error", "invalid_body");
-      return;
+      throw openAiRouteError(400, "Request body must be a JSON object", "invalid_request_error", "invalid_body");
     }
 
     const model = typeof request.body.model === "string" ? request.body.model : "";
-    if (isAutoModel(model)) {
-      sendOpenAiError(reply, 400, "Auto models are not supported for embeddings requests.", "invalid_request_error", "model_not_supported");
-      return;
+    if (model.toLowerCase().startsWith("auto:")) {
+      throw openAiRouteError(400, "Auto models are not supported for embeddings requests.", "invalid_request_error", "model_not_supported", { requestedModel: model });
     }
 
     const explicitlyLlamaCpp = hasModelPrefix(model, deps.config.llamacppModelPrefixes ?? []);
@@ -92,141 +71,169 @@ export function registerEmbeddingsRoutes(deps: AppDeps, app: FastifyInstance): v
       return;
     }
 
-    const { routingModelInput, resolvedCatalogBundle } = modelRouting;
+    const { routingModelInput } = modelRouting;
 
-    // Resolve from catalog for fallback
-    const catalogProviderId = resolveEmbedProvider(resolvedCatalogBundle, routingModelInput);
+    const routingModelWithoutProviderPrefix = explicitlyLlamaCpp
+      ? stripModelPrefix(routingModelInput, deps.config.llamacppModelPrefixes ?? [])
+      : explicitlyOllama
+        ? stripModelPrefix(routingModelInput, deps.config.ollamaModelPrefixes)
+        : routingModelInput;
 
-    // Override provider with explicitly specified provider from model prefix
-    let routeProviderId: string;
-    if (requestProviderId) {
-      routeProviderId = requestProviderId;
-    } else if (catalogProviderId) {
-      routeProviderId = catalogProviderId;
-    } else {
-      routeProviderId = "ollama";
-    }
-    const isOllamaProvider = !isOpenAiCompatEmbedProvider(routeProviderId);
-
-    if (!tenantProviderAllowed(proxySettings, isOllamaProvider ? "ollama" : routeProviderId)) {
-      sendOpenAiError(
-        reply, 403,
-        `Provider is disabled for this tenant: ${routeProviderId}`,
-        "invalid_request_error", "provider_not_allowed",
-      );
-      return;
-    }
-
-    // Normalize model name for the target provider.
-    const routedModel = isOllamaProvider
-      ? routingModelInput
-      : normalizeLlamacppModelName(routingModelInput);
-
-    const embedBody = nativeEmbedToOpenAiRequest({ ...request.body, model: routedModel });
-    const inputSummary = summarizeEmbeddingInput(embedBody.input);
-
-    if (inputSummary.itemCount > deps.config.embedMaxBatchItems) {
-      sendOpenAiError(
-        reply, 400,
-        `Embedding batch is too large. Received ${inputSummary.itemCount} items, maximum: ${deps.config.embedMaxBatchItems}.`,
-        "invalid_request_error", "embed_batch_too_large",
-      );
-      return;
-    }
-
-    if (inputSummary.totalChars > deps.config.embedMaxInputChars) {
-      sendOpenAiError(
-        reply, 400,
-        `Embedding input is too large. Received ${inputSummary.totalChars} chars, maximum: ${deps.config.embedMaxInputChars}.`,
-        "invalid_request_error", "embed_input_too_large",
-      );
-      return;
-    }
-
-    // Context-fit check is Ollama-specific (requires /api/show); skip for OpenAI-compat providers.
-    const embedBudget = isOllamaProvider
-      ? await ensureNativeOllamaEmbedContextFits(
-          deps.config.ollamaBaseUrl,
-          { model: routedModel, input: embedBody.input },
-          Math.min(deps.config.requestTimeoutMs, 30_000),
-        )
+    const aliasProviderId = resolveEmbeddingProviderAlias(routingModelWithoutProviderPrefix);
+    const configuredAliasProviderId = aliasProviderId && deps.config.upstreamProviderBaseUrls[aliasProviderId]
+      ? aliasProviderId
       : undefined;
 
-    const maxContextTokens = Math.min(
-      deps.config.embedMaxContextTokens,
-      embedBudget?.contextLength ?? deps.config.embedMaxContextTokens,
-    );
+    const requestedRouteProviderId = requestProviderId
+      ?? configuredAliasProviderId
+      ?? "ollama";
 
-    if (embedBudget && embedBudget.estimatedInputTokens > maxContextTokens) {
-      sendOpenAiError(
-        reply, 400,
-        `Embedding request exceeds model context window for ${embedBudget.model}. ` +
-          `Estimated: ${embedBudget.estimatedInputTokens} tokens, maximum: ${maxContextTokens}.`,
-        "invalid_request_error", "embed_context_overflow",
-      );
-      return;
+    const runtime = getActiveCljsRuntime();
+    if (deps.config.cljsPolicyAuthoritative === true && !runtime) {
+      throw openAiRouteError(503, "CLJS policy runtime is required for embeddings routing.", "server_error", "cljs_policy_runtime_unavailable", { requestedModel: model });
     }
 
-    const autoNumCtx = embedBudget && embedBudget.requiredContextTokens > embedBudget.availableContextTokens
-      ? Math.min(maxContextTokens, embedBudget.recommendedNumCtx)
-      : undefined;
+    const declaredRoutes = getDeclaredProviderRoutes(deps.config);
+    const providerRoutes: ProviderRoute[] = declaredRoutes.filter((route) => route.providerId === requestedRouteProviderId);
+    const selectedRoutes = filterDeclaredProviderRoutes(deps.config.cljsPolicyManifestPath, {
+      config: deps.config,
+      modelId: routingModelWithoutProviderPrefix,
+      requestKind: "embeddings",
+      tenantSettings: proxySettings,
+      providerRoutes,
+    }).providerRoutes;
+    if (selectedRoutes.length === 0) {
+      throw openAiRouteError(403, "No allowed embedding provider is available for this model.", "invalid_request_error", "provider_not_allowed", { routedModel: routingModelWithoutProviderPrefix });
+    }
 
-    let upstreamResponse: Response;
-    try {
-      if (isOllamaProvider) {
-        // Ollama native path: POST /api/embed
-        const upstreamBody = nativeEmbedToOllamaRequest(
-          { ...request.body, model: routedModel },
-          autoNumCtx ?? embedBudget?.availableContextTokens,
-        );
-        upstreamResponse = await fetchWithResponseTimeout(
-          joinUrl(deps.config.ollamaBaseUrl, "/api/embed"),
-          { method: "POST", headers: buildForwardHeaders(request.headers), body: JSON.stringify(upstreamBody) },
-          deps.config.requestTimeoutMs,
-        );
-      } else {
-        // OpenAI-compat path: POST /v1/embeddings to the catalog-resolved provider.
-        const providerBaseUrl = deps.config.upstreamProviderBaseUrls[routeProviderId] ?? "";
-        if (!providerBaseUrl) {
-          sendOpenAiError(
-            reply, 502,
-            `No base URL configured for embed provider: ${routeProviderId}`,
-            "server_error", "embedding_upstream_unavailable",
-          );
-          return;
-        }
-        upstreamResponse = await fetchWithResponseTimeout(
-          joinUrl(providerBaseUrl, "/v1/embeddings"),
-          { method: "POST", headers: buildForwardHeaders(request.headers), body: JSON.stringify({ ...embedBody, model: routedModel }) },
-          deps.config.requestTimeoutMs,
+    for (const candidate of selectedRoutes) {
+      const candidateId = candidate.providerId;
+      const candidateIsOllama = !isOpenAiCompatEmbedProvider(candidateId);
+
+      const candidateModel = candidateIsOllama
+        ? routingModelWithoutProviderPrefix
+        : normalizeLlamacppModelName(routingModelWithoutProviderPrefix);
+      const candidateEmbedBody = nativeEmbedToOpenAiRequest({ ...request.body, model: candidateModel });
+      const inputSummary = summarizeEmbeddingInput(candidateEmbedBody.input);
+      if (inputSummary.itemCount > deps.config.embedMaxBatchItems) {
+        throw openAiRouteError(
+          400,
+          `Embedding batch is too large. Received ${inputSummary.itemCount} items, maximum: ${deps.config.embedMaxBatchItems}.`,
+          "invalid_request_error",
+          "embed_batch_too_large",
+          { itemCount: inputSummary.itemCount, maxItems: deps.config.embedMaxBatchItems },
         );
       }
-    } catch (error) {
-      sendOpenAiError(
-        reply, 502,
-        `Embedding upstream request failed: ${toErrorMessage(error)}`,
-        "server_error", "embedding_upstream_unavailable",
+      if (inputSummary.totalChars > deps.config.embedMaxInputChars) {
+        throw openAiRouteError(
+          400,
+          `Embedding input is too large. Received ${inputSummary.totalChars} chars, maximum: ${deps.config.embedMaxInputChars}.`,
+          "invalid_request_error",
+          "embed_input_too_large",
+          { totalChars: inputSummary.totalChars, maxChars: deps.config.embedMaxInputChars },
+        );
+      }
+
+      const embedBudget = candidateIsOllama
+        ? await runCljsQueued(
+            deps.config.cljsPolicyManifestPath,
+            { "tenant-id": request.openHaxAuth?.tenantId ?? "default", "provider-id": candidateId, "request-kind": "embeddings" },
+            async (controller) => await ensureNativeOllamaEmbedContextFits(
+              deps.config.ollamaBaseUrl,
+              { model: candidateModel, input: candidateEmbedBody.input },
+              Math.min(deps.config.requestTimeoutMs, 30_000),
+              controller.signal,
+            ),
+          )
+        : undefined;
+      const maxContextTokens = Math.min(
+        deps.config.embedMaxContextTokens,
+        embedBudget?.contextLength ?? deps.config.embedMaxContextTokens,
+      );
+      if (embedBudget && embedBudget.estimatedInputTokens > maxContextTokens) {
+        throw openAiRouteError(
+          400,
+          `Embedding request exceeds model context window for ${embedBudget.model}. ` +
+            `Estimated: ${embedBudget.estimatedInputTokens} tokens, maximum: ${maxContextTokens}.`,
+          "invalid_request_error",
+          "embed_context_overflow",
+          { model: embedBudget.model, estimatedInputTokens: embedBudget.estimatedInputTokens, maxContextTokens },
+        );
+      }
+
+      const autoNumCtx = embedBudget && embedBudget.requiredContextTokens > embedBudget.availableContextTokens
+        ? Math.min(maxContextTokens, embedBudget.recommendedNumCtx)
+        : undefined;
+      let upstreamResponse: Response;
+      try {
+        if (candidateIsOllama) {
+          const upstreamBody = nativeEmbedToOllamaRequest(
+            { ...request.body, model: candidateModel },
+            autoNumCtx ?? embedBudget?.availableContextTokens,
+          );
+          upstreamResponse = await runCljsQueued(
+            deps.config.cljsPolicyManifestPath,
+            { "tenant-id": request.openHaxAuth?.tenantId ?? "default", "provider-id": candidateId, "request-kind": "embeddings" },
+            async (controller) => await fetchWithResponseTimeout(
+              joinUrl(deps.config.ollamaBaseUrl, "/api/embed"),
+              { method: "POST", headers: buildForwardHeaders(request.headers), body: JSON.stringify(upstreamBody), signal: controller.signal },
+              deps.config.requestTimeoutMs,
+            ),
+          );
+        } else {
+          const candidateBaseUrl = deps.config.upstreamProviderBaseUrls[candidateId] ?? candidate.baseUrl ?? "";
+          if (!candidateBaseUrl) {
+            request.log.warn({ providerId: candidateId }, "no base URL for provider, skipping");
+            continue;
+          }
+          upstreamResponse = await runCljsQueued(
+            deps.config.cljsPolicyManifestPath,
+            { "tenant-id": request.openHaxAuth?.tenantId ?? "default", "provider-id": candidateId, "request-kind": "embeddings" },
+            async (controller) => await fetchWithResponseTimeout(
+              joinUrl(candidateBaseUrl, "/v1/embeddings"),
+              { method: "POST", headers: buildForwardHeaders(request.headers), body: JSON.stringify({ ...candidateEmbedBody, model: candidateModel }), signal: controller.signal },
+              deps.config.requestTimeoutMs,
+            ),
+          );
+        }
+      } catch (error) {
+        if (sendQueueError(reply, error)) {
+          return;
+        }
+        request.log.warn({ providerId: candidateId, err: toErrorMessage(error) }, "embedding provider fetch failed, will try next");
+        continue;
+      }
+
+      if (!upstreamResponse.ok) {
+        const responseText = await upstreamResponse.text();
+        if (upstreamResponse.status >= 500) {
+          request.log.warn({ providerId: candidateId, status: upstreamResponse.status, response: responseText.slice(0, 200) }, "embedding provider 5xx, will try next");
+          continue;
+        }
+        throw openAiRouteError(
+          upstreamResponse.status,
+          `Embedding upstream rejected the request: ${responseText}`,
+          "invalid_request_error",
+          "embedding_upstream_error",
+          { providerId: candidateId, status: upstreamResponse.status },
+        );
+      }
+
+      const upstreamJson = await upstreamResponse.json() as Record<string, unknown>;
+      reply.send(
+        candidateIsOllama
+          ? nativeEmbedResponseToOpenAiEmbeddings(upstreamJson, candidateEmbedBody.model)
+          : { ...upstreamJson, model: candidateEmbedBody.model },
       );
       return;
     }
 
-    if (!upstreamResponse.ok) {
-      sendOpenAiError(
-        reply,
-        upstreamResponse.status >= 500 ? 502 : upstreamResponse.status,
-        `Embedding upstream rejected the request: ${await upstreamResponse.text()}`,
-        upstreamResponse.status >= 500 ? "server_error" : "invalid_request_error",
-        "embedding_upstream_error",
-      );
-      return;
-    }
-
-    const upstreamJson = await upstreamResponse.json() as Record<string, unknown>;
-    // Ollama returns its own format; OpenAI-compat providers already return OpenAI shape.
-    reply.send(
-      isOllamaProvider
-        ? nativeEmbedResponseToOpenAiEmbeddings(upstreamJson, embedBody.model)
-        : { ...upstreamJson, model: embedBody.model },
+    throw openAiRouteError(
+      502,
+      "All embedding providers failed for this model.",
+      "server_error",
+      "embedding_upstream_unavailable",
+      { requestedModel: model, routedModel: routingModelWithoutProviderPrefix },
     );
   });
 }

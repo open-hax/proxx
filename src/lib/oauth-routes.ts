@@ -4,7 +4,6 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import type { Sql } from "./db/index.js";
 import { SqlAuthPersistence } from "./auth/sql-persistence.js";
 import { SqlGitHubAllowlist } from "./auth/github-allowlist.js";
-import { seedFromJsonFile } from "./db/json-seeder.js";
 import { SqlCredentialStore } from "./db/sql-credential-store.js";
 import { DEFAULT_TENANT_ID } from "./tenant-api-key.js";
 
@@ -401,14 +400,6 @@ export async function registerOAuthRoutes(
     await deps.allowlist.removeAllowedUser(login);
     reply.send({ ok: true, login });
   });
-}
-
-export async function seedCredentialsFromJson(
-  sql: Sql,
-  keysFilePath: string,
-  upstreamProviderId: string,
-): Promise<{ providers: number; accounts: number }> {
-  return seedFromJsonFile(sql, keysFilePath, upstreamProviderId);
 }
 
 export function createVerifyBearerToken(deps: OAuthRouteDependencies) {

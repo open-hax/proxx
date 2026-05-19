@@ -1,6 +1,6 @@
-export { buildResponsesPassthroughContext, buildImagesPassthroughContext, selectProviderStrategy } from "./provider-strategy/contexts.js";
+export { selectProviderStrategy } from "./provider-strategy/contexts.js";
 export { executeLocalStrategy } from "./provider-strategy/local.js";
-export { executeProviderRoutingPlan, executeProviderFallback, inspectProviderAvailability } from "./provider-strategy/fallback/index.js";
+export { executeProviderRoutingPlan, inspectProviderAvailability } from "./provider-strategy/routing/index.js";
 export { extractUsageCountsFromSseText } from "./provider-strategy/shared.js";
 export type {
   BuildPayloadResult,
@@ -8,7 +8,7 @@ export type {
   ProviderAttemptContext,
   ProviderAttemptOutcome,
   ProviderAvailabilitySummary,
-  ProviderFallbackExecutionResult,
+  ProviderRoutingExecutionResult,
   ProviderStrategy,
   StrategyRequestContext,
   UpstreamMode,

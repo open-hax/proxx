@@ -3,13 +3,13 @@ import test from "node:test";
 
 import { chatRequestToOllamaRequest, streamOllamaNdjsonToChatCompletionSse } from "../lib/ollama-compat.js";
 
-test("chatRequestToOllamaRequest normalizes gemma4 xhigh reasoning effort to max while enabling think", () => {
+test("chatRequestToOllamaRequest preserves policy-normalized reasoning effort while enabling think", () => {
   const payload = chatRequestToOllamaRequest(
     {
       model: "ollama/gemma4:31b",
       stream: false,
       messages: [{ role: "user", content: "Reply with exactly OK." }],
-      reasoning_effort: "xhigh",
+      reasoning_effort: "max",
       include: ["reasoning.encrypted_content"],
     },
     ["ollama/", "ollama:"],

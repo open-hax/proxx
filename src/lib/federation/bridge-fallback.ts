@@ -23,7 +23,7 @@ import {
   shareModeAllowsRelay,
   tenantProviderPolicyAllowsUse,
   type TenantProviderPolicyRecord,
-} from "../tenant-provider-policy.js";
+} from "../db/sql-tenant-provider-policy-store.js";
 import { applyNativeOllamaAuth } from "../native-auth.js";
 import type { SqlTenantProviderPolicyStore } from "../db/sql-tenant-provider-policy-store.js";
 import type { RuntimeCredentialStore } from "../runtime-credential-store.js";
@@ -67,6 +67,7 @@ export async function executeBridgeRequestFallback(
     readonly requestHeaders: Record<string, unknown>;
     readonly requestBody: Record<string, unknown>;
     readonly requestAuth?: { readonly kind: "legacy_admin" | "tenant_api_key" | "ui_session" | "unauthenticated"; readonly subject?: string; readonly tenantId?: string };
+    readonly allowedProviderIds?: readonly string[];
     readonly upstreamPath: string;
     readonly reply: FastifyReply;
     readonly timeoutMs: number;
@@ -132,13 +133,16 @@ export async function executeBridgeRequestFallback(
 
   // Filter connected sessions by advertised capability for the requested path
   const normalizedPath = input.upstreamPath.split("?")[0]!;
+  const allowedProviderIds = new Set((input.allowedProviderIds ?? []).map((providerId) => providerId.trim().toLowerCase()).filter((providerId) => providerId.length > 0));
   const connectedSessions = (await Promise.all(bridgeRelay.listSessions()
     .filter((session) => session.state === "connected")
     .filter((session) => session.ownerSubject === ownerSubject)
     .filter((session) => session.tenantId === tenantId)
     .map(async (session) => {
       for (const capability of session.capabilities) {
-        if (!bridgeCapabilitySupportsPath(capability, normalizedPath)
+        const capabilityProviderId = capability.providerId.trim().toLowerCase();
+        if ((allowedProviderIds.size > 0 && !allowedProviderIds.has(capabilityProviderId))
+          || !bridgeCapabilitySupportsPath(capability, normalizedPath)
           || !bridgeCapabilitySupportsModel(capability, requestedModel)) {
           continue;
         }

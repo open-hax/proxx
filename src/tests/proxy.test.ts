@@ -10,6 +10,7 @@ import test from "node:test";
 import type { FastifyInstance } from "fastify";
 
 import { createApp } from "../app.js";
+import { getActiveCljsRuntime, loadCljsRuntime, setActiveCljsRuntime } from "../lib/cljs-runtime.js";
 import type { ProxyConfig } from "../lib/config.js";
 
 interface TestContext {
@@ -17,6 +18,30 @@ interface TestContext {
   readonly upstream: Server;
   readonly tempDir: string;
 }
+
+const AMBIENT_PROVIDER_ENV_NAMES = [
+  "ROTUSSY_API_KEY",
+  "ROTUSSY_PROVIDER_ID",
+  "FACTORY_API_KEY",
+  "GEMINI_API_KEY",
+  "ZAI_API_KEY",
+  "ZHIPU_API_KEY",
+  "MISTRAL_API_KEY",
+  "OPENROUTER_API_KEY",
+  "REQUESTY_API_TOKEN",
+  "REQUESTY_API_KEY",
+  "ZEN_API_KEY",
+  "ZENMUX_API_KEY",
+] as const;
+
+const ambientProviderEnv = new Map(AMBIENT_PROVIDER_ENV_NAMES.map((name) => [name, process.env[name]] as const));
+
+const testCljsRuntimePromise = loadCljsRuntime({ required: true }).then((result) => {
+  if (!result.loaded) {
+    throw new Error(result.reason);
+  }
+  return result.runtime;
+});
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -135,7 +160,6 @@ async function withProxyApp(
     host: "127.0.0.1",
     port: 0,
     upstreamProviderId: "vivgrid",
-    upstreamFallbackProviderIds: [],
     disabledProviderIds: [],
     upstreamProviderBaseUrls: {
       vivgrid: `http://127.0.0.1:${address.port}`,
@@ -148,6 +172,7 @@ async function withProxyApp(
       zai: `http://127.0.0.1:${address.port}/api/paas/v4`,
       mistral: `http://127.0.0.1:${address.port}/v1`,
       rotussy: `http://127.0.0.1:${address.port}/v1`,
+      "llamacpp-embed": `http://127.0.0.1:${address.port}`,
     },
     upstreamBaseUrl: `http://127.0.0.1:${address.port}`,
     openaiProviderId: "openai",
@@ -174,6 +199,7 @@ async function withProxyApp(
     factoryModelPrefixes: ["factory/", "factory:"],
     openaiModelPrefixes: ["openai/", "openai:"],
     ollamaModelPrefixes: ["ollama/", "ollama:"],
+    llamacppModelPrefixes: ["llamacpp/", "llamacpp:", "llamacpp-embed/", "llamacpp-embed:"],
     keysFilePath: keysPath,
     modelsFilePath: modelsPath,
     requestLogsFilePath: requestLogsPath,
@@ -211,6 +237,9 @@ async function withProxyApp(
     oauthRefreshProactiveWindowMs: options.configOverrides?.oauthRefreshProactiveWindowMs ?? 30 * 60_000,
     concurrencyThrottleMaxRetries: options.configOverrides?.concurrencyThrottleMaxRetries ?? 3,
     concurrencyThrottleThresholdMs: options.configOverrides?.concurrencyThrottleThresholdMs ?? 30_000,
+    cljsPolicyManifestPath: "resources/policies/runtime/00-manifest.edn",
+    cljsPolicyAuthoritative: options.configOverrides?.cljsPolicyAuthoritative ?? false,
+    cljsPolicyShadowMode: options.configOverrides?.cljsPolicyShadowMode ?? false,
   };
 
   const config: ProxyConfig = {
@@ -222,22 +251,27 @@ async function withProxyApp(
     },
   };
 
-  const app = await createApp(config);
-  try {
-    await fn({ app, upstream, tempDir });
-  } finally {
-    await app.close();
-    await new Promise<void>((resolve, reject) => {
-      upstream.close((error) => {
-        if (error) {
-          reject(error);
-          return;
-        }
-        resolve();
+  await withClearedAmbientProviders(async () => {
+    const previousCljsRuntime = getActiveCljsRuntime();
+    setActiveCljsRuntime(await testCljsRuntimePromise);
+    const app = await createApp(config);
+    try {
+      await fn({ app, upstream, tempDir });
+    } finally {
+      await app.close();
+      setActiveCljsRuntime(previousCljsRuntime);
+      await new Promise<void>((resolve, reject) => {
+        upstream.close((error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          resolve();
+        });
       });
-    });
-    await rm(tempDir, { recursive: true, force: true });
-  }
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
 }
 
 async function withEnv(values: Record<string, string | undefined>, fn: () => Promise<void>): Promise<void> {
@@ -285,23 +319,18 @@ async function withPatchedFetch(
 }
 
 async function withClearedAmbientProviders(fn: () => Promise<void>): Promise<void> {
+  const values: Record<string, string | undefined> = {
+    FACTORY_AUTH_V2_FILE: process.env.FACTORY_AUTH_V2_FILE === undefined ? "/tmp/nonexistent-auth-v2-file" : process.env.FACTORY_AUTH_V2_FILE,
+    FACTORY_AUTH_V2_KEY: process.env.FACTORY_AUTH_V2_KEY === undefined ? "/tmp/nonexistent-auth-v2-key" : process.env.FACTORY_AUTH_V2_KEY,
+  };
+  for (const name of AMBIENT_PROVIDER_ENV_NAMES) {
+    if (process.env[name] === ambientProviderEnv.get(name)) {
+      values[name] = undefined;
+    }
+  }
+
   await withEnv(
-    {
-      ROTUSSY_API_KEY: undefined,
-      ROTUSSY_PROVIDER_ID: undefined,
-      FACTORY_API_KEY: undefined,
-      FACTORY_AUTH_V2_FILE: "/tmp/nonexistent-auth-v2-file",
-      FACTORY_AUTH_V2_KEY: "/tmp/nonexistent-auth-v2-key",
-      GEMINI_API_KEY: undefined,
-      ZAI_API_KEY: undefined,
-      ZHIPU_API_KEY: undefined,
-      MISTRAL_API_KEY: undefined,
-      OPENROUTER_API_KEY: undefined,
-      REQUESTY_API_TOKEN: undefined,
-      REQUESTY_API_KEY: undefined,
-      ZEN_API_KEY: undefined,
-      ZENMUX_API_KEY: undefined,
-    },
+    values,
     fn,
   );
 }
@@ -328,7 +357,6 @@ async function withZaiProxyApp(
           keysPayload: { providers: {} },
           configOverrides: {
             upstreamProviderId: "zai",
-            upstreamFallbackProviderIds: [],
             localOllamaEnabled: false,
           },
           upstreamHandler,
@@ -416,7 +444,6 @@ test("routes claude models through chat completions for the openrouter provider"
           keysPayload: { providers: {} },
           configOverrides: {
             upstreamProviderId: "openrouter",
-            upstreamFallbackProviderIds: [],
           },
           upstreamHandler: async (request, body) => {
             if (request.url === "/api/embed" || request.url === "/api/embeddings") {
@@ -476,7 +503,6 @@ test("routes claude models through chat completions for the requesty provider", 
           keysPayload: { providers: {} },
           configOverrides: {
             upstreamProviderId: "requesty",
-            upstreamFallbackProviderIds: [],
           },
           upstreamHandler: async (request, body) => {
             if (request.url === "/api/embed" || request.url === "/api/embeddings") {
@@ -534,7 +560,6 @@ test("routes claude models through chat completions for the ob1 provider", { con
       },
       configOverrides: {
         upstreamProviderId: "ob1",
-        upstreamFallbackProviderIds: [],
       },
       upstreamHandler: async (request, body) => {
         if (request.url === "/api/embed" || request.url === "/api/embeddings") {
@@ -598,7 +623,6 @@ test("routes /v1/responses through requesty when REQUESTY_API_KEY is configured"
           keysPayload: { providers: {} },
           configOverrides: {
             upstreamProviderId: "requesty",
-            upstreamFallbackProviderIds: [],
           },
           upstreamHandler: async (request, body) => {
             if (request.url === "/api/embed" || request.url === "/api/embeddings") {
@@ -665,7 +689,6 @@ test("requesty gpt chat requests route through /v1/responses with prefixed model
           keysPayload: { providers: {} },
           configOverrides: {
             upstreamProviderId: "requesty",
-            upstreamFallbackProviderIds: [],
           },
           upstreamHandler: async (request, body) => {
             if (request.url === "/api/embed" || request.url === "/api/embeddings") {
@@ -770,7 +793,6 @@ test("requesty /v1/responses preserves nested reasoning summary for gpt models",
           keysPayload: { providers: {} },
           configOverrides: {
             upstreamProviderId: "requesty",
-            upstreamFallbackProviderIds: [],
           },
           upstreamHandler: async (request, body) => {
             if (request.url === "/api/embed" || request.url === "/api/embeddings") {
@@ -872,7 +894,6 @@ test("routes /v1/images/generations through requesty", { concurrency: false }, a
           keysPayload: { providers: {} },
           configOverrides: {
             upstreamProviderId: "requesty",
-            upstreamFallbackProviderIds: [],
           },
           upstreamHandler: async (request, body) => {
             if (request.url === "/api/embed" || request.url === "/api/embeddings") {
@@ -966,7 +987,6 @@ test("OpenAI images auto mode routes OAuth tokens to Platform API only", { concu
           },
           configOverrides: {
             upstreamProviderId: "openai",
-            upstreamFallbackProviderIds: [],
             openaiProviderId: "openai",
             openaiImagesUpstreamMode: "auto",
             openaiApiBaseUrl,
@@ -1077,7 +1097,6 @@ test("OpenAI images auto mode falls back to Codex Responses image_generation whe
           },
           configOverrides: {
             upstreamProviderId: "openai",
-            upstreamFallbackProviderIds: [],
             openaiProviderId: "openai",
             openaiImagesUpstreamMode: "auto",
             openaiApiBaseUrl,
@@ -1145,7 +1164,6 @@ test("routes chat completions through native Gemini generateContent when GEMINI_
           keysPayload: { providers: {} },
           configOverrides: {
             upstreamProviderId: "gemini",
-            upstreamFallbackProviderIds: [],
           },
           upstreamHandler: async (request, body) => {
             if (request.url === "/api/embed" || request.url === "/api/embeddings") {
@@ -1217,7 +1235,6 @@ test("maps Gemini 2.5 Flash reasoning effort to thinkingBudget and reasoning_con
           keysPayload: { providers: {} },
           configOverrides: {
             upstreamProviderId: "gemini",
-            upstreamFallbackProviderIds: [],
           },
           upstreamHandler: async (request, body) => {
             if (request.url === "/api/embed" || request.url === "/api/embeddings") {
@@ -1296,7 +1313,6 @@ test("maps Gemini 3.1 Pro reasoning effort to thinkingLevel", { concurrency: fal
           keysPayload: { providers: {} },
           configOverrides: {
             upstreamProviderId: "gemini",
-            upstreamFallbackProviderIds: [],
           },
           upstreamHandler: async (request, body) => {
             if (request.url === "/api/embed" || request.url === "/api/embeddings") {
@@ -1499,7 +1515,6 @@ test("routes mistral chat requests through env-backed Mistral provider", { concu
           keysPayload: { providers: {} },
           configOverrides: {
             upstreamProviderId: "mistral",
-            upstreamFallbackProviderIds: [],
             localOllamaEnabled: false,
           },
           upstreamHandler: async (request, body) => {
@@ -1667,7 +1682,6 @@ test("reassigns ollama session-limited prompt_cache_key affinity after one fallb
       },
       configOverrides: {
         upstreamProviderId: "ollama-cloud",
-        upstreamFallbackProviderIds: [],
         keyCooldownJitterFactor: 0,
       },
       upstreamHandler: async (request) => {
@@ -2260,7 +2274,6 @@ test("prefers zai over vivgrid for glm shared models when both are available", a
       },
       configOverrides: {
         upstreamProviderId: "vivgrid",
-        upstreamFallbackProviderIds: ["zai"]
       },
       upstreamHandler: async (request) => {
         const auth = request.headers.authorization;
@@ -2343,7 +2356,6 @@ test("continues trying accounts after model-not-found response", async () => {
       },
       configOverrides: {
         upstreamProviderId: "requesty",
-        upstreamFallbackProviderIds: ["vivgrid"]
       },
       upstreamHandler: async (request, body) => {
         const auth = request.headers.authorization;
@@ -2489,7 +2501,6 @@ test("glm provider ordering uses zai before vivgrid candidate keys", async () =>
       },
       configOverrides: {
         upstreamProviderId: "vivgrid",
-        upstreamFallbackProviderIds: ["zai"]
       },
       upstreamHandler: async (request) => {
         const auth = request.headers.authorization;
@@ -2564,7 +2575,6 @@ test("falls back from openai-prefixed codex route to standard fallback providers
       },
       configOverrides: {
         upstreamProviderId: "vivgrid",
-        upstreamFallbackProviderIds: [],
       },
       upstreamHandler: async (request, body) => {
         if (request.url === "/api/embed" || request.url === "/api/embeddings") {
@@ -2657,7 +2667,7 @@ test("falls back from openai-prefixed codex route to standard fallback providers
   );
 });
 
-test("de-prioritizes vivgrid behind codex oauth accounts for gpt routing", async () => {
+test("falls back from vivgrid to codex oauth accounts for gpt routing", async () => {
   const observedPaths: string[] = [];
   const observedAuth: string[] = [];
 
@@ -2674,7 +2684,6 @@ test("de-prioritizes vivgrid behind codex oauth accounts for gpt routing", async
       },
       configOverrides: {
         upstreamProviderId: "vivgrid",
-        upstreamFallbackProviderIds: []
       },
       upstreamHandler: async (request, body) => {
         if (request.url === "/api/embed" || request.url === "/api/embeddings") {
@@ -2693,6 +2702,18 @@ test("de-prioritizes vivgrid behind codex oauth accounts for gpt routing", async
         }
         observedPaths.push(request.url ?? "");
 
+        if (auth === "Bearer vivgrid-rate-limited") {
+          const ratelimitHeaders: Record<string, string> = {
+            "content-type": "application/json",
+            "retry-after": "60",
+          };
+          return {
+            status: 429,
+            headers: ratelimitHeaders,
+            body: JSON.stringify({ error: { message: "rate limit" } }),
+          };
+        }
+
         const parsedBody = JSON.parse(body);
         assert.ok(isRecord(parsedBody));
         if (parsedBody.model === "nomic-embed-text:latest") {
@@ -2700,7 +2721,7 @@ test("de-prioritizes vivgrid behind codex oauth accounts for gpt routing", async
             status: 200,
             headers: {
               "content-type": "application/json"
-            },
+            } as Record<string, string>,
             body: JSON.stringify({ embeddings: [[0.1, 0.2, 0.3]] })
           };
         }
@@ -2752,8 +2773,8 @@ test("de-prioritizes vivgrid behind codex oauth accounts for gpt routing", async
       assert.equal(response.statusCode, 200);
       assert.equal(response.headers["x-open-hax-upstream-provider"], "openai");
       assert.equal(response.headers["x-open-hax-upstream-mode"], "openai_responses");
-      assert.deepEqual(observedPaths, ["/v1/responses"]);
-      assert.deepEqual(observedAuth, ["openai-codex-working"]);
+      assert.deepEqual(observedPaths, ["/v1/responses", "/v1/responses"]);
+      assert.deepEqual(observedAuth, ["vivgrid-rate-limited", "openai-codex-working"]);
 
       const payload: unknown = response.json();
       assert.ok(isRecord(payload));
@@ -2766,7 +2787,7 @@ test("de-prioritizes vivgrid behind codex oauth accounts for gpt routing", async
   );
 });
 
-test("prefers free codex oauth accounts for gpt-5.4 before paid accounts (falls back when unsupported)", async () => {
+test("falls back from vivgrid through free codex oauth to paid accounts for gpt-5.4", async () => {
   const observedAuth: string[] = [];
 
   await withProxyApp(
@@ -2796,13 +2817,12 @@ test("prefers free codex oauth accounts for gpt-5.4 before paid accounts (falls 
       },
       configOverrides: {
         upstreamProviderId: "vivgrid",
-        upstreamFallbackProviderIds: []
       },
       upstreamHandler: async (request, body) => {
         if (request.url === "/api/embed" || request.url === "/api/embeddings") {
           return {
             status: 200,
-            headers: { "content-type": "application/json" },
+            headers: { "content-type": "application/json" } as Record<string, string>,
             body: JSON.stringify({ embeddings: [[0.1, 0.2, 0.3]] })
           };
         }
@@ -2812,10 +2832,18 @@ test("prefers free codex oauth accounts for gpt-5.4 before paid accounts (falls 
           observedAuth.push(auth.replace(/^Bearer\s+/i, ""));
         }
 
+        if (auth === "Bearer vivgrid-failing-key") {
+          return {
+            status: 401,
+            headers: { "content-type": "application/json" } as Record<string, string>,
+            body: JSON.stringify({ error: { message: "unauthorized" } })
+          };
+        }
+
         if (auth === "Bearer openai-free-unsupported") {
           return {
             status: 400,
-            headers: { "content-type": "application/json" },
+            headers: { "content-type": "application/json" } as Record<string, string>,
             body: JSON.stringify({ detail: "The 'gpt-5.4' model is not supported when using Codex with a ChatGPT account." })
           };
         }
@@ -2825,7 +2853,7 @@ test("prefers free codex oauth accounts for gpt-5.4 before paid accounts (falls 
         if (parsedBody.model !== "gpt-5.4") {
           return {
             status: 200,
-            headers: { "content-type": "application/json" },
+            headers: { "content-type": "application/json" } as Record<string, string>,
             body: JSON.stringify({ embeddings: [[0.1, 0.2, 0.3]] })
           };
         }
@@ -2834,7 +2862,7 @@ test("prefers free codex oauth accounts for gpt-5.4 before paid accounts (falls 
 
         return {
           status: 200,
-          headers: { "content-type": "application/json" },
+          headers: { "content-type": "application/json" } as Record<string, string>,
           body: JSON.stringify({
             id: "resp-paid-openai-fallback",
             object: "response",
@@ -2875,7 +2903,7 @@ test("prefers free codex oauth accounts for gpt-5.4 before paid accounts (falls 
       assert.equal(response.statusCode, 200);
       assert.equal(response.headers["x-open-hax-upstream-provider"], "openai");
       assert.equal(response.headers["x-open-hax-upstream-mode"], "openai_responses");
-      assert.deepEqual(observedAuth, ["openai-free-unsupported", "openai-plus-working"]);
+      assert.deepEqual(observedAuth, ["vivgrid-failing-key", "openai-free-unsupported", "openai-plus-working"]);
 
       const payload: unknown = response.json();
       assert.ok(isRecord(payload));
@@ -2917,7 +2945,6 @@ test("prefers free codex oauth accounts for gpt-5.2-codex before paid accounts",
       },
       configOverrides: {
         upstreamProviderId: "openai",
-        upstreamFallbackProviderIds: []
       },
       upstreamHandler: async (request, body) => {
         const auth = request.headers.authorization;
@@ -2991,7 +3018,7 @@ test("prefers free codex oauth accounts for gpt-5.2-codex before paid accounts",
   );
 });
 
-test("refreshes expired openai fallback accounts before gpt-5.4 fallback", async () => {
+test("falls back from vivgrid to expired openai account which refreshes token before gpt-5.4 fallback", async () => {
   const observedAuth: string[] = [];
   const refreshedAccessToken = makeJwt({
     chatgpt_account_id: "cgpt-refreshed",
@@ -3049,13 +3076,12 @@ test("refreshes expired openai fallback accounts before gpt-5.4 fallback", async
           },
           configOverrides: {
             upstreamProviderId: "vivgrid",
-            upstreamFallbackProviderIds: [],
           },
           upstreamHandler: async (request, body) => {
             if (request.url === "/api/embed" || request.url === "/api/embeddings") {
               return {
                 status: 200,
-                headers: { "content-type": "application/json" },
+                headers: { "content-type": "application/json" } as Record<string, string>,
                 body: JSON.stringify({ embeddings: [[0.1, 0.2, 0.3]] }),
               };
             }
@@ -3063,6 +3089,18 @@ test("refreshes expired openai fallback accounts before gpt-5.4 fallback", async
             const auth = request.headers.authorization;
             if (typeof auth === "string") {
               observedAuth.push(auth.replace(/^Bearer\s+/i, ""));
+            }
+
+            if (auth === "Bearer vivgrid-failing-key") {
+              const ratelimitHeaders: Record<string, string> = {
+                "content-type": "application/json",
+                "retry-after": "60",
+              };
+              return {
+                status: 429,
+                headers: ratelimitHeaders,
+                body: JSON.stringify({ error: { message: "rate limit" } }),
+              };
             }
 
             assert.equal(auth, `Bearer ${refreshedAccessToken}`);
@@ -3074,7 +3112,7 @@ test("refreshes expired openai fallback accounts before gpt-5.4 fallback", async
 
             return {
               status: 200,
-              headers: { "content-type": "application/json" },
+              headers: { "content-type": "application/json" } as Record<string, string>,
               body: JSON.stringify({
                 id: "resp-refreshed-openai-fallback",
                 object: "response",
@@ -3115,7 +3153,7 @@ test("refreshes expired openai fallback accounts before gpt-5.4 fallback", async
           assert.equal(response.headers["x-open-hax-upstream-provider"], "openai");
           assert.equal(response.headers["x-open-hax-upstream-mode"], "openai_responses");
           assert.equal(refreshCalls, 1);
-          assert.deepEqual(observedAuth, [refreshedAccessToken]);
+          assert.deepEqual(observedAuth, ["vivgrid-failing-key", refreshedAccessToken]);
 
           const payload: unknown = response.json();
           assert.ok(isRecord(payload));
@@ -3188,7 +3226,6 @@ test("refreshes oauth tokens on 401 unauthorized before marking rate-limited", a
           },
           configOverrides: {
             upstreamProviderId: "openai",
-            upstreamFallbackProviderIds: [],
           },
           upstreamHandler: async (request, _body) => {
             const auth = request.headers.authorization;
@@ -3315,7 +3352,6 @@ test("terminal OpenAI refresh failures clear the refresh token and do not retry 
           },
           configOverrides: {
             upstreamProviderId: "openai",
-            upstreamFallbackProviderIds: [],
           },
           upstreamHandler: async () => ({
             status: 200,
@@ -3377,7 +3413,6 @@ test("falls back from ollama-cloud to vivgrid for shared models when primary pro
       },
       configOverrides: {
         upstreamProviderId: "ollama-cloud",
-        upstreamFallbackProviderIds: ["vivgrid"]
       },
       upstreamHandler: async (request) => {
         const auth = request.headers.authorization;
@@ -3461,7 +3496,6 @@ test("skips ollama-cloud entirely when routing gpt models", async () => {
       },
       configOverrides: {
         upstreamProviderId: "ollama-cloud",
-        upstreamFallbackProviderIds: ["vivgrid"]
       },
       upstreamHandler: async (request, body) => {
         const auth = request.headers.authorization;
@@ -3556,7 +3590,6 @@ test("skips ollama-cloud entirely when routing gpt-5.2 models", async () => {
       },
       configOverrides: {
         upstreamProviderId: "ollama-cloud",
-        upstreamFallbackProviderIds: ["vivgrid"]
       },
       upstreamHandler: async (request, body) => {
         if (request.method !== "POST") {
@@ -3858,7 +3891,6 @@ test("ollama weekly limit applies the multiplied cooldown until it expires", asy
         },
         configOverrides: {
           upstreamProviderId: "ollama-cloud",
-          upstreamFallbackProviderIds: [],
         },
         upstreamHandler: async () => {
           upstreamCalls += 1;
@@ -4031,7 +4063,6 @@ test("model-gated glm-5 accounts stay usable for gemma4", async () => {
       },
       configOverrides: {
         upstreamProviderId: "ollama-cloud",
-        upstreamFallbackProviderIds: [],
         localOllamaEnabled: false,
         keyCooldownJitterFactor: 0,
       },
@@ -6175,7 +6206,7 @@ test("preserves xhigh reasoning effort for gpt chat requests routed to responses
   );
 });
 
-test.skip("normalizes xhigh reasoning effort to max for ollama-cloud provider", async () => {
+test.skip("CLJS policy normalizes xhigh reasoning effort to max for ollama-cloud provider", async () => {
   await withProxyApp(
     {
       keys: [],
@@ -6798,7 +6829,6 @@ test("routes gpt-5.4 through responses for openai oauth accounts", async () => {
       },
       configOverrides: {
         upstreamProviderId: "openai",
-        upstreamFallbackProviderIds: [],
       },
       upstreamHandler: async (request, body) => {
         observedPath = request.url ?? "";
@@ -6893,7 +6923,6 @@ test("buffers openai responses SSE deltas into chat content when the terminal re
       },
       configOverrides: {
         upstreamProviderId: "openai",
-        upstreamFallbackProviderIds: [],
       },
       upstreamHandler: async () => ({
         status: 200,
@@ -6953,7 +6982,6 @@ test("reuses the same openai oauth codex account for repeated gpt prompt_cache_k
       },
       configOverrides: {
         upstreamProviderId: "openai",
-        upstreamFallbackProviderIds: [],
       },
       upstreamHandler: async (request, body) => {
         const parsedBody = JSON.parse(body) as Record<string, unknown>;
@@ -7045,7 +7073,6 @@ test("reassigns openai oauth codex prompt_cache_key affinity when the pinned gpt
       },
       configOverrides: {
         upstreamProviderId: "openai",
-        upstreamFallbackProviderIds: [],
       },
       upstreamHandler: async (request) => {
         const auth = typeof request.headers.authorization === "string"
@@ -7138,7 +7165,6 @@ test("does not immediately promote fallback affinity after one successful reassi
       },
       configOverrides: {
         upstreamProviderId: "openai",
-        upstreamFallbackProviderIds: [],
       },
       upstreamHandler: async (request) => {
         const auth = typeof request.headers.authorization === "string"
@@ -7222,7 +7248,6 @@ test("groups prompt cache audit rows by hash and distinct accounts touched", asy
       },
       configOverrides: {
         upstreamProviderId: "openai",
-        upstreamFallbackProviderIds: [],
       },
       upstreamHandler: async (request) => {
         const auth = typeof request.headers.authorization === "string"
@@ -7377,7 +7402,6 @@ test("prompt cache audit respects configured openai provider id and keeps latest
       configOverrides: {
         openaiProviderId: "chatgpt-oauth",
         upstreamProviderId: "chatgpt-oauth",
-        upstreamFallbackProviderIds: [],
       },
       upstreamHandler: async () => ({
         status: 200,
@@ -7517,7 +7541,6 @@ test("injects instructions for gpt-5.2 routed through openai oauth (regression: 
       },
       configOverrides: {
         upstreamProviderId: "openai",
-        upstreamFallbackProviderIds: [],
       },
       upstreamHandler: async (request, body) => {
         observedPath = request.url ?? "";
@@ -7590,7 +7613,6 @@ test("openai passthrough coerces null instructions to empty string (regression: 
       },
       configOverrides: {
         upstreamProviderId: "openai",
-        upstreamFallbackProviderIds: [],
       },
       upstreamHandler: async (request, body) => {
         observedBody = JSON.parse(body);
@@ -7648,7 +7670,6 @@ test("openai passthrough still reaches codex when provider catalog lookup is una
       },
       configOverrides: {
         upstreamProviderId: "openai",
-        upstreamFallbackProviderIds: [],
       },
       upstreamHandler: async (request, body) => {
         observedPath = request.url ?? "";
@@ -7705,7 +7726,6 @@ test("openai passthrough strips max_output_tokens for codex path (regression: un
       },
       configOverrides: {
         upstreamProviderId: "openai",
-        upstreamFallbackProviderIds: [],
       },
       upstreamHandler: async (request, body) => {
         observedBody = JSON.parse(body);
@@ -7763,7 +7783,6 @@ test("/api/tools/websearch proxies via Responses web_search and extracts url cit
       proxyAuthToken: "proxy-token",
       configOverrides: {
         upstreamProviderId: "openai",
-        upstreamFallbackProviderIds: [],
       },
       upstreamHandler: async (request, body) => {
         observedPath = request.url ?? "";
@@ -7895,7 +7914,6 @@ test("/api/tools/websearch falls back to Exa when OpenAI fails", async () => {
         proxyAuthToken: "proxy-token",
         configOverrides: {
           upstreamProviderId: "openai",
-          upstreamFallbackProviderIds: [],
         },
         upstreamHandler: async () => {
           callOrder.push("openai");
@@ -7985,7 +8003,6 @@ test("/api/tools/websearch falls back to Exa when OpenAI returns empty output", 
         proxyAuthToken: "proxy-token",
         configOverrides: {
           upstreamProviderId: "openai",
-          upstreamFallbackProviderIds: [],
         },
         upstreamHandler: async () => {
           callOrder.push("openai");
@@ -8060,7 +8077,6 @@ test("records token usage from codex SSE responses with missing content-type (re
       },
       configOverrides: {
         upstreamProviderId: "openai",
-        upstreamFallbackProviderIds: [],
         responsesModelPrefixes: ["gpt-"],
       },
       upstreamHandler: async () => {
@@ -8193,7 +8209,6 @@ test("openai chat completions strategy converts GPT requests to responses format
       models: ["gpt-5.4"],
       configOverrides: {
         upstreamProviderId: "openai",
-        upstreamFallbackProviderIds: [],
         responsesModelPrefixes: ["gpt-"],
       },
       upstreamHandler: async (request, body) => {
@@ -8280,8 +8295,8 @@ test("glm chat requests route to rotussy instead of ollama-cloud or the openai p
           models: ["glm-5"],
           configOverrides: {
             upstreamProviderId: "openai",
-            upstreamFallbackProviderIds: ["ollama-cloud", "rotussy", "zai"],
             localOllamaEnabled: false,
+            cljsPolicyShadowMode: true,
           },
           upstreamHandler: async (request, body) => {
             if (request.method === "GET" && request.url === "/models") {
@@ -8378,8 +8393,8 @@ test("glm chat requests skip ollama-cloud when provider catalog does not adverti
           models: ["glm-4.7-flash"],
           configOverrides: {
             upstreamProviderId: "openai",
-            upstreamFallbackProviderIds: ["ollama-cloud", "rotussy", "zai"],
             localOllamaEnabled: false,
+            cljsPolicyShadowMode: true,
           },
           upstreamHandler: async (request, body) => {
             const auth = request.headers.authorization;
@@ -8484,8 +8499,8 @@ test("glm /v1/responses requests route through rotussy chat-completions compatib
           models: ["glm-5"],
           configOverrides: {
             upstreamProviderId: "openai",
-            upstreamFallbackProviderIds: ["rotussy", "requesty"],
             localOllamaEnabled: false,
+            cljsPolicyShadowMode: true,
           },
           upstreamHandler: async (request, body) => {
             if (request.method === "GET" && request.url === "/models") {
@@ -8994,7 +9009,6 @@ test("routes local-only ollama models even when ollama-cloud is also configured"
       handleModelCatalog: true,
       configOverrides: {
         upstreamProviderId: "zai",
-        upstreamFallbackProviderIds: ["ollama-cloud"],
       },
       upstreamHandler: async (request, body) => {
         const authorization = typeof request.headers.authorization === "string"
@@ -9183,7 +9197,6 @@ test("serves native /api/tags from the discovered model catalog", async () => {
       },
       configOverrides: {
         upstreamProviderId: "ollama-cloud",
-        upstreamFallbackProviderIds: []
       },
       upstreamHandler: async (request) => {
         observedPath = request.url ?? "";
@@ -9309,6 +9322,98 @@ test("serves /v1/embeddings from local ollama-compatible upstream and expands em
       assert.ok(Array.isArray(payload.data));
       assert.deepEqual(payload.data[0]?.embedding, [0.1, 0.2, 0.3]);
     }
+  );
+});
+
+test("routes bare qwen3 embedding aliases to configured llama.cpp embed provider", async () => {
+  await withEnv({ EMBED_MODEL_PROVIDER_ALIASES: "qwen3-embedding:0.6b=llamacpp-embed" }, async () => {
+    let observedPath = "";
+    let observedBody: unknown;
+
+    await withProxyApp(
+      {
+        keys: [],
+        upstreamHandler: async (request, body) => {
+          observedPath = request.url ?? "";
+          observedBody = body.length > 0 ? JSON.parse(body) : undefined;
+          return {
+            status: 200,
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              object: "list",
+              model: "qwen3-embedding-0.6b",
+              data: [{ object: "embedding", index: 0, embedding: [0.1, 0.2, 0.3] }],
+            }),
+          };
+        },
+      },
+      async ({ app }) => {
+        const response = await app.inject({
+          method: "POST",
+          url: "/v1/embeddings",
+          payload: {
+            model: "qwen3-embedding:0.6b",
+            input: "hello world",
+          },
+        });
+
+        assert.equal(response.statusCode, 200);
+        assert.equal(observedPath, "/v1/embeddings");
+        assert.ok(isRecord(observedBody));
+        assert.equal(observedBody.model, "qwen3-embedding-0.6b");
+        const payload: unknown = response.json();
+        assert.ok(isRecord(payload));
+        assert.equal(payload.model, "qwen3-embedding-0.6b");
+        assert.ok(Array.isArray(payload.data));
+        assert.deepEqual(payload.data[0]?.embedding, [0.1, 0.2, 0.3]);
+      },
+    );
+  });
+});
+
+test("strips explicit llama.cpp embed prefixes before forwarding embeddings", async () => {
+  let observedPath = "";
+  let observedBody: unknown;
+
+  await withProxyApp(
+    {
+      keys: [],
+      configOverrides: {
+        llamacppModelPrefixes: ["llamacpp-embed:", "llamacpp-embed/"],
+      },
+      upstreamHandler: async (request, body) => {
+        observedPath = request.url ?? "";
+        observedBody = body.length > 0 ? JSON.parse(body) : undefined;
+        return {
+          status: 200,
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            object: "list",
+            model: "qwen3-embedding-0.6b",
+            data: [{ object: "embedding", index: 0, embedding: [0.4, 0.5, 0.6] }],
+          }),
+        };
+      },
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/embeddings",
+        payload: {
+          model: "llamacpp-embed:qwen3-embedding:0.6b",
+          input: "hello world",
+        },
+      });
+
+      assert.equal(response.statusCode, 200);
+      assert.equal(observedPath, "/v1/embeddings");
+      assert.ok(isRecord(observedBody));
+      assert.equal(observedBody.model, "qwen3-embedding-0.6b");
+      const payload: unknown = response.json();
+      assert.ok(isRecord(payload));
+      assert.ok(Array.isArray(payload.data));
+      assert.deepEqual(payload.data[0]?.embedding, [0.4, 0.5, 0.6]);
+    },
   );
 });
 
@@ -11398,7 +11503,6 @@ test("serves preferred model ordering from models JSON file", async () => {
       },
       configOverrides: {
         upstreamProviderId: "vivgrid",
-        upstreamFallbackProviderIds: [],
       },
       upstreamHandler: async (request) => ({
         status: 200,
@@ -11457,7 +11561,6 @@ test("publishes declared static and synthetic models from models JSON alongside 
       },
       configOverrides: {
         upstreamProviderId: "vivgrid",
-        upstreamFallbackProviderIds: [],
       },
       upstreamHandler: async (request) => ({
         status: 200,
@@ -11515,7 +11618,6 @@ test("routes declared alias models without requiring provider catalog discovery"
       },
       configOverrides: {
         upstreamProviderId: "vivgrid",
-        upstreamFallbackProviderIds: [],
       },
       upstreamHandler: async (request, body) => {
         if (request.method === "POST" && request.url === "/v1/chat/completions") {
@@ -11617,7 +11719,6 @@ test("auto:cheapest falls through to the next ranked model when the cheapest pri
       },
       configOverrides: {
         upstreamProviderId: "openai",
-        upstreamFallbackProviderIds: ["ollama-cloud"],
         localOllamaEnabled: false,
       },
       upstreamHandler: async (request, body) => {
@@ -11727,7 +11828,6 @@ test("/v1/responses auto:cheapest ranks only models reachable by responses provi
       },
       configOverrides: {
         upstreamProviderId: "openai",
-        upstreamFallbackProviderIds: ["ollama-cloud"],
         localOllamaEnabled: false,
       },
       upstreamHandler: async (request, body) => {
@@ -11824,7 +11924,6 @@ test("returns 403 when requested model is disabled", async () => {
       },
       configOverrides: {
         upstreamProviderId: "vivgrid",
-        upstreamFallbackProviderIds: [],
       },
       upstreamHandler: async (request) => ({
         status: 200,
@@ -12946,7 +13045,6 @@ test("includes ollama provider catalog models and largest-size aliases in /v1/mo
       },
       configOverrides: {
         upstreamProviderId: "ollama-cloud",
-        upstreamFallbackProviderIds: []
       },
       upstreamHandler: async (request) => {
         if (request.method === "GET" && request.url === "/v1/models") {
@@ -13020,7 +13118,6 @@ test("returns 404 when requested model is not in provider catalogs", async () =>
       },
       configOverrides: {
         upstreamProviderId: "vivgrid",
-        upstreamFallbackProviderIds: [],
       },
       upstreamHandler: async (request) => ({
         status: 200,
@@ -13075,7 +13172,6 @@ test("rewrites largest-model alias requests for ollama catalog models", async ()
       },
       configOverrides: {
         upstreamProviderId: "ollama-cloud",
-        upstreamFallbackProviderIds: []
       },
       upstreamHandler: async (request, body) => {
         if (request.method === "GET" && request.url === "/v1/models") {

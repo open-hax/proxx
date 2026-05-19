@@ -2,7 +2,7 @@ import { rankAutoModels } from "../../auto-model-selector.js";
 import type { AccountHealthStore } from "../../db/account-health-store.js";
 import type { ResolvedModelCatalog } from "../../provider-routing.js";
 import type { RequestLogStore } from "../../request-log-store.js";
-import type { ProviderFallbackExecutionResult } from "../shared.js";
+import type { ProviderRoutingExecutionResult } from "../shared.js";
 
 const CEPHALON_PROVIDER_ORDER: readonly string[] = [
   "ollama-cloud",
@@ -227,7 +227,7 @@ export function reorderCephalonProviderRoutes(
 export function shouldAdvanceCephalonProviderCandidate(input: {
   readonly routingModelInput: string;
   readonly hasMoreProviderCandidates: boolean;
-  readonly execution: ProviderFallbackExecutionResult;
+  readonly execution: ProviderRoutingExecutionResult;
 }): boolean {
   if (!input.hasMoreProviderCandidates || !isCephalonAutoModel(input.routingModelInput)) {
     return false;

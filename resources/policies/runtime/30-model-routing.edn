@@ -1,0 +1,243 @@
+[{:contract/id :route/gemma4-e4b
+  :contract/kind :routing-clause
+  :match/family :model-family/gemma4-e4b
+  :prefer/providers :provider-order/gemma4-e4b
+  :prefer/providers-strict? true
+  :prefer/strategies [:ollama-chat :chat-completions]
+  :account/order :account-order/prefer-free}
+
+ {:contract/id :route/gemma4
+  :contract/kind :routing-clause
+  :match/family :model-family/gemma4
+  :prefer/providers :provider-order/gemma4
+  :prefer/providers-strict? true
+  :prefer/strategies [:gemini-chat :ollama-chat :chat-completions]
+  :account/order :account-order/prefer-free}
+
+ {:contract/id :route/gemma-e
+  :contract/kind :routing-clause
+  :match/family :model-family/gemma-e
+  :prefer/providers :provider-order/gemma-e
+  :prefer/providers-strict? true
+  :prefer/strategies [:chat-completions]
+  :account/order :account-order/prefer-free}
+
+ {:contract/id :route/gemma
+  :contract/kind :routing-clause
+  :match/family :model-family/gemma
+  :prefer/providers :provider-order/gemma
+  :prefer/providers-strict? true
+  :prefer/strategies [:ollama-chat :chat-completions]
+  :account/order :account-order/prefer-free}
+
+ {:contract/id :route/glm
+  :contract/kind :routing-clause
+  :match/family :model-family/glm
+  :prefer/providers :provider-order/glm
+  :exclude/providers ["openai"]
+  :prefer/strategies [:ollama-chat :chat-completions]
+  :account/order :account-order/prefer-free}
+
+ {:contract/id :route/claude-opus-4-6
+  :contract/kind :routing-clause
+  :match/family :model-family/claude-opus-4-6
+  :prefer/providers :provider-order/claude-opus-4-6
+  :exclude/providers ["openai" "ollama-cloud"]
+  :prefer/strategies [:messages :chat-completions]
+  :account/order :account-order/prefer-free}
+
+ {:contract/id :route/claude
+  :contract/kind :routing-clause
+  :match/family :model-family/claude
+  :prefer/providers :provider-order/claude-opus-4-6
+  :exclude/providers ["openai" "ollama-cloud"]
+  :prefer/strategies [:messages :chat-completions]
+  :account/order :account-order/prefer-free}
+
+ {:contract/id :route/gpt-oss
+  :contract/kind :routing-clause
+  :match/family :model-family/gpt-oss
+  :prefer/providers :provider-order/gpt-oss
+  :prefer/strategies [:ollama-chat :chat-completions]
+  :account/order :account-order/prefer-free}
+
+ {:contract/id :route/gpt-free-blocked
+  :contract/kind :routing-clause
+  :match/family :model-family/gpt-free-blocked
+  :require/plans :domain/paid-plans
+  :exclude/plans [:free]
+  :prefer/providers :provider-order/gpt-default
+  :prefer/providers-strict? true
+  :exclude/providers ["ollama-cloud" "rotussy"]
+  :prefer/strategies [:openai-responses :responses :openai-chat-completions :chat-completions]
+  :account/order :account-order/paid-plan-weight}
+
+ {:contract/id :route/gpt-6-plus
+  :contract/kind :routing-clause
+  :match/family :model-family/gpt-6-plus
+  :require/plans :domain/paid-plans
+  :exclude/plans [:free]
+  :prefer/providers :provider-order/gpt-default
+  :prefer/providers-strict? true
+  :exclude/providers ["ollama-cloud" "rotussy"]
+  :prefer/strategies [:openai-responses :responses :openai-chat-completions :chat-completions]
+  :account/order :account-order/paid-plan-weight}
+
+ {:contract/id :route/gpt
+  :contract/kind :routing-clause
+  :match/family :model-family/gpt
+  :prefer/providers :provider-order/gpt-default
+  :prefer/providers-strict? true
+  :exclude/providers ["ollama-cloud" "rotussy"]
+  :prefer/strategies [:openai-responses :responses :openai-chat-completions :chat-completions]
+  :account/order :account-order/prefer-free}
+
+ {:contract/id :route/mimo-v2-5-pro
+  :contract/kind :routing-clause
+  :match/family :model-family/mimo-v2-5-pro
+  :prefer/providers :provider-order/mimo-official
+  :prefer/providers-strict? true
+  :prefer/strategies [:chat-completions]
+  :account/order :account-order/prefer-free}
+
+ {:contract/id :route/mimo
+  :contract/kind :routing-clause
+  :match/family :model-family/mimo
+  :prefer/providers :provider-order/mimo
+  :prefer/providers-strict? true
+  :prefer/strategies [:chat-completions]
+  :account/order :account-order/prefer-free}
+
+ {:contract/id :route/mistral
+  :contract/kind :routing-clause
+  :match/family :model-family/mistral
+  :prefer/providers :provider-order/mistral
+  :prefer/providers-strict? true
+  :prefer/strategies [:chat-completions]
+  :account/order :account-order/prefer-free}
+
+ {:contract/id :route/qwen3-embedding
+  :contract/kind :routing-clause
+  :match/family :model-family/qwen3-embedding
+  :prefer/providers :provider-order/embeddings
+  :prefer/strategies [:embeddings]
+  :account/order :account-order/prefer-free}
+
+ {:contract/id :route/kimi
+  :contract/kind :routing-clause
+  :match/family :model-family/kimi
+  :prefer/providers :provider-order/kimi
+  :exclude/providers ["openai"]
+  :prefer/strategies [:chat-completions]
+  :account/order :account-order/prefer-free}
+
+ {:contract/id :route/blaze-text
+  :contract/kind :routing-clause
+  :match/family :model-family/blaze-text
+  :prefer/providers :provider-order/blaze
+  :prefer/providers-strict? true
+  :prefer/strategies [:chat-completions]
+  :account/order :account-order/prefer-free}
+
+ {:contract/id :route/blaze-images
+  :contract/kind :routing-clause
+  :match/family :model-family/blaze-images
+  :prefer/providers :provider-order/blaze
+  :prefer/providers-strict? true
+  :prefer/strategies [:images]
+  :account/order :account-order/prefer-free}
+
+ {:contract/id :route/blaze-video
+  :contract/kind :routing-clause
+  :match/family :model-family/blaze-video
+  :prefer/providers :provider-order/blaze
+  :prefer/providers-strict? true
+  :prefer/strategies [:video]
+  :account/order :account-order/prefer-free}
+
+ {:contract/id :route/minimax-music
+   :contract/kind :routing-clause
+   :match/family :model-family/minimax-music
+   :prefer/providers :provider-order/minimax
+   :prefer/providers-strict? true
+   :prefer/strategies [:music]
+   :account/order :account-order/prefer-free}
+
+ {:contract/id :route/musicgen
+   :contract/kind :routing-clause
+   :match/family :model-family/musicgen
+   :prefer/providers :provider-order/musicgen
+   :prefer/providers-strict? true
+   :prefer/strategies [:music]
+   :account/order :account-order/prefer-free}
+
+ {:contract/id :route/gemini
+  :contract/kind :routing-clause
+  :match/family :model-family/gemini
+  :prefer/providers :provider-order/gemini
+  :prefer/providers-strict? true
+  :prefer/strategies [:gemini-chat :chat-completions]
+  :account/order :account-order/prefer-free}
+
+ {:contract/id :route/blaze-tts
+  :contract/kind :routing-clause
+  :match/family :model-family/blaze-tts
+  :prefer/providers :provider-order/blaze
+  :prefer/providers-strict? true
+  :prefer/strategies [:tts]
+  :account/order :account-order/prefer-free}
+
+ {:contract/id :route/ollama-llama
+  :contract/kind :routing-clause
+  :match/family :model-family/ollama-llama
+  :prefer/providers :provider-order/ollama
+  :prefer/strategies [:ollama-chat :chat-completions]
+  :account/order :account-order/prefer-free}
+
+ {:contract/id :route/ollama-qwen
+  :contract/kind :routing-clause
+  :match/family :model-family/ollama-qwen
+  :prefer/providers :provider-order/ollama
+  :prefer/strategies [:ollama-chat :chat-completions]
+  :account/order :account-order/prefer-free}
+
+ {:contract/id :route/ollama-phi
+  :contract/kind :routing-clause
+  :match/family :model-family/ollama-phi
+  :prefer/providers :provider-order/ollama
+  :prefer/strategies [:ollama-chat :chat-completions]
+  :account/order :account-order/prefer-free}
+
+ {:contract/id :route/ollama-mistral
+  :contract/kind :routing-clause
+  :match/family :model-family/ollama-mistral
+  :prefer/providers :provider-order/ollama
+  :prefer/strategies [:ollama-chat :chat-completions]
+  :account/order :account-order/prefer-free}
+
+ {:contract/id :route/ollama-codellama
+  :contract/kind :routing-clause
+  :match/family :model-family/ollama-codellama
+  :prefer/providers :provider-order/ollama
+  :prefer/strategies [:ollama-chat :chat-completions]
+  :account/order :account-order/prefer-free}
+
+ {:contract/id :route/ollama-deepseek
+  :contract/kind :routing-clause
+  :match/family :model-family/ollama-deepseek
+  :prefer/providers :provider-order/ollama
+  :prefer/strategies [:ollama-chat :chat-completions]
+  :account/order :account-order/prefer-free}
+
+ {:contract/id :route/ollama-default
+  :contract/kind :routing-clause
+  :match/family :model-family/ollama-default
+  :prefer/providers :provider-order/ollama
+  :prefer/strategies [:ollama-chat :chat-completions]
+  :account/order :account-order/prefer-free}
+
+ {:contract/id :route/default
+  :contract/kind :routing-clause
+  :match/family :model-family/default
+  :prefer/strategies [:chat-completions]
+  :account/order :account-order/prefer-free}]

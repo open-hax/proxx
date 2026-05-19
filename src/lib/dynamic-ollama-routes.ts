@@ -76,7 +76,7 @@ export function filterDedicatedOllamaRoutes(
 ): ProviderRoute[] {
   return routes.filter((route) => {
     const providerId = route.providerId.trim().toLowerCase();
-    return providerId.startsWith("ollama-") && providerId !== "ollama-cloud";
+    return providerId === "ollama" || (providerId.startsWith("ollama-") && providerId !== "ollama-cloud");
   });
 }
 
@@ -85,6 +85,6 @@ export function hasDedicatedOllamaRoutes(
 ): boolean {
   return routes.some((route) => {
     const providerId = route.providerId.trim().toLowerCase();
-    return providerId.startsWith("ollama-") && providerId !== "ollama-cloud";
+    return providerId === "ollama" || (providerId.startsWith("ollama-") && providerId !== "ollama-cloud");
   });
 }

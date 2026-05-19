@@ -1,0 +1,28 @@
+[{:contract/id :router/root
+  :contract/kind :policy-program
+  :program/phases [:derive-request-facts
+                   :enforce-tenant-model-authorization
+                   :derive-model-family
+                   :choose-routing-clause
+                   :filter-provider-candidates
+                   :order-provider-candidates
+                   :choose-provider-strategy
+                   :filter-account-candidates
+                   :order-account-candidates
+                   :execute-selected-strategy
+                   :exhaust-if-unhandled]
+  :program/backtracking [:provider-candidate :account-candidate :strategy-candidate]
+  :program/exhausted-result :policy-tree-exhausted}
+
+ {:contract/id :router/chat-completions-openai
+  :contract/kind :strategy-binding
+  :match/request-kind :chat
+  :match/provider "openai"
+  :match/strategy :openai-chat-completions
+  :policy/strategy proxx.strategies.openai/chat-completions-passthrough}
+
+ {:contract/id :router/anthropic-messages
+  :contract/kind :strategy-binding
+  :match/request-kind :chat
+  :match/strategy :messages
+  :policy/strategy proxx.strategies.anthropic/messages-passthrough}]

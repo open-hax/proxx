@@ -139,10 +139,10 @@
           lmdb-store  (when lmdb-path    (make-lmdb-store lmdb-path))
           pg-store    (when database-url (make-pg-store database-url
                                                         (or query-registry {})))
-          stores      (filterv some? [hot-store redis-store lmdb-store pg-store])]
+          stores      (filterv some? [hot-store redis-store lmdb-store pg-store])
+          prev-state  @state]
       (try
-        (let [prev-state  @state
-              policies    (if policy-path
+        (let [policies    (if policy-path
                             (policy-loader/load-policies! policy-path)
                             [])
               pipeline    (pl/make-pipeline
@@ -156,8 +156,7 @@
             (seed-static! pipeline fixture-map))
           (seed-from-env-api-keys! pipeline)
           (let [proc-env (.-env js/process)
-                kj       (or (gobj/get proc-env "PROXY_KEYS_JSON")
-                             (gobj/get proc-env "UPSTREAM_KEYS_JSON"))]
+                kj       (gobj/get proc-env "PROXY_KEYS_JSON")]
             (when (and kj (pos? (.-length (.trim kj))))
               (seed-from-value! pipeline (js/JSON.parse kj))))
           (when models-value

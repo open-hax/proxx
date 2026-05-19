@@ -1,0 +1,15 @@
+[{:contract/id :select-strategy/by-declarative-preference
+  :contract/kind :selection-rule
+  :selection/domain :strategy
+  :selection/order [:provider-preferred
+                    :model-preferred
+                    :domain/default-strategy-order
+                    :candidate-priority-desc]
+  :selection/exclude [:model-excluded :provider-excluded]
+  :selection/on-empty-allowed :first-original-candidate}
+
+ {:contract/id :select-provider/by-declarative-preference
+  :contract/kind :selection-rule
+  :selection/domain :provider
+  :selection/order [:model-preferred-provider-order :original-candidate-order]
+  :selection/exclude [:model-excluded-providers]}]

@@ -18,7 +18,6 @@ services:
         generateValue: true
       - key: UPSTREAM_PROVIDER_ID
         value: openai
-      - key: UPSTREAM_FALLBACK_PROVIDER_IDS
         value: ollama-cloud
       - key: DISABLED_PROVIDER_IDS
         value: vivgrid

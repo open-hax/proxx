@@ -45,26 +45,14 @@ export function getToolSeedForModel(modelId: string): ToolSeed[] {
 
   return OPENCODE_TOOLS.map((tool) => {
     if (tool.id === "apply_patch") {
-      return {
-        id: tool.id,
-        description: tool.description,
-        enabled: usePatch,
-      };
+      return { ...tool, enabled: usePatch };
     }
 
     if (tool.id === "edit" || tool.id === "write") {
-      return {
-        id: tool.id,
-        description: tool.description,
-        enabled: !usePatch,
-      };
+      return { ...tool, enabled: !usePatch };
     }
 
-    return {
-      id: tool.id,
-      description: tool.description,
-      enabled: true,
-    };
+    return { ...tool, enabled: true };
   });
 }
 
@@ -72,23 +60,23 @@ function parseVector(raw: string): string[] {
   const values: string[] = [];
   const regex = /"([^"]+)"/g;
   for (const match of raw.matchAll(regex)) {
-    values.push(match[1]);
+    values.push(match[1]!);
   }
   return values;
 }
 
 function parseDefappBlocks(content: string): Array<{ readonly name: string; readonly body: string }> {
   const blocks: Array<{ name: string; body: string }> = [];
-  const markerSpaced = "(clobber.macro/defapp \"";
-
+  const marker = "(clobber.macro/defapp \"";
   let index = 0;
+
   while (index < content.length) {
-    const markerIndex = content.indexOf(markerSpaced, index);
+    const markerIndex = content.indexOf(marker, index);
     if (markerIndex < 0) {
       break;
     }
 
-    const nameStart = markerIndex + markerSpaced.length;
+    const nameStart = markerIndex + marker.length;
     const nameEnd = content.indexOf('"', nameStart);
     if (nameEnd < 0) {
       break;
@@ -110,8 +98,7 @@ function parseDefappBlocks(content: string): Array<{ readonly name: string; read
       }
     }
 
-    const body = content.slice(markerIndex, end);
-    blocks.push({ name, body });
+    blocks.push({ name, body: content.slice(markerIndex, end) });
     index = end;
   }
 
@@ -134,19 +121,17 @@ function isLikelyMcpServer(name: string, script: string, cwd: string | undefined
   const lowerCwd = (cwd ?? "").toLowerCase();
   const lowerBody = body.toLowerCase();
 
-  const nameOrPathSignal =
-    lowerName.startsWith("mcp-") ||
-    lowerName.includes("-mcp") ||
-    lowerScript.includes("mcp") ||
-    lowerCwd.includes("/mcp-") ||
-    lowerCwd.endsWith("/mcp");
+  const nameOrPathSignal = lowerName.startsWith("mcp-")
+    || lowerName.includes("-mcp")
+    || lowerScript.includes("mcp")
+    || lowerCwd.includes("/mcp-")
+    || lowerCwd.endsWith("/mcp");
 
   if (nameOrPathSignal) {
     return true;
   }
 
-  const protocolSignal = body.includes(":MCP_TRANSPORT") || body.includes(":LEGACY_MCP_URL");
-  if (protocolSignal) {
+  if (body.includes(":MCP_TRANSPORT") || body.includes(":LEGACY_MCP_URL")) {
     return true;
   }
 
@@ -154,30 +139,25 @@ function isLikelyMcpServer(name: string, script: string, cwd: string | undefined
     return false;
   }
 
-  const sharedSecretSignal = body.includes(":MCP_INTERNAL_SHARED_SECRET") && body.includes(":PORT");
-  const mcpConfigSignal = lowerBody.includes("mcp-files.json");
-
-  return sharedSecretSignal || mcpConfigSignal;
+  return (body.includes(":MCP_INTERNAL_SHARED_SECRET") && body.includes(":PORT"))
+    || lowerBody.includes("mcp-files.json");
 }
 
 function parseMcpSeed(name: string, body: string, sourceFile: string): McpServerSeed | null {
   const script = body.match(/:script\s+"([^"]+)"/)?.[1] ?? "";
   const cwd = body.match(/:cwd\s+"([^"]+)"/)?.[1];
-  const argsRaw = body.match(/:args\s+\[([^\]]*)\]/)?.[1] ?? "";
-  const args = parseVector(argsRaw);
+  const args = parseVector(body.match(/:args\s+\[([^\]]*)\]/)?.[1] ?? "");
 
-  const indicatesMcp = isLikelyMcpServer(name, script, cwd, body);
-
-  if (!indicatesMcp) {
+  if (!isLikelyMcpServer(name, script, cwd, body)) {
     return null;
   }
 
   return {
     id: name,
     script,
-    cwd,
+    ...(cwd ? { cwd } : {}),
     args,
-    port: parsePort(body),
+    ...(parsePort(body) ? { port: parsePort(body) } : {}),
     sourceFile,
     running: false,
   };
@@ -185,31 +165,20 @@ function parseMcpSeed(name: string, body: string, sourceFile: string): McpServer
 
 export async function loadMcpSeeds(ecosystemsDir: string): Promise<McpServerSeed[]> {
   const entries = await readdir(ecosystemsDir, { withFileTypes: true });
-  const files = entries
-    .filter((entry) => entry.isFile() && entry.name.endsWith(".cljs"))
-    .map((entry) => entry.name);
-
+  const files = entries.filter((entry) => entry.isFile() && entry.name.endsWith(".cljs")).map((entry) => entry.name);
   const seeds: McpServerSeed[] = [];
 
   for (const fileName of files) {
     const absolute = join(ecosystemsDir, fileName);
-    const content = await readFile(absolute, "utf8");
-    const blocks = parseDefappBlocks(content);
+    const blocks = parseDefappBlocks(await readFile(absolute, "utf8"));
 
     for (const block of blocks) {
       const seed = parseMcpSeed(block.name, block.body, absolute);
-      if (!seed) {
-        continue;
+      if (seed) {
+        seeds.push(seed);
       }
-
-      seeds.push(seed);
     }
   }
 
-  const deduped = new Map<string, McpServerSeed>();
-  for (const seed of seeds) {
-    deduped.set(seed.id, seed);
-  }
-
-  return [...deduped.values()].sort((a, b) => a.id.localeCompare(b.id));
+  return [...new Map(seeds.map((seed) => [seed.id, seed])).values()].sort((a, b) => a.id.localeCompare(b.id));
 }

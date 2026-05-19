@@ -1,0 +1,61 @@
+{:contract/id :openai
+ :contract/kind :policy
+ ;; :contract/slug becomes "example-policy"
+ :contract/input [:map [:map :request] [:map :credentials]]
+ :contract/priority 1
+
+ ;; 1. Is this policy applicable to the context?
+ :policy/condition {:eval/op :assert ; other options `some` `none` `all`  (if  not present, `identity` is assumed)
+                    :eval/target :request
+                    :eval/form (= (str/includes? (-> (:request ctx) (:path ))
+                                 "completions"))}
+ ;; 2. If so, to what elements of the context is it applicable to?
+ :policy/filters [{:eval/combinator :some
+                   :eval/target :request
+
+                   ;; explicitly request a provider in the payload
+                   :eval/form [(= "openai" (-> (:payload ctx)  :provider))
+                               ;; the model string is prefixed with the provider
+                               (= "openai" (first (str/split (-> (:payload ctx)  :model))))
+                               ;; all contracts are uniquely identified by a tuple of [:contract/id :contract/kind]
+                               ;; request payload matches gpt family contract
+                               (contract/apply [:gpt :model-family] (-> (:request ctx ) :payload ))
+                               ;; is an exact match for a model contract
+                               (contract/apply [:gpt-5 :model] (-> (:request ctx ) :payload ))]}]
+ ;; 3. What is the effect on the context
+ :policy/outcome {:eval/op :apply
+                  :eval/target :credentials
+                  :eval/form (strategy/completions-passthrough ctx)
+
+                  }
+
+ ;;
+
+ ;; a list of either contract literals or [::id :kind ] pairs that uniquely identify a contract
+ :policy/children [...]}
+;; example context map
+;; we don't both with the namespaces for requests because all requests have the same shape
+{:request {:method "POST"
+           :path "/v1/completios"
+           :host "localhost"
+           :port 8789
+           :protocol "http"
+           :query nil
+           :headers {...}
+           :payload {...}} ;; pay load because it could be a websocket
+ ;; To keep this simple at first, polcies are executed over a vector of accounts.
+ :credentials [{:credential/provider "openai"
+                :credential/internal-id "..."
+                :credential/slug "..."
+                :credential/access-token "..."
+                :credential/enabled? true
+                :credential/rate-limited? false
+                :credential/cooldown 0
+                :credential/kind :api-key ;; or oauth
+                :oauth/refresh-token "..."
+                :oauth/expires-at  1234 ;; unix time stamp
+                :openai/quota-refreshed 1234 ;; timestamp
+                :openai/email "..."
+                ;; ... etc depending on the existing provider contracts
+
+                }]}

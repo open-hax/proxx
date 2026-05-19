@@ -70,7 +70,6 @@ High — explicit user request covering production rollout and routing quality.
 - The proxy response surface preserves that `usage` object for z.ai-backed chat completions, and request-log persistence now records the z.ai prompt/completion/total/cached-token counts after the chat-completions usage-extraction fix.
 - Production compose did not previously pass z.ai env vars through; this is now fixed in `docker-compose.yml`.
 - Production host `ussy.promethean.rest` already had `ZAI_API_KEY` in its runtime `.env`; only the compose passthrough and fallback ordering were missing.
-- Production runtime `.env` now sets `UPSTREAM_FALLBACK_PROVIDER_IDS=ollama-cloud,zai,requesty`.
 - After deploy, both local and public production health checks report provider `zai`.
 - Production `/v1/models` now includes z.ai-only GLM variants such as `glm-5-turbo` and `glm-4.5-air` in addition to the existing Ollama-backed GLM models.
 - Live production verification:

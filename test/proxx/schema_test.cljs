@@ -73,6 +73,31 @@
 (deftest affinity-policy-valid
   (is (= :ok (first (s/validate :affinity-policy valid-affinity-policy)))))
 
+(deftest request-queue-template-valid-and-coerces-defaults
+  (let [coerced (s/coerce :proxx/policy-contract
+                          {:contract/id :queue/default
+                           :contract/kind :request-queue-template
+                           :queue/name "Default queue"
+                           :queue/concurrency-limit 8
+                           :queue/max-queue-size 256
+                           :queue/overflow-policy :reject
+                           :queue/attempt-timeout-ms 1000
+                           :queue/total-timeout-ms 5000
+                           :queue/max-retries 1
+                           :queue/retry-backoff :immediate})]
+    (is (some? coerced))
+    (is (= :active (:queue/status coerced)))
+    (is (= 0.2 (:queue/jitter-factor coerced)))
+    (is (= false (:queue/fail-fast? coerced)))
+    (is (= true (:queue/retry-after-respect? coerced)))))
+
+(deftest request-queue-instance-valid
+  (is (= :ok (first (s/validate :proxx/policy-contract
+                                {:contract/id :queue/openai
+                                 :contract/kind :request-queue-instance
+                                 :queue/template-id :queue/default
+                                 :queue/provider-id "openai"})))))
+
 ;; ── Red: invalid records fail with humanized errors ──────────────────────────
 
 (deftest provenance-bad-source
@@ -111,6 +136,40 @@
                                         :provisional-provider-id
                                         :provisional-account-id
                                         :provisional-success-count))))))
+
+(deftest request-queue-template-requires-base-interval-for-exponential
+  (let [[status err] (s/validate :proxx/policy-contract
+                                 {:contract/id :queue/default
+                                  :contract/kind :request-queue-template
+                                  :queue/name "Default queue"
+                                  :queue/concurrency-limit 8
+                                  :queue/max-queue-size 256
+                                  :queue/overflow-policy :reject
+                                  :queue/attempt-timeout-ms 1000
+                                  :queue/total-timeout-ms 5000
+                                  :queue/max-retries 1
+                                  :queue/retry-backoff :exponential})]
+    (is (= :error status))
+    (is (some? err))))
+
+(deftest request-queue-instance-requires-scope-binding
+  (is (thrown-with-msg?
+       js/Error #"Schema assertion failed"
+       (s/assert! :proxx/policy-contract
+                  {:contract/id :queue/unscoped
+                   :contract/kind :request-queue-instance
+                   :queue/template-id :queue/default}))))
+
+(deftest request-queue-instance-total-timeout-must-exceed-attempt-timeout
+  (is (thrown-with-msg?
+       js/Error #"Schema assertion failed"
+       (s/assert! :proxx/policy-contract
+                  {:contract/id :queue/bad-timeout
+                   :contract/kind :request-queue-instance
+                   :queue/template-id :queue/default
+                   :queue/provider-id "openai"
+                   :queue/attempt-timeout-ms 1000
+                   :queue/total-timeout-ms 500}))))
 
 ;; ── assert! throws on failure ─────────────────────────────────────────────────
 

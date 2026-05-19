@@ -5,7 +5,7 @@ import {
   reorderCandidatesForAffinities,
   reorderCandidatesForAffinity,
   gptModelRequiresPaidPlan,
-} from "../lib/provider-strategy/fallback/credential-selector.js";
+} from "../lib/provider-strategy/routing/credential-selector.js";
 
 test("reorderCandidatesForAffinities moves preferred candidates to front", () => {
   const candidates = [

@@ -8,9 +8,6 @@ import type { ProviderCredential } from "../key-pool.js";
 import type { Factory4xxDiagnostics, RequestLogStore } from "../request-log-store.js";
 import type { ResolvedRequestAuth } from "../request-auth.js";
 import { estimateRequestCost } from "../model-pricing.js";
-import type { PolicyEngine } from "../policy/index.js";
-import type { AccountHealthStore } from "../db/account-health-store.js";
-import { orderAccountsByPolicy } from "../provider-policy.js";
 import {
   responsesEventStreamToChatCompletion,
   responsesToChatCompletion,
@@ -20,9 +17,9 @@ import {
   messagesToChatCompletion,
 } from "../messages-compat.js";
 import {
-  normalizeReasoningEffort,
   ollamaToChatCompletion,
 } from "../ollama-compat.js";
+import { normalizeReasoningRequestWithCljs, resolveModelAliasWithCljs } from "../cljs-runtime.js";
 import {
   isGlmModel,
   applyGlmThinking,
@@ -184,6 +181,12 @@ interface StrategyRequestContext {
   readonly responsesPassthrough?: boolean;
   readonly imagesPassthrough?: boolean;
   readonly embeddingsPassthrough?: boolean;
+  /** Strategy mode selected by the authoritative declarative policy, when available. */
+  readonly policyPreferredStrategyMode?: UpstreamMode;
+  /** Strategy modes selected by policy per provider route. */
+  readonly policyPreferredStrategyModeByProvider?: Readonly<Record<string, UpstreamMode>>;
+  /** Per-provider path overrides from CLJS contract routes, keyed by path kind (chat-completions, messages, responses, images-generations). */
+  readonly providerPaths?: Readonly<Record<string, string>>;
 }
 
 interface ProviderAttemptContext extends StrategyRequestContext {
@@ -219,7 +222,7 @@ interface ProviderAttemptOutcomeContinue {
 
 type ProviderAttemptOutcome = ProviderAttemptOutcomeHandled | ProviderAttemptOutcomeContinue;
 
-interface FallbackAccumulator {
+interface RoutingAccumulator {
   sawRateLimit: boolean;
   sawRequestError: boolean;
   sawUpstreamServerError: boolean;
@@ -234,10 +237,10 @@ interface FallbackAccumulator {
   };
 }
 
-export interface ProviderFallbackExecutionResult {
+export interface ProviderRoutingExecutionResult {
   readonly handled: boolean;
   readonly candidateCount: number;
-  readonly summary: FallbackAccumulator;
+  readonly summary: RoutingAccumulator;
 }
 
 interface PreferredAffinity {
@@ -347,21 +350,6 @@ function providerAccountsForRequest(
   return prioritized;
 }
 
-function providerAccountsForRequestWithPolicy(
-  policy: PolicyEngine,
-  accounts: readonly ProviderCredential[],
-  providerId: string,
-  routedModel: string,
-  context: {
-    openAiPrefixed: boolean;
-    localOllama: boolean;
-    explicitOllama: boolean;
-  },
-  healthStore?: AccountHealthStore,
-): ProviderCredential[] {
-  return orderAccountsByPolicy(policy, providerId, accounts, routedModel, context, healthStore);
-}
-
 function providerUsesOpenAiChatCompletions(providerId: string): boolean {
   const normalized = providerId.trim().toLowerCase();
   return normalized === "ob1" || normalized === "openrouter" || normalized === "requesty" || normalized === "zen";
@@ -454,6 +442,18 @@ interface ProviderStrategy {
     context: ProviderAttemptContext
   ): Promise<ProviderAttemptOutcome>;
   handleLocalAttempt(reply: FastifyReply, response: Response, context: LocalAttemptContext): Promise<void>;
+}
+
+/**
+ * Optional interface for strategies that want to bypass the standard HTTP fetch
+ * and handle the upstream request directly (e.g., using an SDK).
+ */
+export interface DirectExecutionProviderStrategy extends ProviderStrategy {
+  executeDirect(
+    reply: FastifyReply,
+    context: ProviderAttemptContext,
+    payload: Record<string, unknown>,
+  ): Promise<ProviderAttemptOutcome>;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -878,29 +878,50 @@ function buildPayloadResult(upstreamPayload: Record<string, unknown>, context?: 
   };
 }
 
+function applyProviderModelAliasToPayload(
+  payload: BuildPayloadResult,
+  context: StrategyRequestContext,
+  providerId: string,
+): BuildPayloadResult {
+  const currentModel = payload.upstreamPayload.model;
+  if (typeof currentModel !== "string" || currentModel.length === 0) {
+    return payload;
+  }
+
+  const alias = resolveModelAliasWithCljs({
+    manifestPath: context.config.cljsPolicyManifestPath,
+    modelId: context.routedModel,
+    providerId,
+  });
+  if (!alias || alias === currentModel) {
+    return payload;
+  }
+
+  const upstreamPayload = { ...payload.upstreamPayload, model: alias };
+  return {
+    ...payload,
+    upstreamPayload,
+    bodyText: JSON.stringify(upstreamPayload),
+  };
+}
+
 function buildRequestBodyForUpstream(context: StrategyRequestContext): Record<string, unknown> {
-  const upstreamBody: Record<string, unknown> = {
+  const rawUpstreamBody: Record<string, unknown> = {
     ...context.requestBody,
   };
 
   if (context.routedModel !== context.requestedModelInput) {
-    upstreamBody.model = context.routedModel;
+    rawUpstreamBody.model = context.routedModel;
   }
 
-  delete upstreamBody["open_hax"];
+  delete rawUpstreamBody["open_hax"];
 
-  const reasoningEffort = asString(upstreamBody["reasoning_effort"]) ?? asString(upstreamBody["reasoningEffort"]);
-  if (reasoningEffort) {
-    upstreamBody["reasoning_effort"] = normalizeReasoningEffort(reasoningEffort);
-  }
-
-  const reasoning = isRecord(upstreamBody["reasoning"]) ? upstreamBody["reasoning"] : null;
-  if (reasoning) {
-    const effort = asString(reasoning["effort"]);
-    if (effort) {
-      upstreamBody["reasoning"] = { ...reasoning, effort: normalizeReasoningEffort(effort) };
-    }
-  }
+  const upstreamBody = normalizeReasoningRequestWithCljs({
+    manifestPath: context.config.cljsPolicyManifestPath,
+    requestBody: rawUpstreamBody,
+    modelId: context.routedModel,
+    providerId: context.routeProviderId,
+  });
 
   if (isGlmModel(context.routedModel)) {
     return applyGlmThinking(upstreamBody, context.routedModel);
@@ -1813,7 +1834,7 @@ export type {
   ProviderAttemptContext,
   LocalAttemptContext,
   ProviderAttemptOutcome,
-  FallbackAccumulator,
+  RoutingAccumulator,
   PreferredAffinity,
   BuildPayloadResult,
   ProviderStrategy,
@@ -1830,7 +1851,6 @@ export {
   reorderCandidatesForAffinity,
   gptModelRequiresPaidPlan,
   providerAccountsForRequest,
-  providerAccountsForRequestWithPolicy,
   providerUsesOpenAiChatCompletions,
   reorderAccountsForLatency,
   isRecord,
@@ -1840,6 +1860,7 @@ export {
   updateFailedAttemptDiagnostics,
   stripTrailingAssistantPrefill,
   buildPayloadResult,
+  applyProviderModelAliasToPayload,
   buildRequestBodyForUpstream,
   ensureChatCompletionsUsageInStream,
   readHeaderValue,

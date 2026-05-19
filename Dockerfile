@@ -17,9 +17,8 @@ RUN pnpm install --no-frozen-lockfile
 
 COPY src ./src
 COPY web ./web
+COPY resources ./resources
 COPY ecosystem.container.config.cjs ./ecosystem.container.config.cjs
-COPY keys.example.json ./keys.example.json
-COPY models.example.json ./models.example.json
 
 RUN pnpm build:runtime && pnpm web:build
 
@@ -33,6 +32,7 @@ ENV NODE_ENV=production
 ENV PROXY_HOST=0.0.0.0
 ENV PROXY_PORT=8789
 ENV PROXX_CLJS_RUNTIME_REQUIRED=true
+ENV PROXX_CLJS_POLICY_AUTHORITATIVE=true
 
 EXPOSE 8789
 EXPOSE 5174

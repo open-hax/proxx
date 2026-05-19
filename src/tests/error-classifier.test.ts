@@ -8,7 +8,7 @@ import {
   shouldCooldownCredentialOnAuthFailure,
   shouldPermanentlyDisableCredential,
   PERMANENT_DISABLE_COOLDOWN_MS,
-} from "../lib/provider-strategy/fallback/error-classifier.js";
+} from "../lib/provider-strategy/routing/error-classifier.js";
 
 test("shouldRetrySameCredentialForServerError returns true for 502/503/504", () => {
   assert.ok(shouldRetrySameCredentialForServerError(502));
