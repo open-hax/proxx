@@ -104,7 +104,9 @@ export function buildUpstreamHeadersForCredential(
   credential: ProviderCredential,
   options?: { readonly useOpenAiCodexHeaderProfile?: boolean },
 ): Headers {
-  const headers = buildUpstreamHeaders(clientHeaders, credential.token);
+  const headers = credential.token.length > 0
+    ? buildUpstreamHeaders(clientHeaders, credential.token)
+    : buildForwardHeaders(clientHeaders);
   if (credential.chatgptAccountId) {
     headers.set("chatgpt-account-id", credential.chatgptAccountId);
   }

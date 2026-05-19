@@ -700,8 +700,9 @@
 
 (defn- request-or-route-provider-ids [route input]
   (let [requested-provider-ids (vec (or (get-any input [:provider-ids :providerIds]) []))]
-    (dedupe-provider-ids (concat (route-default-provider-ids route)
-                                 requested-provider-ids))))
+    (if (seq requested-provider-ids)
+      (dedupe-provider-ids requested-provider-ids)
+      (dedupe-provider-ids (route-default-provider-ids route)))))
 
 (defn- provider-route-by-id [compiled]
   (into {}
@@ -856,8 +857,20 @@
 
 (defn- evidence-filtered-provider-ids [route input provider-ids model-id]
   (if (= :route/default (:contract/id route))
-    (filterv #(provider-model-evidenced? input % model-id) provider-ids)
+    (let [evidenced (filterv #(provider-model-evidenced? input % model-id) provider-ids)]
+      (if (seq evidenced) evidenced provider-ids))
     provider-ids))
+
+(defn- strategy-by-provider [compiled route input request-kind provider-ids]
+  (into {}
+        (map (fn [provider-id]
+               [provider-id
+                (select-strategy-candidate compiled
+                                           route
+                                           provider-id
+                                           request-kind
+                                           (strategies-for-provider input provider-id))]))
+        provider-ids))
 
 (defn preview-policy-decision
   "Produce a pure policy decision preview from compiled declarative contracts.
@@ -889,13 +902,18 @@
              :route-id :route/prompt-affinity
              :providers [provider-id]
              :provider-routes (selected-provider-routes compiled [provider-id])
-             :provider-id provider-id
-             :accounts [bound-account]
-             :account bound-account
-             :applies-account-constraint true
-             :strategies (order-strategy-candidates compiled
-                                                     nil
-                                                     provider-id
+              :provider-id provider-id
+              :accounts [bound-account]
+              :account bound-account
+              :applies-account-constraint true
+              :strategy-by-provider (strategy-by-provider compiled
+                                                          nil
+                                                          input
+                                                          request-kind
+                                                          [provider-id])
+              :strategies (order-strategy-candidates compiled
+                                                      nil
+                                                      provider-id
                                                      request-kind
                                                      (strategies-for-provider input provider-id))
              :strategy (select-strategy-candidate compiled
@@ -936,11 +954,16 @@
                  :providers ordered-providers
                  :provider-routes (selected-provider-routes compiled ordered-providers)
                  :provider-id provider-id
-                 :accounts ordered-accounts
-                 :account (first ordered-accounts)
-                 :applies-account-constraint (:applies-constraint account-result)
-                 :strategies ordered-strategies
-                 :strategy (first ordered-strategies)}))))
+                  :accounts ordered-accounts
+                  :account (first ordered-accounts)
+                  :applies-account-constraint (:applies-constraint account-result)
+                  :strategy-by-provider (strategy-by-provider compiled
+                                                              route
+                                                              input
+                                                              request-kind
+                                                              ordered-providers)
+                  :strategies ordered-strategies
+                  :strategy (first ordered-strategies)}))))
           {:status :exhausted
            :reason :no-routing-clause
            :model-id model-id})))))

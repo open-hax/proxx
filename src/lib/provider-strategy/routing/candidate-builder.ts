@@ -2,7 +2,6 @@ import type { ProviderCredential } from "../../key-pool.js";
 import type { StrategyRequestContext } from "../shared.js";
 import {
   providerAccountsForRequest,
-  providerAccountsForRequestWithPolicy,
   reorderAccountsForLatency,
   reorderCandidatesForAffinities,
 } from "./credential-selector.js";
@@ -38,7 +37,7 @@ export interface BuildCandidatesResult {
 export async function buildRoutingCandidates(
   deps: RoutingDeps,
 ): Promise<BuildCandidatesResult> {
-  const { keyPool, providerRoutes, context, promptAffinityStore, promptCacheKey, policy, healthStore, quotaMonitor, strategy, requestLogStore } = deps;
+  const { keyPool, providerRoutes, context, promptAffinityStore, promptCacheKey, quotaMonitor, strategy, requestLogStore } = deps;
 
   const candidatesByProvider: Record<string, RoutingCandidate[]> = {};
   const forcedCredentialSelection = resolveForcedCredentialSelection(context);
@@ -51,13 +50,7 @@ export async function buildRoutingCandidates(
     let routeAccounts: ProviderCredential[];
     try {
       const rawAccounts = await keyPool.getRequestOrder(route.providerId);
-      routeAccounts = policy
-        ? providerAccountsForRequestWithPolicy(policy, rawAccounts, route.providerId, context.routedModel, {
-            openAiPrefixed: context.openAiPrefixed,
-            localOllama: context.localOllama,
-            explicitOllama: context.explicitOllama,
-          }, healthStore)
-        : providerAccountsForRequest(rawAccounts, route.providerId, context.routedModel);
+      routeAccounts = providerAccountsForRequest(rawAccounts, route.providerId, context.routedModel);
     } catch {
       if (route.authRequired !== false) {
         continue;
@@ -69,7 +62,7 @@ export async function buildRoutingCandidates(
       routeAccounts = [{
         providerId: route.providerId,
         accountId: `${route.providerId}-no-auth`,
-        token: "local-no-auth",
+        token: "",
         authType: "api_key",
         planType: "free",
       }];

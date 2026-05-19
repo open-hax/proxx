@@ -8,9 +8,6 @@ import type { ProviderCredential } from "../key-pool.js";
 import type { Factory4xxDiagnostics, RequestLogStore } from "../request-log-store.js";
 import type { ResolvedRequestAuth } from "../request-auth.js";
 import { estimateRequestCost } from "../model-pricing.js";
-import type { PolicyEngine } from "../policy/index.js";
-import type { AccountHealthStore } from "../db/account-health-store.js";
-import { orderAccountsByPolicy } from "../provider-policy.js";
 import {
   responsesEventStreamToChatCompletion,
   responsesToChatCompletion,
@@ -186,6 +183,8 @@ interface StrategyRequestContext {
   readonly embeddingsPassthrough?: boolean;
   /** Strategy mode selected by the authoritative declarative policy, when available. */
   readonly policyPreferredStrategyMode?: UpstreamMode;
+  /** Strategy modes selected by policy per provider route. */
+  readonly policyPreferredStrategyModeByProvider?: Readonly<Record<string, UpstreamMode>>;
   /** Per-provider path overrides from CLJS contract routes, keyed by path kind (chat-completions, messages, responses, images-generations). */
   readonly providerPaths?: Readonly<Record<string, string>>;
 }
@@ -351,21 +350,6 @@ function providerAccountsForRequest(
   return prioritized;
 }
 
-function providerAccountsForRequestWithPolicy(
-  policy: PolicyEngine,
-  accounts: readonly ProviderCredential[],
-  providerId: string,
-  routedModel: string,
-  context: {
-    openAiPrefixed: boolean;
-    localOllama: boolean;
-    explicitOllama: boolean;
-  },
-  healthStore?: AccountHealthStore,
-): ProviderCredential[] {
-  return orderAccountsByPolicy(policy, providerId, accounts, routedModel, context, healthStore);
-}
-
 function providerUsesOpenAiChatCompletions(providerId: string): boolean {
   const normalized = providerId.trim().toLowerCase();
   return normalized === "ob1" || normalized === "openrouter" || normalized === "requesty" || normalized === "zen";
@@ -458,6 +442,18 @@ interface ProviderStrategy {
     context: ProviderAttemptContext
   ): Promise<ProviderAttemptOutcome>;
   handleLocalAttempt(reply: FastifyReply, response: Response, context: LocalAttemptContext): Promise<void>;
+}
+
+/**
+ * Optional interface for strategies that want to bypass the standard HTTP fetch
+ * and handle the upstream request directly (e.g., using an SDK).
+ */
+export interface DirectExecutionProviderStrategy extends ProviderStrategy {
+  executeDirect(
+    reply: FastifyReply,
+    context: ProviderAttemptContext,
+    payload: Record<string, unknown>,
+  ): Promise<ProviderAttemptOutcome>;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -1855,7 +1851,6 @@ export {
   reorderCandidatesForAffinity,
   gptModelRequiresPaidPlan,
   providerAccountsForRequest,
-  providerAccountsForRequestWithPolicy,
   providerUsesOpenAiChatCompletions,
   reorderAccountsForLatency,
   isRecord,

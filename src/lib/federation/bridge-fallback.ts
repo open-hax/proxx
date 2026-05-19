@@ -23,7 +23,7 @@ import {
   shareModeAllowsRelay,
   tenantProviderPolicyAllowsUse,
   type TenantProviderPolicyRecord,
-} from "../tenant-provider-policy.js";
+} from "../db/sql-tenant-provider-policy-store.js";
 import { applyNativeOllamaAuth } from "../native-auth.js";
 import type { SqlTenantProviderPolicyStore } from "../db/sql-tenant-provider-policy-store.js";
 import type { RuntimeCredentialStore } from "../runtime-credential-store.js";

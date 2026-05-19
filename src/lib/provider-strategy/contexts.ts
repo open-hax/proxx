@@ -7,8 +7,6 @@ import { selectProviderStrategyForContext } from "./registry.js";
 import type { ResolvedRequestAuth } from "../request-auth.js";
 import type { ProviderStrategy, StrategyRequestContext } from "./shared.js";
 import { resolveAutoModel } from "./strategies/auto.js";
-import type { PolicyEngine } from "../policy/index.js";
-
 type RequestSurface = "chat" | "responses-passthrough" | "images-passthrough";
 
 export function selectProviderStrategy(
@@ -18,7 +16,6 @@ export function selectProviderStrategy(
   requestedModelInput: string,
   routingModelInput: string,
   requestAuth?: Pick<ResolvedRequestAuth, "kind" | "tenantId" | "keyId" | "subject">,
-  policy?: PolicyEngine,
   options?: { readonly surface?: RequestSurface },
 ): {
   readonly strategy: ProviderStrategy;
@@ -76,5 +73,5 @@ export function selectProviderStrategy(
     imagesPassthrough,
   };
 
-  return { strategy: selectProviderStrategyForContext(context, policy), context };
+  return { strategy: selectProviderStrategyForContext(context), context };
 }

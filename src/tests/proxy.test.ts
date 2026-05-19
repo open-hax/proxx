@@ -19,6 +19,23 @@ interface TestContext {
   readonly tempDir: string;
 }
 
+const AMBIENT_PROVIDER_ENV_NAMES = [
+  "ROTUSSY_API_KEY",
+  "ROTUSSY_PROVIDER_ID",
+  "FACTORY_API_KEY",
+  "GEMINI_API_KEY",
+  "ZAI_API_KEY",
+  "ZHIPU_API_KEY",
+  "MISTRAL_API_KEY",
+  "OPENROUTER_API_KEY",
+  "REQUESTY_API_TOKEN",
+  "REQUESTY_API_KEY",
+  "ZEN_API_KEY",
+  "ZENMUX_API_KEY",
+] as const;
+
+const ambientProviderEnv = new Map(AMBIENT_PROVIDER_ENV_NAMES.map((name) => [name, process.env[name]] as const));
+
 const testCljsRuntimePromise = loadCljsRuntime({ required: true }).then((result) => {
   if (!result.loaded) {
     throw new Error(result.reason);
@@ -234,25 +251,27 @@ async function withProxyApp(
     },
   };
 
-  const previousCljsRuntime = getActiveCljsRuntime();
-  setActiveCljsRuntime(await testCljsRuntimePromise);
-  const app = await createApp(config);
-  try {
-    await fn({ app, upstream, tempDir });
-  } finally {
-    await app.close();
-    setActiveCljsRuntime(previousCljsRuntime);
-    await new Promise<void>((resolve, reject) => {
-      upstream.close((error) => {
-        if (error) {
-          reject(error);
-          return;
-        }
-        resolve();
+  await withClearedAmbientProviders(async () => {
+    const previousCljsRuntime = getActiveCljsRuntime();
+    setActiveCljsRuntime(await testCljsRuntimePromise);
+    const app = await createApp(config);
+    try {
+      await fn({ app, upstream, tempDir });
+    } finally {
+      await app.close();
+      setActiveCljsRuntime(previousCljsRuntime);
+      await new Promise<void>((resolve, reject) => {
+        upstream.close((error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          resolve();
+        });
       });
-    });
-    await rm(tempDir, { recursive: true, force: true });
-  }
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
 }
 
 async function withEnv(values: Record<string, string | undefined>, fn: () => Promise<void>): Promise<void> {
@@ -300,23 +319,18 @@ async function withPatchedFetch(
 }
 
 async function withClearedAmbientProviders(fn: () => Promise<void>): Promise<void> {
+  const values: Record<string, string | undefined> = {
+    FACTORY_AUTH_V2_FILE: process.env.FACTORY_AUTH_V2_FILE === undefined ? "/tmp/nonexistent-auth-v2-file" : process.env.FACTORY_AUTH_V2_FILE,
+    FACTORY_AUTH_V2_KEY: process.env.FACTORY_AUTH_V2_KEY === undefined ? "/tmp/nonexistent-auth-v2-key" : process.env.FACTORY_AUTH_V2_KEY,
+  };
+  for (const name of AMBIENT_PROVIDER_ENV_NAMES) {
+    if (process.env[name] === ambientProviderEnv.get(name)) {
+      values[name] = undefined;
+    }
+  }
+
   await withEnv(
-    {
-      ROTUSSY_API_KEY: undefined,
-      ROTUSSY_PROVIDER_ID: undefined,
-      FACTORY_API_KEY: undefined,
-      FACTORY_AUTH_V2_FILE: "/tmp/nonexistent-auth-v2-file",
-      FACTORY_AUTH_V2_KEY: "/tmp/nonexistent-auth-v2-key",
-      GEMINI_API_KEY: undefined,
-      ZAI_API_KEY: undefined,
-      ZHIPU_API_KEY: undefined,
-      MISTRAL_API_KEY: undefined,
-      OPENROUTER_API_KEY: undefined,
-      REQUESTY_API_TOKEN: undefined,
-      REQUESTY_API_KEY: undefined,
-      ZEN_API_KEY: undefined,
-      ZENMUX_API_KEY: undefined,
-    },
+    values,
     fn,
   );
 }

@@ -9,6 +9,7 @@ x-proxx-node: &proxx-node
     PROXY_HOST: 0.0.0.0
     PROXY_PORT: "8789"
     PORT: "8789"
+    PROXX_CLJS_POLICY_AUTHORITATIVE: "true"
     PROXY_AUTH_TOKEN: "${PROXY_AUTH_TOKEN:-change-me-open-hax-proxy-token}"
     PROXY_MODELS_FILE: /workspace/service-config/models.json
     PROXY_REQUEST_LOGS_FILE: /app/data/request-logs.jsonl

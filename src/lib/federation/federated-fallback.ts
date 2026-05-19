@@ -11,7 +11,7 @@ import {
   shareModeAllowsWarmImport,
   tenantProviderPolicyAllowsUse,
   type TenantProviderPolicyRecord,
-} from "../tenant-provider-policy.js";
+} from "../db/sql-tenant-provider-policy-store.js";
 import {
   extractPeerCredential,
   fetchFederationJson,

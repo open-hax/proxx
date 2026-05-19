@@ -19,7 +19,6 @@ export {
 
 export {
   providerAccountsForRequest,
-  providerAccountsForRequestWithPolicy,
   reorderAccountsForLatency,
   reorderCandidatesForAffinities,
   reorderCandidatesForAffinity,

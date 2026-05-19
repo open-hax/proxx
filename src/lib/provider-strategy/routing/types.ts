@@ -3,7 +3,6 @@ import type { FastifyReply } from "fastify";
 import type { AccountHealthStore } from "../../db/account-health-store.js";
 import type { EventStore } from "../../db/event-store.js";
 import type { ProviderCredential } from "../../key-pool.js";
-import type { PolicyEngine } from "../../policy/index.js";
 import type { IPromptAffinityStore } from "../../db/sql-prompt-affinity-store.js";
 import type { ProviderRoutePheromoneStore } from "../../provider-route-pheromone-store.js";
 import type { RequestLogStore } from "../../request-log-store.js";
@@ -46,7 +45,6 @@ export interface RoutingDeps {
   readonly payload: BuildPayloadResult;
   readonly promptCacheKey?: string;
   readonly refreshExpiredToken?: (credential: ProviderCredential) => Promise<ProviderCredential | null>;
-  readonly policy?: PolicyEngine;
   readonly healthStore?: AccountHealthStore;
   readonly eventStore?: EventStore;
   readonly quotaMonitor?: QuotaMonitor;

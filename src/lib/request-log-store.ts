@@ -2213,14 +2213,37 @@ export class RequestLogStore {
     this.entries.splice(0, this.entries.length, ...db.entries);
     await this.repairDerivedEstimates();
 
-    // Always rebuild buckets from entries on load so that any prior
-    // entry repairs (or schema changes) are reflected in dashboard
-    // aggregations. With the current max of 100k entries this is
-    // cheap enough to do on every startup.
+    // Rebuild derived indexes from retained entries, but keep persisted rollups
+    // when present: compacted logs can retain daily/hourly aggregate history
+    // after old entries have been dropped from the hot list.
     this.rebuildHourlyBucketsFromEntries();
     this.rebuildDailyBucketsFromEntries();
     this.rebuildDailyModelBucketsFromEntries();
     this.rebuildDailyAccountBucketsFromEntries();
+    if (db.hourlyBuckets && db.hourlyBuckets.length > 0) {
+      this.hourlyBuckets.clear();
+      for (const bucket of db.hourlyBuckets) {
+        this.hourlyBuckets.set(bucket.startMs, { ...bucket });
+      }
+    }
+    if (db.dailyBuckets && db.dailyBuckets.length > 0) {
+      this.dailyBuckets.clear();
+      for (const bucket of db.dailyBuckets) {
+        this.dailyBuckets.set(bucket.startMs, { ...bucket });
+      }
+    }
+    if (db.dailyModelBuckets && db.dailyModelBuckets.length > 0) {
+      this.dailyModelBuckets.clear();
+      for (const bucket of db.dailyModelBuckets) {
+        this.dailyModelBuckets.set(dailyModelBucketKey(bucket.startMs, bucket.providerId, bucket.model), { ...bucket });
+      }
+    }
+    if (db.dailyAccountBuckets && db.dailyAccountBuckets.length > 0) {
+      this.dailyAccountBuckets.clear();
+      for (const bucket of db.dailyAccountBuckets) {
+        this.dailyAccountBuckets.set(dailyAccountBucketKey(bucket.startMs, bucket.providerId, bucket.accountId, bucket.tenantId, bucket.issuer, bucket.keyId), { ...bucket });
+      }
+    }
     this.rebuildPerfIndex();
     this.rebuildAccountAccumulators();
   }

@@ -114,6 +114,14 @@
           :messages "/v1/messages"
           :images-generations "/v1/images/generations"}}
 
+ {:contract/id :provider-route/ob1
+  :contract/kind :provider-route
+  :provider/id "ob1"
+  :provider/base-url "https://api.ob1.ai"
+  :paths {:chat-completions "/v1/chat/completions"
+          :responses "/v1/responses"
+          :images-generations "/v1/images/generations"}}
+
  {:contract/id :provider-route/kimi
   :contract/kind :provider-route
   :provider/id "kimi"
@@ -125,6 +133,7 @@
   :contract/kind :provider-route
   :provider/id "ollama"
   :provider/base-url "http://ollama:11434"
+  :auth/required? false
   :paths {:chat-completions "/v1/chat/completions"}}
 
  {:contract/id :provider-route/ollama-lan

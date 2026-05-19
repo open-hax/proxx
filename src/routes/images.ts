@@ -2,10 +2,10 @@ import type { FastifyInstance } from "fastify";
 import type { AppDeps } from "../lib/app-deps.js";
 import { DEFAULT_TENANT_ID } from "../lib/tenant-api-key.js";
 import {
+  filterDeclaredProviderRoutes,
   filterImagesApiRoutes,
+  getDeclaredProviderRoutes,
 } from "../lib/provider-routing.js";
-import { getActiveCljsRuntime } from "../lib/cljs-runtime.js";
-import { applyCljsProviderPolicy, getContractProviderRoutes } from "../lib/policy/cljs-shadow.js";
 import {
   inspectProviderAvailability,
   executeProviderRoutingPlan,
@@ -41,7 +41,6 @@ export function registerImagesRoutes(deps: AppDeps, app: FastifyInstance): void 
       model,
       model,
       request.openHaxAuth ?? undefined,
-      deps.policyEngine,
       { surface: "images-passthrough" },
     );
     reply.header("x-open-hax-upstream-mode", strategy.mode);
@@ -54,25 +53,16 @@ export function registerImagesRoutes(deps: AppDeps, app: FastifyInstance): void 
     }
 
     let providerRoutes = filterImagesApiRoutes(
-      getContractProviderRoutes(deps.config),
+      getDeclaredProviderRoutes(deps.config),
       deps.config.openaiProviderId,
     );
-    const policyEvidence = deps.config.cljsPolicyShadowMode === true || deps.config.cljsPolicyAuthoritative === true
-      ? await getActiveCljsRuntime()?.loadPolicyEvidence({ providerRoutes }).catch((error: unknown) => {
-        request.log.warn({ error, model: context.routedModel }, "CLJS policy evidence load failed");
-        return undefined;
-      })
-      : undefined;
-    providerRoutes = applyCljsProviderPolicy({
+    providerRoutes = filterDeclaredProviderRoutes(deps.config.cljsPolicyManifestPath, {
       config: deps.config,
-      log: request.log,
+      modelId: context.routedModel || context.requestedModelInput,
       requestKind: "images-passthrough",
-      requestedModel: context.requestedModelInput,
-      routedModel: context.routedModel,
       tenantSettings,
       providerRoutes,
-      policyEvidence,
-    });
+    }).providerRoutes;
 
     if (providerRoutes.length === 0) {
       throw openAiRouteError(403, "No allowed providers are available for this tenant and request.", "invalid_request_error", "provider_not_allowed", { routedModel: context.routedModel });
@@ -104,7 +94,6 @@ export function registerImagesRoutes(deps: AppDeps, app: FastifyInstance): void 
           payload,
           undefined,
           deps.refreshExpiredOAuthAccount,
-          deps.policyEngine,
           deps.accountHealthStore,
           deps.eventStore,
           deps.quotaMonitor,

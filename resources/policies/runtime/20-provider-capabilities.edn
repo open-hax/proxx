@@ -8,11 +8,15 @@
 
  {:contract/id :provider-order/gpt-default
   :contract/kind :preference-order
-  :preference/items ["openai"]}
+  :preference/items ["vivgrid" "openai" "requesty" "openrouter" "factory" "blaze"]}
 
  {:contract/id :provider-order/gpt-oss
   :contract/kind :preference-order
   :preference/items ["ollama-cloud"]}
+
+ {:contract/id :provider-order/mistral
+  :contract/kind :preference-order
+  :preference/items ["mistral"]}
 
  {:contract/id :provider-order/claude-opus-4-6
   :contract/kind :preference-order
@@ -24,7 +28,7 @@
 
  {:contract/id :provider-order/kimi
   :contract/kind :preference-order
-  :preference/items ["kimi" "moonshotai" "blaze" "factory" "openrouter" "requesty" "vivgrid"]}
+  :preference/items ["kimi" "moonshotai" "blaze" "factory" "openrouter" "requesty" "ollama-cloud" "vivgrid"]}
 
  {:contract/id :provider-order/mimo-official
   :contract/kind :preference-order
@@ -40,7 +44,7 @@
 
  {:contract/id :provider-order/gemma
   :contract/kind :preference-order
-  :preference/items ["ollama-cloud" "ollama"]}
+  :preference/items ["ollama-cloud"]}
 
  {:contract/id :provider-order/musicgen
   :contract/kind :preference-order
@@ -52,11 +56,19 @@
 
  {:contract/id :provider-order/gemma4-e4b
   :contract/kind :preference-order
-  :preference/items ["ollama-lan"]}
+  :preference/items ["ollama" "ollama-lan"]}
 
  {:contract/id :provider-order/gemma4
   :contract/kind :preference-order
   :preference/items ["gemini" "ollama-cloud" "ollama"]}
+
+ {:contract/id :provider-order/gemini
+  :contract/kind :preference-order
+  :preference/items ["gemini" "vivgrid"]}
+
+ {:contract/id :provider-order/ollama
+  :contract/kind :preference-order
+  :preference/items ["ollama" "ollama-local" "ollama-cloud"]}
 
 
  {:contract/id :provider-capability/blaze-chat
@@ -133,7 +145,20 @@
   :contract/kind :provider-capability
   :match/provider-pattern "^(openrouter|requesty|ob1|zen|xiaomi)$"
   :match/request-kind :chat
-  :exclude/strategies [:messages]}
+  :exclude/strategies [:gemini-chat :ollama-chat :messages :openai-responses :openai-chat-completions]}
+
+ {:contract/id :provider-capability/vivgrid-chat
+  :contract/kind :provider-capability
+  :match/provider-pattern "^vivgrid$"
+  :match/request-kind :chat
+  :exclude/strategies [:gemini-chat :ollama-chat :openai-responses :openai-chat-completions]}
+
+ {:contract/id :provider-capability/rotussy-chat
+  :contract/kind :provider-capability
+  :match/provider-pattern "^rotussy$"
+  :match/request-kind :chat
+  :prefer/strategies [:chat-completions]
+  :exclude/strategies [:gemini-chat :ollama-chat :responses :messages :openai-responses :openai-chat-completions]}
 
  {:contract/id :provider-capability/ollama-lan-chat
   :contract/kind :provider-capability
@@ -141,6 +166,27 @@
   :match/request-kind :chat
   :prefer/strategies [:chat-completions]
   :exclude/strategies [:ollama-chat :messages :responses :openai-responses]}
+
+ {:contract/id :provider-capability/ollama-chat
+  :contract/kind :provider-capability
+  :match/provider-pattern "^ollama$"
+  :match/request-kind :chat
+  :prefer/strategies [:chat-completions :ollama-chat]
+  :exclude/strategies [:messages :responses :openai-responses]}
+
+ {:contract/id :provider-capability/ollama-local-chat
+  :contract/kind :provider-capability
+  :match/provider-pattern "^ollama-local$"
+  :match/request-kind :chat
+  :prefer/strategies [:ollama-chat]
+  :exclude/strategies [:messages :responses :openai-responses]}
+
+ {:contract/id :provider-capability/ollama-cloud-chat
+  :contract/kind :provider-capability
+  :match/provider-pattern "^ollama-cloud$"
+  :match/request-kind :chat
+  :prefer/strategies [:chat-completions :ollama-chat]
+  :exclude/strategies [:messages :responses :openai-responses]}
 
  {:contract/id :request-surface/images-passthrough
   :contract/kind :request-surface-default

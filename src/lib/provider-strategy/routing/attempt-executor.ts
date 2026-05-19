@@ -3,7 +3,6 @@ import type { FastifyReply } from "fastify";
 import type { AccountHealthStore } from "../../db/account-health-store.js";
 import type { EventStore } from "../../db/event-store.js";
 import type { ProviderCredential } from "../../key-pool.js";
-import type { PolicyEngine } from "../../policy/index.js";
 import type { IPromptAffinityStore } from "../../db/sql-prompt-affinity-store.js";
 import type { ProviderRoutePheromoneStore } from "../../provider-route-pheromone-store.js";
 import type { RequestLogStore } from "../../request-log-store.js";
@@ -46,6 +45,7 @@ import {
   type ProviderRoutingExecutionResult,
   type ProviderStrategy,
   type StrategyRequestContext,
+  type DirectExecutionProviderStrategy,
 } from "../shared.js";
 import {
   PERMANENT_DISABLE_COOLDOWN_MS,
@@ -125,7 +125,6 @@ export async function executeProviderRoutingPlan(
   payload: BuildPayloadResult,
   promptCacheKey?: string,
   refreshExpiredToken?: (credential: ProviderCredential) => Promise<ProviderCredential | null>,
-  policy?: PolicyEngine,
   healthStore?: AccountHealthStore,
   eventStore?: EventStore,
   quotaMonitor?: QuotaMonitor,
@@ -136,7 +135,7 @@ export async function executeProviderRoutingPlan(
   const deps: RoutingDeps = {
     strategy, reply, requestLogStore, promptAffinityStore, providerRoutePheromoneStore,
     keyPool, providerRoutes, context, payload, promptCacheKey, refreshExpiredToken,
-    policy, healthStore, eventStore, quotaMonitor,
+    healthStore, eventStore, quotaMonitor,
   };
 
   const { candidates, preferredAffinity, provisionalAffinity } = await buildRoutingCandidates(deps);
@@ -158,7 +157,7 @@ export async function executeProviderRoutingPlan(
       continue;
     }
 
-    const candidateStrategy = selectRemoteProviderStrategyForRoute(context, candidate.providerId, policy);
+    const candidateStrategy = selectRemoteProviderStrategyForRoute(context, candidate.providerId);
     let candidatePayload = candidateStrategy === strategy
       ? payload
       : candidateStrategy.buildPayload(context);
@@ -193,6 +192,7 @@ export async function executeProviderRoutingPlan(
 
       const primaryUpstreamPath = candidateStrategy.getUpstreamPath(baseProviderContext);
       const isOpenAiImages = candidate.providerId === context.config.openaiProviderId && candidateStrategy.mode === "images";
+      const openAiPlatformImagesPath = context.config.imagesGenerationsPath;
 
       type UpstreamStepKind = "default" | "openai_platform" | "openai_chatgpt" | "openai_codex_responses_images";
       type UpstreamStep = {
@@ -211,7 +211,7 @@ export async function executeProviderRoutingPlan(
 
         // API keys should always use the Platform endpoint.
         if (candidate.account.authType === "api_key") {
-          return [{ baseUrl: context.config.openaiApiBaseUrl, upstreamPath: primaryUpstreamPath, kind: "openai_platform" as const }];
+          return [{ baseUrl: context.config.openaiApiBaseUrl, upstreamPath: openAiPlatformImagesPath, kind: "openai_platform" as const }];
         }
 
         // ChatGPT mode uses the Codex backend Responses stream + the built-in `image_generation`
@@ -225,7 +225,7 @@ export async function executeProviderRoutingPlan(
         }
 
         if (mode === "platform") {
-          return [{ baseUrl: context.config.openaiApiBaseUrl, upstreamPath: primaryUpstreamPath, kind: "openai_platform" as const }];
+          return [{ baseUrl: context.config.openaiApiBaseUrl, upstreamPath: openAiPlatformImagesPath, kind: "openai_platform" as const }];
         }
 
         // auto: try Platform Images API first, then fall back to Codex Responses image generation
@@ -233,7 +233,7 @@ export async function executeProviderRoutingPlan(
         return [
           {
             baseUrl: context.config.openaiApiBaseUrl,
-            upstreamPath: primaryUpstreamPath,
+            upstreamPath: openAiPlatformImagesPath,
             kind: "openai_platform" as const,
             tryNextBaseOnStatuses: [401, 403],
           },
@@ -311,6 +311,43 @@ export async function executeProviderRoutingPlan(
 
         let upstreamResponse: Response;
         try {
+          // Check if the strategy wants to handle execution directly (e.g., via SDK)
+          const directExecution = candidateStrategy as Partial<DirectExecutionProviderStrategy>;
+          if (directExecution.executeDirect) {
+            const outcome = await directExecution.executeDirect(reply, providerContext, candidatePayload.upstreamPayload);
+            const latencyMs = Date.now() - attemptStartedAt;
+            upstreamSpan.setAttribute("proxy.latency_ms", latencyMs);
+
+            if (outcome.kind === "handled") {
+              upstreamSpan.setStatus("ok");
+              upstreamSpan.end();
+              await providerRoutePheromoneStore.noteSuccess(
+                candidate.providerId,
+                context.routedModel,
+                clampRouteQuality(latencyMs),
+              );
+              releaseInFlight();
+              return { handled: true, candidateCount: candidates.length, summary: accumulator };
+            }
+
+            // Track errors for continue outcomes
+            accumulator.sawRequestError = outcome.requestError ?? true;
+            if (outcome.rateLimit) {
+              accumulator.sawRateLimit = true;
+            }
+            if (outcome.modelNotFound) {
+              accumulator.sawModelNotFound = true;
+            }
+            if (outcome.modelNotSupportedForAccount) {
+              accumulator.sawModelNotSupportedForAccount = true;
+            }
+            if (outcome.upstreamInvalidRequest) {
+              accumulator.sawUpstreamInvalidRequest = true;
+            }
+            upstreamSpan.end();
+            break;
+          }
+
           upstreamResponse = await fetchWithResponseTimeout(upstreamUrl, {
             method: "POST",
             headers: upstreamHeaders,

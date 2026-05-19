@@ -550,6 +550,7 @@
             :route/gpt
             :route/mimo-v2-5-pro
             :route/mimo
+            :route/mistral
             :route/qwen3-embedding
             :route/kimi
             :route/blaze-text
@@ -557,17 +558,25 @@
             :route/blaze-video
             :route/minimax-music
             :route/musicgen
+            :route/gemini
             :route/blaze-tts
+            :route/ollama-llama
+            :route/ollama-qwen
+            :route/ollama-phi
+            :route/ollama-mistral
+            :route/ollama-codellama
+            :route/ollama-deepseek
+            :route/ollama-default
             :route/default]
            route-ids))
     (is (= "^(?:gpt-5\\.3-codex|gpt-5-mini)$"
            (get-in gpt-paid [:match/family-contract :match/model-pattern])))
-    (is (= ["openai"]
+    (is (= ["vivgrid" "openai" "requesty" "openrouter" "factory" "blaze"]
            (:prefer/provider-order gpt-paid)))
     (is (= [:plus :pro :business :enterprise :team]
            (:require/plan-set gpt-paid)))
-    (is (= 13 (count (:provider-capabilities compiled))))
-    (is (= 23 (count (:provider-routes compiled))))
+    (is (= 18 (count (:provider-capabilities compiled))))
+    (is (= 24 (count (:provider-routes compiled))))
     (is (= 7 (count (:request-surface-defaults compiled))))
     (is (= 4 (count (:tenant-authorization-clauses compiled))))
     (is (= :router/root (get-in compiled [:root-program :contract/id])))))
@@ -595,14 +604,16 @@
            (:contract/id (contracts/select-routing-clause compiled "qwen3-embedding:0.6b"))))
     (is (= :route/kimi
            (:contract/id (contracts/select-routing-clause compiled "kimi-k2.6"))))
+    (is (= :route/mistral
+           (:contract/id (contracts/select-routing-clause compiled "mistral-large"))))
     (is (= :route/default
-           (:contract/id (contracts/select-routing-clause compiled "mistral-large"))))))
+           (:contract/id (contracts/select-routing-clause compiled "some-unknown-model"))))))
 
 (deftest compiler-applies-provider-and-strategy-matching-helpers
   (let [compiled (contracts/compile-contracts
                   (loader/load-policy-contracts! "resources/policies/runtime/00-manifest.edn"))
         gpt-route (contracts/select-routing-clause compiled "gpt-5.2")]
-    (is (= ["openai"]
+    (is (= ["vivgrid" "openai" "requesty" "factory"]
            (contracts/order-provider-candidates
             gpt-route
             ["anthropic" "rotussy" "requesty" "factory" "openai" "vivgrid"])))
@@ -691,7 +702,7 @@
   (let [compiled (contracts/compile-contracts
                   (loader/load-policy-contracts! "resources/policies/runtime/00-manifest.edn"))
         route (contracts/select-routing-clause compiled "gpt-5.2")]
-    (is (= [:openai-responses :chat-completions]
+    (is (= [:chat-completions]
            (mapv :mode
                  (contracts/order-strategy-candidates
                   compiled
@@ -824,9 +835,17 @@
                                                        {:mode :openai-responses :priority 0}]}})]
     (is (= :ok (:status decision)))
     (is (= :route/gpt-free-blocked (:route-id decision)))
-    (is (= ["openai"] (:providers decision)))
+    (is (= ["openai" "factory"] (:providers decision)))
     (is (= [{:provider-id "openai"
-             :base-url "https://chatgpt.com/backend-api"}]
+             :base-url "https://chatgpt.com/backend-api"
+             :paths {:chat-completions "/codex/responses/compact"
+                     :responses "/codex/responses"
+                     :images-generations "/images/generations"}}
+            {:provider-id "factory"
+             :base-url "https://api.factory.ai"
+             :paths {:chat-completions "/v1/chat/completions"
+                     :responses "/v1/responses"
+                     :images-generations "/v1/images/generations"}}]
            (:provider-routes decision)))
     (is (= "openai" (:provider-id decision)))
     (is (= "plus" (get-in decision [:account :account-id])))
@@ -906,10 +925,13 @@
     (is (= :route/qwen3-embedding (:route-id decision)))
     (is (= ["llamacpp-embed" "ollama"] (:providers decision)))
     (is (= [{:provider-id "llamacpp-embed"
-             :base-url "http://llamacpp-embed:8081"}
-            {:provider-id "ollama"
-             :base-url "http://ollama:11434"}]
-           (:provider-routes decision)))
+             :base-url "http://llamacpp-embed:8081"
+             :paths {:chat-completions "/v1/chat/completions"}}
+             {:provider-id "ollama"
+              :base-url "http://ollama:11434"
+              :auth-required? false
+              :paths {:chat-completions "/v1/chat/completions"}}]
+            (:provider-routes decision)))
     (is (= "llamacpp-embed" (:provider-id decision)))
     (is (= :embeddings (get-in decision [:strategy :mode])))))
 

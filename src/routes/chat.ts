@@ -5,25 +5,21 @@ import { extractPromptCacheKey } from "../lib/openai/index.js";
 import { isRecord, OpenAiHttpError, runCljsQueued, sendQueueError } from "../lib/provider-utils.js";
 import { resolveModelRouting } from "../lib/model-routing-pipeline.js";
 import {
-  catalogHasDynamicOllamaModel,
-} from "../lib/policy/adapters/index.js";
-import {
-  tenantProviderAllowed,
-} from "../lib/policy/engine/index.js";
-import {
   selectProviderStrategy,
   executeProviderRoutingPlan,
   inspectProviderAvailability,
 } from "../lib/provider-strategy.js";
-import { allProviderStrategyInfos, selectExecutionStrategyForProviderRoutes } from "../lib/provider-strategy/registry.js";
+import { selectExecutionStrategyForProviderRoutes } from "../lib/provider-strategy/registry.js";
 import { executeLocalStrategy } from "../lib/provider-strategy.js";
 import {
+  catalogHasDynamicOllamaModel,
+  filterDeclaredProviderRoutes,
+  getDeclaredProviderRoutes,
   resolveProviderRoutesForModel,
   type ProviderRoute,
   type ResolvedModelCatalog,
 } from "../lib/provider-routing.js";
 import { getActiveCljsRuntime, type CljsModelCandidatesRunResult } from "../lib/cljs-runtime.js";
-import { applyCljsProviderPolicyWithDecision, filterProviderRoutesWithCljs, getContractProviderRoutes } from "../lib/policy/cljs-shadow.js";
 import { toErrorMessage } from "../lib/errors/index.js";
 import { handleRoutingOutcome } from "../lib/routing-outcome-handler.js";
 import { isCephalonAutoModel } from "../lib/provider-strategy/strategies/cephalon.js";
@@ -32,22 +28,38 @@ import { requestHasExplicitNumCtx } from "../lib/ollama-compat.js";
 import { ensureOllamaContextFits } from "../lib/ollama-context.js";
 import { executeBridgeRequestFallback } from "../lib/federation/bridge-fallback.js";
 import type { AppDeps } from "../lib/app-deps.js";
-import type { UpstreamMode } from "../lib/provider-strategy/shared.js";
 import { discoverDynamicOllamaRoutes, filterDedicatedOllamaRoutes, hasDedicatedOllamaRoutes, prependDynamicOllamaRoutes } from "../lib/dynamic-ollama-routes.js";
-
-function policyStrategyModeFromDecision(decision: { readonly strategy?: { readonly mode?: string } | string } | undefined): UpstreamMode | undefined {
-  const rawMode = typeof decision?.strategy === "string"
-    ? decision.strategy
-    : decision?.strategy?.mode;
-  if (!rawMode) {
-    return undefined;
-  }
-
-  return rawMode.replace(/-/g, "_") as UpstreamMode;
-}
+import type { StrategyRequestContext } from "../lib/provider-strategy/shared.js";
 
 function openAiRouteError(statusCode: number, message: string, type: string, code: string, meta?: Record<string, unknown>): OpenAiHttpError {
   return new OpenAiHttpError({ statusCode, message, type, code, meta });
+}
+
+function applyPolicyStrategyContext(
+  context: StrategyRequestContext,
+  policyResult: { readonly strategyMode?: StrategyRequestContext["policyPreferredStrategyMode"]; readonly strategyModeByProvider?: StrategyRequestContext["policyPreferredStrategyModeByProvider"] },
+): StrategyRequestContext {
+  return {
+    ...context,
+    ...(policyResult.strategyMode ? { policyPreferredStrategyMode: policyResult.strategyMode } : {}),
+    ...(policyResult.strategyModeByProvider ? { policyPreferredStrategyModeByProvider: policyResult.strategyModeByProvider } : {}),
+  };
+}
+
+function prioritizeOpenAiRouteForPrefixedModel(
+  routes: readonly ProviderRoute[],
+  context: StrategyRequestContext,
+): ProviderRoute[] {
+  if (!context.openAiPrefixed) {
+    return [...routes];
+  }
+
+  const openAiProviderId = context.config.openaiProviderId;
+  return [...routes].sort((left, right) => {
+    const leftRank = left.providerId === openAiProviderId ? 0 : 1;
+    const rightRank = right.providerId === openAiProviderId ? 0 : 1;
+    return leftRank - rightRank;
+  });
 }
 
 interface ChatCandidateInput {
@@ -86,7 +98,6 @@ async function executeChatCandidate(input: ChatCandidateInput): Promise<CljsMode
     requestedModelInput,
     candidateRoutingModel,
     request.openHaxAuth ?? undefined,
-    deps.policyEngine,
   );
   reply.header("x-open-hax-upstream-mode", strategy.mode);
   const requestAuth = request.openHaxAuth ?? undefined;
@@ -98,11 +109,15 @@ async function executeChatCandidate(input: ChatCandidateInput): Promise<CljsMode
 
   let providerRoutes: ProviderRoute[];
   if (context.factoryPrefixed) {
-    providerRoutes = getContractProviderRoutes(deps.config).filter(
+    providerRoutes = getDeclaredProviderRoutes(deps.config).filter(
       (route) => route.providerId === "factory",
     );
+  } else if (context.explicitOllama) {
+    providerRoutes = getDeclaredProviderRoutes(deps.config).filter(
+      (route) => route.providerId === "ollama",
+    );
   } else {
-    providerRoutes = getContractProviderRoutes(deps.config);
+    providerRoutes = getDeclaredProviderRoutes(deps.config);
     if (!context.openAiPrefixed && resolvedModelCatalog) {
       providerRoutes = resolveProviderRoutesForModel(providerRoutes, context.routedModel, resolvedModelCatalog);
     }
@@ -126,38 +141,20 @@ async function executeChatCandidate(input: ChatCandidateInput): Promise<CljsMode
     }
   }
 
-  const policyEvidence = deps.config.cljsPolicyShadowMode === true || deps.config.cljsPolicyAuthoritative === true
-    ? await getActiveCljsRuntime()?.loadPolicyEvidence({ providerRoutes }).catch((error: unknown) => {
-      request.log.warn({ error, model: context.routedModel }, "CLJS policy evidence load failed");
-      return undefined;
-    })
-    : undefined;
-  const cljsPolicyResult = applyCljsProviderPolicyWithDecision({
+  const cljsPolicyResult = filterDeclaredProviderRoutes(deps.config.cljsPolicyManifestPath, {
     config: deps.config,
-    log: request.log,
+    modelId: context.routedModel || context.requestedModelInput,
     requestKind: "chat",
-    requestedModel: context.requestedModelInput,
-    routedModel: context.routedModel,
     tenantSettings: proxySettings,
     providerRoutes,
-    policyEvidence,
-    strategies: allProviderStrategyInfos(),
   });
-  providerRoutes = cljsPolicyResult.providerRoutes;
-  const policyPreferredStrategyMode = policyStrategyModeFromDecision(cljsPolicyResult.decision);
-  if (policyPreferredStrategyMode) {
-    reply.header("x-open-hax-policy-strategy", policyPreferredStrategyMode);
-  }
+  providerRoutes = prioritizeOpenAiRouteForPrefixedModel(cljsPolicyResult.providerRoutes, context);
 
-  const executionContext = policyPreferredStrategyMode
-    ? { ...context, policyPreferredStrategyMode }
-    : context;
-  const executionStrategy = selectExecutionStrategyForProviderRoutes(
+  let executionContext = applyPolicyStrategyContext(context, cljsPolicyResult);
+  let executionStrategy = selectExecutionStrategyForProviderRoutes(
     executionContext,
     strategy,
     providerRoutes.map((route) => route.providerId),
-    deps.policyEngine,
-    policyPreferredStrategyMode,
   );
   reply.header("x-open-hax-upstream-mode", executionStrategy.mode);
 
@@ -169,18 +166,23 @@ async function executeChatCandidate(input: ChatCandidateInput): Promise<CljsMode
   }
 
   try {
-    const catalogResult = filterProviderRoutesWithCljs({
-      config: deps.config,
-      log: request.log,
-      requestKind: "chat",
-      requestedModel: context.requestedModelInput,
-      routedModel: context.routedModel,
-      tenantSettings: proxySettings,
-      providerRoutes,
-      catalogBundle: await deps.providerCatalogStore.getCatalog(),
+      const catalogResult = filterDeclaredProviderRoutes(deps.config.cljsPolicyManifestPath, {
+        config: deps.config,
+        modelId: context.routedModel || context.requestedModelInput,
+        requestKind: "chat",
+        tenantSettings: proxySettings,
+        providerRoutes,
+        catalogBundle: await deps.providerCatalogStore.getCatalog(),
       catalogAvailability: !executionStrategy.isLocal,
     });
-    providerRoutes = catalogResult.providerRoutes;
+    providerRoutes = prioritizeOpenAiRouteForPrefixedModel(catalogResult.providerRoutes, context);
+    executionContext = applyPolicyStrategyContext(executionContext, catalogResult);
+    executionStrategy = selectExecutionStrategyForProviderRoutes(
+      executionContext,
+      strategy,
+      providerRoutes.map((route) => route.providerId),
+    );
+    reply.header("x-open-hax-upstream-mode", executionStrategy.mode);
     if (catalogResult.catalog?.disabled) {
       if (hasMoreModelCandidates) {
         return { status: "continue" };
@@ -245,13 +247,6 @@ async function executeChatCandidate(input: ChatCandidateInput): Promise<CljsMode
   }
 
   if (executionStrategy.isLocal) {
-    if (!tenantProviderAllowed(proxySettings, "ollama")) {
-      if (hasMoreModelCandidates) {
-        return { status: "continue" };
-      }
-      throw openAiRouteError(403, "Provider is disabled for this tenant: ollama", "invalid_request_error", "provider_not_allowed", { providerId: "ollama" });
-    }
-
     try {
       await runCljsQueued(
         deps.config.cljsPolicyManifestPath,
@@ -294,7 +289,6 @@ async function executeChatCandidate(input: ChatCandidateInput): Promise<CljsMode
         payload,
         promptCacheKey,
         deps.refreshExpiredOAuthAccount,
-        deps.policyEngine,
         deps.accountHealthStore,
         deps.eventStore,
         deps.quotaMonitor,

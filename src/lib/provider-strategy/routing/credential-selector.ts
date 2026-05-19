@@ -1,8 +1,5 @@
 import type { ProviderCredential } from "../../key-pool.js";
-import type { PolicyEngine } from "../../policy/index.js";
-import type { AccountHealthStore } from "../../db/account-health-store.js";
 import type { RequestLogStore } from "../../request-log-store.js";
-import { orderAccountsByPolicy } from "../../provider-policy.js";
 
 export interface PreferredAffinity {
   readonly providerId: string;
@@ -155,21 +152,6 @@ export function providerAccountsForRequest(
     : [...accounts];
 
   return prioritized;
-}
-
-export function providerAccountsForRequestWithPolicy(
-  policy: PolicyEngine,
-  accounts: readonly ProviderCredential[],
-  providerId: string,
-  routedModel: string,
-  context: {
-    openAiPrefixed: boolean;
-    localOllama: boolean;
-    explicitOllama: boolean;
-  },
-  healthStore?: AccountHealthStore,
-): ProviderCredential[] {
-  return orderAccountsByPolicy(policy, providerId, accounts, routedModel, context, healthStore);
 }
 
 export function reorderAccountsForLatency(

@@ -200,7 +200,67 @@
   :normalize/effort-map {:off 0 :none 0 :disabled 0 :minimal 1024 :low 4096 :auto 12288 :normal 12288 :medium 12288 :high 24576 :xhigh 32768 :max 32768 :very-high 32768 :x-high 32768}}
 
  {:contract/id :reasoning-normalization/claude-opus-4-6-thinking-budget
+   :contract/kind :reasoning-normalization
+   :match/family :model-family/claude-opus-4-6
+   :normalize/from :gpt-thinking-level
+   :normalize/effort-map {:off 0 :none 0 :disabled 0 :minimal 1024 :low 4096 :auto 12288 :normal 12288 :medium 12288 :high 24576 :xhigh 32768 :max 32768 :very-high 32768 :x-high 32768}}
+
+ {:contract/id :model-family/gemini
+  :contract/kind :model-family
+  :match/model-pattern "(?i)^gemini-"
+  :reasoning/control :effort-level
+  :reasoning/native-efforts [:none :low :medium :high]}
+
+ {:contract/id :reasoning-normalization/gemini
   :contract/kind :reasoning-normalization
-  :match/family :model-family/claude-opus-4-6
+  :match/family :model-family/gemini
   :normalize/from :gpt-thinking-level
-  :normalize/effort-map {:off 0 :none 0 :disabled 0 :minimal 1024 :low 4096 :auto 12288 :normal 12288 :medium 12288 :high 24576 :xhigh 32768 :max 32768 :very-high 32768 :x-high 32768}}]
+  :normalize/effort-map {:off :none :disabled :none :minimal :low :auto :medium :normal :medium :max :high :xhigh :high :very-high :high :x-high :high}}
+
+ {:contract/id :model-family/ollama-llama
+  :contract/kind :model-family
+  :match/model-pattern "(?i)^llama"
+  :reasoning/control :effort-level
+  :reasoning/native-efforts [:none :low :medium :high]}
+
+ {:contract/id :model-family/ollama-qwen
+  :contract/kind :model-family
+  :match/model-pattern "(?i)^qwen"
+  :reasoning/control :effort-level
+  :reasoning/native-efforts [:none :low :medium :high]}
+
+ {:contract/id :model-family/ollama-phi
+  :contract/kind :model-family
+  :match/model-pattern "(?i)^phi"
+  :reasoning/control :effort-level
+  :reasoning/native-efforts [:none :low :medium :high]}
+
+ {:contract/id :model-family/mistral
+  :contract/kind :model-family
+  :match/model-pattern "(?i)^mistral-"
+  :reasoning/control :effort-level
+  :reasoning/native-efforts [:none :low :medium :high]}
+
+ {:contract/id :model-family/ollama-mistral
+  :contract/kind :model-family
+  :match/model-pattern "(?i)^(mistral|mixtral)"
+  :reasoning/control :effort-level
+  :reasoning/native-efforts [:none :low :medium :high]}
+
+ {:contract/id :model-family/ollama-codellama
+  :contract/kind :model-family
+  :match/model-pattern "(?i)^codellama"
+  :reasoning/control :effort-level
+  :reasoning/native-efforts [:none :low :medium :high]}
+
+ {:contract/id :model-family/ollama-deepseek
+  :contract/kind :model-family
+  :match/model-pattern "(?i)^deepseek"
+  :reasoning/control :effort-level
+  :reasoning/native-efforts [:none :low :medium :high]}
+
+ {:contract/id :model-family/ollama-default
+  :contract/kind :model-family
+  :match/model-pattern "(?i):(?:2b|3b|4b|7b|8b|14b|32b|70b|small|medium|large)$"
+  :reasoning/control :effort-level
+  :reasoning/native-efforts [:none :low :medium :high]}]

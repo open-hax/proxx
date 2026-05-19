@@ -90,7 +90,6 @@ test("policy-selected ollama_chat strategy is not tied to a hard-coded provider 
     context,
     strategy,
     ["policy-named-ollama-node"],
-    undefined,
     "ollama_chat",
   );
   assert.equal(selected.mode, "ollama_chat");

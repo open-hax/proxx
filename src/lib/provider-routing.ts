@@ -1,12 +1,25 @@
 import type { ProxyConfig } from "./config.js";
+import { getActiveCljsRuntime } from "./cljs-runtime.js";
 import type { KeyPool } from "./key-pool.js";
 import { isGlmModel } from "./glm-compat.js";
+import { allProviderStrategyInfos } from "./provider-strategy/registry.js";
+import type { UpstreamMode } from "./provider-strategy/shared.js";
 
 export interface ProviderRoute {
   readonly providerId: string;
   readonly baseUrl: string;
   readonly authRequired?: boolean;
   readonly paths?: Readonly<Record<string, string>>;
+}
+
+export interface ProviderRoutesFilterResult {
+  readonly providerRoutes: ProviderRoute[];
+  readonly strategyMode?: UpstreamMode;
+  readonly strategyModeByProvider?: Readonly<Record<string, UpstreamMode>>;
+  readonly catalog?: {
+    readonly disabled?: boolean;
+    readonly rejected?: boolean;
+  };
 }
 
 export interface ResolvedModelCatalog {
@@ -26,6 +39,173 @@ export interface RequestRoutingState {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+const PROVIDER_STRATEGY_INFOS = allProviderStrategyInfos();
+const UPSTREAM_MODES = new Set<string>(PROVIDER_STRATEGY_INFOS.map((strategy) => strategy.mode));
+
+function upstreamModeFromRaw(value: unknown): UpstreamMode | undefined {
+  const rawMode = isRecord(value) ? value.mode : value;
+  if (typeof rawMode !== "string") {
+    return undefined;
+  }
+
+  return UPSTREAM_MODES.has(rawMode) ? rawMode as UpstreamMode : undefined;
+}
+
+function strategyModeByProviderFromRaw(value: unknown): Readonly<Record<string, UpstreamMode>> | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  const entries = Object.entries(value).flatMap(([providerId, strategy]) => {
+    const mode = upstreamModeFromRaw(strategy);
+    return mode ? [[providerId, mode] as const] : [];
+  });
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+}
+
+export function providerRoutesFromRaw(rawRoutes: unknown): ProviderRoute[] | undefined {
+  if (!Array.isArray(rawRoutes)) {
+    return undefined;
+  }
+
+  return rawRoutes.flatMap((rawRoute) => {
+    if (!isRecord(rawRoute)) {
+      return [];
+    }
+
+    const providerId = String(rawRoute.providerId ?? rawRoute.provider_id ?? rawRoute["provider-id"] ?? rawRoute["provider/id"] ?? rawRoute.id ?? "").trim();
+    const baseUrl = String(rawRoute.baseUrl ?? rawRoute.base_url ?? rawRoute["base-url"] ?? rawRoute["provider/base-url"] ?? "").trim().replace(/\/+$/, "");
+    const authRequired = rawRoute.authRequired
+      ?? rawRoute.auth_required
+      ?? rawRoute["auth-required"]
+      ?? rawRoute["auth-required?"]
+      ?? rawRoute["auth/required?"]
+      ?? rawRoute["required?"];
+    const rawPaths = rawRoute.paths;
+    const paths = isRecord(rawPaths)
+      ? Object.fromEntries(Object.entries(rawPaths).filter((entry): entry is [string, string] => typeof entry[1] === "string" && entry[1].trim().length > 0))
+      : undefined;
+
+    return providerId && baseUrl
+      ? [{
+          providerId,
+          baseUrl,
+          ...(typeof authRequired === "boolean" ? { authRequired } : {}),
+          ...(paths && Object.keys(paths).length > 0 ? { paths } : {}),
+        }]
+      : [];
+  });
+}
+
+type ProviderRouteRuntimeConfig = Pick<ProxyConfig, "cljsPolicyManifestPath" | "openaiProviderId" | "openaiBaseUrl" | "upstreamProviderBaseUrls"> & Partial<Pick<ProxyConfig, "ollamaBaseUrl">>;
+
+function applyConfiguredRouteFacts(routes: readonly ProviderRoute[], config: ProviderRouteRuntimeConfig | undefined): ProviderRoute[] {
+  if (!config) {
+    return [...routes];
+  }
+
+  return routes.map((route) => {
+    const configuredBaseUrl = route.providerId === config.openaiProviderId
+      ? config.openaiBaseUrl
+      : route.providerId === "ollama"
+        ? config.ollamaBaseUrl
+        : config.upstreamProviderBaseUrls[route.providerId];
+    return typeof configuredBaseUrl === "string" && configuredBaseUrl.trim().length > 0
+      ? { ...route, baseUrl: configuredBaseUrl.trim().replace(/\/+$/, "") }
+      : route;
+  });
+}
+
+function routeIdentity(route: ProviderRoute): string {
+  return `${route.providerId}\0${route.baseUrl}`;
+}
+
+function enrichFilteredRoute(route: ProviderRoute, inputRoutes: readonly ProviderRoute[]): ProviderRoute {
+  const richestFirst = (routes: readonly ProviderRoute[]) => [...routes].sort((left, right) => {
+    const leftScore = (left.authRequired === false ? 2 : 0) + (left.paths ? 1 : 0);
+    const rightScore = (right.authRequired === false ? 2 : 0) + (right.paths ? 1 : 0);
+    return rightScore - leftScore;
+  });
+  const exactRoute = richestFirst(inputRoutes.filter((inputRoute) => routeIdentity(inputRoute) === routeIdentity(route)))[0];
+  const providerRoute = exactRoute ?? richestFirst(inputRoutes.filter((inputRoute) => inputRoute.providerId === route.providerId))[0];
+  return providerRoute ? { ...providerRoute, ...route } : route;
+}
+
+export function getDeclaredProviderRoutes(configOrManifestPath?: ProviderRouteRuntimeConfig | string): ProviderRoute[] {
+  const config = typeof configOrManifestPath === "object" ? configOrManifestPath : undefined;
+  const manifestPath = typeof configOrManifestPath === "string" ? configOrManifestPath : configOrManifestPath?.cljsPolicyManifestPath;
+  const result = getActiveCljsRuntime()?.getProviderRoutes?.(manifestPath ?? "resources/policies/runtime/00-manifest.edn");
+  return result?.status === "ok"
+    ? applyConfiguredRouteFacts(providerRoutesFromRaw(result.providerRoutes ?? result["provider-routes"]) ?? [], config)
+    : [];
+}
+
+export function filterDeclaredProviderRoutes(manifestPath: string | undefined, input: {
+  readonly modelId: string;
+  readonly requestKind: string;
+  readonly tenantSettings: unknown;
+  readonly providerRoutes: readonly ProviderRoute[];
+  readonly config?: unknown;
+  readonly catalogBundle?: unknown;
+  readonly catalogAvailability?: boolean;
+}): ProviderRoutesFilterResult {
+  const runtime = getActiveCljsRuntime();
+  if (!runtime?.filterProviderRoutes) {
+    return { providerRoutes: [...input.providerRoutes] };
+  }
+
+  const result = runtime.filterProviderRoutes(manifestPath ?? "resources/policies/runtime/00-manifest.edn", input);
+  if (result.status !== "ok") {
+    return { providerRoutes: [...input.providerRoutes] };
+  }
+
+  const filteredRoutes = (providerRoutesFromRaw(result.providerRoutes ?? result["provider-routes"]) ?? [...input.providerRoutes])
+    .map((route) => enrichFilteredRoute(route, input.providerRoutes));
+  const preview = runtime.previewPolicyDecision(manifestPath ?? "resources/policies/runtime/00-manifest.edn", {
+    modelId: input.modelId,
+    requestKind: input.requestKind,
+    tenantSettings: input.tenantSettings,
+    providerIds: filteredRoutes.map((route) => route.providerId),
+    strategies: PROVIDER_STRATEGY_INFOS,
+  });
+  const decision = preview.status === "ok" && isRecord(preview.decision)
+    ? preview.decision
+    : undefined;
+  const decisionStatus = typeof decision?.status === "string" ? decision.status : undefined;
+  const decisionProviders = Array.isArray(decision?.providers)
+    ? decision.providers.filter((providerId): providerId is string => typeof providerId === "string")
+    : [];
+  const providerById = new Map(filteredRoutes.map((route) => [route.providerId, route]));
+  const selectedRoutes = decisionProviders.flatMap((providerId) => {
+    const route = providerById.get(providerId);
+    return route ? [route] : [];
+  });
+  const strategyMode = upstreamModeFromRaw(decision?.strategy);
+  const strategyModeByProvider = strategyModeByProviderFromRaw(
+    decision?.strategyByProvider ?? decision?.["strategy-by-provider"],
+  );
+
+  return {
+    providerRoutes: decisionStatus === "ok"
+      ? selectedRoutes
+      : decisionStatus === "denied" || decisionStatus === "exhausted"
+        ? []
+        : filteredRoutes,
+    ...(strategyMode ? { strategyMode } : {}),
+    ...(strategyModeByProvider ? { strategyModeByProvider } : {}),
+    catalog: result.catalog,
+  };
+}
+
+export function catalogHasDynamicOllamaModel(
+  catalog: Pick<ResolvedModelCatalog, "dynamicOllamaModelIds"> | null | undefined,
+  modelId: string,
+): boolean {
+  const normalizedModelId = modelId.trim().toLowerCase();
+  return normalizedModelId.length > 0
+    && (catalog?.dynamicOllamaModelIds ?? []).some((candidateModelId) => candidateModelId.trim().toLowerCase() === normalizedModelId);
 }
 
 function asString(value: unknown): string | undefined {

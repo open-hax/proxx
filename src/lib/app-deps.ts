@@ -12,7 +12,6 @@ import type { RequestLogStore } from "./request-log-store.js";
 import type { IPromptAffinityStore } from "./db/sql-prompt-affinity-store.js";
 import type { ProviderRoutePheromoneStore } from "./provider-route-pheromone-store.js";
 import type { ProxySettingsStore } from "./proxy-settings-store.js";
-import type { PolicyEngine } from "./policy/index.js";
 import type { ProviderCatalogStore } from "./provider-catalog.js";
 import type { TokenRefreshManager } from "./token-refresh-manager.js";
 import type { FederationBridgeRelay } from "./federation/bridge-relay.js";
@@ -51,7 +50,6 @@ export interface AppDeps {
   readonly promptAffinityStore: IPromptAffinityStore;
   readonly providerRoutePheromoneStore: ProviderRoutePheromoneStore;
   readonly proxySettingsStore: ProxySettingsStore;
-  readonly policyEngine: PolicyEngine;
   readonly providerCatalogStore: ProviderCatalogStore;
   readonly tokenRefreshManager: TokenRefreshManager;
   readonly dynamicProviderBaseUrlGetter: (providerId: string) => Promise<string | undefined>;

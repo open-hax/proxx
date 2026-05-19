@@ -1,6 +1,4 @@
 import type { ProviderStrategy, StrategyRequestContext, UpstreamMode } from "./shared.js";
-import type { PolicyEngine } from "../policy/index.js";
-import type { ModelInfo, RequestContext, StrategyInfo } from "../policy/schema.js";
 import { GeminiChatProviderStrategy } from "./strategies/gemini.js";
 import { FactoryChatCompletionsProviderStrategy, FactoryMessagesProviderStrategy, FactoryResponsesPassthroughStrategy, FactoryResponsesProviderStrategy } from "./strategies/factory.js";
 import { OpenAiChatCompletionsProviderStrategy, OpenAiResponsesPassthroughStrategy, OpenAiResponsesProviderStrategy } from "./strategies/openai.js";
@@ -50,70 +48,18 @@ export const PROVIDER_STRATEGIES: readonly ProviderStrategy[] = [
   new ChatCompletionsProviderStrategy(),
 ];
 
-function buildPolicyRequestContext(input: {
-  readonly context: StrategyRequestContext;
-  readonly openAiPrefixed: boolean;
-}): { readonly model: ModelInfo; readonly request: RequestContext } {
-  const { context } = input;
-
-  const modelInfo: ModelInfo = {
-    requestedModel: context.requestedModelInput,
-    routedModel: context.routedModel,
-    isGptModel: context.routedModel.startsWith("gpt-"),
-    isOpenAiPrefixed: input.openAiPrefixed,
-    isLocal: context.localOllama,
-    isOllama: context.explicitOllama,
-  };
-
-  const request: RequestContext = {
-    model: modelInfo,
-    clientWantsStream: context.clientWantsStream,
-    needsReasoningTrace: context.needsReasoningTrace,
-    requestKind: context.imagesPassthrough === true
-      ? "images_passthrough"
-      : context.responsesPassthrough === true
-        ? "responses_passthrough"
-        : "chat",
-  };
-
-  return { model: modelInfo, request };
-}
-
 export function selectProviderStrategyForContext(
   context: StrategyRequestContext,
-  policy?: PolicyEngine,
 ): ProviderStrategy {
-  const providerId = (context.routeProviderId ?? context.config.upstreamProviderId).trim().toLowerCase();
   const matchingStrategies = PROVIDER_STRATEGIES.filter((entry) => entry.matches(context));
   if (matchingStrategies.length === 0) {
     return PROVIDER_STRATEGIES[PROVIDER_STRATEGIES.length - 1]!;
   }
 
-  if (!policy) {
-    return matchingStrategies[0]!;
-  }
-
-  const { request } = buildPolicyRequestContext({
-    context,
-    openAiPrefixed: context.openAiPrefixed,
-  });
-
-  const strategyInfos: StrategyInfo[] = matchingStrategies.map((strategy, index) => ({
-    mode: strategy.mode,
-    isLocal: strategy.isLocal,
-    priority: matchingStrategies.length - index,
-  }));
-
-  const selected = policy.selectStrategy(strategyInfos, providerId, request);
-  if (!selected) {
-    return matchingStrategies[0]!;
-  }
-
-  return matchingStrategies.find((strategy) => strategy.mode === selected.mode)
-    ?? matchingStrategies[0]!;
+  return matchingStrategies[0]!;
 }
 
-export function allProviderStrategyInfos(): StrategyInfo[] {
+export function allProviderStrategyInfos(): Array<{ readonly mode: UpstreamMode; readonly isLocal: boolean; readonly priority: number }> {
   return PROVIDER_STRATEGIES.map((strategy, index) => ({
     mode: strategy.mode,
     isLocal: strategy.isLocal,
@@ -124,11 +70,12 @@ export function allProviderStrategyInfos(): StrategyInfo[] {
 export function selectRemoteProviderStrategyForRoute(
   context: StrategyRequestContext,
   providerId: string,
-  policy?: PolicyEngine,
   policyPreferredStrategyMode?: UpstreamMode,
 ): ProviderStrategy {
   const normalizedProviderId = providerId.trim().toLowerCase();
-  const effectivePolicyPreferredStrategyMode = policyPreferredStrategyMode ?? context.policyPreferredStrategyMode;
+  const effectivePolicyPreferredStrategyMode = policyPreferredStrategyMode
+    ?? context.policyPreferredStrategyModeByProvider?.[normalizedProviderId]
+    ?? context.policyPreferredStrategyMode;
 
   const routeContext: StrategyRequestContext = {
     ...context,
@@ -150,35 +97,13 @@ export function selectRemoteProviderStrategyForRoute(
       ?? matchingStrategies[0]!;
   }
 
-  if (!policy) {
-    return matchingStrategies[0]!;
-  }
-
-  const { request: requestContext } = buildPolicyRequestContext({
-    context: routeContext,
-    openAiPrefixed: routeContext.openAiPrefixed,
-  });
-
-  const strategyInfos: StrategyInfo[] = matchingStrategies.map((strategy, index) => ({
-    mode: strategy.mode,
-    isLocal: strategy.isLocal,
-    priority: matchingStrategies.length - index,
-  }));
-
-  const selected = policy.selectStrategy(strategyInfos, normalizedProviderId, requestContext);
-  if (!selected) {
-    return matchingStrategies[0]!;
-  }
-
-  return matchingStrategies.find((strategy) => strategy.mode === selected.mode)
-    ?? matchingStrategies[0]!;
+  return matchingStrategies[0]!;
 }
 
 export function selectExecutionStrategyForProviderRoutes(
   context: StrategyRequestContext,
   defaultStrategy: ProviderStrategy,
   providerIds: readonly string[],
-  policy?: PolicyEngine,
   policyPreferredStrategyMode?: UpstreamMode,
 ): ProviderStrategy {
   if (providerIds.length === 0) {
@@ -197,5 +122,5 @@ export function selectExecutionStrategyForProviderRoutes(
     return defaultStrategy;
   }
 
-  return selectRemoteProviderStrategyForRoute(context, normalizedProviderIds[0]!, policy, policyPreferredStrategyMode);
+  return selectRemoteProviderStrategyForRoute(context, normalizedProviderIds[0]!, policyPreferredStrategyMode);
 }

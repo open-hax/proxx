@@ -13,23 +13,20 @@ import {
   resolvableConcreteModelIdsForProviders,
 } from "../lib/catalog-resolution.js";
 import {
-  tenantModelAllowed,
-  filterTenantProviderRoutes,
-} from "../lib/policy/engine/index.js";
-import {
   selectProviderStrategy,
   executeProviderRoutingPlan,
   inspectProviderAvailability,
 } from "../lib/provider-strategy.js";
 import { resolveFederationOwnerSubject } from "../lib/federation/federation-helpers.js";
 import {
+  filterDeclaredProviderRoutes,
   filterResponsesApiRoutes,
+  getDeclaredProviderRoutes,
+  type ProviderRoutesFilterResult,
   type ProviderRoute,
 } from "../lib/provider-routing.js";
-import { getContractProviderRoutes } from "../lib/policy/cljs-shadow.js";
 import { discoverDynamicOllamaRoutes, prependDynamicOllamaRoutes } from "../lib/dynamic-ollama-routes.js";
 import { getActiveCljsRuntime } from "../lib/cljs-runtime.js";
-import { applyCljsProviderPolicy, filterProviderRoutesWithCljs } from "../lib/policy/cljs-shadow.js";
 import { toErrorMessage } from "../lib/errors/index.js";
 import { handleRoutingOutcome } from "../lib/routing-outcome-handler.js";
 import {
@@ -42,6 +39,7 @@ import {
 
 import type { AppDeps } from "../lib/app-deps.js";
 import { resolveCatalogAndAlias } from "../lib/catalog-alias-resolver.js";
+import type { StrategyRequestContext } from "../lib/provider-strategy/shared.js";
 
 function requestedModelIsExplicitOllama(model: string): boolean {
   const normalized = model.trim().toLowerCase();
@@ -50,6 +48,17 @@ function requestedModelIsExplicitOllama(model: string): boolean {
 
 function openAiRouteError(statusCode: number, message: string, type: string, code: string, meta?: Record<string, unknown>, cause?: unknown): OpenAiHttpError {
   return new OpenAiHttpError({ statusCode, message, type, code, meta, cause });
+}
+
+function applyPolicyStrategyContext(
+  context: StrategyRequestContext,
+  policyResult: Pick<ProviderRoutesFilterResult, "strategyMode" | "strategyModeByProvider">,
+): StrategyRequestContext {
+  return {
+    ...context,
+    ...(policyResult.strategyMode ? { policyPreferredStrategyMode: policyResult.strategyMode } : {}),
+    ...(policyResult.strategyModeByProvider ? { policyPreferredStrategyModeByProvider: policyResult.strategyModeByProvider } : {}),
+  };
 }
 
 async function handleOllamaResponsesCompatibility(
@@ -135,10 +144,6 @@ export function registerResponsesRoutes(deps: AppDeps, app: FastifyInstance): vo
       throw openAiRouteError(400, "Missing required field: model", "invalid_request_error", "missing_model");
     }
 
-    if (!tenantModelAllowed(tenantSettings, requestedModelInput)) {
-      throw openAiRouteError(403, `Model is disabled for this tenant: ${requestedModelInput}`, "invalid_request_error", "model_not_allowed", { requestedModel: requestedModelInput });
-    }
-
     const catalogResult = await resolveCatalogAndAlias(
       deps.providerCatalogStore,
       requestedModelInput,
@@ -163,10 +168,13 @@ export function registerResponsesRoutes(deps: AppDeps, app: FastifyInstance): vo
 
     const autoModel = routingModelInput.toLowerCase().startsWith("auto:");
     const autoCandidateProviderIds = autoModel
-      ? filterTenantProviderRoutes(
-          filterResponsesApiRoutes(getContractProviderRoutes(deps.config), deps.config.openaiProviderId),
+      ? filterDeclaredProviderRoutes(deps.config.cljsPolicyManifestPath, {
+          config: deps.config,
+          modelId: routingModelInput,
+          requestKind: "responses-passthrough",
           tenantSettings,
-        ).map((route) => route.providerId)
+          providerRoutes: filterResponsesApiRoutes(getDeclaredProviderRoutes(deps.config), deps.config.openaiProviderId),
+        }).providerRoutes.map((route) => route.providerId)
       : [];
     const concreteModelIds = autoModel
       ? (resolvableConcreteModelIdsForProviders(
@@ -202,7 +210,6 @@ export function registerResponsesRoutes(deps: AppDeps, app: FastifyInstance): vo
         requestedModelInput,
         candidateRoutingModel,
         request.openHaxAuth ?? undefined,
-        deps.policyEngine,
         { surface: "responses-passthrough" },
       );
       reply.header("x-open-hax-upstream-mode", strategy.mode);
@@ -215,11 +222,11 @@ export function registerResponsesRoutes(deps: AppDeps, app: FastifyInstance): vo
 
       let providerRoutes: ProviderRoute[];
       if (context.factoryPrefixed) {
-        providerRoutes = getContractProviderRoutes(deps.config).filter(
+        providerRoutes = getDeclaredProviderRoutes(deps.config).filter(
           (route) => route.providerId === "factory",
         );
       } else {
-        providerRoutes = getContractProviderRoutes(deps.config);
+        providerRoutes = getDeclaredProviderRoutes(deps.config);
       }
 
       const dynamicOllamaRoutes = await discoverDynamicOllamaRoutes(
@@ -232,22 +239,15 @@ export function registerResponsesRoutes(deps: AppDeps, app: FastifyInstance): vo
       }
 
       providerRoutes = filterResponsesApiRoutes(providerRoutes, deps.config.openaiProviderId);
-      const policyEvidence = deps.config.cljsPolicyShadowMode === true || deps.config.cljsPolicyAuthoritative === true
-        ? await getActiveCljsRuntime()?.loadPolicyEvidence({ providerRoutes }).catch((error: unknown) => {
-          request.log.warn({ error, model: context.routedModel }, "CLJS policy evidence load failed");
-          return undefined;
-        })
-        : undefined;
-      providerRoutes = applyCljsProviderPolicy({
+      const policyResult = filterDeclaredProviderRoutes(deps.config.cljsPolicyManifestPath, {
         config: deps.config,
-        log: request.log,
+        modelId: context.routedModel || context.requestedModelInput,
         requestKind: "responses-passthrough",
-        requestedModel: context.requestedModelInput,
-        routedModel: context.routedModel,
         tenantSettings,
         providerRoutes,
-        policyEvidence,
       });
+      providerRoutes = policyResult.providerRoutes;
+      let executionContext = applyPolicyStrategyContext(context, policyResult);
 
       if (providerRoutes.length === 0) {
         if (hasMoreModelCandidates) {
@@ -257,17 +257,16 @@ export function registerResponsesRoutes(deps: AppDeps, app: FastifyInstance): vo
       }
 
       try {
-        const catalogResult = filterProviderRoutesWithCljs({
+        const catalogResult = filterDeclaredProviderRoutes(deps.config.cljsPolicyManifestPath, {
           config: deps.config,
-          log: request.log,
+          modelId: context.routedModel || context.requestedModelInput,
           requestKind: "responses-passthrough",
-          requestedModel: context.requestedModelInput,
-          routedModel: context.routedModel,
           tenantSettings,
           providerRoutes,
           catalogBundle: await deps.providerCatalogStore.getCatalog(),
         });
         providerRoutes = catalogResult.providerRoutes;
+        executionContext = applyPolicyStrategyContext(executionContext, catalogResult);
         if (catalogResult.catalog?.disabled) {
           if (hasMoreModelCandidates) {
             continue;
@@ -289,7 +288,7 @@ export function registerResponsesRoutes(deps: AppDeps, app: FastifyInstance): vo
 
       let payload: ReturnType<typeof strategy.buildPayload>;
       try {
-        payload = strategy.buildPayload(context);
+        payload = strategy.buildPayload(executionContext);
       } catch (error) {
         if (hasMoreModelCandidates) {
           continue;
@@ -319,11 +318,10 @@ export function registerResponsesRoutes(deps: AppDeps, app: FastifyInstance): vo
             deps.providerRoutePheromoneStore,
             deps.keyPool,
             providerRoutes,
-            context,
+            executionContext,
             payload,
             availability.prompt_cache_key,
             deps.refreshExpiredOAuthAccount,
-            deps.policyEngine,
             deps.accountHealthStore,
             deps.eventStore,
             deps.quotaMonitor,
@@ -351,7 +349,7 @@ export function registerResponsesRoutes(deps: AppDeps, app: FastifyInstance): vo
           providerRoutes,
           upstreamPath: "/v1/responses",
           reply,
-          timeoutMs: context.upstreamAttemptTimeoutMs,
+          timeoutMs: executionContext.upstreamAttemptTimeoutMs,
           signal: controller.signal,
         }),
       );
@@ -370,7 +368,7 @@ export function registerResponsesRoutes(deps: AppDeps, app: FastifyInstance): vo
         availability,
         providerRoutes,
         strategyMode: strategy.mode,
-        routedModel: context.routedModel,
+        routedModel: executionContext.routedModel,
         log: app.log,
         logPrefix: "responses passthrough",
       });

@@ -6,10 +6,7 @@ import type { ResolvedModelCatalog } from "./provider-routing.js";
 import type { ProxySettings } from "./proxy-settings-store.js";
 import type { RequestLogStore } from "./request-log-store.js";
 import type { AccountHealthStore } from "./db/account-health-store.js";
-import {
-  tenantModelAllowed,
-  resolveExplicitTenantProviderId,
-} from "./policy/engine/index.js";
+import { getActiveCljsRuntime } from "./cljs-runtime.js";
 import { sendOpenAiError } from "./provider-utils.js";
 import { resolveCatalogAndAlias } from "./catalog-alias-resolver.js";
 import {
@@ -36,6 +33,19 @@ export interface ModelRoutingResult {
   readonly isAutoModel: boolean;
 }
 
+function policyDeniesModel(config: ProxyConfig, tenantSettings: ProxySettings, modelId: string): boolean {
+  const result = getActiveCljsRuntime()?.previewPolicyDecision(config.cljsPolicyManifestPath ?? "resources/policies/runtime/00-manifest.edn", {
+    modelId,
+    requestKind: "chat",
+    tenantSettings,
+    providerIds: [],
+  });
+  const decision = result?.status === "ok" && typeof result.decision === "object" && result.decision !== null
+    ? result.decision as { readonly status?: unknown; readonly reason?: unknown }
+    : undefined;
+  return decision?.status === "denied" && decision.reason === "tenant-model-not-allowed";
+}
+
 export async function resolveModelRouting(
   deps: ModelRoutingDeps,
   requestBody: Record<string, unknown>,
@@ -51,14 +61,8 @@ export async function resolveModelRouting(
     return null;
   }
 
-  if (!tenantModelAllowed(deps.proxySettings, requestedModelInput)) {
+  if (policyDeniesModel(deps.config, deps.proxySettings, requestedModelInput)) {
     sendOpenAiError(reply, 403, `Model is disabled for this tenant: ${requestedModelInput}`, "invalid_request_error", "model_not_allowed");
-    return null;
-  }
-
-  const explicitlyBlockedProviderId = resolveExplicitTenantProviderId(deps.config, requestedModelInput, deps.proxySettings);
-  if (explicitlyBlockedProviderId) {
-    sendOpenAiError(reply, 403, `Provider is disabled for this tenant: ${explicitlyBlockedProviderId}`, "invalid_request_error", "provider_not_allowed");
     return null;
   }
 

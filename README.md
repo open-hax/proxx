@@ -51,6 +51,8 @@ Alternative credential sources:
 
 ## Shared-state federation v1
 
+~~not really federation~~
+
 If you want several `proxx` instances to behave like one mirrored operator surface, point them at the same `DATABASE_URL`.
 
 In this mode the shared SQL database becomes the control plane for:

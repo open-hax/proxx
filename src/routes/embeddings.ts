@@ -3,7 +3,6 @@ import type { AppDeps } from "../lib/app-deps.js";
 import { DEFAULT_TENANT_ID } from "../lib/tenant-api-key.js";
 import { joinUrl } from "../lib/http/index.js";
 import { getActiveCljsRuntime } from "../lib/cljs-runtime.js";
-import { tenantProviderAllowed } from "../lib/policy/engine/index.js";
 import { buildForwardHeaders } from "../lib/proxy.js";
 import {
   nativeEmbedToOpenAiRequest,
@@ -17,8 +16,7 @@ import { fetchWithResponseTimeout } from "../lib/http/index.js";
 import { ensureNativeOllamaEmbedContextFits } from "../lib/ollama-context.js";
 import { isOpenAiCompatEmbedProvider } from "../lib/provider-strategy/strategies/embeddings.js";
 import { normalizeLlamacppModelName } from "../lib/provider-strategy/strategies/llamacpp.js";
-import { hasModelPrefix, stripModelPrefix, type ProviderRoute } from "../lib/provider-routing.js";
-import { applyCljsProviderPolicy } from "../lib/policy/cljs-shadow.js";
+import { filterDeclaredProviderRoutes, getDeclaredProviderRoutes, hasModelPrefix, stripModelPrefix, type ProviderRoute } from "../lib/provider-routing.js";
 import { resolveEmbeddingProviderAlias } from "../lib/embeddings-strategy.js";
 
 function openAiRouteError(statusCode: number, message: string, type: string, code: string, meta?: Record<string, unknown>, cause?: unknown): OpenAiHttpError {
@@ -95,51 +93,15 @@ export function registerEmbeddingsRoutes(deps: AppDeps, app: FastifyInstance): v
       throw openAiRouteError(503, "CLJS policy runtime is required for embeddings routing.", "server_error", "cljs_policy_runtime_unavailable", { requestedModel: model });
     }
 
-    const providerBaseUrl = deps.config.upstreamProviderBaseUrls[requestedRouteProviderId]
-      ?? (requestedRouteProviderId === "ollama" ? deps.config.ollamaBaseUrl : undefined);
-    const providerRoutes: ProviderRoute[] = providerBaseUrl
-      ? [{ providerId: requestedRouteProviderId, baseUrl: providerBaseUrl }]
-      : [];
-    const shouldLoadPolicyEvidence = runtime && (deps.config.cljsPolicyShadowMode === true || deps.config.cljsPolicyAuthoritative === true);
-    const loadedPolicyEvidence = shouldLoadPolicyEvidence
-      ? await runtime.loadPolicyEvidence({ providerRoutes }).catch((error: unknown) => {
-        request.log.warn({ error, model: routingModelWithoutProviderPrefix }, "CLJS policy evidence load failed");
-        return undefined;
-      })
-      : undefined;
-    const explicitEvidenceProviderId = requestProviderId
-      ?? configuredAliasProviderId;
-    const explicitSnapshots: Record<string, Record<string, boolean>> | undefined = explicitEvidenceProviderId
-      ? {
-          [explicitEvidenceProviderId]: {
-            [routingModelWithoutProviderPrefix]: true,
-            [routingModelWithoutProviderPrefix.replace(/:/g, "-")]: true,
-          },
-        }
-      : undefined;
-    const loadedEvidence = loadedPolicyEvidence && typeof loadedPolicyEvidence === "object"
-      ? loadedPolicyEvidence as Record<string, unknown>
-      : undefined;
-    const loadedSnapshots = loadedEvidence?.["provider-model-snapshots"] as Record<string, unknown> | undefined;
-    const policyEvidence = explicitSnapshots
-      ? {
-          ...loadedEvidence,
-          "provider-model-snapshots": {
-            ...loadedSnapshots,
-            ...explicitSnapshots,
-          },
-        }
-      : loadedPolicyEvidence;
-    const selectedRoutes = applyCljsProviderPolicy({
+    const declaredRoutes = getDeclaredProviderRoutes(deps.config);
+    const providerRoutes: ProviderRoute[] = declaredRoutes.filter((route) => route.providerId === requestedRouteProviderId);
+    const selectedRoutes = filterDeclaredProviderRoutes(deps.config.cljsPolicyManifestPath, {
       config: deps.config,
-      log: request.log,
+      modelId: routingModelWithoutProviderPrefix,
       requestKind: "embeddings",
-      requestedModel: model,
-      routedModel: routingModelWithoutProviderPrefix,
       tenantSettings: proxySettings,
       providerRoutes,
-      policyEvidence,
-    });
+    }).providerRoutes;
     if (selectedRoutes.length === 0) {
       throw openAiRouteError(403, "No allowed embedding provider is available for this model.", "invalid_request_error", "provider_not_allowed", { routedModel: routingModelWithoutProviderPrefix });
     }
@@ -147,10 +109,6 @@ export function registerEmbeddingsRoutes(deps: AppDeps, app: FastifyInstance): v
     for (const candidate of selectedRoutes) {
       const candidateId = candidate.providerId;
       const candidateIsOllama = !isOpenAiCompatEmbedProvider(candidateId);
-      if (!tenantProviderAllowed(proxySettings, candidateIsOllama ? "ollama" : candidateId)) {
-        request.log.debug({ providerId: candidateId }, "tenant disabled provider, skipping");
-        continue;
-      }
 
       const candidateModel = candidateIsOllama
         ? routingModelWithoutProviderPrefix
