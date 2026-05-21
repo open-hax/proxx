@@ -120,6 +120,7 @@
   :contract/kind :routing-clause
   :match/family :model-family/qwen3-embedding
   :prefer/providers :provider-order/embeddings
+  :prefer/providers-strict? true
   :prefer/strategies [:embeddings]
   :account/order :account-order/prefer-free}
 

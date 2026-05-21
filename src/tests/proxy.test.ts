@@ -9269,7 +9269,7 @@ test("bridges native /api/chat requests through the OpenAI-compatible upstream c
   );
 });
 
-test("serves /v1/embeddings from local ollama-compatible upstream and expands embedding num_ctx to the model context window", async () => {
+test("routes bare qwen3 embeddings through declarative CLJS policy to llama.cpp", async () => {
   let observedPath = "";
   let observedBody: unknown;
 
@@ -9280,24 +9280,14 @@ test("serves /v1/embeddings from local ollama-compatible upstream and expands em
         observedPath = request.url ?? "";
         observedBody = body.length > 0 ? JSON.parse(body) : undefined;
 
-        if (observedPath === "/api/show") {
-          return {
-            status: 200,
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({
-              model_info: {
-                "qwen3.context_length": 40960,
-              },
-            }),
-          };
-        }
-
         return {
           status: 200,
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
-            embeddings: [[0.1, 0.2, 0.3]]
-          })
+            object: "list",
+            model: "qwen3-embedding-0.6b",
+            data: [{ object: "embedding", index: 0, embedding: [0.1, 0.2, 0.3] }],
+          }),
         };
       }
     },
@@ -9312,11 +9302,9 @@ test("serves /v1/embeddings from local ollama-compatible upstream and expands em
       });
 
       assert.equal(response.statusCode, 200);
-      assert.equal(observedPath, "/api/embed");
+      assert.equal(observedPath, "/v1/embeddings");
       assert.ok(isRecord(observedBody));
-      assert.equal(observedBody.model, "qwen3-embedding:0.6b");
-      assert.ok(isRecord(observedBody.options));
-      assert.equal(observedBody.options.num_ctx, 40960);
+      assert.equal(observedBody.model, "qwen3-embedding-0.6b");
       const payload: unknown = response.json();
       assert.ok(isRecord(payload));
       assert.ok(Array.isArray(payload.data));
@@ -9325,50 +9313,48 @@ test("serves /v1/embeddings from local ollama-compatible upstream and expands em
   );
 });
 
-test("routes bare qwen3 embedding aliases to configured llama.cpp embed provider", async () => {
-  await withEnv({ EMBED_MODEL_PROVIDER_ALIASES: "qwen3-embedding:0.6b=llamacpp-embed" }, async () => {
-    let observedPath = "";
-    let observedBody: unknown;
+test("bare qwen3 embeddings do not require TypeScript alias env to reach llama.cpp", async () => {
+  let observedPath = "";
+  let observedBody: unknown;
 
-    await withProxyApp(
-      {
-        keys: [],
-        upstreamHandler: async (request, body) => {
-          observedPath = request.url ?? "";
-          observedBody = body.length > 0 ? JSON.parse(body) : undefined;
-          return {
-            status: 200,
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({
-              object: "list",
-              model: "qwen3-embedding-0.6b",
-              data: [{ object: "embedding", index: 0, embedding: [0.1, 0.2, 0.3] }],
-            }),
-          };
+  await withProxyApp(
+    {
+      keys: [],
+      upstreamHandler: async (request, body) => {
+        observedPath = request.url ?? "";
+        observedBody = body.length > 0 ? JSON.parse(body) : undefined;
+        return {
+          status: 200,
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            object: "list",
+            model: "qwen3-embedding-0.6b",
+            data: [{ object: "embedding", index: 0, embedding: [0.1, 0.2, 0.3] }],
+          }),
+        };
+      },
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/embeddings",
+        payload: {
+          model: "qwen3-embedding:0.6b",
+          input: "hello world",
         },
-      },
-      async ({ app }) => {
-        const response = await app.inject({
-          method: "POST",
-          url: "/v1/embeddings",
-          payload: {
-            model: "qwen3-embedding:0.6b",
-            input: "hello world",
-          },
-        });
+      });
 
-        assert.equal(response.statusCode, 200);
-        assert.equal(observedPath, "/v1/embeddings");
-        assert.ok(isRecord(observedBody));
-        assert.equal(observedBody.model, "qwen3-embedding-0.6b");
-        const payload: unknown = response.json();
-        assert.ok(isRecord(payload));
-        assert.equal(payload.model, "qwen3-embedding-0.6b");
-        assert.ok(Array.isArray(payload.data));
-        assert.deepEqual(payload.data[0]?.embedding, [0.1, 0.2, 0.3]);
-      },
-    );
-  });
+      assert.equal(response.statusCode, 200);
+      assert.equal(observedPath, "/v1/embeddings");
+      assert.ok(isRecord(observedBody));
+      assert.equal(observedBody.model, "qwen3-embedding-0.6b");
+      const payload: unknown = response.json();
+      assert.ok(isRecord(payload));
+      assert.equal(payload.model, "qwen3-embedding-0.6b");
+      assert.ok(Array.isArray(payload.data));
+      assert.deepEqual(payload.data[0]?.embedding, [0.1, 0.2, 0.3]);
+    },
+  );
 });
 
 test("strips explicit llama.cpp embed prefixes before forwarding embeddings", async () => {
