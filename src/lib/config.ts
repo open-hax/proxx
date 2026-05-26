@@ -69,6 +69,10 @@ export interface ProxyConfig {
   readonly requestLogsFilePath: string;
   readonly requestLogsMaxEntries: number;
   readonly requestLogsFlushMs: number;
+  /** Retention window for SQL event store rows. Set to 0 to disable app-level pruning. */
+  readonly eventStoreTtlMs: number;
+  /** Background interval for SQL event store TTL pruning. Set to 0 to prune only at startup. */
+  readonly eventStoreTtlSweepMs: number;
   readonly promptAffinityFilePath: string;
   readonly promptAffinityFlushMs: number;
   readonly settingsFilePath: string;
@@ -311,34 +315,6 @@ function normalizeProviderList(values: readonly string[]): string[] {
   )];
 }
 
-function providerBaseUrlsFromEnv(
-  name: string,
-  fallback: Readonly<Record<string, string>>
-): Record<string, string> {
-  const parsed: Record<string, string> = { ...fallback };
-  const raw = process.env[name];
-  if (!raw) {
-    return parsed;
-  }
-
-  for (const item of raw.split(",").map((entry) => entry.trim()).filter((entry) => entry.length > 0)) {
-    const separatorIndex = item.indexOf("=");
-    if (separatorIndex <= 0 || separatorIndex === item.length - 1) {
-      throw new Error(`Invalid provider base URL mapping in ${name}: ${item}`);
-    }
-
-    const providerId = item.slice(0, separatorIndex).trim();
-    const baseUrl = item.slice(separatorIndex + 1).trim().replace(/\/+$/, "");
-    if (providerId.length === 0 || baseUrl.length === 0) {
-      throw new Error(`Invalid provider base URL mapping in ${name}: ${item}`);
-    }
-
-    parsed[providerId] = baseUrl;
-  }
-
-  return parsed;
-}
-
 /**
  * Return the default base URL for a given upstream provider identifier.
  *
@@ -545,6 +521,8 @@ export function loadConfig(cwd: string = process.cwd()): ProxyConfig {
     requestLogsFilePath: filePathFromEnvAliases(["PROXY_REQUEST_LOGS_FILE"], "./data/request-logs.jsonl", cwd),
     requestLogsMaxEntries: numberFromEnvAliases(["PROXY_REQUEST_LOGS_MAX_ENTRIES"], 100000),
     requestLogsFlushMs: nonNegativeNumberFromEnvAliases(["PROXY_REQUEST_LOGS_FLUSH_MS"], 1000),
+    eventStoreTtlMs: nonNegativeNumberFromEnvAliases(["PROXX_EVENT_STORE_TTL_MS", "PROXX_EVENT_TTL_MS"], 24 * 60 * 60 * 1000),
+    eventStoreTtlSweepMs: nonNegativeNumberFromEnvAliases(["PROXX_EVENT_STORE_TTL_SWEEP_MS", "PROXX_EVENT_TTL_SWEEP_MS"], 60 * 60 * 1000),
     promptAffinityFilePath: filePathFromEnvAliases(["PROXY_PROMPT_AFFINITY_FILE"], "./data/prompt-affinity.json", cwd),
     promptAffinityFlushMs: nonNegativeNumberFromEnvAliases(["PROXY_PROMPT_AFFINITY_FLUSH_MS"], 250),
     settingsFilePath: filePathFromEnvAliases(["PROXY_SETTINGS_FILE"], "./data/proxy-settings.json", cwd),

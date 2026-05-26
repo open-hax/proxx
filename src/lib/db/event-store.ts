@@ -94,18 +94,42 @@ function parseRow(row: EventRow): ProxyEvent {
 }
 
 const MAX_PAYLOAD_BYTES = 2 * 1024 * 1024; // 2MB safety limit per event
+const DEFAULT_EVENT_TTL_MS = 24 * 60 * 60 * 1000;
+const DEFAULT_TTL_SWEEP_INTERVAL_MS = 60 * 60 * 1000;
+
+export interface EventStoreOptions {
+  readonly flushIntervalMs?: number;
+  readonly maxBufferSize?: number;
+  /** Retention window for SQL events. Set to 0 to disable pruning. */
+  readonly ttlMs?: number;
+  /** Background prune interval. Set to 0 to prune only during init/manual calls. */
+  readonly ttlSweepIntervalMs?: number;
+  readonly now?: () => Date;
+}
 
 export class EventStore {
   private readonly buffer: EventInsert[] = [];
   private readonly labelers: EventLabeler[] = [];
+  private readonly flushIntervalMs: number;
+  private readonly maxBufferSize: number;
+  private readonly ttlMs: number;
+  private readonly ttlSweepIntervalMs: number;
+  private readonly now: () => Date;
   private flushTimer: ReturnType<typeof setInterval> | null = null;
+  private ttlSweepTimer: ReturnType<typeof setInterval> | null = null;
   private flushing = false;
+  private ttlSweeping = false;
 
   public constructor(
     private readonly sql: Sql,
-    private readonly flushIntervalMs: number = 3000,
-    private readonly maxBufferSize: number = 200,
-  ) {}
+    options: EventStoreOptions = {},
+  ) {
+    this.flushIntervalMs = Math.max(0, Math.trunc(options.flushIntervalMs ?? 3000));
+    this.maxBufferSize = Math.max(1, Math.trunc(options.maxBufferSize ?? 200));
+    this.ttlMs = Math.max(0, Math.trunc(options.ttlMs ?? DEFAULT_EVENT_TTL_MS));
+    this.ttlSweepIntervalMs = Math.max(0, Math.trunc(options.ttlSweepIntervalMs ?? DEFAULT_TTL_SWEEP_INTERVAL_MS));
+    this.now = options.now ?? (() => new Date());
+  }
 
   public async init(): Promise<void> {
     await this.sql.unsafe(`
@@ -141,7 +165,9 @@ export class EventStore {
       );
     `);
 
+    await this.pruneExpired();
     this.startFlushTimer();
+    this.startTtlSweepTimer();
   }
 
   public registerLabeler(labeler: EventLabeler): void {
@@ -382,6 +408,27 @@ export class EventStore {
     return result;
   }
 
+  public async pruneExpired(referenceDate: Date = this.now()): Promise<number> {
+    if (this.ttlMs <= 0) {
+      return 0;
+    }
+
+    const cutoff = new Date(referenceDate.getTime() - this.ttlMs);
+    const rows = await this.sql.unsafe<Array<{ count: string }>>(
+      `
+        WITH deleted AS (
+          DELETE FROM events
+          WHERE ts < $1::timestamptz
+          RETURNING 1
+        )
+        SELECT COUNT(*)::text AS count FROM deleted
+      `,
+      [cutoff.toISOString()],
+    );
+    const first = rows[0];
+    return first ? Number.parseInt(first.count, 10) : 0;
+  }
+
   public async flush(): Promise<void> {
     if (this.flushing || this.buffer.length === 0) {
       return;
@@ -441,16 +488,38 @@ export class EventStore {
   }
 
   private startFlushTimer(): void {
-    if (this.flushTimer) return;
+    if (this.flushTimer || this.flushIntervalMs <= 0) return;
     this.flushTimer = setInterval(() => {
       this.flush().catch(() => {});
     }, this.flushIntervalMs);
+  }
+
+  private startTtlSweepTimer(): void {
+    if (this.ttlSweepTimer || this.ttlMs <= 0 || this.ttlSweepIntervalMs <= 0) return;
+    this.ttlSweepTimer = setInterval(() => {
+      if (this.ttlSweeping) {
+        return;
+      }
+
+      this.ttlSweeping = true;
+      this.pruneExpired()
+        .catch((err) => {
+          console.error("EventStore: failed to prune expired events", err);
+        })
+        .finally(() => {
+          this.ttlSweeping = false;
+        });
+    }, this.ttlSweepIntervalMs);
   }
 
   public async close(): Promise<void> {
     if (this.flushTimer) {
       clearInterval(this.flushTimer);
       this.flushTimer = null;
+    }
+    if (this.ttlSweepTimer) {
+      clearInterval(this.ttlSweepTimer);
+      this.ttlSweepTimer = null;
     }
     await this.flush();
   }

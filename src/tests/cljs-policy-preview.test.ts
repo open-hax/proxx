@@ -91,8 +91,8 @@ test("CLJS runtime routes bare qwen3 embeddings through the declarative embeddin
   assert.equal(decision["provider-id"], "llamacpp-embed");
   assert.deepEqual(decision.providers, ["llamacpp-embed", "ollama"]);
   assert.deepEqual(decision["provider-routes"], [
-    { "provider-id": "llamacpp-embed", "base-url": "http://llamacpp-embed:8081", paths: { "chat-completions": "/v1/chat/completions" } },
-    { "provider-id": "ollama", "base-url": "http://ollama:11434", "auth-required?": false, paths: { "chat-completions": "/v1/chat/completions" } },
+    { "provider-id": "llamacpp-embed", "base-url": "http://llamacpp-embed:8081", "auth-required?": false, paths: { embeddings: "/v1/embeddings" } },
+    { "provider-id": "ollama", "base-url": "http://ollama:11434", "auth-required?": false, paths: { embeddings: "/api/embed", "chat-completions": "/v1/chat/completions" } },
   ]);
   assert.equal(decision.strategy?.mode, "embeddings");
 });
@@ -164,8 +164,8 @@ test("CLJS runtime keeps gpt and mimo routes pinned to their canonical providers
   assert.equal(gemma4E4bDecision["route-id"], "gemma4-e4b");
   assert.deepEqual(gemma4E4bDecision.providers, ["ollama", "ollama-lan"]);
   assert.deepEqual(gemma4E4bDecision["provider-routes"], [
-    { "provider-id": "ollama", "base-url": "http://ollama:11434", "auth-required?": false, paths: { "chat-completions": "/v1/chat/completions" } },
-    { "provider-id": "ollama-lan", "base-url": "http://192.168.12.68:11434", "auth-required?": false, paths: { "chat-completions": "/v1/chat/completions" } },
+    { "provider-id": "ollama", "base-url": "http://ollama:11434", "auth-required?": false, paths: { embeddings: "/api/embed", "chat-completions": "/v1/chat/completions" } },
+    { "provider-id": "ollama-lan", "base-url": "http://192.168.12.68:11434", "auth-required?": false, paths: { embeddings: "/api/embed", "chat-completions": "/v1/chat/completions" } },
   ]);
   assert.equal(gemma4E4bDecision.strategy?.mode, "chat_completions");
 });

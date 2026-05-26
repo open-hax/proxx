@@ -2,12 +2,17 @@ import assert from "node:assert";
 import { describe, test } from "node:test";
 import {
   GeminiChatProviderStrategy,
+  geminiPayloadToSdkGenerateContentParams,
   geminiResponseToChatCompletion,
   openAiMessagesToGeminiContents,
   extractSystemInstructions,
   normalizeGeminiReasoningEffort,
 } from "../lib/provider-strategy/strategies/gemini.js";
-import { isRecord } from "../lib/provider-strategy/shared.js";
+import { isRecord, type StrategyRequestContext } from "../lib/provider-strategy/shared.js";
+
+const GEMINI_TEST_CONFIG = {
+  cljsPolicyManifestPath: "resources/policies/runtime/00-manifest.edn",
+} as unknown as StrategyRequestContext["config"];
 
 function getChoices(completion: Record<string, unknown>): Array<Record<string, unknown>> {
   return Array.isArray(completion.choices) ? completion.choices as Array<Record<string, unknown>> : [];
@@ -77,6 +82,47 @@ describe("Gemini strategy request transformation", () => {
     assert.equal(contents.length, 1);
     assert.equal(contents[0]?.parts[0]?.text, "Valid");
   });
+
+  test("converts OpenAI assistant tool calls and tool messages to Gemini function parts", () => {
+    const messages = [
+      { role: "user", content: "Generate the track" },
+      {
+        role: "assistant",
+        content: null,
+        tool_calls: [
+          {
+            id: "call_music_1",
+            type: "function",
+            function: {
+              name: "music_generate_song",
+              arguments: JSON.stringify({ prompt: "Aggressive additive synthesis", duration: 45 }),
+            },
+          },
+        ],
+      },
+      {
+        role: "tool",
+        tool_call_id: "call_music_1",
+        content: JSON.stringify({ output_path: "Music/fork-tales/symmetry-ignition-instrumental.wav" }),
+      },
+    ];
+
+    const contents = openAiMessagesToGeminiContents(messages);
+    assert.equal(contents.length, 3);
+    assert.equal(contents[1]?.role, "model");
+
+    const functionCall = contents[1]?.parts[0]?.functionCall;
+    assert.ok(isRecord(functionCall));
+    assert.equal(functionCall.id, "call_music_1");
+    assert.equal(functionCall.name, "music_generate_song");
+    assert.deepEqual(functionCall.args, { prompt: "Aggressive additive synthesis", duration: 45 });
+
+    const functionResponse = contents[2]?.parts[0]?.functionResponse;
+    assert.ok(isRecord(functionResponse));
+    assert.equal(functionResponse.id, "call_music_1");
+    assert.equal(functionResponse.name, "music_generate_song");
+    assert.deepEqual(functionResponse.response, { output_path: "Music/fork-tales/symmetry-ignition-instrumental.wav" });
+  });
 });
 
 describe("Gemini strategy tool request transformation", () => {
@@ -84,9 +130,7 @@ describe("Gemini strategy tool request transformation", () => {
     const strategy = new GeminiChatProviderStrategy();
     const context = {
       routeProviderId: "gemini",
-      config: {
-        cljsPolicyManifestPath: "resources/policies/runtime/00-manifest.edn",
-      } as any,
+      config: GEMINI_TEST_CONFIG,
       clientHeaders: {},
       requestBody: {
         model: "gemini-2.5-pro",
@@ -149,13 +193,71 @@ describe("Gemini strategy tool request transformation", () => {
     assert.equal(functionCallingConfig.mode, "AUTO");
   });
 
+  test("carries Gemini tools and toolConfig into Google GenAI SDK config", () => {
+    const strategy = new GeminiChatProviderStrategy();
+    const context = {
+      routeProviderId: "gemini",
+      config: GEMINI_TEST_CONFIG,
+      clientHeaders: {},
+      requestBody: {
+        model: "gemma4:31b",
+        messages: [{ role: "user", content: "Generate music" }],
+        tools: [
+          {
+            type: "function",
+            function: {
+              name: "music_generate_song",
+              description: "Generate a song file",
+              parameters: {
+                type: "object",
+                properties: {
+                  prompt: { type: "string" },
+                  duration: { type: "number" },
+                },
+                required: ["prompt"],
+              },
+            },
+          },
+        ],
+        tool_choice: "required",
+      },
+      requestAuth: undefined,
+      requestedModelInput: "gemma4:31b",
+      routingModelInput: "gemma4:31b",
+      routedModel: "gemma4:31b",
+      explicitOllama: false,
+      openAiPrefixed: false,
+      factoryPrefixed: false,
+      localOllama: false,
+      clientWantsStream: false,
+      needsReasoningTrace: false,
+      upstreamAttemptTimeoutMs: 30000,
+      responsesPassthrough: false,
+      imagesPassthrough: false,
+    };
+
+    const payload = strategy.buildPayload(context);
+    const upstreamPayload = payload.upstreamPayload;
+    assert.ok(isRecord(upstreamPayload));
+
+    const sdkParams = geminiPayloadToSdkGenerateContentParams(upstreamPayload, "gemma-4-31b-it");
+    const sdkConfig = sdkParams.config;
+    if (!isRecord(sdkConfig)) {
+      assert.fail("SDK config should be a record");
+    }
+    assert.deepEqual(sdkConfig.tools, upstreamPayload.tools);
+    assert.deepEqual(sdkConfig.toolConfig, upstreamPayload.toolConfig);
+
+    const sdkToolConfig = sdkConfig.toolConfig as Record<string, unknown>;
+    const sdkFunctionCallingConfig = sdkToolConfig.functionCallingConfig as Record<string, unknown>;
+    assert.equal(sdkFunctionCallingConfig.mode, "ANY");
+  });
+
   test("transforms OpenAI tool_choice: none to Gemini NONE mode", () => {
     const strategy = new GeminiChatProviderStrategy();
     const context = {
       routeProviderId: "gemini",
-      config: {
-        cljsPolicyManifestPath: "resources/policies/runtime/00-manifest.edn",
-      } as any,
+      config: GEMINI_TEST_CONFIG,
       clientHeaders: {},
       requestBody: {
         model: "gemini-2.5-pro",
@@ -195,9 +297,7 @@ describe("Gemini strategy tool request transformation", () => {
     const strategy = new GeminiChatProviderStrategy();
     const context = {
       routeProviderId: "gemini",
-      config: {
-        cljsPolicyManifestPath: "resources/policies/runtime/00-manifest.edn",
-      } as any,
+      config: GEMINI_TEST_CONFIG,
       clientHeaders: {},
       requestBody: {
         model: "gemini-2.5-pro",
@@ -416,6 +516,7 @@ describe("Gemini strategy response transformation", () => {
 
     // OpenAI expects content: null when there are tool_calls
     assert.strictEqual(message.content, null);
+    assert.equal(choices[0]!.finish_reason, "tool_calls");
 
     // Verify tool_calls array exists and has correct shape
     assert.ok(Array.isArray(message.tool_calls), "tool_calls should be an array");
@@ -577,9 +678,7 @@ describe("Gemini strategy end-to-end", () => {
     const strategy = new GeminiChatProviderStrategy();
     const context = {
       routeProviderId: "gemini",
-      config: {
-        cljsPolicyManifestPath: "resources/policies/runtime/00-manifest.edn",
-      } as any,
+      config: GEMINI_TEST_CONFIG,
       clientHeaders: {},
       requestBody: {
         model: "gemini-2.5-pro",
@@ -629,7 +728,7 @@ describe("Gemini strategy end-to-end", () => {
         routeProviderId: "gemini",
         responsesPassthrough: false,
         imagesPassthrough: false,
-      } as any),
+      } as StrategyRequestContext),
       true
     );
 
@@ -638,7 +737,7 @@ describe("Gemini strategy end-to-end", () => {
         routeProviderId: "openai",
         responsesPassthrough: false,
         imagesPassthrough: false,
-      } as any),
+      } as StrategyRequestContext),
       false
     );
   });

@@ -48,6 +48,8 @@ function buildMinimalConfig(overrides: Partial<ProxyConfig> = {}): ProxyConfig {
     requestLogsFilePath: "",
     requestLogsMaxEntries: 1000,
     requestLogsFlushMs: 0,
+    eventStoreTtlMs: 0,
+    eventStoreTtlSweepMs: 0,
     promptAffinityFilePath: "",
     promptAffinityFlushMs: 0,
     settingsFilePath: "",

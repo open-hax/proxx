@@ -14,15 +14,27 @@ export default tseslint.config(
         "varsIgnorePattern": "^_",
         "caughtErrorsIgnorePattern": "^_",
       }],
+
+      // Functional-TypeScript baseline: keep new code closer to CLJS data assumptions.
+      "prefer-const": "warn",
+      "no-var": "error",
+      "no-param-reassign": ["warn", { "props": true }],
+      "eqeqeq": ["error", "smart"],
+      "no-else-return": "warn",
+      "object-shorthand": "warn",
+      "max-params": ["warn", 4],
     },
   },
   {
     ignores: [
       // Generated data files - they're meant to be large
       "src/lib/data/**/*.ts",
-      // Build output
+      // Build/generated output
       "dist/**",
       "web/dist/**",
+      ".shadow-cljs/**",
+      "target/**",
+      "reports/**",
       // Dependencies
       "node_modules/**",
       // Config files using CommonJS
@@ -119,6 +131,38 @@ export default tseslint.config(
         "skipBlankLines": true,
         "skipComments": true
       }],
+    },
+  },
+  // New architecture directories - stricter functional/data-oriented defaults.
+  // Legacy src/lib/** remains looser while code is migrated behind domain facades.
+  {
+    files: [
+      "src/app/**/*.ts",
+      "src/edge/**/*.ts",
+      "src/policy/**/*.ts",
+      "src/providers/**/*.ts",
+      "src/tenants/**/*.ts",
+      "src/federation/**/*.ts",
+      "src/observability/**/*.ts",
+      "src/persistence/**/*.ts",
+      "src/sessions/**/*.ts",
+      "src/support/**/*.ts",
+    ],
+    rules: {
+      "complexity": ["warn", 12],
+      "sonarjs/cognitive-complexity": ["warn", 18],
+      "max-lines-per-function": ["warn", {
+        "max": 60,
+        "skipBlankLines": true,
+        "skipComments": true,
+      }],
+      "max-lines": ["warn", {
+        "max": 300,
+        "skipBlankLines": true,
+        "skipComments": true,
+      }],
+      "max-params": ["warn", 4],
+      "no-param-reassign": ["warn", { "props": true }],
     },
   },
   // ============================================================

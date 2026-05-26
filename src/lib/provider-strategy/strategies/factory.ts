@@ -11,10 +11,7 @@ import {
 import {
   chatRequestToResponsesRequest,
   chatCompletionToSse,
-  responsesEventStreamToChatCompletion,
-  responsesEventStreamToErrorPayload,
   responsesToChatCompletion,
-  streamResponsesSseToChatCompletionChunks,
 } from "../../responses-compat.js";
 import {
   buildFactoryAnthropicHeaders,
@@ -25,6 +22,7 @@ import {
   sanitizeFactorySystemPrompt,
 } from "../../factory-compat.js";
 import { BaseProviderStrategy, TransformedJsonProviderStrategy } from "../base.js";
+import { handleResponsesEventStreamAsChatCompletion } from "./responses-event-stream.js";
 import {
   applyRequestedServiceTier,
   buildPayloadResult,
@@ -267,71 +265,10 @@ export class FactoryResponsesProviderStrategy extends TransformedJsonProviderStr
       return { kind: "handled" };
     }
 
-    // True streaming: pipe upstream Responses SSE → chat completion chunks
-    if (context.clientWantsStream && upstreamResponse.body) {
-      reply.header("x-open-hax-upstream-provider", context.providerId);
-      reply.code(200);
-      reply.header("content-type", "text/event-stream; charset=utf-8");
-      reply.header("cache-control", "no-cache");
-      reply.header("x-accel-buffering", "no");
-      reply.hijack();
-      const rawResponse = reply.raw;
-      rawResponse.statusCode = 200;
-      for (const [name, value] of Object.entries(reply.getHeaders())) {
-        if (value !== undefined) {
-          rawResponse.setHeader(name, value as never);
-        }
-      }
-      rawResponse.flushHeaders();
-
-      try {
-        const result = await streamResponsesSseToChatCompletionChunks(
-          upstreamResponse.body,
-          { fallbackModel: context.routedModel, writeFn: (data) => rawResponse.write(data) },
-        );
-        if (result.sawError && !rawResponse.writableEnded) {
-          rawResponse.end();
-          return { kind: "handled" };
-        }
-      } catch {
-        // Stream read error — close gracefully
-      }
-      if (!rawResponse.writableEnded) {
-        rawResponse.end();
-      }
-      return { kind: "handled" };
-    }
-
-    // Non-streaming: buffer and convert
-    const streamText = await upstreamResponse.text();
-    const upstreamError = responsesEventStreamToErrorPayload(streamText);
-    if (upstreamError) {
-      reply.header("x-open-hax-upstream-provider", context.providerId);
-      reply.code(400);
-      reply.header("content-type", "application/json");
-      reply.send({ error: upstreamError });
-      return { kind: "handled" };
-    }
-
-    let chatCompletion: Record<string, unknown>;
-    try {
-      chatCompletion = responsesEventStreamToChatCompletion(streamText, context.routedModel);
-    } catch {
-      return {
-        kind: "continue",
-        requestError: true
-      };
-    }
-
     // Accept valid completions even without reasoning content -- skipping a working
     // provider to chase reasoning traces from another candidate causes cascading 400s
     // when those candidates reject the request format entirely.
-
-    reply.header("x-open-hax-upstream-provider", context.providerId);
-    reply.code(200);
-    reply.header("content-type", "application/json");
-    reply.send(chatCompletion);
-    return { kind: "handled" };
+    return handleResponsesEventStreamAsChatCompletion(reply, upstreamResponse, context);
   }
 
   protected convertResponseToChatCompletion(upstreamJson: unknown, routedModel: string): Record<string, unknown> {

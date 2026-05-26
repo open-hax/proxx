@@ -34,10 +34,6 @@ const testCljsRuntimePromise = loadCljsRuntime({ required: false }).then((result
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
 async function readRequestBody(request: IncomingMessage): Promise<string> {
   const chunks: Buffer[] = [];
   for await (const chunk of request) {
@@ -159,6 +155,8 @@ async function withProxyApp(
     requestLogsFilePath: requestLogsPath,
     requestLogsMaxEntries: 100000,
     requestLogsFlushMs: 0,
+    eventStoreTtlMs: 0,
+    eventStoreTtlSweepMs: 0,
     promptAffinityFilePath: promptAffinityPath,
     promptAffinityFlushMs: 0,
     settingsFilePath: settingsPath,
@@ -500,6 +498,8 @@ test("factory/claude-* routes to /api/llm/a/v1/messages", { concurrency: false }
             },
           });
 
+          assert.equal(response.statusCode, 200);
+          assert.equal(capturedUrl, "/api/llm/a/v1/messages");
           assert.equal(capturedHeaders["authorization"], "Bearer fk-test-key");
         },
       );

@@ -1,4 +1,4 @@
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, type GenerateContentParameters } from "@google/genai";
 import type { FastifyReply } from "fastify";
 
 import { requestWantsReasoningTrace } from "../../openai/index.js";
@@ -21,6 +21,17 @@ import { chatCompletionToSse } from "../../responses-compat.js";
 import { chatCompletionHasReasoningContent } from "../../sse/index.js";
 
 type GeminiReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
+
+type GeminiContentPart = {
+  readonly text?: string;
+  readonly functionCall?: Record<string, unknown>;
+  readonly functionResponse?: Record<string, unknown>;
+};
+
+type GeminiContent = {
+  readonly role: string;
+  readonly parts: GeminiContentPart[];
+};
 
 export function normalizeGeminiReasoningEffort(value: unknown): GeminiReasoningEffort | undefined {
   const raw = asString(value)?.trim().toLowerCase();
@@ -145,8 +156,97 @@ function joinUrl(baseUrl: string, path: string): string {
   return `${baseUrl.replace(/\/+$/, "")}/${path.replace(/^\/+/, "")}`;
 }
 
-export function openAiMessagesToGeminiContents(messages: unknown[]): Array<{ role: string; parts: Array<{ text: string }> }> {
-  const contents: Array<{ role: string; parts: Array<{ text: string }> }> = [];
+function jsonObjectFromUnknown(value: unknown, fallbackKey: string): Record<string, unknown> {
+  if (isRecord(value)) {
+    return value;
+  }
+
+  if (typeof value !== "string") {
+    return value === undefined || value === null ? {} : { [fallbackKey]: value };
+  }
+
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    return {};
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    return isRecord(parsed) ? parsed : { [fallbackKey]: parsed };
+  } catch {
+    return { [fallbackKey]: value };
+  }
+}
+
+function textPartsFromOpenAiMessage(message: Record<string, unknown>): GeminiContentPart[] {
+  const text = openAiContentToText(message.content).trim();
+  return text.length > 0 ? [{ text }] : [];
+}
+
+function toolCallPartsFromOpenAiMessage(
+  message: Record<string, unknown>,
+  toolCallNameById: Map<string, string>,
+): GeminiContentPart[] {
+  const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
+  const parts: GeminiContentPart[] = [];
+
+  for (const [index, toolCall] of toolCalls.entries()) {
+    if (!isRecord(toolCall)) {
+      continue;
+    }
+
+    const type = asString(toolCall.type) ?? "function";
+    if (type !== "function") {
+      continue;
+    }
+
+    const functionData = isRecord(toolCall.function) ? toolCall.function : null;
+    const name = (functionData ? asString(functionData.name) : undefined) ?? asString(toolCall.name);
+    if (!name) {
+      continue;
+    }
+
+    const id = asString(toolCall.id) ?? `call_gemini_history_${index}`;
+    toolCallNameById.set(id, name);
+
+    const rawArguments = functionData?.arguments ?? toolCall.arguments;
+    const functionCall: Record<string, unknown> = {
+      id,
+      name,
+      args: jsonObjectFromUnknown(rawArguments, "value"),
+    };
+
+    parts.push({ functionCall });
+  }
+
+  return parts;
+}
+
+function functionResponseContentFromOpenAiToolMessage(
+  message: Record<string, unknown>,
+  toolCallNameById: Map<string, string>,
+): GeminiContent | undefined {
+  const id = asString(message.tool_call_id) ?? asString(message.id);
+  const name = asString(message.name) ?? (id ? toolCallNameById.get(id) : undefined) ?? id ?? "tool_result";
+  const responseSource = isRecord(message.content) ? message.content : openAiContentToText(message.content);
+
+  return {
+    role: "user",
+    parts: [
+      {
+        functionResponse: {
+          ...(id ? { id } : {}),
+          name,
+          response: jsonObjectFromUnknown(responseSource, "output"),
+        },
+      },
+    ],
+  };
+}
+
+export function openAiMessagesToGeminiContents(messages: unknown[]): GeminiContent[] {
+  const contents: GeminiContent[] = [];
+  const toolCallNameById = new Map<string, string>();
 
   for (const message of messages) {
     if (!isRecord(message)) {
@@ -154,10 +254,6 @@ export function openAiMessagesToGeminiContents(messages: unknown[]): Array<{ rol
     }
 
     const role = asString(message.role)?.trim().toLowerCase() ?? "";
-    const text = openAiContentToText(message.content).trim();
-    if (text.length === 0) {
-      continue;
-    }
 
     if (role === "system") {
       // System messages are handled separately via systemInstruction
@@ -165,13 +261,29 @@ export function openAiMessagesToGeminiContents(messages: unknown[]): Array<{ rol
     }
 
     if (role === "user") {
-      contents.push({ role: "user", parts: [{ text }] });
+      const parts = textPartsFromOpenAiMessage(message);
+      if (parts.length > 0) {
+        contents.push({ role: "user", parts });
+      }
       continue;
     }
 
     if (role === "assistant") {
-      contents.push({ role: "model", parts: [{ text }] });
+      const parts = [
+        ...textPartsFromOpenAiMessage(message),
+        ...toolCallPartsFromOpenAiMessage(message, toolCallNameById),
+      ];
+      if (parts.length > 0) {
+        contents.push({ role: "model", parts });
+      }
       continue;
+    }
+
+    if (role === "tool") {
+      const content = functionResponseContentFromOpenAiToolMessage(message, toolCallNameById);
+      if (content) {
+        contents.push(content);
+      }
     }
   }
 
@@ -200,6 +312,91 @@ export function extractSystemInstructions(messages: unknown[]): string[] {
   return systemParts;
 }
 
+function sdkPartsFromGeminiContent(content: Record<string, unknown>): Record<string, unknown>[] {
+  const parts = Array.isArray(content.parts) ? content.parts : [];
+
+  return parts.flatMap((part): Record<string, unknown>[] => {
+    if (!isRecord(part)) {
+      return [];
+    }
+
+    const text = asString(part.text);
+    if (text !== undefined) {
+      return [{ text }];
+    }
+
+    const functionCall = isRecord(part.functionCall) ? part.functionCall : undefined;
+    if (functionCall) {
+      return [{ functionCall }];
+    }
+
+    const functionResponse = isRecord(part.functionResponse) ? part.functionResponse : undefined;
+    if (functionResponse) {
+      return [{ functionResponse }];
+    }
+
+    return [];
+  });
+}
+
+function systemInstructionText(systemInstruction: unknown): string | undefined {
+  if (!isRecord(systemInstruction)) {
+    return undefined;
+  }
+
+  const parts = Array.isArray(systemInstruction.parts) ? systemInstruction.parts : [];
+  const text = parts
+    .filter(isRecord)
+    .map((part) => asString(part.text) ?? "")
+    .filter((part) => part.length > 0)
+    .join("\n\n");
+
+  return text.length > 0 ? text : undefined;
+}
+
+export function geminiPayloadToSdkGenerateContentParams(
+  payload: Record<string, unknown>,
+  model: string,
+): GenerateContentParameters {
+  const contents = (Array.isArray(payload.contents) ? payload.contents : [])
+    .filter(isRecord)
+    .map((content) => ({
+      role: asString(content.role) ?? "user",
+      parts: sdkPartsFromGeminiContent(content),
+    }))
+    .filter((content) => content.parts.length > 0);
+
+  const config: Record<string, unknown> = {};
+  const generationConfig = isRecord(payload.generationConfig) ? payload.generationConfig : undefined;
+  if (generationConfig?.temperature !== undefined) {
+    config.temperature = generationConfig.temperature;
+  }
+  if (generationConfig?.maxOutputTokens !== undefined) {
+    config.maxOutputTokens = generationConfig.maxOutputTokens;
+  }
+  if (generationConfig?.thinkingConfig !== undefined) {
+    config.thinkingConfig = generationConfig.thinkingConfig;
+  }
+
+  const instructionText = systemInstructionText(payload.systemInstruction);
+  if (instructionText) {
+    config.systemInstruction = instructionText;
+  }
+
+  if (Array.isArray(payload.tools)) {
+    config.tools = payload.tools;
+  }
+  if (isRecord(payload.toolConfig)) {
+    config.toolConfig = payload.toolConfig;
+  }
+
+  return {
+    model,
+    contents: contents as GenerateContentParameters["contents"],
+    ...(Object.keys(config).length > 0 ? { config: config as GenerateContentParameters["config"] } : {}),
+  };
+}
+
 function extractToolCalls(parts: unknown[]): Array<Record<string, unknown>> | undefined {
   const toolCalls: Array<Record<string, unknown>> = [];
   let callIndex = 0;
@@ -221,7 +418,7 @@ function extractToolCalls(parts: unknown[]): Array<Record<string, unknown>> | un
     }
 
     toolCalls.push({
-      id: `call_gemini_${callIndex}`,
+      id: asString(functionCall.id) ?? `call_gemini_${callIndex}`,
       type: "function",
       function: {
         name,
@@ -291,13 +488,14 @@ export function geminiResponseToChatCompletion(response: unknown, routedModel: s
   const toolCalls = extractToolCalls(allParts);
 
   const finishReasonRaw = firstCandidate ? asString(firstCandidate.finishReason) ?? asString(firstCandidate.finish_reason) : undefined;
-  const finishReason = finishReasonRaw
+  const mappedFinishReason = finishReasonRaw
     ? finishReasonRaw.toLowerCase() === "stop"
       ? "stop"
       : finishReasonRaw.toLowerCase() === "max_tokens"
         ? "length"
         : "stop"
     : "stop";
+  const finishReason = toolCalls ? "tool_calls" : mappedFinishReason;
 
   // Extract usage metadata
   const usageMetadata = isRecord(response.usageMetadata) ? response.usageMetadata : null;
@@ -530,44 +728,11 @@ export class GeminiChatProviderStrategy extends BaseProviderStrategy implements 
     }
 
     try {
-      const contents = payload.contents as Array<{ role: string; parts: Array<{ text: string }> }>;
-      const systemInstruction = payload.systemInstruction as { parts: Array<{ text: string }> } | undefined;
-      const generationConfig = payload.generationConfig as Record<string, unknown> | undefined;
-
-      // Convert contents to SDK format
-      const sdkContents = contents.map((content) => ({
-        role: content.role,
-        parts: content.parts.map((part) => ({ text: part.text })),
-      }));
-
-      // Build config for SDK
-      const config: Record<string, unknown> = {};
-      
-      if (generationConfig) {
-        if (generationConfig.temperature !== undefined) {
-          config.temperature = generationConfig.temperature;
-        }
-        if (generationConfig.maxOutputTokens !== undefined) {
-          config.maxOutputTokens = generationConfig.maxOutputTokens;
-        }
-        if (generationConfig.thinkingConfig) {
-          config.thinkingConfig = generationConfig.thinkingConfig;
-        }
-      }
-
-      // Add system instruction if present
-      if (systemInstruction) {
-        const systemText = systemInstruction.parts.map((p) => p.text).join("\n\n");
-        config.systemInstruction = systemText;
-      }
+      const sdkParams = geminiPayloadToSdkGenerateContentParams(payload, model);
 
       if (context.clientWantsStream) {
         // Handle streaming
-        const streamResult = await genAI.models.generateContentStream({
-          model,
-          contents: sdkContents,
-          config,
-        });
+        const streamResult = await genAI.models.generateContentStream(sdkParams);
 
         // Convert stream to SSE
         reply.code(200);
@@ -589,28 +754,68 @@ export class GeminiChatProviderStrategy extends BaseProviderStrategy implements 
         try {
           let accumulatedText = "";
           let accumulatedReasoning = "";
+          let finishReason = "STOP";
+          const functionCallParts: Record<string, unknown>[] = [];
           
           for await (const chunk of streamResult) {
-            const chunkText = chunk.text ?? "";
-            if (chunkText) {
-              accumulatedText += chunkText;
-            }
-            
-            // Check for reasoning/thoughts in the chunk
             const chunkData = chunk as unknown as Record<string, unknown>;
-            if (chunkData.thought === true && chunkText) {
-              accumulatedReasoning += chunkText;
+            const candidates = Array.isArray(chunkData.candidates) ? chunkData.candidates : [];
+            const firstCandidate = candidates.length > 0 && isRecord(candidates[0]) ? candidates[0] : undefined;
+            const rawFinishReason = firstCandidate
+              ? asString(firstCandidate.finishReason) ?? asString(firstCandidate.finish_reason)
+              : undefined;
+            if (rawFinishReason) {
+              finishReason = rawFinishReason;
+            }
+
+            const content = firstCandidate && isRecord(firstCandidate.content) ? firstCandidate.content : undefined;
+            const parts = content && Array.isArray(content.parts) ? content.parts : [];
+            if (parts.length === 0) {
+              const chunkText = (chunk as { readonly text?: string }).text ?? "";
+              if (chunkText) {
+                accumulatedText += chunkText;
+              }
+              continue;
+            }
+
+            for (const part of parts) {
+              if (!isRecord(part)) {
+                continue;
+              }
+
+              const functionCall = isRecord(part.functionCall) ? part.functionCall : undefined;
+              if (functionCall) {
+                functionCallParts.push({ functionCall });
+                continue;
+              }
+
+              const text = asString(part.text) ?? "";
+              if (text.length === 0) {
+                continue;
+              }
+
+              if (part.thought === true) {
+                accumulatedReasoning += text;
+              } else {
+                accumulatedText += text;
+              }
             }
           }
+
+          const parts: Record<string, unknown>[] = [];
+          if (accumulatedReasoning.length > 0) {
+            parts.push({ text: accumulatedReasoning, thought: true });
+          }
+          if (accumulatedText.length > 0) {
+            parts.push({ text: accumulatedText });
+          }
+          parts.push(...functionCallParts);
 
           // Send final completion as SSE
           const chatCompletion = geminiResponseToChatCompletion({
             candidates: [{
-              content: {
-                parts: [{ text: accumulatedText }],
-                ...(accumulatedReasoning ? { reasoningContent: accumulatedReasoning } : {}),
-              },
-              finishReason: "STOP",
+              content: { parts },
+              finishReason,
             }],
           }, context.routedModel);
 
@@ -629,11 +834,7 @@ export class GeminiChatProviderStrategy extends BaseProviderStrategy implements 
         return { kind: "handled" };
       } else {
         // Non-streaming request
-        const response = await genAI.models.generateContent({
-          model,
-          contents: sdkContents,
-          config,
-        });
+        const response = await genAI.models.generateContent(sdkParams);
 
         const chatCompletion = geminiResponseToChatCompletion(response as unknown as Record<string, unknown>, context.routedModel);
 

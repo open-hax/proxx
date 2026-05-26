@@ -205,6 +205,8 @@ async function withProxyApp(
     requestLogsFilePath: requestLogsPath,
     requestLogsMaxEntries: 100000,
     requestLogsFlushMs: 0,
+    eventStoreTtlMs: 0,
+    eventStoreTtlSweepMs: 0,
     promptAffinityFilePath: promptAffinityPath,
     promptAffinityFlushMs: 0,
     settingsFilePath: settingsPath,

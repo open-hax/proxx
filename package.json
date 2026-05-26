@@ -49,7 +49,9 @@
     "web:test:e2e": "tsx web/test/e2e/tools.smoke.ts",
     "validate:required": "pnpm build && pnpm web:build && pnpm web:test && pnpm web:test:e2e && sh -c ': \"${PROXY_AUTH_TOKEN:?PROXY_AUTH_TOKEN must be set}\"; npx tsx --test src/tests/proxy.test.ts'",
     "lint": "eslint .",
-    "lint:errors": "eslint . --quiet"
+    "lint:errors": "eslint . --quiet",
+    "duplication:scan": "pnpm dlx jscpd@4.0.5 --config .jscpd.json --threshold 100",
+    "duplication:check": "pnpm dlx jscpd@4.0.5 --config .jscpd.json --threshold 5"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.2",

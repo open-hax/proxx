@@ -6,7 +6,7 @@ import fastifySwaggerUi from "@fastify/swagger-ui";
 
 import "./lib/fastify-types.js";
 
-import { DEFAULT_MODELS, type ProxyConfig } from "./lib/config.js";
+import { type ProxyConfig } from "./lib/config.js";
 import { getActiveCljsRuntime } from "./lib/cljs-runtime.js";
 import {
   PROXY_AUTH_COOKIE_NAME,
@@ -160,7 +160,10 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       await accountHealthStore.init();
       app.log.info("account health store initialized");
 
-      eventStore = new EventStore(sql);
+      eventStore = new EventStore(sql, {
+        ttlMs: config.eventStoreTtlMs,
+        ttlSweepIntervalMs: config.eventStoreTtlSweepMs,
+      });
       await eventStore.init();
       for (const labeler of createDefaultLabelers()) {
         eventStore.registerLabeler(labeler);

@@ -87,6 +87,8 @@ function buildConfig(input: {
     requestLogsFilePath: input.paths.requestLogsPath,
     requestLogsMaxEntries: 100000,
     requestLogsFlushMs: 0,
+    eventStoreTtlMs: 0,
+    eventStoreTtlSweepMs: 0,
     promptAffinityFilePath: input.paths.promptAffinityPath,
     promptAffinityFlushMs: 0,
     settingsFilePath: input.paths.settingsPath,

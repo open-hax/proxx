@@ -120,3 +120,33 @@ test("loadConfig derives upstream base URL from default provider id", async () =
     },
   );
 });
+
+test("loadConfig reads event store TTL controls", async () => {
+  await withEnv(
+    {
+      PROXY_AUTH_TOKEN: "test-token",
+      PROXX_EVENT_STORE_TTL_MS: "60000",
+      PROXX_EVENT_STORE_TTL_SWEEP_MS: "5000",
+    },
+    () => {
+      const config = loadConfig("/tmp/open-hax-openai-proxy-config-test");
+      assert.equal(config.eventStoreTtlMs, 60_000);
+      assert.equal(config.eventStoreTtlSweepMs, 5_000);
+    },
+  );
+});
+
+test("loadConfig allows disabling event store TTL", async () => {
+  await withEnv(
+    {
+      PROXY_AUTH_TOKEN: "test-token",
+      PROXX_EVENT_STORE_TTL_MS: "0",
+      PROXX_EVENT_STORE_TTL_SWEEP_MS: "0",
+    },
+    () => {
+      const config = loadConfig("/tmp/open-hax-openai-proxy-config-test");
+      assert.equal(config.eventStoreTtlMs, 0);
+      assert.equal(config.eventStoreTtlSweepMs, 0);
+    },
+  );
+});

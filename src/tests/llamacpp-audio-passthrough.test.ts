@@ -52,7 +52,8 @@ test("llamacpp chat strategy preserves OpenAI input_audio content parts", () => 
   const payload = strategy.buildPayload(context as never).upstreamPayload;
 
   assert.equal(payload.model, "gemma4-e4b");
-  assert.deepEqual((payload.messages as any[])[0].content[1], {
+  const messages = payload.messages as Array<{ readonly content: readonly unknown[] }>;
+  assert.deepEqual(messages[0]?.content[1], {
     type: "input_audio",
     input_audio: {
       data: "UklGRiQAAABXQVZFZm10IBAAAAABAAEA",

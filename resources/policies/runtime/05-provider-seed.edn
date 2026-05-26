@@ -134,14 +134,16 @@
   :provider/id "ollama"
   :provider/base-url "http://ollama:11434"
   :auth/required? false
-  :paths {:chat-completions "/v1/chat/completions"}}
+  :paths {:embeddings "/api/embed"
+          :chat-completions "/v1/chat/completions"}}
 
  {:contract/id :provider-route/ollama-lan
   :contract/kind :provider-route
   :provider/id "ollama-lan"
   :provider/base-url "http://192.168.12.68:11434"
   :auth/required? false
-  :paths {:chat-completions "/v1/chat/completions"}}
+  :paths {:embeddings "/api/embed"
+          :chat-completions "/v1/chat/completions"}}
 
  {:contract/id :provider-route/llamacpp
   :contract/kind :provider-route
@@ -153,7 +155,8 @@
   :contract/kind :provider-route
   :provider/id "llamacpp-embed"
   :provider/base-url "http://llamacpp-embed:8081"
-  :paths {:chat-completions "/v1/chat/completions"}}
+  :auth/required? false
+  :paths {:embeddings "/v1/embeddings"}}
 
  {:contract/id :provider-seed/musicgen
   :contract/kind :provider-seed

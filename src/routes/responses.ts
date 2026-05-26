@@ -153,7 +153,7 @@ export function registerResponsesRoutes(deps: AppDeps, app: FastifyInstance): vo
     if (!catalogResult) {
       return;
     }
-    const { routingModelInput, resolvedModelCatalog, resolvedCatalogBundle } = catalogResult;
+    const { routingModelInput, resolvedCatalogBundle } = catalogResult;
 
     if (requestedModelIsExplicitOllama(requestedModelInput) || requestedModelIsExplicitOllama(routingModelInput)) {
       await handleOllamaResponsesCompatibility(

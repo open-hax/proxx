@@ -260,9 +260,27 @@
                          :catalogBundle {:catalog {:declaredModelIds []
                                                    :dynamicOllamaModelIds []}
                                          :preferences {:disabled ["target-model"]}
-                                         :providerCatalogs {}}))]
+                                         :providerCatalogs {}}))
+        alias-filtered (contracts/filter-provider-routes
+                        {:model-aliases [{:contract/id :model-alias/gemma4-gemini
+                                          :contract/kind :model-alias
+                                          :match/model-pattern "(?i)^gemma4:31b$"
+                                          :match/provider-pattern "^gemini$"
+                                          :alias/model-id "gemma-4-31b-it"}]}
+                        {:model-id "gemma4:31b"
+                         :config {:openaiProviderId "openai"}
+                         :tenantSettings {}
+                         :providerRoutes [{:providerId "gemini" :baseUrl "https://gemini.test"}
+                                          {:providerId "ollama-cloud" :baseUrl "https://ollama.test"}]
+                         :catalogBundle {:catalog {:declaredModelIds []
+                                                   :dynamicOllamaModelIds []}
+                                         :preferences {:disabled []}
+                                         :providerCatalogs {"gemini" {:modelIds ["models/gemma-4-31b-it"]}
+                                                            "ollama-cloud" {:modelIds ["gemma4:31b"]}}}})]
     (is (= ["openrouter"]
            (mapv :providerId (:providerRoutes filtered))))
+    (is (= ["gemini" "ollama-cloud"]
+           (mapv :providerId (:providerRoutes alias-filtered))))
     (is (= true (get-in rejected [:catalog :rejected])))
     (is (= true (get-in disabled [:catalog :disabled])))))
 
@@ -915,23 +933,30 @@
                   compiled
                   {:model-id "qwen3-embedding:0.6b"
                    :request-kind :embeddings
-                   :tenant-settings {:allowed-provider-ids ["llamacpp-embed" "ollama"]}
-                   :provider-ids ["ollama" "llamacpp-embed"]
+                   :tenant-settings {:allowed-provider-ids ["llamacpp-embed" "ollama" "ollama-lan"]}
+                   :provider-ids ["ollama" "llamacpp-embed" "ollama-lan"]
                    :provider-model-snapshots {"llamacpp-embed" {"qwen3-embedding:0.6b" true
                                                                  "qwen3-embedding-0.6b" true}}
                    :strategies-by-provider {"llamacpp-embed" [{:mode :embeddings :priority 0}]
                                             "ollama" [{:mode :embeddings :priority 1}]}})]
     (is (= :ok (:status decision)))
     (is (= :route/qwen3-embedding (:route-id decision)))
-    (is (= ["llamacpp-embed" "ollama"] (:providers decision)))
+    (is (= ["llamacpp-embed" "ollama" "ollama-lan"] (:providers decision)))
     (is (= [{:provider-id "llamacpp-embed"
              :base-url "http://llamacpp-embed:8081"
-             :paths {:chat-completions "/v1/chat/completions"}}
-             {:provider-id "ollama"
-              :base-url "http://ollama:11434"
-              :auth-required? false
-              :paths {:chat-completions "/v1/chat/completions"}}]
-            (:provider-routes decision)))
+             :auth-required? false
+             :paths {:embeddings "/v1/embeddings"}}
+            {:provider-id "ollama"
+             :base-url "http://ollama:11434"
+             :auth-required? false
+             :paths {:embeddings "/api/embed"
+                     :chat-completions "/v1/chat/completions"}}
+            {:provider-id "ollama-lan"
+             :base-url "http://192.168.12.68:11434"
+             :auth-required? false
+             :paths {:embeddings "/api/embed"
+                     :chat-completions "/v1/chat/completions"}}]
+           (:provider-routes decision)))
     (is (= "llamacpp-embed" (:provider-id decision)))
     (is (= :embeddings (get-in decision [:strategy :mode])))))
 

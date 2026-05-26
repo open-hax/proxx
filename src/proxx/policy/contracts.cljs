@@ -1,5 +1,6 @@
 (ns proxx.policy.contracts
-  (:require [clojure.string :as str]))
+  (:require [clojure.set :as set]
+            [clojure.string :as str]))
 
 (defn pattern-matches?
   "Return true when regex pattern text matches value."
@@ -508,11 +509,31 @@
 (defn- catalog-model-ids [entry]
   (vec (or (get-any entry [:model-ids :modelIds]) [])))
 
-(defn- catalog-entry-supports-model? [model-id entry]
+(defn- model-alias-for-provider [compiled model-id provider-id]
+  (some #(when (and (pattern-matches? (:match/model-pattern %) model-id)
+                    (pattern-matches? (:match/provider-pattern %) provider-id))
+           (:alias/model-id %))
+        (:model-aliases compiled)))
+
+(defn- normalized-catalog-model-variants [model-id]
+  (let [normalized (str/lower-case (str/trim (str model-id)))
+        without-models-prefix (if (str/starts-with? normalized "models/")
+                                (subs normalized 7)
+                                normalized)]
+    (cond-> #{normalized without-models-prefix}
+      (not (str/blank? without-models-prefix))
+      (conj (str "models/" without-models-prefix)))))
+
+(defn- catalog-entry-supports-model? [compiled model-id provider-id entry]
   (let [normalized-model (str/lower-case (str/trim (str model-id)))
+        alias (model-alias-for-provider compiled model-id provider-id)
+        candidate-models (if (some? alias)
+                           (set/union (normalized-catalog-model-variants model-id)
+                                      (normalized-catalog-model-variants alias))
+                           (normalized-catalog-model-variants model-id))
         ids (catalog-model-ids entry)
-        normalized-ids (set (map #(str/lower-case (str/trim (str %))) ids))]
-    (or (contains? normalized-ids normalized-model)
+        normalized-ids (set (mapcat normalized-catalog-model-variants ids))]
+    (or (some #(contains? normalized-ids %) candidate-models)
         (and (glm-model? normalized-model)
              (some glm-model? ids)))))
 
@@ -534,13 +555,15 @@
           [[] []]
           items))
 
-(defn- filter-provider-routes-by-catalog [routes model-id catalog-bundle]
+(defn- filter-provider-routes-by-catalog [compiled routes model-id catalog-bundle]
   (if (glm-model? model-id)
     (vec routes)
     (let [[routes-without-catalog routes-with-catalog]
           (partition-with #(nil? (provider-entry catalog-bundle (provider-route-id-from-input %))) routes)
           catalog-matched (filterv #(catalog-entry-supports-model?
+                                     compiled
                                      model-id
+                                     (provider-route-id-from-input %)
                                      (provider-entry catalog-bundle (provider-route-id-from-input %)))
                                    routes-with-catalog)]
       (cond
@@ -570,7 +593,7 @@
                      [])]
     (boolean (some #(= normalized-model (str/lower-case (str/trim (str %)))) disabled))))
 
-(defn- catalog-rejects-model? [routes model-id catalog-bundle]
+(defn- catalog-rejects-model? [compiled routes model-id catalog-bundle]
   (if (catalog-declared-model? catalog-bundle model-id)
     false
     (loop [remaining routes
@@ -579,7 +602,7 @@
         (let [entry (provider-entry catalog-bundle (provider-route-id-from-input route))]
           (cond
             (nil? entry) false
-            (catalog-entry-supports-model? model-id entry) false
+            (catalog-entry-supports-model? compiled model-id (provider-route-id-from-input route) entry) false
             :else (recur (rest remaining) true)))
         saw-catalog?))))
 
@@ -606,10 +629,10 @@
          :catalog {:disabled true
                    :rejected false}}
         (if apply-catalog-availability?
-          (let [catalog-routes (filter-provider-routes-by-catalog routes model-id catalog-bundle)]
+          (let [catalog-routes (filter-provider-routes-by-catalog _compiled routes model-id catalog-bundle)]
             {:providerRoutes catalog-routes
              :catalog {:disabled false
-                       :rejected (catalog-rejects-model? catalog-routes model-id catalog-bundle)}})
+                       :rejected (catalog-rejects-model? _compiled catalog-routes model-id catalog-bundle)}})
           {:providerRoutes routes
            :catalog {:disabled false
                      :rejected false}}))
@@ -736,10 +759,7 @@
 (defn resolve-model-alias
   "Return the provider-specific model alias for a model-id, or nil if none."
   [compiled model-id provider-id]
-  (some #(when (and (pattern-matches? (:match/model-pattern %) model-id)
-                    (pattern-matches? (:match/provider-pattern %) provider-id))
-           (:alias/model-id %))
-        (:model-aliases compiled)))
+  (model-alias-for-provider compiled model-id provider-id))
 
 (defn- reasoning-token [value]
   (when (some? value)

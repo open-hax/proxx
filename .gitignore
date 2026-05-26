@@ -3,6 +3,10 @@ dist/
 logs/
 /data/
 coverage/
+
+# Duplication scan reports (regenerable)
+reports/jscpd/
+
 target/
 .shadow-cljs/
 .clj-kondo/.cache/

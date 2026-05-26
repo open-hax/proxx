@@ -12,7 +12,6 @@ import {
 import { selectExecutionStrategyForProviderRoutes } from "../lib/provider-strategy/registry.js";
 import { executeLocalStrategy } from "../lib/provider-strategy.js";
 import {
-  catalogHasDynamicOllamaModel,
   filterDeclaredProviderRoutes,
   getDeclaredProviderRoutes,
   resolveProviderRoutesForModel,
@@ -125,8 +124,7 @@ async function executeChatCandidate(input: ChatCandidateInput): Promise<CljsMode
 
   const wantsDynamicOllamaRoutes = context.localOllama
     || isCephalonAutoModel(requestedModelInput)
-    || isCephalonAutoModel(routingModelInput)
-    || catalogHasDynamicOllamaModel(resolvedModelCatalog, context.routedModel);
+    || isCephalonAutoModel(routingModelInput);
   const dynamicOllamaRoutes = wantsDynamicOllamaRoutes
     ? await discoverDynamicOllamaRoutes(deps.sqlCredentialStore, deps.sqlFederationStore, federationOwnerSubject)
     : [];

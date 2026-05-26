@@ -678,6 +678,24 @@ Semantic versioning: See package.json for current version.
 Fork tax releases are tagged vX.Y.Z and published to npm as @open-hax/proxx.
 ```
 
+## Code Quality
+
+Proxx includes repository-wide code duplication scanning via `jscpd`.
+
+```bash
+# Generate console, HTML, and JSON duplication reports
+pnpm duplication:scan
+
+# Run the CI-suitable duplication gate
+pnpm duplication:check
+```
+
+Reports are written to `reports/jscpd/` and are ignored as regenerable artifacts. The default gate focuses on executable and policy code in `src`, `test`, `web/src`, `web/test`, `scripts`, `resources`, `deploy`, `examples`, and `pseudo`, while excluding generated output, vendored dependencies, local runtime data, worktrees, lockfiles, sourcemaps, and other noisy artifacts.
+
+The GitHub Actions workflow at `.github/workflows/code-quality.yml` runs the duplication gate on pull requests and pushes to `main`/`staging`.
+
+See [`docs/code-quality.md`](docs/code-quality.md) for scanner scope, thresholds, ignored paths, and triage guidance.
+
 ## Contributing
 
 1. Fork the repository
