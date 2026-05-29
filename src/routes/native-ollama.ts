@@ -13,6 +13,21 @@ import { copyInjectedResponseHeaders } from "../lib/request-utils.js";
 import { parseJsonIfPossible } from "../lib/request-utils.js";
 import { isRecord } from "../lib/provider-utils.js";
 
+function hasModelPrefix(model: string, prefixes: readonly string[]): boolean {
+  const normalizedModel = model.toLowerCase();
+  return prefixes.some((prefix) => prefix.length > 0 && normalizedModel.startsWith(prefix.toLowerCase()));
+}
+
+function withNativeOllamaProviderScope(body: Record<string, unknown>, prefixes: readonly string[]): Record<string, unknown> {
+  const model = typeof body.model === "string" ? body.model.trim() : "";
+  if (model.length === 0 || hasModelPrefix(model, prefixes)) {
+    return body;
+  }
+
+  const prefix = prefixes.find((candidate) => candidate.endsWith("/") || candidate.endsWith(":")) ?? "ollama/";
+  return { ...body, model: `${prefix}${model}` };
+}
+
 export function registerNativeOllamaRoutes(deps: AppDeps, app: FastifyInstance): void {
   app.post<{ Body: Record<string, unknown> }>("/api/chat", async (request, reply) => {
     const bridgeResponse = await deps.injectNativeBridge(
@@ -55,9 +70,13 @@ export function registerNativeOllamaRoutes(deps: AppDeps, app: FastifyInstance):
   });
 
   app.post<{ Body: Record<string, unknown> }>("/api/embed", async (request, reply) => {
+    const scopedBody = withNativeOllamaProviderScope(
+      isRecord(request.body) ? request.body : {},
+      deps.config.ollamaModelPrefixes,
+    );
     const bridgeResponse = await deps.injectNativeBridge(
       "/v1/embeddings",
-      nativeEmbedToOpenAiRequest(isRecord(request.body) ? request.body : {}),
+      nativeEmbedToOpenAiRequest(scopedBody),
       request.headers,
     );
 
@@ -75,9 +94,13 @@ export function registerNativeOllamaRoutes(deps: AppDeps, app: FastifyInstance):
   });
 
   app.post<{ Body: Record<string, unknown> }>("/api/embeddings", async (request, reply) => {
+    const scopedBody = withNativeOllamaProviderScope(
+      isRecord(request.body) ? request.body : {},
+      deps.config.ollamaModelPrefixes,
+    );
     const bridgeResponse = await deps.injectNativeBridge(
       "/v1/embeddings",
-      nativeEmbedToOpenAiRequest(isRecord(request.body) ? request.body : {}),
+      nativeEmbedToOpenAiRequest(scopedBody),
       request.headers,
     );
 

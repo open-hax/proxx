@@ -421,6 +421,13 @@
 (defn- normalize-provider-id [provider-id]
   (str/lower-case (str/trim (str provider-id))))
 
+(defn- dedupe-provider-id-values [provider-ids]
+  (vec (distinct (remove str/blank? (map str provider-ids)))))
+
+(defn- requested-provider-ids [input]
+  (dedupe-provider-id-values
+   (or (get-any input [:requested-provider-ids :requestedProviderIds]) [])))
+
 (defn tenant-provider-allowed?
   "Apply declarative tenant provider allow/disabled-list semantics."
   [settings provider-id]
@@ -496,6 +503,26 @@
       false
 
       :else true)))
+
+(defn- request-surface-provider-allowed?
+  "Return true when declarative request-surface defaults allow provider-id.
+
+  Provider capability clauses tune strategy preference. Request-surface-default
+  clauses define the provider universe for non-chat surfaces such as embeddings,
+  images, video, music, and TTS. If a surface has no default clause, preserve
+  legacy fail-open behavior for chat-like routes while the policy manifest grows.
+  "
+  [compiled provider-id request-kind]
+  (let [surface-clauses (filterv #(= request-kind (:match/request-kind %))
+                                  (:request-surface-defaults compiled))]
+    (or (empty? surface-clauses)
+        (boolean (some #(pattern-matches? (:match/provider-pattern %) provider-id)
+                       surface-clauses)))))
+
+(defn- requested-provider-allowed? [input provider-id]
+  (let [requested (set (map normalize-provider-id (requested-provider-ids input)))]
+    (or (empty? requested)
+        (contains? requested (normalize-provider-id provider-id)))))
 
 (defn- provider-entry [catalog-bundle provider-id]
   (let [provider-catalogs (or (get-any catalog-bundle [:provider-catalogs :providerCatalogs]) {})
@@ -591,12 +618,18 @@
   decide provider eligibility locally."
   [_compiled input]
   (let [model-id (or (get-any input [:model-id :modelId :routed-model :routedModel]) "")
+        request-kind (normalized-keyword (or (get-any input [:request-kind :requestKind]) :chat))
         config (or (get-any input [:config]) {})
         tenant-settings (or (get-any input [:tenant-settings :tenantSettings]) {})
         catalog-bundle (get-any input [:catalog-bundle :catalogBundle])
         apply-catalog-availability? (not= false (get-any input [:catalog-availability? :catalogAvailability]))
         routes (->> (input-provider-routes input)
                     (filter #(provider-route-supports-model? config % model-id))
+                    (filter #(request-surface-provider-allowed? _compiled
+                                                               (provider-route-id-from-input %)
+                                                               request-kind))
+                    (filter #(requested-provider-allowed? input
+                                                           (provider-route-id-from-input %)))
                     (filter #(tenant-provider-allowed? tenant-settings
                                                         (provider-route-id-from-input %)))
                     vec)]
@@ -696,13 +729,16 @@
     (vec (:prefer/provider-order route))))
 
 (defn- dedupe-provider-ids [provider-ids]
-  (vec (distinct (remove str/blank? (map str provider-ids)))))
+  (dedupe-provider-id-values provider-ids))
 
 (defn- request-or-route-provider-ids [route input]
-  (let [requested-provider-ids (vec (or (get-any input [:provider-ids :providerIds]) []))]
-    (if (seq requested-provider-ids)
-      (dedupe-provider-ids requested-provider-ids)
-      (dedupe-provider-ids (route-default-provider-ids route)))))
+  (let [available-provider-ids (if-let [provider-ids (seq (or (get-any input [:provider-ids :providerIds]) []))]
+                                 (dedupe-provider-ids provider-ids)
+                                 (dedupe-provider-ids (route-default-provider-ids route)))
+        requested (set (map normalize-provider-id (requested-provider-ids input)))]
+    (if (seq requested)
+      (filterv #(contains? requested (normalize-provider-id %)) available-provider-ids)
+      available-provider-ids)))
 
 (defn- provider-route-by-id [compiled]
   (into {}
@@ -923,7 +959,9 @@
                                                   (strategies-for-provider input provider-id))}))
         (if-let [route (select-routing-clause compiled model-id)]
           (let [provider-ids (request-or-route-provider-ids route input)
-              evidenced-providers (evidence-filtered-provider-ids route input provider-ids model-id)
+              surface-providers (filterv #(request-surface-provider-allowed? compiled % request-kind)
+                                         provider-ids)
+              evidenced-providers (evidence-filtered-provider-ids route input surface-providers model-id)
               tenant-allowed-providers (filterv #(tenant-provider-allowed? tenant-settings %) evidenced-providers)
               ordered-providers (vec (order-provider-candidates route tenant-allowed-providers))
               provider-id (first ordered-providers)]
