@@ -22,6 +22,15 @@ function openAiRouteError(statusCode: number, message: string, type: string, cod
   return new OpenAiHttpError({ statusCode, message, type, code, meta, cause });
 }
 
+function providerIdFromModelPrefix(prefix: string): string {
+  return prefix.trim().replace(/[/:]+$/, "");
+}
+
+function matchedModelPrefix(model: string, prefixes: readonly string[]): string | undefined {
+  const normalizedModel = model.toLowerCase();
+  return prefixes.find((prefix) => prefix.trim().length > 0 && normalizedModel.startsWith(prefix.toLowerCase()));
+}
+
 function summarizeEmbeddingInput(
   input: string | readonly string[],
 ): { readonly itemCount: number; readonly totalChars: number } {
@@ -46,11 +55,14 @@ export function registerEmbeddingsRoutes(deps: AppDeps, app: FastifyInstance): v
     }
 
     const explicitlyLlamaCpp = hasModelPrefix(model, deps.config.llamacppModelPrefixes ?? []);
-    const explicitlyOllama = !explicitlyLlamaCpp && hasModelPrefix(model, deps.config.ollamaModelPrefixes);
+    const matchedOllamaPrefix = !explicitlyLlamaCpp
+      ? matchedModelPrefix(model, deps.config.ollamaModelPrefixes)
+      : undefined;
+    const explicitlyOllama = typeof matchedOllamaPrefix === "string";
     const requestedProviderIds = explicitlyLlamaCpp
       ? ["llamacpp-embed"]
-      : explicitlyOllama
-        ? ["ollama"]
+      : matchedOllamaPrefix
+        ? [providerIdFromModelPrefix(matchedOllamaPrefix)]
         : undefined;
 
     const proxySettings = await deps.proxySettingsStore.getForTenant(
