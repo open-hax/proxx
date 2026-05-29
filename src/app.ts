@@ -82,6 +82,7 @@ import { registerWebsearchRoutes } from "./routes/websearch.js";
 import { registerModelsRoutes } from "./routes/models.js";
 import { registerEmbeddingsRoutes } from "./routes/embeddings.js";
 import { registerNativeOllamaRoutes } from "./routes/native-ollama.js";
+import { registerBridgeLeaseRoutes } from "./routes/bridge/lease.js";
 import { registerHealthRoutes } from "./routes/health.js";
 
 export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
@@ -527,7 +528,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       : undefined;
     if (
       bridgeAuthHeader === "internal"
-      && rawPath.startsWith("/v1/")
+      && (rawPath.startsWith("/v1/") || rawPath.startsWith("/api/bridge/"))
       && internalOwnerSubject
       && isTrustedLocalBridgeAddress(request.raw.socket.remoteAddress)
     ) {
@@ -688,6 +689,12 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
   registerMediaGenerationRoutes(deps, app);
   registerEmbeddingsRoutes(deps, app);
   registerNativeOllamaRoutes(deps, app);
+  await registerBridgeLeaseRoutes(app, {
+    config,
+    keyPool,
+    credentialStore: runtimeCredentialStore,
+    refreshOpenAiOauthAccounts,
+  });
 
   const { bridgeRelay: wsBridgeRelay } = await registerWebSocketRoutes(app, {
     config,

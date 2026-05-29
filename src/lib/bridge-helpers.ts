@@ -68,6 +68,10 @@ export function bridgeCapabilitySupportsModel(capability: {
     .filter((entry): entry is string => typeof entry === "string")
     .map((entry) => entry.trim())
     .filter((entry) => entry.length > 0);
+  if (advertisedModels.length === 0 && advertisedPrefixes.length === 0) {
+    return true;
+  }
+
   return advertisedPrefixes.some((prefix) => normalizedModel.startsWith(prefix));
 }
 

@@ -294,6 +294,9 @@ export const handleBridgeRequest = async (
     "/v1/responses",
     "/v1/embeddings",
     "/v1/images/generations",
+    "/api/bridge/credentials/accounts",
+    "/api/bridge/credentials/providers",
+    "/api/bridge/credentials/export",
   ];
   const normalizedPath = input.path.split("?")[0]!;
   if (!allowedBridgePaths.some((prefix) => normalizedPath.startsWith(prefix))) {
