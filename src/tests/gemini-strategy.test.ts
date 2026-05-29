@@ -7,7 +7,7 @@ import {
   extractSystemInstructions,
   normalizeGeminiReasoningEffort,
 } from "../lib/provider-strategy/strategies/gemini.js";
-import { isRecord } from "../lib/provider-strategy/shared.js";
+import { isRecord, type StrategyRequestContext } from "../lib/provider-strategy/shared.js";
 
 function getChoices(completion: Record<string, unknown>): Array<Record<string, unknown>> {
   return Array.isArray(completion.choices) ? completion.choices as Array<Record<string, unknown>> : [];
@@ -86,7 +86,7 @@ describe("Gemini strategy tool request transformation", () => {
       routeProviderId: "gemini",
       config: {
         cljsPolicyManifestPath: "resources/policies/runtime/00-manifest.edn",
-      } as any,
+      } as StrategyRequestContext["config"],
       clientHeaders: {},
       requestBody: {
         model: "gemini-2.5-pro",
@@ -155,7 +155,7 @@ describe("Gemini strategy tool request transformation", () => {
       routeProviderId: "gemini",
       config: {
         cljsPolicyManifestPath: "resources/policies/runtime/00-manifest.edn",
-      } as any,
+      } as StrategyRequestContext["config"],
       clientHeaders: {},
       requestBody: {
         model: "gemini-2.5-pro",
@@ -197,7 +197,7 @@ describe("Gemini strategy tool request transformation", () => {
       routeProviderId: "gemini",
       config: {
         cljsPolicyManifestPath: "resources/policies/runtime/00-manifest.edn",
-      } as any,
+      } as StrategyRequestContext["config"],
       clientHeaders: {},
       requestBody: {
         model: "gemini-2.5-pro",
@@ -579,7 +579,7 @@ describe("Gemini strategy end-to-end", () => {
       routeProviderId: "gemini",
       config: {
         cljsPolicyManifestPath: "resources/policies/runtime/00-manifest.edn",
-      } as any,
+      } as StrategyRequestContext["config"],
       clientHeaders: {},
       requestBody: {
         model: "gemini-2.5-pro",
@@ -629,7 +629,7 @@ describe("Gemini strategy end-to-end", () => {
         routeProviderId: "gemini",
         responsesPassthrough: false,
         imagesPassthrough: false,
-      } as any),
+      } as StrategyRequestContext),
       true
     );
 
@@ -638,7 +638,7 @@ describe("Gemini strategy end-to-end", () => {
         routeProviderId: "openai",
         responsesPassthrough: false,
         imagesPassthrough: false,
-      } as any),
+      } as StrategyRequestContext),
       false
     );
   });

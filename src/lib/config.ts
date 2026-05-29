@@ -311,34 +311,6 @@ function normalizeProviderList(values: readonly string[]): string[] {
   )];
 }
 
-function providerBaseUrlsFromEnv(
-  name: string,
-  fallback: Readonly<Record<string, string>>
-): Record<string, string> {
-  const parsed: Record<string, string> = { ...fallback };
-  const raw = process.env[name];
-  if (!raw) {
-    return parsed;
-  }
-
-  for (const item of raw.split(",").map((entry) => entry.trim()).filter((entry) => entry.length > 0)) {
-    const separatorIndex = item.indexOf("=");
-    if (separatorIndex <= 0 || separatorIndex === item.length - 1) {
-      throw new Error(`Invalid provider base URL mapping in ${name}: ${item}`);
-    }
-
-    const providerId = item.slice(0, separatorIndex).trim();
-    const baseUrl = item.slice(separatorIndex + 1).trim().replace(/\/+$/, "");
-    if (providerId.length === 0 || baseUrl.length === 0) {
-      throw new Error(`Invalid provider base URL mapping in ${name}: ${item}`);
-    }
-
-    parsed[providerId] = baseUrl;
-  }
-
-  return parsed;
-}
-
 /**
  * Return the default base URL for a given upstream provider identifier.
  *

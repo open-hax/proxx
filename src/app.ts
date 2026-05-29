@@ -6,7 +6,7 @@ import fastifySwaggerUi from "@fastify/swagger-ui";
 
 import "./lib/fastify-types.js";
 
-import { DEFAULT_MODELS, type ProxyConfig } from "./lib/config.js";
+import type { ProxyConfig } from "./lib/config.js";
 import { getActiveCljsRuntime } from "./lib/cljs-runtime.js";
 import {
   PROXY_AUTH_COOKIE_NAME,

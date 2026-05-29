@@ -83,15 +83,19 @@ export function registerEmbeddingsRoutes(deps: AppDeps, app: FastifyInstance): v
     }
 
     const declaredRoutes = getDeclaredProviderRoutes(deps.config);
-    const selectedRoutes = filterDeclaredProviderRoutes(deps.config.cljsPolicyManifestPath, {
+    const policySelectedRoutes = filterDeclaredProviderRoutes(deps.config.cljsPolicyManifestPath, {
       config: deps.config,
       modelId: routingModelWithoutProviderPrefix,
       requestKind: "embeddings",
       tenantSettings: proxySettings,
       providerRoutes: declaredRoutes,
     }).providerRoutes;
+    const explicitProviderId = explicitlyLlamaCpp ? "llamacpp-embed" : explicitlyOllama ? "ollama" : undefined;
+    const selectedRoutes = explicitProviderId
+      ? policySelectedRoutes.filter((candidate) => candidate.providerId === explicitProviderId)
+      : policySelectedRoutes;
     if (selectedRoutes.length === 0) {
-      throw openAiRouteError(403, "No allowed embedding provider is available for this model.", "invalid_request_error", "provider_not_allowed", { routedModel: routingModelWithoutProviderPrefix });
+      throw openAiRouteError(403, "No allowed embedding provider is available for this model.", "invalid_request_error", "provider_not_allowed", { routedModel: routingModelWithoutProviderPrefix, explicitProviderId });
     }
 
     for (const candidate of selectedRoutes) {
