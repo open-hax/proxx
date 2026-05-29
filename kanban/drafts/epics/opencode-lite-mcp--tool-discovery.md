@@ -1,0 +1,40 @@
+---
+uuid: "orgs-open-hax-proxx-kanban-orgs-open-hax-proxx-specs-drafts-epics-opencode-lite-mcp-tool-discovery-md"
+title: "Sub-spec: MCP tool discovery + smoke tests"
+status: incoming
+priority: P3
+labels: ["specs", "migrated-spec"]
+created_at: "2026-05-29T04:01:44.179Z"
+source: "orgs/open-hax/proxx/specs/drafts/epics/opencode-lite-mcp--tool-discovery.md"
+category: "specs"
+---
+
+> Source: `orgs/open-hax/proxx/specs/drafts/epics/opencode-lite-mcp--tool-discovery.md`
+> Migrated-to-kanban: `orgs/open-hax/proxx/kanban/drafts/epics/opencode-lite-mcp--tool-discovery.md`
+
+# Sub-spec: MCP tool discovery + smoke tests
+
+**Epic:** `opencode-lite-mcp-epic.md`
+**SP:** 3
+**Priority:** P3
+**Depends on:** `opencode-lite-mcp--opencode-lite.md`
+
+## Scope
+Implement MCP tool discovery and invocation, starting with HTTP transport.
+
+### Endpoints
+- `GET /api/mcp/tools` — aggregate and cache tool schemas from all registered MCP servers
+- `POST /api/mcp/tools/call` — execute a tool call on the target MCP server
+
+### Discovery sources
+- Existing seed listing from ecosystems (`/api/ui/mcp-servers`)
+- MCP server registry from `mcp-gateway--registry-proxy.md` (when available)
+
+### Transport
+- Prefer HTTP MCP transport when `:PORT` is present
+- Support legacy routing via `LEGACY_MCP_URL` if available
+
+### Verification
+- `GET /api/mcp/tools` returns tool schemas from at least one MCP server
+- `POST /api/mcp/tools/call` invokes a tool and returns result
+- Diagnostics route can test-connect all seeded MCP servers

@@ -1,8 +1,9 @@
-(fork-tax-state
+(handoff
+  (kind eta-mu-kanban-migration)
+  (time "2026-05-29T04:03:45Z")
+  (batch "/tmp/eta-mu-kanban-batches/agent_open_hax_other.json")
   (repo "proxx")
-  (branch "chore/consolidate-examples")
-  (base "c9c2800d3df4")
-  (timestamp "20260518T061200Z")
-  (scope "ci-java-setup-for-shadow-cljs")
-  (verification "pnpm build passed" "pnpm build:cljs passed" "schema-migration-test passed" "actionlint passed on all modified workflows")
-  (residual "clj-kondo-imports lsp tooling-artifacts left uncommitted" "emacs lockfile .#route-filtering.ts left untracked"))
+  (verification "eta-mu-beta kanban count --tasks-dir for each board")
+  (boards
+    "kanban"
+  ))
