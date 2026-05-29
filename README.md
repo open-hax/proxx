@@ -16,6 +16,7 @@ DEVEL instructions live in `DEVEL.md`.
 - Global fast-mode toggle for Responses traffic: the proxy can inject `service_tier: "priority"` for GPT/Responses requests, with per-request overrides still respected.
 - Model-aware routing to Ollama base API: models prefixed with `ollama/` or `ollama:` are sent to Ollama `POST /api/chat`.
 - Built-in React/Vite console with a usage dashboard plus Chat, Credentials, and Tools/MCP pages.
+- Runtime model pricing refresh from `https://models.dev/api.json` so new model analytics can pick up fresh token-price data without waiting for a code snapshot update.
 - OpenAI OAuth browser + device flows based on OpenCode Codex plugin behavior (PKCE, state, callback exchange, account extraction).
 - Chroma-backed semantic history search with lexical fallback for chat session recall.
 - `GET /v1/models` and `GET /v1/models/:id` model listing.
@@ -50,6 +51,8 @@ Alternative credential sources:
 
 ## Shared-state federation v1
 
+~~not really federation~~
+
 If you want several `proxx` instances to behave like one mirrored operator surface, point them at the same `DATABASE_URL`.
 
 In this mode the shared SQL database becomes the control plane for:
@@ -75,7 +78,6 @@ Env-backed providers:
 - `GEMINI_API_KEY` automatically exposes a `gemini` provider route (native Gemini REST via `generateContent`).
 - `ZAI_API_KEY` (or `ZHIPU_API_KEY`) automatically exposes a `zai` provider route (z.ai GLM chat via `https://api.z.ai/api/paas/v4`).
 - `openrouter` and `requesty` default to OpenAI-compatible `/v1/chat/completions` routing.
-- You can target them by setting `UPSTREAM_PROVIDER_ID=openrouter|requesty|gemini|zai`, or by listing them in `UPSTREAM_FALLBACK_PROVIDER_IDS`.
 
 Additional provider ids:
 
@@ -196,7 +198,6 @@ Notes:
 - `STREAM_CHUNK_DELAY_MS` (optional; default: `0`; fixed delay added between synthetic SSE chunks)
 - `STREAM_CHUNK_DELAY_MS_MIN` / `STREAM_CHUNK_DELAY_MS_MAX` (optional; default: unset; random delay range between chunks)
 - `UPSTREAM_PROVIDER_ID` (default: `vivgrid`; provider id to target for routing; if you still use seed files, it also names the legacy default file provider)
-- `UPSTREAM_FALLBACK_PROVIDER_IDS` (default: auto `ollama-cloud` when primary is `vivgrid`, or `vivgrid` when primary is `ollama-cloud`; comma-separated)
 - `UPSTREAM_BASE_URL` (default: `https://api.vivgrid.com`)
 - `UPSTREAM_PROVIDER_BASE_URLS` (optional mapping: `provider=url,provider=url`; defaults include `vivgrid=https://api.vivgrid.com`, `ollama-cloud=https://ollama.com`, `zai=https://api.z.ai/api/paas/v4`, `openrouter=https://openrouter.ai/api/v1`, `requesty=https://router.requesty.ai/v1`, `gemini=https://generativelanguage.googleapis.com/v1beta`, and `factory=https://api.factory.ai`)
 - `OPENAI_PROVIDER_ID` (default: `openai`; provider id for OpenAI-routed accounts)
@@ -217,12 +218,17 @@ Notes:
 - `UPSTREAM_RESPONSES_MODEL_PREFIXES` (default: `gpt-`; comma-separated prefixes)
 - `OPENAI_MODEL_PREFIXES` (default: `openai/,openai:`; comma-separated prefixes)
 - `OLLAMA_CHAT_PATH` (default: `/api/chat`)
-- `OLLAMA_MODEL_PREFIXES` (default: `ollama/,ollama:`; comma-separated prefixes)
+- `OLLAMA_MODEL_PREFIXES` (default: `ollama/,ollama:,ollama-lan/,ollama-lan:`; comma-separated prefixes)
 - `PROXY_KEYS_FILE` (optional seed file path; DB-backed runtimes do not need it)
 - `PROXY_MODELS_FILE` (default: `./models.json`, fallback: `VIVGRID_MODELS_FILE`)
 - `PROXY_REQUEST_LOGS_FILE` (default: `./data/request-logs.jsonl`)
 - `PROXY_REQUEST_LOGS_MAX_ENTRIES` (default: `100000`; retained raw request-log entries used for backfill/debug/recent views)
 - `PROXY_SETTINGS_FILE` (default: `./data/proxy-settings.json`)
+- `MODELS_DEV_PRICING_URL` (default: `https://models.dev/api.json`; source for the live model price index)
+- `PROXY_MODEL_PRICING_REFRESH_MS` / `MODELS_DEV_PRICING_REFRESH_MS` (default: `21600000`; background price-index refresh interval, set `0` with startup refresh disabled to turn off live refresh)
+- `PROXY_MODEL_PRICING_STARTUP_REFRESH` / `MODELS_DEV_PRICING_STARTUP_REFRESH` (default: `true`; refresh the price index once when the API starts)
+- `PROXY_MODEL_PRICING_REFRESH_TIMEOUT_MS` / `MODELS_DEV_PRICING_REFRESH_TIMEOUT_MS` (default: `10000`; timeout for each models.dev fetch)
+- **Pricing override commandment**: token-price overrides MUST be expressed as **EDN policy contracts** (see `resources/policies/runtime/15-model-pricing-overrides.edn` or service-mounted `/etc/proxx/policies/runtime/15-model-pricing-overrides.edn`). Do **not** add JSON override blobs or hard-coded TypeScript pricing tables for one-off models.
 - `PROXY_KEY_RELOAD_MS` (default: `5000`, fallback: `VIVGRID_KEY_RELOAD_MS`)
 - `PROXY_KEY_COOLDOWN_MS` (default: `30000`, fallback: `VIVGRID_KEY_COOLDOWN_MS`)
 - `UPSTREAM_REQUEST_TIMEOUT_MS` (default: `180000`)

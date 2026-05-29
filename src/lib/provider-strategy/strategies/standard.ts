@@ -59,7 +59,7 @@ export class MessagesProviderStrategy extends TransformedJsonProviderStrategy {
   }
 
   public getUpstreamPath(context: StrategyRequestContext): string {
-    return context.config.messagesPath;
+    return context.providerPaths?.messages ?? context.config.messagesPath;
   }
 
   public buildPayload(context: StrategyRequestContext): BuildPayloadResult {
@@ -92,7 +92,7 @@ export class ResponsesProviderStrategy extends TransformedJsonProviderStrategy {
   }
 
   public getUpstreamPath(context: StrategyRequestContext): string {
-    return context.config.responsesPath;
+    return context.providerPaths?.responses ?? context.config.responsesPath;
   }
 
   public buildPayload(context: StrategyRequestContext): BuildPayloadResult {
@@ -193,7 +193,7 @@ export class ChatCompletionsProviderStrategy extends BaseProviderStrategy {
   }
 
   public getUpstreamPath(context: StrategyRequestContext): string {
-    return context.config.chatCompletionsPath;
+    return context.providerPaths?.["chat-completions"] ?? context.config.chatCompletionsPath;
   }
 
   public buildPayload(context: StrategyRequestContext): BuildPayloadResult {
@@ -215,6 +215,39 @@ export class ZaiChatCompletionsProviderStrategy extends ChatCompletionsProviderS
   }
 }
 
+export class BlazeChatCompletionsProviderStrategy extends ChatCompletionsProviderStrategy {
+  public override matches(context: StrategyRequestContext): boolean {
+    return context.routeProviderId === "blaze"
+      && context.responsesPassthrough !== true
+      && context.imagesPassthrough !== true;
+  }
+
+  public override getUpstreamPath(_context: StrategyRequestContext): string {
+    return "/chat/completions";
+  }
+}
+
+export class BlazeImagesGenerationsPassthroughStrategy extends BaseProviderStrategy {
+  public readonly mode = "images" as const;
+
+  public readonly isLocal = false;
+
+  public matches(context: StrategyRequestContext): boolean {
+    return context.routeProviderId === "blaze"
+      && context.imagesPassthrough === true;
+  }
+
+  public getUpstreamPath(_context: StrategyRequestContext): string {
+    return "/images/generations";
+  }
+
+  public buildPayload(context: StrategyRequestContext): BuildPayloadResult {
+    const upstreamPayload: Record<string, unknown> = { ...context.requestBody };
+    delete upstreamPayload["open_hax"];
+    return buildPayloadResult(upstreamPayload, context);
+  }
+}
+
 export class ImagesGenerationsPassthroughStrategy extends BaseProviderStrategy {
   public readonly mode = "images" as const;
 
@@ -225,7 +258,7 @@ export class ImagesGenerationsPassthroughStrategy extends BaseProviderStrategy {
   }
 
   public getUpstreamPath(context: StrategyRequestContext): string {
-    return context.config.imagesGenerationsPath;
+    return context.providerPaths?.["images-generations"] ?? context.config.imagesGenerationsPath;
   }
 
   public buildPayload(context: StrategyRequestContext): BuildPayloadResult {
@@ -246,7 +279,7 @@ export class ResponsesPassthroughStrategy extends BaseProviderStrategy {
   }
 
   public getUpstreamPath(context: StrategyRequestContext): string {
-    return context.config.responsesPath;
+    return context.providerPaths?.responses ?? context.config.responsesPath;
   }
 
   public buildPayload(context: StrategyRequestContext): BuildPayloadResult {
@@ -321,7 +354,7 @@ export class ResponsesViaChatCompletionsStrategy extends BaseProviderStrategy {
   }
 
   public getUpstreamPath(context: StrategyRequestContext): string {
-    return context.config.chatCompletionsPath;
+    return context.providerPaths?.["chat-completions"] ?? context.config.chatCompletionsPath;
   }
 
   public buildPayload(context: StrategyRequestContext): BuildPayloadResult {
@@ -348,13 +381,13 @@ export class ResponsesViaChatCompletionsStrategy extends BaseProviderStrategy {
     if (context.clientWantsStream) {
       if (isEventStream) {
         try {
-          const fallbackResponse = chatCompletionEventStreamToResponsesResponse(
+          const compatResponse = chatCompletionEventStreamToResponsesResponse(
             await upstreamResponse.text(),
             context.routedModel,
           );
           reply.code(200);
           reply.header("content-type", "application/json");
-          reply.send(fallbackResponse);
+          reply.send(compatResponse);
           return { kind: "handled" };
         } catch {
           return { kind: "continue", requestError: true };

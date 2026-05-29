@@ -33,11 +33,12 @@
    Includes the record id (if derivable) and present key names;
    never includes values for sensitive keys."
   [record]
-  {:record-id (or (:id record)
-                  (:prompt-cache-key record)
-                  (:provider-id record)
-                  :unknown)
-   :keys      (vec (keys record))})
+  {:record-id      (or (:id record)
+                       (:prompt-cache-key record)
+                       (:provider-id record)
+                       :unknown)
+   :keys           (vec (keys record))
+   :sensitive-keys (vec (filter sensitive-keys (keys record)))})
 
 ;; ══════════════════════════════════════════════════════════════
 ;; Internals

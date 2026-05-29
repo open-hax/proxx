@@ -21,6 +21,7 @@
 
 export type EmbeddingProvider =
   | 'ollama'
+  | 'llamacpp-embed'
   | 'huggingface-cloud'
   | 'tei'
   | 'ovm-npu';
@@ -58,11 +59,11 @@ export interface EmbeddingProviderConfig {
 /** Per-provider config, loaded from env (see .env.example additions) */
 export interface EmbeddingsConfig {
   ollama: EmbeddingProviderConfig;
+  'llamacpp-embed': EmbeddingProviderConfig;
   'huggingface-cloud': EmbeddingProviderConfig;
   tei: EmbeddingProviderConfig;
   'ovm-npu': EmbeddingProviderConfig;
   defaultProvider: EmbeddingProvider;
-  fallbackProvider?: EmbeddingProvider;
 }
 
 export function loadEmbeddingsConfig(): EmbeddingsConfig {
@@ -70,6 +71,13 @@ export function loadEmbeddingsConfig(): EmbeddingsConfig {
     ollama: {
       endpoint: process.env.OLLAMA_ENDPOINT ?? 'http://localhost:11434',
       defaultModel: process.env.OLLAMA_EMBED_MODEL ?? 'nomic-embed-text',
+    },
+    'llamacpp-embed': {
+      endpoint: process.env.LLAMACPP_EMBED_BASE_URL ?? 'http://llamacpp-embed:8081',
+      defaultModel: process.env.LLAMACPP_EMBED_MODEL ?? 'qwen3-embedding-0.6b',
+      defaultDimensions: process.env.LLAMACPP_EMBED_DIMENSIONS
+        ? parseInt(process.env.LLAMACPP_EMBED_DIMENSIONS, 10)
+        : 1024,
     },
     'huggingface-cloud': {
       endpoint: process.env.HF_INFERENCE_ENDPOINT ?? 'https://api-inference.huggingface.co',
@@ -97,6 +105,5 @@ export function loadEmbeddingsConfig(): EmbeddingsConfig {
         : undefined,
     },
     defaultProvider: (process.env.EMBED_DEFAULT_PROVIDER as EmbeddingProvider) ?? 'ollama',
-    fallbackProvider: process.env.EMBED_FALLBACK_PROVIDER as EmbeddingProvider | undefined,
   };
 }

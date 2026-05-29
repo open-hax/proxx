@@ -5,6 +5,8 @@ import react from "@vitejs/plugin-react";
 import { defineConfig } from "vitest/config";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
+const devPort = Number.parseInt(process.env.VITE_DEV_PORT ?? process.env.PROXX_WEB_PORT ?? "5174", 10);
+const proxyBaseUrl = process.env.VITE_PROXY_BASE_URL ?? "http://127.0.0.1:8789";
 const allowedHosts = Array.from(new Set([
   "federation.big.ussy.promethean.rest",
   "brethren.big.ussy.promethean.rest",
@@ -30,17 +32,17 @@ export default defineConfig({
   },
   server: {
     host: "127.0.0.1",
-    port: 5174,
+    port: devPort,
     strictPort: true,
     allowedHosts,
     proxy: {
-      "/api": "http://127.0.0.1:8789",
-      "/v1": "http://127.0.0.1:8789",
+      "/api": proxyBaseUrl,
+      "/v1": proxyBaseUrl,
     },
   },
   preview: {
     host: "127.0.0.1",
-    port: 5174,
+    port: devPort,
     strictPort: true,
     allowedHosts,
   },

@@ -3,6 +3,9 @@ dist/
 logs/
 /data/
 coverage/
+target/
+.shadow-cljs/
+.clj-kondo/.cache/
 .factory/
 
 .env

@@ -1,0 +1,29 @@
+[{:contract/id :tenant/model-allow-list
+  :contract/kind :authorization-clause
+  :authz/domain :model
+  :authz/default :allow
+  :authz/deny-when [:settings.allowed-models-present
+                    :requested-model-not-in-normalized-allow-list]
+  :normalize/model-variants [:identity :strip-ollama-slash-prefix :strip-ollama-colon-prefix]}
+
+ {:contract/id :tenant/provider-allow-list
+  :contract/kind :authorization-clause
+  :authz/domain :provider
+  :authz/default :allow
+  :authz/deny-when [:settings.allowed-provider-ids-present
+                    :provider-not-in-allowed-provider-ids]}
+
+ {:contract/id :tenant/provider-disabled-list
+  :contract/kind :authorization-clause
+  :authz/domain :provider
+  :authz/default :allow
+  :authz/deny-when [:provider-in-disabled-provider-ids]}
+
+ {:contract/id :tenant/provider-share-policy
+  :contract/kind :authorization-clause
+  :authz/domain :federated-provider
+  :authz/default :deny
+  :authz/allow-when [:owner-subject-matches
+                     :provider-kind-matches
+                     :requested-model-in-allowed-models-or-no-model-limit
+                     :share-mode-satisfies-required-access]}]

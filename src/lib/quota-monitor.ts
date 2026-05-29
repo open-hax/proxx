@@ -177,11 +177,10 @@ export class QuotaMonitor {
   } {
     const fiveHourUsedPercent = snapshot.fiveHour?.usedPercent ?? snapshot.weekly?.usedPercent ?? null;
     const weeklyUsedPercent = snapshot.weekly?.usedPercent ?? fiveHourUsedPercent ?? null;
-    const rateLimitReached = snapshot.rateLimit?.limitReached === true || snapshot.rateLimit?.allowed === false;
-
-    const isExhausted = rateLimitReached
-      || (fiveHourUsedPercent !== null && fiveHourUsedPercent >= this.config.quotaCriticalThreshold)
-      || (weeklyUsedPercent !== null && weeklyUsedPercent >= this.config.quotaCriticalThreshold);
+    // Only trust OpenAI's explicit signals for exhaustion. Accounts with low
+    // remaining quota (e.g. 1-2%) are still usable for the current active turn;
+    // OpenAI lets in-flight conversations finish.
+    const isExhausted = snapshot.rateLimit?.limitReached === true || snapshot.rateLimit?.allowed === false;
     const isWarning = !isExhausted && (
       (fiveHourUsedPercent !== null && fiveHourUsedPercent >= this.config.quotaWarningThreshold)
       || (weeklyUsedPercent !== null && weeklyUsedPercent >= this.config.quotaWarningThreshold)

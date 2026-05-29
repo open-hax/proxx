@@ -6,6 +6,7 @@ import {
   streamOllamaNdjsonToChatCompletionSse,
 } from "../../ollama-compat.js";
 import { toErrorMessage } from "../../errors/index.js";
+import { normalizeReasoningRequestWithCljs } from "../../cljs-runtime.js";
 import { BaseProviderStrategy } from "../base.js";
 import {
   buildPayloadResult,
@@ -38,7 +39,14 @@ export class OllamaCloudProviderStrategy extends BaseProviderStrategy {
   }
 
   public buildPayload(context: StrategyRequestContext): BuildPayloadResult {
-    return buildPayloadResult(chatRequestToOllamaRequest(context.requestBody, context.config.ollamaModelPrefixes), context);
+    const requestBody = normalizeReasoningRequestWithCljs({
+      manifestPath: context.config.cljsPolicyManifestPath,
+      requestBody: context.requestBody,
+      modelId: context.routedModel,
+      providerId: "ollama-cloud",
+      strategyMode: this.mode,
+    });
+    return buildPayloadResult(chatRequestToOllamaRequest(requestBody, context.config.ollamaModelPrefixes), context);
   }
 
   public override async handleProviderAttempt(

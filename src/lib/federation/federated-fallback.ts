@@ -11,7 +11,7 @@ import {
   shareModeAllowsWarmImport,
   tenantProviderPolicyAllowsUse,
   type TenantProviderPolicyRecord,
-} from "../tenant-provider-policy.js";
+} from "../db/sql-tenant-provider-policy-store.js";
 import {
   extractPeerCredential,
   fetchFederationJson,
@@ -214,6 +214,7 @@ export async function executeFederatedRequestFallback(
     readonly upstreamPath: string;
     readonly reply: FastifyReply;
     readonly timeoutMs: number;
+    readonly signal?: AbortSignal;
   },
 ): Promise<boolean> {
   const { app, sqlFederationStore, runtimeCredentialStore, sqlTenantProviderPolicyStore } = deps;
@@ -352,6 +353,7 @@ export async function executeFederatedRequestFallback(
           method: "POST",
           headers,
           body: bodyText,
+          signal: input.signal,
         },
         input.timeoutMs,
       );

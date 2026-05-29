@@ -1,19 +1,4 @@
 import { requestWantsReasoningTrace } from "./openai/index.js";
-/**
- * Normalize reasoning effort strings to the OpenAI-compatible set.
- * Providers like ollama-cloud only accept: high, medium, low, max, none.
- * We map non-standard aliases before sending upstream.
- */
-export function normalizeReasoningEffort(raw: string): string {
-  switch (raw.toLowerCase()) {
-    case "minimal": return "low";
-    case "xhigh":   return "max";
-    case "off":     return "none";
-    case "auto":    return "medium";
-    default:         return raw.toLowerCase();
-  }
-}
-
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -289,18 +274,18 @@ export function chatRequestToOllamaRequest(
     payload["tools"] = requestBody["tools"];
   }
 
-  // Pass through reasoning_effort so Ollama-compatible reasoning tiers survive end to end.
+  // Pass through policy-normalized reasoning controls. Reasoning alias decisions
+  // belong to the CLJS policy runtime, not this transport compatibility layer.
   const reasoningEffort = asString(requestBody["reasoning_effort"]) ?? asString(requestBody["reasoningEffort"]);
   if (reasoningEffort) {
-    payload["reasoning_effort"] = normalizeReasoningEffort(reasoningEffort);
+    payload["reasoning_effort"] = reasoningEffort;
   }
 
-  // Handle reasoning.effort object format
   const reasoning = isRecord(requestBody["reasoning"]) ? requestBody["reasoning"] : null;
   if (reasoning) {
     const effort = asString(reasoning["effort"]);
     if (effort) {
-      payload["reasoning"] = { ...reasoning, effort: normalizeReasoningEffort(effort) };
+      payload["reasoning"] = { ...reasoning, effort };
     }
   }
 
@@ -470,14 +455,22 @@ function ollamaStreamDeltaPayload(
   const reasoning = asString(message?.["thinking"]) ?? asString(responseBody["thinking"]) ?? "";
 
   // Some Ollama /api/chat streams emit cumulative message-so-far fields.
-  // Convert to incremental deltas to avoid duplicated prefixes like "TheThe".
+  // Convert to incremental deltas and defensively collapse the occasional
+  // duplicated first-token prefix seen in hosted Gemma thinking streams, e.g.
+  // previous "The" followed by cumulative "TheThe answer".
   const diffAppendedText = (prev: string, next: string): string => {
     const previousText = prev ?? "";
     const currentText = next ?? "";
     if (currentText.length === 0) return "";
     if (previousText.length === 0) return currentText;
     if (currentText === previousText) return "";
-    if (currentText.startsWith(previousText)) return currentText.slice(previousText.length);
+    if (currentText.startsWith(previousText)) {
+      const appended = currentText.slice(previousText.length);
+      const duplicatedFirstToken = /^[^\s]+$/.test(previousText)
+        && appended.startsWith(previousText)
+        && /^[\s\p{P}\p{S}]/u.test(appended.slice(previousText.length));
+      return duplicatedFirstToken ? appended.slice(previousText.length) : appended;
+    }
 
     const maxOverlap = (left: string, right: string): number => {
       for (let n = Math.min(left.length, right.length); n > 0; n -= 1) {

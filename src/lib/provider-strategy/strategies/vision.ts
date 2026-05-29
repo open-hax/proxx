@@ -1,15 +1,15 @@
 import type { AccountHealthStore } from "../../db/account-health-store.js";
 import type { ResolvedModelCatalog } from "../../provider-routing.js";
 import type { RequestLogStore } from "../../request-log-store.js";
-import type { ProviderFallbackExecutionResult } from "../shared.js";
+import type { ProviderRoutingExecutionResult } from "../shared.js";
 
 /**
- * Vision model fallback chain.
+ * Vision model routing chain.
  *
  * Priority order:
  * 1. glm-5v-turbo - z.ai vision flagship via zai
- * 2. Kimi-K2.5 - ollama-cloud fallback
- * 3. gpt-5.4-mini - cloud fallback
+ * 2. Kimi-K2.5 - ollama-cloud route
+ * 3. gpt-5.4-mini - cloud route
  * 4. qwen3.5:4b-q8_0 - local ollama last resort
  */
 const VISION_MODEL_CHAIN: readonly string[] = [
@@ -30,7 +30,7 @@ export function isVisionAutoModel(model: string): boolean {
 
 /**
  * Build candidate model list for auto:vision requests.
- * Returns the configured fallback chain in order, filtered by catalog availability when possible.
+ * Returns the configured routing chain in order, filtered by catalog availability when possible.
  */
 export function buildVisionModelCandidates(input: {
   readonly routingModelInput: string;
@@ -72,7 +72,7 @@ export function buildVisionModelCandidates(input: {
 export function shouldAdvanceVisionModelCandidate(input: {
   readonly routingModelInput: string;
   readonly hasMoreModelCandidates: boolean;
-  readonly execution: ProviderFallbackExecutionResult;
+  readonly execution: ProviderRoutingExecutionResult;
 }): boolean {
   if (!input.hasMoreModelCandidates || !isVisionAutoModel(input.routingModelInput)) {
     return false;

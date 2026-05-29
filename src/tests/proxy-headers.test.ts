@@ -6,10 +6,12 @@ import { buildForwardHeaders, buildUpstreamHeadersForCredential } from "../lib/p
 test("forward headers never pass browser cookies upstream", () => {
   const headers = buildForwardHeaders({
     cookie: "session=abc",
+    expect: "100-continue",
     "x-custom-trace": "trace-1",
   });
 
   assert.equal(headers.get("cookie"), null);
+  assert.equal(headers.get("expect"), null);
   assert.equal(headers.get("x-custom-trace"), "trace-1");
 });
 

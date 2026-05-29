@@ -1,0 +1,4 @@
+{:lint-as {proxx.macros/defn-async clojure.core/defn
+           proxx.macros/p-let     clojure.core/let
+           proxx.macros/p->       clojure.core/->}
+ :linters {:unresolved-symbol {:exclude [await]}}}

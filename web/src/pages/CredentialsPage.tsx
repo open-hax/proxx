@@ -208,8 +208,12 @@ function quotaToneClass(remainingPercent: number | null): string {
     return "credentials-quota-fill-neutral";
   }
 
-  if (remainingPercent <= 15) {
+  if (remainingPercent <= 5) {
     return "credentials-quota-fill-danger";
+  }
+
+  if (remainingPercent <= 15) {
+    return "credentials-quota-fill-warn";
   }
 
   if (remainingPercent <= 40) {
@@ -217,6 +221,20 @@ function quotaToneClass(remainingPercent: number | null): string {
   }
 
   return "credentials-quota-fill-good";
+}
+
+/**
+ * Returns true only when OpenAI explicitly signals the account is blocked.
+ * Accounts with very low remaining quota (e.g. 1-2%) are still usable for the
+ * current active turn; OpenAI lets in-flight conversations finish.
+ */
+function isExplicitlyBlocked(account: CredentialQuotaAccountSummary): boolean {
+  return account.rateLimit?.allowed === false || account.rateLimit?.limitReached === true;
+}
+
+function isCriticallyLow(account: CredentialQuotaAccountSummary): boolean {
+  const primaryRemaining = account.rateLimit?.primaryWindow?.remainingPercent ?? account.fiveHour?.remainingPercent ?? null;
+  return typeof primaryRemaining === "number" && primaryRemaining > 0 && primaryRemaining <= 5 && !isExplicitlyBlocked(account);
 }
 
 function formatServiceTier(entry: RequestLogEntry): string {
@@ -339,6 +357,15 @@ function humanIdentityLabel(entry: AccountEntry): string | null {
   return null;
 }
 
+/**
+ * Renders the Credentials Manager UI used to view, add, probe, group, and manage provider credentials and request logs.
+ *
+ * The component includes credential listing and grouping, quota and prompt-cache audit views, OpenAI/Factory OAuth flows
+ * (browser and device), API key creation shortcuts (including Xiaomi MiMo), account probe/disable/enable/remove actions,
+ * and a request logs panel with filtering. State is persisted for selected filters and reveal-secrets preference.
+ *
+ * @returns The rendered credentials management page as a JSX.Element
+ */
 export function CredentialsPage(): JSX.Element {
   // NOTE: Persisting revealSecrets can be risky on shared machines; you asked
   // for persistence so we do it, but it will auto-load on refresh.
@@ -520,9 +547,11 @@ export function CredentialsPage(): JSX.Element {
     const codeReviewRemainingValues = codeReviewWindows
       .map((window) => window.remainingPercent)
       .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
-    const generalAvailableCount = okAccounts.filter((account) => account.rateLimit?.allowed === true).length;
-    const generalBlockedAccounts = okAccounts.filter((account) => account.rateLimit?.allowed === false || account.rateLimit?.limitReached === true);
-    const codeReviewAvailableCount = okAccounts.filter((account) => account.codeReviewRateLimit?.allowed === true).length;
+    const generalBlockedAccounts = okAccounts.filter((account) => isExplicitlyBlocked(account));
+    const generalAvailableCount = okAccounts.filter((account) => !isExplicitlyBlocked(account)).length;
+    const generalCriticalCount = okAccounts.filter((account) => isCriticallyLow(account)).length;
+    const codeReviewBlockedAccounts = okAccounts.filter((account) => account.codeReviewRateLimit?.allowed === false || account.codeReviewRateLimit?.limitReached === true);
+    const codeReviewAvailableCount = okAccounts.filter((account) => !(account.codeReviewRateLimit?.allowed === false || account.codeReviewRateLimit?.limitReached === true)).length;
     const sortWindowByReset = (left: CredentialQuotaWindow, right: CredentialQuotaWindow): number => {
       const leftReset = left.resetAfterSeconds ?? (left.resetsAt ? Math.max(0, Math.round((new Date(left.resetsAt).getTime() - Date.now()) / 1000)) : Number.POSITIVE_INFINITY);
       const rightReset = right.resetAfterSeconds ?? (right.resetsAt ? Math.max(0, Math.round((new Date(right.resetsAt).getTime() - Date.now()) / 1000)) : Number.POSITIVE_INFINITY);
@@ -554,7 +583,9 @@ export function CredentialsPage(): JSX.Element {
       codeReviewCombinedRemainingPercent: average(codeReviewRemainingValues),
       generalAvailableCount,
       generalBlockedCount: generalBlockedAccounts.length,
+      generalCriticalCount,
       codeReviewAvailableCount,
+      codeReviewBlockedCount: codeReviewBlockedAccounts.length,
       nextResetWindow,
       windowLabel: formatQuotaWindowLabel(generalWindows[0] ?? null, "Primary window"),
       codeReviewWindowLabel: formatQuotaWindowLabel(codeReviewWindows[0] ?? null, "Primary window"),
@@ -989,6 +1020,12 @@ export function CredentialsPage(): JSX.Element {
     setApiKeyValue("");
   };
 
+  const handleAddXiaomiMimoKey = () => {
+    setApiKeyProvider("xiaomi");
+    setApiKeyAccount("");
+    setApiKeyValue("");
+  };
+
   const handleCopyField = useCallback(async (value: string, fieldKey: string) => {
     try {
       await navigator.clipboard.writeText(value);
@@ -1125,12 +1162,18 @@ export function CredentialsPage(): JSX.Element {
       return null;
     }
 
+    const isCritical = !rateLimit?.allowed === false
+      && !rateLimit?.limitReached
+      && typeof primaryWindow?.remainingPercent === "number"
+      && primaryWindow.remainingPercent > 0
+      && primaryWindow.remainingPercent <= 5;
+
     return (
       <section key={title} className="credentials-quota-group">
         <div className="credentials-quota-group-header">
           <strong>{title}</strong>
-          <Badge variant={rateLimit?.allowed === true ? "success" : rateLimit?.allowed === false || rateLimit?.limitReached === true ? "error" : "default"}>
-            {formatQuotaRateLimitStatus(rateLimit)}
+          <Badge variant={rateLimit?.allowed === true ? (isCritical ? "warning" : "success") : rateLimit?.allowed === false || rateLimit?.limitReached === true ? "error" : "default"}>
+            {isCritical ? "Critical" : formatQuotaRateLimitStatus(rateLimit)}
           </Badge>
         </div>
         <div className="credentials-quota-list">
@@ -1411,8 +1454,8 @@ export function CredentialsPage(): JSX.Element {
         {quotaError && <p className="error-text">{quotaError}</p>}
 
         {openAiQuotaPool && (
-          <article className="credentials-card credentials-pool-card">
-            <header className="credentials-provider-header">
+          <details className="credentials-section-details">
+            <summary>
               <div>
                 <h3>OpenAI OAuth quota pool</h3>
                 <p>
@@ -1428,7 +1471,7 @@ export function CredentialsPage(): JSX.Element {
                   {formatAggregatePercent(openAiQuotaPool.generalCombinedRemainingPercent ?? 0)} combined left
                 </Badge>
               </div>
-            </header>
+            </summary>
 
             <div className="credentials-quota-bar credentials-pool-bar">
               <span
@@ -1437,21 +1480,21 @@ export function CredentialsPage(): JSX.Element {
               />
             </div>
 
-            <div className="credentials-pool-grid">
+              <div className="credentials-pool-grid">
               <dl className="credentials-pool-metric">
                 <dt>Combined general quota left</dt>
                 <dd>{formatAggregatePercent(openAiQuotaPool.generalCombinedRemainingPercent)}</dd>
-                <small>{openAiQuotaPool.windowLabel}</small>
+                <small>{openAiQuotaPool.windowLabel} (all accounts)</small>
               </dl>
               <dl className="credentials-pool-metric">
                 <dt>Combined code review left</dt>
                 <dd>{formatAggregatePercent(openAiQuotaPool.codeReviewCombinedRemainingPercent)}</dd>
-                <small>{openAiQuotaPool.codeReviewWindowLabel}</small>
+                <small>{openAiQuotaPool.codeReviewWindowLabel} (all accounts)</small>
               </dl>
               <dl className="credentials-pool-metric">
-                <dt>Available now</dt>
-                <dd>{openAiQuotaPool.generalAvailableCount}/{openAiQuotaPool.okAccounts}</dd>
-                <small>{openAiQuotaPool.generalBlockedCount} blocked · {openAiQuotaPool.codeReviewAvailableCount} code review-ready</small>
+                <dt>Status</dt>
+                <dd>{openAiQuotaPool.generalAvailableCount} ok</dd>
+                <small>{openAiQuotaPool.generalBlockedCount} blocked · {openAiQuotaPool.generalCriticalCount} critical</small>
               </dl>
               <dl className="credentials-pool-metric">
                 <dt>Next general reset</dt>
@@ -1461,14 +1504,14 @@ export function CredentialsPage(): JSX.Element {
             </div>
 
             <p className="credentials-pool-meta">
-              Combined pool is computed from live remaining percentages across OpenAI OAuth accounts with quota data.
+              Combined pool averages all accounts. Critical accounts have ≤ 5% remaining but are still usable for the current turn.
             </p>
-          </article>
+          </details>
         )}
 
         {promptCacheAudit && (
-          <article className="credentials-card credentials-pool-card">
-            <header className="credentials-provider-header">
+          <details className="credentials-section-details">
+            <summary>
               <div>
                 <h3>Prompt cache affinity audit</h3>
                 <p>
@@ -1481,70 +1524,93 @@ export function CredentialsPage(): JSX.Element {
                   scanned {promptCacheAudit.scannedEntryCount} recent OpenAI OAuth request(s)
                 </p>
               </div>
-            </header>
+            </summary>
 
             {promptCacheAudit.rows.length > 0 ? (
-              <div className="credentials-audit-table">
-                <div className="credentials-audit-header">
-                  <span>Hash</span>
-                  <span>Successful accounts</span>
-                  <span>Failed retries</span>
-                  <span>Requests</span>
-                  <span>Cache</span>
-                  <span>Last seen</span>
+              <div className="credentials-audit-table-wrap">
+                <div className="credentials-audit-table">
+                  {promptCacheAudit.rows.map((row) => {
+                    const cacheRate = row.promptTokens > 0 ? (row.cachedPromptTokens / row.promptTokens) * 100 : null;
+                    return (
+                      <details key={row.promptCacheKeyHash} className="credentials-audit-details">
+                        <summary>
+                          <span>
+                            <strong>{compactMiddle(row.promptCacheKeyHash, 10, 8)}</strong>
+                            {row.latestModel && <small>{row.providerId} · {row.latestModel}</small>}
+                          </span>
+                          <span>
+                            <Badge variant={row.successfulAccountCount > 1 ? "warning" : "success"}>
+                              {row.successfulAccountCount} ok
+                            </Badge>
+                          </span>
+                          <span>
+                            <Badge variant={row.failedAccountCount > 0 ? "error" : "default"}>
+                              {row.failedAccountCount} fail
+                            </Badge>
+                          </span>
+                          <span>
+                            <strong>{row.requestCount}</strong>
+                            <small>req</small>
+                          </span>
+                          <span>
+                            <strong>{formatAggregatePercent(cacheRate)}</strong>
+                            <small>cache</small>
+                          </span>
+                          <span>
+                            <strong>{row.lastSeenAt ? formatQuotaTimestamp(row.lastSeenAt) : "Never"}</strong>
+                          </span>
+                        </summary>
+                        <div className="credentials-audit-row">
+                          <div>
+                            <strong>{row.promptCacheKeyHash}</strong>
+                            {row.latestModel && <small>{row.providerId} · {row.latestModel}</small>}
+                          </div>
+                          <div>
+                            <Badge variant={row.successfulAccountCount > 1 ? "warning" : "success"}>
+                              {row.successfulAccountCount} successful account{row.successfulAccountCount === 1 ? "" : "s"}
+                            </Badge>
+                            <small>{row.successfulAccountIds.join(", ") || "None"}</small>
+                          </div>
+                          <div>
+                            <Badge variant={row.failedAccountCount > 0 ? "error" : "default"}>
+                              {row.failedAccountCount} failed account{row.failedAccountCount === 1 ? "" : "s"}
+                            </Badge>
+                            <small>{row.failedAccountIds.join(", ") || "None"}</small>
+                          </div>
+                          <div>
+                            <strong>{row.requestCount}</strong>
+                            <small>{row.successfulRequestCount} success · {row.failedRequestCount} failed · {row.cacheHitCount} hit{row.cacheHitCount === 1 ? "" : "s"} · {row.shapeFingerprintCount} shape{row.shapeFingerprintCount === 1 ? "" : "s"}</small>
+                          </div>
+                          <div>
+                            <strong>{formatAggregatePercent(cacheRate)}</strong>
+                            <small>{row.cachedPromptTokens.toLocaleString()} / {row.promptTokens.toLocaleString()} prompt tokens</small>
+                          </div>
+                          <div>
+                            <strong>{row.lastSeenAt ? formatQuotaTimestamp(row.lastSeenAt) : "Never"}</strong>
+                            <small>{row.firstSeenAt ? `first ${formatQuotaTimestamp(row.firstSeenAt)}` : ""}</small>
+                          </div>
+                        </div>
+                      </details>
+                    );
+                  })}
                 </div>
-                {promptCacheAudit.rows.map((row) => {
-                  const cacheRate = row.promptTokens > 0 ? (row.cachedPromptTokens / row.promptTokens) * 100 : null;
-                  return (
-                    <div key={row.promptCacheKeyHash} className="credentials-audit-row">
-                      <div>
-                        <strong>{row.promptCacheKeyHash}</strong>
-                        {row.latestModel && <small>{row.providerId} · {row.latestModel}</small>}
-                      </div>
-                      <div>
-                        <Badge variant={row.successfulAccountCount > 1 ? "warning" : "success"}>
-                          {row.successfulAccountCount} successful account{row.successfulAccountCount === 1 ? "" : "s"}
-                        </Badge>
-                        <small>{row.successfulAccountIds.join(", ") || "None"}</small>
-                      </div>
-                      <div>
-                        <Badge variant={row.failedAccountCount > 0 ? "error" : "default"}>
-                          {row.failedAccountCount} failed account{row.failedAccountCount === 1 ? "" : "s"}
-                        </Badge>
-                        <small>{row.failedAccountIds.join(", ") || "None"}</small>
-                      </div>
-                      <div>
-                        <strong>{row.requestCount}</strong>
-                        <small>{row.successfulRequestCount} success · {row.failedRequestCount} failed · {row.cacheHitCount} hit{row.cacheHitCount === 1 ? "" : "s"} · {row.shapeFingerprintCount} shape{row.shapeFingerprintCount === 1 ? "" : "s"}</small>
-                      </div>
-                      <div>
-                        <strong>{formatAggregatePercent(cacheRate)}</strong>
-                        <small>{row.cachedPromptTokens.toLocaleString()} / {row.promptTokens.toLocaleString()} prompt tokens</small>
-                      </div>
-                      <div>
-                        <strong>{row.lastSeenAt ? formatQuotaTimestamp(row.lastSeenAt) : "Never"}</strong>
-                        <small>{row.firstSeenAt ? `first ${formatQuotaTimestamp(row.firstSeenAt)}` : ""}</small>
-                      </div>
-                    </div>
-                  );
-                })}
               </div>
             ) : (
               <p className="credentials-pool-meta">No prompt-cache hashes have been recorded in recent OpenAI OAuth request logs yet.</p>
             )}
-          </article>
+          </details>
         )}
 
         {promptCacheAudit && (
-          <article className="credentials-card credentials-pool-card">
-            <header className="credentials-provider-header">
+          <details className="credentials-section-details">
+            <summary>
               <div>
                 <h3>Cache stability watchlist</h3>
                 <p>
                   Single-success-account hashes with one stable request shape and enough traffic to judge cache reliability.
                 </p>
               </div>
-            </header>
+            </summary>
 
             {cacheStabilityWatchRows.length > 0 ? (
               <div className="credentials-watch-grid">
@@ -1586,14 +1652,14 @@ export function CredentialsPage(): JSX.Element {
             ) : (
               <p className="credentials-pool-meta">No stable same-account hashes currently look anomalous enough to flag.</p>
             )}
-          </article>
+          </details>
         )}
 
         {groupedAccountSections.length > 0 ? (
           <div className="credentials-provider-stack">
             {groupedAccountSections.map((section) => (
-              <article key={section.key} className="credentials-card credentials-provider-card">
-                <header className="credentials-provider-header">
+              <details key={section.key} className="credentials-section-details">
+                <summary>
                   <div>
                     <h3>{section.title}</h3>
                     <p>{section.description}</p>
@@ -1602,12 +1668,12 @@ export function CredentialsPage(): JSX.Element {
                     <Badge variant="default">{section.badge}</Badge>
                     <Badge variant="default">{section.badgeMuted}</Badge>
                   </div>
-                </header>
+                </summary>
 
                 <div className="credentials-account-grid">
                   {section.accounts.map((entry) => renderAccountTile(entry, accountGrouping !== "provider"))}
                 </div>
-              </article>
+              </details>
             ))}
           </div>
         ) : (
@@ -1640,6 +1706,9 @@ export function CredentialsPage(): JSX.Element {
             <button type="button" onClick={handleAddFactoryKey} className="credentials-shortcut-button">
               Add Factory Key
             </button>
+            <button type="button" onClick={handleAddXiaomiMimoKey} className="credentials-shortcut-button">
+              Add Xiaomi MiMo Key
+            </button>
           </div>
           <select
             value={apiKeyProvider}
@@ -1656,6 +1725,7 @@ export function CredentialsPage(): JSX.Element {
             <option value="openrouter">OpenRouter</option>
             <option value="gemini">Gemini</option>
             <option value="zai">Z.ai (GLM)</option>
+            <option value="xiaomi">Xiaomi MiMo</option>
             <option value="mistral">Mistral</option>
             <option value="factory">Factory</option>
             <option value="ob1">OB1</option>

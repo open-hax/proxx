@@ -64,5 +64,4 @@ High — user explicitly wants z.ai support and wants the newly added API keys v
   - A temporary local proxy instance launched from the same runtime env on `http://127.0.0.1:8795` with `UPSTREAM_PROVIDER_ID=zai` returned `200` and `x-open-hax-upstream-provider: zai` for a live `glm-5` request.
 
 ## Notes
-- The default local compose stack still prefers its configured upstream ordering. To make general local traffic prefer z.ai for normal requests, set `UPSTREAM_PROVIDER_ID=zai` or include `zai` in `UPSTREAM_FALLBACK_PROVIDER_IDS` for that runtime.
 - The minimal live `glm-5` probe returned a successful `200` with an empty assistant `content` string; direct upstream and proxied behavior matched, so the routing/credential validation is still considered successful.

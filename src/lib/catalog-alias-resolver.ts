@@ -39,8 +39,10 @@ export async function resolveCatalogAndAlias(
       if (options?.preserveExplicitOllama) {
         const requestedLower = requestedModelInput.trim().toLowerCase();
         const aliasLower = aliasTarget.trim().toLowerCase();
-        const requestedWasExplicitOllama = requestedLower.startsWith("ollama/") || requestedLower.startsWith("ollama:");
-        const aliasIsExplicitOllama = aliasLower.startsWith("ollama/") || aliasLower.startsWith("ollama:");
+        const requestedWasExplicitOllama = requestedLower.startsWith("ollama/") || requestedLower.startsWith("ollama:")
+          || requestedLower.startsWith("ollama-lan/") || requestedLower.startsWith("ollama-lan:");
+        const aliasIsExplicitOllama = aliasLower.startsWith("ollama/") || aliasLower.startsWith("ollama:")
+          || aliasLower.startsWith("ollama-lan/") || aliasLower.startsWith("ollama-lan:");
         routingModelInput = requestedWasExplicitOllama && !aliasIsExplicitOllama
           ? requestedModelInput
           : aliasTarget;

@@ -16,7 +16,6 @@ function buildMinimalConfig(overrides: Partial<ProxyConfig> = {}): ProxyConfig {
     host: "127.0.0.1",
     port: 0,
     upstreamProviderId: "vivgrid",
-    upstreamFallbackProviderIds: [],
     disabledProviderIds: [],
     upstreamProviderBaseUrls: {},
     upstreamBaseUrl: "http://127.0.0.1:1",

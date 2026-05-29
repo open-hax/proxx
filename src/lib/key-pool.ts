@@ -326,7 +326,7 @@ function readProvidersFromJsonValue(raw: unknown, defaultProviderId: string): Ma
 }
 
 function readProvidersFromJsonEnv(defaultProviderId: string): Map<string, ProviderState> {
-  const raw = process.env.PROXY_KEYS_JSON ?? process.env.UPSTREAM_KEYS_JSON ?? process.env.VIVGRID_KEYS_JSON;
+  const raw = process.env.PROXY_KEYS_JSON ?? process.env.VIVGRID_KEYS_JSON;
   const normalized = raw?.trim();
   if (!normalized) {
     return new Map<string, ProviderState>();

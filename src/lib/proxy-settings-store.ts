@@ -1,6 +1,7 @@
 import { dirname } from "node:path";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 
+import { normalizeObjectKeysWithCljs } from "./cljs-runtime.js";
 import type { Sql } from "./db/index.js";
 import { DEFAULT_TENANT_ID, normalizeTenantId } from "./tenant-api-key.js";
 
@@ -37,6 +38,12 @@ function normalizeProviderIdList(value: unknown): readonly string[] | null {
   return normalized.length > 0 ? normalized : null;
 }
 
+/**
+ * Normalize an input into a deduplicated, trimmed, lowercase list of model identifiers or `null` when no valid entries exist.
+ *
+ * @param value - The value to normalize; may be `null`, any type, or an array containing mixed entries. Only string entries are considered.
+ * @returns A readonly array of normalized model IDs (trimmed, lowercased, deduplicated) if one or more valid strings are present, otherwise `null`.
+ */
 function normalizeModelIdList(value: unknown): readonly string[] | null {
   if (value === null) {
     return null;
@@ -56,6 +63,29 @@ function normalizeModelIdList(value: unknown): readonly string[] | null {
   return normalized.length > 0 ? normalized : null;
 }
 
+/**
+ * Retrieves a property's value from an object using a camelCase key or its kebab-case alternative, preferring the camelCase entry.
+ *
+ * @param record - The object to read properties from.
+ * @param camelKey - The camelCase property name to prefer (e.g., `requestsPerMinute`).
+ * @param kebabKey - The kebab-case alternative property name to use if the camelCase value is `null` or `undefined` (e.g., `requests-per-minute`).
+ * @returns The value found for `camelKey` if not `null` or `undefined`; otherwise the value for `kebabKey`, which may be `undefined`.
+ */
+function settingValue(record: Record<string, unknown>, camelKey: string, kebabKey: string): unknown {
+  return record[camelKey] ?? record[kebabKey];
+}
+
+/**
+ * Produce a validated ProxySettings object from arbitrary input.
+ *
+ * Parses a string input as JSON when provided; otherwise accepts objects and returns a normalized settings object.
+ *
+ * - `fastMode` is returned as `true` or `false` (defaults to `false`).
+ * - `requestsPerMinute` is an integer >= 1 when a finite number is provided, or `null` when absent or explicitly null.
+ * - `allowedModels`, `allowedProviderIds`, and `disabledProviderIds` are arrays of cleaned, deduplicated, lowercased strings or `null`.
+ *
+ * @returns A fully-populated `ProxySettings` object with normalized fields suitable for storage or use.
+ */
 function normalizeSettings(value: unknown): ProxySettings {
   if (typeof value === "string") {
     try {
@@ -69,18 +99,23 @@ function normalizeSettings(value: unknown): ProxySettings {
     return { fastMode: false, requestsPerMinute: null, allowedModels: null, allowedProviderIds: null, disabledProviderIds: null };
   }
 
-  const rawRequestsPerMinute = typeof value.requestsPerMinute === "number" && Number.isFinite(value.requestsPerMinute)
-    ? Math.max(1, Math.floor(value.requestsPerMinute))
-    : value.requestsPerMinute === null
+  const normalizedByCljs = normalizeObjectKeysWithCljs(value);
+  const settings = isRecord(normalizedByCljs) ? normalizedByCljs : value;
+  const fastMode = settingValue(settings, "fastMode", "fast-mode");
+  const requestsPerMinute = settingValue(settings, "requestsPerMinute", "requests-per-minute");
+
+  const rawRequestsPerMinute = typeof requestsPerMinute === "number" && Number.isFinite(requestsPerMinute)
+    ? Math.max(1, Math.floor(requestsPerMinute))
+    : requestsPerMinute === null
       ? null
       : undefined;
 
   return {
-    fastMode: typeof value.fastMode === "boolean" ? value.fastMode : false,
+    fastMode: typeof fastMode === "boolean" ? fastMode : false,
     requestsPerMinute: rawRequestsPerMinute ?? null,
-    allowedModels: normalizeModelIdList(value.allowedModels),
-    allowedProviderIds: normalizeProviderIdList(value.allowedProviderIds),
-    disabledProviderIds: normalizeProviderIdList(value.disabledProviderIds),
+    allowedModels: normalizeModelIdList(settingValue(settings, "allowedModels", "allowed-models")),
+    allowedProviderIds: normalizeProviderIdList(settingValue(settings, "allowedProviderIds", "allowed-provider-ids")),
+    disabledProviderIds: normalizeProviderIdList(settingValue(settings, "disabledProviderIds", "disabled-provider-ids")),
   };
 }
 

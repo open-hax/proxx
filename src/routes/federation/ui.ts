@@ -11,7 +11,7 @@ import {
   normalizeTenantProviderKind,
   normalizeTenantProviderShareMode,
   normalizeTenantProviderTrustTier,
-} from "../../lib/tenant-provider-policy.js";
+} from "../../lib/db/sql-tenant-provider-policy-store.js";
 import {
   buildFederationAccountKnowledge,
   type FederationCredentialExport,

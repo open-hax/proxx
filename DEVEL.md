@@ -94,7 +94,6 @@ Notes:
 - `PROXY_HOST` (default: `127.0.0.1`)
 - `PROXY_PORT` (default: `8789`; falls back to `PORT` for Render-style runtimes)
 - `UPSTREAM_PROVIDER_ID` (default: `vivgrid`; provider id to target for routing; if you still use seed files, it also names the legacy default file provider)
-- `UPSTREAM_FALLBACK_PROVIDER_IDS` (default: auto `ollama-cloud` when primary is `vivgrid`, or `vivgrid` when primary is `ollama-cloud`; comma-separated)
 - `UPSTREAM_BASE_URL` (optional override; when unset or blank, the proxy derives it from `UPSTREAM_PROVIDER_ID` / `UPSTREAM_PROVIDER_BASE_URLS`)
 - `UPSTREAM_PROVIDER_BASE_URLS` (optional mapping: `provider=url,provider=url`; defaults include `vivgrid=https://api.vivgrid.com`, `ollama-cloud=https://ollama.com`, `ob1=https://dashboard.openblocklabs.com/api`, `openrouter=https://openrouter.ai/api/v1`, and `requesty=https://router.requesty.ai/v1`)
 - `OPENAI_PROVIDER_ID` (default: `openai`; provider id for OpenAI-routed accounts)
@@ -110,7 +109,7 @@ Notes:
 - `UPSTREAM_RESPONSES_MODEL_PREFIXES` (default: `gpt-`; comma-separated prefixes)
 - `OPENAI_MODEL_PREFIXES` (default: `openai/,openai:`; comma-separated prefixes)
 - `OLLAMA_CHAT_PATH` (default: `/api/chat`)
-- `OLLAMA_MODEL_PREFIXES` (default: `ollama/,ollama:`; comma-separated prefixes)
+- `OLLAMA_MODEL_PREFIXES` (default: `ollama/,ollama:,ollama-lan/,ollama-lan:`; comma-separated prefixes)
 - `PROXY_KEYS_FILE` (optional seed file path; DB-backed runtimes do not need it)
 - `PROXY_MODELS_FILE` (default: `./models.json`, fallback: `VIVGRID_MODELS_FILE`)
 - `PROXY_REQUEST_LOGS_FILE` (default: `./data/request-logs.jsonl`)
@@ -435,5 +434,17 @@ curl -s -H "Authorization: Bearer ${PROD_PROXX_AUTH_TOKEN}" \
 curl -s -H "Authorization: Bearer ${PROD_PROXX_AUTH_TOKEN}" \
   -H "Content-Type: application/json" \
   -d '{"model":"ollama-cloud/gemma4:31b","messages":[{"role":"user","content":"Say hello in one sentence."}],"max_tokens":100,"stream":false}' \
+  "http://localhost:8789/v1/chat/completions" 2>&1
+```
+
+
+## LAN ollama from local Proxx
+
+
+```bash
+
+curl -s -H "Authorization: Bearer ${PROXX_API_KEY}" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"ollama-lan/gemma4:e4b","messages":[{"role":"user","content":"Say hello in one sentence."}],"max_tokens":100,"stream":false}' \
   "http://localhost:8789/v1/chat/completions" 2>&1
 ```
