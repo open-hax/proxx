@@ -97,6 +97,66 @@ test("CLJS runtime routes bare qwen3 embeddings through the declarative embeddin
   assert.equal(decision.strategy?.mode, "embeddings");
 });
 
+test("CLJS runtime constrains embeddings to requested provider facts before tenant enforcement", async (t) => {
+  const loaded = await loadCljsRuntime({ required: false });
+  if (!loaded.loaded) {
+    t.skip(`CLJS runtime artifact not built: ${loaded.reason}`);
+    return;
+  }
+  await assertCljsRuntimeReady(loaded.runtime);
+
+  const baseInput = {
+    modelId: "qwen3-embedding:0.6b",
+    requestKind: "embeddings",
+    providerIds: ["llamacpp-embed", "ollama", "ollama-lan"],
+    requestedProviderIds: ["ollama"],
+    strategiesByProvider: {
+      "llamacpp-embed": [{ mode: "embeddings", priority: 0 }],
+      ollama: [{ mode: "embeddings", priority: 1 }],
+      "ollama-lan": [{ mode: "embeddings", priority: 1 }],
+    },
+  };
+
+  const allowedResult = loaded.runtime.previewPolicyDecision("resources/policies/runtime/00-manifest.edn", {
+    ...baseInput,
+    tenantSettings: {},
+  });
+  const disabledResult = loaded.runtime.previewPolicyDecision("resources/policies/runtime/00-manifest.edn", {
+    ...baseInput,
+    tenantSettings: { disabledProviderIds: ["ollama"] },
+  });
+
+  assert.equal(allowedResult.status, "ok");
+  const allowedDecision = allowedResult.decision as {
+    readonly status?: string;
+    readonly providers?: readonly string[];
+    readonly "provider-id"?: string;
+    readonly "provider-routes"?: readonly {
+      readonly "provider-id"?: string;
+      readonly "base-url"?: string;
+      readonly "auth-required?"?: boolean;
+    }[];
+  };
+  assert.equal(allowedDecision.status, "ok");
+  assert.deepEqual(allowedDecision.providers, ["ollama"]);
+  assert.equal(allowedDecision["provider-id"], "ollama");
+  assert.deepEqual(allowedDecision["provider-routes"]?.map((route) => route["provider-id"]), ["ollama"]);
+  const [allowedRoute] = allowedDecision["provider-routes"] ?? [];
+  assert.equal(allowedRoute?.["provider-id"], "ollama");
+  assert.equal(allowedRoute?.["base-url"], "http://ollama:11434");
+  assert.equal(allowedRoute?.["auth-required?"], false);
+
+  assert.equal(disabledResult.status, "ok");
+  const disabledDecision = disabledResult.decision as {
+    readonly status?: string;
+    readonly reason?: string;
+    readonly providers?: readonly string[];
+  };
+  assert.equal(disabledDecision.status, "exhausted");
+  assert.equal(disabledDecision.reason, "no-provider-candidates");
+  assert.deepEqual(disabledDecision.providers, []);
+});
+
 test("CLJS runtime keeps gpt and mimo routes pinned to their canonical providers", async (t) => {
   const loaded = await loadCljsRuntime({ required: false });
   if (!loaded.loaded) {

@@ -1,25 +1,28 @@
-# Π Fork Tax Snapshot — proxx
+# Π Last Snapshot — Proxx requested-provider policy facts
 
-- Timestamp: 20260518T061200Z
-- Branch: chore/consolidate-examples
-- Base: c9c2800d3df4
-- Scope: CI workflow Java setup for shadow-cljs + eslint CJS ignore fix.
+- Timestamp: 2026-05-29T22:07:06Z
+- Branch: `pi/proxx-policy-requested-provider-facts-20260529T215446Z`
+- Base: `origin/chores/policy-driven-embeddings`
+- Intent: keep embedding provider selection declarative by passing request facts into the CLJS policy interpreter.
 
-## Included work
+## Changed
 
-- Added `actions/setup-java@v4` (temurin, Java 21) to all workflows running `pnpm build`/`pnpm test`
-- Added `actions/cache@v4` for `.shadow-cljs` and `~/.m2/repository` alongside Java setup
-- Workflows fixed: `main-pr-gate.yml`, `staging-pr.yml`, `deploy-testing.yml`, `deploy-staging.yml`, `deploy-production.yml`
-- Fixed eslint `ignores` pattern: `"*.cjs"` → `"**/*.cjs"` so CJS files in subdirectories are ignored
+- CLJS policy interpreter now filters by declarative request-surface defaults and requested provider facts before tenant provider enforcement.
+- `/v1/embeddings` now supplies explicit `ollama` / `llamacpp-embed` provider facts from model prefixes.
+- Native Ollama `/api/embed` and `/api/embeddings` bridge requests enter `/v1/embeddings` scoped as Ollama requests.
+- Added CLJS and Node preview tests for requested-provider facts.
+- Requested-provider route tests assert selected provider identity without depending on optional provider-route path metadata.
+
+## Boundary
+
+- Did not edit `services/proxx/policies/**`.
+- Did not edit `orgs/open-hax/proxx/resources/policies/**` EDN.
+- The two policy trees remain distinct; this PR changes interpreter/request-fact behavior.
 
 ## Verification
 
-- `pnpm build` passed (tsc + shadow-cljs).
-- `npx tsx --test src/tests/schema-migration.test.ts` passed (5/5).
-- `actionlint` passed on all modified workflow files.
-- `pnpm run typecheck` passed.
-
-## Residual dirt
-
-- `.clj-kondo/imports/` and `.lsp/` are tooling artifacts left uncommitted.
-- `.#route-filtering.ts` emacs lock file left untracked.
+- `pnpm test:cljs` passed: 113 tests, 302 assertions; 8 pre-existing infer warnings.
+- `pnpm test` passed: 641 tests, 639 pass, 2 skipped, 0 fail.
+- `pnpm test:coverage` passed: 641 tests, 639 pass, 2 skipped, 0 fail; all files lines 81.77%, branches 72.94%, funcs 78.45%.
+- Touched TS eslint `--quiet` passed.
+- `git diff --check` passed.
