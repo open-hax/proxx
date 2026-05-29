@@ -359,7 +359,7 @@ async function forwardMinimaxMusicRequest(
       const rawAudio = dataField.audio as string;
       const looksHex = /^[0-9a-fA-F]+$/.test(rawAudio) && rawAudio.length % 2 === 0;
       const audioBytes = Buffer.from(rawAudio, looksHex ? "hex" : "base64");
-      const fileName = `${entryId.replace(/[:\/]/g, "-")}.mp3`;
+      const fileName = `${entryId.replace(/[:/]/g, "-")}.mp3`;
       const filePath = `/app/data/blaze_generated/${fileName}`;
       try {
         await mkdir("/app/data/blaze_generated", { recursive: true });
@@ -515,7 +515,7 @@ async function forwardMusicgenRequest(
     if (isRecord(dataField) && typeof dataField.audio === "string") {
       const rawAudio = dataField.audio as string;
       const audioBytes = Buffer.from(rawAudio, "base64");
-      const fileName = `${entryId.replace(/[:\/]/g, "-")}.wav`;
+      const fileName = `${entryId.replace(/[:/]/g, "-")}.wav`;
       const filePath = `/app/data/blaze_generated/${fileName}`;
       try {
         await mkdir("/app/data/blaze_generated", { recursive: true });
@@ -706,7 +706,7 @@ async function forwardBlazeMediaRequest(deps: AppDeps, route: BlazeMediaRoute, r
           // Heuristic: if it's all hex chars and even-length, treat as hex; otherwise treat as base64.
           const looksHex = /^[0-9a-fA-F]+$/.test(rawAudio) && rawAudio.length % 2 === 0;
           const audioBytes = Buffer.from(rawAudio, looksHex ? "hex" : "base64");
-          const fileName = `${entryId.replace(/[:\/]/g, "-")}.mp3`;
+          const fileName = `${entryId.replace(/[:/]/g, "-")}.mp3`;
           const filePath = `/app/data/blaze_generated/${fileName}`;
           try {
             await mkdir("/app/data/blaze_generated", { recursive: true });

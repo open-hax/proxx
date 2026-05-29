@@ -61,6 +61,42 @@ test("CLJS runtime previews declarative policy decisions from manifest", async (
   assert.equal(decision.strategy?.mode, "chat-completions");
 });
 
+test("CLJS runtime routes bare qwen3 embeddings through the declarative embedding provider order", async (t) => {
+  const loaded = await loadCljsRuntime({ required: false });
+  if (!loaded.loaded) {
+    t.skip(`CLJS runtime artifact not built: ${loaded.reason}`);
+    return;
+  }
+  await assertCljsRuntimeReady(loaded.runtime);
+
+  const result = loaded.runtime.previewPolicyDecision("resources/policies/runtime/00-manifest.edn", {
+    modelId: "qwen3-embedding:0.6b",
+    requestKind: "embeddings",
+    tenantSettings: {},
+    providerIds: ["openai", "ollama", "llamacpp-embed", "requesty"],
+    strategies: [
+      { mode: "embeddings", priority: 1 },
+    ],
+  });
+
+  assert.equal(result.status, "ok");
+  const decision = result.decision as {
+    readonly "route-id"?: string;
+    readonly providers?: readonly string[];
+    readonly "provider-id"?: string;
+    readonly "provider-routes"?: readonly { readonly "provider-id"?: string; readonly "base-url"?: string }[];
+    readonly strategy?: { readonly mode?: string };
+  };
+  assert.equal(decision["route-id"], "qwen3-embedding");
+  assert.equal(decision["provider-id"], "llamacpp-embed");
+  assert.deepEqual(decision.providers, ["llamacpp-embed", "ollama"]);
+  assert.deepEqual(decision["provider-routes"], [
+    { "provider-id": "llamacpp-embed", "base-url": "http://llamacpp-embed:8081", paths: { "chat-completions": "/v1/chat/completions" } },
+    { "provider-id": "ollama", "base-url": "http://ollama:11434", "auth-required?": false, paths: { "chat-completions": "/v1/chat/completions" } },
+  ]);
+  assert.equal(decision.strategy?.mode, "embeddings");
+});
+
 test("CLJS runtime keeps gpt and mimo routes pinned to their canonical providers", async (t) => {
   const loaded = await loadCljsRuntime({ required: false });
   if (!loaded.loaded) {

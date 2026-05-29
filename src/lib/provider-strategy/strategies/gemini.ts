@@ -253,8 +253,8 @@ export function geminiResponseToChatCompletion(response: unknown, routedModel: s
   const firstCandidate = candidates.length > 0 && isRecord(candidates[0]) ? candidates[0] : undefined;
   
   // Handle content from SDK response format
-  let textParts: string[] = [];
-  let reasoningParts: string[] = [];
+  const textParts: string[] = [];
+  const reasoningParts: string[] = [];
   const allParts: unknown[] = [];
   
   if (firstCandidate) {

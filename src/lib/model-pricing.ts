@@ -179,7 +179,7 @@ function candidateAliasesForLookup(model: string): string[] {
   // while models.dev only tracks the non-`v` form (for example `glm-5-turbo`).
   // Prefer pricing over "unpriced" for these known aliases.
   if (normalized.startsWith("glm-5v")) {
-    const glm5 = normalized.replace(/^glm-5v(?=[\-:])/, "glm-5").replace(/^glm-5v$/, "glm-5");
+    const glm5 = normalized.replace(/^glm-5v(?=[-:])/, "glm-5").replace(/^glm-5v$/, "glm-5");
     if (glm5 !== normalized) {
       candidates.add(glm5);
       candidates.add(glm5.replace(/:/gu, "-"));

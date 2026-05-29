@@ -16,8 +16,7 @@ import { fetchWithResponseTimeout } from "../lib/http/index.js";
 import { ensureNativeOllamaEmbedContextFits } from "../lib/ollama-context.js";
 import { isOpenAiCompatEmbedProvider } from "../lib/provider-strategy/strategies/embeddings.js";
 import { normalizeLlamacppModelName } from "../lib/provider-strategy/strategies/llamacpp.js";
-import { filterDeclaredProviderRoutes, getDeclaredProviderRoutes, hasModelPrefix, stripModelPrefix, type ProviderRoute } from "../lib/provider-routing.js";
-import { resolveEmbeddingProviderAlias } from "../lib/embeddings-strategy.js";
+import { filterDeclaredProviderRoutes, getDeclaredProviderRoutes, hasModelPrefix, stripModelPrefix } from "../lib/provider-routing.js";
 
 function openAiRouteError(statusCode: number, message: string, type: string, code: string, meta?: Record<string, unknown>, cause?: unknown): OpenAiHttpError {
   return new OpenAiHttpError({ statusCode, message, type, code, meta, cause });
@@ -48,7 +47,6 @@ export function registerEmbeddingsRoutes(deps: AppDeps, app: FastifyInstance): v
 
     const explicitlyLlamaCpp = hasModelPrefix(model, deps.config.llamacppModelPrefixes ?? []);
     const explicitlyOllama = !explicitlyLlamaCpp && hasModelPrefix(model, deps.config.ollamaModelPrefixes);
-    const requestProviderId = explicitlyLlamaCpp ? "llamacpp-embed" : explicitlyOllama ? "ollama" : undefined;
 
     const proxySettings = await deps.proxySettingsStore.getForTenant(
       (request.openHaxAuth?.tenantId) ?? DEFAULT_TENANT_ID,
@@ -79,31 +77,25 @@ export function registerEmbeddingsRoutes(deps: AppDeps, app: FastifyInstance): v
         ? stripModelPrefix(routingModelInput, deps.config.ollamaModelPrefixes)
         : routingModelInput;
 
-    const aliasProviderId = resolveEmbeddingProviderAlias(routingModelWithoutProviderPrefix);
-    const configuredAliasProviderId = aliasProviderId && deps.config.upstreamProviderBaseUrls[aliasProviderId]
-      ? aliasProviderId
-      : undefined;
-
-    const requestedRouteProviderId = requestProviderId
-      ?? configuredAliasProviderId
-      ?? "ollama";
-
     const runtime = getActiveCljsRuntime();
     if (deps.config.cljsPolicyAuthoritative === true && !runtime) {
       throw openAiRouteError(503, "CLJS policy runtime is required for embeddings routing.", "server_error", "cljs_policy_runtime_unavailable", { requestedModel: model });
     }
 
     const declaredRoutes = getDeclaredProviderRoutes(deps.config);
-    const providerRoutes: ProviderRoute[] = declaredRoutes.filter((route) => route.providerId === requestedRouteProviderId);
-    const selectedRoutes = filterDeclaredProviderRoutes(deps.config.cljsPolicyManifestPath, {
+    const policySelectedRoutes = filterDeclaredProviderRoutes(deps.config.cljsPolicyManifestPath, {
       config: deps.config,
       modelId: routingModelWithoutProviderPrefix,
       requestKind: "embeddings",
       tenantSettings: proxySettings,
-      providerRoutes,
+      providerRoutes: declaredRoutes,
     }).providerRoutes;
+    const explicitProviderId = explicitlyLlamaCpp ? "llamacpp-embed" : explicitlyOllama ? "ollama" : undefined;
+    const selectedRoutes = explicitProviderId
+      ? policySelectedRoutes.filter((candidate) => candidate.providerId === explicitProviderId)
+      : policySelectedRoutes;
     if (selectedRoutes.length === 0) {
-      throw openAiRouteError(403, "No allowed embedding provider is available for this model.", "invalid_request_error", "provider_not_allowed", { routedModel: routingModelWithoutProviderPrefix });
+      throw openAiRouteError(403, "No allowed embedding provider is available for this model.", "invalid_request_error", "provider_not_allowed", { routedModel: routingModelWithoutProviderPrefix, explicitProviderId });
     }
 
     for (const candidate of selectedRoutes) {
