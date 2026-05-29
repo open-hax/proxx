@@ -18,14 +18,17 @@ function hasModelPrefix(model: string, prefixes: readonly string[]): boolean {
   return prefixes.some((prefix) => prefix.length > 0 && normalizedModel.startsWith(prefix.toLowerCase()));
 }
 
+function nativeOllamaModelPrefix(prefixes: readonly string[]): string {
+  return prefixes.find((candidate) => /^ollama(?:\/|:)$/i.test(candidate.trim())) ?? "ollama/";
+}
+
 function withNativeOllamaProviderScope(body: Record<string, unknown>, prefixes: readonly string[]): Record<string, unknown> {
   const model = typeof body.model === "string" ? body.model.trim() : "";
   if (model.length === 0 || hasModelPrefix(model, prefixes)) {
     return body;
   }
 
-  const prefix = prefixes.find((candidate) => candidate.endsWith("/") || candidate.endsWith(":")) ?? "ollama/";
-  return { ...body, model: `${prefix}${model}` };
+  return { ...body, model: `${nativeOllamaModelPrefix(prefixes)}${model}` };
 }
 
 export function registerNativeOllamaRoutes(deps: AppDeps, app: FastifyInstance): void {
