@@ -933,7 +933,7 @@
              :model-id model-id
              :route-id (:contract/id route)
              :providers []}
-            (if-let [missing-route (first (missing-provider-route-ids compiled ordered-providers))]
+            (if (seq (missing-provider-route-ids compiled ordered-providers))
               {:status :exhausted
                :reason :missing-provider-route
                :model-id model-id

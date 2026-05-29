@@ -79,7 +79,7 @@
       (reject (queue-wait-timeout-error))
       (resolve nil))))
 
-(defn- park-caller! [state-atom policy total-deadline]
+(defn- park-caller! [state-atom total-deadline]
   (swap! state-atom update :queued inc)
   (js/Promise.
    (fn [resolve reject]
@@ -87,11 +87,6 @@
             conj (make-waiter state-atom total-deadline resolve reject)))))
 
 ;; ── Acquire ───────────────────────────────────────────────────
-
-(defn- overflow-promise [policy active-count]
-  (if (= (:queue/overflow-policy policy) :reject)
-    (js/Promise.reject (queue-full-error policy active-count))
-    (js/Promise.reject (queue-dropped-error))))
 
 (defn ^:async acquire! [state-atom policy total-deadline]
   (let [{:keys [active queued]} @state-atom
@@ -107,7 +102,7 @@
                (queue-dropped-error)))
 
       :else
-      (await (park-caller! state-atom policy total-deadline)))))
+      (await (park-caller! state-atom total-deadline)))))
 
 ;; ── Per-attempt execution ─────────────────────────────────────
 
