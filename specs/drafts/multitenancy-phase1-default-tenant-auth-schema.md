@@ -66,12 +66,12 @@ Current codebase is globally scoped in the following places:
 6. Avoid tenant-scoping provider credentials yet; keep provider pool global for this phase.
 
 ## Explicit non-goals for Phase 1
-- No ATproto/DID federation implementation yet.
-- No delegated/share keys yet.
-- No trusted issuer store usage yet.
-- No tenant-scoped provider credentials yet.
-- No per-tenant quotas yet.
-- No tenant selector UI beyond minimal session-context plumbing unless needed for verification.
+- ATproto/DID federation implementation is not in scope.
+- Delegated/share keys are not implemented.
+- Trusted issuer store usage is not configured.
+- Tenant-scoped provider credentials are not introduced.
+- Per-tenant quotas are not enforced.
+- Tenant selector UI remains minimal — only session-context plumbing exists for verification.
 
 ## Key decisions
 
