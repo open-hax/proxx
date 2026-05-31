@@ -738,8 +738,7 @@ button:disabled {
   display: grid;
   gap: 8px;
   max-height: 220px;
-  overflow-x: auto;
-  overflow-y: visible;
+  overflow: auto;
 }
 
 .chat-search-result {
@@ -759,8 +758,7 @@ button:disabled {
   display: grid;
   gap: 8px;
   max-height: 48vh;
-  overflow-x: auto;
-  overflow-y: visible;
+  overflow: auto;
 }
 
 .chat-session-item {
@@ -1607,8 +1605,7 @@ button:disabled {
   display: grid;
   gap: 8px;
   max-height: 40vh;
-  overflow-x: auto;
-  overflow-y: visible;
+  overflow: auto;
 }
 
 .credentials-log-table article {
@@ -1708,8 +1705,7 @@ a {
 
   .shell-root-dashboard {
     height: auto;
-    overflow-x: auto;
-  overflow-y: visible;
+    overflow: auto;
   }
 
   .shell-root-dashboard .shell-main {
@@ -2009,8 +2005,7 @@ a {
 }
 
 .hosts-table-wrap {
-  overflow-x: auto;
-  overflow-y: visible;
+  overflow: auto;
   border: 1px solid var(--token-colors-alpha-bg-_12);
   border-radius: 10px;
 }
@@ -2524,8 +2519,7 @@ a {
   border: 1px solid var(--border-subtle);
   border-radius: 8px;
   background: rgba(0,0,0,0.25);
-  overflow-x: auto;
-  overflow-y: visible;
+  overflow: auto;
   max-height: 420px;
 }
 
