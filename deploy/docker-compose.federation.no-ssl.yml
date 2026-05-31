@@ -1,4 +1,4 @@
 services:
   federation-nginx:
     ports:
-      - "127.0.0.1:8890:80"
+      - "0.0.0.0:8890:80"
