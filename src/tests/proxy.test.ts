@@ -4974,6 +4974,40 @@ test("tenant disabledProviderIds blocks local ollama usage", async () => {
   );
 });
 
+test("explicit ollama-lan embedding prefix does not collapse to native ollama", async () => {
+  let upstreamCalled = false;
+
+  await withProxyApp(
+    {
+      keys: [],
+      configOverrides: {
+        ollamaModelPrefixes: ["ollama/", "ollama:", "ollama-lan/", "ollama-lan:"],
+      },
+      upstreamHandler: async () => {
+        upstreamCalled = true;
+        throw new Error("explicit ollama-lan embeddings should not fall back to ollama");
+      },
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/embeddings",
+        headers: {
+          "content-type": "application/json",
+        },
+        payload: {
+          model: "ollama-lan/qwen3-embedding:0.6b",
+          input: "must not fall back",
+        },
+      });
+
+      assert.equal(response.statusCode, 403);
+      assert.equal(response.headers["x-open-hax-error-code"], "provider_not_allowed");
+      assert.equal(upstreamCalled, false);
+    },
+  );
+});
+
 test("weekly dashboard uses persisted daily model/account aggregates and reports incomplete coverage", async () => {
   const DAY_MS = 24 * 60 * 60 * 1000;
   const day0 = Math.floor((Date.now() - 5 * DAY_MS) / DAY_MS) * DAY_MS;
@@ -7763,6 +7797,53 @@ test("openai passthrough strips max_output_tokens for codex path (regression: un
   );
 });
 
+test("openai responses passthrough closes stalled streaming bodies", async () => {
+  await withProxyApp(
+    {
+      keys: [],
+      keysPayload: {
+        providers: {
+          openai: {
+            auth: "oauth_bearer",
+            accounts: [
+              { id: "openai-a", access_token: "oa-token-a", chatgpt_account_id: "chatgpt-a" },
+            ]
+          }
+        }
+      },
+      configOverrides: {
+        upstreamProviderId: "openai",
+        requestTimeoutMs: 25,
+        streamBootstrapTimeoutMs: 25,
+      },
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: { "content-type": "text/event-stream; charset=utf-8" },
+        streamBody: async (response) => {
+          response.write(`event: response.created\ndata: ${JSON.stringify({ type: "response.created", response: { id: "resp_stalled", status: "in_progress", model: "gpt-5.5", output: [] } })}\n\n`);
+          await once(response, "close");
+        },
+      })
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/responses",
+        headers: { "content-type": "application/json" },
+        payload: {
+          model: "gpt-5.5",
+          input: [{ role: "user", content: [{ type: "input_text", text: "hello" }] }],
+          instructions: "",
+          stream: true
+        }
+      });
+
+      assert.equal(response.statusCode, 200);
+      assert.match(response.body, /response\.created/);
+    }
+  );
+});
+
 test("/api/tools/websearch proxies via Responses web_search and extracts url citations", async () => {
   let observedPath = "";
   let observedBody: Record<string, unknown> | undefined;
@@ -9565,6 +9646,53 @@ test("proxies native /api/embed and /api/embeddings to their matching upstream o
       assert.ok(isRecord(singlePayload));
       assert.deepEqual(singlePayload.embedding, [1, 2, 3]);
     }
+  );
+});
+
+test("native /api/embed scopes unprefixed models to native ollama regardless of prefix order", async () => {
+  let observedPath = "";
+
+  await withProxyApp(
+    {
+      keys: [],
+      configOverrides: {
+        ollamaModelPrefixes: ["ollama-lan/", "ollama/"],
+      },
+      upstreamHandler: async (request) => {
+        observedPath = request.url ?? "";
+
+        if (observedPath === "/api/show") {
+          return {
+            status: 200,
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              model_info: {
+                "qwen3.context_length": 40960,
+              },
+            }),
+          };
+        }
+
+        return {
+          status: 200,
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ embeddings: [[1, 2, 3]] }),
+        };
+      },
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/embed",
+        payload: {
+          model: "qwen3-embedding:0.6b",
+          input: ["a"],
+        },
+      });
+
+      assert.equal(response.statusCode, 200);
+      assert.equal(observedPath, "/api/embed");
+    },
   );
 });
 

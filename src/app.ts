@@ -68,12 +68,12 @@ import { createEnvFederationBridgeAgent } from "./lib/federation/bridge-agent-au
 import type { FederationBridgeRelay } from "./lib/federation/bridge-relay.js";
 import { type AppDeps } from "./lib/app-deps.js";
 import {
-  executeFederatedRequestFallback,
-} from "./lib/federation/federated-fallback.js";
+  executeFederatedRequestRouting,
+} from "./lib/federation/federated-routing.js";
 import {
   handleBridgeRequest,
   injectNativeBridge,
-} from "./lib/federation/bridge-fallback.js";
+} from "./lib/federation/bridge-routing.js";
 import { registerChatRoutes } from "./routes/chat.js";
 import { registerResponsesRoutes } from "./routes/responses.js";
 import { registerImagesRoutes } from "./routes/images.js";
@@ -474,7 +474,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     const bridgedModels = await getBridgeAdvertisedModelIds();
     return [...new Set([...localCatalog.modelIds, ...bridgedModels])];
   }
-  const fedDeps = { app, sqlFederationStore, runtimeCredentialStore, keyPool, sqlTenantProviderPolicyStore };
+  const fedDeps = { app, cljsPolicyManifestPath: config.cljsPolicyManifestPath, sqlFederationStore, runtimeCredentialStore, keyPool, sqlTenantProviderPolicyStore };
   const getBridgeDeps = () => ({ bridgeRelay, app, config, runtimeCredentialStore, keyPool, sqlTenantProviderPolicyStore });
 
   const bridgeAgent = createEnvFederationBridgeAgent({
@@ -672,7 +672,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     refreshFactoryAccount,
     ensureFreshAccounts,
     getMergedModelIds,
-    executeFederatedRequestFallback: async (input) => executeFederatedRequestFallback(fedDeps, input),
+    executeFederatedRequestRouting: async (input) => executeFederatedRequestRouting(fedDeps, input),
     injectNativeBridge: async (url, payload, headers) => injectNativeBridge(getBridgeDeps(), url, payload, headers),
   };
 
