@@ -7,7 +7,7 @@ Draft
 Weekly dashboard `est cost` and `water consumption` are not currently trustworthy for a full 7-day window.
 
 Observed issues:
-- Raw request log retention is defaults to 100000 entries (via `config.requestLogsMaxEntries`), which currently covers only ~2 hours of live traffic.
+- Raw request log retention defaults to 100000 entries (via `config.requestLogsMaxEntries`), which currently covers only ~2 hours of live traffic.
 - Persisted daily buckets currently cover only ~3 days in the local dataset, not 7.
 - Historical buckets exist with `totalTokens > 0` but `costUsd = energyJoules = waterEvaporatedMl = 0`, indicating the environmental/cost estimates were introduced after some token history had already been recorded.
 - Weekly top-model/top-provider stats are computed from recent raw logs instead of durable window aggregates, so they are also incomplete when raw entry retention is shorter than the selected window.
