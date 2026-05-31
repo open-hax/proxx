@@ -53,23 +53,25 @@ Alternative credential sources:
 
 ~~not really federation~~
 
-If you want several `proxx` instances to behave like one mirrored operator surface, point them at the same `DATABASE_URL`.
+If you want several `proxx` instances to behave like one mirrored operator surface, point them at the same `DATABASE_URL` only for non-secret control-plane state.
 
 In this mode the shared SQL database becomes the control plane for:
 - GitHub/UI operator login state and tenant membership
 - tenant API keys and proxy settings
-- provider credentials, including OpenAI OAuth accounts added through the UI
 - dashboard / analytics usage data
 
 That means:
-- add an OpenAI OAuth account on one instance -> the other instances can pick it up from the same DB-backed credential store
+- operator and tenant settings can be managed once and observed across the fleet
 - usage analytics aggregate across the fleet instead of fragmenting per instance
+- provider credentials, OAuth refresh tokens, API keys, and secret keys must stay local to the instance that owns them
+- cross-instance provider access should use federation peer projection or the WebSocket bridge instead of shared credential tables
 
 Promethean branch promotion + federated environment mapping is documented in [`docs/promethean-federated-deployments.md`](docs/promethean-federated-deployments.md).
 
 Current boundary:
-- shared in v1: operator/admin state, tenant API keys and proxy settings, provider credentials including OAuth accounts, analytics
+- shared in v1: operator/admin state, tenant API keys and proxy settings, analytics, non-secret control-plane runtime state
 - still local for now: chat sessions, prompt affinity, and other convenience file state
+- never shared through DB sync: credential tables, OAuth refresh tokens, API keys, secret keys, service-account secrets
 
 Env-backed providers:
 
@@ -517,7 +519,7 @@ Each tenant gets their own API key and can have separate provider allowlists.
 Multiple cloud instances sharing operator/control-plane state via PostgreSQL.
 
 1. Deploy to multiple hosts (testing, staging, production)
-2. Point all instances at the same `DATABASE_URL`
+2. Point instances at the same `DATABASE_URL` only when that database excludes credential-bearing tables and secrets
 3. Instances automatically share:
     - Operator/admin login state
     - Tenant API keys and settings

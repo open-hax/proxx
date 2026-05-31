@@ -22,6 +22,7 @@ export interface ExecuteFederatedRequestRoutingInput {
   readonly requestHeaders: Record<string, unknown>;
   readonly requestBody: Record<string, unknown>;
   readonly requestAuth?: { readonly kind: "legacy_admin" | "tenant_api_key" | "ui_session" | "unauthenticated"; readonly subject?: string; readonly tenantId?: string };
+  readonly requestKind: "chat" | "responses" | "images";
   readonly providerRoutes: readonly ProviderRoute[];
   readonly upstreamPath: string;
   readonly reply: FastifyReply;

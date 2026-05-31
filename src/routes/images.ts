@@ -118,6 +118,7 @@ export function registerImagesRoutes(deps: AppDeps, app: FastifyInstance): void 
         requestHeaders: request.headers,
         requestBody,
         requestAuth: request.openHaxAuth ?? undefined,
+        requestKind: "images",
         providerRoutes,
         upstreamPath: "/v1/images/generations",
         reply,

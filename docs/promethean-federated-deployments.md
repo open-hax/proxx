@@ -36,7 +36,7 @@ All three environments use the federation runtime compose stack plus the federat
 - `deploy/docker-compose.federation.ssl.yml`
 - `deploy/Caddyfile.federation.template`
 
-Staging and testing seed their runtime env/models files and operational DB state from production by default:
+Staging and testing seed their runtime env/models files and non-secret control-plane state from production by default:
 
 - source host: `ussy.promethean.rest`
 - source path: `~/devel/services/proxx`
@@ -46,14 +46,15 @@ Credential state is **not** shipped as `keys.json` in this flow, and OAuth refre
 
 - `keys.json` is treated as a one-time seed artifact for older/manual setups.
 - federated Promethean deploys rely on each environment's SQL credential store for local credentials.
-- staging/testing should not receive production OAuth refresh tokens through DB sync.
+- staging/testing may sync schema migrations, service configuration metadata, routing tables, feature flags, analytics aggregates, and other non-secret control-plane runtime state.
+- staging/testing must not receive credential tables, OAuth refresh tokens, API keys, secret keys, or service-account secrets through DB sync.
 - cross-environment access should use federation peer projection or the WebSocket bridge, where remote nodes route or lease access without owning the source refresh token.
 - production keeps its credential state in its own persistent DB volume.
 
 That means first-time bring-up should either:
 
-1. deploy production first and let downstream environments sync only non-secret control-plane/runtime state, or
-2. bootstrap credentials directly into the production SQL-backed runtime through the UI/API/provider env vars.
+1. deploy production first and let downstream environments sync only the non-secret artifacts listed above, or
+2. bootstrap credentials directly into the production SQL-backed runtime through the UI/API/provider env vars and expose cross-environment use through peer projection or bridge routing.
 
 ## Policy runtime contract
 

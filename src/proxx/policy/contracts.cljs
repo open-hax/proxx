@@ -664,8 +664,14 @@
    :warm-import #{:warm-import :project-credentials}
    :project-credentials #{:project-credentials}})
 
-(defn- share-mode-requirements [compiled]
-  (let [declared (->> (:federation-routing-clauses compiled)
+(defn- share-mode-requirements [compiled request-kind]
+  (let [normalized-request-kind (some-> request-kind normalized-keyword)
+        declared (->> (:federation-routing-clauses compiled)
+                      (filter (fn [clause]
+                                (let [match-kind (:match/request-kind clause)]
+                                  (or (nil? match-kind)
+                                      (nil? normalized-request-kind)
+                                      (= match-kind normalized-request-kind)))))
                       (map :admit/share-modes)
                       (filter map?)
                       (apply merge))]
@@ -687,9 +693,9 @@
 (defn share-mode-allows-credential-projection? [mode]
   (= :project-credentials (normalize-mode mode)))
 
-(defn- share-mode-satisfies? [compiled mode required]
+(defn- share-mode-satisfies? [compiled mode required request-kind]
   (let [normalized-required (or (normalize-mode required) :relay)
-        allowed (or (get (share-mode-requirements compiled) normalized-required)
+        allowed (or (get (share-mode-requirements compiled request-kind) normalized-required)
                     (get default-share-mode-requirements normalized-required)
                     (:relay default-share-mode-requirements))]
     (contains? allowed (normalize-mode mode))))
@@ -711,7 +717,8 @@
               (contains? (set allowed-models) requested-model))
           (share-mode-satisfies? compiled
                                  (get-any policy [:share-mode :shareMode])
-                                 (get-any input [:required-share-mode :requiredShareMode]))))))
+                                 (get-any input [:required-share-mode :requiredShareMode])
+                                 (get-any input [:request-kind :requestKind]))))))
 
 (defn- projected-availability-state [account]
   (normalize-mode (get-any account [:availability-state :availabilityState])))

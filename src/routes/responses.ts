@@ -346,6 +346,7 @@ export function registerResponsesRoutes(deps: AppDeps, app: FastifyInstance): vo
           requestHeaders: request.headers,
           requestBody,
           requestAuth: request.openHaxAuth ?? undefined,
+          requestKind: "responses",
           providerRoutes,
           upstreamPath: "/v1/responses",
           reply,

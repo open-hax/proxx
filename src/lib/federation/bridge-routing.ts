@@ -65,6 +65,7 @@ function authorizeTenantProviderPolicy(
     readonly ownerSubject: string;
     readonly providerKind: "local_upstream" | "peer_proxx";
     readonly requestedModel?: string;
+    readonly requestKind?: string;
     readonly requiredShareMode?: "relay" | "warm_import" | "project_credentials";
   },
 ): boolean {
@@ -82,6 +83,7 @@ export async function executeBridgeRequestRouting(
     readonly requestHeaders: Record<string, unknown>;
     readonly requestBody: Record<string, unknown>;
     readonly requestAuth?: { readonly kind: "legacy_admin" | "tenant_api_key" | "ui_session" | "unauthenticated"; readonly subject?: string; readonly tenantId?: string };
+    readonly requestKind?: string;
     readonly allowedProviderIds?: readonly string[];
     readonly upstreamPath: string;
     readonly reply: FastifyReply;
@@ -138,6 +140,7 @@ export async function executeBridgeRequestRouting(
       ownerSubject,
       providerKind: "peer_proxx",
       requestedModel,
+      requestKind: input.requestKind,
       requiredShareMode: "relay",
     })) {
       return null;

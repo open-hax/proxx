@@ -60,6 +60,7 @@ function authorizeTenantProviderPolicy(
     readonly ownerSubject: string;
     readonly providerKind: "local_upstream" | "peer_proxx";
     readonly requestedModel?: string;
+    readonly requestKind?: string;
     readonly requiredShareMode?: "relay" | "warm_import" | "project_credentials";
   },
 ): boolean {
@@ -76,6 +77,7 @@ export async function noteFederatedProjectedAccountRouted(
   input: {
     readonly projectedAccount: FederationProjectedAccountRecord;
     readonly timeoutMs: number;
+    readonly requestKind?: string;
     readonly policy?: TenantProviderPolicyRecord;
   },
 ): Promise<{ readonly importedCredential: boolean; readonly projectedAccount: FederationProjectedAccountRecord }> {
@@ -96,6 +98,7 @@ export async function noteFederatedProjectedAccountRouted(
     ? authorizeTenantProviderPolicy(deps, input.policy, {
       ownerSubject: input.policy.ownerSubject,
       providerKind: input.policy.providerKind,
+      requestKind: input.requestKind,
       requiredShareMode: "warm_import",
     })
     : true;
@@ -231,6 +234,7 @@ export async function executeFederatedRequestRouting(
     readonly requestHeaders: Record<string, unknown>;
     readonly requestBody: Record<string, unknown>;
     readonly requestAuth?: { readonly kind: "legacy_admin" | "tenant_api_key" | "ui_session" | "unauthenticated"; readonly subject?: string; readonly tenantId?: string };
+    readonly requestKind: "chat" | "responses" | "images";
     readonly providerRoutes: readonly ProviderRoute[];
     readonly upstreamPath: string;
     readonly reply: FastifyReply;
@@ -284,6 +288,7 @@ export async function executeFederatedRequestRouting(
       ownerSubject,
       providerKind: "local_upstream",
       requestedModel,
+      requestKind: input.requestKind,
       requiredShareMode: "relay",
     })) {
       return null;
@@ -317,7 +322,7 @@ export async function executeFederatedRequestRouting(
     const result = runtime?.resolveFederationRouteCandidates?.(
       deps.cljsPolicyManifestPath ?? "resources/policies/runtime/00-manifest.edn",
       {
-        requestKind: "responses",
+        requestKind: input.requestKind,
         providerIds: [...localProviderIds],
         projectedAccounts,
         localProviderAccountKeys: [...localProviderAccountKeys],
@@ -428,6 +433,7 @@ export async function executeFederatedRequestRouting(
     const routed = await noteFederatedProjectedAccountRouted(deps, {
       projectedAccount: candidate.projectedAccount,
       timeoutMs: input.timeoutMs,
+      requestKind: input.requestKind,
       policy: candidate.policy,
     });
 

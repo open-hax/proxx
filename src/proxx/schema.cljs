@@ -340,7 +340,7 @@
     [:match/request-kind {:optional true} :keyword]
     [:admit/share-modes {:optional true} [:map-of :keyword KeywordVector]]
     [:admit/availability-states {:optional true} KeywordVector]
-    [:selection/order [:vector :keyword]]]])
+    [:selection/order {:optional true} [:vector :keyword]]]])
 
 (def AuthorizationClauseContract
   [:and
