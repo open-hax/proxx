@@ -99,15 +99,14 @@ jobs:
               timestamp: comment.created_at,
             }));
 
-            for (let i = 0; i < embeds.length; i += 10) {
-              const chunk = embeds.slice(i, i + 10);
+            for (const embed of embeds) {
               const response = await fetch(webhookUrl, {
                 method: 'POST',
                 headers: { 'content-type': 'application/json' },
                 body: JSON.stringify({
                   username: 'Kimi Code Review',
-                  content: `New inline review comment${chunk.length === 1 ? '' : 's'} on ${owner}/${repo}#${pr.number}`,
-                  embeds: chunk,
+                  content: `New inline review comment on ${owner}/${repo}#${pr.number}`,
+                  embeds: [embed],
                   allowed_mentions: { parse: [] },
                 }),
               });

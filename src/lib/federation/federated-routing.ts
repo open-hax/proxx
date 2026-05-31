@@ -332,7 +332,7 @@ export async function executeFederatedRequestRouting(
       },
     );
     if (result?.status !== "ok" || !Array.isArray(result.candidates)) {
-      return projectedAccounts;
+      return [];
     }
     return result.candidates as readonly FederationProjectedAccountRecord[];
   };
