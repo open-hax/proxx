@@ -82,8 +82,8 @@ jobs:
           DEPLOY_PUBLIC_HOST: ${{ vars.STAGING_PUBLIC_HOST || 'staging.proxx.ussy.promethean.rest' }}
           DEPLOY_ENABLE_TLS: ${{ vars.STAGING_ENABLE_TLS || 'true' }}
           DEPLOY_HEALTH_TIMEOUT_SECONDS: '240'
-          DEPLOY_SYNC_RUNTIME_FROM_SOURCE: 'true'
-          DEPLOY_SYNC_DB_FROM_SOURCE: 'true'
+          DEPLOY_SYNC_RUNTIME_FROM_SOURCE: ${{ vars.STAGING_SYNC_RUNTIME_FROM_SOURCE || 'true' }}
+          DEPLOY_SYNC_DB_FROM_SOURCE: ${{ vars.STAGING_SYNC_DB_FROM_SOURCE || 'true' }}
           DEPLOY_ENV_APPEND: |
             FEDERATION_CLUSTER_ID=staging
             FEDERATION_PUBLIC_HOST_SUFFIX=${{ vars.STAGING_PUBLIC_HOST || 'staging.proxx.ussy.promethean.rest' }}
