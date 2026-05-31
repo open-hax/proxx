@@ -30,6 +30,11 @@ jobs:
         id: review_start
         run: echo "started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
 
+      - name: Configure review git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
       - name: Run OpenCode review
         # v1.15.13 pinned by commit SHA for reproducible review behavior.
         uses: anomalyco/opencode/github@385cb694419f98103af0e8fc6187ddcbcbb6eecb
