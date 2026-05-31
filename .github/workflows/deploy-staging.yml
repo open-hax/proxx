@@ -75,12 +75,12 @@ jobs:
           DEPLOY_USER: ${{ vars.STAGING_SSH_USER || 'error' }}
           DEPLOY_PATH: ${{ vars.STAGING_DEPLOY_PATH || '~/devel/services/proxx-staging' }}
           DEPLOY_COMPOSE_PROJECT_NAME: ${{ vars.STAGING_COMPOSE_PROJECT_NAME || 'proxx-staging' }}
-          DEPLOY_COMPOSE_FILES: docker-compose.federation-runtime.yml,deploy/docker-compose.federation.ssl.yml
-          DEPLOY_CADDY_TEMPLATE: deploy/Caddyfile.federation.template
-          DEPLOY_HEALTH_SERVICE: federation-nginx
-          DEPLOY_RESTART_SERVICES: federation-proxx-a1,federation-proxx-a2,federation-nginx,open-hax-openai-proxy-ssl
+          DEPLOY_COMPOSE_FILES: ${{ vars.STAGING_COMPOSE_FILES || 'docker-compose.federation-runtime.yml,deploy/docker-compose.federation.ssl.yml' }}
+          DEPLOY_CADDY_TEMPLATE: ${{ vars.STAGING_CADDY_TEMPLATE || 'deploy/Caddyfile.federation.template' }}
+          DEPLOY_HEALTH_SERVICE: ${{ vars.STAGING_HEALTH_SERVICE || 'federation-nginx' }}
+          DEPLOY_RESTART_SERVICES: ${{ vars.STAGING_RESTART_SERVICES || 'federation-proxx-a1,federation-proxx-a2,federation-nginx,open-hax-openai-proxy-ssl' }}
           DEPLOY_PUBLIC_HOST: ${{ vars.STAGING_PUBLIC_HOST || 'staging.proxx.ussy.promethean.rest' }}
-          DEPLOY_ENABLE_TLS: 'true'
+          DEPLOY_ENABLE_TLS: ${{ vars.STAGING_ENABLE_TLS || 'true' }}
           DEPLOY_HEALTH_TIMEOUT_SECONDS: '240'
           DEPLOY_SYNC_RUNTIME_FROM_SOURCE: 'true'
           DEPLOY_SYNC_DB_FROM_SOURCE: 'true'
