@@ -7,14 +7,14 @@ Draft
 Weekly dashboard `est cost` and `water consumption` are not currently trustworthy for a full 7-day window.
 
 Observed issues:
-- Raw request log retention is capped at 5000 entries, which currently covers only ~2 hours of live traffic.
+- Raw request log retention defaults to 100000 entries (via `config.requestLogsMaxEntries`), which currently covers ~40 hours of live traffic.
 - Persisted daily buckets currently cover only ~3 days in the local dataset, not 7.
 - Historical buckets exist with `totalTokens > 0` but `costUsd = energyJoules = waterEvaporatedMl = 0`, indicating the environmental/cost estimates were introduced after some token history had already been recorded.
 - Weekly top-model/top-provider stats are computed from recent raw logs instead of durable window aggregates, so they are also incomplete when raw entry retention is shorter than the selected window.
 - Account rows use long-lived account accumulators rather than window-scoped aggregates, so weekly account stats are not truly weekly.
 
 ## Facts gathered
-- `src/app.ts` constructs `RequestLogStore(config.requestLogsFilePath, 5000)`.
+- `src/app.ts` constructs `RequestLogStore(config.requestLogsFilePath, config.requestLogsMaxEntries)`.
 - `RequestLogEntry` includes `providerId`, `accountId`, `model`, `promptTokens`, `completionTokens`, `totalTokens`, `costUsd`, `energyJoules`, `waterEvaporatedMl`.
 - `recordAttempt()` computes cost/env estimates from `estimateRequestCost(model, promptTokens, completionTokens)` and persists them on the request log entry.
 - `buildUsageOverview()` uses daily buckets for weekly/monthly summary totals but uses raw recent logs for top model/provider and account accumulators for account rows.
