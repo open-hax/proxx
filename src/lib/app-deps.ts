@@ -18,7 +18,7 @@ import type { FederationBridgeRelay } from "./federation/bridge-relay.js";
 import type { QuotaMonitor } from "./quota-monitor.js";
 import type { ProviderRoute } from "./provider-routing.js";
 
-export interface ExecuteFederatedRequestFallbackInput {
+export interface ExecuteFederatedRequestRoutingInput {
   readonly requestHeaders: Record<string, unknown>;
   readonly requestBody: Record<string, unknown>;
   readonly requestAuth?: { readonly kind: "legacy_admin" | "tenant_api_key" | "ui_session" | "unauthenticated"; readonly subject?: string; readonly tenantId?: string };
@@ -59,6 +59,6 @@ export interface AppDeps {
   readonly ensureFreshAccounts: (providerId: string) => Promise<void>;
   readonly refreshExpiredOAuthAccount: (credential: ProviderCredential) => Promise<ProviderCredential | null>;
   readonly getMergedModelIds: (forceRefresh?: boolean) => Promise<string[]>;
-  readonly executeFederatedRequestFallback: (input: ExecuteFederatedRequestFallbackInput) => Promise<boolean>;
+  readonly executeFederatedRequestRouting: (input: ExecuteFederatedRequestRoutingInput) => Promise<boolean>;
   readonly injectNativeBridge: (url: string, payload: Record<string, unknown>, requestHeaders: Record<string, unknown>) => Promise<InjectNativeBridgeResult>;
 }

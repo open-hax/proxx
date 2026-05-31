@@ -23,9 +23,20 @@ test("ensureFederationProjectedAccountsFresh pulls remote /api/v1 federation acc
           authType: "oauth_bearer",
           hasCredentials: true,
           knowledgeSources: ["local_credential"],
+          cooldownUntilMs: 1780632049684,
         },
       ],
-      projectedAccounts: [],
+      projectedAccounts: [
+        {
+          sourcePeerId: "peer-b",
+          ownerSubject: "did:web:example.com",
+          providerId: "openai",
+          accountId: "acct-a",
+          availabilityState: "remote_route",
+          warmRequestCount: 0,
+          metadata: { hasCredentials: false, knowledgeSources: ["projected:remote_route"] },
+        },
+      ],
     });
 
     return new Response(body, {
@@ -76,6 +87,7 @@ test("ensureFederationProjectedAccountsFresh pulls remote /api/v1 federation acc
     assert.equal(seenUpserts[0]?.availabilityState, "remote_route");
     assert.equal(seenUpserts[0]?.providerId, "openai");
     assert.equal(seenUpserts[0]?.accountId, "acct-a");
+    assert.deepEqual((seenUpserts[0]?.metadata as Record<string, unknown> | undefined)?.cooldownUntilMs, 1780632049684);
     assert.equal(seenSyncUpdates.length, 1);
     assert.equal(seenSyncUpdates[0]?.peerId, "peer-a");
   } finally {

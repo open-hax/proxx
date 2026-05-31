@@ -6,12 +6,7 @@ import { buildForwardHeaders } from "../proxy.js";
 import { normalizeRequestedModel } from "../request-utils.js";
 import { fetchWithResponseTimeout } from "../http/index.js";
 import { toErrorMessage } from "../errors/index.js";
-import {
-  shareModeAllowsRelay,
-  shareModeAllowsWarmImport,
-  tenantProviderPolicyAllowsUse,
-  type TenantProviderPolicyRecord,
-} from "../db/sql-tenant-provider-policy-store.js";
+import type { TenantProviderPolicyRecord } from "../db/sql-tenant-provider-policy-store.js";
 import {
   extractPeerCredential,
   fetchFederationJson,
@@ -32,6 +27,7 @@ import type { ProviderRoute } from "../provider-routing.js";
 import type { FederationCredentialExport } from "../../routes/federation/account-knowledge.js";
 
 import { ensureFederationProjectedAccountsFresh } from "./on-demand-projections.js";
+import { getActiveCljsRuntime } from "../cljs-runtime.js";
 
 const FEDERATION_HOP_HEADER = "x-open-hax-federation-hop";
 const FEDERATION_OWNER_SUBJECT_HEADER = "x-open-hax-federation-owner-subject";
@@ -48,16 +44,35 @@ const FEDERATION_BLOCKED_RESPONSE_HEADERS = new Set([
   "x-open-hax-forced-provider", "x-open-hax-forced-account-id",
 ]);
 
-export interface FederatedFallbackDeps {
+export interface FederatedRoutingDeps {
   readonly app: FastifyInstance;
+  readonly cljsPolicyManifestPath?: string;
   readonly sqlFederationStore: SqlFederationStore | undefined;
   readonly runtimeCredentialStore: RuntimeCredentialStore;
   readonly keyPool: KeyPool;
   readonly sqlTenantProviderPolicyStore: SqlTenantProviderPolicyStore | undefined;
 }
 
+function authorizeTenantProviderPolicy(
+  deps: FederatedRoutingDeps,
+  policy: TenantProviderPolicyRecord,
+  input: {
+    readonly ownerSubject: string;
+    readonly providerKind: "local_upstream" | "peer_proxx";
+    readonly requestedModel?: string;
+    readonly requiredShareMode?: "relay" | "warm_import" | "project_credentials";
+  },
+): boolean {
+  const runtime = getActiveCljsRuntime();
+  const result = runtime?.authorizeTenantProviderPolicy?.(
+    deps.cljsPolicyManifestPath ?? "resources/policies/runtime/00-manifest.edn",
+    { policy, ...input },
+  );
+  return result?.status === "ok" && result.allowed === true;
+}
+
 export async function noteFederatedProjectedAccountRouted(
-  deps: FederatedFallbackDeps,
+  deps: FederatedRoutingDeps,
   input: {
     readonly projectedAccount: FederationProjectedAccountRecord;
     readonly timeoutMs: number;
@@ -77,7 +92,13 @@ export async function noteFederatedProjectedAccountRouted(
   }) ?? input.projectedAccount;
 
   let importedCredential = false;
-  const warmImportAllowed = input.policy ? shareModeAllowsWarmImport(input.policy.shareMode) : true;
+  const warmImportAllowed = input.policy
+    ? authorizeTenantProviderPolicy(deps, input.policy, {
+      ownerSubject: input.policy.ownerSubject,
+      providerKind: input.policy.providerKind,
+      requiredShareMode: "warm_import",
+    })
+    : true;
   const warmImportThreshold = input.policy?.warmImportThreshold;
   if (warmImportAllowed && shouldWarmImportProjectedAccount(projectedAccount.warmRequestCount, warmImportThreshold)) {
     const importResult = await sqlFederationStore.withProjectedAccountImportLock({
@@ -119,7 +140,7 @@ export async function noteFederatedProjectedAccountRouted(
             body: exportBody,
           });
         } catch {
-          // Back-compat fallback.
+          // Back-compat retry for peers still exposing the UI export path.
           remoteExport = await fetchFederationJson<{ readonly account: FederationCredentialExport }>({
             url: `${peer.controlBaseUrl ?? peer.baseUrl}/api/ui/federation/accounts/export`,
             credential,
@@ -204,8 +225,8 @@ export async function noteFederatedProjectedAccountRouted(
   return { importedCredential, projectedAccount };
 }
 
-export async function executeFederatedRequestFallback(
-  deps: FederatedFallbackDeps,
+export async function executeFederatedRequestRouting(
+  deps: FederatedRoutingDeps,
   input: {
     readonly requestHeaders: Record<string, unknown>;
     readonly requestBody: Record<string, unknown>;
@@ -259,7 +280,7 @@ export async function executeFederatedRequestFallback(
       return null;
     }
 
-    if (!tenantProviderPolicyAllowsUse(policy, {
+    if (!authorizeTenantProviderPolicy(deps, policy, {
       ownerSubject,
       providerKind: "local_upstream",
       requestedModel,
@@ -288,11 +309,30 @@ export async function executeFederatedRequestFallback(
     readonly policy: TenantProviderPolicyRecord | undefined;
   };
 
-  const buildProjectedCandidates = async (): Promise<readonly FederatedProjectedCandidate[]> => (await Promise.all((await sqlFederationStore.getProjectedAccountsForOwner(ownerSubject))
-    .filter((account) => account.availabilityState !== "imported")
-    .filter((account) => localProviderIds.has(account.providerId.trim().toLowerCase()))
-    .filter((account) => !localProviderAccountKeys.has(`${account.providerId.trim().toLowerCase()}\0${account.accountId}`))
-    .map(async (projectedAccount) => {
+  const now = Date.now();
+  const policyOrderProjectedAccounts = (
+    projectedAccounts: readonly FederationProjectedAccountRecord[],
+  ): readonly FederationProjectedAccountRecord[] => {
+    const runtime = getActiveCljsRuntime();
+    const result = runtime?.resolveFederationRouteCandidates?.(
+      deps.cljsPolicyManifestPath ?? "resources/policies/runtime/00-manifest.edn",
+      {
+        requestKind: "responses",
+        providerIds: [...localProviderIds],
+        projectedAccounts,
+        localProviderAccountKeys: [...localProviderAccountKeys],
+        nowMs: now,
+      },
+    );
+    if (result?.status !== "ok" || !Array.isArray(result.candidates)) {
+      return projectedAccounts;
+    }
+    return result.candidates as readonly FederationProjectedAccountRecord[];
+  };
+
+  const buildProjectedCandidates = async (): Promise<readonly FederatedProjectedCandidate[]> => {
+    const projectedAccounts = policyOrderProjectedAccounts(await sqlFederationStore.getProjectedAccountsForOwner(ownerSubject));
+    const candidates = await Promise.all(projectedAccounts.map(async (projectedAccount) => {
       const peer = peersById.get(projectedAccount.sourcePeerId);
       const credential = peer ? extractPeerCredential(peer.auth) : undefined;
       if (!peer || !credential) {
@@ -300,22 +340,22 @@ export async function executeFederatedRequestFallback(
       }
 
       const policy = await resolveRelayPolicy(projectedAccount.providerId);
-      if (policy === null || (policy && !shareModeAllowsRelay(policy.shareMode))) {
+      if (policy === null) {
         return undefined;
       }
 
       const candidate: FederatedProjectedCandidate = { peer, credential, projectedAccount, policy: policy ?? undefined };
       return candidate;
-    })))
-    .filter((candidate): candidate is FederatedProjectedCandidate => candidate !== undefined)
-    .sort((left, right) => {
-      const stateWeight = (value: FederationProjectedAccountRecord["availabilityState"]): number => value === "remote_route" ? 0 : 1;
-      return stateWeight(left.projectedAccount.availabilityState) - stateWeight(right.projectedAccount.availabilityState)
-        || right.projectedAccount.warmRequestCount - left.projectedAccount.warmRequestCount
-        || left.projectedAccount.providerId.localeCompare(right.projectedAccount.providerId)
-        || left.projectedAccount.accountId.localeCompare(right.projectedAccount.accountId)
-        || left.projectedAccount.sourcePeerId.localeCompare(right.projectedAccount.sourcePeerId);
-    });
+    }));
+    return candidates.filter((candidate): candidate is FederatedProjectedCandidate => candidate !== undefined);
+  };
+
+  await ensureFederationProjectedAccountsFresh({
+    logger: app.log,
+    sqlFederationStore,
+    ownerSubject,
+    timeoutMs: Math.min(input.timeoutMs, 10_000),
+  }).catch(() => undefined);
 
   let projectedCandidates = await buildProjectedCandidates();
 
@@ -343,7 +383,9 @@ export async function executeFederatedRequestFallback(
     headers.set(FEDERATION_HOP_HEADER, String(hopCount + 1));
     headers.set(FEDERATION_OWNER_SUBJECT_HEADER, ownerSubject);
     headers.set(FEDERATION_FORCED_PROVIDER_HEADER, candidate.projectedAccount.providerId);
-    headers.set(FEDERATION_FORCED_ACCOUNT_ID_HEADER, candidate.projectedAccount.accountId);
+    if (candidate.projectedAccount.availabilityState !== "remote_route") {
+      headers.set(FEDERATION_FORCED_ACCOUNT_ID_HEADER, candidate.projectedAccount.accountId);
+    }
 
     let remoteResponse: Response;
     try {

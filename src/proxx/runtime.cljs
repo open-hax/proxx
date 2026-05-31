@@ -202,6 +202,36 @@
                 :error (.-message e)
                 :data (ex-data e)}))))
 
+(defn resolve-federation-route-candidates-js
+  "Resolve projected federation account ordering in CLJS policy space."
+  [manifest-path input]
+  (try
+    (let [compiled (compiled-policy-for-manifest manifest-path)
+          result (policy-contracts/resolve-federation-route-candidates
+                  compiled
+                  (js->clj (or input #js {}) :keywordize-keys true))]
+      (clj->js result))
+    (catch :default e
+      (clj->js {:status "error"
+                :error (.-message e)
+                :data (ex-data e)}))))
+
+(defn authorize-tenant-provider-policy-js
+  "Authorize tenant-provider federation use in CLJS policy space."
+  [manifest-path input]
+  (try
+    (let [compiled (compiled-policy-for-manifest manifest-path)
+          m (js->clj (or input #js {}) :keywordize-keys true)
+          allowed? (policy-contracts/tenant-provider-policy-allows-use?
+                    compiled
+                    (:policy m)
+                    m)]
+      (clj->js {:status "ok" :allowed allowed?}))
+    (catch :default e
+      (clj->js {:status "error"
+                :error (.-message e)
+                :data (ex-data e)}))))
+
 (defn run-model-candidates-js
   "Run model candidate attempts in CLJS so route handlers do not own the retry loop.
 
@@ -268,9 +298,11 @@
        :previewPolicyDecision preview-policy-decision-js
        :normalizeReasoningRequest normalize-reasoning-request-js
        :resolveModelAlias resolve-model-alias-js
-       :getProviderRoutes get-provider-routes-js
-       :resolveAutoModelCandidates resolve-auto-model-candidates-js
-       :filterProviderRoutes filter-provider-routes-js
-       :runModelCandidates run-model-candidates-js
+        :getProviderRoutes get-provider-routes-js
+        :resolveAutoModelCandidates resolve-auto-model-candidates-js
+        :filterProviderRoutes filter-provider-routes-js
+        :resolveFederationRouteCandidates resolve-federation-route-candidates-js
+        :authorizeTenantProviderPolicy authorize-tenant-provider-policy-js
+        :runModelCandidates run-model-candidates-js
        :resolveQueuePolicy resolve-queue-policy-js
        :runQueued run-queued-js})

@@ -229,3 +229,72 @@ test("CLJS runtime keeps gpt and mimo routes pinned to their canonical providers
   ]);
   assert.equal(gemma4E4bDecision.strategy?.mode, "chat_completions");
 });
+
+test("CLJS runtime orders federation projected accounts from declarative policy", async (t) => {
+  const loaded = await loadCljsRuntime({ required: false });
+  if (!loaded.loaded) {
+    t.skip(`CLJS runtime artifact not built: ${loaded.reason}`);
+    return;
+  }
+  await assertCljsRuntimeReady(loaded.runtime);
+
+  assert.equal(typeof loaded.runtime.resolveFederationRouteCandidates, "function");
+  const result = loaded.runtime.resolveFederationRouteCandidates?.("resources/policies/runtime/00-manifest.edn", {
+    requestKind: "responses",
+    providerIds: ["openai"],
+    nowMs: 1000,
+    localProviderAccountKeys: ["openai\u0000local-account"],
+    projectedAccounts: [
+      { sourcePeerId: "peer-b", providerId: "openai", accountId: "descriptor-hot", availabilityState: "descriptor", warmRequestCount: 10, metadata: {} },
+      { sourcePeerId: "peer-a", providerId: "openai", accountId: "remote-cold", availabilityState: "remote_route", warmRequestCount: 0, metadata: {} },
+      { sourcePeerId: "peer-c", providerId: "openai", accountId: "remote-hot", availabilityState: "remote_route", warmRequestCount: 5, metadata: {} },
+      { sourcePeerId: "peer-d", providerId: "openai", accountId: "cooling", availabilityState: "remote_route", warmRequestCount: 99, metadata: { cooldownUntilMs: 2000 } },
+      { sourcePeerId: "peer-e", providerId: "openai", accountId: "local-account", availabilityState: "remote_route", warmRequestCount: 99, metadata: {} },
+    ],
+  });
+
+  assert.equal(result?.status, "ok");
+  const candidates = result?.candidates as readonly { readonly accountId?: string; readonly account_id?: string }[] | undefined;
+  assert.deepEqual(candidates?.map((candidate) => candidate.accountId ?? candidate.account_id), [
+    "remote-hot",
+    "remote-cold",
+    "descriptor-hot",
+  ]);
+});
+
+test("CLJS runtime authorizes tenant-provider share modes from federation policy", async (t) => {
+  const loaded = await loadCljsRuntime({ required: false });
+  if (!loaded.loaded) {
+    t.skip(`CLJS runtime artifact not built: ${loaded.reason}`);
+    return;
+  }
+  await assertCljsRuntimeReady(loaded.runtime);
+
+  assert.equal(typeof loaded.runtime.authorizeTenantProviderPolicy, "function");
+  const basePolicy = {
+    ownerSubject: "did:plc:owner",
+    providerKind: "peer_proxx",
+    shareMode: "warm_import",
+    allowedModels: ["gpt-5.5"],
+  };
+
+  const relayResult = loaded.runtime.authorizeTenantProviderPolicy?.("resources/policies/runtime/00-manifest.edn", {
+    policy: basePolicy,
+    ownerSubject: "did:plc:owner",
+    providerKind: "peer_proxx",
+    requestedModel: "gpt-5.5",
+    requiredShareMode: "relay",
+  });
+  const projectionResult = loaded.runtime.authorizeTenantProviderPolicy?.("resources/policies/runtime/00-manifest.edn", {
+    policy: basePolicy,
+    ownerSubject: "did:plc:owner",
+    providerKind: "peer_proxx",
+    requestedModel: "gpt-5.5",
+    requiredShareMode: "project_credentials",
+  });
+
+  assert.equal(relayResult?.status, "ok");
+  assert.equal(relayResult?.allowed, true);
+  assert.equal(projectionResult?.status, "ok");
+  assert.equal(projectionResult?.allowed, false);
+});

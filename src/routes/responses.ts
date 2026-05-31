@@ -342,7 +342,7 @@ export function registerResponsesRoutes(deps: AppDeps, app: FastifyInstance): vo
       const federatedResponsesHandled = await runCljsQueued(
         deps.config.cljsPolicyManifestPath,
         { "tenant-id": request.openHaxAuth?.tenantId ?? "default", "provider-id": providerRoutes[0]?.providerId, "request-kind": "responses" },
-        async (controller) => await deps.executeFederatedRequestFallback({
+        async (controller) => await deps.executeFederatedRequestRouting({
           requestHeaders: request.headers,
           requestBody,
           requestAuth: request.openHaxAuth ?? undefined,

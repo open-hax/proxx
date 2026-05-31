@@ -26,7 +26,7 @@ import { isCephalonAutoModel } from "../lib/provider-strategy/strategies/cephalo
 import { resolveFederationOwnerSubject } from "../lib/federation/federation-helpers.js";
 import { requestHasExplicitNumCtx } from "../lib/ollama-compat.js";
 import { ensureOllamaContextFits } from "../lib/ollama-context.js";
-import { executeBridgeRequestFallback } from "../lib/federation/bridge-fallback.js";
+import { executeBridgeRequestRouting } from "../lib/federation/bridge-routing.js";
 import type { AppDeps } from "../lib/app-deps.js";
 import { discoverDynamicOllamaRoutes, filterDedicatedOllamaRoutes, hasDedicatedOllamaRoutes, prependDynamicOllamaRoutes } from "../lib/dynamic-ollama-routes.js";
 import type { StrategyRequestContext } from "../lib/provider-strategy/shared.js";
@@ -309,7 +309,7 @@ async function executeChatCandidate(input: ChatCandidateInput): Promise<CljsMode
   const federatedChatHandled = await runCljsQueued(
     deps.config.cljsPolicyManifestPath,
     { "tenant-id": request.openHaxAuth?.tenantId ?? "default", "provider-id": providerRoutes[0]?.providerId, "request-kind": "chat" },
-    async (controller) => await deps.executeFederatedRequestFallback({
+    async (controller) => await deps.executeFederatedRequestRouting({
       requestHeaders: request.headers,
       requestBody,
       requestAuth: requestAuth as { readonly kind: "legacy_admin" | "tenant_api_key" | "ui_session" | "unauthenticated"; readonly subject?: string },
@@ -327,7 +327,7 @@ async function executeChatCandidate(input: ChatCandidateInput): Promise<CljsMode
   const bridgedChatHandled = await runCljsQueued(
     deps.config.cljsPolicyManifestPath,
     { "tenant-id": request.openHaxAuth?.tenantId ?? "default", "provider-id": providerRoutes[0]?.providerId, "request-kind": "chat" },
-    async () => await executeBridgeRequestFallback({
+    async () => await executeBridgeRequestRouting({
       bridgeRelay: deps.bridgeRelay,
       app: deps.app,
       config: deps.config,
