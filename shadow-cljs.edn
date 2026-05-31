@@ -19,9 +19,11 @@
                                             previewPolicyDecision proxx.runtime/preview-policy-decision-js
                                             normalizeReasoningRequest proxx.runtime/normalize-reasoning-request-js
                                             resolveModelAlias proxx.runtime/resolve-model-alias-js
-                                            getProviderRoutes proxx.runtime/get-provider-routes-js
-                                            filterProviderRoutes proxx.runtime/filter-provider-routes-js
-                                           runModelCandidates proxx.runtime/run-model-candidates-js
+                                             getProviderRoutes proxx.runtime/get-provider-routes-js
+                                              filterProviderRoutes proxx.runtime/filter-provider-routes-js
+                                              resolveFederationRouteCandidates proxx.runtime/resolve-federation-route-candidates-js
+                                              authorizeTenantProviderPolicy proxx.runtime/authorize-tenant-provider-policy-js
+                                             runModelCandidates proxx.runtime/run-model-candidates-js
                                            resolveQueuePolicy proxx.runtime/resolve-queue-policy-js
                                            runQueued proxx.runtime/run-queued-js}}}
    :js-options {:js-provider :import

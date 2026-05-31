@@ -35,6 +35,7 @@ type RemoteFederationAccountsPayload = {
     readonly ownerSubject?: string;
     readonly hasCredentials: boolean;
     readonly knowledgeSources: readonly string[];
+    readonly cooldownUntilMs?: number;
   }>;
   readonly projectedAccounts: ReadonlyArray<{
     readonly sourcePeerId: string;
@@ -156,8 +157,12 @@ async function pullPeerProjectedAccounts(input: {
       timeoutMs: input.timeoutMs,
     });
 
+    const localAccountKeys = new Set<string>();
+    const accountKey = (providerId: string, accountId: string): string => `${providerId.trim().toLowerCase()}\0${accountId.trim()}`;
+
     for (const account of remoteAccounts.localAccounts) {
       const authType = account.authType;
+      localAccountKeys.add(accountKey(account.providerId, account.accountId));
       await input.sqlFederationStore.upsertProjectedAccount({
         sourcePeerId: input.peer.id,
         ownerSubject: input.ownerSubject,
@@ -174,11 +179,16 @@ async function pullPeerProjectedAccounts(input: {
           authType,
           credentialMobility: authType === "oauth_bearer" ? "access_token_only" : "importable",
           refreshAuthority: authType === "oauth_bearer" ? "owner_only" : "portable",
+          ...(typeof account.cooldownUntilMs === "number" ? { cooldownUntilMs: account.cooldownUntilMs } : {}),
         },
       });
     }
 
     for (const account of remoteAccounts.projectedAccounts) {
+      if (localAccountKeys.has(accountKey(account.providerId, account.accountId))) {
+        continue;
+      }
+
       const authType = typeof account.metadata.authType === "string" ? account.metadata.authType : undefined;
       const knowledgeSources = Array.isArray(account.metadata.knowledgeSources)
         ? account.metadata.knowledgeSources.filter((entry): entry is string => typeof entry === "string")
