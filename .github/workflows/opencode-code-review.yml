@@ -31,7 +31,8 @@ jobs:
         run: echo "started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
 
       - name: Run OpenCode review
-        uses: anomalyco/opencode/github@latest
+        # v1.15.13 pinned by commit SHA for reproducible review behavior.
+        uses: anomalyco/opencode/github@385cb694419f98103af0e8fc6187ddcbcbb6eecb
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           KIMI_API_KEY: ${{ secrets.KIMI_FOR_CODING_API_KEY }}

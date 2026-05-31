@@ -101,6 +101,8 @@ export async function noteFederatedProjectedAccountRouted(
       requestKind: input.requestKind,
       requiredShareMode: "warm_import",
     })
+    // Preserve legacy federation behavior: projected accounts may warm-import
+    // unless a tenant-provider policy explicitly constrains share mode.
     : true;
   const warmImportThreshold = input.policy?.warmImportThreshold;
   if (warmImportAllowed && shouldWarmImportProjectedAccount(projectedAccount.warmRequestCount, warmImportThreshold)) {
