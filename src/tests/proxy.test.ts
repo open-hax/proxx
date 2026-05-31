@@ -7765,6 +7765,53 @@ test("openai passthrough strips max_output_tokens for codex path (regression: un
   );
 });
 
+test("openai responses passthrough closes stalled streaming bodies", async () => {
+  await withProxyApp(
+    {
+      keys: [],
+      keysPayload: {
+        providers: {
+          openai: {
+            auth: "oauth_bearer",
+            accounts: [
+              { id: "openai-a", access_token: "oa-token-a", chatgpt_account_id: "chatgpt-a" },
+            ]
+          }
+        }
+      },
+      configOverrides: {
+        upstreamProviderId: "openai",
+        requestTimeoutMs: 25,
+        streamBootstrapTimeoutMs: 25,
+      },
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: { "content-type": "text/event-stream; charset=utf-8" },
+        streamBody: async (response) => {
+          response.write(`event: response.created\ndata: ${JSON.stringify({ type: "response.created", response: { id: "resp_stalled", status: "in_progress", model: "gpt-5.5", output: [] } })}\n\n`);
+          await once(response, "close");
+        },
+      })
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/responses",
+        headers: { "content-type": "application/json" },
+        payload: {
+          model: "gpt-5.5",
+          input: [{ role: "user", content: [{ type: "input_text", text: "hello" }] }],
+          instructions: "",
+          stream: true
+        }
+      });
+
+      assert.equal(response.statusCode, 200);
+      assert.match(response.body, /response\.created/);
+    }
+  );
+});
+
 test("/api/tools/websearch proxies via Responses web_search and extracts url citations", async () => {
   let observedPath = "";
   let observedBody: Record<string, unknown> | undefined;

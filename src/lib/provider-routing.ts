@@ -145,6 +145,7 @@ export function getDeclaredProviderRoutes(configOrManifestPath?: ProviderRouteRu
 export function filterDeclaredProviderRoutes(manifestPath: string | undefined, input: {
   readonly modelId: string;
   readonly requestKind: string;
+  readonly requestedProviderIds?: readonly string[];
   readonly tenantSettings: unknown;
   readonly providerRoutes: readonly ProviderRoute[];
   readonly config?: unknown;
@@ -168,6 +169,7 @@ export function filterDeclaredProviderRoutes(manifestPath: string | undefined, i
     requestKind: input.requestKind,
     tenantSettings: input.tenantSettings,
     providerIds: filteredRoutes.map((route) => route.providerId),
+    ...(input.requestedProviderIds ? { requestedProviderIds: input.requestedProviderIds } : {}),
     strategies: PROVIDER_STRATEGY_INFOS,
   });
   const decision = preview.status === "ok" && isRecord(preview.decision)

@@ -47,6 +47,11 @@ export function registerEmbeddingsRoutes(deps: AppDeps, app: FastifyInstance): v
 
     const explicitlyLlamaCpp = hasModelPrefix(model, deps.config.llamacppModelPrefixes ?? []);
     const explicitlyOllama = !explicitlyLlamaCpp && hasModelPrefix(model, deps.config.ollamaModelPrefixes);
+    const requestedProviderIds = explicitlyLlamaCpp
+      ? ["llamacpp-embed"]
+      : explicitlyOllama
+        ? ["ollama"]
+        : undefined;
 
     const proxySettings = await deps.proxySettingsStore.getForTenant(
       (request.openHaxAuth?.tenantId) ?? DEFAULT_TENANT_ID,
@@ -87,6 +92,7 @@ export function registerEmbeddingsRoutes(deps: AppDeps, app: FastifyInstance): v
       config: deps.config,
       modelId: routingModelWithoutProviderPrefix,
       requestKind: "embeddings",
+      ...(requestedProviderIds ? { requestedProviderIds } : {}),
       tenantSettings: proxySettings,
       providerRoutes: declaredRoutes,
     }).providerRoutes;

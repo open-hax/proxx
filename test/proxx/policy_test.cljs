@@ -960,6 +960,36 @@
     (is (= "llamacpp-embed" (:provider-id decision)))
     (is (= :embeddings (get-in decision [:strategy :mode])))))
 
+(deftest compiler-constrains-embedding-policy-to-requested-provider
+  (let [compiled (contracts/compile-contracts
+                  (loader/load-policy-contracts! "resources/policies/runtime/00-manifest.edn"))
+        base-input {:model-id "qwen3-embedding:0.6b"
+                    :request-kind :embeddings
+                    :provider-ids ["llamacpp-embed" "ollama" "ollama-lan"]
+                    :requested-provider-ids ["ollama"]
+                    :strategies-by-provider {"llamacpp-embed" [{:mode :embeddings :priority 0}]
+                                             "ollama" [{:mode :embeddings :priority 1}]
+                                             "ollama-lan" [{:mode :embeddings :priority 1}]}}
+        allowed-decision (contracts/preview-policy-decision
+                          compiled
+                          (assoc base-input :tenant-settings {}))
+        disabled-decision (contracts/preview-policy-decision
+                           compiled
+                           (assoc base-input
+                                  :tenant-settings {:disabled-provider-ids ["ollama"]}))]
+    (is (= :ok (:status allowed-decision)))
+    (is (= ["ollama"] (:providers allowed-decision)))
+    (is (= "ollama" (:provider-id allowed-decision)))
+    (is (= [{:provider-id "ollama"
+             :base-url "http://ollama:11434"
+             :auth-required? false
+             :paths {:embeddings "/api/embed"
+                     :chat-completions "/v1/chat/completions"}}]
+           (:provider-routes allowed-decision)))
+    (is (= :exhausted (:status disabled-decision)))
+    (is (= :no-provider-candidates (:reason disabled-decision)))
+    (is (= [] (:providers disabled-decision)))))
+
 (deftest compiler-previews-blaze-media-policy-decision
   (let [compiled (contracts/compile-contracts
                   (loader/load-policy-contracts! "resources/policies/runtime/00-manifest.edn"))

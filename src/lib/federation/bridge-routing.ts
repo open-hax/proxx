@@ -19,11 +19,8 @@ import {
   resolveFederationOwnerSubject,
 } from "./federation-helpers.js";
 import { isAtDid } from "./owner-credential.js";
-import {
-  shareModeAllowsRelay,
-  tenantProviderPolicyAllowsUse,
-  type TenantProviderPolicyRecord,
-} from "../db/sql-tenant-provider-policy-store.js";
+import type { TenantProviderPolicyRecord } from "../db/sql-tenant-provider-policy-store.js";
+import { getActiveCljsRuntime } from "../cljs-runtime.js";
 import { applyNativeOllamaAuth } from "../native-auth.js";
 import type { SqlTenantProviderPolicyStore } from "../db/sql-tenant-provider-policy-store.js";
 import type { RuntimeCredentialStore } from "../runtime-credential-store.js";
@@ -52,7 +49,7 @@ export const FEDERATION_BLOCKED_RESPONSE_HEADERS = new Set([
   "x-open-hax-forced-account-id",
 ]);
 
-export interface BridgeFallbackDeps {
+export interface BridgeRoutingDeps {
   readonly bridgeRelay: FederationBridgeRelay | undefined;
   readonly app: FastifyInstance;
   readonly config: ProxyConfig;
@@ -61,8 +58,26 @@ export interface BridgeFallbackDeps {
   readonly sqlTenantProviderPolicyStore: SqlTenantProviderPolicyStore | undefined;
 }
 
-export async function executeBridgeRequestFallback(
-  deps: BridgeFallbackDeps,
+function authorizeTenantProviderPolicy(
+  deps: BridgeRoutingDeps,
+  policy: TenantProviderPolicyRecord,
+  input: {
+    readonly ownerSubject: string;
+    readonly providerKind: "local_upstream" | "peer_proxx";
+    readonly requestedModel?: string;
+    readonly requiredShareMode?: "relay" | "warm_import" | "project_credentials";
+  },
+): boolean {
+  const runtime = getActiveCljsRuntime();
+  const result = runtime?.authorizeTenantProviderPolicy?.(
+    deps.config.cljsPolicyManifestPath ?? "resources/policies/runtime/00-manifest.edn",
+    { policy, ...input },
+  );
+  return result?.status === "ok" && result.allowed === true;
+}
+
+export async function executeBridgeRequestRouting(
+  deps: BridgeRoutingDeps,
   input: {
     readonly requestHeaders: Record<string, unknown>;
     readonly requestBody: Record<string, unknown>;
@@ -119,7 +134,7 @@ export async function executeBridgeRequestFallback(
       return null;
     }
 
-    if (!tenantProviderPolicyAllowsUse(policy, {
+    if (!authorizeTenantProviderPolicy(deps, policy, {
       ownerSubject,
       providerKind: "peer_proxx",
       requestedModel,
@@ -148,7 +163,7 @@ export async function executeBridgeRequestFallback(
         }
 
         const policy = await resolveBridgePolicy(capability.providerId);
-        if (policy === null || (policy && !shareModeAllowsRelay(policy.shareMode))) {
+        if (policy === null) {
           continue;
         }
 
@@ -273,7 +288,7 @@ export async function executeBridgeRequestFallback(
 }
 
 export const handleBridgeRequest = async (
-  deps: BridgeFallbackDeps,
+  deps: BridgeRoutingDeps,
   input: {
     readonly method: string;
     readonly path: string;
@@ -468,7 +483,7 @@ export const handleBridgeRequest = async (
 };
 
 export async function injectNativeBridge(
-  deps: BridgeFallbackDeps,
+  deps: BridgeRoutingDeps,
   url: string,
   payload: Record<string, unknown>,
   requestHeaders: Record<string, unknown>,

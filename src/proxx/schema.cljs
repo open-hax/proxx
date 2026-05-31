@@ -332,6 +332,16 @@
     [:require/plans {:optional true} [:or :keyword KeywordVector]]
     [:exclude/plans {:optional true} KeywordVector]]])
 
+(def FederationRoutingClauseContract
+  [:and
+   ContractBase
+   [:map
+    [:contract/kind [:enum :federation-routing-clause]]
+    [:match/request-kind {:optional true} :keyword]
+    [:admit/share-modes {:optional true} [:map-of :keyword KeywordVector]]
+    [:admit/availability-states {:optional true} KeywordVector]
+    [:selection/order [:vector :keyword]]]])
+
 (def AuthorizationClauseContract
   [:and
    ContractBase
@@ -465,9 +475,10 @@
    [:request-surface-default RequestSurfaceDefaultContract]
    [:routing-clause RoutingClauseContract]
    [:selection-rule SelectionRuleContract]
-   [:account-ordering AccountOrderingContract]
-   [:account-constraint AccountConstraintContract]
-   [:authorization-clause AuthorizationClauseContract]
+    [:account-ordering AccountOrderingContract]
+    [:account-constraint AccountConstraintContract]
+    [:federation-routing-clause FederationRoutingClauseContract]
+    [:authorization-clause AuthorizationClauseContract]
     [:model-pricing-override ModelPricingOverrideContract]
     [:model-alias ModelAliasContract]
     [:reasoning-normalization ReasoningNormalizationContract]
@@ -512,8 +523,9 @@
    :proxx/contract-request-surface-default RequestSurfaceDefaultContract
    :proxx/contract-routing-clause RoutingClauseContract
    :proxx/contract-selection-rule SelectionRuleContract
-   :proxx/contract-account-ordering AccountOrderingContract
-   :proxx/contract-account-constraint AccountConstraintContract
+    :proxx/contract-account-ordering AccountOrderingContract
+    :proxx/contract-account-constraint AccountConstraintContract
+    :proxx/contract-federation-routing-clause FederationRoutingClauseContract
    :proxx/contract-authorization-clause AuthorizationClauseContract
     :proxx/contract-model-pricing-override ModelPricingOverrideContract
     :proxx/contract-model-alias ModelAliasContract

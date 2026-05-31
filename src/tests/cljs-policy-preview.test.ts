@@ -97,6 +97,60 @@ test("CLJS runtime routes bare qwen3 embeddings through the declarative embeddin
   assert.equal(decision.strategy?.mode, "embeddings");
 });
 
+test("CLJS runtime constrains embeddings to requested provider facts before tenant enforcement", async (t) => {
+  const loaded = await loadCljsRuntime({ required: false });
+  if (!loaded.loaded) {
+    t.skip(`CLJS runtime artifact not built: ${loaded.reason}`);
+    return;
+  }
+  await assertCljsRuntimeReady(loaded.runtime);
+
+  const baseInput = {
+    modelId: "qwen3-embedding:0.6b",
+    requestKind: "embeddings",
+    providerIds: ["llamacpp-embed", "ollama", "ollama-lan"],
+    requestedProviderIds: ["ollama"],
+    strategiesByProvider: {
+      "llamacpp-embed": [{ mode: "embeddings", priority: 0 }],
+      ollama: [{ mode: "embeddings", priority: 1 }],
+      "ollama-lan": [{ mode: "embeddings", priority: 1 }],
+    },
+  };
+
+  const allowedResult = loaded.runtime.previewPolicyDecision("resources/policies/runtime/00-manifest.edn", {
+    ...baseInput,
+    tenantSettings: {},
+  });
+  const disabledResult = loaded.runtime.previewPolicyDecision("resources/policies/runtime/00-manifest.edn", {
+    ...baseInput,
+    tenantSettings: { disabledProviderIds: ["ollama"] },
+  });
+
+  assert.equal(allowedResult.status, "ok");
+  const allowedDecision = allowedResult.decision as {
+    readonly status?: string;
+    readonly providers?: readonly string[];
+    readonly "provider-id"?: string;
+    readonly "provider-routes"?: readonly { readonly "provider-id"?: string; readonly "base-url"?: string }[];
+  };
+  assert.equal(allowedDecision.status, "ok");
+  assert.deepEqual(allowedDecision.providers, ["ollama"]);
+  assert.equal(allowedDecision["provider-id"], "ollama");
+  assert.deepEqual(allowedDecision["provider-routes"], [
+    { "provider-id": "ollama", "base-url": "http://ollama:11434", "auth-required?": false, paths: { embeddings: "/api/embed", "chat-completions": "/v1/chat/completions" } },
+  ]);
+
+  assert.equal(disabledResult.status, "ok");
+  const disabledDecision = disabledResult.decision as {
+    readonly status?: string;
+    readonly reason?: string;
+    readonly providers?: readonly string[];
+  };
+  assert.equal(disabledDecision.status, "exhausted");
+  assert.equal(disabledDecision.reason, "no-provider-candidates");
+  assert.deepEqual(disabledDecision.providers, []);
+});
+
 test("CLJS runtime keeps gpt and mimo routes pinned to their canonical providers", async (t) => {
   const loaded = await loadCljsRuntime({ required: false });
   if (!loaded.loaded) {
@@ -168,4 +222,73 @@ test("CLJS runtime keeps gpt and mimo routes pinned to their canonical providers
     { "provider-id": "ollama-lan", "base-url": "http://192.168.12.68:11434", "auth-required?": false, paths: { embeddings: "/api/embed", "chat-completions": "/v1/chat/completions" } },
   ]);
   assert.equal(gemma4E4bDecision.strategy?.mode, "chat_completions");
+});
+
+test("CLJS runtime orders federation projected accounts from declarative policy", async (t) => {
+  const loaded = await loadCljsRuntime({ required: false });
+  if (!loaded.loaded) {
+    t.skip(`CLJS runtime artifact not built: ${loaded.reason}`);
+    return;
+  }
+  await assertCljsRuntimeReady(loaded.runtime);
+
+  assert.equal(typeof loaded.runtime.resolveFederationRouteCandidates, "function");
+  const result = loaded.runtime.resolveFederationRouteCandidates?.("resources/policies/runtime/00-manifest.edn", {
+    requestKind: "responses",
+    providerIds: ["openai"],
+    nowMs: 1000,
+    localProviderAccountKeys: ["openai\u0000local-account"],
+    projectedAccounts: [
+      { sourcePeerId: "peer-b", providerId: "openai", accountId: "descriptor-hot", availabilityState: "descriptor", warmRequestCount: 10, metadata: {} },
+      { sourcePeerId: "peer-a", providerId: "openai", accountId: "remote-cold", availabilityState: "remote_route", warmRequestCount: 0, metadata: {} },
+      { sourcePeerId: "peer-c", providerId: "openai", accountId: "remote-hot", availabilityState: "remote_route", warmRequestCount: 5, metadata: {} },
+      { sourcePeerId: "peer-d", providerId: "openai", accountId: "cooling", availabilityState: "remote_route", warmRequestCount: 99, metadata: { cooldownUntilMs: 2000 } },
+      { sourcePeerId: "peer-e", providerId: "openai", accountId: "local-account", availabilityState: "remote_route", warmRequestCount: 99, metadata: {} },
+    ],
+  });
+
+  assert.equal(result?.status, "ok");
+  const candidates = result?.candidates as readonly { readonly accountId?: string; readonly account_id?: string }[] | undefined;
+  assert.deepEqual(candidates?.map((candidate) => candidate.accountId ?? candidate.account_id), [
+    "remote-hot",
+    "remote-cold",
+    "descriptor-hot",
+  ]);
+});
+
+test("CLJS runtime authorizes tenant-provider share modes from federation policy", async (t) => {
+  const loaded = await loadCljsRuntime({ required: false });
+  if (!loaded.loaded) {
+    t.skip(`CLJS runtime artifact not built: ${loaded.reason}`);
+    return;
+  }
+  await assertCljsRuntimeReady(loaded.runtime);
+
+  assert.equal(typeof loaded.runtime.authorizeTenantProviderPolicy, "function");
+  const basePolicy = {
+    ownerSubject: "did:plc:owner",
+    providerKind: "peer_proxx",
+    shareMode: "warm_import",
+    allowedModels: ["gpt-5.5"],
+  };
+
+  const relayResult = loaded.runtime.authorizeTenantProviderPolicy?.("resources/policies/runtime/00-manifest.edn", {
+    policy: basePolicy,
+    ownerSubject: "did:plc:owner",
+    providerKind: "peer_proxx",
+    requestedModel: "gpt-5.5",
+    requiredShareMode: "relay",
+  });
+  const projectionResult = loaded.runtime.authorizeTenantProviderPolicy?.("resources/policies/runtime/00-manifest.edn", {
+    policy: basePolicy,
+    ownerSubject: "did:plc:owner",
+    providerKind: "peer_proxx",
+    requestedModel: "gpt-5.5",
+    requiredShareMode: "project_credentials",
+  });
+
+  assert.equal(relayResult?.status, "ok");
+  assert.equal(relayResult?.allowed, true);
+  assert.equal(projectionResult?.status, "ok");
+  assert.equal(projectionResult?.allowed, false);
 });

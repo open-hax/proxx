@@ -91,6 +91,11 @@
        (filter #(= :request-queue-template (:contract/kind %)))
        vec))
 
+(defn federation-routing-clauses [idx]
+  (->> (:contracts idx)
+       (filter #(= :federation-routing-clause (:contract/kind %)))
+       vec))
+
 (defn queue-instances [idx]
   (->> (:contracts idx)
        (filter #(= :request-queue-instance (:contract/kind %)))
@@ -422,6 +427,13 @@
 (defn- normalize-provider-id [provider-id]
   (str/lower-case (str/trim (str provider-id))))
 
+(defn- dedupe-provider-id-values [provider-ids]
+  (vec (distinct (remove str/blank? (map str provider-ids)))))
+
+(defn- requested-provider-ids [input]
+  (dedupe-provider-id-values
+   (or (get-any input [:requested-provider-ids :requestedProviderIds]) [])))
+
 (defn tenant-provider-allowed?
   "Apply declarative tenant provider allow/disabled-list semantics."
   [settings provider-id]
@@ -497,6 +509,26 @@
       false
 
       :else true)))
+
+(defn- request-surface-provider-allowed?
+  "Return true when declarative request-surface defaults allow provider-id.
+
+  Provider capability clauses tune strategy preference. Request-surface-default
+  clauses define the provider universe for non-chat surfaces such as embeddings,
+  images, video, music, and TTS. If a surface has no default clause, preserve
+  legacy fail-open behavior for chat-like routes while the policy manifest grows.
+  "
+  [compiled provider-id request-kind]
+  (let [surface-clauses (filterv #(= request-kind (:match/request-kind %))
+                                  (:request-surface-defaults compiled))]
+    (or (empty? surface-clauses)
+        (boolean (some #(pattern-matches? (:match/provider-pattern %) provider-id)
+                       surface-clauses)))))
+
+(defn- requested-provider-allowed? [input provider-id]
+  (let [requested (set (map normalize-provider-id (requested-provider-ids input)))]
+    (or (empty? requested)
+        (contains? requested (normalize-provider-id provider-id)))))
 
 (defn- provider-entry [catalog-bundle provider-id]
   (let [provider-catalogs (or (get-any catalog-bundle [:provider-catalogs :providerCatalogs]) {})
@@ -614,12 +646,18 @@
   decide provider eligibility locally."
   [_compiled input]
   (let [model-id (or (get-any input [:model-id :modelId :routed-model :routedModel]) "")
+        request-kind (normalized-keyword (or (get-any input [:request-kind :requestKind]) :chat))
         config (or (get-any input [:config]) {})
         tenant-settings (or (get-any input [:tenant-settings :tenantSettings]) {})
         catalog-bundle (get-any input [:catalog-bundle :catalogBundle])
         apply-catalog-availability? (not= false (get-any input [:catalog-availability? :catalogAvailability]))
         routes (->> (input-provider-routes input)
                     (filter #(provider-route-supports-model? config % model-id))
+                    (filter #(request-surface-provider-allowed? _compiled
+                                                               (provider-route-id-from-input %)
+                                                               request-kind))
+                    (filter #(requested-provider-allowed? input
+                                                           (provider-route-id-from-input %)))
                     (filter #(tenant-provider-allowed? tenant-settings
                                                         (provider-route-id-from-input %)))
                     vec)]
@@ -644,6 +682,23 @@
   (when mode
     (keyword (str/replace (name mode) #"_" "-"))))
 
+(def ^:private default-share-mode-requirements
+  {:relay #{:relay-only :warm-import :project-credentials}
+   :warm-import #{:warm-import :project-credentials}
+   :project-credentials #{:project-credentials}})
+
+(defn- share-mode-requirements [compiled]
+  (let [declared (->> (:federation-routing-clauses compiled)
+                      (map :admit/share-modes)
+                      (filter map?)
+                      (apply merge))]
+    (if (seq declared)
+      (reduce-kv (fn [acc required modes]
+                   (assoc acc (normalize-mode required) (set (map normalize-mode modes))))
+                 default-share-mode-requirements
+                 declared)
+      default-share-mode-requirements)))
+
 (defn share-mode-allows-relay? [mode]
   (contains? #{:relay-only :warm-import :project-credentials}
              (normalize-mode mode)))
@@ -655,28 +710,107 @@
 (defn share-mode-allows-credential-projection? [mode]
   (= :project-credentials (normalize-mode mode)))
 
-(defn- share-mode-satisfies? [mode required]
-  (case (normalize-mode required)
-    :project-credentials (share-mode-allows-credential-projection? mode)
-    :warm-import (share-mode-allows-warm-import? mode)
-    :relay (share-mode-allows-relay? mode)
-    (share-mode-allows-relay? mode)))
+(defn- share-mode-satisfies? [compiled mode required]
+  (let [normalized-required (or (normalize-mode required) :relay)
+        allowed (or (get (share-mode-requirements compiled) normalized-required)
+                    (get default-share-mode-requirements normalized-required)
+                    (:relay default-share-mode-requirements))]
+    (contains? allowed (normalize-mode mode))))
 
 (defn tenant-provider-policy-allows-use?
   "Apply federated tenant provider share policy semantics."
-  [policy input]
-  (let [requested-model (str/trim (str (or (get-any input [:requested-model :requestedModel]) "")))
-        allowed-models (non-empty-values (or (get-any policy [:allowed-models :allowedModels]) []))]
-    (and (some? policy)
-         (= (get-any policy [:owner-subject :ownerSubject])
-            (get-any input [:owner-subject :ownerSubject]))
-         (= (get-any policy [:provider-kind :providerKind])
-            (get-any input [:provider-kind :providerKind]))
-         (or (str/blank? requested-model)
-             (empty? allowed-models)
-             (contains? (set allowed-models) requested-model))
-         (share-mode-satisfies? (get-any policy [:share-mode :shareMode])
-                                (get-any input [:required-share-mode :requiredShareMode])))))
+  ([policy input]
+   (tenant-provider-policy-allows-use? {:federation-routing-clauses []} policy input))
+  ([compiled policy input]
+   (let [requested-model (str/trim (str (or (get-any input [:requested-model :requestedModel]) "")))
+         allowed-models (non-empty-values (or (get-any policy [:allowed-models :allowedModels]) []))]
+     (and (some? policy)
+          (= (get-any policy [:owner-subject :ownerSubject])
+             (get-any input [:owner-subject :ownerSubject]))
+          (= (get-any policy [:provider-kind :providerKind])
+             (get-any input [:provider-kind :providerKind]))
+          (or (str/blank? requested-model)
+              (empty? allowed-models)
+              (contains? (set allowed-models) requested-model))
+          (share-mode-satisfies? compiled
+                                 (get-any policy [:share-mode :shareMode])
+                                 (get-any input [:required-share-mode :requiredShareMode]))))))
+
+(defn- projected-availability-state [account]
+  (normalize-mode (get-any account [:availability-state :availabilityState])))
+
+(defn- projected-provider-id [account]
+  (some-> (get-any account [:provider-id :providerId]) str str/trim))
+
+(defn- projected-account-id [account]
+  (some-> (get-any account [:account-id :accountId]) str str/trim))
+
+(defn- projected-source-peer-id [account]
+  (some-> (get-any account [:source-peer-id :sourcePeerId]) str str/trim))
+
+(defn- projected-warm-request-count [account]
+  (let [value (get-any account [:warm-request-count :warmRequestCount])]
+    (if (number? value) value 0)))
+
+(defn- federation-routing-clause-for [compiled request-kind]
+  (or (some #(when (= request-kind (:match/request-kind %)) %)
+            (:federation-routing-clauses compiled))
+      (some #(when (nil? (:match/request-kind %)) %)
+            (:federation-routing-clauses compiled))))
+
+(defn- federation-sort-value [account token]
+  (case token
+    :availability-state (case (projected-availability-state account)
+                          :remote-route 0
+                          :descriptor 1
+                          :imported 2
+                          99)
+    :warm-request-count-desc (- (projected-warm-request-count account))
+    :provider-id (or (projected-provider-id account) "")
+    :account-id (or (projected-account-id account) "")
+    :source-peer-id (or (projected-source-peer-id account) "")
+    nil))
+
+(defn resolve-federation-route-candidates
+  "Order projected federation accounts from declarative policy contracts.
+
+   TypeScript supplies facts from storage; this function owns admission and order."
+  [compiled input]
+  (let [request-kind (normalized-keyword (or (get-any input [:request-kind :requestKind]) :chat))
+        provider-ids (set (map normalize-provider-id (or (get-any input [:provider-ids :providerIds]) [])))
+        local-keys (set (or (get-any input [:local-provider-account-keys :localProviderAccountKeys]) []))
+        now-ms (or (get-any input [:now-ms :nowMs]) 0)
+        projected-accounts (vec (or (get-any input [:projected-accounts :projectedAccounts]) []))
+        clause (federation-routing-clause-for compiled request-kind)
+        admitted-states (set (or (:admit/availability-states clause) [:remote-route :descriptor]))
+        order (or (:selection/order clause)
+                  [:availability-state :warm-request-count-desc :provider-id :account-id :source-peer-id])]
+    (if-not clause
+      {:status :exhausted
+       :reason :no-federation-routing-clause
+       :request-kind request-kind
+       :candidates []}
+      {:status :ok
+       :request-kind request-kind
+       :route-id (:contract/id clause)
+       :candidates
+       (->> projected-accounts
+            (filter (fn [account]
+                      (let [provider-id (projected-provider-id account)
+                            account-id (projected-account-id account)
+                            state (projected-availability-state account)
+                            cooldown-ms (or (get-in account [:metadata :cooldownUntilMs])
+                                            (get-in account [:metadata :cooldown-until-ms])
+                                            0)]
+                        (and provider-id
+                             account-id
+                             (or (empty? provider-ids) (contains? provider-ids (normalize-provider-id provider-id)))
+                             (not (contains? local-keys (str (normalize-provider-id provider-id) "\u0000" account-id)))
+                             (contains? admitted-states state)
+                             (<= cooldown-ms now-ms)))))
+            (sort-by (fn [account]
+                       (mapv #(federation-sort-value account %) order)))
+            vec)})))
 
 (defn- lookup-provider-value [m provider-id fallback]
   (cond
@@ -719,13 +853,16 @@
     (vec (:prefer/provider-order route))))
 
 (defn- dedupe-provider-ids [provider-ids]
-  (vec (distinct (remove str/blank? (map str provider-ids)))))
+  (dedupe-provider-id-values provider-ids))
 
 (defn- request-or-route-provider-ids [route input]
-  (let [requested-provider-ids (vec (or (get-any input [:provider-ids :providerIds]) []))]
-    (if (seq requested-provider-ids)
-      (dedupe-provider-ids requested-provider-ids)
-      (dedupe-provider-ids (route-default-provider-ids route)))))
+  (let [available-provider-ids (if-let [provider-ids (seq (or (get-any input [:provider-ids :providerIds]) []))]
+                                 (dedupe-provider-ids provider-ids)
+                                 (dedupe-provider-ids (route-default-provider-ids route)))
+        requested (set (map normalize-provider-id (requested-provider-ids input)))]
+    (if (seq requested)
+      (filterv #(contains? requested (normalize-provider-id %)) available-provider-ids)
+      available-provider-ids)))
 
 (defn- provider-route-by-id [compiled]
   (into {}
@@ -943,7 +1080,9 @@
                                                   (strategies-for-provider input provider-id))}))
         (if-let [route (select-routing-clause compiled model-id)]
           (let [provider-ids (request-or-route-provider-ids route input)
-              evidenced-providers (evidence-filtered-provider-ids route input provider-ids model-id)
+              surface-providers (filterv #(request-surface-provider-allowed? compiled % request-kind)
+                                         provider-ids)
+              evidenced-providers (evidence-filtered-provider-ids route input surface-providers model-id)
               tenant-allowed-providers (filterv #(tenant-provider-allowed? tenant-settings %) evidenced-providers)
               ordered-providers (vec (order-provider-candidates route tenant-allowed-providers))
               provider-id (first ordered-providers)]
@@ -998,7 +1137,8 @@
      {:index idx
       :routing-clauses (routing-clauses idx)
       :provider-capabilities (provider-capabilities idx)
-      :model-families (model-families idx)
+       :federation-routing-clauses (federation-routing-clauses idx)
+       :model-families (model-families idx)
       :reasoning-normalizations (reasoning-normalizations idx)
       :model-aliases (model-aliases idx)
       :queue-templates (queue-templates idx)

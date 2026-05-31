@@ -1,5 +1,3 @@
-import { Readable } from "node:stream";
-
 import type { FastifyReply } from "fastify";
 
 import { copyUpstreamHeaders } from "../../proxy.js";
@@ -42,6 +40,104 @@ function stripCodexUnsupportedParams(payload: Record<string, unknown>): void {
   for (const key of CODEX_UNSUPPORTED_PARAMS) {
     delete payload[key];
   }
+}
+
+async function readStreamChunkWithTimeout(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  timeoutMs: number,
+): Promise<ReadableStreamReadResult<Uint8Array>> {
+  let timeoutHandle: NodeJS.Timeout | undefined;
+
+  try {
+    return await Promise.race([
+      reader.read(),
+      new Promise<ReadableStreamReadResult<Uint8Array>>((_, reject) => {
+        timeoutHandle = setTimeout(() => reject(new Error("responses stream timeout")), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle);
+    }
+  }
+}
+
+async function streamResponsesPassthroughToClient(
+  reply: FastifyReply,
+  upstreamResponse: Response,
+  context: ProviderAttemptContext,
+): Promise<ProviderAttemptOutcome> {
+  if (!upstreamResponse.body) {
+    return { kind: "continue", requestError: true };
+  }
+
+  const reader = upstreamResponse.body.getReader();
+  let firstChunk: ReadableStreamReadResult<Uint8Array>;
+  try {
+    firstChunk = await readStreamChunkWithTimeout(reader, context.config.streamBootstrapTimeoutMs);
+  } catch {
+    await reader.cancel().catch(() => undefined);
+    return { kind: "continue", requestError: true };
+  }
+
+  if (firstChunk.done) {
+    await reader.cancel().catch(() => undefined);
+    return { kind: "continue", requestError: true };
+  }
+
+  reply.header("x-open-hax-upstream-provider", context.providerId);
+  reply.code(upstreamResponse.status);
+  copyUpstreamHeaders(reply, upstreamResponse.headers);
+
+  reply.removeHeader("content-length");
+  reply.header("cache-control", "no-cache");
+  reply.header("x-accel-buffering", "no");
+  reply.header("content-type", "text/event-stream; charset=utf-8");
+  reply.hijack();
+  const rawResponse = reply.raw;
+  rawResponse.statusCode = upstreamResponse.status;
+  for (const [name, value] of Object.entries(reply.getHeaders())) {
+    if (value !== undefined) {
+      rawResponse.setHeader(name, value as never);
+    }
+  }
+  rawResponse.flushHeaders();
+
+  try {
+    if (firstChunk.value && firstChunk.value.byteLength > 0) {
+      rawResponse.write(firstChunk.value);
+    }
+
+    while (!rawResponse.writableEnded) {
+      let nextChunk: ReadableStreamReadResult<Uint8Array>;
+      try {
+        nextChunk = await readStreamChunkWithTimeout(reader, context.config.requestTimeoutMs);
+      } catch {
+        await reader.cancel().catch(() => undefined);
+        break;
+      }
+
+      const { done, value } = nextChunk;
+      if (done) {
+        break;
+      }
+
+      if (value && value.byteLength > 0) {
+        rawResponse.write(value);
+      }
+    }
+  } finally {
+    try {
+      reader.releaseLock();
+    } catch {
+      // Ignore reader release errors while closing the downstream stream.
+    }
+    if (!rawResponse.writableEnded) {
+      rawResponse.end();
+    }
+  }
+
+  return { kind: "handled" };
 }
 
 abstract class OpenAiCodexResponsesStrategy extends TransformedJsonProviderStrategy {
@@ -155,35 +251,7 @@ export class OpenAiResponsesPassthroughStrategy extends BaseProviderStrategy {
     }
 
     if (context.clientWantsStream && looksLikeEventStream) {
-      if (!upstreamResponse.body) {
-        return { kind: "continue", requestError: true };
-      }
-
-      reply.header("x-open-hax-upstream-provider", context.providerId);
-      reply.code(upstreamResponse.status);
-      copyUpstreamHeaders(reply, upstreamResponse.headers);
-
-      reply.removeHeader("content-length");
-      reply.header("cache-control", "no-cache");
-      reply.header("x-accel-buffering", "no");
-      reply.header("content-type", "text/event-stream; charset=utf-8");
-      reply.hijack();
-      const rawResponse = reply.raw;
-      rawResponse.statusCode = upstreamResponse.status;
-      for (const [name, value] of Object.entries(reply.getHeaders())) {
-        if (value !== undefined) {
-          rawResponse.setHeader(name, value as never);
-        }
-      }
-      rawResponse.flushHeaders();
-      const nodeStream = Readable.fromWeb(upstreamResponse.body as never);
-      nodeStream.on("error", () => {
-        if (!rawResponse.writableEnded) {
-          rawResponse.end();
-        }
-      });
-      nodeStream.pipe(rawResponse);
-      return { kind: "handled" };
+      return streamResponsesPassthroughToClient(reply, upstreamResponse, context);
     }
 
     if (looksLikeEventStream) {
