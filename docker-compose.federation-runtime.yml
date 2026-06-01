@@ -10,7 +10,7 @@ x-proxx-node: &proxx-node
     PROXY_PORT: "8789"
     PORT: "8789"
     PROXX_CLJS_POLICY_AUTHORITATIVE: "true"
-    PROXY_AUTH_TOKEN: "${PROXY_AUTH_TOKEN:-change-me-open-hax-proxy-token}"
+    PROXY_AUTH_TOKEN: "${PROXY_AUTH_TOKEN:?PROXY_AUTH_TOKEN must be set}"
     PROXY_MODELS_FILE: /workspace/service-config/models.json
     PROXY_REQUEST_LOGS_FILE: /app/data/request-logs.jsonl
     PROXY_REQUEST_LOGS_MAX_ENTRIES: "${PROXY_REQUEST_LOGS_MAX_ENTRIES:-100000}"
@@ -124,7 +124,7 @@ services:
       FEDERATION_SELF_NODE_ID: a1
       FEDERATION_SELF_GROUP_ID: group-a
       FEDERATION_SELF_PEER_DID: did:web:a1.${FEDERATION_PUBLIC_HOST_SUFFIX:-invalid.local}
-      FEDERATION_SELF_PUBLIC_BASE_URL: https://a1.${FEDERATION_PUBLIC_HOST_SUFFIX:-invalid.local}
+      FEDERATION_SELF_PUBLIC_BASE_URL: "${FEDERATION_SCHEME:-https}://a1.${FEDERATION_PUBLIC_HOST_SUFFIX:-invalid.local}"
     volumes:
       - ./models.json:/workspace/service-config/models.json:ro
       - ./data/federation/a1:/app/data
@@ -140,7 +140,7 @@ services:
       FEDERATION_SELF_NODE_ID: a2
       FEDERATION_SELF_GROUP_ID: group-a
       FEDERATION_SELF_PEER_DID: did:web:a2.${FEDERATION_PUBLIC_HOST_SUFFIX:-invalid.local}
-      FEDERATION_SELF_PUBLIC_BASE_URL: https://a2.${FEDERATION_PUBLIC_HOST_SUFFIX:-invalid.local}
+      FEDERATION_SELF_PUBLIC_BASE_URL: "${FEDERATION_SCHEME:-https}://a2.${FEDERATION_PUBLIC_HOST_SUFFIX:-invalid.local}"
     volumes:
       - ./models.json:/workspace/service-config/models.json:ro
       - ./data/federation/a2:/app/data
@@ -156,7 +156,7 @@ services:
       FEDERATION_SELF_NODE_ID: b1
       FEDERATION_SELF_GROUP_ID: group-b
       FEDERATION_SELF_PEER_DID: did:web:b1.${FEDERATION_PUBLIC_HOST_SUFFIX:-invalid.local}
-      FEDERATION_SELF_PUBLIC_BASE_URL: https://b1.${FEDERATION_PUBLIC_HOST_SUFFIX:-invalid.local}
+      FEDERATION_SELF_PUBLIC_BASE_URL: "${FEDERATION_SCHEME:-https}://b1.${FEDERATION_PUBLIC_HOST_SUFFIX:-invalid.local}"
     volumes:
       - ./models.json:/workspace/service-config/models.json:ro
       - ./data/federation/b1:/app/data
@@ -172,7 +172,7 @@ services:
       FEDERATION_SELF_NODE_ID: b2
       FEDERATION_SELF_GROUP_ID: group-b
       FEDERATION_SELF_PEER_DID: did:web:b2.${FEDERATION_PUBLIC_HOST_SUFFIX:-invalid.local}
-      FEDERATION_SELF_PUBLIC_BASE_URL: https://b2.${FEDERATION_PUBLIC_HOST_SUFFIX:-invalid.local}
+      FEDERATION_SELF_PUBLIC_BASE_URL: "${FEDERATION_SCHEME:-https}://b2.${FEDERATION_PUBLIC_HOST_SUFFIX:-invalid.local}"
     volumes:
       - ./models.json:/workspace/service-config/models.json:ro
       - ./data/federation/b2:/app/data

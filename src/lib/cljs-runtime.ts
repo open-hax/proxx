@@ -377,9 +377,9 @@ export async function assertCljsRuntimeReady(runtime: ProxxCljsRuntime): Promise
   }
 
   const reasoningResult = runtime.normalizeReasoningRequest("resources/policies/runtime/00-manifest.edn", {
-    modelId: "gpt-5.2",
+    modelId: "gpt-5.4-mini",
     requestBody: {
-      model: "gpt-5.2",
+      model: "gpt-5.4-mini",
       reasoning: { effort: "max" },
     },
   });

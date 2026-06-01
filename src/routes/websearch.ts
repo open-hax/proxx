@@ -147,7 +147,7 @@ export function registerWebsearchRoutes(deps: AppDeps, app: FastifyInstance): vo
 
     const requestedModel = typeof body.model === "string" ? body.model.trim() : "";
 
-    const fallbackModel = process.env.OPEN_HAX_WEBSEARCH_FALLBACK_MODEL?.trim() || "gpt-5.2";
+    const fallbackModel = process.env.OPEN_HAX_WEBSEARCH_FALLBACK_MODEL?.trim() || "gpt-5.4-mini";
     const candidateModels = [requestedModel, fallbackModel]
       .map((entry) => entry.trim())
       .filter((entry) => entry.length > 0);

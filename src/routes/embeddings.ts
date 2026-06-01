@@ -108,7 +108,7 @@ export function registerEmbeddingsRoutes(deps: AppDeps, app: FastifyInstance): v
       tenantSettings: proxySettings,
       providerRoutes: declaredRoutes,
     }).providerRoutes;
-    const explicitProviderId = explicitlyLlamaCpp ? "llamacpp-embed" : explicitlyOllama ? "ollama" : undefined;
+    const explicitProviderId = explicitlyLlamaCpp ? "llamacpp-embed" : matchedOllamaPrefix ? providerIdFromModelPrefix(matchedOllamaPrefix) : undefined;
     const selectedRoutes = explicitProviderId
       ? policySelectedRoutes.filter((candidate) => candidate.providerId === explicitProviderId)
       : policySelectedRoutes;
