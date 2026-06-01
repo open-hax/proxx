@@ -1,0 +1,2430 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Copy/Paste Detector Report</title><link href="styles/tailwind.css" rel="stylesheet"><link href="styles/prism.css" rel="stylesheet"></head><body class="bg-gray-100"><header class="bg-white shadow py-4"><div class="container mx-auto px-4"><h1 class="text-3xl font-semibold text-gray-800">jscpd - copy/paste report</h1></div></header><main class="container mx-auto my-8 p-4 bg-white shadow rounded"><section class="mb-8" id="dashboard"><h2 class="text-2xl font-semibold text-gray-700 mb-4">Dashboard</h2><div class="grid grid-cols-4 gap-4"><div class="bg-blue-200 p-4 rounded text-center"><h3 class="text-lg font-semibold text-blue-800 mb-2">Total Files</h3><span class="text-4xl font-bold text-blue-800">307</span></div><div class="bg-green-200 p-4 rounded text-center"><h3 class="text-lg font-semibold text-green-800 mb-2">Total Lines of Code</h3><span class="text-4xl font-bold text-green-800">60427</span></div><div class="bg-yellow-200 p-4 rounded text-center"><h3 class="text-lg font-semibold text-yellow-800 mb-2">Number of Clones</h3><span class="text-4xl font-bold text-yellow-800">123</span></div><div class="bg-red-200 p-4 rounded text-center"><h3 class="text-lg font-semibold text-red-800 mb-2">Duplicated Lines</h3><span class="text-4xl font-bold text-red-800">2421 (4.01%)</span></div></div></section><section class="mb-8" id="formats"><h2 class="text-2xl font-semibold text-gray-700 mb-4">Formats with Duplications</h2><table class="w-full table-auto"><thead><tr class="bg-gray-200 text-gray-600 uppercase text-sm leading-normal"><th class="py-3 px-6 text-left">Format</th><th class="py-3 px-6 text-left">Files</th><th class="py-3 px-6 text-left">Lines</th><th class="py-3 px-6 text-left">Clones</th><th class="py-3 px-6 text-left">Duplicated Lines</th><th class="py-3 px-6 text-left">Duplicated Tokens</th></tr></thead><tbody><tr class="bg-white border-b border-gray-200 text-gray-800 text-sm"><td class="py-3 px-6"><a class="text-blue-600 hover:underline" href="#clojure-clones">clojure</a></td><td class="py-3 px-6">45</td><td class="py-3 px-6">5604</td><td class="py-3 px-6">1</td><td class="py-3 px-6">12</td><td class="py-3 px-6">131</td></tr><tr class="bg-white border-b border-gray-200 text-gray-800 text-sm"><td class="py-3 px-6"><a class="text-blue-600 hover:underline" href="#javascript-clones">javascript</a></td><td class="py-3 px-6">14</td><td class="py-3 px-6">2037</td><td class="py-3 px-6">1</td><td class="py-3 px-6">31</td><td class="py-3 px-6">339</td></tr><tr class="bg-white border-b border-gray-200 text-gray-800 text-sm"><td class="py-3 px-6"><a class="text-blue-600 hover:underline" href="#typescript-clones">typescript</a></td><td class="py-3 px-6">236</td><td class="py-3 px-6">49582</td><td class="py-3 px-6">114</td><td class="py-3 px-6">2251</td><td class="py-3 px-6">22772</td></tr><tr class="bg-white border-b border-gray-200 text-gray-800 text-sm"><td class="py-3 px-6"><a class="text-blue-600 hover:underline" href="#tsx-clones">tsx</a></td><td class="py-3 px-6">12</td><td class="py-3 px-6">3204</td><td class="py-3 px-6">7</td><td class="py-3 px-6">127</td><td class="py-3 px-6">1632</td></tr></tbody></table></section><section class="mb-8" id="txt-clones"><a name="clojure-clones"></a><h2 class="text-2xl font-semibold text-gray-700 mb-4">clojure</h2><div class="divide-y divide-gray-200 border-b-2"><div class="py-4"><p class="text-gray-600">resources/policies/contract-router.edn (Line 50:2 - Line 62:26), resources/policies/contract-router.edn (Line 13:4 - Line 25:23)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn0" onclick="toggleCodeBlock('cloneGroup0', 'expandBtn0', 'collapseBtn0')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn0" onclick="toggleCodeBlock('cloneGroup0', 'expandBtn0', 'collapseBtn0')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup0"><code class="language-clojure text-sm text-gray-800">)
+                                   (contract/apply [:authorization-clause :provider-allow-list] ctx)
+                                   (contract/apply [:authorization-clause :provider-disabled-list] ctx)
+                                   (contract/apply [:account-constraint :free-blocked-models] ctx)
+                                   (not (get it :disabled?))
+                                   (not (get it :rate-limited?))]}]
+    :policy/outcome :project
+    :policy/project [{:project/from :credentials
+                      :project/to :provider-ids
+                      :project/form (get it :provider-id)
+                      :project/distinct? true}]
+    :policy/children
+    [{:contract/id :router/sort-default-credentials</code></pre></div><!-- Add more clone groups for .txt format as needed         // Add more clone groups for .txt format as needed--></div><a name="javascript-clones"></a><h2 class="text-2xl font-semibold text-gray-700 mb-4">javascript</h2><div class="divide-y divide-gray-200 border-b-2"><div class="py-4"><p class="text-gray-600">web/src/App.tsx (Line 164:9 - Line 195:2), web/src/App.tsx (Line 152:10 - Line 182:2)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn11" onclick="toggleCodeBlock('cloneGroup11', 'expandBtn11', 'collapseBtn11')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn11" onclick="toggleCodeBlock('cloneGroup11', 'expandBtn11', 'collapseBtn11')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup11"><code class="language-javascript text-sm text-gray-800">)}&gt;
+          Dashboard
+        &lt;/NavLink&gt;
+        &lt;NavLink to=&quot;/chat&quot; className={({ isActive }) =&gt; navClass(isActive)}&gt;
+          Chat
+        &lt;/NavLink&gt;
+        &lt;NavLink to=&quot;/analytics&quot; className={({ isActive }) =&gt; navClass(isActive)}&gt;
+          Analytics
+        &lt;/NavLink&gt;
+        &lt;NavLink to=&quot;/events&quot; className={({ isActive }) =&gt; navClass(isActive)}&gt;
+          Events
+        &lt;/NavLink&gt;
+        &lt;NavLink to=&quot;/hosts&quot; className={({ isActive }) =&gt; navClass(isActive)}&gt;
+          Hosts
+        &lt;/NavLink&gt;
+        &lt;NavLink to=&quot;/images&quot; className={({ isActive }) =&gt; navClass(isActive)}&gt;
+          Images
+        &lt;/NavLink&gt;
+        &lt;NavLink to=&quot;/credentials&quot; className={({ isActive }) =&gt; navClass(isActive)}&gt;
+          Credentials
+        &lt;/NavLink&gt;
+        &lt;NavLink to=&quot;/federation&quot; className={({ isActive }) =&gt; navClass(isActive)}&gt;
+          Federation
+        &lt;/NavLink&gt;
+        &lt;NavLink to=&quot;/tools&quot; className={({ isActive }) =&gt; navClass(isActive)}&gt;
+          Tools + MCP
+        &lt;/NavLink&gt;
+      &lt;/nav&gt;
+
+      &lt;main className=&quot;shell-main&quot;&gt;
+        &lt;Routes&gt;
+          &lt;Route path=&quot;/&quot; element={&lt;</code></pre></div><!-- Add more clone groups for .txt format as needed         // Add more clone groups for .txt format as needed--></div><a name="typescript-clones"></a><h2 class="text-2xl font-semibold text-gray-700 mb-4">typescript</h2><div class="divide-y divide-gray-200 border-b-2"><div class="py-4"><p class="text-gray-600">scripts/bulk-oauth-import.ts (Line 192:13 - Line 202:6), scripts/bulk-oauth-import.ts (Line 161:7 - Line 171:15)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn1" onclick="toggleCodeBlock('cloneGroup1', 'expandBtn1', 'collapseBtn1')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn1" onclick="toggleCodeBlock('cloneGroup1', 'expandBtn1', 'collapseBtn1')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup1"><code class="language-typescript text-sm text-gray-800">const meta = await client.fetchOne(uid, { internalDate: true });
+            const internalDateRaw = (meta as { internalDate?: unknown } | undefined)?.internalDate;
+            const internalDate = internalDateRaw instanceof Date
+              ? internalDateRaw
+              : typeof internalDateRaw === &quot;string&quot; || typeof internalDateRaw === &quot;number&quot;
+                ? new Date(internalDateRaw)
+                : undefined;
+            const internalDateMs = internalDate?.getTime();
+
+            if (typeof internalDateMs === &quot;number&quot; &amp;&amp; Number.isFinite(internalDateMs) &amp;&amp; internalDateMs &lt; sinceDate.getTime()) {
+              break</code></pre></div><div class="py-4"><p class="text-gray-600">web/test/e2e/tools.smoke.ts (Line 442:9 - Line 464:15), web/test/e2e/tools.smoke.ts (Line 418:16 - Line 440:10)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn2" onclick="toggleCodeBlock('cloneGroup2', 'expandBtn2', 'collapseBtn2')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn2" onclick="toggleCodeBlock('cloneGroup2', 'expandBtn2', 'collapseBtn2')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup2"><code class="language-typescript text-sm text-gray-800">,
+            requestCount: 12,
+            errorCount: 0,
+            errorRate: 0,
+            totalTokens: 3400,
+            promptTokens: 1200,
+            completionTokens: 2200,
+            cachedPromptTokens: 200,
+            cacheHitRate: 20,
+            avgTtftMs: 420,
+            avgDecodeTps: 18,
+            avgTps: 14,
+            avgEndToEndTps: 10,
+            costUsd: 1.23,
+            energyJoules: 12000,
+            waterEvaporatedMl: 34,
+            firstSeenAt: NOW,
+            lastSeenAt: NOW,
+            confidenceScore: 0.9,
+            suitabilityScore: 0.86,
+          },
+        ],
+        providerModels</code></pre></div><div class="py-4"><p class="text-gray-600">web/test/e2e/tools.smoke.ts (Line 467:13 - Line 489:2), web/test/e2e/tools.smoke.ts (Line 418:13 - Line 440:10)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn3" onclick="toggleCodeBlock('cloneGroup3', 'expandBtn3', 'collapseBtn3')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn3" onclick="toggleCodeBlock('cloneGroup3', 'expandBtn3', 'collapseBtn3')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup3"><code class="language-typescript text-sm text-gray-800">model: &quot;gpt-5.3-codex&quot;,
+            requestCount: 12,
+            errorCount: 0,
+            errorRate: 0,
+            totalTokens: 3400,
+            promptTokens: 1200,
+            completionTokens: 2200,
+            cachedPromptTokens: 200,
+            cacheHitRate: 20,
+            avgTtftMs: 420,
+            avgDecodeTps: 18,
+            avgTps: 14,
+            avgEndToEndTps: 10,
+            costUsd: 1.23,
+            energyJoules: 12000,
+            waterEvaporatedMl: 34,
+            firstSeenAt: NOW,
+            lastSeenAt: NOW,
+            confidenceScore: 0.9,
+            suitabilityScore: 0.86,
+          },
+        ],
+      }</code></pre></div><div class="py-4"><p class="text-gray-600">src/routes/api/ui/hosts/index.ts (Line 90:25 - Line 105:6), src/routes/api/ui/hosts/index.ts (Line 62:21 - Line 76:11)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn12" onclick="toggleCodeBlock('cloneGroup12', 'expandBtn12', 'collapseBtn12')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn12" onclick="toggleCodeBlock('cloneGroup12', 'expandBtn12', 'collapseBtn12')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup12"><code class="language-typescript text-sm text-gray-800">, async (request, reply) =&gt; {
+    const auth = getResolvedAuth(request);
+    if (!authCanAccessHostDashboard(auth)) {
+      reply.code(auth ? 403 : 401).send({ error: auth ? &quot;forbidden&quot; : &quot;unauthorized&quot; });
+      return;
+    }
+
+    const requestBaseUrl = inferBaseUrl(request);
+    const selfTargetId = inferSelfHostDashboardTargetId({
+      targets: hostDashboardTargets,
+      explicitSelfId: process.env.HOST_DASHBOARD_SELF_ID,
+      requestBaseUrl,
+      requestHost: typeof request.headers.host === &quot;string&quot; ? request.headers.host : undefined,
+    });
+
+    const hosts</code></pre></div><div class="py-4"><p class="text-gray-600">src/routes/api/ui/events/index.ts (Line 40:7 - Line 57:10), src/routes/api/ui/events/index.ts (Line 19:5 - Line 36:7)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn13" onclick="toggleCodeBlock('cloneGroup13', 'expandBtn13', 'collapseBtn13')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn13" onclick="toggleCodeBlock('cloneGroup13', 'expandBtn13', 'collapseBtn13')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup13"><code class="language-typescript text-sm text-gray-800">&lt;{
+    Params: { id: string };
+    Body: { tag: string };
+  }&gt;(&quot;/api/ui/events/:id/tag&quot;, async (request, reply) =&gt; {
+    if (!deps.eventStore) {
+      reply.code(503).send({ error: &quot;Event store not available&quot; });
+      return;
+    }
+
+    const tag = typeof request.body === &quot;object&quot; &amp;&amp; request.body !== null &amp;&amp; &quot;tag&quot; in request.body
+      ? String((request.body as Record&lt;string, unknown&gt;).tag)
+      : undefined;
+    if (!tag) {
+      reply.code(400).send({ error: &quot;Missing tag field&quot; });
+      return;
+    }
+
+    await deps.eventStore.removeTag</code></pre></div><div class="py-4"><p class="text-gray-600">src/routes/api/ui/request-log-sse.ts (Line 41:7 - Line 59:3), src/routes/api/ui/ws.ts (Line 48:13 - Line 66:2)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn14" onclick="toggleCodeBlock('cloneGroup14', 'expandBtn14', 'collapseBtn14')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn14" onclick="toggleCodeBlock('cloneGroup14', 'expandBtn14', 'collapseBtn14')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup14"><code class="language-typescript text-sm text-gray-800">, &quot;proxy_auth&quot;),
+      resolveTenantApiKey: deps.sqlCredentialStore
+        ? async (token) =&gt; deps.sqlCredentialStore!.resolveTenantApiKey(token, deps.config.proxyTokenPepper)
+        : undefined,
+      resolveUiSession: deps.sqlCredentialStore &amp;&amp; deps.authPersistence
+        ? async (token) =&gt; {
+            const accessToken = await deps.authPersistence!.getAccessToken(token);
+            if (!accessToken) {
+              return undefined;
+            }
+            const activeTenantId = typeof accessToken.extra?.activeTenantId === &quot;string&quot;
+              ? accessToken.extra.activeTenantId
+              : undefined;
+            return deps.sqlCredentialStore!.resolveUiSession(accessToken.subject, activeTenantId);
+          }
+        : undefined,
+    });
+
+    if</code></pre></div><div class="py-4"><p class="text-gray-600">src/routes/api/ui/bridge-sse.ts (Line 52:2 - Line 77:7), src/routes/api/ui/request-log-sse.ts (Line 35:2 - Line 60:6)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn15" onclick="toggleCodeBlock('cloneGroup15', 'expandBtn15', 'collapseBtn15')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn15" onclick="toggleCodeBlock('cloneGroup15', 'expandBtn15', 'collapseBtn15')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup15"><code class="language-typescript text-sm text-gray-800">{
+  const auth = await resolveRequestAuth({
+    allowUnauthenticated: false,
+    proxyAuthToken: deps.config.proxyAuthToken,
+    authorization: request.headers.authorization,
+    cookieToken: readCookieValue(request.headers.cookie, &quot;open_hax_proxy_auth_token&quot;),
+    oauthAccessToken: readCookieValue(request.headers.cookie, &quot;proxy_auth&quot;),
+    resolveTenantApiKey: deps.sqlCredentialStore
+      ? async (token) =&gt; deps.sqlCredentialStore!.resolveTenantApiKey(token, deps.config.proxyTokenPepper)
+      : undefined,
+    resolveUiSession: deps.sqlCredentialStore &amp;&amp; deps.authPersistence
+      ? async (token) =&gt; {
+          const accessToken = await deps.authPersistence!.getAccessToken(token);
+          if (!accessToken) {
+            return undefined;
+          }
+          const activeTenantId = typeof accessToken.extra?.activeTenantId === &quot;string&quot;
+            ? accessToken.extra.activeTenantId
+            : undefined;
+          return deps.sqlCredentialStore!.resolveUiSession(accessToken.subject, activeTenantId);
+        }
+      : undefined,
+  });
+
+  if (!auth) {
+    return</code></pre></div><div class="py-4"><p class="text-gray-600">src/routes/api/ui/bridge-sse.ts (Line 155:5 - Line 179:6), src/routes/api/ui/request-log-sse.ts (Line 83:5 - Line 103:2)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn16" onclick="toggleCodeBlock('cloneGroup16', 'expandBtn16', 'collapseBtn16')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn16" onclick="toggleCodeBlock('cloneGroup16', 'expandBtn16', 'collapseBtn16')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup16"><code class="language-typescript text-sm text-gray-800">const keepAlive = setInterval(() =&gt; {
+      if (reply.raw.writableEnded) {
+        clearInterval(keepAlive);
+        return;
+      }
+      try {
+        reply.raw.write(&quot;: keepalive\n\n&quot;);
+      } catch {
+        clearInterval(keepAlive);
+      }
+    }, 15_000);
+
+    reply.raw.on(&quot;close&quot;, () =&gt; {
+      clearInterval(keepAlive);
+    });
+
+    request.raw.on(&quot;close&quot;, () =&gt; {
+      clearInterval(keepAlive);
+    });
+  });
+
+  /**
+   * POST hello: Agent sends this to initiate a bridge session via SSE+HTTP.
+   * Returns hello_ack with sessionId. Agent then reconnects SSE with that sessionId.
+   */</code></pre></div><div class="py-4"><p class="text-gray-600">src/routes/api/ui/bridge-sse.ts (Line 253:2 - Line 275:4), src/routes/api/ui/bridge-sse.ts (Line 183:2 - Line 205:4)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn17" onclick="toggleCodeBlock('cloneGroup17', 'expandBtn17', 'collapseBtn17')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn17" onclick="toggleCodeBlock('cloneGroup17', 'expandBtn17', 'collapseBtn17')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup17"><code class="language-typescript text-sm text-gray-800">});
+      return;
+    }
+
+    let messageText: string;
+    if (typeof request.body === &quot;string&quot;) {
+      messageText = request.body;
+    } else if (request.body &amp;&amp; typeof request.body === &quot;object&quot;) {
+      messageText = JSON.stringify(request.body);
+    } else {
+      reply.code(400).send({ error: &quot;invalid_body&quot;, message: &quot;request body must be JSON&quot; });
+      return;
+    }
+
+    let parsed: ReturnType&lt;typeof parseBridgeMessageJson&gt;;
+    try {
+      parsed = parseBridgeMessageJson(messageText);
+    } catch (error) {
+      reply.code(400).send({ error: &quot;invalid_message&quot;, message: error instanceof Error ? error.message : String(error) });
+      return;
+    }
+
+    if (parsed.type ===</code></pre></div><div class="py-4"><p class="text-gray-600">src/lib/provider-strategy/strategies/standard.ts (Line 362:16 - Line 381:3), src/lib/provider-strategy/strategies/standard.ts (Line 286:8 - Line 304:6)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn18" onclick="toggleCodeBlock('cloneGroup18', 'expandBtn18', 'collapseBtn18')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn18" onclick="toggleCodeBlock('cloneGroup18', 'expandBtn18', 'collapseBtn18')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup18"><code class="language-typescript text-sm text-gray-800">);
+    stripTrailingAssistantPrefill(upstreamPayload);
+    return buildPayloadResult(upstreamPayload, context);
+  }
+
+  public override async handleProviderAttempt(
+    reply: FastifyReply,
+    upstreamResponse: Response,
+    context: ProviderAttemptContext,
+  ): Promise&lt;ProviderAttemptOutcome&gt; {
+    if (!upstreamResponse.ok) {
+      return this.handleStandardProviderAttempt(reply, upstreamResponse, context);
+    }
+
+    const contentType = upstreamResponse.headers.get(&quot;content-type&quot;) ?? &quot;&quot;;
+    const isEventStream = contentType.toLowerCase().includes(&quot;text/event-stream&quot;);
+
+    reply.header(&quot;x-open-hax-upstream-provider&quot;, context.providerId);
+
+    if</code></pre></div><div class="py-4"><p class="text-gray-600">src/lib/provider-strategy/strategies/responses-event-stream.ts (Line 17:5 - Line 31:4), src/lib/provider-strategy/strategies/standard.ts (Line 142:7 - Line 155:6)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn19" onclick="toggleCodeBlock('cloneGroup19', 'expandBtn19', 'collapseBtn19')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn19" onclick="toggleCodeBlock('cloneGroup19', 'expandBtn19', 'collapseBtn19')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup19"><code class="language-typescript text-sm text-gray-800">reply.code(200);
+    reply.header(&quot;content-type&quot;, &quot;text/event-stream; charset=utf-8&quot;);
+    reply.header(&quot;cache-control&quot;, &quot;no-cache&quot;);
+    reply.header(&quot;x-accel-buffering&quot;, &quot;no&quot;);
+    reply.hijack();
+    const rawResponse = reply.raw;
+    rawResponse.statusCode = 200;
+    for (const [name, value] of Object.entries(reply.getHeaders())) {
+      if (value !== undefined) {
+        rawResponse.setHeader(name, value as never);
+      }
+    }
+    rawResponse.flushHeaders();
+
+    try</code></pre></div><div class="py-4"><p class="text-gray-600">src/lib/provider-strategy/strategies/openai.ts (Line 166:7 - Line 189:21), src/lib/provider-strategy/strategies/standard.ts (Line 312:7 - Line 335:2)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn20" onclick="toggleCodeBlock('cloneGroup20', 'expandBtn20', 'collapseBtn20')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn20" onclick="toggleCodeBlock('cloneGroup20', 'expandBtn20', 'collapseBtn20')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup20"><code class="language-typescript text-sm text-gray-800">reply.removeHeader(&quot;content-length&quot;);
+      reply.header(&quot;cache-control&quot;, &quot;no-cache&quot;);
+      reply.header(&quot;x-accel-buffering&quot;, &quot;no&quot;);
+      reply.header(&quot;content-type&quot;, &quot;text/event-stream; charset=utf-8&quot;);
+      reply.hijack();
+      const rawResponse = reply.raw;
+      rawResponse.statusCode = upstreamResponse.status;
+      for (const [name, value] of Object.entries(reply.getHeaders())) {
+        if (value !== undefined) {
+          rawResponse.setHeader(name, value as never);
+        }
+      }
+      rawResponse.flushHeaders();
+      const nodeStream = Readable.fromWeb(upstreamResponse.body as never);
+      nodeStream.on(&quot;error&quot;, () =&gt; {
+        if (!rawResponse.writableEnded) {
+          rawResponse.end();
+        }
+      });
+      nodeStream.pipe(rawResponse);
+      return { kind: &quot;handled&quot; };
+    }
+
+    if (looksLikeEventStream</code></pre></div><div class="py-4"><p class="text-gray-600">src/lib/provider-strategy/strategies/ollama.ts (Line 117:5 - Line 133:6), src/lib/provider-strategy/strategies/standard.ts (Line 141:2 - Line 32:6)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn21" onclick="toggleCodeBlock('cloneGroup21', 'expandBtn21', 'collapseBtn21')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn21" onclick="toggleCodeBlock('cloneGroup21', 'expandBtn21', 'collapseBtn21')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup21"><code class="language-typescript text-sm text-gray-800">) {
+      reply.code(200);
+      reply.header(&quot;content-type&quot;, &quot;text/event-stream; charset=utf-8&quot;);
+      reply.header(&quot;cache-control&quot;, &quot;no-cache&quot;);
+      reply.header(&quot;x-accel-buffering&quot;, &quot;no&quot;);
+      reply.hijack();
+      const rawResponse = reply.raw;
+      rawResponse.statusCode = 200;
+      for (const [name, value] of Object.entries(reply.getHeaders())) {
+        if (value !== undefined) {
+          rawResponse.setHeader(name, value as never);
+        }
+      }
+      rawResponse.flushHeaders();
+
+      try {
+        await</code></pre></div><div class="py-4"><p class="text-gray-600">src/lib/provider-strategy/strategies/ollama-cloud.ts (Line 67:11 - Line 92:2), src/lib/provider-strategy/strategies/ollama.ts (Line 121:5 - Line 146:2)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn22" onclick="toggleCodeBlock('cloneGroup22', 'expandBtn22', 'collapseBtn22')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn22" onclick="toggleCodeBlock('cloneGroup22', 'expandBtn22', 'collapseBtn22')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup22"><code class="language-typescript text-sm text-gray-800">);
+      reply.hijack();
+      const rawResponse = reply.raw;
+      rawResponse.statusCode = 200;
+      for (const [name, value] of Object.entries(reply.getHeaders())) {
+        if (value !== undefined) {
+          rawResponse.setHeader(name, value as never);
+        }
+      }
+      rawResponse.flushHeaders();
+
+      try {
+        await streamOllamaNdjsonToChatCompletionSse(upstreamResponse.body, context.routedModel, (data) =&gt; {
+          rawResponse.write(data);
+          (rawResponse as { flush?: () =&gt; void }).flush?.();
+        });
+      } catch (error) {
+        if (!rawResponse.writableEnded) {
+          rawResponse.write(`data: ${JSON.stringify({ error: { message: toErrorMessage(error) } })}\n\n`);
+        }
+      }
+
+      if (!rawResponse.writableEnded) {
+        rawResponse.end();
+      }
+      return {</code></pre></div><div class="py-4"><p class="text-gray-600">src/lib/provider-strategy/strategies/gemini.ts (Line 573:9 - Line 590:4), src/lib/provider-strategy/strategies/ollama-cloud.ts (Line 63:7 - Line 79:6)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn23" onclick="toggleCodeBlock('cloneGroup23', 'expandBtn23', 'collapseBtn23')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn23" onclick="toggleCodeBlock('cloneGroup23', 'expandBtn23', 'collapseBtn23')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup23"><code class="language-typescript text-sm text-gray-800">reply.code(200);
+        reply.header(&quot;content-type&quot;, &quot;text/event-stream; charset=utf-8&quot;);
+        reply.header(&quot;cache-control&quot;, &quot;no-cache&quot;);
+        reply.header(&quot;x-accel-buffering&quot;, &quot;no&quot;);
+        reply.header(&quot;x-open-hax-upstream-provider&quot;, context.providerId);
+        reply.hijack();
+
+        const rawResponse = reply.raw;
+        rawResponse.statusCode = 200;
+        for (const [name, value] of Object.entries(reply.getHeaders())) {
+          if (value !== undefined) {
+            rawResponse.setHeader(name, value as never);
+          }
+        }
+        rawResponse.flushHeaders();
+
+        try {
+          let</code></pre></div><div class="py-4"><p class="text-gray-600">src/lib/provider-strategy/strategies/gemini.ts (Line 701:5 - Line 715:2), src/lib/provider-strategy/strategies/standard.ts (Line 160:5 - Line 175:10)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn24" onclick="toggleCodeBlock('cloneGroup24', 'expandBtn24', 'collapseBtn24')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn24" onclick="toggleCodeBlock('cloneGroup24', 'expandBtn24', 'collapseBtn24')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup24"><code class="language-typescript text-sm text-gray-800">if (context.clientWantsStream) {
+      reply.code(200);
+      reply.header(&quot;content-type&quot;, &quot;text/event-stream; charset=utf-8&quot;);
+      reply.header(&quot;cache-control&quot;, &quot;no-cache&quot;);
+      reply.header(&quot;x-accel-buffering&quot;, &quot;no&quot;);
+      reply.send(chatCompletionToSse(chatCompletion));
+      return { kind: &quot;handled&quot; };
+    }
+
+    reply.code(upstreamResponse.status);
+    reply.header(&quot;content-type&quot;, &quot;application/json&quot;);
+    reply.send(chatCompletion);
+    return { kind: &quot;handled&quot; };
+  }
+}</code></pre></div><div class="py-4"><p class="text-gray-600">src/lib/provider-strategy/strategies/factory.ts (Line 64:3 - Line 123:32), src/lib/provider-strategy/strategies/standard.ts (Line 289:3 - Line 347:36)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn25" onclick="toggleCodeBlock('cloneGroup25', 'expandBtn25', 'collapseBtn25')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn25" onclick="toggleCodeBlock('cloneGroup25', 'expandBtn25', 'collapseBtn25')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup25"><code class="language-typescript text-sm text-gray-800">}
+
+  public override async handleProviderAttempt(
+    reply: FastifyReply,
+    upstreamResponse: Response,
+    context: ProviderAttemptContext,
+  ): Promise&lt;ProviderAttemptOutcome&gt; {
+    if (!upstreamResponse.ok) {
+      return this.handleStandardProviderAttempt(reply, upstreamResponse, context);
+    }
+
+    const contentType = upstreamResponse.headers.get(&quot;content-type&quot;) ?? &quot;&quot;;
+    const isEventStream = contentType.toLowerCase().includes(&quot;text/event-stream&quot;);
+
+    reply.header(&quot;x-open-hax-upstream-provider&quot;, context.providerId);
+    reply.code(upstreamResponse.status);
+    copyUpstreamHeaders(reply, upstreamResponse.headers);
+
+    if (isEventStream) {
+      if (!upstreamResponse.body) {
+        return { kind: &quot;continue&quot;, requestError: true };
+      }
+
+      reply.removeHeader(&quot;content-length&quot;);
+      reply.header(&quot;cache-control&quot;, &quot;no-cache&quot;);
+      reply.header(&quot;x-accel-buffering&quot;, &quot;no&quot;);
+      reply.header(&quot;content-type&quot;, &quot;text/event-stream; charset=utf-8&quot;);
+      reply.hijack();
+      const rawResponse = reply.raw;
+      rawResponse.statusCode = upstreamResponse.status;
+      for (const [name, value] of Object.entries(reply.getHeaders())) {
+        if (value !== undefined) {
+          rawResponse.setHeader(name, value as never);
+        }
+      }
+      rawResponse.flushHeaders();
+      const nodeStream = Readable.fromWeb(upstreamResponse.body as never);
+      nodeStream.on(&quot;error&quot;, () =&gt; {
+        if (!rawResponse.writableEnded) {
+          rawResponse.end();
+        }
+      });
+      nodeStream.pipe(rawResponse);
+      return { kind: &quot;handled&quot; };
+    }
+
+    if (!upstreamResponse.body) {
+      const responseText = await upstreamResponse.text();
+      reply.send(responseText);
+      return { kind: &quot;handled&quot; };
+    }
+
+    const bytes = Buffer.from(await upstreamResponse.arrayBuffer());
+    reply.send(bytes);
+    return { kind: &quot;handled&quot; };
+  }
+}
+
+
+export class FactoryMessagesProviderStrategy</code></pre></div><div class="py-4"><p class="text-gray-600">src/lib/provider-strategy/strategies/factory.ts (Line 217:2 - Line 233:2), src/lib/provider-strategy/strategies/factory.ts (Line 55:2 - Line 69:2)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn26" onclick="toggleCodeBlock('cloneGroup26', 'expandBtn26', 'collapseBtn26')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn26" onclick="toggleCodeBlock('cloneGroup26', 'expandBtn26', 'collapseBtn26')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup26"><code class="language-typescript text-sm text-gray-800">;
+
+    return buildPayloadResult(upstreamPayload, context);
+  }
+
+  public override applyRequestHeaders(headers: Headers, context: ProviderAttemptContext, _payload: Record&lt;string, unknown&gt;): void {
+    const factoryHeaders = buildFactoryCommonHeaders(context.routedModel);
+    for (const [name, value] of Object.entries(factoryHeaders)) {
+      headers.set(name, value);
+    }
+  }
+
+  public override async handleProviderAttempt(
+    reply: FastifyReply,
+    upstreamResponse: Response,
+    context: ProviderAttemptContext
+  )</code></pre></div><div class="py-4"><p class="text-gray-600">src/lib/provider-strategy/strategies/embeddings.ts (Line 228:11 - Line 252:4), src/lib/provider-strategy/strategies/embeddings.ts (Line 181:2 - Line 205:4)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn27" onclick="toggleCodeBlock('cloneGroup27', 'expandBtn27', 'collapseBtn27')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn27" onclick="toggleCodeBlock('cloneGroup27', 'expandBtn27', 'collapseBtn27')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup27"><code class="language-typescript text-sm text-gray-800">;
+    }
+    return buildPayloadResult(payload, context);
+  }
+
+  public override async handleProviderAttempt(
+    reply: FastifyReply,
+    response: Response,
+    context: ProviderAttemptContext,
+  ): Promise&lt;ProviderAttemptOutcome&gt; {
+    return handleNativeEmbeddingAttempt(reply, response, context);
+  }
+
+  public override async handleLocalAttempt(
+    reply: FastifyReply,
+    response: Response,
+    context: LocalAttemptContext,
+  ): Promise&lt;void&gt; {
+    await handleNativeEmbeddingLocalAttempt(reply, response, context);
+  }
+}
+
+/**
+ * Intel OpenVINO Model Server embeddings strategy for /v3/embeddings.
+ */</code></pre></div><div class="py-4"><p class="text-gray-600">src/lib/provider-strategy/strategies/embeddings.ts (Line 278:2 - Line 298:2), src/lib/provider-strategy/strategies/embeddings.ts (Line 228:2 - Line 201:2)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn28" onclick="toggleCodeBlock('cloneGroup28', 'expandBtn28', 'collapseBtn28')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn28" onclick="toggleCodeBlock('cloneGroup28', 'expandBtn28', 'collapseBtn28')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup28"><code class="language-typescript text-sm text-gray-800">= context.requestBody.dimensions;
+    }
+    return buildPayloadResult(payload, context);
+  }
+
+  public override async handleProviderAttempt(
+    reply: FastifyReply,
+    response: Response,
+    context: ProviderAttemptContext,
+  ): Promise&lt;ProviderAttemptOutcome&gt; {
+    return handleNativeEmbeddingAttempt(reply, response, context);
+  }
+
+  public override async handleLocalAttempt(
+    reply: FastifyReply,
+    response: Response,
+    context: LocalAttemptContext,
+  ): Promise&lt;void&gt; {
+    await handleNativeEmbeddingLocalAttempt(reply, response, context);
+  }
+}</code></pre></div><div class="py-4"><p class="text-gray-600">src/routes/shared/ui-auth.ts (Line 68:22 - Line 91:29), src/routes/shared/ui-auth.ts (Line 45:25 - Line 68:22)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn29" onclick="toggleCodeBlock('cloneGroup29', 'expandBtn29', 'collapseBtn29')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn29" onclick="toggleCodeBlock('cloneGroup29', 'expandBtn29', 'collapseBtn29')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup29"><code class="language-typescript text-sm text-gray-800">(value: unknown): readonly string[] | null | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (value === null) {
+    return null;
+  }
+
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  const normalized = [...new Set(
+    value
+      .filter((entry): entry is string =&gt; typeof entry === &quot;string&quot;)
+      .map((entry) =&gt; entry.trim().toLowerCase())
+      .filter((entry) =&gt; entry.length &gt; 0),
+  )];
+
+  return normalized.length &gt; 0 ? normalized : null;
+}
+
+export function parseOptionalPositiveInteger</code></pre></div><div class="py-4"><p class="text-gray-600">src/routes/settings/get-tenant-api-keys-ui.ts (Line 12:2 - Line 29:5), src/routes/settings/post-tenant-api-keys-ui.ts (Line 15:3 - Line 32:6)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn30" onclick="toggleCodeBlock('cloneGroup30', 'expandBtn30', 'collapseBtn30')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn30" onclick="toggleCodeBlock('cloneGroup30', 'expandBtn30', 'collapseBtn30')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup30"><code class="language-typescript text-sm text-gray-800">}&gt;(resolveSettingsRoutePath(&quot;/tenants/:tenantId/api-keys&quot;, options), async (request, reply) =&gt; {
+    const auth = getResolvedAuth(request);
+    if (!auth) {
+      reply.code(401).send({ error: &quot;unauthorized&quot; });
+      return;
+    }
+
+    if (!deps.sqlCredentialStore) {
+      reply.code(501).send({ error: &quot;tenant_store_not_supported&quot; });
+      return;
+    }
+
+    if (!authCanManageTenantKeys(auth, request.params.tenantId)) {
+      reply.code(403).send({ error: &quot;forbidden&quot; });
+      return;
+    }
+
+    const keys</code></pre></div><div class="py-4"><p class="text-gray-600">src/routes/settings/delete-tenant-api-key-ui.ts (Line 12:37 - Line 29:8), src/routes/settings/post-tenant-api-keys-ui.ts (Line 15:30 - Line 32:6)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn31" onclick="toggleCodeBlock('cloneGroup31', 'expandBtn31', 'collapseBtn31')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn31" onclick="toggleCodeBlock('cloneGroup31', 'expandBtn31', 'collapseBtn31')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup31"><code class="language-typescript text-sm text-gray-800">, options), async (request, reply) =&gt; {
+    const auth = getResolvedAuth(request);
+    if (!auth) {
+      reply.code(401).send({ error: &quot;unauthorized&quot; });
+      return;
+    }
+
+    if (!deps.sqlCredentialStore) {
+      reply.code(501).send({ error: &quot;tenant_store_not_supported&quot; });
+      return;
+    }
+
+    if (!authCanManageTenantKeys(auth, request.params.tenantId)) {
+      reply.code(403).send({ error: &quot;forbidden&quot; });
+      return;
+    }
+
+    const revoked</code></pre></div><div class="py-4"><p class="text-gray-600">src/routes/observability/index.ts (Line 16:1 - Line 31:6), src/routes/sessions/ui.ts (Line 16:1 - Line 31:7)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn32" onclick="toggleCodeBlock('cloneGroup32', 'expandBtn32', 'collapseBtn32')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn32" onclick="toggleCodeBlock('cloneGroup32', 'expandBtn32', 'collapseBtn32')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup32"><code class="language-typescript text-sm text-gray-800">function toSafeLimit(value: unknown, fallback: number, max: number): number {
+  if (typeof value === &quot;number&quot; &amp;&amp; Number.isFinite(value)) {
+    return Math.max(1, Math.min(Math.floor(value), max));
+  }
+
+  if (typeof value === &quot;string&quot;) {
+    const parsed = Number.parseInt(value.trim(), 10);
+    if (Number.isFinite(parsed)) {
+      return Math.max(1, Math.min(parsed, max));
+    }
+  }
+
+  return fallback;
+}
+
+async</code></pre></div><div class="py-4"><p class="text-gray-600">src/routes/observability/index.ts (Line 186:28 - Line 206:10), src/routes/observability/index.ts (Line 150:22 - Line 170:9)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn33" onclick="toggleCodeBlock('cloneGroup33', 'expandBtn33', 'collapseBtn33')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn33" onclick="toggleCodeBlock('cloneGroup33', 'expandBtn33', 'collapseBtn33')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup33"><code class="language-typescript text-sm text-gray-800">, options), async (request, reply) =&gt; {
+      const auth = getResolvedAuth(request);
+      if (!auth) {
+        reply.code(401).send({ error: &quot;unauthorized&quot; });
+        return;
+      }
+
+      const scope = await resolveUsageScopeFromAuth({
+        auth,
+        tenantId: request.query.tenantId,
+        issuer: request.query.issuer,
+        keyId: request.query.keyId,
+      });
+      if (&quot;error&quot; in scope) {
+        reply.code(scope.statusCode).send({ error: scope.error });
+        return;
+      }
+
+      const sort = typeof request.query.sort === &quot;string&quot; ? request.query.sort : undefined;
+      const window = toUsageWindow(request.query.window);
+      const analytics</code></pre></div><div class="py-4"><p class="text-gray-600">src/routes/hosts/index.ts (Line 16:2 - Line 29:9), src/routes/api/ui/hosts/index.ts (Line 36:2 - Line 49:8)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn34" onclick="toggleCodeBlock('cloneGroup34', 'expandBtn34', 'collapseBtn34')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn34" onclick="toggleCodeBlock('cloneGroup34', 'expandBtn34', 'collapseBtn34')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup34"><code class="language-typescript text-sm text-gray-800">;
+}): string | undefined {
+  const forwardedHost = typeof request.headers[&quot;x-forwarded-host&quot;] === &quot;string&quot;
+    ? request.headers[&quot;x-forwarded-host&quot;]
+    : undefined;
+  const host = typeof request.headers.host === &quot;string&quot; ? request.headers.host : forwardedHost;
+  if (!host) {
+    return undefined;
+  }
+
+  const forwardedProto = typeof request.headers[&quot;x-forwarded-proto&quot;] === &quot;string&quot;
+    ? request.headers[&quot;x-forwarded-proto&quot;]
+    : undefined;
+  const protocol = forwardedProto ?? request.protocol</code></pre></div><div class="py-4"><p class="text-gray-600">src/routes/hosts/index.ts (Line 68:21 - Line 96:25), src/routes/api/ui/hosts/index.ts (Line 62:21 - Line 90:25)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn35" onclick="toggleCodeBlock('cloneGroup35', 'expandBtn35', 'collapseBtn35')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn35" onclick="toggleCodeBlock('cloneGroup35', 'expandBtn35', 'collapseBtn35')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup35"><code class="language-typescript text-sm text-gray-800">, async (request, reply) =&gt; {
+    const auth = getResolvedAuth(request);
+    if (!authCanAccessHostDashboard(auth)) {
+      reply.code(auth ? 403 : 401).send({ error: auth ? &quot;forbidden&quot; : &quot;unauthorized&quot; });
+      return;
+    }
+
+    const requestBaseUrl = inferBaseUrl(request);
+    const selfTargetId = inferSelfHostDashboardTargetId({
+      targets: hostDashboardTargets,
+      explicitSelfId: process.env.HOST_DASHBOARD_SELF_ID,
+      requestBaseUrl,
+      requestHost: typeof request.headers.host === &quot;string&quot; ? request.headers.host : undefined,
+    });
+    const selfTarget = hostDashboardTargets.find((target) =&gt; target.id === selfTargetId) ?? hostDashboardTargets[0];
+    if (!selfTarget) {
+      reply.code(500).send({ error: &quot;host_dashboard_targets_not_configured&quot; });
+      return;
+    }
+
+    const snapshot = await collectLocalHostDashboardSnapshot({
+      target: selfTarget,
+      dockerSocketPath: hostDashboardDockerSocketPath,
+      runtimeRoot: hostDashboardRuntimeRoot,
+    });
+    reply.send(snapshot);
+  });
+
+  app.get(&quot;/api/v1/hosts/overview&quot;</code></pre></div><div class="py-4"><p class="text-gray-600">src/routes/hosts/index.ts (Line 96:25 - Line 133:2), src/routes/api/ui/hosts/index.ts (Line 62:21 - Line 127:2)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn36" onclick="toggleCodeBlock('cloneGroup36', 'expandBtn36', 'collapseBtn36')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn36" onclick="toggleCodeBlock('cloneGroup36', 'expandBtn36', 'collapseBtn36')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup36"><code class="language-typescript text-sm text-gray-800">, async (request, reply) =&gt; {
+    const auth = getResolvedAuth(request);
+    if (!authCanAccessHostDashboard(auth)) {
+      reply.code(auth ? 403 : 401).send({ error: auth ? &quot;forbidden&quot; : &quot;unauthorized&quot; });
+      return;
+    }
+
+    const requestBaseUrl = inferBaseUrl(request);
+    const selfTargetId = inferSelfHostDashboardTargetId({
+      targets: hostDashboardTargets,
+      explicitSelfId: process.env.HOST_DASHBOARD_SELF_ID,
+      requestBaseUrl,
+      requestHost: typeof request.headers.host === &quot;string&quot; ? request.headers.host : undefined,
+    });
+
+    const hosts = await Promise.all(hostDashboardTargets.map(async (target) =&gt; {
+      if (selfTargetId &amp;&amp; target.id === selfTargetId) {
+        return collectLocalHostDashboardSnapshot({
+          target,
+          dockerSocketPath: hostDashboardDockerSocketPath,
+          runtimeRoot: hostDashboardRuntimeRoot,
+        });
+      }
+
+      return fetchRemoteHostDashboardSnapshot({
+        target,
+        authToken: resolveHostDashboardTargetToken(target, process.env),
+        timeoutMs: hostDashboardRequestTimeoutMs,
+      });
+    }));
+
+    reply.send({
+      generatedAt: new Date().toISOString(),
+      selfTargetId: selfTargetId ?? null,
+      hosts,
+    });
+  });
+}</code></pre></div><div class="py-4"><p class="text-gray-600">src/routes/events/index.ts (Line 52:6 - Line 63:2), src/routes/events/index.ts (Line 35:6 - Line 46:6)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn37" onclick="toggleCodeBlock('cloneGroup37', 'expandBtn37', 'collapseBtn37')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn37" onclick="toggleCodeBlock('cloneGroup37', 'expandBtn37', 'collapseBtn37')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup37"><code class="language-typescript text-sm text-gray-800">({
+        kind: q.kind as &quot;request&quot; | &quot;response&quot; | &quot;error&quot; | &quot;label&quot; | &quot;metric&quot; | undefined,
+        entryId: q.entry_id,
+        providerId: q.provider_id,
+        model: q.model,
+        status: q.status ? Number.parseInt(q.status, 10) : undefined,
+        statusGte: q.status_gte ? Number.parseInt(q.status_gte, 10) : undefined,
+        statusLt: q.status_lt ? Number.parseInt(q.status_lt, 10) : undefined,
+        tag: q.tag,
+        since: q.since ? new Date(q.since) : undefined,
+        until: q.until ? new Date(q.until) : undefined,
+      }</code></pre></div><div class="py-4"><p class="text-gray-600">src/routes/events/index.ts (Line 98:25 - Line 119:25), src/routes/api/ui/events/index.ts (Line 22:25 - Line 43:25)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn38" onclick="toggleCodeBlock('cloneGroup38', 'expandBtn38', 'collapseBtn38')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn38" onclick="toggleCodeBlock('cloneGroup38', 'expandBtn38', 'collapseBtn38')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup38"><code class="language-typescript text-sm text-gray-800">, async (request, reply) =&gt; {
+    if (!deps.eventStore) {
+      reply.code(503).send({ error: &quot;Event store not available&quot; });
+      return;
+    }
+
+    const tag = typeof request.body === &quot;object&quot; &amp;&amp; request.body !== null &amp;&amp; &quot;tag&quot; in request.body
+      ? String((request.body as Record&lt;string, unknown&gt;).tag)
+      : undefined;
+    if (!tag) {
+      reply.code(400).send({ error: &quot;Missing tag field&quot; });
+      return;
+    }
+
+    await deps.eventStore.addTag(request.params.id, tag);
+    reply.send({ ok: true });
+  });
+
+  app.delete&lt;{
+    Params: { id: string };
+    Body: { tag: string };
+  }&gt;(&quot;/api/v1/events/:id/tag&quot;</code></pre></div><div class="py-4"><p class="text-gray-600">src/routes/events/index.ts (Line 116:7 - Line 136:2), src/routes/events/index.ts (Line 95:5 - Line 60:2)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn39" onclick="toggleCodeBlock('cloneGroup39', 'expandBtn39', 'collapseBtn39')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn39" onclick="toggleCodeBlock('cloneGroup39', 'expandBtn39', 'collapseBtn39')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup39"><code class="language-typescript text-sm text-gray-800">&lt;{
+    Params: { id: string };
+    Body: { tag: string };
+  }&gt;(&quot;/api/v1/events/:id/tag&quot;, async (request, reply) =&gt; {
+    if (!deps.eventStore) {
+      reply.code(503).send({ error: &quot;Event store not available&quot; });
+      return;
+    }
+
+    const tag = typeof request.body === &quot;object&quot; &amp;&amp; request.body !== null &amp;&amp; &quot;tag&quot; in request.body
+      ? String((request.body as Record&lt;string, unknown&gt;).tag)
+      : undefined;
+    if (!tag) {
+      reply.code(400).send({ error: &quot;Missing tag field&quot; });
+      return;
+    }
+
+    await deps.eventStore.removeTag(request.params.id, tag);
+    reply.send({ ok: true });
+  });
+}</code></pre></div><div class="py-4"><p class="text-gray-600">src/routes/credentials/ollama-cloud-probe-ui.ts (Line 16:34 - Line 27:8), src/routes/credentials/openai-probe-ui.ts (Line 17:28 - Line 28:14)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn40" onclick="toggleCodeBlock('cloneGroup40', 'expandBtn40', 'collapseBtn40')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn40" onclick="toggleCodeBlock('cloneGroup40', 'expandBtn40', 'collapseBtn40')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup40"><code class="language-typescript text-sm text-gray-800">, options), async (request, reply) =&gt; {
+    const accountId = typeof request.body?.accountId === &quot;string&quot; &amp;&amp; request.body.accountId.trim().length &gt; 0
+      ? request.body.accountId.trim()
+      : &quot;&quot;;
+
+    if (accountId.length === 0) {
+      reply.code(400).send({ error: &quot;account_id_required&quot; });
+      return;
+    }
+
+    try {
+      const baseUrl</code></pre></div><div class="py-4"><p class="text-gray-600">src/routes/credentials/factory-browser-oauth-ui.ts (Line 35:6 - Line 53:7), src/routes/credentials/openai-browser-oauth-ui.ts (Line 59:3 - Line 77:20)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn41" onclick="toggleCodeBlock('cloneGroup41', 'expandBtn41', 'collapseBtn41')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn41" onclick="toggleCodeBlock('cloneGroup41', 'expandBtn41', 'collapseBtn41')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup41"><code class="language-typescript text-sm text-gray-800">) =&gt; {
+      const error = request.query.error;
+      if (typeof error === &quot;string&quot; &amp;&amp; error.length &gt; 0) {
+        reply.header(&quot;content-type&quot;, &quot;text/html&quot;);
+      reply.send(htmlError(request.query.error_description ?? error));
+      return;
+    }
+
+    const state = typeof request.query.state === &quot;string&quot; ? request.query.state : &quot;&quot;;
+    const code = typeof request.query.code === &quot;string&quot; ? request.query.code : &quot;&quot;;
+
+    if (state.length === 0 || code.length === 0) {
+      reply.header(&quot;content-type&quot;, &quot;text/html&quot;);
+      reply.send(htmlError(&quot;Missing OAuth callback state or code.&quot;));
+      return;
+    }
+
+    try {
+      const tokens</code></pre></div><div class="py-4"><p class="text-gray-600">src/routes/credentials/context.ts (Line 113:2 - Line 132:7), src/routes/hosts/index.ts (Line 14:1 - Line 33:9)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn42" onclick="toggleCodeBlock('cloneGroup42', 'expandBtn42', 'collapseBtn42')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn42" onclick="toggleCodeBlock('cloneGroup42', 'expandBtn42', 'collapseBtn42')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup42"><code class="language-typescript text-sm text-gray-800">function inferBaseUrl(request: {
+  readonly protocol: string;
+  readonly headers: Record&lt;string, unknown&gt;;
+}): string | undefined {
+  const forwardedHost = typeof request.headers[&quot;x-forwarded-host&quot;] === &quot;string&quot;
+    ? request.headers[&quot;x-forwarded-host&quot;]
+    : undefined;
+  const host = typeof request.headers.host === &quot;string&quot; ? request.headers.host : forwardedHost;
+  if (!host) {
+    return undefined;
+  }
+
+  const forwardedProto = typeof request.headers[&quot;x-forwarded-proto&quot;] === &quot;string&quot;
+    ? request.headers[&quot;x-forwarded-proto&quot;]
+    : undefined;
+  const protocol = forwardedProto ?? request.protocol;
+  return `${protocol}://${host}`;
+}
+
+export</code></pre></div><div class="py-4"><p class="text-gray-600">src/routes/credentials/account-management-ui.ts (Line 133:31 - Line 142:5), src/routes/credentials/account-management-ui.ts (Line 106:23 - Line 115:3)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn43" onclick="toggleCodeBlock('cloneGroup43', 'expandBtn43', 'collapseBtn43')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn43" onclick="toggleCodeBlock('cloneGroup43', 'expandBtn43', 'collapseBtn43')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup43"><code class="language-typescript text-sm text-gray-800">, options), async (request, reply) =&gt; {
+    const providerId = typeof request.body?.providerId === &quot;string&quot; ? request.body.providerId.trim() : &quot;&quot;;
+    const accountId = typeof request.body?.accountId === &quot;string&quot; ? request.body.accountId.trim() : &quot;&quot;;
+
+    if (providerId.length === 0 || accountId.length === 0) {
+      reply.code(400).send({ error: &quot;provider_id_and_account_id_required&quot; });
+      return;
+    }
+
+    deps</code></pre></div><div class="py-4"><p class="text-gray-600">src/routes/credentials/account-management-ui.ts (Line 149:30 - Line 158:14), src/routes/credentials/account-management-ui.ts (Line 106:23 - Line 142:15)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn44" onclick="toggleCodeBlock('cloneGroup44', 'expandBtn44', 'collapseBtn44')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn44" onclick="toggleCodeBlock('cloneGroup44', 'expandBtn44', 'collapseBtn44')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup44"><code class="language-typescript text-sm text-gray-800">, options), async (request, reply) =&gt; {
+    const providerId = typeof request.body?.providerId === &quot;string&quot; ? request.body.providerId.trim() : &quot;&quot;;
+    const accountId = typeof request.body?.accountId === &quot;string&quot; ? request.body.accountId.trim() : &quot;&quot;;
+
+    if (providerId.length === 0 || accountId.length === 0) {
+      reply.code(400).send({ error: &quot;provider_id_and_account_id_required&quot; });
+      return;
+    }
+
+    deps.keyPool.enableAccount</code></pre></div><div class="py-4"><p class="text-gray-600">src/routes/bridge/lease.ts (Line 97:36 - Line 109:4), src/routes/bridge/lease.ts (Line 55:35 - Line 67:6)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn45" onclick="toggleCodeBlock('cloneGroup45', 'expandBtn45', 'collapseBtn45')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn45" onclick="toggleCodeBlock('cloneGroup45', 'expandBtn45', 'collapseBtn45')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup45"><code class="language-typescript text-sm text-gray-800">, async (request, reply) =&gt; {
+    const auth = getResolvedAuth(request);
+    if (!authCanManageFederation(auth)) {
+      reply.code(auth ? 403 : 401).send({ error: auth ? &quot;forbidden&quot; : &quot;unauthorized&quot; });
+      return;
+    }
+
+    if (!requireInternalBridge(request)) {
+      reply.code(403).send({ error: &quot;bridge_internal_only&quot; });
+      return;
+    }
+
+    try</code></pre></div><div class="py-4"><p class="text-gray-600">src/routes/bridge/lease.ts (Line 129:33 - Line 141:5), src/routes/bridge/lease.ts (Line 55:35 - Line 67:6)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn46" onclick="toggleCodeBlock('cloneGroup46', 'expandBtn46', 'collapseBtn46')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn46" onclick="toggleCodeBlock('cloneGroup46', 'expandBtn46', 'collapseBtn46')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup46"><code class="language-typescript text-sm text-gray-800">, async (request, reply) =&gt; {
+    const auth = getResolvedAuth(request);
+    if (!authCanManageFederation(auth)) {
+      reply.code(auth ? 403 : 401).send({ error: auth ? &quot;forbidden&quot; : &quot;unauthorized&quot; });
+      return;
+    }
+
+    if (!requireInternalBridge(request)) {
+      reply.code(403).send({ error: &quot;bridge_internal_only&quot; });
+      return;
+    }
+
+    const providerId = typeof request.body</code></pre></div><div class="py-4"><p class="text-gray-600">src/lib/sse/parsing.ts (Line 125:9 - Line 145:9), src/lib/sse/parsing.ts (Line 80:34 - Line 99:2)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn47" onclick="toggleCodeBlock('cloneGroup47', 'expandBtn47', 'collapseBtn47')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn47" onclick="toggleCodeBlock('cloneGroup47', 'expandBtn47', 'collapseBtn47')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup47"><code class="language-typescript text-sm text-gray-800">(parsed)) {
+        return true;
+      }
+
+      const type = asString(parsed[&quot;type&quot;]);
+      if (
+        type === &quot;response.reasoning.delta&quot;
+        || type === &quot;response.reasoning_text.delta&quot;
+        || type === &quot;response.reasoning_summary.delta&quot;
+        || type === &quot;response.reasoning_summary_text.delta&quot;
+        || type === &quot;response.reasoning_summary_part.delta&quot;
+      ) {
+        const delta = parsed[&quot;delta&quot;];
+        if (typeof delta === &quot;string&quot; &amp;&amp; delta.length &gt; 0) {
+          return true;
+        }
+
+        if (isRecord(delta) &amp;&amp; typeof delta[&quot;text&quot;] === &quot;string&quot; &amp;&amp; delta[&quot;text&quot;].length &gt; 0) {
+          return true;
+        }
+        continue</code></pre></div><div class="py-4"><p class="text-gray-600">src/lib/provider-strategy/base.ts (Line 162:8 - Line 180:4), src/lib/provider-strategy/strategies/openai.ts (Line 162:11 - Line 325:6)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn48" onclick="toggleCodeBlock('cloneGroup48', 'expandBtn48', 'collapseBtn48')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn48" onclick="toggleCodeBlock('cloneGroup48', 'expandBtn48', 'collapseBtn48')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup48"><code class="language-typescript text-sm text-gray-800">);
+  reply.code(upstreamResponse.status);
+  copyUpstreamHeaders(reply, upstreamResponse.headers);
+  reply.removeHeader(&quot;content-length&quot;);
+  reply.header(&quot;cache-control&quot;, &quot;no-cache&quot;);
+  reply.header(&quot;x-accel-buffering&quot;, &quot;no&quot;);
+  reply.header(&quot;content-type&quot;, &quot;text/event-stream; charset=utf-8&quot;);
+  reply.hijack();
+
+  const rawResponse = reply.raw;
+  rawResponse.statusCode = upstreamResponse.status;
+  for (const [name, value] of Object.entries(reply.getHeaders())) {
+    if (value !== undefined) {
+      rawResponse.setHeader(name, value as never);
+    }
+  }
+  rawResponse.flushHeaders();
+
+  try</code></pre></div><div class="py-4"><p class="text-gray-600">src/lib/provider-strategy/base.ts (Line 397:5 - Line 432:2), src/lib/provider-strategy/base.ts (Line 359:7 - Line 394:7)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn49" onclick="toggleCodeBlock('cloneGroup49', 'expandBtn49', 'collapseBtn49')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn49" onclick="toggleCodeBlock('cloneGroup49', 'expandBtn49', 'collapseBtn49')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup49"><code class="language-typescript text-sm text-gray-800">reply.code(upstreamResponse.status);
+    copyUpstreamHeaders(reply, upstreamResponse.headers);
+
+    const contentType = upstreamResponse.headers.get(&quot;content-type&quot;) ?? &quot;&quot;;
+    const isEventStream = contentType.toLowerCase().includes(&quot;text/event-stream&quot;);
+
+    if (!upstreamResponse.body) {
+      const responseText = await upstreamResponse.text();
+      reply.send(responseText);
+      return;
+    }
+
+    if (isEventStream) {
+      const stream = Readable.fromWeb(upstreamResponse.body as never);
+      reply.removeHeader(&quot;content-length&quot;);
+      reply.hijack();
+      const rawResponse = reply.raw;
+      rawResponse.statusCode = upstreamResponse.status;
+      for (const [name, value] of Object.entries(reply.getHeaders())) {
+        if (value !== undefined) {
+          rawResponse.setHeader(name, value as never);
+        }
+      }
+      rawResponse.flushHeaders();
+      stream.pipe(rawResponse);
+      stream.on(&quot;error&quot;, () =&gt; {
+        if (!rawResponse.writableEnded) {
+          rawResponse.end();
+        }
+      });
+      return;
+    }
+
+    const bytes = Buffer.from(await upstreamResponse.arrayBuffer());
+    reply.send(bytes);
+  }</code></pre></div><div class="py-4"><p class="text-gray-600">src/lib/provider-strategy/base.ts (Line 531:8 - Line 546:2), src/lib/provider-strategy/strategies/gemini.ts (Line 700:11 - Line 175:10)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn50" onclick="toggleCodeBlock('cloneGroup50', 'expandBtn50', 'collapseBtn50')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn50" onclick="toggleCodeBlock('cloneGroup50', 'expandBtn50', 'collapseBtn50')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup50"><code class="language-typescript text-sm text-gray-800">);
+    if (context.clientWantsStream) {
+      reply.code(200);
+      reply.header(&quot;content-type&quot;, &quot;text/event-stream; charset=utf-8&quot;);
+      reply.header(&quot;cache-control&quot;, &quot;no-cache&quot;);
+      reply.header(&quot;x-accel-buffering&quot;, &quot;no&quot;);
+      reply.send(chatCompletionToSse(chatCompletion));
+      return { kind: &quot;handled&quot; };
+    }
+
+    reply.code(upstreamResponse.status);
+    reply.header(&quot;content-type&quot;, &quot;application/json&quot;);
+    reply.send(chatCompletion);
+    return { kind: &quot;handled&quot; };
+  }
+}</code></pre></div><div class="py-4"><p class="text-gray-600">src/lib/observability/request-log-sse-hub.ts (Line 85:1 - Line 126:2), src/lib/observability/request-log-ws-hub.ts (Line 29:1 - Line 70:2)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn51" onclick="toggleCodeBlock('cloneGroup51', 'expandBtn51', 'collapseBtn51')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn51" onclick="toggleCodeBlock('cloneGroup51', 'expandBtn51', 'collapseBtn51')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup51"><code class="language-typescript text-sm text-gray-800">}
+
+function normalizeRouteKind(value: string | undefined): RequestLogWsSubscription[&quot;routeKind&quot;] {
+  const normalized = value?.trim().toLowerCase();
+  if (normalized === &quot;local&quot; || normalized === &quot;federated&quot; || normalized === &quot;bridge&quot; || normalized === &quot;routed&quot; || normalized === &quot;any&quot;) {
+    return normalized;
+  }
+  return undefined;
+}
+
+function entryMatchesSubscription(entry: RequestLogEntry, subscription: RequestLogWsSubscription): boolean {
+  const routeKind = normalizeRouteKind(subscription.routeKind);
+  if (routeKind &amp;&amp; routeKind !== &quot;any&quot;) {
+    if (routeKind === &quot;routed&quot;) {
+      if (entry.routeKind === &quot;local&quot;) {
+        return false;
+      }
+    } else if (entry.routeKind !== routeKind) {
+      return false;
+    }
+  }
+
+  const ownerSubject = typeof subscription.ownerSubject === &quot;string&quot; ? subscription.ownerSubject.trim() : &quot;&quot;;
+  if (ownerSubject.length &gt; 0) {
+    return entry.federationOwnerSubject === ownerSubject;
+  }
+
+  return true;
+}
+
+function entryVisibleToIdentity(entry: RequestLogEntry, identity: RequestLogWsIdentity): boolean {
+  if (identity.authKind === &quot;legacy_admin&quot;) {
+    return true;
+  }
+
+  const tenantId = typeof identity.tenantId === &quot;string&quot; ? identity.tenantId.trim() : &quot;&quot;;
+  if (tenantId.length === 0) {
+    return false;
+  }
+
+  return entry.tenantId === tenantId;
+}</code></pre></div><div class="py-4"><p class="text-gray-600">src/lib/federation/federation-helpers.ts (Line 7:1 - Line 17:9), src/routes/federation/remote.ts (Line 1:1 - Line 11:6)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn52" onclick="toggleCodeBlock('cloneGroup52', 'expandBtn52', 'collapseBtn52')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn52" onclick="toggleCodeBlock('cloneGroup52', 'expandBtn52', 'collapseBtn52')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup52"><code class="language-typescript text-sm text-gray-800">export function extractPeerCredential(auth: Record&lt;string, unknown&gt;): string | undefined {
+  const direct = typeof auth.credential === &quot;string&quot; ? auth.credential.trim() : &quot;&quot;;
+  if (direct.length &gt; 0) {
+    return direct;
+  }
+
+  const bearer = typeof auth.bearer === &quot;string&quot; ? auth.bearer.trim() : &quot;&quot;;
+  return bearer.length &gt; 0 ? bearer : undefined;
+}
+
+export function</code></pre></div><div class="py-4"><p class="text-gray-600">src/lib/federation/bridge-relay.ts (Line 125:2 - Line 141:6), src/lib/observability/request-log-ws-hub.ts (Line 15:6 - Line 31:9)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn53" onclick="toggleCodeBlock('cloneGroup53', 'expandBtn53', 'collapseBtn53')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn53" onclick="toggleCodeBlock('cloneGroup53', 'expandBtn53', 'collapseBtn53')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup53"><code class="language-typescript text-sm text-gray-800">;
+}
+
+function writeUpgradeResponse(socket: Duplex, statusCode: number, statusText: string, payload: Record&lt;string, unknown&gt;): void {
+  const body = JSON.stringify(payload);
+  socket.write(
+    `HTTP/1.1 ${statusCode} ${statusText}\r\n`
+      + &quot;Connection: close\r\n&quot;
+      + &quot;Content-Type: application/json; charset=utf-8\r\n&quot;
+      + `Content-Length: ${Buffer.byteLength(body)}\r\n`
+      + &quot;\r\n&quot;
+      + body,
+  );
+  socket.destroy();
+}
+
+class</code></pre></div><div class="py-4"><p class="text-gray-600">src/lib/federation/bridge-fallback.ts (Line 101:9 - Line 112:20), src/lib/federation/federated-fallback.ts (Line 241:2 - Line 252:19)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn54" onclick="toggleCodeBlock('cloneGroup54', 'expandBtn54', 'collapseBtn54')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn54" onclick="toggleCodeBlock('cloneGroup54', 'expandBtn54', 'collapseBtn54')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup54"><code class="language-typescript text-sm text-gray-800">) {
+    return false;
+  }
+
+  const requestedModel = normalizeRequestedModel(input.requestBody.model);
+  const subjectDid = typeof input.requestAuth?.subject === &quot;string&quot; &amp;&amp; isAtDid(input.requestAuth.subject)
+    ? input.requestAuth.subject.trim()
+    : typeof input.requestAuth?.tenantId === &quot;string&quot; &amp;&amp; isAtDid(input.requestAuth.tenantId)
+      ? input.requestAuth.tenantId.trim()
+      : undefined;
+
+  const resolveBridgePolicy</code></pre></div><div class="py-4"><p class="text-gray-600">src/lib/federation/bridge-agent.ts (Line 76:5 - Line 92:16), src/lib/federation/bridge-relay.ts (Line 112:2 - Line 128:21)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn55" onclick="toggleCodeBlock('cloneGroup55', 'expandBtn55', 'collapseBtn55')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn55" onclick="toggleCodeBlock('cloneGroup55', 'expandBtn55', 'collapseBtn55')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup55"><code class="language-typescript text-sm text-gray-800">: unknown): string {
+  if (typeof data === &quot;string&quot;) {
+    return data;
+  }
+  if (Buffer.isBuffer(data)) {
+    return data.toString(&quot;utf8&quot;);
+  }
+  if (Array.isArray(data)) {
+    return Buffer.concat(data.map((entry) =&gt; Buffer.isBuffer(entry) ? entry : Buffer.from(entry))).toString(&quot;utf8&quot;);
+  }
+  if (data instanceof ArrayBuffer) {
+    return Buffer.from(data).toString(&quot;utf8&quot;);
+  }
+  return Buffer.from(String(data)).toString(&quot;utf8&quot;);
+}
+
+function isAsyncIterable</code></pre></div><div class="py-4"><p class="text-gray-600">src/lib/federation/bridge-agent-autostart.ts (Line 171:12 - Line 188:2), src/lib/federation/bridge-fallback.ts (Line 372:15 - Line 389:3)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn56" onclick="toggleCodeBlock('cloneGroup56', 'expandBtn56', 'collapseBtn56')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn56" onclick="toggleCodeBlock('cloneGroup56', 'expandBtn56', 'collapseBtn56')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup56"><code class="language-typescript text-sm text-gray-800">);
+  const decoder = encodeAsUtf8 ? new TextDecoder(&quot;utf8&quot;) : undefined;
+  const reader = response.body.getReader();
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+    if (!value || value.length === 0) {
+      continue;
+    }
+
+    if (decoder) {
+      const chunk = decoder.decode(value, { stream: true });
+      if (chunk.length &gt; 0) {
+        yield {
+          type: &quot;response_chunk&quot;,</code></pre></div><div class="py-4"><p class="text-gray-600">src/lib/federation/bridge-agent-autostart.ts (Line 284:26 - Line 292:22), src/lib/federation/bridge-agent-autostart.ts (Line 244:2 - Line 252:16)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn57" onclick="toggleCodeBlock('cloneGroup57', 'expandBtn57', 'collapseBtn57')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn57" onclick="toggleCodeBlock('cloneGroup57', 'expandBtn57', 'collapseBtn57')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup57"><code class="language-typescript text-sm text-gray-800">&gt; {
+  const [providers, statuses] = await Promise.all([
+    credentialStore.listProviders(false).catch(() =&gt; []),
+    keyPool.getAllStatuses().catch(() =&gt; ({} as Awaited&lt;ReturnType&lt;KeyPool[&quot;getAllStatuses&quot;]&gt;&gt;)),
+  ]);
+
+  const groupId = process.env.FEDERATION_SELF_GROUP_ID?.trim();
+  const nodeId = process.env.FEDERATION_SELF_NODE_ID?.trim();
+  const availableAccountCount</code></pre></div><div class="py-4"><p class="text-gray-600">src/lib/errors/classification.ts (Line 307:4 - Line 329:37), src/lib/errors/classification.ts (Line 272:2 - Line 293:2)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn58" onclick="toggleCodeBlock('cloneGroup58', 'expandBtn58', 'collapseBtn58')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn58" onclick="toggleCodeBlock('cloneGroup58', 'expandBtn58', 'collapseBtn58')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup58"><code class="language-typescript text-sm text-gray-800">) {
+    return false;
+  }
+
+  let payload: unknown;
+  try {
+    payload = await response.clone().json();
+  } catch {
+    try {
+      payload = await response.clone().text();
+    } catch {
+      return false;
+    }
+  }
+
+  const message = extractErrorMessage(payload);
+  if (!message) {
+    return false;
+  }
+
+  const lowered = message.toLowerCase();
+
+  if (MODEL_REQUIRES_SUBSCRIPTION_PATTERNS</code></pre></div><div class="py-4"><p class="text-gray-600">src/lib/embeddings-providers/index.ts (Line 99:11 - Line 111:18), src/lib/embeddings-providers/index.ts (Line 57:2 - Line 69:23)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn59" onclick="toggleCodeBlock('cloneGroup59', 'expandBtn59', 'collapseBtn59')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn59" onclick="toggleCodeBlock('cloneGroup59', 'expandBtn59', 'collapseBtn59')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup59"><code class="language-typescript text-sm text-gray-800">;
+
+  const headers: Record&lt;string, string&gt; = { 'Content-Type': 'application/json' };
+  if (cfg.apiKey) headers['Authorization'] = `Bearer ${cfg.apiKey}`;
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(req.timeoutMs ?? cfg.timeoutMs ?? 30_000),
+  });
+
+  if (!res.ok) throw new Error(`TEI embed error </code></pre></div><div class="py-4"><p class="text-gray-600">src/lib/embeddings-providers/index.ts (Line 139:13 - Line 151:22), src/lib/embeddings-providers/index.ts (Line 99:15 - Line 69:23)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn60" onclick="toggleCodeBlock('cloneGroup60', 'expandBtn60', 'collapseBtn60')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn60" onclick="toggleCodeBlock('cloneGroup60', 'expandBtn60', 'collapseBtn60')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup60"><code class="language-typescript text-sm text-gray-800">] = req.dimensions;
+
+  const headers: Record&lt;string, string&gt; = { 'Content-Type': 'application/json' };
+  if (cfg.apiKey) headers['Authorization'] = `Bearer ${cfg.apiKey}`;
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(req.timeoutMs ?? cfg.timeoutMs ?? 30_000),
+  });
+
+  if (!res.ok) throw new Error(`ovm-npu embed error </code></pre></div><div class="py-4"><p class="text-gray-600">src/lib/db/event-store.ts (Line 301:2 - Line 346:6), src/lib/db/event-store.ts (Line 240:2 - Line 285:6)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn61" onclick="toggleCodeBlock('cloneGroup61', 'expandBtn61', 'collapseBtn61')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn61" onclick="toggleCodeBlock('cloneGroup61', 'expandBtn61', 'collapseBtn61')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup61"><code class="language-typescript text-sm text-gray-800">= [];
+    let paramIndex = 1;
+
+    if (filters.kind) {
+      conditions.push(`kind = $${paramIndex++}`);
+      values.push(filters.kind);
+    }
+    if (filters.entryId) {
+      conditions.push(`entry_id = $${paramIndex++}`);
+      values.push(filters.entryId);
+    }
+    if (filters.providerId) {
+      conditions.push(`provider_id = $${paramIndex++}`);
+      values.push(filters.providerId);
+    }
+    if (filters.model) {
+      conditions.push(`model = $${paramIndex++}`);
+      values.push(filters.model);
+    }
+    if (filters.status !== undefined) {
+      conditions.push(`status = $${paramIndex++}`);
+      values.push(filters.status);
+    }
+    if (filters.statusGte !== undefined) {
+      conditions.push(`status &gt;= $${paramIndex++}`);
+      values.push(filters.statusGte);
+    }
+    if (filters.statusLt !== undefined) {
+      conditions.push(`status &lt; $${paramIndex++}`);
+      values.push(filters.statusLt);
+    }
+    if (filters.tag) {
+      conditions.push(`tags ? $${paramIndex++}`);
+      values.push(filters.tag);
+    }
+    if (filters.since) {
+      conditions.push(`ts &gt;= $${paramIndex++}`);
+      values.push(filters.since.toISOString());
+    }
+    if (filters.until) {
+      conditions.push(`ts &lt; $${paramIndex++}`);
+      values.push(filters.until.toISOString());
+    }
+
+    const where = conditions.length &gt; 0 ? `WHERE ${conditions.join(&quot; AND &quot;)}` : &quot;&quot;;
+    const query</code></pre></div><div class="py-4"><p class="text-gray-600">src/lib/db/account-health-store.ts (Line 508:17 - Line 517:2), src/lib/db/account-health-store.ts (Line 460:17 - Line 469:2)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn62" onclick="toggleCodeBlock('cloneGroup62', 'expandBtn62', 'collapseBtn62')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn62" onclick="toggleCodeBlock('cloneGroup62', 'expandBtn62', 'collapseBtn62')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup62"><code class="language-typescript text-sm text-gray-800">[]): Promise&lt;void&gt; =&gt; {
+      if (chunk.length === 0) return;
+
+      const updatedAt = Date.now();
+      const values: Array&lt;string | number | null&gt; = [];
+      const placeholders: string[] = [];
+
+      for (let i = 0; i &lt; chunk.length; i++) {
+        const row = chunk[i]!;
+        const base = i * 7</code></pre></div><div class="py-4"><p class="text-gray-600">src/tests/request-log-store.test.ts (Line 354:85 - Line 374:3), src/tests/request-log-store.test.ts (Line 290:113 - Line 310:2)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn63" onclick="toggleCodeBlock('cloneGroup63', 'expandBtn63', 'collapseBtn63')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn63" onclick="toggleCodeBlock('cloneGroup63', 'expandBtn63', 'collapseBtn63')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup63"><code class="language-typescript text-sm text-gray-800">, async () =&gt; {
+  await withTempDir(async (tempDir) =&gt; {
+    const filePath = path.join(tempDir, &quot;request-logs.jsonl&quot;);
+    const payload = {
+      entries: [
+        {
+          id: &quot;entry-1&quot;,
+          timestamp: Date.UTC(2026, 2, 16, 23, 15, 0),
+          providerId: &quot;openai&quot;,
+          accountId: &quot;acct-1&quot;,
+          authType: &quot;oauth_bearer&quot;,
+          model: &quot;gpt-5.4&quot;,
+          upstreamMode: &quot;responses&quot;,
+          upstreamPath: &quot;/v1/responses&quot;,
+          status: 200,
+          latencyMs: 250,
+          promptTokens: 1000,
+          completionTokens: 200,
+          totalTokens: 1200,
+          costUsd: 0,
+          energyJoules: 50</code></pre></div><div class="py-4"><p class="text-gray-600">src/tests/request-log-store.test.ts (Line 375:6 - Line 392:2), src/tests/request-log-store.test.ts (Line 311:2 - Line 328:2)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn64" onclick="toggleCodeBlock('cloneGroup64', 'expandBtn64', 'collapseBtn64')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn64" onclick="toggleCodeBlock('cloneGroup64', 'expandBtn64', 'collapseBtn64')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup64"><code class="language-typescript text-sm text-gray-800">,
+        },
+      ],
+      hourlyBuckets: [],
+      dailyBuckets: [],
+      dailyModelBuckets: [],
+      dailyAccountBuckets: [],
+      accountAccumulators: [],
+    };
+
+    await writeFile(filePath, JSON.stringify(payload, null, 2), &quot;utf8&quot;);
+
+    const store = new RequestLogStore(filePath, 100);
+    await store.warmup();
+
+    const entries = store.snapshot();
+    assert.equal(entries.length, 1);
+    assert.ok((entries[0]?.costUsd ?? 0) &gt; 0,</code></pre></div><div class="py-4"><p class="text-gray-600">src/tests/model-alias-resolution.test.ts (Line 128:74 - Line 143:6), src/tests/model-alias-resolution.test.ts (Line 90:82 - Line 105:78)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn65" onclick="toggleCodeBlock('cloneGroup65', 'expandBtn65', 'collapseBtn65')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn65" onclick="toggleCodeBlock('cloneGroup65', 'expandBtn65', 'collapseBtn65')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup65"><code class="language-typescript text-sm text-gray-800">, async (t) =&gt; {
+  const loaded = await loadCljsRuntime({ required: false });
+  if (!loaded.loaded) {
+    t.skip(`CLJS runtime artifact not built: ${loaded.reason}`);
+    return;
+  }
+  await assertCljsRuntimeReady(loaded.runtime);
+  setActiveCljsRuntime(loaded.runtime);
+  t.after(() =&gt; setActiveCljsRuntime(undefined));
+
+  const strategy = new GeminiChatProviderStrategy();
+  const config = {
+    cljsPolicyManifestPath: &quot;resources/policies/runtime/00-manifest.edn&quot;,
+  } as unknown as ProxyConfig;
+
+  const</code></pre></div><div class="py-4"><p class="text-gray-600">src/tests/gemma4-pricing.test.ts (Line 46:50 - Line 58:6), src/tests/gemma4-pricing.test.ts (Line 25:58 - Line 37:33)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn66" onclick="toggleCodeBlock('cloneGroup66', 'expandBtn66', 'collapseBtn66')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn66" onclick="toggleCodeBlock('cloneGroup66', 'expandBtn66', 'collapseBtn66')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup66"><code class="language-typescript text-sm text-gray-800">, async (t) =&gt; {
+  const loaded = await loadCljsRuntime({ required: false });
+  if (!loaded.loaded) {
+    t.skip(`CLJS runtime artifact not built: ${loaded.reason}`);
+    return;
+  }
+  await assertCljsRuntimeReady(loaded.runtime);
+
+  const overrides = loaded.runtime.loadModelPricingOverrides(&quot;resources/policies/runtime/00-manifest.edn&quot;);
+  setPolicyModelPricingOverrides(overrides);
+  t.after(() =&gt; setPolicyModelPricingOverrides([]));
+
+  const</code></pre></div><div class="py-4"><p class="text-gray-600">src/tests/gemini-strategy.test.ts (Line 169:7 - Line 189:2), src/tests/gemini-strategy.test.ts (Line 113:7 - Line 133:2)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn67" onclick="toggleCodeBlock('cloneGroup67', 'expandBtn67', 'collapseBtn67')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn67" onclick="toggleCodeBlock('cloneGroup67', 'expandBtn67', 'collapseBtn67')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup67"><code class="language-typescript text-sm text-gray-800">,
+      },
+      requestAuth: undefined,
+      requestedModelInput: &quot;gemini-2.5-pro&quot;,
+      routingModelInput: &quot;gemini-2.5-pro&quot;,
+      routedModel: &quot;gemini-2.5-pro&quot;,
+      explicitOllama: false,
+      openAiPrefixed: false,
+      factoryPrefixed: false,
+      localOllama: false,
+      clientWantsStream: false,
+      needsReasoningTrace: false,
+      upstreamAttemptTimeoutMs: 30000,
+      responsesPassthrough: false,
+      imagesPassthrough: false,
+    };
+
+    const payload = strategy.buildPayload(context);
+    const upstreamPayload = payload.upstreamPayload;
+
+    assert.ok(isRecord(upstreamPayload.</code></pre></div><div class="py-4"><p class="text-gray-600">src/tests/gemini-strategy.test.ts (Line 212:2 - Line 234:6), src/tests/gemini-strategy.test.ts (Line 113:7 - Line 191:7)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn68" onclick="toggleCodeBlock('cloneGroup68', 'expandBtn68', 'collapseBtn68')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn68" onclick="toggleCodeBlock('cloneGroup68', 'expandBtn68', 'collapseBtn68')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup68"><code class="language-typescript text-sm text-gray-800">,
+      },
+      requestAuth: undefined,
+      requestedModelInput: &quot;gemini-2.5-pro&quot;,
+      routingModelInput: &quot;gemini-2.5-pro&quot;,
+      routedModel: &quot;gemini-2.5-pro&quot;,
+      explicitOllama: false,
+      openAiPrefixed: false,
+      factoryPrefixed: false,
+      localOllama: false,
+      clientWantsStream: false,
+      needsReasoningTrace: false,
+      upstreamAttemptTimeoutMs: 30000,
+      responsesPassthrough: false,
+      imagesPassthrough: false,
+    };
+
+    const payload = strategy.buildPayload(context);
+    const upstreamPayload = payload.upstreamPayload;
+
+    assert.ok(isRecord(upstreamPayload.toolConfig));
+    const functionCallingConfig = (upstreamPayload.toolConfig as Record&lt;string, unknown&gt;).functionCallingConfig as Record&lt;string, unknown&gt;;
+    assert.equal(functionCallingConfig.mode, &quot;ANY&quot;</code></pre></div><div class="py-4"><p class="text-gray-600">src/tests/gemini-strategy.test.ts (Line 587:4 - Line 608:9), src/tests/gemini-strategy.test.ts (Line 113:7 - Line 134:6)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn69" onclick="toggleCodeBlock('cloneGroup69', 'expandBtn69', 'collapseBtn69')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn69" onclick="toggleCodeBlock('cloneGroup69', 'expandBtn69', 'collapseBtn69')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup69"><code class="language-typescript text-sm text-gray-800">,
+      },
+      requestAuth: undefined,
+      requestedModelInput: &quot;gemini-2.5-pro&quot;,
+      routingModelInput: &quot;gemini-2.5-pro&quot;,
+      routedModel: &quot;gemini-2.5-pro&quot;,
+      explicitOllama: false,
+      openAiPrefixed: false,
+      factoryPrefixed: false,
+      localOllama: false,
+      clientWantsStream: false,
+      needsReasoningTrace: false,
+      upstreamAttemptTimeoutMs: 30000,
+      responsesPassthrough: false,
+      imagesPassthrough: false,
+    };
+
+    const payload = strategy.buildPayload(context);
+    const upstreamPayload = payload.upstreamPayload;
+
+    assert.ok(isRecord(upstreamPayload));
+    assert.ok(Array.isArray(upstreamPayload.contents</code></pre></div><div class="py-4"><p class="text-gray-600">src/tests/federation-bridge-relay.test.ts (Line 55:9 - Line 67:2), src/tests/observability-routes.test.ts (Line 33:11 - Line 45:2)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn70" onclick="toggleCodeBlock('cloneGroup70', 'expandBtn70', 'collapseBtn70')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn70" onclick="toggleCodeBlock('cloneGroup70', 'expandBtn70', 'collapseBtn70')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup70"><code class="language-typescript text-sm text-gray-800">: `http://127.0.0.1:${input.upstreamPort}`,
+      gemini: `http://127.0.0.1:${input.upstreamPort}`,
+      zai: `http://127.0.0.1:${input.upstreamPort}/api/paas/v4`,
+      mistral: `http://127.0.0.1:${input.upstreamPort}/v1`,
+    },
+    upstreamBaseUrl: `http://127.0.0.1:${input.upstreamPort}`,
+    openaiProviderId: &quot;openai&quot;,
+    openaiBaseUrl: `http://127.0.0.1:${input.upstreamPort}`,
+    openaiApiBaseUrl: `http://127.0.0.1:${input.upstreamPort}`,
+    openaiImagesUpstreamMode: &quot;auto&quot;,
+    ollamaBaseUrl: `http://127.0.0.1:${input.upstreamPort}`,
+    localOllamaEnabled: true,
+    localOllamaModelPatterns: [&quot;:2b&quot;, &quot;:3b&quot;, &quot;:4b&quot;,</code></pre></div><div class="py-4"><p class="text-gray-600">src/tests/federation-bridge-relay.test.ts (Line 187:34 - Line 212:21), src/tests/federation-bridge-relay.test.ts (Line 129:27 - Line 154:8)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn71" onclick="toggleCodeBlock('cloneGroup71', 'expandBtn71', 'collapseBtn71')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn71" onclick="toggleCodeBlock('cloneGroup71', 'expandBtn71', 'collapseBtn71')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup71"><code class="language-typescript text-sm text-gray-800">));
+  const keysPath = path.join(tempDir, &quot;keys.json&quot;);
+  const modelsPath = path.join(tempDir, &quot;models.json&quot;);
+  const requestLogsPath = path.join(tempDir, &quot;request-logs.jsonl&quot;);
+  const promptAffinityPath = path.join(tempDir, &quot;prompt-affinity.json&quot;);
+  const settingsPath = path.join(tempDir, &quot;proxy-settings.json&quot;);
+
+  await writeFile(keysPath, JSON.stringify({ keys: [&quot;test-key-1&quot;] }, null, 2), &quot;utf8&quot;);
+  await writeFile(modelsPath, JSON.stringify({ object: &quot;list&quot;, data: [{ id: &quot;gpt-5.2&quot; }] }, null, 2), &quot;utf8&quot;);
+
+  const upstream = createServer((_request, response) =&gt; {
+    response.statusCode = 200;
+    response.setHeader(&quot;content-type&quot;, &quot;application/json&quot;);
+    response.end(JSON.stringify({ ok: true }));
+  });
+  upstream.listen(0, &quot;127.0.0.1&quot;);
+  await once(upstream, &quot;listening&quot;);
+  const upstreamAddress = upstream.address();
+  if (!upstreamAddress || typeof upstreamAddress === &quot;string&quot;) {
+    throw new Error(&quot;failed to resolve upstream address&quot;);
+  }
+
+  const config = buildConfig({
+    upstreamPort: upstreamAddress.port,
+    paths: { keysPath, modelsPath, requestLogsPath, promptAffinityPath, settingsPath },
+    proxyAuthToken: &quot;bridge-admin-token&quot;</code></pre></div><div class="py-4"><p class="text-gray-600">src/tests/federation-bridge-relay.test.ts (Line 310:2 - Line 325:16), src/tests/federation-bridge-relay.test.ts (Line 157:7 - Line 171:4)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn72" onclick="toggleCodeBlock('cloneGroup72', 'expandBtn72', 'collapseBtn72')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn72" onclick="toggleCodeBlock('cloneGroup72', 'expandBtn72', 'collapseBtn72')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup72"><code class="language-typescript text-sm text-gray-800">);
+
+  await app.listen({ host: &quot;127.0.0.1&quot;, port: 0 });
+  const appAddress = app.server.address();
+  if (!appAddress || typeof appAddress === &quot;string&quot;) {
+    throw new Error(&quot;failed to resolve app address&quot;);
+  }
+
+  const baseUrl = `http://127.0.0.1:${appAddress.port}`;
+  const wsUrl = `ws://127.0.0.1:${appAddress.port}/api/ui/federation/bridge/ws`;
+
+  try {
+    await fn({ app, upstream, tempDir, baseUrl, wsUrl });
+  } finally {
+    await app.close();
+    await requestLogStore</code></pre></div><div class="py-4"><p class="text-gray-600">src/tests/federation-bridge-autostart.test.ts (Line 45:7 - Line 55:7), src/tests/federation-bridge-relay.test.ts (Line 129:27 - Line 139:6)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn73" onclick="toggleCodeBlock('cloneGroup73', 'expandBtn73', 'collapseBtn73')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn73" onclick="toggleCodeBlock('cloneGroup73', 'expandBtn73', 'collapseBtn73')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup73"><code class="language-typescript text-sm text-gray-800">));
+  const keysPath = path.join(tempDir, &quot;keys.json&quot;);
+  const modelsPath = path.join(tempDir, &quot;models.json&quot;);
+  const requestLogsPath = path.join(tempDir, &quot;request-logs.jsonl&quot;);
+  const promptAffinityPath = path.join(tempDir, &quot;prompt-affinity.json&quot;);
+  const settingsPath = path.join(tempDir, &quot;proxy-settings.json&quot;);
+
+  await writeFile(keysPath, JSON.stringify({ keys: [&quot;test-key-1&quot;] }, null, 2), &quot;utf8&quot;);
+  await writeFile(modelsPath, JSON.stringify({ object: &quot;list&quot;, data: [{ id: &quot;gpt-5.2&quot; }] }, null, 2), &quot;utf8&quot;);
+
+  return</code></pre></div><div class="py-4"><p class="text-gray-600">src/tests/federation-bridge-autostart.test.ts (Line 58:2 - Line 153:8), src/tests/federation-bridge-relay.test.ts (Line 30:7 - Line 125:14)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn74" onclick="toggleCodeBlock('cloneGroup74', 'expandBtn74', 'collapseBtn74')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn74" onclick="toggleCodeBlock('cloneGroup74', 'expandBtn74', 'collapseBtn74')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup74"><code class="language-typescript text-sm text-gray-800">;
+}
+
+function buildConfig(input: {
+  readonly upstreamPort: number;
+  readonly paths: {
+    readonly keysPath: string;
+    readonly modelsPath: string;
+    readonly requestLogsPath: string;
+    readonly promptAffinityPath: string;
+    readonly settingsPath: string;
+  };
+  readonly proxyAuthToken: string;
+}): ProxyConfig {
+  return {
+    host: &quot;127.0.0.1&quot;,
+    port: 0,
+    upstreamProviderId: &quot;vivgrid&quot;,
+    disabledProviderIds: [],
+    upstreamProviderBaseUrls: {
+      vivgrid: `http://127.0.0.1:${input.upstreamPort}`,
+      &quot;ollama-cloud&quot;: `http://127.0.0.1:${input.upstreamPort}`,
+      ob1: `http://127.0.0.1:${input.upstreamPort}`,
+      openai: `http://127.0.0.1:${input.upstreamPort}`,
+      openrouter: `http://127.0.0.1:${input.upstreamPort}`,
+      requesty: `http://127.0.0.1:${input.upstreamPort}`,
+      gemini: `http://127.0.0.1:${input.upstreamPort}`,
+      zai: `http://127.0.0.1:${input.upstreamPort}/api/paas/v4`,
+      mistral: `http://127.0.0.1:${input.upstreamPort}/v1`,
+    },
+    upstreamBaseUrl: `http://127.0.0.1:${input.upstreamPort}`,
+    openaiProviderId: &quot;openai&quot;,
+    openaiBaseUrl: `http://127.0.0.1:${input.upstreamPort}`,
+    openaiApiBaseUrl: `http://127.0.0.1:${input.upstreamPort}`,
+    openaiImagesUpstreamMode: &quot;auto&quot;,
+    ollamaBaseUrl: `http://127.0.0.1:${input.upstreamPort}`,
+    localOllamaEnabled: true,
+    localOllamaModelPatterns: [&quot;:2b&quot;, &quot;:3b&quot;, &quot;:4b&quot;, &quot;:7b&quot;, &quot;:8b&quot;, &quot;mini&quot;, &quot;small&quot;],
+    chatCompletionsPath: &quot;/v1/chat/completions&quot;,
+    openaiChatCompletionsPath: &quot;/v1/chat/completions&quot;,
+    messagesPath: &quot;/v1/messages&quot;,
+    messagesModelPrefixes: [&quot;claude-&quot;],
+    messagesInterleavedThinkingBeta: &quot;interleaved-thinking-2025-05-14&quot;,
+    responsesPath: &quot;/v1/responses&quot;,
+    openaiResponsesPath: &quot;/v1/responses&quot;,
+    openaiImagesGenerationsPaths: [&quot;/v1/images/generations&quot;, &quot;/images/generations&quot;, &quot;/codex/images/generations&quot;],
+    imageCostUsdDefault: 0,
+    imageCostUsdByProvider: {},
+    imagesGenerationsPath: &quot;/v1/images/generations&quot;,
+    responsesModelPrefixes: [&quot;gpt-&quot;],
+    ollamaChatPath: &quot;/api/chat&quot;,
+    ollamaV1ChatPath: &quot;/v1/chat/completions&quot;,
+    factoryModelPrefixes: [&quot;factory/&quot;, &quot;factory:&quot;],
+    openaiModelPrefixes: [&quot;openai/&quot;, &quot;openai:&quot;],
+    ollamaModelPrefixes: [&quot;ollama/&quot;, &quot;ollama:&quot;],
+    keysFilePath: input.paths.keysPath,
+    modelsFilePath: input.paths.modelsPath,
+    requestLogsFilePath: input.paths.requestLogsPath,
+    requestLogsMaxEntries: 100000,
+    requestLogsFlushMs: 0,
+    promptAffinityFilePath: input.paths.promptAffinityPath,
+    promptAffinityFlushMs: 0,
+    settingsFilePath: input.paths.settingsPath,
+    keyReloadMs: 50,
+    keyCooldownMs: 10_000,
+    keyCooldownJitterFactor: 0.4,
+    enableKeyRandomWalk: true,
+    ollamaWeeklyCooldownMultiplier: 24,
+    requestTimeoutMs: 2_000,
+    streamBootstrapTimeoutMs: 2_000,
+    embedMaxContextTokens: 262144,
+    embedMaxBatchItems: 128,
+    embedMaxInputChars: 250000,
+    upstreamTransientRetryCount: 1,
+    upstreamTransientRetryBackoffMs: 1,
+    proxyAuthToken: input.proxyAuthToken,
+    allowUnauthenticated: false,
+    databaseUrl: undefined,
+    githubOAuthClientId: undefined,
+    githubOAuthClientSecret: undefined,
+    githubOAuthCallbackPath: &quot;/auth/github/callback&quot;,
+    githubAllowedUsers: [],
+    sessionSecret: &quot;test-session-token&quot;,
+    openaiOauthScopes: &quot;openid profile email offline_access&quot;,
+    openaiOauthClientId: &quot;app_EMoamEEZ73f0CkXaXp7hrann&quot;,
+    openaiOauthIssuer: &quot;https://auth.openai.com&quot;,
+    proxyTokenPepper: &quot;test-proxy-token-pepper&quot;,
+    oauthRefreshMaxConcurrency: 32,
+    oauthRefreshBackgroundIntervalMs: 15_000,
+    oauthRefreshProactiveWindowMs: 30 * 60_000,
+    concurrencyThrottleMaxRetries: 3,
+    concurrencyThrottleThresholdMs: 30_000,
+  };
+}
+
+async function waitFor</code></pre></div><div class="py-4"><p class="text-gray-600">src/tests/federation-bridge-autostart.test.ts (Line 166:32 - Line 180:4), src/tests/federation-bridge-relay.test.ts (Line 137:7 - Line 151:6)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn75" onclick="toggleCodeBlock('cloneGroup75', 'expandBtn75', 'collapseBtn75')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn75" onclick="toggleCodeBlock('cloneGroup75', 'expandBtn75', 'collapseBtn75')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup75"><code class="language-typescript text-sm text-gray-800">);
+
+  const upstream = createServer((_request, response) =&gt; {
+    response.statusCode = 200;
+    response.setHeader(&quot;content-type&quot;, &quot;application/json&quot;);
+    response.end(JSON.stringify({ ok: true }));
+  });
+  upstream.listen(0, &quot;127.0.0.1&quot;);
+  await once(upstream, &quot;listening&quot;);
+  const upstreamAddress = upstream.address();
+  if (!upstreamAddress || typeof upstreamAddress === &quot;string&quot;) {
+    throw new Error(&quot;failed to resolve upstream address&quot;);
+  }
+
+  let</code></pre></div><div class="py-4"><p class="text-gray-600">src/tests/federation-bridge-agent.test.ts (Line 28:27 - Line 50:2), src/tests/federation-bridge-relay.test.ts (Line 129:27 - Line 151:2)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn76" onclick="toggleCodeBlock('cloneGroup76', 'expandBtn76', 'collapseBtn76')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn76" onclick="toggleCodeBlock('cloneGroup76', 'expandBtn76', 'collapseBtn76')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup76"><code class="language-typescript text-sm text-gray-800">));
+  const keysPath = path.join(tempDir, &quot;keys.json&quot;);
+  const modelsPath = path.join(tempDir, &quot;models.json&quot;);
+  const requestLogsPath = path.join(tempDir, &quot;request-logs.jsonl&quot;);
+  const promptAffinityPath = path.join(tempDir, &quot;prompt-affinity.json&quot;);
+  const settingsPath = path.join(tempDir, &quot;proxy-settings.json&quot;);
+
+  await writeFile(keysPath, JSON.stringify({ keys: [&quot;test-key-1&quot;] }, null, 2), &quot;utf8&quot;);
+  await writeFile(modelsPath, JSON.stringify({ object: &quot;list&quot;, data: [{ id: &quot;gpt-5.2&quot; }] }, null, 2), &quot;utf8&quot;);
+
+  const upstream = createServer((_request, response) =&gt; {
+    response.statusCode = 200;
+    response.setHeader(&quot;content-type&quot;, &quot;application/json&quot;);
+    response.end(JSON.stringify({ ok: true }));
+  });
+  upstream.listen(0, &quot;127.0.0.1&quot;);
+  await once(upstream, &quot;listening&quot;);
+  const upstreamAddress = upstream.address();
+  if (!upstreamAddress || typeof upstreamAddress === &quot;string&quot;) {
+    throw new Error(&quot;failed to resolve upstream address&quot;);
+  }
+
+  const config:</code></pre></div><div class="py-4"><p class="text-gray-600">src/tests/federation-bridge-agent.test.ts (Line 71:5 - Line 91:9), src/tests/federation-bridge-relay.test.ts (Line 65:13 - Line 85:6)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn77" onclick="toggleCodeBlock('cloneGroup77', 'expandBtn77', 'collapseBtn77')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn77" onclick="toggleCodeBlock('cloneGroup77', 'expandBtn77', 'collapseBtn77')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup77"><code class="language-typescript text-sm text-gray-800">}`,
+    localOllamaEnabled: true,
+    localOllamaModelPatterns: [&quot;:2b&quot;, &quot;:3b&quot;, &quot;:4b&quot;, &quot;:7b&quot;, &quot;:8b&quot;, &quot;mini&quot;, &quot;small&quot;],
+    chatCompletionsPath: &quot;/v1/chat/completions&quot;,
+    openaiChatCompletionsPath: &quot;/v1/chat/completions&quot;,
+    messagesPath: &quot;/v1/messages&quot;,
+    messagesModelPrefixes: [&quot;claude-&quot;],
+    messagesInterleavedThinkingBeta: &quot;interleaved-thinking-2025-05-14&quot;,
+    responsesPath: &quot;/v1/responses&quot;,
+    openaiResponsesPath: &quot;/v1/responses&quot;,
+    openaiImagesGenerationsPaths: [&quot;/v1/images/generations&quot;, &quot;/images/generations&quot;, &quot;/codex/images/generations&quot;],
+    imageCostUsdDefault: 0,
+    imageCostUsdByProvider: {},
+    imagesGenerationsPath: &quot;/v1/images/generations&quot;,
+    responsesModelPrefixes: [&quot;gpt-&quot;],
+    ollamaChatPath: &quot;/api/chat&quot;,
+    ollamaV1ChatPath: &quot;/v1/chat/completions&quot;,
+    factoryModelPrefixes: [&quot;factory/&quot;, &quot;factory:&quot;],
+    openaiModelPrefixes: [&quot;openai/&quot;, &quot;openai:&quot;],
+    ollamaModelPrefixes: [&quot;ollama/&quot;, &quot;ollama:&quot;],
+    keysFilePath: keysPath</code></pre></div><div class="py-4"><p class="text-gray-600">src/tests/federation-bridge-agent.test.ts (Line 140:8 - Line 156:8), src/tests/federation-bridge-relay.test.ts (Line 168:8 - Line 184:28)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn78" onclick="toggleCodeBlock('cloneGroup78', 'expandBtn78', 'collapseBtn78')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn78" onclick="toggleCodeBlock('cloneGroup78', 'expandBtn78', 'collapseBtn78')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup78"><code class="language-typescript text-sm text-gray-800">, wsUrl });
+  } finally {
+    await app.close();
+    await new Promise&lt;void&gt;((resolve, reject) =&gt; {
+      upstream.close((error) =&gt; {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve();
+      });
+    });
+    await rm(tempDir, { recursive: true, force: true });
+  }
+}
+
+async function waitFor</code></pre></div><div class="py-4"><p class="text-gray-600">src/tests/federation-bridge-agent.test.ts (Line 154:1 - Line 167:74), src/tests/federation-bridge-autostart.test.ts (Line 151:1 - Line 164:61)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn79" onclick="toggleCodeBlock('cloneGroup79', 'expandBtn79', 'collapseBtn79')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn79" onclick="toggleCodeBlock('cloneGroup79', 'expandBtn79', 'collapseBtn79')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup79"><code class="language-typescript text-sm text-gray-800">}
+
+async function waitFor(predicate: () =&gt; Promise&lt;boolean&gt;, timeoutMs = 5_000): Promise&lt;void&gt; {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() &lt; deadline) {
+    if (await predicate()) {
+      return;
+    }
+    await new Promise((resolve) =&gt; setTimeout(resolve, 25));
+  }
+  throw new Error(`condition not met within ${timeoutMs}ms`);
+}
+
+test(&quot;bridge agent connects, publishes capabilities/health, and stops cleanly&quot;</code></pre></div><div class="py-4"><p class="text-gray-600">src/tests/factory-strategy.test.ts (Line 135:2 - Line 162:6), src/tests/federation-bridge-relay.test.ts (Line 67:8 - Line 100:3)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn80" onclick="toggleCodeBlock('cloneGroup80', 'expandBtn80', 'collapseBtn80')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn80" onclick="toggleCodeBlock('cloneGroup80', 'expandBtn80', 'collapseBtn80')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup80"><code class="language-typescript text-sm text-gray-800">],
+    chatCompletionsPath: &quot;/v1/chat/completions&quot;,
+    openaiChatCompletionsPath: &quot;/v1/chat/completions&quot;,
+    messagesPath: &quot;/v1/messages&quot;,
+    messagesModelPrefixes: [&quot;claude-&quot;],
+    messagesInterleavedThinkingBeta: &quot;interleaved-thinking-2025-05-14&quot;,
+    responsesPath: &quot;/v1/responses&quot;,
+    openaiResponsesPath: &quot;/v1/responses&quot;,
+    openaiImagesGenerationsPaths: [&quot;/v1/images/generations&quot;, &quot;/images/generations&quot;, &quot;/codex/images/generations&quot;],
+    imageCostUsdDefault: 0,
+    imageCostUsdByProvider: {},
+    imagesGenerationsPath: &quot;/v1/images/generations&quot;,
+    responsesModelPrefixes: [&quot;gpt-&quot;],
+    ollamaChatPath: &quot;/api/chat&quot;,
+    ollamaV1ChatPath: &quot;/v1/chat/completions&quot;,
+    factoryModelPrefixes: [&quot;factory/&quot;, &quot;factory:&quot;],
+    openaiModelPrefixes: [&quot;openai/&quot;, &quot;openai:&quot;],
+    ollamaModelPrefixes: [&quot;ollama/&quot;, &quot;ollama:&quot;],
+    keysFilePath: keysPath,
+    modelsFilePath: modelsPath,
+    requestLogsFilePath: requestLogsPath,
+    requestLogsMaxEntries: 100000,
+    requestLogsFlushMs: 0,
+    promptAffinityFilePath: promptAffinityPath,
+    promptAffinityFlushMs: 0,
+    settingsFilePath: settingsPath,
+    keyReloadMs: 50,
+    keyCooldownMs: 10000</code></pre></div><div class="py-4"><p class="text-gray-600">src/tests/factory-strategy.test.ts (Line 216:1 - Line 240:80), src/tests/federation-bridge-autostart.test.ts (Line 14:1 - Line 38:6)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn81" onclick="toggleCodeBlock('cloneGroup81', 'expandBtn81', 'collapseBtn81')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn81" onclick="toggleCodeBlock('cloneGroup81', 'expandBtn81', 'collapseBtn81')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup81"><code class="language-typescript text-sm text-gray-800">async function withEnv(values: Record&lt;string, string | undefined&gt;, fn: () =&gt; Promise&lt;void&gt;): Promise&lt;void&gt; {
+  const previous = new Map&lt;string, string | undefined&gt;();
+  for (const [key, value] of Object.entries(values)) {
+    previous.set(key, process.env[key]);
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
+
+  try {
+    await fn();
+  } finally {
+    for (const [key, value] of previous.entries()) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
+}
+
+// ─── Unit Tests: Model Type Classification ──────────────────────────────────</code></pre></div><div class="py-4"><p class="text-gray-600">src/tests/factory-strategy.test.ts (Line 367:2 - Line 377:54), src/tests/factory-strategy.test.ts (Line 348:31 - Line 358:40)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn82" onclick="toggleCodeBlock('cloneGroup82', 'expandBtn82', 'collapseBtn82')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn82" onclick="toggleCodeBlock('cloneGroup82', 'expandBtn82', 'collapseBtn82')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup82"><code class="language-typescript text-sm text-gray-800">,
+    messages: [
+      { role: &quot;user&quot;, content: &quot;Hello&quot; },
+    ],
+  };
+
+  const result = inlineSystemPrompt(payload);
+  assert.equal(result[&quot;system&quot;], undefined);
+  const messages = result[&quot;messages&quot;] as Record&lt;string, unknown&gt;[];
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0]?.[&quot;content&quot;], &quot;System instruction 1\nSystem instruction 2\n\nHello&quot;</code></pre></div><div class="py-4"><p class="text-gray-600">src/tests/factory-strategy.test.ts (Line 382:18 - Line 392:8), src/tests/factory-strategy.test.ts (Line 348:31 - Line 358:40)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn83" onclick="toggleCodeBlock('cloneGroup83', 'expandBtn83', 'collapseBtn83')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn83" onclick="toggleCodeBlock('cloneGroup83', 'expandBtn83', 'collapseBtn83')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup83"><code class="language-typescript text-sm text-gray-800">,
+    messages: [
+      { role: &quot;user&quot;, content: &quot;Hello&quot; },
+    ],
+  };
+
+  const result = inlineSystemPrompt(payload);
+  assert.equal(result[&quot;system&quot;], undefined);
+  const messages = result[&quot;messages&quot;] as Record&lt;string, unknown&gt;[];
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0]?.[&quot;content&quot;], &quot;Hello&quot;</code></pre></div><div class="py-4"><p class="text-gray-600">src/tests/factory-oauth.test.ts (Line 4:26 - Line 22:80), src/tests/openai-oauth.test.ts (Line 4:25 - Line 22:5)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn84" onclick="toggleCodeBlock('cloneGroup84', 'expandBtn84', 'collapseBtn84')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn84" onclick="toggleCodeBlock('cloneGroup84', 'expandBtn84', 'collapseBtn84')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup84"><code class="language-typescript text-sm text-gray-800">;
+
+function jsonResponse(payload: unknown, init: ResponseInit = {}): Response {
+  return new Response(JSON.stringify(payload), {
+    status: init.status ?? 200,
+    headers: {
+      &quot;content-type&quot;: &quot;application/json&quot;,
+      ...(init.headers ?? {}),
+    },
+  });
+}
+
+function makeJwt(payload: Record&lt;string, unknown&gt;): string {
+  const header = Buffer.from(JSON.stringify({ alg: &quot;none&quot;, typ: &quot;JWT&quot; })).toString(&quot;base64url&quot;);
+  const body = Buffer.from(JSON.stringify(payload)).toString(&quot;base64url&quot;);
+  return `${header}.${body}.sig`;
+}
+
+// ─── Device Flow Tests ──────────────────────────────────────────────────────</code></pre></div><div class="py-4"><p class="text-gray-600">src/tests/factory-oauth.test.ts (Line 467:5 - Line 491:5), src/tests/federation-bridge-autostart.test.ts (Line 14:2 - Line 38:6)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn85" onclick="toggleCodeBlock('cloneGroup85', 'expandBtn85', 'collapseBtn85')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn85" onclick="toggleCodeBlock('cloneGroup85', 'expandBtn85', 'collapseBtn85')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup85"><code class="language-typescript text-sm text-gray-800">): Promise&lt;void&gt; {
+  const previous = new Map&lt;string, string | undefined&gt;();
+  for (const [key, value] of Object.entries(values)) {
+    previous.set(key, process.env[key]);
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
+
+  try {
+    await fn();
+  } finally {
+    for (const [key, value] of previous.entries()) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
+}
+
+test</code></pre></div><div class="py-4"><p class="text-gray-600">src/tests/factory-oauth-refresh.test.ts (Line 58:5 - Line 86:80), src/tests/factory-strategy.test.ts (Line 212:5 - Line 38:6)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn86" onclick="toggleCodeBlock('cloneGroup86', 'expandBtn86', 'collapseBtn86')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn86" onclick="toggleCodeBlock('cloneGroup86', 'expandBtn86', 'collapseBtn86')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup86"><code class="language-typescript text-sm text-gray-800">await rm(tempDir, { recursive: true, force: true });
+  }
+}
+
+async function withEnv(values: Record&lt;string, string | undefined&gt;, fn: () =&gt; Promise&lt;void&gt;): Promise&lt;void&gt; {
+  const previous = new Map&lt;string, string | undefined&gt;();
+  for (const [key, value] of Object.entries(values)) {
+    previous.set(key, process.env[key]);
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
+
+  try {
+    await fn();
+  } finally {
+    for (const [key, value] of previous.entries()) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
+}
+
+// ─── JWT Parsing Tests ──────────────────────────────────────────────────────</code></pre></div><div class="py-4"><p class="text-gray-600">src/tests/factory-config.test.ts (Line 19:1 - Line 43:13), src/tests/factory-oauth.test.ts (Line 467:1 - Line 38:17)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn87" onclick="toggleCodeBlock('cloneGroup87', 'expandBtn87', 'collapseBtn87')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn87" onclick="toggleCodeBlock('cloneGroup87', 'expandBtn87', 'collapseBtn87')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup87"><code class="language-typescript text-sm text-gray-800">async function withEnv(values: Record&lt;string, string | undefined&gt;, fn: () =&gt; Promise&lt;void&gt; | void): Promise&lt;void&gt; {
+  const previous = new Map&lt;string, string | undefined&gt;();
+  for (const [key, value] of Object.entries(values)) {
+    previous.set(key, process.env[key]);
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
+
+  try {
+    await fn();
+  } finally {
+    for (const [key, value] of previous.entries()) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
+}
+
+async function withKeysFile</code></pre></div><div class="py-4"><p class="text-gray-600">src/tests/factory-config.test.ts (Line 428:61 - Line 449:12), src/tests/factory-config.test.ts (Line 360:70 - Line 381:16)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn88" onclick="toggleCodeBlock('cloneGroup88', 'expandBtn88', 'collapseBtn88')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn88" onclick="toggleCodeBlock('cloneGroup88', 'expandBtn88', 'collapseBtn88')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup88"><code class="language-typescript text-sm text-gray-800">, { concurrency: false }, async () =&gt; {
+  const accountStore: ProviderAccountStore = {
+    async getAllProviders() {
+      return new Map([
+        [&quot;openai&quot;, { authType: &quot;oauth_bearer&quot; }],
+      ]);
+    },
+    async getAllAccounts() {
+      return new Map([
+        [&quot;openai&quot;, [{
+          providerId: &quot;openai&quot;,
+          accountId: &quot;db-openai-1&quot;,
+          token: &quot;db-openai-token&quot;,
+          authType: &quot;oauth_bearer&quot;,
+        }]],
+      ]);
+    },
+  };
+
+  await withEnv(
+    {
+      ZAI_API_KEY</code></pre></div><div class="py-4"><p class="text-gray-600">src/tests/factory-config.test.ts (Line 451:10 - Line 477:6), src/tests/factory-config.test.ts (Line 388:31 - Line 414:7)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn89" onclick="toggleCodeBlock('cloneGroup89', 'expandBtn89', 'collapseBtn89')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn89" onclick="toggleCodeBlock('cloneGroup89', 'expandBtn89', 'collapseBtn89')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup89"><code class="language-typescript text-sm text-gray-800">,
+      GEMINI_API_KEY: undefined,
+      OPENROUTER_API_KEY: undefined,
+      REQUESTY_API_KEY: undefined,
+      REQUESTY_API_TOKEN: undefined,
+    },
+    async () =&gt; {
+      await withKeysFile(
+        {
+          providers: {
+            requesty: { accounts: [&quot;file-requesty-token&quot;] },
+          },
+        },
+        async (keysFilePath) =&gt; {
+          const keyPool = new KeyPool({
+            keysFilePath,
+            reloadIntervalMs: 10,
+            defaultCooldownMs: 1000,
+            defaultProviderId: &quot;openai&quot;,
+            accountStore,
+            preferAccountStoreProviders: true,
+          });
+
+          await keyPool.warmup();
+
+          const openAiAccounts = await keyPool.getAllAccounts(&quot;openai&quot;);
+          const</code></pre></div><div class="py-4"><p class="text-gray-600">src/tests/factory-config.test.ts (Line 530:14 - Line 551:6), src/tests/factory-config.test.ts (Line 129:31 - Line 150:11)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn90" onclick="toggleCodeBlock('cloneGroup90', 'expandBtn90', 'collapseBtn90')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn90" onclick="toggleCodeBlock('cloneGroup90', 'expandBtn90', 'collapseBtn90')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup90"><code class="language-typescript text-sm text-gray-800">,
+      },
+      async () =&gt; {
+        await withKeysFile(
+          {
+            providers: {
+              vivgrid: { accounts: [&quot;vg-key-1&quot;] },
+            },
+          },
+          async (keysFilePath) =&gt; {
+            const keyPool = new KeyPool({
+              keysFilePath,
+              reloadIntervalMs: 10,
+              defaultCooldownMs: 1000,
+              defaultProviderId: &quot;vivgrid&quot;,
+            });
+
+            await keyPool.warmup();
+            const factoryAccounts = await keyPool.getRequestOrder(&quot;factory&quot;);
+
+            assert.equal(factoryAccounts.length, 1);
+            assert.equal(factoryAccounts[0]?.token</code></pre></div><div class="py-4"><p class="text-gray-600">src/tests/factory-config.test.ts (Line 586:9 - Line 607:2), src/tests/factory-config.test.ts (Line 529:9 - Line 149:2)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn91" onclick="toggleCodeBlock('cloneGroup91', 'expandBtn91', 'collapseBtn91')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn91" onclick="toggleCodeBlock('cloneGroup91', 'expandBtn91', 'collapseBtn91')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup91"><code class="language-typescript text-sm text-gray-800">FACTORY_AUTH_V2_FILE: authV2FilePath,
+        FACTORY_AUTH_V2_KEY: authV2KeyPath,
+      },
+      async () =&gt; {
+        await withKeysFile(
+          {
+            providers: {
+              vivgrid: { accounts: [&quot;vg-key-1&quot;] },
+            },
+          },
+          async (keysFilePath) =&gt; {
+            const keyPool = new KeyPool({
+              keysFilePath,
+              reloadIntervalMs: 10,
+              defaultCooldownMs: 1000,
+              defaultProviderId: &quot;vivgrid&quot;,
+            });
+
+            await keyPool.warmup();
+            const factoryAccounts = await keyPool.getRequestOrder(&quot;factory&quot;);
+
+            assert.equal(factoryAccounts.length, 2</code></pre></div><div class="py-4"><p class="text-gray-600">src/tests/factory-config.test.ts (Line 661:18 - Line 684:18), src/tests/factory-config.test.ts (Line 127:26 - Line 551:8)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn92" onclick="toggleCodeBlock('cloneGroup92', 'expandBtn92', 'collapseBtn92')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn92" onclick="toggleCodeBlock('cloneGroup92', 'expandBtn92', 'collapseBtn92')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup92"><code class="language-typescript text-sm text-gray-800">, // pragma: allowlist secret
+      FACTORY_AUTH_V2_FILE: &quot;/tmp/nonexistent-auth-v2-file&quot;,
+      FACTORY_AUTH_V2_KEY: &quot;/tmp/nonexistent-auth-v2-key&quot;,
+    },
+    async () =&gt; {
+      await withKeysFile(
+        {
+          providers: {
+            vivgrid: { accounts: [&quot;vg-key-1&quot;] },
+          },
+        },
+        async (keysFilePath) =&gt; {
+          const keyPool = new KeyPool({
+            keysFilePath,
+            reloadIntervalMs: 10,
+            defaultCooldownMs: 1000,
+            defaultProviderId: &quot;vivgrid&quot;,
+          });
+
+          await keyPool.warmup();
+          const factoryAccounts = await keyPool.getRequestOrder(&quot;factory&quot;);
+
+          assert.equal(factoryAccounts.length, 1);
+          assert.equal(factoryAccounts[0]?.token, &quot;fk-abcdef123456&quot;</code></pre></div><div class="py-4"><p class="text-gray-600">src/tests/config.test.ts (Line 4:19 - Line 30:57), src/tests/factory-config.test.ts (Line 17:72 - Line 491:74)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn93" onclick="toggleCodeBlock('cloneGroup93', 'expandBtn93', 'collapseBtn93')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn93" onclick="toggleCodeBlock('cloneGroup93', 'expandBtn93', 'collapseBtn93')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup93"><code class="language-typescript text-sm text-gray-800">;
+
+async function withEnv(values: Record&lt;string, string | undefined&gt;, fn: () =&gt; Promise&lt;void&gt; | void): Promise&lt;void&gt; {
+  const previous = new Map&lt;string, string | undefined&gt;();
+  for (const [key, value] of Object.entries(values)) {
+    previous.set(key, process.env[key]);
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
+
+  try {
+    await fn();
+  } finally {
+    for (const [key, value] of previous.entries()) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
+}
+
+test(&quot;loadConfig falls back to PORT when PROXY_PORT is unset&quot;</code></pre></div><div class="py-4"><p class="text-gray-600">src/tests/anthropic-messages-compat.test.ts (Line 4:37 - Line 18:61), src/tests/gemini-strategy.test.ts (Line 14:2 - Line 28:41)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn94" onclick="toggleCodeBlock('cloneGroup94', 'expandBtn94', 'collapseBtn94')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn94" onclick="toggleCodeBlock('cloneGroup94', 'expandBtn94', 'collapseBtn94')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup94"><code class="language-typescript text-sm text-gray-800">;
+
+function getChoices(completion: Record&lt;string, unknown&gt;): Array&lt;Record&lt;string, unknown&gt;&gt; {
+  return Array.isArray(completion.choices) ? completion.choices as Array&lt;Record&lt;string, unknown&gt;&gt; : [];
+}
+
+function getMessage(choice: Record&lt;string, unknown&gt;): Record&lt;string, unknown&gt; {
+  return isRecord(choice.message) ? choice.message : {};
+}
+
+function getUsage(completion: Record&lt;string, unknown&gt;): Record&lt;string, unknown&gt; | undefined {
+  return isRecord(completion.usage) ? completion.usage : undefined;
+}
+
+describe(&quot;Anthropic messages → OpenAI chat completion transformation&quot;</code></pre></div><div class="py-4"><p class="text-gray-600">src/routes/native-ollama.ts (Line 40:28 - Line 50:31), src/routes/native-ollama.ts (Line 20:26 - Line 30:27)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn95" onclick="toggleCodeBlock('cloneGroup95', 'expandBtn95', 'collapseBtn95')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn95" onclick="toggleCodeBlock('cloneGroup95', 'expandBtn95', 'collapseBtn95')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup95"><code class="language-typescript text-sm text-gray-800">(isRecord(request.body) ? request.body : {}),
+      request.headers,
+    );
+
+    copyInjectedResponseHeaders(reply, bridgeResponse.headers as Record&lt;string, string | string[] | undefined&gt;);
+    reply.code(bridgeResponse.statusCode);
+
+    const contentType = String(bridgeResponse.headers[&quot;content-type&quot;] ?? &quot;application/json&quot;);
+    const parsed = parseJsonIfPossible(bridgeResponse.body ?? &quot;null&quot;);
+    if (contentType.toLowerCase().includes(&quot;application/json&quot;) &amp;&amp; isRecord(parsed) &amp;&amp; Array.isArray(parsed[&quot;choices&quot;])) {
+      reply.send(chatCompletionToNativeGenerate</code></pre></div><div class="py-4"><p class="text-gray-600">src/routes/native-ollama.ts (Line 60:27 - Line 69:7), src/routes/native-ollama.ts (Line 20:26 - Line 29:10)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn96" onclick="toggleCodeBlock('cloneGroup96', 'expandBtn96', 'collapseBtn96')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn96" onclick="toggleCodeBlock('cloneGroup96', 'expandBtn96', 'collapseBtn96')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup96"><code class="language-typescript text-sm text-gray-800">(isRecord(request.body) ? request.body : {}),
+      request.headers,
+    );
+
+    copyInjectedResponseHeaders(reply, bridgeResponse.headers as Record&lt;string, string | string[] | undefined&gt;);
+    reply.code(bridgeResponse.statusCode);
+
+    const contentType = String(bridgeResponse.headers[&quot;content-type&quot;] ?? &quot;application/json&quot;);
+    const parsed = parseJsonIfPossible(bridgeResponse.body ?? &quot;null&quot;);
+    if (contentType.toLowerCase().includes(&quot;application/json&quot;) &amp;&amp; isRecord(parsed) &amp;&amp; Array.isArray(parsed[&quot;data&quot;</code></pre></div><div class="py-4"><p class="text-gray-600">src/routes/native-ollama.ts (Line 77:18 - Line 90:35), src/routes/native-ollama.ts (Line 57:13 - Line 70:30)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn97" onclick="toggleCodeBlock('cloneGroup97', 'expandBtn97', 'collapseBtn97')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn97" onclick="toggleCodeBlock('cloneGroup97', 'expandBtn97', 'collapseBtn97')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup97"><code class="language-typescript text-sm text-gray-800">, async (request, reply) =&gt; {
+    const bridgeResponse = await deps.injectNativeBridge(
+      &quot;/v1/embeddings&quot;,
+      nativeEmbedToOpenAiRequest(isRecord(request.body) ? request.body : {}),
+      request.headers,
+    );
+
+    copyInjectedResponseHeaders(reply, bridgeResponse.headers as Record&lt;string, string | string[] | undefined&gt;);
+    reply.code(bridgeResponse.statusCode);
+
+    const contentType = String(bridgeResponse.headers[&quot;content-type&quot;] ?? &quot;application/json&quot;);
+    const parsed = parseJsonIfPossible(bridgeResponse.body ?? &quot;null&quot;);
+    if (contentType.toLowerCase().includes(&quot;application/json&quot;) &amp;&amp; isRecord(parsed) &amp;&amp; Array.isArray(parsed[&quot;data&quot;])) {
+      reply.send(openAiEmbeddingsToNativeEmbeddings</code></pre></div><div class="py-4"><p class="text-gray-600">src/routes/media-generations.ts (Line 410:23 - Line 426:7), src/routes/media-generations.ts (Line 252:27 - Line 268:7)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn98" onclick="toggleCodeBlock('cloneGroup98', 'expandBtn98', 'collapseBtn98')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn98" onclick="toggleCodeBlock('cloneGroup98', 'expandBtn98', 'collapseBtn98')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup98"><code class="language-typescript text-sm text-gray-800">(
+  deps: AppDeps,
+  route: BlazeMediaRoute,
+  request: FastifyRequest,
+  reply: FastifyReply,
+): Promise&lt;void&gt; {
+  const requestStartedAt = Date.now();
+  const rawToolCallId = request.headers[&quot;x-open-hax-tool-call-id&quot;];
+  const toolCallId = typeof rawToolCallId === &quot;string&quot; ? rawToolCallId : undefined;
+
+  if (!isRecord(request.body)) {
+    sendOpenAiError(reply, 400, &quot;Request body must be a JSON object&quot;, &quot;invalid_request_error&quot;, &quot;invalid_body&quot;);
+    return;
+  }
+
+  const model = typeof request.body.model === &quot;string&quot; ? request.body.model : &quot;&quot;;
+  const prompt</code></pre></div><div class="py-4"><p class="text-gray-600">src/routes/media-generations.ts (Line 579:13 - Line 589:3), src/routes/media-generations.ts (Line 257:1 - Line 268:6)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn99" onclick="toggleCodeBlock('cloneGroup99', 'expandBtn99', 'collapseBtn99')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn99" onclick="toggleCodeBlock('cloneGroup99', 'expandBtn99', 'collapseBtn99')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup99"><code class="language-typescript text-sm text-gray-800">): Promise&lt;void&gt; {
+  const requestStartedAt = Date.now();
+  const rawToolCallId = request.headers[&quot;x-open-hax-tool-call-id&quot;];
+  const toolCallId = typeof rawToolCallId === &quot;string&quot; ? rawToolCallId : undefined;
+  if (!isRecord(request.body)) {
+    sendOpenAiError(reply, 400, &quot;Request body must be a JSON object&quot;, &quot;invalid_request_error&quot;, &quot;invalid_body&quot;);
+    return;
+  }
+
+  const model = typeof request.body.model === &quot;string&quot; ? request.body.model : &quot;&quot;;
+  if</code></pre></div><div class="py-4"><p class="text-gray-600">src/routes/media-generations.ts (Line 715:13 - Line 732:17), src/routes/media-generations.ts (Line 367:9 - Line 384:10)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn100" onclick="toggleCodeBlock('cloneGroup100', 'expandBtn100', 'collapseBtn100')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn100" onclick="toggleCodeBlock('cloneGroup100', 'expandBtn100', 'collapseBtn100')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup100"><code class="language-typescript text-sm text-gray-800">await writeFile(filePath.replace(/\.mp3$/i, &quot;.json&quot;), text, &quot;utf8&quot;);
+          } catch {
+            // ignore write errors
+          }
+          eventPayload = {
+            ...parsedPayload,
+            data: {
+              ...(isRecord(dataField) ? dataField : {}),
+              audio: `[STRIPPED: ${audioBytes.length} bytes saved to ${filePath} (${looksHex ? &quot;hex&quot; : &quot;base64&quot;})]`,
+            },
+            _savedPath: filePath,
+            _savedBytes: audioBytes.length,
+          };
+        } else {
+          eventPayload = parsedPayload ?? {};
+        }
+
+        deps.eventStore?.emitResponse(entryId, policyProviderId</code></pre></div><div class="py-4"><p class="text-gray-600">src/routes/chat.ts (Line 100:10 - Line 115:3), src/routes/responses.ts (Line 213:2 - Line 228:2)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn101" onclick="toggleCodeBlock('cloneGroup101', 'expandBtn101', 'collapseBtn101')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn101" onclick="toggleCodeBlock('cloneGroup101', 'expandBtn101', 'collapseBtn101')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup101"><code class="language-typescript text-sm text-gray-800">,
+  );
+  reply.header(&quot;x-open-hax-upstream-mode&quot;, strategy.mode);
+  const requestAuth = request.openHaxAuth ?? undefined;
+  const federationOwnerSubject = resolveFederationOwnerSubject({
+    headers: request.headers as Record&lt;string, unknown&gt;,
+    requestAuth,
+    hopCount: 0,
+  });
+
+  let providerRoutes: ProviderRoute[];
+  if (context.factoryPrefixed) {
+    providerRoutes = getDeclaredProviderRoutes(deps.config).filter(
+      (route) =&gt; route.providerId === &quot;factory&quot;,
+    );
+  } else if</code></pre></div><div class="py-4"><p class="text-gray-600">src/lib/request-utils.ts (Line 5:16 - Line 27:20), src/routes/shared/ui-auth.ts (Line 113:16 - Line 135:17)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn102" onclick="toggleCodeBlock('cloneGroup102', 'expandBtn102', 'collapseBtn102')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn102" onclick="toggleCodeBlock('cloneGroup102', 'expandBtn102', 'collapseBtn102')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup102"><code class="language-typescript text-sm text-gray-800">(cookieHeader: string | undefined, name: string): string | undefined {
+  if (!cookieHeader) {
+    return undefined;
+  }
+
+  for (const part of cookieHeader.split(&quot;;&quot;)) {
+    const trimmed = part.trim();
+    if (!trimmed.startsWith(`${name}=`)) {
+      continue;
+    }
+
+    const rawValue = trimmed.slice(name.length + 1);
+    try {
+      return decodeURIComponent(rawValue);
+    } catch {
+      return rawValue;
+    }
+  }
+
+  return undefined;
+}
+
+export function parseJsonIfPossible</code></pre></div><div class="py-4"><p class="text-gray-600">src/lib/proxy-settings-store.ts (Line 47:21 - Line 73:4), src/lib/proxy-settings-store.ts (Line 22:24 - Line 46:4)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn103" onclick="toggleCodeBlock('cloneGroup103', 'expandBtn103', 'collapseBtn103')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn103" onclick="toggleCodeBlock('cloneGroup103', 'expandBtn103', 'collapseBtn103')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup103"><code class="language-typescript text-sm text-gray-800">(value: unknown): readonly string[] | null {
+  if (value === null) {
+    return null;
+  }
+
+  if (!Array.isArray(value)) {
+    return null;
+  }
+
+  const normalized = [...new Set(
+    value
+      .filter((entry): entry is string =&gt; typeof entry === &quot;string&quot;)
+      .map((entry) =&gt; entry.trim().toLowerCase())
+      .filter((entry) =&gt; entry.length &gt; 0)
+  )];
+
+  return normalized.length &gt; 0 ? normalized : null;
+}
+
+/**
+ * Retrieves a property's value from an object using a camelCase key or its kebab-case alternative, preferring the camelCase entry.
+ *
+ * @param record - The object to read properties from.
+ * @param camelKey - The camelCase property name to prefer (e.g., `requestsPerMinute`).
+ * @param kebabKey - The kebab-case alternative property name to use if the camelCase value is `null` or `undefined` (e.g., `requests-per-minute`).
+ * @returns The value found for `camelKey` if not `null` or `undefined`; otherwise the value for `kebabKey`, which may be `undefined`.
+ */</code></pre></div><div class="py-4"><p class="text-gray-600">src/lib/provider-route-pheromone-store.ts (Line 154:7 - Line 168:23), src/lib/provider-route-pheromone-store.ts (Line 126:7 - Line 140:23)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn104" onclick="toggleCodeBlock('cloneGroup104', 'expandBtn104', 'collapseBtn104')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn104" onclick="toggleCodeBlock('cloneGroup104', 'expandBtn104', 'collapseBtn104')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup104"><code class="language-typescript text-sm text-gray-800">): Promise&lt;void&gt; {
+    const normalizedProviderId = normalizeKeyPart(providerId);
+    const normalizedModel = normalizeKeyPart(model);
+    if (normalizedProviderId.length === 0 || normalizedModel.length === 0) {
+      return;
+    }
+
+    await this.mutate((db) =&gt; {
+      const key = recordKey(normalizedProviderId, normalizedModel);
+      const index = db.records.findIndex((entry) =&gt; recordKey(entry.providerId, entry.model) === key);
+      const existing = index &gt;= 0 ? db.records[index] : undefined;
+      const next: ProviderRoutePheromoneRecord = {
+        providerId: normalizedProviderId,
+        model: normalizedModel,
+        pheromone: nextPheromoneOnFailure</code></pre></div><div class="py-4"><p class="text-gray-600">src/lib/provider-catalog.ts (Line 365:8 - Line 394:7), src/lib/provider-catalog.ts (Line 302:2 - Line 330:2)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn105" onclick="toggleCodeBlock('cloneGroup105', 'expandBtn105', 'collapseBtn105')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn105" onclick="toggleCodeBlock('cloneGroup105', 'expandBtn105', 'collapseBtn105')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup105"><code class="language-typescript text-sm text-gray-800">,
+          signal,
+        }, Math.min(this.config.requestTimeoutMs, 45_000));
+      } catch {
+        continue;
+      }
+
+      if (!response.ok) {
+        try {
+          await response.arrayBuffer();
+        } catch {
+          // ignore body read failures
+        }
+        continue;
+      }
+
+      let payload: unknown;
+      try {
+        payload = await response.json();
+      } catch {
+        continue;
+      }
+
+      const modelIds = parseModelIdsFromCatalogPayload(payload);
+      if (modelIds.length &gt; 0) {
+        return modelIds;
+      }
+    }
+
+    return</code></pre></div><div class="py-4"><p class="text-gray-600">src/lib/ollama-native.ts (Line 3:1 - Line 16:3), src/lib/openai-quota.ts (Line 97:1 - Line 110:7)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn106" onclick="toggleCodeBlock('cloneGroup106', 'expandBtn106', 'collapseBtn106')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn106" onclick="toggleCodeBlock('cloneGroup106', 'expandBtn106', 'collapseBtn106')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup106"><code class="language-typescript text-sm text-gray-800">function isRecord(value: unknown): value is Record&lt;string, unknown&gt; {
+  return typeof value === &quot;object&quot; &amp;&amp; value !== null;
+}
+
+function asString(value: unknown): string | undefined {
+  return typeof value === &quot;string&quot; ? value : undefined;
+}
+
+function asNumber(value: unknown): number | undefined {
+  return typeof value === &quot;number&quot; &amp;&amp; Number.isFinite(value) ? value : undefined;
+}
+
+function asBoolean(value: unknown): boolean | undefined {
+  if</code></pre></div><div class="py-4"><p class="text-gray-600">src/lib/ollama-native.ts (Line 175:31 - Line 184:9), src/lib/ollama-native.ts (Line 153:27 - Line 162:8)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn107" onclick="toggleCodeBlock('cloneGroup107', 'expandBtn107', 'collapseBtn107')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn107" onclick="toggleCodeBlock('cloneGroup107', 'expandBtn107', 'collapseBtn107')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup107"><code class="language-typescript text-sm text-gray-800">(response: Record&lt;string, unknown&gt;): Record&lt;string, unknown&gt; {
+  const choices = Array.isArray(response[&quot;choices&quot;]) ? response[&quot;choices&quot;] : [];
+  const firstChoice = choices.find((entry): entry is Record&lt;string, unknown&gt; =&gt; isRecord(entry));
+  const message = firstChoice &amp;&amp; isRecord(firstChoice[&quot;message&quot;]) ? firstChoice[&quot;message&quot;] : {};
+  const usage = isRecord(response[&quot;usage&quot;]) ? response[&quot;usage&quot;] : {};
+
+  return {
+    model: asString(response[&quot;model&quot;]) ?? &quot;&quot;,
+    created_at: new Date().toISOString(),
+    response</code></pre></div><div class="py-4"><p class="text-gray-600">src/lib/ollama-context.ts (Line 208:34 - Line 224:32), src/lib/ollama-context.ts (Line 175:24 - Line 191:22)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn108" onclick="toggleCodeBlock('cloneGroup108', 'expandBtn108', 'collapseBtn108')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn108" onclick="toggleCodeBlock('cloneGroup108', 'expandBtn108', 'collapseBtn108')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup108"><code class="language-typescript text-sm text-gray-800">(
+  baseUrl: string,
+  requestBody: Record&lt;string, unknown&gt;,
+  timeoutMs: number,
+  signal?: AbortSignal,
+): Promise&lt;OllamaContextBudget | null&gt; {
+  const model = asString(requestBody[&quot;model&quot;]);
+  if (!model || model.length === 0) {
+    return null;
+  }
+
+  const contextLength = await fetchOllamaModelContextLength(baseUrl, model, timeoutMs, signal);
+  if (!contextLength || contextLength &lt;= 0) {
+    return null;
+  }
+
+  const estimatedInputTokens = estimateNativeChatMessageTokens</code></pre></div><div class="py-4"><p class="text-gray-600">src/lib/ollama-context.ts (Line 243:35 - Line 259:25), src/lib/ollama-context.ts (Line 175:24 - Line 191:22)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn109" onclick="toggleCodeBlock('cloneGroup109', 'expandBtn109', 'collapseBtn109')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn109" onclick="toggleCodeBlock('cloneGroup109', 'expandBtn109', 'collapseBtn109')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup109"><code class="language-typescript text-sm text-gray-800">(
+  baseUrl: string,
+  requestBody: Record&lt;string, unknown&gt;,
+  timeoutMs: number,
+  signal?: AbortSignal,
+): Promise&lt;OllamaContextBudget | null&gt; {
+  const model = asString(requestBody[&quot;model&quot;]);
+  if (!model || model.length === 0) {
+    return null;
+  }
+
+  const contextLength = await fetchOllamaModelContextLength(baseUrl, model, timeoutMs, signal);
+  if (!contextLength || contextLength &lt;= 0) {
+    return null;
+  }
+
+  const estimatedInputTokens = estimateEmbedInputTokens</code></pre></div><div class="py-4"><p class="text-gray-600">src/lib/ollama-compat.ts (Line 1:20 - Line 33:17), src/lib/ollama-native.ts (Line 1:14 - Line 33:24)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn110" onclick="toggleCodeBlock('cloneGroup110', 'expandBtn110', 'collapseBtn110')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn110" onclick="toggleCodeBlock('cloneGroup110', 'expandBtn110', 'collapseBtn110')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup110"><code class="language-typescript text-sm text-gray-800">;
+
+function isRecord(value: unknown): value is Record&lt;string, unknown&gt; {
+  return typeof value === &quot;object&quot; &amp;&amp; value !== null;
+}
+
+function asString(value: unknown): string | undefined {
+  return typeof value === &quot;string&quot; ? value : undefined;
+}
+
+function asNumber(value: unknown): number | undefined {
+  return typeof value === &quot;number&quot; &amp;&amp; Number.isFinite(value) ? value : undefined;
+}
+
+function asBoolean(value: unknown): boolean | undefined {
+  if (typeof value === &quot;boolean&quot;) {
+    return value;
+  }
+
+  if (typeof value === &quot;string&quot;) {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === &quot;true&quot;) {
+      return true;
+    }
+    if (normalized === &quot;false&quot;) {
+      return false;
+    }
+  }
+
+  return undefined;
+}
+
+function stringifyUnknown</code></pre></div><div class="py-4"><p class="text-gray-600">src/lib/ollama-cloud-probe.ts (Line 8:2 - Line 27:9), src/lib/openai-quota.ts (Line 54:2 - Line 73:10)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn111" onclick="toggleCodeBlock('cloneGroup111', 'expandBtn111', 'collapseBtn111')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn111" onclick="toggleCodeBlock('cloneGroup111', 'expandBtn111', 'collapseBtn111')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup111"><code class="language-typescript text-sm text-gray-800">{
+  readonly providerId: string;
+  readonly accountId: string;
+  readonly displayName: string;
+  readonly email?: string;
+  readonly planType?: string;
+  readonly chatgptAccountId?: string;
+  readonly testedAt: string;
+  readonly model: string;
+  readonly expectedText: string;
+  readonly status: &quot;ok&quot; | &quot;error&quot;;
+  readonly ok: boolean;
+  readonly matchesExpectedOutput: boolean;
+  readonly outputText?: string;
+  readonly upstreamStatus?: number;
+  readonly errorCode?: string;
+  readonly message: string;
+}
+
+function</code></pre></div><div class="py-4"><p class="text-gray-600">src/lib/ollama-cloud-probe.ts (Line 55:7 - Line 69:18), src/lib/openai-quota.ts (Line 326:7 - Line 340:15)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn112" onclick="toggleCodeBlock('cloneGroup112', 'expandBtn112', 'collapseBtn112')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn112" onclick="toggleCodeBlock('cloneGroup112', 'expandBtn112', 'collapseBtn112')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup112"><code class="language-typescript text-sm text-gray-800">const message = asString(parsed.message)
+        ?? (isRecord(parsed.error) ? asString(parsed.error.message) ?? asString(parsed.error) : undefined)
+        ?? asString(parsed.detail);
+      if (message &amp;&amp; message.trim().length &gt; 0) {
+        return message.trim();
+      }
+    }
+  } catch {
+    // Fall through to plain text.
+  }
+
+  return trimmed.length &gt; 160 ? `${trimmed.slice(0, 157)}...` : trimmed;
+}
+
+function responseErrorCode</code></pre></div><div class="py-4"><p class="text-gray-600">src/lib/messages-compat.ts (Line 1:1 - Line 13:17), src/lib/openai-quota.ts (Line 97:1 - Line 109:10)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn113" onclick="toggleCodeBlock('cloneGroup113', 'expandBtn113', 'collapseBtn113')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn113" onclick="toggleCodeBlock('cloneGroup113', 'expandBtn113', 'collapseBtn113')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup113"><code class="language-typescript text-sm text-gray-800">function isRecord(value: unknown): value is Record&lt;string, unknown&gt; {
+  return typeof value === &quot;object&quot; &amp;&amp; value !== null;
+}
+
+function asString(value: unknown): string | undefined {
+  return typeof value === &quot;string&quot; ? value : undefined;
+}
+
+function asNumber(value: unknown): number | undefined {
+  return typeof value === &quot;number&quot; &amp;&amp; Number.isFinite(value) ? value : undefined;
+}
+
+function stringifyUnknown</code></pre></div><div class="py-4"><p class="text-gray-600">src/lib/messages-compat.ts (Line 169:1 - Line 194:4), src/lib/ollama-compat.ts (Line 43:1 - Line 68:4)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn114" onclick="toggleCodeBlock('cloneGroup114', 'expandBtn114', 'collapseBtn114')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn114" onclick="toggleCodeBlock('cloneGroup114', 'expandBtn114', 'collapseBtn114')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup114"><code class="language-typescript text-sm text-gray-800">}
+
+function contentToText(content: unknown): string {
+  if (typeof content === &quot;string&quot;) {
+    return content;
+  }
+
+  if (!Array.isArray(content)) {
+    if (content === null || content === undefined) {
+      return &quot;&quot;;
+    }
+    return stringifyUnknown(content);
+  }
+
+  return content
+    .map((part) =&gt; {
+      if (typeof part === &quot;string&quot;) {
+        return part;
+      }
+
+      if (!isRecord(part)) {
+        return &quot;&quot;;
+      }
+
+      const type = asString(part[&quot;type&quot;]);
+      if (type !==</code></pre></div><div class="py-4"><p class="text-gray-600">src/lib/factory-oauth.ts (Line 333:19 - Line 353:5), src/lib/openai-oauth.ts (Line 464:12 - Line 483:26)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn115" onclick="toggleCodeBlock('cloneGroup115', 'expandBtn115', 'collapseBtn115')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn115" onclick="toggleCodeBlock('cloneGroup115', 'expandBtn115', 'collapseBtn115')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup115"><code class="language-typescript text-sm text-gray-800">&gt; {
+    this.pruneState();
+
+    const cachedCompletion = this.browserCompletions.get(state);
+    if (cachedCompletion &amp;&amp; cachedCompletion.expiresAt &gt; this.now()) {
+      return cachedCompletion.tokens;
+    }
+
+    const inFlightCompletion = this.browserInFlight.get(state);
+    if (inFlightCompletion) {
+      return inFlightCompletion;
+    }
+
+    const pending = this.browserPending.get(state);
+    if (!pending) {
+      throw new Error(&quot;Unknown or expired OAuth state&quot;);
+    }
+
+    this.browserPending.delete(state);
+
+    const completion = this</code></pre></div><div class="py-4"><p class="text-gray-600">src/lib/factory-oauth.ts (Line 401:5 - Line 414:2), src/lib/openai-oauth.ts (Line 670:5 - Line 684:6)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn116" onclick="toggleCodeBlock('cloneGroup116', 'expandBtn116', 'collapseBtn116')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn116" onclick="toggleCodeBlock('cloneGroup116', 'expandBtn116', 'collapseBtn116')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup116"><code class="language-typescript text-sm text-gray-800">const browserCutoff = this.now() - this.browserStateTtlMs;
+    for (const [state, pending] of this.browserPending.entries()) {
+      if (pending.createdAt &lt; browserCutoff) {
+        this.browserPending.delete(state);
+      }
+    }
+
+    const browserCompletionNow = this.now();
+    for (const [state, completion] of this.browserCompletions.entries()) {
+      if (completion.expiresAt &lt;= browserCompletionNow) {
+        this.browserCompletions.delete(state);
+      }
+    }
+  }</code></pre></div><div class="py-4"><p class="text-gray-600">src/lib/factory-auth.ts (Line 220:2 - Line 233:4), src/tests/factory-config.test.ts (Line 55:2 - Line 64:80)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn117" onclick="toggleCodeBlock('cloneGroup117', 'expandBtn117', 'collapseBtn117')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn117" onclick="toggleCodeBlock('cloneGroup117', 'expandBtn117', 'collapseBtn117')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup117"><code class="language-typescript text-sm text-gray-800">refresh_token: string }): string {
+  const key = Buffer.from(keyBase64.trim(), &quot;base64&quot;);
+  const iv = randomBytes(16);
+  const cipher = createCipheriv(&quot;aes-256-gcm&quot;, key, iv);
+  const ciphertext = Buffer.concat([cipher.update(JSON.stringify(data), &quot;utf-8&quot;), cipher.final()]);
+  const authTag = cipher.getAuthTag();
+  return `${iv.toString(&quot;base64&quot;)}:${authTag.toString(&quot;base64&quot;)}:${ciphertext.toString(&quot;base64&quot;)}`;
+}
+
+/**
+ * Persist refreshed Factory OAuth tokens back to the encrypted auth.v2 file.
+ * Only writes if the auth.v2.key file exists and is readable.
+ * Never throws — logs warnings on failure.
+ */</code></pre></div><div class="py-4"><p class="text-gray-600">src/lib/credential-store.ts (Line 68:2 - Line 83:20), src/lib/openai-quota.ts (Line 94:7 - Line 109:10)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn118" onclick="toggleCodeBlock('cloneGroup118', 'expandBtn118', 'collapseBtn118')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn118" onclick="toggleCodeBlock('cloneGroup118', 'expandBtn118', 'collapseBtn118')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup118"><code class="language-typescript text-sm text-gray-800">;
+}
+
+function isRecord(value: unknown): value is Record&lt;string, unknown&gt; {
+  return typeof value === &quot;object&quot; &amp;&amp; value !== null;
+}
+
+function asString(value: unknown): string | undefined {
+  return typeof value === &quot;string&quot; ? value : undefined;
+}
+
+function asNumber(value: unknown): number | undefined {
+  return typeof value === &quot;number&quot; &amp;&amp; Number.isFinite(value) ? value : undefined;
+}
+
+function normalizeProviderId</code></pre></div><div class="py-4"><p class="text-gray-600">src/lib/chroma-session-index.ts (Line 37:2 - Line 51:7), src/lib/ollama-native.ts (Line 1:14 - Line 109:10)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn119" onclick="toggleCodeBlock('cloneGroup119', 'expandBtn119', 'collapseBtn119')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn119" onclick="toggleCodeBlock('cloneGroup119', 'expandBtn119', 'collapseBtn119')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup119"><code class="language-typescript text-sm text-gray-800">;
+
+function isRecord(value: unknown): value is Record&lt;string, unknown&gt; {
+  return typeof value === &quot;object&quot; &amp;&amp; value !== null;
+}
+
+function asString(value: unknown): string | undefined {
+  return typeof value === &quot;string&quot; ? value : undefined;
+}
+
+function asNumber(value: unknown): number | undefined {
+  return typeof value === &quot;number&quot; &amp;&amp; Number.isFinite(value) ? value : undefined;
+}
+
+function asRole</code></pre></div><div class="py-4"><p class="text-gray-600">src/lib/bridge-helpers.ts (Line 2:31 - Line 76:3), src/lib/federation/bridge-request-helpers.ts (Line 3:20 - Line 77:6)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn120" onclick="toggleCodeBlock('cloneGroup120', 'expandBtn120', 'collapseBtn120')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn120" onclick="toggleCodeBlock('cloneGroup120', 'expandBtn120', 'collapseBtn120')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup120"><code class="language-typescript text-sm text-gray-800">;
+
+const LEGACY_BRIDGE_PATH_PREFIXES = [
+  &quot;/v1/chat/completions&quot;,
+  &quot;/v1/models&quot;,
+  &quot;/v1/responses&quot;,
+  &quot;/v1/embeddings&quot;,
+  &quot;/v1/images/generations&quot;,
+] as const;
+
+export function bridgeCapabilitySupportsPath(capability: {
+  readonly paths?: readonly string[];
+  readonly routes?: readonly string[];
+  readonly supportsModelsList?: boolean;
+  readonly supportsChatCompletions?: boolean;
+  readonly supportsResponses?: boolean;
+}, normalizedPath: string): boolean {
+  const advertisedRoutes = [...(capability.paths ?? []), ...(capability.routes ?? [])]
+    .filter((entry): entry is string =&gt; typeof entry === &quot;string&quot;)
+    .map((entry) =&gt; entry.trim())
+    .filter((entry) =&gt; entry.length &gt; 0);
+
+  if (advertisedRoutes.length &gt; 0) {
+    return advertisedRoutes.some((prefix) =&gt; normalizedPath.startsWith(prefix));
+  }
+
+  if (normalizedPath.startsWith(&quot;/v1/models&quot;)) {
+    return capability.supportsModelsList === true;
+  }
+  if (normalizedPath.startsWith(&quot;/v1/chat/completions&quot;)) {
+    return capability.supportsChatCompletions === true;
+  }
+  if (normalizedPath.startsWith(&quot;/v1/responses&quot;)) {
+    return capability.supportsResponses === true;
+  }
+
+  const hasStructuredCapabilityHints = capability.supportsModelsList !== undefined
+    || capability.supportsChatCompletions !== undefined
+    || capability.supportsResponses !== undefined;
+
+  return !hasStructuredCapabilityHints
+    &amp;&amp; LEGACY_BRIDGE_PATH_PREFIXES.some((prefix) =&gt; normalizedPath.startsWith(prefix));
+}
+
+export function bridgeCapabilitySupportsModel(capability: {
+  readonly models?: readonly string[];
+  readonly modelPrefixes?: readonly string[];
+}, requestedModel: string | undefined): boolean {
+  if (!requestedModel) {
+    return true;
+  }
+
+  const normalizedModel = requestedModel.trim();
+  if (normalizedModel.length === 0) {
+    return true;
+  }
+
+  const advertisedModels = (capability.models ?? [])
+    .filter((entry): entry is string =&gt; typeof entry === &quot;string&quot;)
+    .map((entry) =&gt; entry.trim())
+    .filter((entry) =&gt; entry.length &gt; 0);
+  if (advertisedModels.includes(normalizedModel)) {
+    return true;
+  }
+
+  const advertisedPrefixes = (capability.modelPrefixes ?? [])
+    .filter((entry): entry is string =&gt; typeof entry === &quot;string&quot;)
+    .map((entry) =&gt; entry.trim())
+    .filter((entry) =&gt; entry.length &gt; 0);
+  return advertisedPrefixes.some((prefix) =&gt; normalizedModel.startsWith(prefix));
+}
+
+export function appendBridgeResponseHeaders(reply: FastifyReply, headers: Readonly&lt;Record&lt;string, string&gt;&gt;): void {
+  for (const [name, value] of Object.entries(headers)) {
+    if</code></pre></div><div class="py-4"><p class="text-gray-600">src/lib/app-deps.ts (Line 21:2 - Line 32:7), src/lib/federation/federated-fallback.ts (Line 209:2 - Line 218:2)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn121" onclick="toggleCodeBlock('cloneGroup121', 'expandBtn121', 'collapseBtn121')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn121" onclick="toggleCodeBlock('cloneGroup121', 'expandBtn121', 'collapseBtn121')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup121"><code class="language-typescript text-sm text-gray-800">{
+  readonly requestHeaders: Record&lt;string, unknown&gt;;
+  readonly requestBody: Record&lt;string, unknown&gt;;
+  readonly requestAuth?: { readonly kind: &quot;legacy_admin&quot; | &quot;tenant_api_key&quot; | &quot;ui_session&quot; | &quot;unauthenticated&quot;; readonly subject?: string; readonly tenantId?: string };
+  readonly providerRoutes: readonly ProviderRoute[];
+  readonly upstreamPath: string;
+  readonly reply: FastifyReply;
+  readonly timeoutMs: number;
+  readonly signal?: AbortSignal;
+}
+
+export</code></pre></div><div class="py-4"><p class="text-gray-600">src/lib/account-identity.ts (Line 49:2 - Line 76:7), src/lib/openai-quota.ts (Line 132:2 - Line 159:9)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn122" onclick="toggleCodeBlock('cloneGroup122', 'expandBtn122', 'collapseBtn122')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn122" onclick="toggleCodeBlock('cloneGroup122', 'expandBtn122', 'collapseBtn122')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup122"><code class="language-typescript text-sm text-gray-800">{
+  const claims = parseJwtClaims(token);
+  if (!claims) {
+    return {};
+  }
+
+  const profile = isRecord(claims[&quot;https://api.openai.com/profile&quot;])
+    ? claims[&quot;https://api.openai.com/profile&quot;]
+    : undefined;
+  const auth = isRecord(claims[&quot;https://api.openai.com/auth&quot;])
+    ? claims[&quot;https://api.openai.com/auth&quot;]
+    : undefined;
+
+  const email = (asString(claims.email) ?? asString(profile?.email))?.trim().toLowerCase();
+  const subject = asString(claims.sub)?.trim();
+  const chatgptAccountId = (asString(claims.chatgpt_account_id)
+    ?? asString(auth?.chatgpt_account_id))?.trim();
+  const planType = asString(auth?.chatgpt_plan_type)?.trim().toLowerCase();
+
+  return {
+    email: email &amp;&amp; email.length &gt; 0 ? email : undefined,
+    subject: subject &amp;&amp; subject.length &gt; 0 ? subject : undefined,
+    chatgptAccountId: chatgptAccountId &amp;&amp; chatgptAccountId.length &gt; 0 ? chatgptAccountId : undefined,
+    planType: planType &amp;&amp; planType.length &gt; 0 ? planType : undefined,
+  };
+}
+
+export</code></pre></div><!-- Add more clone groups for .txt format as needed         // Add more clone groups for .txt format as needed--></div><a name="tsx-clones"></a><h2 class="text-2xl font-semibold text-gray-700 mb-4">tsx</h2><div class="divide-y divide-gray-200 border-b-2"><div class="py-4"><p class="text-gray-600">web/src/pages/HostsPage.tsx (Line 181:10 - Line 207:3), web/src/pages/HostsPage.tsx (Line 166:9 - Line 193:2)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn4" onclick="toggleCodeBlock('cloneGroup4', 'expandBtn4', 'collapseBtn4')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn4" onclick="toggleCodeBlock('cloneGroup4', 'expandBtn4', 'collapseBtn4')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup4"><code class="language-tsx text-sm text-gray-800">.&lt;/div&gt;
+                  ) : (
+                    &lt;DataTableShell
+                      columns={containersColumns()}
+                      rows={host.containers}
+                      rowKey={(row) =&gt; row.id}
+                      dense
+                      stickyHeader={false}
+                    /&gt;
+                  )}
+                &lt;/section&gt;
+
+                &lt;section className=&quot;hosts-section&quot;&gt;
+                  &lt;PanelHeader title=&quot;Containers&quot; meta={&lt;small&gt;{host.containers.length} containers&lt;/small&gt;} /&gt;
+                  {host.containers.length === 0 ? (
+                    &lt;div className=&quot;hosts-section-empty&quot;&gt;No container data available.&lt;/div&gt;
+                  ) : (
+                    &lt;DataTableShell
+                      columns={containersColumns()}
+                      rows={host.containers}
+                      rowKey={(row) =&gt; row.id}
+                      dense
+                      stickyHeader={false}
+                    /&gt;
+                  )}
+                &lt;/section&gt;
+              &lt;/</code></pre></div><div class="py-4"><p class="text-gray-600">web/src/pages/AnalyticsPage.tsx (Line 48:3 - Line 59:4), web/src/pages/DashboardPage.tsx (Line 62:2 - Line 73:8)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn5" onclick="toggleCodeBlock('cloneGroup5', 'expandBtn5', 'collapseBtn5')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn5" onclick="toggleCodeBlock('cloneGroup5', 'expandBtn5', 'collapseBtn5')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup5"><code class="language-tsx text-sm text-gray-800">;
+}
+
+function formatWater(ml: number): string {
+  if (ml &gt;= 1000) return `${(ml / 1000).toFixed(2)} L`;
+  if (ml &gt;= 1) return `${ml.toFixed(1)} mL`;
+  if (ml &gt;= 0.001) return `${(ml * 1000).toFixed(1)} uL`;
+  return `${ml.toFixed(4)} mL`;
+}
+
+function formatDate(value: string | null): string {
+  return value ? new Date(value).toLocaleString() : &quot;-&quot;</code></pre></div><div class="py-4"><p class="text-gray-600">web/src/pages/AnalyticsPage.tsx (Line 59:4 - Line 70:23), web/src/pages/DashboardPage.tsx (Line 73:8 - Line 84:17)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn6" onclick="toggleCodeBlock('cloneGroup6', 'expandBtn6', 'collapseBtn6')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn6" onclick="toggleCodeBlock('cloneGroup6', 'expandBtn6', 'collapseBtn6')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup6"><code class="language-tsx text-sm text-gray-800">;
+}
+
+function formatMaybeMs(value: number | null): string {
+  return typeof value === &quot;number&quot; &amp;&amp; Number.isFinite(value) ? `${Math.round(value)} ms` : &quot;-&quot;;
+}
+
+function formatMaybeTps(value: number | null): string {
+  return typeof value === &quot;number&quot; &amp;&amp; Number.isFinite(value) ? `${value.toFixed(value &gt;= 10 ? 0 : 1)} t/s` : &quot;-&quot;;
+}
+
+function formatMaybeSuitability</code></pre></div><div class="py-4"><p class="text-gray-600">web/src/pages/AnalyticsPage.tsx (Line 96:2 - Line 110:12), web/src/pages/AnalyticsPage.tsx (Line 80:2 - Line 94:16)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn7" onclick="toggleCodeBlock('cloneGroup7', 'expandBtn7', 'collapseBtn7')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn7" onclick="toggleCodeBlock('cloneGroup7', 'expandBtn7', 'collapseBtn7')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup7"><code class="language-tsx text-sm text-gray-800">?? 0) },
+  { key: 'suitability', header: 'Suitability', render: (row) =&gt; formatMaybeSuitability(row.suitabilityScore) },
+  { key: 'confidence', header: 'Confidence', render: (row) =&gt; formatMaybeSuitability(row.confidenceScore) },
+  { key: 'ttft', header: 'Avg TTFT', render: (row) =&gt; formatMaybeMs(row.avgTtftMs) },
+  { key: 'decodeTps', header: 'Decode TPS', render: (row) =&gt; formatMaybeTps(row.avgDecodeTps) },
+  { key: 'e2eTps', header: 'End-to-End TPS', render: (row) =&gt; formatMaybeTps(row.avgEndToEndTps) },
+  { key: 'errorRate', header: 'Error Rate', render: (row) =&gt; formatPercent(row.errorRate) },
+  { key: 'cacheHit', header: 'Cache Hit', render: (row) =&gt; formatPercent(row.cacheHitRate) },
+  { key: 'cachedTokens', header: 'Cached Tokens', render: (row) =&gt; formatCompactNumber(row.cachedPromptTokens) },
+  { key: 'requests', header: 'Requests', render: (row) =&gt; formatCompactNumber(row.requestCount) },
+  { key: 'tokens', header: 'Tokens', render: (row) =&gt; formatCompactNumber(row.totalTokens) },
+  { key: 'cost', header: 'Est. Cost', render: (row) =&gt; formatUsd(row.costUsd) },
+];
+
+const pairColumns</code></pre></div><div class="py-4"><p class="text-gray-600">web/src/pages/AnalyticsPage.tsx (Line 112:2 - Line 124:2), web/src/pages/AnalyticsPage.tsx (Line 80:2 - Line 92:2)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn8" onclick="toggleCodeBlock('cloneGroup8', 'expandBtn8', 'collapseBtn8')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn8" onclick="toggleCodeBlock('cloneGroup8', 'expandBtn8', 'collapseBtn8')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup8"><code class="language-tsx text-sm text-gray-800">},
+  { key: 'suitability', header: 'Suitability', render: (row) =&gt; formatMaybeSuitability(row.suitabilityScore) },
+  { key: 'confidence', header: 'Confidence', render: (row) =&gt; formatMaybeSuitability(row.confidenceScore) },
+  { key: 'ttft', header: 'Avg TTFT', render: (row) =&gt; formatMaybeMs(row.avgTtftMs) },
+  { key: 'decodeTps', header: 'Decode TPS', render: (row) =&gt; formatMaybeTps(row.avgDecodeTps) },
+  { key: 'e2eTps', header: 'End-to-End TPS', render: (row) =&gt; formatMaybeTps(row.avgEndToEndTps) },
+  { key: 'errorRate', header: 'Error Rate', render: (row) =&gt; formatPercent(row.errorRate) },
+  { key: 'cacheHit', header: 'Cache Hit', render: (row) =&gt; formatPercent(row.cacheHitRate) },
+  { key: 'cachedTokens', header: 'Cached Tokens', render: (row) =&gt; formatCompactNumber(row.cachedPromptTokens) },
+  { key: 'requests', header: 'Requests', render: (row) =&gt; formatCompactNumber(row.requestCount) },
+  { key: 'tokens', header: 'Tokens', render: (row) =&gt; formatCompactNumber(row.totalTokens) },
+  { key: 'cost', header: 'Est. Cost', render: (row) =&gt; formatUsd(row.costUsd) },
+  {</code></pre></div><div class="py-4"><p class="text-gray-600">web/src/pages/AnalyticsPage.tsx (Line 152:8 - Line 174:5), web/src/pages/DashboardPage.tsx (Line 275:14 - Line 297:12)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn9" onclick="toggleCodeBlock('cloneGroup9', 'expandBtn9', 'collapseBtn9')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn9" onclick="toggleCodeBlock('cloneGroup9', 'expandBtn9', 'collapseBtn9')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup9"><code class="language-tsx text-sm text-gray-800">);
+        }
+      } catch (loadError) {
+        if (!cancelled) {
+          setError(loadError instanceof Error ? loadError.message : String(loadError));
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    };
+
+    void load();
+    const timer = window.setInterval(() =&gt; {
+      void load();
+    }, 30_000);
+
+    return () =&gt; {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [sort</code></pre></div><div class="py-4"><p class="text-gray-600">web/src/pages/AnalyticsPage.tsx (Line 272:51 - Line 303:2), web/src/pages/AnalyticsPage.tsx (Line 245:37 - Line 276:2)</p><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2" id="expandBtn10" onclick="toggleCodeBlock('cloneGroup10', 'expandBtn10', 'collapseBtn10')">Show code</button><button class="bg-gray-500 text-white px-1 py-0.5 text-xs rounded focus:outline-none ml-2 hidden" id="collapseBtn10" onclick="toggleCodeBlock('cloneGroup10', 'expandBtn10', 'collapseBtn10')">Hide code</button><pre class="bg-gray-100 border border-gray-200 p-4 rounded mt-2 hidden" id="cloneGroup10"><code class="language-tsx text-sm text-gray-800">&quot;
+        /&gt;
+      ),
+    },
+    {
+      id: &quot;providers&quot;,
+      label: &quot;Providers&quot;,
+      badge: String(filteredProviders.length),
+      content: (
+        &lt;DataTableShell
+          columns={providerColumns}
+          rows={filteredProviders}
+          rowKey={(row) =&gt; `provider-${row.providerId}`}
+          emptyState=&quot;No providers match the current filters.&quot;
+        /&gt;
+      ),
+    },
+    {
+      id: &quot;pairs&quot;,
+      label: &quot;Pairs&quot;,
+      badge: String(filteredPairs.length),
+      content: (
+        &lt;DataTableShell
+          columns={pairColumns}
+          rows={filteredPairs}
+          rowKey={(row) =&gt; `pair-${row.providerId}-${row.model}`}
+          wide
+          emptyState=&quot;No provider-model pairs match the current filters.&quot;
+        /&gt;
+      ),
+    },
+  ]</code></pre></div><!-- Add more clone groups for .txt format as needed         // Add more clone groups for .txt format as needed--></div></section><!-- Add more sections for other formats and clone groups as needed--></main><footer class="bg-white shadow mt-8 py-4"><div class="container mx-auto px-4 text-center"><p class="text-sm text-gray-600">This report is generated by jscpd, an open-source copy/paste detector.</p><p class="text-sm text-gray-600">jscpd is licensed under the MIT License.</p><a class="text-blue-500 text-sm" href="https://github.com/kucherenko/jscpd" target="_blank" rel="noopener noreferrer">View jscpd on GitHub</a></div></footer><script src="js/prism.js"></script><script>function toggleCodeBlock(codeBlockId, expandBtnId, collapseBtnId) {
+  const codeBlock = document.getElementById(codeBlockId);
+  const expandBtn = document.getElementById(expandBtnId);
+  const collapseBtn = document.getElementById(collapseBtnId);
+
+  codeBlock.classList.toggle('hidden');
+  expandBtn.classList.toggle('hidden');
+  collapseBtn.classList.toggle('hidden');
+}</script></body></html>

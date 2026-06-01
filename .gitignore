@@ -6,6 +6,7 @@ coverage/
 target/
 .shadow-cljs/
 .clj-kondo/.cache/
+.lsp/
 .factory/
 
 .env
