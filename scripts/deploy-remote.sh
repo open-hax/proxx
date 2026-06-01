@@ -134,6 +134,12 @@ sync_repo_tree() {
   ssh "${SSH_OPTS[@]}" "$REMOTE" bash -s -- "$DEPLOY_PATH" "$DEPLOY_PATH/data" "$DEPLOY_PATH/db-backups" "$DEPLOY_PATH/deploy" <<'EOF'
 set -euo pipefail
 mkdir -p "$1" "$2" "$3" "$4"
+mkdir -p "$2/federation/a1" "$2/federation/a2" "$2/federation/b1" "$2/federation/b2"
+mkdir -p "$1/runtime-data/federation/a1" "$1/runtime-data/federation/a2" "$1/runtime-data/federation/b1" "$1/runtime-data/federation/b2"
+mkdir -p "$1/runtime-data-v2/federation/a1" "$1/runtime-data-v2/federation/a2" "$1/runtime-data-v2/federation/b1" "$1/runtime-data-v2/federation/b2"
+mkdir -p "$1/runtime-data-v3/federation/a1" "$1/runtime-data-v3/federation/a2" "$1/runtime-data-v3/federation/b1" "$1/runtime-data-v3/federation/b2"
+chmod -R g+rwX "$2" "$1/runtime-data" "$1/runtime-data-v2" 2>/dev/null || true
+chmod -R a+rwX "$1/runtime-data-v3" 2>/dev/null || true
 EOF
 
   rsync -az --delete \
@@ -144,6 +150,9 @@ EOF
     --exclude '/.env' \
     --exclude '/models.json' \
     --exclude '/data/' \
+    --exclude '/runtime-data/' \
+    --exclude '/runtime-data-v2/' \
+    --exclude '/runtime-data-v3/' \
     --exclude '/db-backups/' \
     "$ROOT_DIR/" "$REMOTE:$DEPLOY_PATH/"
 
