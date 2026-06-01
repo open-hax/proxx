@@ -160,6 +160,38 @@ EOF
   fi
 }
 
+validate_required_env_vars() {
+  local env_file="$1"
+  local missing=()
+  local required_vars=("PROXY_AUTH_TOKEN" "POSTGRES_PASSWORD")
+
+  if [[ ! -f "$env_file" ]]; then
+    printf 'Aborting deploy: no .env file found at %s\n' "$env_file" >&2
+    return 1
+  fi
+
+  for var in "${required_vars[@]}"; do
+    if ! grep -q "^${var}=" "$env_file"; then
+      missing+=("$var")
+    else
+      local value
+      value=$(grep "^${var}=" "$env_file" | cut -d'=' -f2-)
+      value=$(echo "$value" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+      if [[ -z "${value:-}" ]]; then
+        missing+=("$var (empty value)")
+      fi
+    fi
+  done
+
+  if [[ ${#missing[@]} -gt 0 ]]; then
+    printf 'Aborting deploy: missing required environment variables in .env:\n' >&2
+    for var in "${missing[@]}"; do
+      printf '  - %s\n' "$var" >&2
+    done
+    return 1
+  fi
+}
+
 remote_compose_up() {
   # shellcheck disable=SC2029
   ssh "${SSH_OPTS[@]}" "$REMOTE" bash -s -- "$DEPLOY_PATH" "$DEPLOY_ENABLE_TLS" "$REMOTE_COMPOSE_PROJECT_NAME" "$REMOTE_COMPOSE_FILES" "$DEPLOY_PRUNE_BEFORE_BUILD" <<'EOF'
@@ -419,6 +451,14 @@ EOF
 
 build_runtime_payloads
 sync_repo_tree
+if [[ -f "$TMP_DIR/.env" ]]; then
+  validate_required_env_vars "$TMP_DIR/.env"
+else
+  remote_env="$TMP_DIR/remote.env"
+  if fetch_remote_file_if_exists "$REMOTE" "$DEPLOY_PATH/.env" "$remote_env"; then
+    validate_required_env_vars "$remote_env"
+  fi
+fi
 remote_compose_up
 if [[ "$DEPLOY_SYNC_DB_FROM_SOURCE" == "true" ]]; then
   sync_operational_db_from_source
