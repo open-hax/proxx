@@ -313,8 +313,8 @@ export const handleBridgeRequest = async (
     "/v1/embeddings",
     "/v1/images/generations",
   ];
-  const normalizedPath = input.path.split("?")[0]!;
-  if (!allowedBridgePaths.some((prefix) => normalizedPath.startsWith(prefix))) {
+  const normalizedPath = new URL(input.path.split("?")[0]!, "http://x").pathname;
+  if (!allowedBridgePaths.includes(normalizedPath)) {
     app.log.warn({ path: input.path, ownerSubject: input.ownerSubject }, "bridge request rejected: path not in allowed list");
     return {
       status: 403,
