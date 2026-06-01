@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-gpt-routing-excludes-ollama-cloud-md"
+uuid: "f9ebcdc4-d5a4-4dac-ade4-4042ac16a6cf"
 title: "Spec Draft: GPT Routing Excludes Ollama Cloud"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.127Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/gpt-routing-excludes-ollama-cloud.md"
+source: "kanban/drafts/gpt-routing-excludes-ollama-cloud.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/gpt-routing-excludes-ollama-cloud.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/gpt-routing-excludes-ollama-cloud.md`
+> Source: `kanban/drafts/gpt-routing-excludes-ollama-cloud.md`
+> Migrated-to-kanban: `kanban/drafts/gpt-routing-excludes-ollama-cloud.md`
 
 # Spec Draft: GPT Routing Excludes Ollama Cloud
 
@@ -41,7 +41,7 @@ High — the current fallback path sends unsupported GPT requests to `ollama-clo
    - Run `pnpm run build`, `pnpm run web:build`, and `pnpm test`.
 
 ## Affected Files
-- `specs/drafts/gpt-routing-excludes-ollama-cloud.md`
+- `kanban/drafts/gpt-routing-excludes-ollama-cloud.md`
 - `receipts.log`
 - `src/lib/policy/types.ts`
 - `src/lib/provider-policy.ts`

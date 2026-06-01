@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-federated-tenant-provider-share-policies-md"
+uuid: "fef46089-3571-4b39-8148-7fc7ad009499"
 title: "Federated tenant-provider share policies + owned-fleet public relay demo"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.151Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/federated-tenant-provider-share-policies.md"
+source: "kanban/drafts/federated-tenant-provider-share-policies.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/federated-tenant-provider-share-policies.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/federated-tenant-provider-share-policies.md`
+> Source: `kanban/drafts/federated-tenant-provider-share-policies.md`
+> Migrated-to-kanban: `kanban/drafts/federated-tenant-provider-share-policies.md`
 
 # Federated tenant-provider share policies + owned-fleet public relay demo
 
@@ -27,10 +27,10 @@ This draft adds the missing policy layer between:
 - federation routing and credential movement
 
 It is a focused companion to:
-- `specs/drafts/open-hax-openai-proxy-multitenancy-user-model.md`
-- `specs/drafts/real-federation-peer-diff-and-at-did-auth.md`
-- `specs/drafts/federation-bridge-ws-v0.md`
-- `specs/drafts/tenant-federation-cloud-roadmap.md`
+- `kanban/drafts/open-hax-openai-proxy-multitenancy-user-model.md`
+- `kanban/drafts/real-federation-peer-diff-and-at-did-auth.md`
+- `kanban/drafts/federation-bridge-ws-v0.md`
+- `kanban/drafts/tenant-federation-cloud-roadmap.md`
 
 ## Why this draft exists
 Current drafts already cover:

@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-proxy-federation-md"
+uuid: "f28c9e16-c13f-40e0-b63b-76afb75a9644"
 title: "Proxy Federation"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.124Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/proxy-federation.md"
+source: "kanban/drafts/proxy-federation.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/proxy-federation.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/proxy-federation.md`
+> Source: `kanban/drafts/proxy-federation.md`
+> Migrated-to-kanban: `kanban/drafts/proxy-federation.md`
 
 # Proxy Federation
 
@@ -20,7 +20,7 @@ Draft
 ## Summary
 Allow one Open Hax proxy to federate with other Open Hax proxies and/or remote OpenAI-compatible proxy peers, so routing can span multiple proxy clusters while preserving trust, tenancy, observability, and loop safety.
 
-This is a focused companion to `specs/drafts/open-hax-openai-proxy-multitenancy-user-model.md`, which is the canonical draft for issuer identity, delegated/share keys, ATproto/DID trust, and proof-of-possession details.
+This is a focused companion to `kanban/drafts/open-hax-openai-proxy-multitenancy-user-model.md`, which is the canonical draft for issuer identity, delegated/share keys, ATproto/DID trust, and proof-of-possession details.
 
 ## Why now
 The proxy already has strong foundations for federation:
@@ -38,10 +38,10 @@ However, there is no explicit federation design yet:
 - no peer capability advertisement
 
 ## Existing foundations
-Relevant existing specs/features:
-- `specs/drafts/endpoint-agnostic-routing.md`
-- `specs/drafts/latency-health-routing-v1.md`
-- `specs/drafts/provider-model-analytics-page.md`
+Relevant existing kanban/features:
+- `kanban/drafts/endpoint-agnostic-routing.md`
+- `kanban/drafts/latency-health-routing-v1.md`
+- `kanban/drafts/provider-model-analytics-page.md`
 - OpenAI-compatible routing and provider abstraction in current runtime
 
 ## Desired capabilities

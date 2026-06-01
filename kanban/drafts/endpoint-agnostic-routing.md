@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-endpoint-agnostic-routing-md"
+uuid: "e8e59833-dfe5-4baa-970a-ecf83bf7933a"
 title: "Spec Draft: Endpoint-Agnostic Provider Routing for /v1/responses"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.155Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/endpoint-agnostic-routing.md"
+source: "kanban/drafts/endpoint-agnostic-routing.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/endpoint-agnostic-routing.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/endpoint-agnostic-routing.md`
+> Source: `kanban/drafts/endpoint-agnostic-routing.md`
+> Migrated-to-kanban: `kanban/drafts/endpoint-agnostic-routing.md`
 
 # Spec Draft: Endpoint-Agnostic Provider Routing for /v1/responses
 

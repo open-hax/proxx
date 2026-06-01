@@ -1,16 +1,16 @@
 ---
-uuid: "orgs-open-hax-proxx-kanban-orgs-open-hax-proxx-specs-drafts-epics-model-catalog-planner-retire-legacy-helpers-md"
+uuid: "cc4ad4fb-2450-4eed-81bf-86c4facc9030"
 title: "Sub-spec: Retire legacy monolith + helper sprawl"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:44.190Z"
-source: "orgs/open-hax/proxx/specs/drafts/epics/model-catalog-planner--retire-legacy-helpers.md"
+source: "kanban/drafts/epics/model-catalog-planner--retire-legacy-helpers.md"
 category: "specs"
 ---
 
-> Source: `orgs/open-hax/proxx/specs/drafts/epics/model-catalog-planner--retire-legacy-helpers.md`
-> Migrated-to-kanban: `orgs/open-hax/proxx/kanban/drafts/epics/model-catalog-planner--retire-legacy-helpers.md`
+> Source: `kanban/drafts/epics/model-catalog-planner--retire-legacy-helpers.md`
+> Migrated-to-kanban: `kanban/drafts/epics/model-catalog-planner--retire-legacy-helpers.md`
 
 # Sub-spec: Retire legacy monolith + helper sprawl
 

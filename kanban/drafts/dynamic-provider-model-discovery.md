@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-dynamic-provider-model-discovery-md"
+uuid: "94b0c440-8052-4079-8048-ab76135f1e49"
 title: "Dynamic provider model discovery + preference-aware routing (v1)"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.152Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/dynamic-provider-model-discovery.md"
+source: "kanban/drafts/dynamic-provider-model-discovery.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/dynamic-provider-model-discovery.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/dynamic-provider-model-discovery.md`
+> Source: `kanban/drafts/dynamic-provider-model-discovery.md`
+> Migrated-to-kanban: `kanban/drafts/dynamic-provider-model-discovery.md`
 
 # Dynamic provider model discovery + preference-aware routing (v1)
 

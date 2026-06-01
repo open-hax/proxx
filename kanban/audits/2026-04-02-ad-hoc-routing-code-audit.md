@@ -1,22 +1,22 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-audits-2026-04-02-ad-hoc-routing-code-audit-md"
+uuid: "f0e8c946-5001-4a88-b6db-95ddfaba2ba4"
 title: "Ad-hoc Policy/Strategy/Routing Code Audit"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.109Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/audits/2026-04-02-ad-hoc-routing-code-audit.md"
+source: "kanban/audits/2026-04-02-ad-hoc-routing-code-audit.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/audits/2026-04-02-ad-hoc-routing-code-audit.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/audits/2026-04-02-ad-hoc-routing-code-audit.md`
+> Source: `kanban/audits/2026-04-02-ad-hoc-routing-code-audit.md`
+> Migrated-to-kanban: `kanban/audits/2026-04-02-ad-hoc-routing-code-audit.md`
 
 # Ad-hoc Policy/Strategy/Routing Code Audit
 
 **Date:** 2026-04-02
 **Scope:** `orgs/open-hax/proxx/src/` — policy, strategy, routing, and model selection code
-**Reference:** `specs/drafts/control-plane-mvc-transition-roadmap.md`
+**Reference:** `kanban/drafts/control-plane-mvc-transition-roadmap.md`
 
 ---
 

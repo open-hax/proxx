@@ -1,22 +1,22 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-model-family-registry-md"
+uuid: "e06579f0-14a3-4a6e-ae3e-9a13347d9aaa"
 title: "Spec: Unified model family registry"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.155Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/model-family-registry.md"
+source: "kanban/drafts/model-family-registry.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/model-family-registry.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/model-family-registry.md`
+> Source: `kanban/drafts/model-family-registry.md`
+> Migrated-to-kanban: `kanban/drafts/model-family-registry.md`
 
 # Spec: Unified model family registry
 
 **Status:** Draft
 **Story points:** 3
-**Audit ref:** `specs/audits/2026-04-02-ad-hoc-routing-code-audit.md` Finding 2
+**Audit ref:** `kanban/audits/2026-04-02-ad-hoc-routing-code-audit.md` Finding 2
 **Depends on:** `dead-code-model-routing-cleanup.md`
 
 ## Problem

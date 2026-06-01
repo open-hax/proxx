@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-epics-reasoning-equivalence-responses-true-streaming-md"
+uuid: "d33221cd-d554-4831-a8fb-3d38b7fe0656"
 title: "Sub-spec: Add true streaming to non-OpenAI Responses strategy"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.142Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/reasoning-equivalence--responses-true-streaming.md"
+source: "kanban/drafts/epics/reasoning-equivalence--responses-true-streaming.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/reasoning-equivalence--responses-true-streaming.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/epics/reasoning-equivalence--responses-true-streaming.md`
+> Source: `kanban/drafts/epics/reasoning-equivalence--responses-true-streaming.md`
+> Migrated-to-kanban: `kanban/drafts/epics/reasoning-equivalence--responses-true-streaming.md`
 
 # Sub-spec: Add true streaming to non-OpenAI Responses strategy
 

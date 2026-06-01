@@ -1,22 +1,22 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-fastify-type-augmentation-md"
+uuid: "f600f28e-0d21-4cbf-9dce-5a94db794cb9"
 title: "Spec: Fastify type augmentation for openHaxAuth"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.119Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/fastify-type-augmentation.md"
+source: "kanban/drafts/fastify-type-augmentation.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/fastify-type-augmentation.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/fastify-type-augmentation.md`
+> Source: `kanban/drafts/fastify-type-augmentation.md`
+> Migrated-to-kanban: `kanban/drafts/fastify-type-augmentation.md`
 
 # Spec: Fastify type augmentation for openHaxAuth
 
 **Status:** Draft
 **Story points:** 2
-**Audit ref:** `specs/audits/2026-04-02-ad-hoc-routing-code-audit.md` Finding 4
+**Audit ref:** `kanban/audits/2026-04-02-ad-hoc-routing-code-audit.md` Finding 4
 
 ## Problem
 

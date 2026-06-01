@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-dashboard-account-health-provider-filter-md"
+uuid: "e2732096-cbe6-48d4-b403-13c7fc41acba"
 title: "Spec Draft: Dashboard Account Health Provider Filter"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.127Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/dashboard-account-health-provider-filter.md"
+source: "kanban/drafts/dashboard-account-health-provider-filter.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/dashboard-account-health-provider-filter.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/dashboard-account-health-provider-filter.md`
+> Source: `kanban/drafts/dashboard-account-health-provider-filter.md`
+> Migrated-to-kanban: `kanban/drafts/dashboard-account-health-provider-filter.md`
 
 # Spec Draft: Dashboard Account Health Provider Filter
 
@@ -41,7 +41,7 @@ Medium — improves dashboard usability when many accounts from multiple provide
    - Run the full package test suite to confirm no regressions.
 
 ## Affected Files
-- `specs/drafts/dashboard-account-health-provider-filter.md`
+- `kanban/drafts/dashboard-account-health-provider-filter.md`
 - `receipts.log`
 - `web/src/pages/DashboardPage.tsx`
 - `web/src/styles.css`

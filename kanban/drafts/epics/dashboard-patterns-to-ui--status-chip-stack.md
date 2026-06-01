@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-epics-dashboard-patterns-to-ui-status-chip-stack-md"
+uuid: "5c67e2ae-0ecb-43d5-892f-6d41c89a035d"
 title: "Sub-spec: Status chip stack / badge list component"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.135Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/dashboard-patterns-to-ui--status-chip-stack.md"
+source: "kanban/drafts/epics/dashboard-patterns-to-ui--status-chip-stack.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/dashboard-patterns-to-ui--status-chip-stack.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/epics/dashboard-patterns-to-ui--status-chip-stack.md`
+> Source: `kanban/drafts/epics/dashboard-patterns-to-ui--status-chip-stack.md`
+> Migrated-to-kanban: `kanban/drafts/epics/dashboard-patterns-to-ui--status-chip-stack.md`
 
 # Sub-spec: Status chip stack / badge list component
 

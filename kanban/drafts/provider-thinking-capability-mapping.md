@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-provider-thinking-capability-mapping-md"
+uuid: "962e901f-4301-4f14-9c56-695af758ced3"
 title: "Spec Draft: Provider Thinking Capability Mapping from Live proxx Models"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.155Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/provider-thinking-capability-mapping.md"
+source: "kanban/drafts/provider-thinking-capability-mapping.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/provider-thinking-capability-mapping.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/provider-thinking-capability-mapping.md`
+> Source: `kanban/drafts/provider-thinking-capability-mapping.md`
+> Migrated-to-kanban: `kanban/drafts/provider-thinking-capability-mapping.md`
 
 # Spec Draft: Provider Thinking Capability Mapping from Live proxx Models
 
@@ -47,8 +47,8 @@ High — user wants a live-catalog-backed reasoning capability map across accept
    - Validate any code changes with focused tests and package verification.
 
 ## Affected Files
-- `specs/drafts/provider-thinking-capability-mapping.md`
-- `specs/drafts/provider-thinking-capability-report.md`
+- `kanban/drafts/provider-thinking-capability-mapping.md`
+- `kanban/drafts/provider-thinking-capability-report.md`
 - `receipts.log`
 - `src/lib/responses-compat.ts`
 - `src/lib/provider-strategy/strategies/gemini.ts`
@@ -70,6 +70,6 @@ High — user wants a live-catalog-backed reasoning capability map across accept
 ## Progress
 - [x] Investigation started: confirmed running proxx API on `127.0.0.1:8789`, fetched live `/v1/models`, and confirmed active providers from `/health`.
 - [x] Research: gathered official provider/model-family docs covering OpenAI GPT effort levels, Anthropic extended thinking budgets, Gemini 2.5/3 thinking controls, Ollama `think`, DeepSeek `thinking`, GLM `enable_thinking`, MiniMax `reasoning_split`, Kimi thinking variants, and Vivgrid/Requesty surface capabilities.
-- [x] Mapping Design: wrote the live capability matrix and normalized mapping recommendations in `specs/drafts/provider-thinking-capability-report.md`.
+- [x] Mapping Design: wrote the live capability matrix and normalized mapping recommendations in `kanban/drafts/provider-thinking-capability-report.md`.
 - [x] Implementation / Reporting: codified two high-confidence runtime fixes from the research — OpenAI Responses now preserves `xhigh`, and native Gemini routing now translates normalized reasoning into `thinkingConfig` plus maps Gemini thought parts back into `reasoning_content`.
 - [x] Verification: `pnpm test` passed after adding regression coverage for GPT `xhigh` passthrough and Gemini 2.5/3 reasoning translation.

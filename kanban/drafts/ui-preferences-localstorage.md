@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-ui-preferences-localstorage-md"
+uuid: "baff4682-488d-42bb-952b-90d68c2e6be6"
 title: "Spec Draft: UI preferences persisted in localStorage"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.148Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/ui-preferences-localstorage.md"
+source: "kanban/drafts/ui-preferences-localstorage.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/ui-preferences-localstorage.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/ui-preferences-localstorage.md`
+> Source: `kanban/drafts/ui-preferences-localstorage.md`
+> Migrated-to-kanban: `kanban/drafts/ui-preferences-localstorage.md`
 
 # Spec Draft: UI preferences persisted in localStorage
 

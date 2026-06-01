@@ -1,16 +1,16 @@
 ---
-uuid: "orgs-open-hax-proxx-kanban-orgs-open-hax-proxx-specs-audits-2026-04-10-pheromone-routing-failure-analysis-md"
+uuid: "fc4c3125-2485-4e2d-a87c-1f303c86d024"
 title: "Pheromone Routing Failure Analysis"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:44.156Z"
-source: "orgs/open-hax/proxx/specs/audits/2026-04-10-pheromone-routing-failure-analysis.md"
+source: "kanban/audits/2026-04-10-pheromone-routing-failure-analysis.md"
 category: "specs"
 ---
 
-> Source: `orgs/open-hax/proxx/specs/audits/2026-04-10-pheromone-routing-failure-analysis.md`
-> Migrated-to-kanban: `orgs/open-hax/proxx/kanban/audits/2026-04-10-pheromone-routing-failure-analysis.md`
+> Source: `kanban/audits/2026-04-10-pheromone-routing-failure-analysis.md`
+> Migrated-to-kanban: `kanban/audits/2026-04-10-pheromone-routing-failure-analysis.md`
 
 # Pheromone Routing Failure Analysis
 
@@ -402,5 +402,5 @@ const MODEL_PROVIDER_PREFERENCES: Record<string, {
 - `provider-routing.ts` — Static fallback chain construction
 - `routes/chat.ts` — Full routing pipeline duplicated per route
 - `policy/engine/provider-ordering.ts` — Underutilized policy hooks
-- `specs/drafts/aco-systems-design.md` — Original ACO design intent
-- `specs/drafts/model-family-registry.md` — Proposed family registry
+- `kanban/drafts/aco-systems-design.md` — Original ACO design intent
+- `kanban/drafts/model-family-registry.md` — Proposed family registry

@@ -1,22 +1,22 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-app-composition-slimming-v2-md"
+uuid: "376837da-4621-4804-a50b-662bf531ec5d"
 title: "Spec: Extract token refresh + unify deps from app.ts"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.119Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/app-composition-slimming-v2.md"
+source: "kanban/drafts/app-composition-slimming-v2.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/app-composition-slimming-v2.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/app-composition-slimming-v2.md`
+> Source: `kanban/drafts/app-composition-slimming-v2.md`
+> Migrated-to-kanban: `kanban/drafts/app-composition-slimming-v2.md`
 
 # Spec: Extract token refresh + unify deps from app.ts
 
 **Status:** Partial (Step 4 done)
 **Story points:** 4 remaining (of 5 total)
-**Audit ref:** `specs/audits/2026-04-02-ad-hoc-routing-code-audit.md` Findings 5, 9
+**Audit ref:** `kanban/audits/2026-04-02-ad-hoc-routing-code-audit.md` Findings 5, 9
 
 ## What's done
 - ✅ ~20 inline OPTIONS handlers batched into a loop

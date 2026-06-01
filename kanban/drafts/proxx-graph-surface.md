@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-proxx-graph-surface-md"
+uuid: "bbd30a37-3a37-44e8-b6be-0af007eed0fd"
 title: "Proxx Graph Surface"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.125Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/proxx-graph-surface.md"
+source: "kanban/drafts/proxx-graph-surface.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/proxx-graph-surface.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/proxx-graph-surface.md`
+> Source: `kanban/drafts/proxx-graph-surface.md`
+> Migrated-to-kanban: `kanban/drafts/proxx-graph-surface.md`
 
 # Proxx Graph Surface
 

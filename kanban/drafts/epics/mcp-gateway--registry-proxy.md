@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-epics-mcp-gateway-registry-proxy-md"
+uuid: "21a08011-232a-4386-97dc-1cb9cbbb5aa7"
 title: "Sub-spec: MCP registry + proxy core"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.146Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/mcp-gateway--registry-proxy.md"
+source: "kanban/drafts/epics/mcp-gateway--registry-proxy.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/mcp-gateway--registry-proxy.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/epics/mcp-gateway--registry-proxy.md`
+> Source: `kanban/drafts/epics/mcp-gateway--registry-proxy.md`
+> Migrated-to-kanban: `kanban/drafts/epics/mcp-gateway--registry-proxy.md`
 
 # Sub-spec: MCP registry + proxy core
 

@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-epics-federation-slice-parity-tests-md"
+uuid: "460457ae-d09e-4a60-9094-e309d8e2047e"
 title: "Sub-spec: Federation parity tests + legacy alias verification"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.141Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/federation-slice--parity-tests.md"
+source: "kanban/drafts/epics/federation-slice--parity-tests.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/federation-slice--parity-tests.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/epics/federation-slice--parity-tests.md`
+> Source: `kanban/drafts/epics/federation-slice--parity-tests.md`
+> Migrated-to-kanban: `kanban/drafts/epics/federation-slice--parity-tests.md`
 
 # Sub-spec: Federation parity tests + legacy alias verification
 

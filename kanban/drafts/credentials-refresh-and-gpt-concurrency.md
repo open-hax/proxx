@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-credentials-refresh-and-gpt-concurrency-md"
+uuid: "681bde25-4fb3-49d0-b359-1e2d436a68a3"
 title: "Spec Draft: Credentials Refresh Controls and GPT Concurrency Stability"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.124Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/credentials-refresh-and-gpt-concurrency.md"
+source: "kanban/drafts/credentials-refresh-and-gpt-concurrency.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/credentials-refresh-and-gpt-concurrency.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/credentials-refresh-and-gpt-concurrency.md`
+> Source: `kanban/drafts/credentials-refresh-and-gpt-concurrency.md`
+> Migrated-to-kanban: `kanban/drafts/credentials-refresh-and-gpt-concurrency.md`
 
 # Spec Draft: Credentials Refresh Controls and GPT Concurrency Stability
 
@@ -49,7 +49,7 @@ High — current operator workflow is painful with hundreds of OpenAI accounts, 
    - Run targeted tests, then `pnpm run build`, `pnpm run web:build`, and `pnpm test`.
 
 ## Affected Files
-- `specs/drafts/credentials-refresh-and-gpt-concurrency.md`
+- `kanban/drafts/credentials-refresh-and-gpt-concurrency.md`
 - `receipts.log`
 - `src/app.ts`
 - `src/lib/config.ts`

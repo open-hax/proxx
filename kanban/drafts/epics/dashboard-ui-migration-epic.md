@@ -1,23 +1,23 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-epics-dashboard-ui-migration-epic-md"
+uuid: "eac577de-9911-416d-901b-d76027f7c55b"
 title: "Epic: Migrate proxx dashboard frontend to @open-hax/uxx component library"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.132Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/dashboard-ui-migration-epic.md"
+source: "kanban/drafts/epics/dashboard-ui-migration-epic.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/dashboard-ui-migration-epic.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/epics/dashboard-ui-migration-epic.md`
+> Source: `kanban/drafts/epics/dashboard-ui-migration-epic.md`
+> Migrated-to-kanban: `kanban/drafts/epics/dashboard-ui-migration-epic.md`
 
 # Epic: Migrate proxx dashboard frontend to @open-hax/uxx component library
 
 **Status:** ✅ Done (5 of 5 sub-specs done)
 **Epic SP:** 13 (broken into 5 sub-specs ≤5 SP each)
 **Priority:** P2
-**Parent:** `specs/drafts/dashboard-ui-modernization.md`
+**Parent:** `kanban/drafts/dashboard-ui-modernization.md`
 
 ## Problem
 

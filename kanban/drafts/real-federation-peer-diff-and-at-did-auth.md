@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-real-federation-peer-diff-and-at-did-auth-md"
+uuid: "548d5a71-438f-4e49-8d8d-1989b62a83de"
 title: "Real federation: peer diff sync + AT DID auth"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.126Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/real-federation-peer-diff-and-at-did-auth.md"
+source: "kanban/drafts/real-federation-peer-diff-and-at-did-auth.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/real-federation-peer-diff-and-at-did-auth.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/real-federation-peer-diff-and-at-did-auth.md`
+> Source: `kanban/drafts/real-federation-peer-diff-and-at-did-auth.md`
+> Migrated-to-kanban: `kanban/drafts/real-federation-peer-diff-and-at-did-auth.md`
 
 # Real federation: peer diff sync + AT DID auth
 

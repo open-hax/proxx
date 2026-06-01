@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-epics-dashboard-ui-migration-credentials-md"
+uuid: "1cf12575-5a31-422e-81dc-eb0ab22ddb8e"
 title: "Sub-spec: Migrate CredentialsPage to @open-hax/uxx components"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.132Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/dashboard-ui-migration--credentials.md"
+source: "kanban/drafts/epics/dashboard-ui-migration--credentials.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/dashboard-ui-migration--credentials.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/epics/dashboard-ui-migration--credentials.md`
+> Source: `kanban/drafts/epics/dashboard-ui-migration--credentials.md`
+> Migrated-to-kanban: `kanban/drafts/epics/dashboard-ui-migration--credentials.md`
 
 # Sub-spec: Migrate CredentialsPage to @open-hax/uxx components
 

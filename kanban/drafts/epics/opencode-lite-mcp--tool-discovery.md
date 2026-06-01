@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-epics-opencode-lite-mcp-tool-discovery-md"
+uuid: "b14d9670-9c09-4b37-b3ad-7cf45d61a2a7"
 title: "Sub-spec: MCP tool discovery + smoke tests"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.134Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/opencode-lite-mcp--tool-discovery.md"
+source: "kanban/drafts/epics/opencode-lite-mcp--tool-discovery.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/opencode-lite-mcp--tool-discovery.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/epics/opencode-lite-mcp--tool-discovery.md`
+> Source: `kanban/drafts/epics/opencode-lite-mcp--tool-discovery.md`
+> Migrated-to-kanban: `kanban/drafts/epics/opencode-lite-mcp--tool-discovery.md`
 
 # Sub-spec: MCP tool discovery + smoke tests
 

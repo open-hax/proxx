@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-epics-dashboard-ui-migration-chat-cleanup-md"
+uuid: "5501c295-b657-48ee-a912-cd1165609a52"
 title: "Sub-spec: Migrate ChatPage + remove custom CSS"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.133Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/dashboard-ui-migration--chat-cleanup.md"
+source: "kanban/drafts/epics/dashboard-ui-migration--chat-cleanup.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/dashboard-ui-migration--chat-cleanup.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/epics/dashboard-ui-migration--chat-cleanup.md`
+> Source: `kanban/drafts/epics/dashboard-ui-migration--chat-cleanup.md`
+> Migrated-to-kanban: `kanban/drafts/epics/dashboard-ui-migration--chat-cleanup.md`
 
 # Sub-spec: Migrate ChatPage + remove custom CSS
 

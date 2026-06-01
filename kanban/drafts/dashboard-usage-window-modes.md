@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-dashboard-usage-window-modes-md"
+uuid: "b0f5d9c9-0906-4bd1-a978-ed2a395ef738"
 title: "Spec Draft: Dashboard usage window modes (daily/weekly/monthly)"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.130Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/dashboard-usage-window-modes.md"
+source: "kanban/drafts/dashboard-usage-window-modes.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/dashboard-usage-window-modes.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/dashboard-usage-window-modes.md`
+> Source: `kanban/drafts/dashboard-usage-window-modes.md`
+> Migrated-to-kanban: `kanban/drafts/dashboard-usage-window-modes.md`
 
 # Spec Draft: Dashboard usage window modes (daily/weekly/monthly)
 

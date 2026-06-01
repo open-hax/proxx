@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-control-plane-slice-credentials-auth-v1-md"
+uuid: "06fde9b6-099b-419f-ace3-5edbb69ae4ed"
 title: "Control-plane slice: credentials + provider auth v1"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.153Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/control-plane-slice-credentials-auth-v1.md"
+source: "kanban/drafts/control-plane-slice-credentials-auth-v1.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/control-plane-slice-credentials-auth-v1.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/control-plane-slice-credentials-auth-v1.md`
+> Source: `kanban/drafts/control-plane-slice-credentials-auth-v1.md`
+> Migrated-to-kanban: `kanban/drafts/control-plane-slice-credentials-auth-v1.md`
 
 # Control-plane slice: credentials + provider auth v1
 
@@ -23,8 +23,8 @@ Migrate credential administration and provider-auth flows out of `src/lib/ui-rou
 This spec covers provider credential management, quota/probe APIs, and provider OAuth browser/device flows. Human GitHub login routes under `/auth/*` remain out of scope except where they intersect with dependency wiring.
 
 ## Source specs and notes
-- `specs/drafts/control-plane-api-contract-v1.md`
-- `specs/drafts/credentials-refresh-and-gpt-concurrency.md`
+- `kanban/drafts/control-plane-api-contract-v1.md`
+- `kanban/drafts/credentials-refresh-and-gpt-concurrency.md`
 - `docs/notes/experimental-design/2026.03.25.17.35.59.md`
 - `docs/notes/experimental-design/2026.03.25.17.52.10.md`
 

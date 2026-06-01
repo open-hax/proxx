@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-openplanner-opencode-lite-and-mcp-tools-md"
+uuid: "99b08979-cf61-4861-975f-1c5380658eac"
 title: "OpenPlanner + opencode-lite + MCP tool gateway (proxy UI tooling)"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.152Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/openplanner-opencode-lite-and-mcp-tools.md"
+source: "kanban/drafts/openplanner-opencode-lite-and-mcp-tools.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/openplanner-opencode-lite-and-mcp-tools.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/openplanner-opencode-lite-and-mcp-tools.md`
+> Source: `kanban/drafts/openplanner-opencode-lite-and-mcp-tools.md`
+> Migrated-to-kanban: `kanban/drafts/openplanner-opencode-lite-and-mcp-tools.md`
 
 # OpenPlanner + opencode-lite + MCP tool gateway (proxy UI tooling)
 

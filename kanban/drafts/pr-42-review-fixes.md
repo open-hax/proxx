@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-pr-42-review-fixes-md"
+uuid: "98645fbd-b853-4dd2-93db-e11cd6ac7e75"
 title: "PR-42 review fixes"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.149Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/pr-42-review-fixes.md"
+source: "kanban/drafts/pr-42-review-fixes.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/pr-42-review-fixes.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/pr-42-review-fixes.md`
+> Source: `kanban/drafts/pr-42-review-fixes.md`
+> Migrated-to-kanban: `kanban/drafts/pr-42-review-fixes.md`
 
 # PR-42 review fixes
 

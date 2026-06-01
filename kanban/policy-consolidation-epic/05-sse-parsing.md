@@ -1,16 +1,16 @@
 ---
-uuid: "orgs-open-hax-proxx-kanban-orgs-open-hax-proxx-specs-policy-consolidation-epic-05-sse-parsing-md"
+uuid: "e7aa2f40-031e-42d0-aa10-d943b805cf3a"
 title: "Spec 2.2: Extract SSE Parsing"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:44.163Z"
-source: "orgs/open-hax/proxx/specs/policy-consolidation-epic/05-sse-parsing.md"
+source: "kanban/policy-consolidation-epic/05-sse-parsing.md"
 category: "specs"
 ---
 
-> Source: `orgs/open-hax/proxx/specs/policy-consolidation-epic/05-sse-parsing.md`
-> Migrated-to-kanban: `orgs/open-hax/proxx/kanban/policy-consolidation-epic/05-sse-parsing.md`
+> Source: `kanban/policy-consolidation-epic/05-sse-parsing.md`
+> Migrated-to-kanban: `kanban/policy-consolidation-epic/05-sse-parsing.md`
 
 # Spec 2.2: Extract SSE Parsing
 

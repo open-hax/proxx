@@ -1,20 +1,20 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-lint-complexity-reduction-fallback-extraction-spec-md"
+uuid: "7fbcd8fd-511e-43e0-ba81-557da4c1bc5c"
 title: "Spec: fallback.ts Extraction"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.115Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/lint-complexity-reduction/fallback-extraction.spec.md"
+source: "kanban/lint-complexity-reduction/fallback-extraction.spec.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/lint-complexity-reduction/fallback-extraction.spec.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/lint-complexity-reduction/fallback-extraction.spec.md`
+> Source: `kanban/lint-complexity-reduction/fallback-extraction.spec.md`
+> Migrated-to-kanban: `kanban/lint-complexity-reduction/fallback-extraction.spec.md`
 
 # Spec: fallback.ts Extraction
 
-**Status:** OBSOLETE — superseded by `specs/drafts/epics/fallback-extraction-epic.md` (all 4 sub-specs done)
+**Status:** OBSOLETE — superseded by `kanban/drafts/epics/fallback-extraction-epic.md` (all 4 sub-specs done)
 
 ## Historical Reference
 Original problem: `executeProviderFallback` had cyclomatic complexity 154, cognitive complexity 399, 663 lines.

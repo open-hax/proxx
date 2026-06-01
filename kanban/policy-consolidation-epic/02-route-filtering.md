@@ -1,16 +1,16 @@
 ---
-uuid: "orgs-open-hax-proxx-kanban-orgs-open-hax-proxx-specs-policy-consolidation-epic-02-route-filtering-md"
+uuid: "184ed6a7-0b79-4a01-a00e-17813d76d1d8"
 title: "Spec 1.2: Move Route Filtering Logic"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:44.164Z"
-source: "orgs/open-hax/proxx/specs/policy-consolidation-epic/02-route-filtering.md"
+source: "kanban/policy-consolidation-epic/02-route-filtering.md"
 category: "specs"
 ---
 
-> Source: `orgs/open-hax/proxx/specs/policy-consolidation-epic/02-route-filtering.md`
-> Migrated-to-kanban: `orgs/open-hax/proxx/kanban/policy-consolidation-epic/02-route-filtering.md`
+> Source: `kanban/policy-consolidation-epic/02-route-filtering.md`
+> Migrated-to-kanban: `kanban/policy-consolidation-epic/02-route-filtering.md`
 
 # Spec 1.2: Move Route Filtering Logic
 

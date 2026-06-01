@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-epics-reasoning-equivalence-epic-md"
+uuid: "47eb791c-c165-4f2e-a91e-9ac173c8563b"
 title: "Reasoning Token Handling Equivalence"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.146Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/reasoning-equivalence-epic.md"
+source: "kanban/drafts/epics/reasoning-equivalence-epic.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/reasoning-equivalence-epic.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/epics/reasoning-equivalence-epic.md`
+> Source: `kanban/drafts/epics/reasoning-equivalence-epic.md`
+> Migrated-to-kanban: `kanban/drafts/epics/reasoning-equivalence-epic.md`
 
 # Reasoning Token Handling Equivalence
 

@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-epics-opencode-lite-mcp-agent-loop-md"
+uuid: "b58cf1e4-5bc4-4044-b4f1-edf9f7d767fe"
 title: "Sub-spec: Agent loop + UI integration"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.146Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/opencode-lite-mcp--agent-loop.md"
+source: "kanban/drafts/epics/opencode-lite-mcp--agent-loop.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/opencode-lite-mcp--agent-loop.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/epics/opencode-lite-mcp--agent-loop.md`
+> Source: `kanban/drafts/epics/opencode-lite-mcp--agent-loop.md`
+> Migrated-to-kanban: `kanban/drafts/epics/opencode-lite-mcp--agent-loop.md`
 
 # Sub-spec: Agent loop + UI integration
 

@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-spec-roadmap-md"
+uuid: "bb1919f1-dd00-40ad-a13f-7f6d66f295cb"
 title: "Proxx Specs: Breakdown, Priorities & Roadmap"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.111Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/SPEC-ROADMAP.md"
+source: "kanban/SPEC-ROADMAP.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/SPEC-ROADMAP.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/SPEC-ROADMAP.md`
+> Source: `kanban/SPEC-ROADMAP.md`
+> Migrated-to-kanban: `kanban/SPEC-ROADMAP.md`
 
 # Proxx Specs: Breakdown, Priorities & Roadmap
 

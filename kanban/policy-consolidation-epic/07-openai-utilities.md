@@ -1,16 +1,16 @@
 ---
-uuid: "orgs-open-hax-proxx-kanban-orgs-open-hax-proxx-specs-policy-consolidation-epic-07-openai-utilities-md"
+uuid: "5cf3f3ce-e7af-4601-9804-ae72079aaba8"
 title: "Spec 2.4: Extract OpenAI-Specific Utilities"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:44.161Z"
-source: "orgs/open-hax/proxx/specs/policy-consolidation-epic/07-openai-utilities.md"
+source: "kanban/policy-consolidation-epic/07-openai-utilities.md"
 category: "specs"
 ---
 
-> Source: `orgs/open-hax/proxx/specs/policy-consolidation-epic/07-openai-utilities.md`
-> Migrated-to-kanban: `orgs/open-hax/proxx/kanban/policy-consolidation-epic/07-openai-utilities.md`
+> Source: `kanban/policy-consolidation-epic/07-openai-utilities.md`
+> Migrated-to-kanban: `kanban/policy-consolidation-epic/07-openai-utilities.md`
 
 # Spec 2.4: Extract OpenAI-Specific Utilities
 

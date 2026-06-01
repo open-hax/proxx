@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-epics-contract-deprecation-frontend-migration-md"
+uuid: "247796f6-30d6-4bb2-9b72-f5ce44330e47"
 title: "Sub-spec: Frontend callsite migration to /api/v1/*"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.145Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/contract-deprecation--frontend-migration.md"
+source: "kanban/drafts/epics/contract-deprecation--frontend-migration.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/contract-deprecation--frontend-migration.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/epics/contract-deprecation--frontend-migration.md`
+> Source: `kanban/drafts/epics/contract-deprecation--frontend-migration.md`
+> Migrated-to-kanban: `kanban/drafts/epics/contract-deprecation--frontend-migration.md`
 
 # Sub-spec: Frontend callsite migration to /api/v1/*
 

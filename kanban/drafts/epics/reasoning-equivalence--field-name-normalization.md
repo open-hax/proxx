@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-epics-reasoning-equivalence-field-name-normalization-md"
+uuid: "be6784fa-55ac-45e8-b6eb-3e75b9b008ab"
 title: "Sub-spec: Normalize reasoning vs reasoning_content field names"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.137Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/reasoning-equivalence--field-name-normalization.md"
+source: "kanban/drafts/epics/reasoning-equivalence--field-name-normalization.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/reasoning-equivalence--field-name-normalization.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/epics/reasoning-equivalence--field-name-normalization.md`
+> Source: `kanban/drafts/epics/reasoning-equivalence--field-name-normalization.md`
+> Migrated-to-kanban: `kanban/drafts/epics/reasoning-equivalence--field-name-normalization.md`
 
 # Sub-spec: Normalize reasoning vs reasoning_content field names
 

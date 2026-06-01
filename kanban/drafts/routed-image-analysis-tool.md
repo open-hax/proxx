@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-routed-image-analysis-tool-md"
+uuid: "875c7d69-a4eb-40e9-acff-e9e5336e8e0b"
 title: "Spec Draft: Routed image analysis tool (`analyze_image`) over live Open Hax vision surfaces"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.122Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/routed-image-analysis-tool.md"
+source: "kanban/drafts/routed-image-analysis-tool.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/routed-image-analysis-tool.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/routed-image-analysis-tool.md`
+> Source: `kanban/drafts/routed-image-analysis-tool.md`
+> Migrated-to-kanban: `kanban/drafts/routed-image-analysis-tool.md`
 
 # Spec Draft: Routed image analysis tool (`analyze_image`) over live Open Hax vision surfaces
 
@@ -469,7 +469,7 @@ Use this once the proxy exposes the missing specialists:
 
 ## Affected files
 ### This draft
-- `specs/drafts/routed-image-analysis-tool.md`
+- `kanban/drafts/routed-image-analysis-tool.md`
 
 ### Likely future implementation files
 - `~/.pi/agent/extensions/vision-proxy.ts`

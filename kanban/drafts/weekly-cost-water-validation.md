@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-weekly-cost-water-validation-md"
+uuid: "6035e286-2b30-4b11-b97f-ce403e2c3195"
 title: "Weekly Cost/Water Validation and Backfill"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.126Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/weekly-cost-water-validation.md"
+source: "kanban/drafts/weekly-cost-water-validation.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/weekly-cost-water-validation.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/weekly-cost-water-validation.md`
+> Source: `kanban/drafts/weekly-cost-water-validation.md`
+> Migrated-to-kanban: `kanban/drafts/weekly-cost-water-validation.md`
 
 # Weekly Cost/Water Validation and Backfill
 

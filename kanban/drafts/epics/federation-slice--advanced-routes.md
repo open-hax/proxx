@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-epics-federation-slice-advanced-routes-md"
+uuid: "559e10f8-6117-4397-a12d-55cfcbe23d9e"
 title: "Sub-spec: Advanced federation route extraction"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.134Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/federation-slice--advanced-routes.md"
+source: "kanban/drafts/epics/federation-slice--advanced-routes.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/federation-slice--advanced-routes.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/epics/federation-slice--advanced-routes.md`
+> Source: `kanban/drafts/epics/federation-slice--advanced-routes.md`
+> Migrated-to-kanban: `kanban/drafts/epics/federation-slice--advanced-routes.md`
 
 # Sub-spec: Advanced federation route extraction
 

@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-ussy-host-fleet-dashboard-md"
+uuid: "9ebb0bc9-dd52-48f5-9b8b-22c419633479"
 title: "ussy host fleet dashboard"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.148Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/ussy-host-fleet-dashboard.md"
+source: "kanban/drafts/ussy-host-fleet-dashboard.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/ussy-host-fleet-dashboard.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/ussy-host-fleet-dashboard.md`
+> Source: `kanban/drafts/ussy-host-fleet-dashboard.md`
+> Migrated-to-kanban: `kanban/drafts/ussy-host-fleet-dashboard.md`
 
 # ussy host fleet dashboard
 

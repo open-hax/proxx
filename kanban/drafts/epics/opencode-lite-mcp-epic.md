@@ -1,23 +1,23 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-epics-opencode-lite-mcp-epic-md"
+uuid: "c1c0ff2d-ca04-4c05-9b89-e5bd506d8b67"
 title: "Epic: OpenPlanner + opencode-lite + MCP tool gateway"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.145Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/opencode-lite-mcp-epic.md"
+source: "kanban/drafts/epics/opencode-lite-mcp-epic.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/opencode-lite-mcp-epic.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/epics/opencode-lite-mcp-epic.md`
+> Source: `kanban/drafts/epics/opencode-lite-mcp-epic.md`
+> Migrated-to-kanban: `kanban/drafts/epics/opencode-lite-mcp-epic.md`
 
 # Epic: OpenPlanner + opencode-lite + MCP tool gateway
 
 **Status:** Draft
 **Epic SP:** 8 (broken into 3 sub-specs ≤5 SP each)
 **Priority:** P3
-**Parent file:** `specs/drafts/openplanner-opencode-lite-and-mcp-tools.md`
+**Parent file:** `kanban/drafts/openplanner-opencode-lite-and-mcp-tools.md`
 
 ## Sub-specs
 

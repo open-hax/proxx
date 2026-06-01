@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-proxx-voxx-integration-md"
+uuid: "ea1a07fb-9cf2-4493-bdc3-0833e5c6db26"
 title: "Proxx Voxx Integration"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.150Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/proxx-voxx-integration.md"
+source: "kanban/drafts/proxx-voxx-integration.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/proxx-voxx-integration.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/proxx-voxx-integration.md`
+> Source: `kanban/drafts/proxx-voxx-integration.md`
+> Migrated-to-kanban: `kanban/drafts/proxx-voxx-integration.md`
 
 # Proxx Voxx Integration
 

@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-provider-model-analytics-page-md"
+uuid: "b43258d2-3bd5-489a-88ac-3598abaa0fdc"
 title: "Provider / Model Analytics Page"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.128Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/provider-model-analytics-page.md"
+source: "kanban/drafts/provider-model-analytics-page.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/provider-model-analytics-page.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/provider-model-analytics-page.md`
+> Source: `kanban/drafts/provider-model-analytics-page.md`
+> Migrated-to-kanban: `kanban/drafts/provider-model-analytics-page.md`
 
 # Provider / Model Analytics Page
 
@@ -117,7 +117,7 @@ Missing for this page:
 - [x] Verify the package still builds/tests cleanly and local compose serves the new page/assets.
 
 ## Affected files
-- `specs/drafts/provider-model-analytics-page.md`
+- `kanban/drafts/provider-model-analytics-page.md`
 - `src/lib/request-log-store.ts` (reuse / possibly extend helper queries)
 - `src/lib/ui-routes.ts`
 - `src/tests/proxy.test.ts`

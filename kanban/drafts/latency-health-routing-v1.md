@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-latency-health-routing-v1-md"
+uuid: "278b5204-b4d3-474c-9b2f-02d003fba442"
 title: "Latency-first routing + deep performance telemetry (v1)"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.154Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/latency-health-routing-v1.md"
+source: "kanban/drafts/latency-health-routing-v1.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/latency-health-routing-v1.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/latency-health-routing-v1.md`
+> Source: `kanban/drafts/latency-health-routing-v1.md`
+> Migrated-to-kanban: `kanban/drafts/latency-health-routing-v1.md`
 
 # Latency-first routing + deep performance telemetry (v1)
 

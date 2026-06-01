@@ -1,16 +1,16 @@
 ---
-uuid: "orgs-open-hax-proxx-kanban-orgs-open-hax-proxx-specs-policy-consolidation-epic-06-error-classification-md"
+uuid: "1a53bb92-5bff-49de-98da-b70aed1c4f86"
 title: "Spec 2.3: Extract Error Classification"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:44.163Z"
-source: "orgs/open-hax/proxx/specs/policy-consolidation-epic/06-error-classification.md"
+source: "kanban/policy-consolidation-epic/06-error-classification.md"
 category: "specs"
 ---
 
-> Source: `orgs/open-hax/proxx/specs/policy-consolidation-epic/06-error-classification.md`
-> Migrated-to-kanban: `orgs/open-hax/proxx/kanban/policy-consolidation-epic/06-error-classification.md`
+> Source: `kanban/policy-consolidation-epic/06-error-classification.md`
+> Migrated-to-kanban: `kanban/policy-consolidation-epic/06-error-classification.md`
 
 # Spec 2.3: Extract Error Classification
 

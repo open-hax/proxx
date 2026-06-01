@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-ollama-thinking-modelsdev-pricing-md"
+uuid: "1bbec4d0-3d33-48f2-8274-de1d6f94da45"
 title: "Spec Draft: Ollama Thinking Mapping and models.dev Pricing"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.125Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/ollama-thinking-modelsdev-pricing.md"
+source: "kanban/drafts/ollama-thinking-modelsdev-pricing.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/ollama-thinking-modelsdev-pricing.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/ollama-thinking-modelsdev-pricing.md`
+> Source: `kanban/drafts/ollama-thinking-modelsdev-pricing.md`
+> Migrated-to-kanban: `kanban/drafts/ollama-thinking-modelsdev-pricing.md`
 
 # Spec Draft: Ollama Thinking Mapping and models.dev Pricing
 
@@ -53,7 +53,7 @@ High — the user explicitly wants Ollama thinking control, models.dev-backed pr
 - `src/tests/proxy.test.ts`
 - `src/tests/request-log-store.test.ts`
 - `src/tests/model-pricing.test.ts`
-- `specs/drafts/ollama-thinking-modelsdev-pricing.md`
+- `kanban/drafts/ollama-thinking-modelsdev-pricing.md`
 - `receipts.log`
 
 ## Dependencies

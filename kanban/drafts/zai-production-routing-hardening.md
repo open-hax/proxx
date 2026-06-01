@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-zai-production-routing-hardening-md"
+uuid: "2791b570-b465-4ef0-9b4f-3fae81c74da7"
 title: "Spec Draft: z.ai Production Rollout and GLM Routing Hardening"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.124Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/zai-production-routing-hardening.md"
+source: "kanban/drafts/zai-production-routing-hardening.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/zai-production-routing-hardening.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/zai-production-routing-hardening.md`
+> Source: `kanban/drafts/zai-production-routing-hardening.md`
+> Migrated-to-kanban: `kanban/drafts/zai-production-routing-hardening.md`
 
 # Spec Draft: z.ai Production Rollout and GLM Routing Hardening
 
@@ -58,7 +58,7 @@ High — explicit user request covering production rollout and routing quality.
 - `docker-compose.yml`
 - `src/lib/policy/defaults/gpt.ts`
 - `src/tests/policy.test.ts`
-- `specs/drafts/zai-production-routing-hardening.md`
+- `kanban/drafts/zai-production-routing-hardening.md`
 - `receipts.log`
 
 ## Definition of Done

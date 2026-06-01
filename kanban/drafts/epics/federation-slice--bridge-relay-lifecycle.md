@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-epics-federation-slice-bridge-relay-lifecycle-md"
+uuid: "6f931eec-d345-422b-a7ad-ab659e61c859"
 title: "Sub-spec: Bridge relay lifecycle extraction"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.138Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/federation-slice--bridge-relay-lifecycle.md"
+source: "kanban/drafts/epics/federation-slice--bridge-relay-lifecycle.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/federation-slice--bridge-relay-lifecycle.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/epics/federation-slice--bridge-relay-lifecycle.md`
+> Source: `kanban/drafts/epics/federation-slice--bridge-relay-lifecycle.md`
+> Migrated-to-kanban: `kanban/drafts/epics/federation-slice--bridge-relay-lifecycle.md`
 
 # Sub-spec: Bridge relay lifecycle extraction
 

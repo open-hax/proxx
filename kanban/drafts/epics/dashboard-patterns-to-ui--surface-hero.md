@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-epics-dashboard-patterns-to-ui-surface-hero-md"
+uuid: "1b77c6f1-035d-4579-b420-8df039eb5a8b"
 title: "Sub-spec: Surface hero + panel header components"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.139Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/dashboard-patterns-to-ui--surface-hero.md"
+source: "kanban/drafts/epics/dashboard-patterns-to-ui--surface-hero.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/dashboard-patterns-to-ui--surface-hero.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/epics/dashboard-patterns-to-ui--surface-hero.md`
+> Source: `kanban/drafts/epics/dashboard-patterns-to-ui--surface-hero.md`
+> Migrated-to-kanban: `kanban/drafts/epics/dashboard-patterns-to-ui--surface-hero.md`
 
 # Sub-spec: Surface hero + panel header components
 

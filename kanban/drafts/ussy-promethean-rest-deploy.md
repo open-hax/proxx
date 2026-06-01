@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-ussy-promethean-rest-deploy-md"
+uuid: "2584f269-776e-437d-ac6f-67a67be4a0ff"
 title: "ussy.promethean.rest deployment + migration"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.120Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/ussy-promethean-rest-deploy.md"
+source: "kanban/drafts/ussy-promethean-rest-deploy.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/ussy-promethean-rest-deploy.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/ussy-promethean-rest-deploy.md`
+> Source: `kanban/drafts/ussy-promethean-rest-deploy.md`
+> Migrated-to-kanban: `kanban/drafts/ussy-promethean-rest-deploy.md`
 
 # ussy.promethean.rest deployment + migration
 
@@ -83,7 +83,7 @@ Remote target:
 - Confirm model/config/session files are present.
 
 ## Affected paths
-- `orgs/open-hax/proxx/specs/drafts/ussy-promethean-rest-deploy.md`
+- `orgs/open-hax/proxx/kanban/drafts/ussy-promethean-rest-deploy.md`
 - `orgs/open-hax/proxx/receipts.log`
 - runtime source: `services/proxx/**`
 - remote runtime: `~/devel/services/proxx/**`

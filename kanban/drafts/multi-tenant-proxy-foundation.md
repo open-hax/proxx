@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-multi-tenant-proxy-foundation-md"
+uuid: "4028be3e-a652-46d4-b9ec-b958981724ce"
 title: "Multi-Tenant Proxy Foundation"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.126Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/multi-tenant-proxy-foundation.md"
+source: "kanban/drafts/multi-tenant-proxy-foundation.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/multi-tenant-proxy-foundation.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/multi-tenant-proxy-foundation.md`
+> Source: `kanban/drafts/multi-tenant-proxy-foundation.md`
+> Migrated-to-kanban: `kanban/drafts/multi-tenant-proxy-foundation.md`
 
 # Multi-Tenant Proxy Foundation
 
@@ -20,7 +20,7 @@ Draft
 ## Summary
 Introduce first-class tenant scoping across auth, credentials, settings, telemetry, and UI so one deployed proxy can safely serve multiple tenants/workspaces without shared-state leakage.
 
-This is a focused companion to `specs/drafts/open-hax-openai-proxy-multitenancy-user-model.md`, which is now the canonical tenant + delegated-key + federation-identity draft.
+This is a focused companion to `kanban/drafts/open-hax-openai-proxy-multitenancy-user-model.md`, which is now the canonical tenant + delegated-key + federation-identity draft.
 
 ## Why now
 Current architecture is effectively single-tenant:
@@ -33,10 +33,10 @@ Current architecture is effectively single-tenant:
 That is acceptable for local/dev and single-operator use, but it blocks safe shared deployments and makes federation ambiguous because there is no tenant boundary to propagate.
 
 ## Existing foundations
-Relevant existing specs/features:
-- `specs/drafts/latency-health-routing-v1.md` — routing/perf telemetry goals
-- `specs/drafts/provider-model-analytics-page.md` — provider/model suitability visibility
-- `specs/drafts/weekly-cost-water-validation.md` — durable usage aggregation and coverage metadata
+Relevant existing kanban/features:
+- `kanban/drafts/latency-health-routing-v1.md` — routing/perf telemetry goals
+- `kanban/drafts/provider-model-analytics-page.md` — provider/model suitability visibility
+- `kanban/drafts/weekly-cost-water-validation.md` — durable usage aggregation and coverage metadata
 - SQL-backed credentials/config already exist and are preferable to file-only runtime state for multi-tenant work.
 
 ## Core requirements

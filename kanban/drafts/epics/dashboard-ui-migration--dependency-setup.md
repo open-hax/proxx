@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-epics-dashboard-ui-migration-dependency-setup-md"
+uuid: "c95b26da-d29e-4d48-8fe1-3d422034fabb"
 title: "Sub-spec: Add @open-hax/uxx dependency + ToastProvider + global theme"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.136Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/dashboard-ui-migration--dependency-setup.md"
+source: "kanban/drafts/epics/dashboard-ui-migration--dependency-setup.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/dashboard-ui-migration--dependency-setup.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/epics/dashboard-ui-migration--dependency-setup.md`
+> Source: `kanban/drafts/epics/dashboard-ui-migration--dependency-setup.md`
+> Migrated-to-kanban: `kanban/drafts/epics/dashboard-ui-migration--dependency-setup.md`
 
 # Sub-spec: Add @open-hax/uxx dependency + ToastProvider + global theme
 

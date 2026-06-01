@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-lint-complexity-reduction-readme-md"
+uuid: "5072cb75-a497-4234-83b2-4e7210753006"
 title: "Lint Complexity Reduction Specs"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.116Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/lint-complexity-reduction/README.md"
+source: "kanban/lint-complexity-reduction/README.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/lint-complexity-reduction/README.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/lint-complexity-reduction/README.md`
+> Source: `kanban/lint-complexity-reduction/README.md`
+> Migrated-to-kanban: `kanban/lint-complexity-reduction/README.md`
 
 # Lint Complexity Reduction Specs
 

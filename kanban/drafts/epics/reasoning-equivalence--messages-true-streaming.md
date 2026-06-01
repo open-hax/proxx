@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-epics-reasoning-equivalence-messages-true-streaming-md"
+uuid: "2397ee9d-c07f-49ba-81fb-e0b68bf6c770"
 title: "Sub-spec: Add true streaming to Anthropic Messages strategy"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.135Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/reasoning-equivalence--messages-true-streaming.md"
+source: "kanban/drafts/epics/reasoning-equivalence--messages-true-streaming.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/reasoning-equivalence--messages-true-streaming.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/epics/reasoning-equivalence--messages-true-streaming.md`
+> Source: `kanban/drafts/epics/reasoning-equivalence--messages-true-streaming.md`
+> Migrated-to-kanban: `kanban/drafts/epics/reasoning-equivalence--messages-true-streaming.md`
 
 # Sub-spec: Add true streaming to Anthropic Messages strategy
 

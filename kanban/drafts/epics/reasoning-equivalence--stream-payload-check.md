@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-epics-reasoning-equivalence-stream-payload-check-md"
+uuid: "0ca95d56-fba1-495d-84c5-58411f992aed"
 title: "Sub-spec: Fix streamPayloadHasReasoningTrace for Responses API deltas"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.133Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/reasoning-equivalence--stream-payload-check.md"
+source: "kanban/drafts/epics/reasoning-equivalence--stream-payload-check.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/reasoning-equivalence--stream-payload-check.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/epics/reasoning-equivalence--stream-payload-check.md`
+> Source: `kanban/drafts/epics/reasoning-equivalence--stream-payload-check.md`
+> Migrated-to-kanban: `kanban/drafts/epics/reasoning-equivalence--stream-payload-check.md`
 
 # Sub-spec: Fix streamPayloadHasReasoningTrace for Responses API deltas
 

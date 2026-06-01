@@ -1,15 +1,15 @@
 ---
-uuid: "26913ee3-423b-4cd2-bfe6-229857a610af"
+uuid: "ac6c334d-acae-4fb5-b393-b57102d463e0"
 title: "Epic: Accelerate Test Suite & Eliminate Live Provider Dependencies"
 status: incoming
 priority: P2
 labels: ["specs", "migrated-spec"]
 created_at: "2026-06-01T14:51:33.085Z"
-source: "specs/epic-accelerate-test-suite.md"
+source: "kanban/epic-accelerate-test-suite.md"
 category: "specs"
 ---
 
-> Source: `specs/epic-accelerate-test-suite.md`
+> Source: `kanban/epic-accelerate-test-suite.md`
 > Migrated-to-kanban: `kanban/epic-accelerate-test-suite.md`
 
 # Epic: Accelerate Test Suite & Eliminate Live Provider Dependencies

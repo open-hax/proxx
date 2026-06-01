@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-epics-dashboard-patterns-to-ui-data-table-shell-md"
+uuid: "aa48b08e-51a0-4a92-8fe8-6a4595c09596"
 title: "Sub-spec: Data table shell with sticky header + scroll region"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.138Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/dashboard-patterns-to-ui--data-table-shell.md"
+source: "kanban/drafts/epics/dashboard-patterns-to-ui--data-table-shell.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/dashboard-patterns-to-ui--data-table-shell.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/epics/dashboard-patterns-to-ui--data-table-shell.md`
+> Source: `kanban/drafts/epics/dashboard-patterns-to-ui--data-table-shell.md`
+> Migrated-to-kanban: `kanban/drafts/epics/dashboard-patterns-to-ui--data-table-shell.md`
 
 # Sub-spec: Data table shell with sticky header + scroll region
 

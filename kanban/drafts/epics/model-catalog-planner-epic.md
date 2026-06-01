@@ -1,23 +1,23 @@
 ---
-uuid: "orgs-open-hax-proxx-kanban-orgs-open-hax-proxx-specs-drafts-epics-model-catalog-planner-epic-md"
+uuid: "271d5f14-d769-4350-a96e-2807f5ab0508"
 title: "Epic: Model Catalog Planner v1"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:44.193Z"
-source: "orgs/open-hax/proxx/specs/drafts/epics/model-catalog-planner-epic.md"
+source: "kanban/drafts/epics/model-catalog-planner-epic.md"
 category: "specs"
 ---
 
-> Source: `orgs/open-hax/proxx/specs/drafts/epics/model-catalog-planner-epic.md`
-> Migrated-to-kanban: `orgs/open-hax/proxx/kanban/drafts/epics/model-catalog-planner-epic.md`
+> Source: `kanban/drafts/epics/model-catalog-planner-epic.md`
+> Migrated-to-kanban: `kanban/drafts/epics/model-catalog-planner-epic.md`
 
 # Epic: Model Catalog Planner v1
 
 **Status:** Draft
 **Epic SP:** 22 (8 sub-specs ≤5 SP each)
 **Priority:** P0
-**Audit ref:** `specs/audits/2026-04-02-ad-hoc-routing-code-audit.md` Findings 2, 3
+**Audit ref:** `kanban/audits/2026-04-02-ad-hoc-routing-code-audit.md` Findings 2, 3
 **Depends on:** `model-family-registry.md` (3 SP), `routing-pipeline-extraction.md` (3 SP remaining), `dead-code-model-routing-cleanup.md` (1 SP)
 **Supersedes:** `dynamic-provider-model-discovery.md` (this epic absorbs its routing-architecture layer; the discovery/store layer remains authoritative there)
 **Dependent SP (not counted below):** 7 SP across dependency specs
@@ -164,11 +164,11 @@ RoutingPipeline (shared across chat/responses/images)
 
 ## References
 
-- `specs/drafts/dynamic-provider-model-discovery.md` — discovery store + preference overlay design
-- `specs/drafts/model-family-registry.md` — unified family inference spec
-- `specs/drafts/routing-pipeline-extraction.md` — shared routing pipeline extraction
-- `specs/drafts/app-composition-slimming-v2.md` — app composition dedup
-- `specs/audits/2026-04-02-ad-hoc-routing-code-audit.md` — original audit findings
+- `kanban/drafts/dynamic-provider-model-discovery.md` — discovery store + preference overlay design
+- `kanban/drafts/model-family-registry.md` — unified family inference spec
+- `kanban/drafts/routing-pipeline-extraction.md` — shared routing pipeline extraction
+- `kanban/drafts/app-composition-slimming-v2.md` — app composition dedup
+- `kanban/audits/2026-04-02-ad-hoc-routing-code-audit.md` — original audit findings
 - `src/lib/provider-strategy/fallback/legacy.ts` — retirement target
 - `src/lib/provider-strategy.ts` — retirement target
 - `src/lib/provider-strategy/registry.ts` — strategy registry (preserved, refactored)

@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-claude-thinking-budget-mapping-md"
+uuid: "157d6031-4925-4a20-be14-4fbf38972989"
 title: "Spec Draft: Safe Claude Thinking Budget Mapping for OpenAI `reasoning_effort`"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.119Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/claude-thinking-budget-mapping.md"
+source: "kanban/drafts/claude-thinking-budget-mapping.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/claude-thinking-budget-mapping.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/claude-thinking-budget-mapping.md`
+> Source: `kanban/drafts/claude-thinking-budget-mapping.md`
+> Migrated-to-kanban: `kanban/drafts/claude-thinking-budget-mapping.md`
 
 # Spec Draft: Safe Claude Thinking Budget Mapping for OpenAI `reasoning_effort`
 
@@ -45,7 +45,7 @@ High — current reasoning control mapping can overshoot Anthropic thinking cons
 - `src/lib/provider-strategy/strategies/factory.ts`
 - `src/tests/messages-compat.test.ts`
 - `src/tests/factory-strategy.test.ts`
-- `specs/drafts/claude-thinking-budget-mapping.md`
+- `kanban/drafts/claude-thinking-budget-mapping.md`
 - `receipts.log`
 
 ## Dependencies

@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-control-plane-slice-observability-v1-md"
+uuid: "d82288ab-fb7f-4221-90a3-7f2daad3a721"
 title: "Control-plane slice: observability + operator surfaces v1"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.129Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/control-plane-slice-observability-v1.md"
+source: "kanban/drafts/control-plane-slice-observability-v1.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/control-plane-slice-observability-v1.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/control-plane-slice-observability-v1.md`
+> Source: `kanban/drafts/control-plane-slice-observability-v1.md`
+> Migrated-to-kanban: `kanban/drafts/control-plane-slice-observability-v1.md`
 
 # Control-plane slice: observability + operator surfaces v1
 
@@ -23,12 +23,12 @@ Migrate observability and operator-oriented control-plane routes from `src/lib/u
 This slice includes dashboard/analytics, request logs, hosts, tools, MCP seed listing, and event tagging APIs. It should be executed after the contract, settings/sessions, and credentials slices, and in parallel with the `request-log-segmentation` refactor where helpful.
 
 ## Source specs and notes
-- `specs/drafts/control-plane-api-contract-v1.md`
-- `specs/lint-complexity-reduction/request-log-segmentation.spec.md`
-- `specs/drafts/provider-model-analytics-page.md`
-- `specs/drafts/dashboard-usage-window-modes.md`
-- `specs/drafts/weekly-cost-water-validation.md`
-- `specs/drafts/ussy-host-fleet-dashboard.md`
+- `kanban/drafts/control-plane-api-contract-v1.md`
+- `kanban/lint-complexity-reduction/request-log-segmentation.spec.md`
+- `kanban/drafts/provider-model-analytics-page.md`
+- `kanban/drafts/dashboard-usage-window-modes.md`
+- `kanban/drafts/weekly-cost-water-validation.md`
+- `kanban/drafts/ussy-host-fleet-dashboard.md`
 
 ## Scope
 

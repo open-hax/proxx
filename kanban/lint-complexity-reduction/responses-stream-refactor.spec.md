@@ -1,20 +1,20 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-lint-complexity-reduction-responses-stream-refactor-spec-md"
+uuid: "06724f0f-4081-4627-91da-f97e46ccf842"
 title: "Spec: responses-compat.ts Refactor"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.116Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/lint-complexity-reduction/responses-stream-refactor.spec.md"
+source: "kanban/lint-complexity-reduction/responses-stream-refactor.spec.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/lint-complexity-reduction/responses-stream-refactor.spec.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/lint-complexity-reduction/responses-stream-refactor.spec.md`
+> Source: `kanban/lint-complexity-reduction/responses-stream-refactor.spec.md`
+> Migrated-to-kanban: `kanban/lint-complexity-reduction/responses-stream-refactor.spec.md`
 
 # Spec: responses-compat.ts Refactor
 
-**Status:** OBSOLETE — partially addressed by `specs/drafts/epics/reasoning-equivalence-epic.md`
+**Status:** OBSOLETE — partially addressed by `kanban/drafts/epics/reasoning-equivalence-epic.md`
 
 ## Historical Reference
 Original goal: Refactor `processEvent` (cyclomatic complexity 67) in `responses-compat.ts` into a registry pattern.
@@ -22,4 +22,4 @@ Original goal: Refactor `processEvent` (cyclomatic complexity 67) in `responses-
 ## Resolution
 The reasoning-equivalence epic addresses the streaming equivalence issues that this spec identified. The specific event handler registry pattern has not been implemented, but the file-level complexity has been addressed through other extractions.
 
-See `specs/drafts/epics/reasoning-equivalence-epic.md` for the authoritative tracker.
+See `kanban/drafts/epics/reasoning-equivalence-epic.md` for the authoritative tracker.

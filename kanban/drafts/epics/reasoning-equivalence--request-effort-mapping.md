@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-epics-reasoning-equivalence-request-effort-mapping-md"
+uuid: "1c74fc2b-433c-4252-973c-549890e73460"
 title: "Sub-spec: Fix responsesRequestToChatRequest reasoning.effort mapping"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.134Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/reasoning-equivalence--request-effort-mapping.md"
+source: "kanban/drafts/epics/reasoning-equivalence--request-effort-mapping.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/reasoning-equivalence--request-effort-mapping.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/epics/reasoning-equivalence--request-effort-mapping.md`
+> Source: `kanban/drafts/epics/reasoning-equivalence--request-effort-mapping.md`
+> Migrated-to-kanban: `kanban/drafts/epics/reasoning-equivalence--request-effort-mapping.md`
 
 # Sub-spec: Fix responsesRequestToChatRequest reasoning.effort mapping
 

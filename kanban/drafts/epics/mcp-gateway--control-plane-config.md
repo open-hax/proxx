@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-epics-mcp-gateway-control-plane-config-md"
+uuid: "15113daf-c5e7-4925-99b3-8eed4cb402a4"
 title: "Sub-spec: MCP control-plane API + config management"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.135Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/mcp-gateway--control-plane-config.md"
+source: "kanban/drafts/epics/mcp-gateway--control-plane-config.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/mcp-gateway--control-plane-config.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/epics/mcp-gateway--control-plane-config.md`
+> Source: `kanban/drafts/epics/mcp-gateway--control-plane-config.md`
+> Migrated-to-kanban: `kanban/drafts/epics/mcp-gateway--control-plane-config.md`
 
 # Sub-spec: MCP control-plane API + config management
 

@@ -1,16 +1,16 @@
 ---
-uuid: "orgs-open-hax-proxx-kanban-orgs-open-hax-proxx-specs-drafts-epics-model-catalog-planner-provider-adapters-md"
+uuid: "3296377f-0c66-4916-8da5-9aad848d8092"
 title: "Sub-spec: Provider adapter extraction"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:44.191Z"
-source: "orgs/open-hax/proxx/specs/drafts/epics/model-catalog-planner--provider-adapters.md"
+source: "kanban/drafts/epics/model-catalog-planner--provider-adapters.md"
 category: "specs"
 ---
 
-> Source: `orgs/open-hax/proxx/specs/drafts/epics/model-catalog-planner--provider-adapters.md`
-> Migrated-to-kanban: `orgs/open-hax/proxx/kanban/drafts/epics/model-catalog-planner--provider-adapters.md`
+> Source: `kanban/drafts/epics/model-catalog-planner--provider-adapters.md`
+> Migrated-to-kanban: `kanban/drafts/epics/model-catalog-planner--provider-adapters.md`
 
 # Sub-spec: Provider adapter extraction
 

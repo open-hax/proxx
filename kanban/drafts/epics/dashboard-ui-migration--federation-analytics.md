@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-epics-dashboard-ui-migration-federation-analytics-md"
+uuid: "c3900bf3-2393-4c81-8f52-66ba8365a65b"
 title: "Sub-spec: Migrate FederationPage + AnalyticsPage to @open-hax/uxx"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.131Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/dashboard-ui-migration--federation-analytics.md"
+source: "kanban/drafts/epics/dashboard-ui-migration--federation-analytics.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/dashboard-ui-migration--federation-analytics.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/epics/dashboard-ui-migration--federation-analytics.md`
+> Source: `kanban/drafts/epics/dashboard-ui-migration--federation-analytics.md`
+> Migrated-to-kanban: `kanban/drafts/epics/dashboard-ui-migration--federation-analytics.md`
 
 # Sub-spec: Migrate FederationPage + AnalyticsPage to @open-hax/uxx
 

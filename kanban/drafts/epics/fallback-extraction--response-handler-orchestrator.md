@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-epics-fallback-extraction-response-handler-orchestrator-md"
+uuid: "ae086527-7cc4-48c4-aee2-f715a1cfd08d"
 title: "Sub-spec: Response handler + orchestrator extraction"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.144Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/fallback-extraction--response-handler-orchestrator.md"
+source: "kanban/drafts/epics/fallback-extraction--response-handler-orchestrator.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/fallback-extraction--response-handler-orchestrator.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/epics/fallback-extraction--response-handler-orchestrator.md`
+> Source: `kanban/drafts/epics/fallback-extraction--response-handler-orchestrator.md`
+> Migrated-to-kanban: `kanban/drafts/epics/fallback-extraction--response-handler-orchestrator.md`
 
 # Sub-spec: Response handler + orchestrator extraction
 

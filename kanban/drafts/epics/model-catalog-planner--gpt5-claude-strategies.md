@@ -1,16 +1,16 @@
 ---
-uuid: "orgs-open-hax-proxx-kanban-orgs-open-hax-proxx-specs-drafts-epics-model-catalog-planner-gpt5-claude-strategies-md"
+uuid: "b8064a11-d6c6-46a3-b239-56343e46d673"
 title: "Sub-spec: ModelStrategy interface + Gpt5 + Claude strategies"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:44.192Z"
-source: "orgs/open-hax/proxx/specs/drafts/epics/model-catalog-planner--gpt5-claude-strategies.md"
+source: "kanban/drafts/epics/model-catalog-planner--gpt5-claude-strategies.md"
 category: "specs"
 ---
 
-> Source: `orgs/open-hax/proxx/specs/drafts/epics/model-catalog-planner--gpt5-claude-strategies.md`
-> Migrated-to-kanban: `orgs/open-hax/proxx/kanban/drafts/epics/model-catalog-planner--gpt5-claude-strategies.md`
+> Source: `kanban/drafts/epics/model-catalog-planner--gpt5-claude-strategies.md`
+> Migrated-to-kanban: `kanban/drafts/epics/model-catalog-planner--gpt5-claude-strategies.md`
 
 # Sub-spec: ModelStrategy interface + Gpt5 + Claude strategies
 

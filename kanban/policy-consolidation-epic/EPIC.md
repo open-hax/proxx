@@ -1,16 +1,16 @@
 ---
-uuid: "orgs-open-hax-proxx-kanban-orgs-open-hax-proxx-specs-policy-consolidation-epic-epic-md"
+uuid: "ae610e1a-d47f-418d-aaf5-34e19a440747"
 title: "Policy Consolidation Refactor Epic"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:44.163Z"
-source: "orgs/open-hax/proxx/specs/policy-consolidation-epic/EPIC.md"
+source: "kanban/policy-consolidation-epic/EPIC.md"
 category: "specs"
 ---
 
-> Source: `orgs/open-hax/proxx/specs/policy-consolidation-epic/EPIC.md`
-> Migrated-to-kanban: `orgs/open-hax/proxx/kanban/policy-consolidation-epic/EPIC.md`
+> Source: `kanban/policy-consolidation-epic/EPIC.md`
+> Migrated-to-kanban: `kanban/policy-consolidation-epic/EPIC.md`
 
 # Policy Consolidation Refactor Epic
 

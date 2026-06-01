@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-factory-4xx-diagnostics-md"
+uuid: "bf2f1a95-bac6-4b4b-9eff-c88427d825a0"
 title: "Spec Draft: Factory 4xx Diagnostics Instrumentation"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.150Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/factory-4xx-diagnostics.md"
+source: "kanban/drafts/factory-4xx-diagnostics.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/factory-4xx-diagnostics.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/factory-4xx-diagnostics.md`
+> Source: `kanban/drafts/factory-4xx-diagnostics.md`
+> Migrated-to-kanban: `kanban/drafts/factory-4xx-diagnostics.md`
 
 # Spec Draft: Factory 4xx Diagnostics Instrumentation
 
@@ -40,7 +40,7 @@ High — recent Factory `403` prompt rejections are not diagnosable from current
    - Run targeted tests and full suite verification.
 
 ## Affected Files
-- `specs/drafts/factory-4xx-diagnostics.md`
+- `kanban/drafts/factory-4xx-diagnostics.md`
 - `receipts.log`
 - `src/lib/provider-strategy.ts`
 - `src/lib/request-log-store.ts`

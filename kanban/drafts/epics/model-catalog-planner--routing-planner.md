@@ -1,16 +1,16 @@
 ---
-uuid: "orgs-open-hax-proxx-kanban-orgs-open-hax-proxx-specs-drafts-epics-model-catalog-planner-routing-planner-md"
+uuid: "d85645dd-2bff-4ce1-ae7f-f015fbcfeedf"
 title: "Sub-spec: RoutingPlanner"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:44.192Z"
-source: "orgs/open-hax/proxx/specs/drafts/epics/model-catalog-planner--routing-planner.md"
+source: "kanban/drafts/epics/model-catalog-planner--routing-planner.md"
 category: "specs"
 ---
 
-> Source: `orgs/open-hax/proxx/specs/drafts/epics/model-catalog-planner--routing-planner.md`
-> Migrated-to-kanban: `orgs/open-hax/proxx/kanban/drafts/epics/model-catalog-planner--routing-planner.md`
+> Source: `kanban/drafts/epics/model-catalog-planner--routing-planner.md`
+> Migrated-to-kanban: `kanban/drafts/epics/model-catalog-planner--routing-planner.md`
 
 # Sub-spec: RoutingPlanner
 

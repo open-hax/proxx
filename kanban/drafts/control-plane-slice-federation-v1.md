@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-control-plane-slice-federation-v1-md"
+uuid: "2edc2f8c-8032-49d0-8f4a-f96be47a331a"
 title: "Control-plane slice: federation v1"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.152Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/control-plane-slice-federation-v1.md"
+source: "kanban/drafts/control-plane-slice-federation-v1.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/control-plane-slice-federation-v1.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/control-plane-slice-federation-v1.md`
+> Source: `kanban/drafts/control-plane-slice-federation-v1.md`
+> Migrated-to-kanban: `kanban/drafts/control-plane-slice-federation-v1.md`
 
 # Control-plane slice: federation v1
 
@@ -23,11 +23,11 @@ Migrate federation routes and bridge-related control-plane APIs from `src/lib/ui
 This slice is intentionally later than settings/sessions and credentials/auth because federation currently has the highest concentration of auth scoping, upgrade handling, and cross-store orchestration.
 
 ## Source specs and notes
-- `specs/drafts/control-plane-api-contract-v1.md`
-- `specs/drafts/federation-bridge-ws-v0.md`
-- `specs/drafts/real-federation-peer-diff-and-at-did-auth.md`
-- `specs/drafts/federated-tenant-provider-share-policies.md`
-- `specs/drafts/shared-state-federation-v1.md`
+- `kanban/drafts/control-plane-api-contract-v1.md`
+- `kanban/drafts/federation-bridge-ws-v0.md`
+- `kanban/drafts/real-federation-peer-diff-and-at-did-auth.md`
+- `kanban/drafts/federated-tenant-provider-share-policies.md`
+- `kanban/drafts/shared-state-federation-v1.md`
 - `docs/notes/experimental-design/2026.03.25.17.35.59.md`
 
 ## Scope

@@ -1,16 +1,16 @@
 ---
-uuid: "orgs-open-hax-proxx-kanban-orgs-open-hax-proxx-specs-policy-consolidation-epic-08-request-utils-cleanup-md"
+uuid: "233e3b9d-6db8-4da1-a89d-9dec4569c3da"
 title: "Spec 2.5: Clean Request Utils"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:44.164Z"
-source: "orgs/open-hax/proxx/specs/policy-consolidation-epic/08-request-utils-cleanup.md"
+source: "kanban/policy-consolidation-epic/08-request-utils-cleanup.md"
 category: "specs"
 ---
 
-> Source: `orgs/open-hax/proxx/specs/policy-consolidation-epic/08-request-utils-cleanup.md`
-> Migrated-to-kanban: `orgs/open-hax/proxx/kanban/policy-consolidation-epic/08-request-utils-cleanup.md`
+> Source: `kanban/policy-consolidation-epic/08-request-utils-cleanup.md`
+> Migrated-to-kanban: `kanban/policy-consolidation-epic/08-request-utils-cleanup.md`
 
 # Spec 2.5: Clean Request Utils
 

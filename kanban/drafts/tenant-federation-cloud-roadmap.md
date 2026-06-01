@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-tenant-federation-cloud-roadmap-md"
+uuid: "7e9eec3e-43ce-47b1-8318-3295e8d70a5b"
 title: "Tenant / Federation / Cloud Roadmap"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.120Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/tenant-federation-cloud-roadmap.md"
+source: "kanban/drafts/tenant-federation-cloud-roadmap.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/tenant-federation-cloud-roadmap.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/tenant-federation-cloud-roadmap.md`
+> Source: `kanban/drafts/tenant-federation-cloud-roadmap.md`
+> Migrated-to-kanban: `kanban/drafts/tenant-federation-cloud-roadmap.md`
 
 # Tenant / Federation / Cloud Roadmap
 
@@ -27,15 +27,15 @@ Review of current Open Hax specs and recommended sequencing for three next major
 The current spec set is strong on routing/telemetry foundations, not on platform isolation/distribution:
 
 ### Relevant existing specs
-- `specs/drafts/endpoint-agnostic-routing.md`
+- `kanban/drafts/endpoint-agnostic-routing.md`
   - proves the system already abstracts upstream protocol shapes.
-- `specs/drafts/latency-health-routing-v1.md`
+- `kanban/drafts/latency-health-routing-v1.md`
   - defines TTFT/TPS/cost-aware routing and observability goals.
-- `specs/drafts/weekly-cost-water-validation.md`
+- `kanban/drafts/weekly-cost-water-validation.md`
   - pushes durable usage aggregation and explicit coverage semantics.
-- `specs/drafts/provider-model-analytics-page.md`
+- `kanban/drafts/provider-model-analytics-page.md`
   - adds operator-facing visibility into provider/model suitability signals.
-- `specs/drafts/dashboard-account-health-provider-filter.md`
+- `kanban/drafts/dashboard-account-health-provider-filter.md`
   - smaller dashboard UX work.
 
 ### What is missing
@@ -45,7 +45,7 @@ Originally there were no dedicated specs yet for:
 - hosted/cloud deployment architecture
 
 That gap is now partially closed by the promoted canonical draft:
-- `specs/drafts/open-hax-openai-proxy-multitenancy-user-model.md`
+- `kanban/drafts/open-hax-openai-proxy-multitenancy-user-model.md`
 
 ## Current architectural reality
 - good for one operator / one trust domain
@@ -73,11 +73,11 @@ Reason:
 - all of those depend on the first two efforts
 
 ## Companion drafts created
-- `specs/drafts/open-hax-openai-proxy-multitenancy-user-model.md` — canonical tenant + delegated-key + federation identity draft
-- `specs/drafts/cloud-deployment.md`
-- `specs/drafts/multi-tenant-proxy-foundation.md`
-- `specs/drafts/proxy-federation.md`
-- `specs/drafts/federated-tenant-provider-share-policies.md` — policy layer for owned-fleet relay demos, trust tiers, and explicit share modes across tenant DIDs and provider resources
+- `kanban/drafts/open-hax-openai-proxy-multitenancy-user-model.md` — canonical tenant + delegated-key + federation identity draft
+- `kanban/drafts/cloud-deployment.md`
+- `kanban/drafts/multi-tenant-proxy-foundation.md`
+- `kanban/drafts/proxy-federation.md`
+- `kanban/drafts/federated-tenant-provider-share-policies.md` — policy layer for owned-fleet relay demos, trust tiers, and explicit share modes across tenant DIDs and provider resources
 
 ## Proposed immediate next milestone
 Start with a narrow “platform foundation” milestone:

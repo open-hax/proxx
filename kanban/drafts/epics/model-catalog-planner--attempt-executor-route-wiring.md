@@ -1,16 +1,16 @@
 ---
-uuid: "orgs-open-hax-proxx-kanban-orgs-open-hax-proxx-specs-drafts-epics-model-catalog-planner-attempt-executor-route-wiring-md"
+uuid: "734f4e23-2611-4aeb-8d09-8cad295d2e45"
 title: "Sub-spec: AttemptExecutor + route handler wiring"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:44.176Z"
-source: "orgs/open-hax/proxx/specs/drafts/epics/model-catalog-planner--attempt-executor-route-wiring.md"
+source: "kanban/drafts/epics/model-catalog-planner--attempt-executor-route-wiring.md"
 category: "specs"
 ---
 
-> Source: `orgs/open-hax/proxx/specs/drafts/epics/model-catalog-planner--attempt-executor-route-wiring.md`
-> Migrated-to-kanban: `orgs/open-hax/proxx/kanban/drafts/epics/model-catalog-planner--attempt-executor-route-wiring.md`
+> Source: `kanban/drafts/epics/model-catalog-planner--attempt-executor-route-wiring.md`
+> Migrated-to-kanban: `kanban/drafts/epics/model-catalog-planner--attempt-executor-route-wiring.md`
 
 # Sub-spec: AttemptExecutor + route handler wiring
 

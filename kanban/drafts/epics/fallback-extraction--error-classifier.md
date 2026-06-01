@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-epics-fallback-extraction-error-classifier-md"
+uuid: "b58831e3-9652-44af-b1e0-5e3d926b2737"
 title: "Sub-spec: Error classifier extraction"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.131Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/fallback-extraction--error-classifier.md"
+source: "kanban/drafts/epics/fallback-extraction--error-classifier.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/fallback-extraction--error-classifier.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/epics/fallback-extraction--error-classifier.md`
+> Source: `kanban/drafts/epics/fallback-extraction--error-classifier.md`
+> Migrated-to-kanban: `kanban/drafts/epics/fallback-extraction--error-classifier.md`
 
 # Sub-spec: Error classifier extraction
 

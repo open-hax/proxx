@@ -1,22 +1,22 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-mcp-route-status-fix-md"
+uuid: "ff8e2b03-7401-471b-9212-06537ce3db35"
 title: "Spec: Fix MCP route status descriptor"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.123Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/mcp-route-status-fix.md"
+source: "kanban/drafts/mcp-route-status-fix.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/mcp-route-status-fix.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/mcp-route-status-fix.md`
+> Source: `kanban/drafts/mcp-route-status-fix.md`
+> Migrated-to-kanban: `kanban/drafts/mcp-route-status-fix.md`
 
 # Spec: Fix MCP route status descriptor
 
 **Status:** Draft
 **Story points:** 1
-**Audit ref:** `specs/audits/2026-04-02-ad-hoc-routing-code-audit.md` Finding 8
+**Audit ref:** `kanban/audits/2026-04-02-ad-hoc-routing-code-audit.md` Finding 8
 
 ## Problem
 

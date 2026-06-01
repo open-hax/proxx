@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-epics-fallback-extraction-credential-selector-md"
+uuid: "b2a722dc-9c9b-4f95-8468-9ba78120ac22"
 title: "Sub-spec: Credential selector extraction"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.145Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/fallback-extraction--credential-selector.md"
+source: "kanban/drafts/epics/fallback-extraction--credential-selector.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/fallback-extraction--credential-selector.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/epics/fallback-extraction--credential-selector.md`
+> Source: `kanban/drafts/epics/fallback-extraction--credential-selector.md`
+> Migrated-to-kanban: `kanban/drafts/epics/fallback-extraction--credential-selector.md`
 
 # Sub-spec: Credential selector extraction
 

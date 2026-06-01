@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-cloud-deployment-md"
+uuid: "ed1826a7-19d6-4aa8-85bb-b749906f5895"
 title: "Cloud Deployment"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.129Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/cloud-deployment.md"
+source: "kanban/drafts/cloud-deployment.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/cloud-deployment.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/cloud-deployment.md`
+> Source: `kanban/drafts/cloud-deployment.md`
+> Migrated-to-kanban: `kanban/drafts/cloud-deployment.md`
 
 # Cloud Deployment
 
@@ -20,7 +20,7 @@ Draft
 ## Summary
 Make Open Hax Proxy cloud-ready for durable hosted environments (starting with Render-like deployment targets, then extensible to other platforms) with clear operational contracts around persistence, secrets, networking, callbacks, and observability.
 
-This is a focused companion to `specs/drafts/open-hax-openai-proxy-multitenancy-user-model.md`; hosted deployment constraints are a prerequisite for making multi-tenant and federated operation trustworthy.
+This is a focused companion to `kanban/drafts/open-hax-openai-proxy-multitenancy-user-model.md`; hosted deployment constraints are a prerequisite for making multi-tenant and federated operation trustworthy.
 
 ## Current state
 Already present:

@@ -1,23 +1,23 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-epics-contract-deprecation-epic-md"
+uuid: "88466464-8f98-44b0-9b6c-70e3955de0f4"
 title: "Epic: Control-plane contract + legacy deprecation"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.144Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/contract-deprecation-epic.md"
+source: "kanban/drafts/epics/contract-deprecation-epic.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/contract-deprecation-epic.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/epics/contract-deprecation-epic.md`
+> Source: `kanban/drafts/epics/contract-deprecation-epic.md`
+> Migrated-to-kanban: `kanban/drafts/epics/contract-deprecation-epic.md`
 
 # Epic: Control-plane contract + legacy deprecation
 
 **Status:** ✅ Done (1 of 3 sub-specs blocked on federation-slice)
 **Epic SP:** 8 (broken into 3 sub-specs ≤5 SP each)
 **Priority:** P0
-**Parent files:** `specs/drafts/control-plane-api-contract-v1.md`, `specs/drafts/legacy-api-ui-deprecation.md`
+**Parent files:** `kanban/drafts/control-plane-api-contract-v1.md`, `kanban/drafts/legacy-api-ui-deprecation.md`
 
 ## What's done
 - ✅ Phase A: path contract locked, four surfaces documented

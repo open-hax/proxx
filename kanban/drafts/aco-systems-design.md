@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-aco-systems-design-md"
+uuid: "eba7dcf7-2bbd-4978-818f-484d27571332"
 title: "ACO Systems Design"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.154Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/aco-systems-design.md"
+source: "kanban/drafts/aco-systems-design.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/aco-systems-design.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/aco-systems-design.md`
+> Source: `kanban/drafts/aco-systems-design.md`
+> Migrated-to-kanban: `kanban/drafts/aco-systems-design.md`
 
 # ACO Systems Design
 

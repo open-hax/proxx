@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-epics-opencode-lite-mcp-opencode-lite-md"
+uuid: "bf1742df-33d7-4b95-aab6-e370ee48e239"
 title: "Sub-spec: opencode-lite sessions/messages with Postgres"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.142Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/opencode-lite-mcp--opencode-lite.md"
+source: "kanban/drafts/epics/opencode-lite-mcp--opencode-lite.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/opencode-lite-mcp--opencode-lite.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/epics/opencode-lite-mcp--opencode-lite.md`
+> Source: `kanban/drafts/epics/opencode-lite-mcp--opencode-lite.md`
+> Migrated-to-kanban: `kanban/drafts/epics/opencode-lite-mcp--opencode-lite.md`
 
 # Sub-spec: opencode-lite sessions/messages with Postgres
 

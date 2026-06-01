@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-shared-state-federation-v1-md"
+uuid: "a436e53a-6d5d-4f5e-a7cf-03586e69bbad"
 title: "Shared-state federation v1"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.147Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/shared-state-federation-v1.md"
+source: "kanban/drafts/shared-state-federation-v1.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/shared-state-federation-v1.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/shared-state-federation-v1.md`
+> Source: `kanban/drafts/shared-state-federation-v1.md`
+> Migrated-to-kanban: `kanban/drafts/shared-state-federation-v1.md`
 
 # Shared-state federation v1
 
@@ -130,7 +130,7 @@ This avoids a risky full replacement of the local request-log implementation in 
 - `src/lib/ui-routes.ts`
 - `src/lib/db/schema.ts` or a new SQL store module under `src/lib/db/`
 - `README.md`
-- `specs/drafts/shared-state-federation-v1.md`
+- `kanban/drafts/shared-state-federation-v1.md`
 
 ## Definition of done
 - Two instances using the same `DATABASE_URL` share operator/admin + tenant state.

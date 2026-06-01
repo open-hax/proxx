@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-ussy3-staging-bootstrap-and-github-actions-md"
+uuid: "e2be4931-1087-4060-ba05-3fe79e349c2a"
 title: "ussy3 staging bootstrap + GitHub Actions deploy gates"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.149Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/ussy3-staging-bootstrap-and-github-actions.md"
+source: "kanban/drafts/ussy3-staging-bootstrap-and-github-actions.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/ussy3-staging-bootstrap-and-github-actions.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/ussy3-staging-bootstrap-and-github-actions.md`
+> Source: `kanban/drafts/ussy3-staging-bootstrap-and-github-actions.md`
+> Migrated-to-kanban: `kanban/drafts/ussy3-staging-bootstrap-and-github-actions.md`
 
 # ussy3 staging bootstrap + GitHub Actions deploy gates
 

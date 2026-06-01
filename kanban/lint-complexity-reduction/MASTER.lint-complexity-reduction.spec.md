@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-lint-complexity-reduction-master-lint-complexity-reduction-spec-md"
+uuid: "1baa844f-6297-4e97-91ef-42082ba2f11c"
 title: "Master Spec: Lint Complexity Reduction"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.118Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/lint-complexity-reduction/MASTER.lint-complexity-reduction.spec.md"
+source: "kanban/lint-complexity-reduction/MASTER.lint-complexity-reduction.spec.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/lint-complexity-reduction/MASTER.lint-complexity-reduction.spec.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/lint-complexity-reduction/MASTER.lint-complexity-reduction.spec.md`
+> Source: `kanban/lint-complexity-reduction/MASTER.lint-complexity-reduction.spec.md`
+> Migrated-to-kanban: `kanban/lint-complexity-reduction/MASTER.lint-complexity-reduction.spec.md`
 
 # Master Spec: Lint Complexity Reduction
 

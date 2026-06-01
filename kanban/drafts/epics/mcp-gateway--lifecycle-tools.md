@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-epics-mcp-gateway-lifecycle-tools-md"
+uuid: "d0275c6b-c4bf-43d6-bf7d-13485c12695e"
 title: "Sub-spec: MCP lifecycle + tool discovery"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.143Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/mcp-gateway--lifecycle-tools.md"
+source: "kanban/drafts/epics/mcp-gateway--lifecycle-tools.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/mcp-gateway--lifecycle-tools.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/epics/mcp-gateway--lifecycle-tools.md`
+> Source: `kanban/drafts/epics/mcp-gateway--lifecycle-tools.md`
+> Migrated-to-kanban: `kanban/drafts/epics/mcp-gateway--lifecycle-tools.md`
 
 # Sub-spec: MCP lifecycle + tool discovery
 

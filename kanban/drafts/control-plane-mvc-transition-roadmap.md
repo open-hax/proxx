@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-control-plane-mvc-transition-roadmap-md"
+uuid: "dc343e24-df5e-407a-aac5-0229ae962f81"
 title: "Control-plane MVC transition roadmap"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.127Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/control-plane-mvc-transition-roadmap.md"
+source: "kanban/drafts/control-plane-mvc-transition-roadmap.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/control-plane-mvc-transition-roadmap.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/control-plane-mvc-transition-roadmap.md`
+> Source: `kanban/drafts/control-plane-mvc-transition-roadmap.md`
+> Migrated-to-kanban: `kanban/drafts/control-plane-mvc-transition-roadmap.md`
 
 # Control-plane MVC transition roadmap
 
@@ -37,15 +37,15 @@ This roadmap is intentionally incremental. It preserves current behavior while m
 ## Related existing specs
 These are still useful and should be treated as supporting extraction specs rather than discarded work:
 
-- `specs/lint-complexity-reduction/app-modularization.spec.md`
-- `specs/lint-complexity-reduction/ui-routes-flattening.spec.md`
-- `specs/lint-complexity-reduction/request-log-segmentation.spec.md`
-- `specs/drafts/multitenancy-phase1-default-tenant-auth-schema.md`
-- `specs/drafts/federation-bridge-ws-v0.md`
-- `specs/drafts/provider-model-analytics-page.md`
-- `specs/drafts/dashboard-usage-window-modes.md`
-- `specs/drafts/weekly-cost-water-validation.md`
-- `specs/drafts/ussy-host-fleet-dashboard.md`
+- `kanban/lint-complexity-reduction/app-modularization.spec.md`
+- `kanban/lint-complexity-reduction/ui-routes-flattening.spec.md`
+- `kanban/lint-complexity-reduction/request-log-segmentation.spec.md`
+- `kanban/drafts/multitenancy-phase1-default-tenant-auth-schema.md`
+- `kanban/drafts/federation-bridge-ws-v0.md`
+- `kanban/drafts/provider-model-analytics-page.md`
+- `kanban/drafts/dashboard-usage-window-modes.md`
+- `kanban/drafts/weekly-cost-water-validation.md`
+- `kanban/drafts/ussy-host-fleet-dashboard.md`
 
 ## Current state
 Observed repository shape:

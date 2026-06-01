@@ -1,16 +1,16 @@
 ---
-uuid: "orgs-open-hax-proxx-kanban-orgs-open-hax-proxx-specs-policy-consolidation-epic-01-tenant-enforcement-md"
+uuid: "8b3f1288-7fe8-4339-9cf6-b4fec2dcb9f9"
 title: "Spec 1.1: Move Tenant Policy Enforcement"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:44.162Z"
-source: "orgs/open-hax/proxx/specs/policy-consolidation-epic/01-tenant-enforcement.md"
+source: "kanban/policy-consolidation-epic/01-tenant-enforcement.md"
 category: "specs"
 ---
 
-> Source: `orgs/open-hax/proxx/specs/policy-consolidation-epic/01-tenant-enforcement.md`
-> Migrated-to-kanban: `orgs/open-hax/proxx/kanban/policy-consolidation-epic/01-tenant-enforcement.md`
+> Source: `kanban/policy-consolidation-epic/01-tenant-enforcement.md`
+> Migrated-to-kanban: `kanban/policy-consolidation-epic/01-tenant-enforcement.md`
 
 # Spec 1.1: Move Tenant Policy Enforcement
 

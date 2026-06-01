@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-multitenancy-phase1-default-tenant-auth-schema-md"
+uuid: "8867412e-e813-46b1-a3d5-59af4be4ad59"
 title: "Multi-Tenancy Phase 1: Default Tenant, Tenant API Keys, and Auth Resolution"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.125Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/multitenancy-phase1-default-tenant-auth-schema.md"
+source: "kanban/drafts/multitenancy-phase1-default-tenant-auth-schema.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/multitenancy-phase1-default-tenant-auth-schema.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/multitenancy-phase1-default-tenant-auth-schema.md`
+> Source: `kanban/drafts/multitenancy-phase1-default-tenant-auth-schema.md`
+> Migrated-to-kanban: `kanban/drafts/multitenancy-phase1-default-tenant-auth-schema.md`
 
 # Multi-Tenancy Phase 1: Default Tenant, Tenant API Keys, and Auth Resolution
 
@@ -31,12 +31,12 @@ This phase is designed to preserve current behavior for single-operator installs
 
 ## Source drafts
 - Canonical identity/federation draft:
-  - `specs/drafts/open-hax-openai-proxy-multitenancy-user-model.md`
+  - `kanban/drafts/open-hax-openai-proxy-multitenancy-user-model.md`
 - Companion architecture/rollout drafts:
-  - `specs/drafts/multi-tenant-proxy-foundation.md`
-  - `specs/drafts/proxy-federation.md`
-  - `specs/drafts/cloud-deployment.md`
-  - `specs/drafts/tenant-federation-cloud-roadmap.md`
+  - `kanban/drafts/multi-tenant-proxy-foundation.md`
+  - `kanban/drafts/proxy-federation.md`
+  - `kanban/drafts/cloud-deployment.md`
+  - `kanban/drafts/tenant-federation-cloud-roadmap.md`
 
 ## Investigation findings
 Current codebase is globally scoped in the following places:

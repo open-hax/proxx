@@ -1,23 +1,23 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-epics-openplanner-integration-epic-md"
+uuid: "20a72ed3-8b15-4fe6-91a9-c50ad0db4368"
 title: "Epic: Proxx OpenPlanner Integration"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.141Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/openplanner-integration-epic.md"
+source: "kanban/drafts/epics/openplanner-integration-epic.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/openplanner-integration-epic.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/epics/openplanner-integration-epic.md`
+> Source: `kanban/drafts/epics/openplanner-integration-epic.md`
+> Migrated-to-kanban: `kanban/drafts/epics/openplanner-integration-epic.md`
 
 # Epic: Proxx OpenPlanner Integration
 
 **Status:** Draft
 **Epic SP:** 8 (broken into 3 sub-specs ≤5 SP each)
 **Priority:** P3
-**Parent file:** `specs/drafts/proxx-openplanner-integration.md`
+**Parent file:** `kanban/drafts/proxx-openplanner-integration.md`
 
 ## Sub-specs
 

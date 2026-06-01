@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-ussy-promethean-rest-ssl-and-pi-md"
+uuid: "24e3528e-a53a-4138-bf21-99c24e544b79"
 title: "ussy.promethean.rest SSL + pi connection"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.129Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/ussy-promethean-rest-ssl-and-pi.md"
+source: "kanban/drafts/ussy-promethean-rest-ssl-and-pi.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/ussy-promethean-rest-ssl-and-pi.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/ussy-promethean-rest-ssl-and-pi.md`
+> Source: `kanban/drafts/ussy-promethean-rest-ssl-and-pi.md`
+> Migrated-to-kanban: `kanban/drafts/ussy-promethean-rest-ssl-and-pi.md`
 
 # ussy.promethean.rest SSL + pi connection
 

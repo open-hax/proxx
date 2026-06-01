@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-proxx-mcp-gateway-md"
+uuid: "3e38fe53-4c6e-459d-8db5-16fa21c90aa8"
 title: "Proxx MCP Gateway"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.151Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/proxx-mcp-gateway.md"
+source: "kanban/drafts/proxx-mcp-gateway.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/proxx-mcp-gateway.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/proxx-mcp-gateway.md`
+> Source: `kanban/drafts/proxx-mcp-gateway.md`
+> Migrated-to-kanban: `kanban/drafts/proxx-mcp-gateway.md`
 
 # Proxx MCP Gateway
 

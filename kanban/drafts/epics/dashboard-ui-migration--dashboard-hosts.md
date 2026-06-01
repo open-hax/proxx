@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-epics-dashboard-ui-migration-dashboard-hosts-md"
+uuid: "f909c0f5-0c21-4408-a8b9-edcde639dbd3"
 title: "Sub-spec: Migrate DashboardPage + HostsPage to @open-hax/uxx primitives"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.131Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/dashboard-ui-migration--dashboard-hosts.md"
+source: "kanban/drafts/epics/dashboard-ui-migration--dashboard-hosts.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/dashboard-ui-migration--dashboard-hosts.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/epics/dashboard-ui-migration--dashboard-hosts.md`
+> Source: `kanban/drafts/epics/dashboard-ui-migration--dashboard-hosts.md`
+> Migrated-to-kanban: `kanban/drafts/epics/dashboard-ui-migration--dashboard-hosts.md`
 
 # Sub-spec: Migrate DashboardPage + HostsPage to @open-hax/uxx primitives
 

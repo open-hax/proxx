@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-control-plane-slice-settings-sessions-v1-md"
+uuid: "d429cf53-f55d-47cc-b363-a4fd4169a1de"
 title: "Control-plane slice: settings + sessions v1"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.128Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/control-plane-slice-settings-sessions-v1.md"
+source: "kanban/drafts/control-plane-slice-settings-sessions-v1.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/control-plane-slice-settings-sessions-v1.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/control-plane-slice-settings-sessions-v1.md`
+> Source: `kanban/drafts/control-plane-slice-settings-sessions-v1.md`
+> Migrated-to-kanban: `kanban/drafts/control-plane-slice-settings-sessions-v1.md`
 
 # Control-plane slice: settings + sessions v1
 
@@ -23,8 +23,8 @@ Migrate the lowest-risk control-plane slice from `src/lib/ui-routes.ts` to canon
 This spec covers tenant/session-context and stored chat session APIs first because they already have relatively clear use-case boundaries and minimal provider-specific orchestration.
 
 ## Source specs and notes
-- `specs/drafts/control-plane-api-contract-v1.md`
-- `specs/drafts/multitenancy-phase1-default-tenant-auth-schema.md`
+- `kanban/drafts/control-plane-api-contract-v1.md`
+- `kanban/drafts/multitenancy-phase1-default-tenant-auth-schema.md`
 - `docs/notes/experimental-design/2026.03.25.17.35.59.md`
 - `docs/notes/experimental-design/2026.03.25.17.52.10.md`
 

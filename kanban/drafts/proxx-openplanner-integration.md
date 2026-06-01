@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-proxx-openplanner-integration-md"
+uuid: "181bc25d-f387-4e6f-a2ee-27b01b69ce02"
 title: "Proxx OpenPlanner Integration"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.147Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/proxx-openplanner-integration.md"
+source: "kanban/drafts/proxx-openplanner-integration.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/proxx-openplanner-integration.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/proxx-openplanner-integration.md`
+> Source: `kanban/drafts/proxx-openplanner-integration.md`
+> Migrated-to-kanban: `kanban/drafts/proxx-openplanner-integration.md`
 
 # Proxx OpenPlanner Integration
 

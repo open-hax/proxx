@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-legacy-api-ui-deprecation-md"
+uuid: "51fd8337-4673-4263-81fd-0a7ddc6c214a"
 title: "Legacy `/api/ui/*` deprecation plan"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.128Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/legacy-api-ui-deprecation.md"
+source: "kanban/drafts/legacy-api-ui-deprecation.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/legacy-api-ui-deprecation.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/legacy-api-ui-deprecation.md`
+> Source: `kanban/drafts/legacy-api-ui-deprecation.md`
+> Migrated-to-kanban: `kanban/drafts/legacy-api-ui-deprecation.md`
 
 # Legacy `/api/ui/*` deprecation plan
 
@@ -87,8 +87,8 @@ Turn `/api/ui/*` from the accidental canonical operator API into an explicit com
 This spec exists to prevent the transition from stalling halfway, with both route families treated as primary forever.
 
 ## Source specs
-- `specs/drafts/control-plane-mvc-transition-roadmap.md`
-- `specs/drafts/control-plane-api-contract-v1.md`
+- `kanban/drafts/control-plane-mvc-transition-roadmap.md`
+- `kanban/drafts/control-plane-api-contract-v1.md`
 - all control-plane slice specs in this transition stack
 
 ## Problem statement

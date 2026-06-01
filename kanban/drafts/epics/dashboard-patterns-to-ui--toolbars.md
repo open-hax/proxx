@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-epics-dashboard-patterns-to-ui-toolbars-md"
+uuid: "73249cf3-304b-45d2-b504-d5b70fc4745c"
 title: "Sub-spec: Filter toolbar + action strip components"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.139Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/dashboard-patterns-to-ui--toolbars.md"
+source: "kanban/drafts/epics/dashboard-patterns-to-ui--toolbars.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/dashboard-patterns-to-ui--toolbars.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/epics/dashboard-patterns-to-ui--toolbars.md`
+> Source: `kanban/drafts/epics/dashboard-patterns-to-ui--toolbars.md`
+> Migrated-to-kanban: `kanban/drafts/epics/dashboard-patterns-to-ui--toolbars.md`
 
 # Sub-spec: Filter toolbar + action strip components
 

@@ -1,16 +1,16 @@
 ---
-uuid: "orgs-open-hax-proxx-kanban-orgs-open-hax-proxx-specs-policy-consolidation-epic-04-http-utilities-md"
+uuid: "03c7ec43-1563-4aa9-aabe-0c8fe9addf0f"
 title: "Spec 2.1: Extract HTTP Utilities"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:44.162Z"
-source: "orgs/open-hax/proxx/specs/policy-consolidation-epic/04-http-utilities.md"
+source: "kanban/policy-consolidation-epic/04-http-utilities.md"
 category: "specs"
 ---
 
-> Source: `orgs/open-hax/proxx/specs/policy-consolidation-epic/04-http-utilities.md`
-> Migrated-to-kanban: `orgs/open-hax/proxx/kanban/policy-consolidation-epic/04-http-utilities.md`
+> Source: `kanban/policy-consolidation-epic/04-http-utilities.md`
+> Migrated-to-kanban: `kanban/policy-consolidation-epic/04-http-utilities.md`
 
 # Spec 2.1: Extract HTTP Utilities
 

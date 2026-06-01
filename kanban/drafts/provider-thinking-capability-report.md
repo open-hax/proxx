@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-provider-thinking-capability-report-md"
+uuid: "82787b91-27a9-4e5d-8338-73c726eaec3a"
 title: "Research Report: Live proxx Thinking Capability Matrix (2026-03-19)"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.153Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/provider-thinking-capability-report.md"
+source: "kanban/drafts/provider-thinking-capability-report.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/provider-thinking-capability-report.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/provider-thinking-capability-report.md`
+> Source: `kanban/drafts/provider-thinking-capability-report.md`
+> Migrated-to-kanban: `kanban/drafts/provider-thinking-capability-report.md`
 
 # Research Report: Live proxx Thinking Capability Matrix (2026-03-19)
 

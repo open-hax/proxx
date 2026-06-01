@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-lint-complexity-reduction-ui-routes-flattening-spec-md"
+uuid: "77da0b80-dd35-47e1-927b-f62330f2247a"
 title: "Spec: `ui-routes.ts` Monolith Deprecation and Surface Migration"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.117Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/lint-complexity-reduction/ui-routes-flattening.spec.md"
+source: "kanban/lint-complexity-reduction/ui-routes-flattening.spec.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/lint-complexity-reduction/ui-routes-flattening.spec.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/lint-complexity-reduction/ui-routes-flattening.spec.md`
+> Source: `kanban/lint-complexity-reduction/ui-routes-flattening.spec.md`
+> Migrated-to-kanban: `kanban/lint-complexity-reduction/ui-routes-flattening.spec.md`
 
 # Spec: `ui-routes.ts` Monolith Deprecation and Surface Migration
 
@@ -25,4 +25,4 @@ Original goal: Extract route handlers from the 2900-line `ui-routes.ts` monolith
 - All test URLs migrated from `/api/ui/*` to `/api/v1/*`
 - Deprecation headers added to remaining `/api/ui/*` routes
 
-See `specs/drafts/epics/contract-deprecation-epic.md` for the authoritative tracker.
+See `kanban/drafts/epics/contract-deprecation-epic.md` for the authoritative tracker.

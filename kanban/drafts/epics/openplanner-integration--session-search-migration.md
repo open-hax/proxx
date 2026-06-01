@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-epics-openplanner-integration-session-search-migration-md"
+uuid: "5f3ff863-6b24-402d-ab7e-2bb581a27a53"
 title: "Sub-spec: Session search migration"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.143Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/openplanner-integration--session-search-migration.md"
+source: "kanban/drafts/epics/openplanner-integration--session-search-migration.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/openplanner-integration--session-search-migration.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/epics/openplanner-integration--session-search-migration.md`
+> Source: `kanban/drafts/epics/openplanner-integration--session-search-migration.md`
+> Migrated-to-kanban: `kanban/drafts/epics/openplanner-integration--session-search-migration.md`
 
 # Sub-spec: Session search migration
 

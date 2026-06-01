@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-federation-bridge-ws-v0-md"
+uuid: "a633700f-9f15-4c43-b2d9-2b463085c564"
 title: "Federation bridge over outbound WebSockets v0"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.121Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/federation-bridge-ws-v0.md"
+source: "kanban/drafts/federation-bridge-ws-v0.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/federation-bridge-ws-v0.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/federation-bridge-ws-v0.md`
+> Source: `kanban/drafts/federation-bridge-ws-v0.md`
+> Migrated-to-kanban: `kanban/drafts/federation-bridge-ws-v0.md`
 
 # Federation bridge over outbound WebSockets v0
 
@@ -21,9 +21,9 @@ Draft
 Add a **relay-mediated federation bridge** that lets a local `proxx` cluster with localhost-only OAuth bootstrap lend capability to a cloud/staging `proxx` cluster without requiring inbound connectivity to the local machine and without immediately copying raw OAuth secrets into the cloud.
 
 This draft is a companion to:
-- `specs/drafts/real-federation-peer-diff-and-at-did-auth.md`
-- `specs/drafts/proxy-federation.md`
-- `specs/drafts/open-hax-openai-proxy-multitenancy-user-model.md`
+- `kanban/drafts/real-federation-peer-diff-and-at-did-auth.md`
+- `kanban/drafts/proxy-federation.md`
+- `kanban/drafts/open-hax-openai-proxy-multitenancy-user-model.md`
 
 It narrows the current practical problem:
 - OpenAI / Codex / ChatGPT browser OAuth may require a callback on `localhost`

@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-zai-mistral-env-provider-validation-md"
+uuid: "994931ac-5d04-46d2-ade5-df0800ecf57d"
 title: "Spec Draft: z.ai + Mistral Env Provider Support and Live Key Validation"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.121Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/zai-mistral-env-provider-validation.md"
+source: "kanban/drafts/zai-mistral-env-provider-validation.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/zai-mistral-env-provider-validation.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/zai-mistral-env-provider-validation.md`
+> Source: `kanban/drafts/zai-mistral-env-provider-validation.md`
+> Migrated-to-kanban: `kanban/drafts/zai-mistral-env-provider-validation.md`
 
 # Spec Draft: z.ai + Mistral Env Provider Support and Live Key Validation
 
@@ -52,7 +52,7 @@ High — user explicitly wants z.ai support and wants the newly added API keys v
 - `src/tests/proxy.test.ts`
 - `README.md`
 - `.env.example`
-- `specs/drafts/zai-mistral-env-provider-validation.md`
+- `kanban/drafts/zai-mistral-env-provider-validation.md`
 - `receipts.log`
 
 ## Definition of Done

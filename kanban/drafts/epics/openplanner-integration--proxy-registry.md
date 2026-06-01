@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-epics-openplanner-integration-proxy-registry-md"
+uuid: "2fbe665b-d932-47ce-94b4-d338a7914ea0"
 title: "Sub-spec: Lake proxy + registry"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.140Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/openplanner-integration--proxy-registry.md"
+source: "kanban/drafts/epics/openplanner-integration--proxy-registry.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/openplanner-integration--proxy-registry.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/epics/openplanner-integration--proxy-registry.md`
+> Source: `kanban/drafts/epics/openplanner-integration--proxy-registry.md`
+> Migrated-to-kanban: `kanban/drafts/epics/openplanner-integration--proxy-registry.md`
 
 # Sub-spec: Lake proxy + registry
 

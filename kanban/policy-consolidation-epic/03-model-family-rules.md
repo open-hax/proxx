@@ -1,16 +1,16 @@
 ---
-uuid: "orgs-open-hax-proxx-kanban-orgs-open-hax-proxx-specs-policy-consolidation-epic-03-model-family-rules-md"
+uuid: "47f3b085-c5fa-4e21-bece-3f6d7cad3e41"
 title: "Spec 1.3: Split Model Family Rules"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:44.164Z"
-source: "orgs/open-hax/proxx/specs/policy-consolidation-epic/03-model-family-rules.md"
+source: "kanban/policy-consolidation-epic/03-model-family-rules.md"
 category: "specs"
 ---
 
-> Source: `orgs/open-hax/proxx/specs/policy-consolidation-epic/03-model-family-rules.md`
-> Migrated-to-kanban: `orgs/open-hax/proxx/kanban/policy-consolidation-epic/03-model-family-rules.md`
+> Source: `kanban/policy-consolidation-epic/03-model-family-rules.md`
+> Migrated-to-kanban: `kanban/policy-consolidation-epic/03-model-family-rules.md`
 
 # Spec 1.3: Split Model Family Rules
 

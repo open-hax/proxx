@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-epics-dashboard-patterns-to-ui-metric-tiles-md"
+uuid: "bec85f13-f869-477c-a60b-751b01bdee86"
 title: "Sub-spec: Metric tile grid + stat card components"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.142Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/dashboard-patterns-to-ui--metric-tiles.md"
+source: "kanban/drafts/epics/dashboard-patterns-to-ui--metric-tiles.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/dashboard-patterns-to-ui--metric-tiles.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/epics/dashboard-patterns-to-ui--metric-tiles.md`
+> Source: `kanban/drafts/epics/dashboard-patterns-to-ui--metric-tiles.md`
+> Migrated-to-kanban: `kanban/drafts/epics/dashboard-patterns-to-ui--metric-tiles.md`
 
 # Sub-spec: Metric tile grid + stat card components
 

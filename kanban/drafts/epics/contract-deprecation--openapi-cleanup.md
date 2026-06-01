@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-epics-contract-deprecation-openapi-cleanup-md"
+uuid: "e64ed214-d616-4960-be54-4a378bcc983c"
 title: "Sub-spec: OpenAPI ownership + ui-routes.ts removal"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.136Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/contract-deprecation--openapi-cleanup.md"
+source: "kanban/drafts/epics/contract-deprecation--openapi-cleanup.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/contract-deprecation--openapi-cleanup.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/epics/contract-deprecation--openapi-cleanup.md`
+> Source: `kanban/drafts/epics/contract-deprecation--openapi-cleanup.md`
+> Migrated-to-kanban: `kanban/drafts/epics/contract-deprecation--openapi-cleanup.md`
 
 # Sub-spec: OpenAPI ownership + ui-routes.ts removal
 

@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-epics-contract-deprecation-deprecation-headers-md"
+uuid: "9ee80298-7d5d-4366-b3be-f3b06dcf102a"
 title: "Sub-spec: Deprecation headers + parity tests"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.147Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/contract-deprecation--deprecation-headers.md"
+source: "kanban/drafts/epics/contract-deprecation--deprecation-headers.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/contract-deprecation--deprecation-headers.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/epics/contract-deprecation--deprecation-headers.md`
+> Source: `kanban/drafts/epics/contract-deprecation--deprecation-headers.md`
+> Migrated-to-kanban: `kanban/drafts/epics/contract-deprecation--deprecation-headers.md`
 
 # Sub-spec: Deprecation headers + parity tests
 

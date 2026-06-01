@@ -1,23 +1,23 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-epics-fallback-extraction-epic-md"
+uuid: "7ef043fa-f45a-42de-84dd-00921f40206f"
 title: "Epic: fallback.ts Extraction"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.132Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/fallback-extraction-epic.md"
+source: "kanban/drafts/epics/fallback-extraction-epic.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/epics/fallback-extraction-epic.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/epics/fallback-extraction-epic.md`
+> Source: `kanban/drafts/epics/fallback-extraction-epic.md`
+> Migrated-to-kanban: `kanban/drafts/epics/fallback-extraction-epic.md`
 
 # Epic: fallback.ts Extraction
 
 **Status:** Partial (2 of 4 sub-specs done)
 **Epic SP:** 8 (broken into 4 sub-specs ≤5 SP each)
 **Priority:** P0
-**Parent file:** `specs/lint-complexity-reduction/fallback-extraction.spec.md`
+**Parent file:** `kanban/lint-complexity-reduction/fallback-extraction.spec.md`
 
 ## Problem
 `executeProviderFallback` in `src/lib/provider-strategy/fallback.ts` has cognitive complexity 399 (target <100) and 663 lines (target <200). The function handles 10+ responsibilities in deeply nested conditionals.

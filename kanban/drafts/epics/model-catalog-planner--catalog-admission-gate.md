@@ -1,16 +1,16 @@
 ---
-uuid: "orgs-open-hax-proxx-kanban-orgs-open-hax-proxx-specs-drafts-epics-model-catalog-planner-catalog-admission-gate-md"
+uuid: "3ff79295-2824-4c05-9dc4-ac312cccff99"
 title: "Sub-spec: ModelCatalog admission gate"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:44.181Z"
-source: "orgs/open-hax/proxx/specs/drafts/epics/model-catalog-planner--catalog-admission-gate.md"
+source: "kanban/drafts/epics/model-catalog-planner--catalog-admission-gate.md"
 category: "specs"
 ---
 
-> Source: `orgs/open-hax/proxx/specs/drafts/epics/model-catalog-planner--catalog-admission-gate.md`
-> Migrated-to-kanban: `orgs/open-hax/proxx/kanban/drafts/epics/model-catalog-planner--catalog-admission-gate.md`
+> Source: `kanban/drafts/epics/model-catalog-planner--catalog-admission-gate.md`
+> Migrated-to-kanban: `kanban/drafts/epics/model-catalog-planner--catalog-admission-gate.md`
 
 # Sub-spec: ModelCatalog admission gate
 

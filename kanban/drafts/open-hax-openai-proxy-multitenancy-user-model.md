@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-open-hax-openai-proxy-multitenancy-user-model-md"
+uuid: "5f946276-a185-42e7-9feb-15fe018f8def"
 title: "Draft Spec: Multi-tenancy user model for `open-hax-openai-proxy`"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.154Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/open-hax-openai-proxy-multitenancy-user-model.md"
+source: "kanban/drafts/open-hax-openai-proxy-multitenancy-user-model.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/open-hax-openai-proxy-multitenancy-user-model.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/open-hax-openai-proxy-multitenancy-user-model.md`
+> Source: `kanban/drafts/open-hax-openai-proxy-multitenancy-user-model.md`
+> Migrated-to-kanban: `kanban/drafts/open-hax-openai-proxy-multitenancy-user-model.md`
 
 # Draft Spec: Multi-tenancy user model for `open-hax-openai-proxy`
 
@@ -29,11 +29,11 @@ This spec extends the system with an **opt-in** multi-tenant + federation model:
 - **Opt-in federation:** delegated/share capability keys (proof-of-possession), revocation propagation, and explicit trust between proxies.
 
 This is the promoted repo-local draft for the tenant/federation identity model. Focused companion drafts:
-- `specs/drafts/multi-tenant-proxy-foundation.md`
-- `specs/drafts/proxy-federation.md`
-- `specs/drafts/cloud-deployment.md`
-- `specs/drafts/tenant-federation-cloud-roadmap.md`
-- `specs/drafts/federated-tenant-provider-share-policies.md`
+- `kanban/drafts/multi-tenant-proxy-foundation.md`
+- `kanban/drafts/proxy-federation.md`
+- `kanban/drafts/cloud-deployment.md`
+- `kanban/drafts/tenant-federation-cloud-roadmap.md`
+- `kanban/drafts/federated-tenant-provider-share-policies.md`
 
 ## Context (repo evidence)
 - Request auth gate is currently a single shared secret: `PROXY_AUTH_TOKEN` checked in `src/app.ts` via Bearer token or cookie (`open_hax_proxy_auth_token`).
@@ -468,16 +468,16 @@ Change:
 ## Reconciliation with focused companion drafts
 This draft is the canonical identity/capability model. Companion drafts remain useful, but should be read as narrower lenses:
 
-- `specs/drafts/multi-tenant-proxy-foundation.md`
+- `kanban/drafts/multi-tenant-proxy-foundation.md`
   - concise tenant-isolation/persistence/UI checklist
   - complements this document’s deeper key/auth model
-- `specs/drafts/proxy-federation.md`
+- `kanban/drafts/proxy-federation.md`
   - focuses on peer routing, loop prevention, provenance, and peer capability exchange
   - this document is authoritative for delegated-key identity/trust mechanics
-- `specs/drafts/cloud-deployment.md`
+- `kanban/drafts/cloud-deployment.md`
   - focuses on hosted runtime/persistence/ops constraints
   - required before federation becomes operationally trustworthy
-- `specs/drafts/tenant-federation-cloud-roadmap.md`
+- `kanban/drafts/tenant-federation-cloud-roadmap.md`
   - sequencing/portfolio view across all three tracks
 
 ## Open questions

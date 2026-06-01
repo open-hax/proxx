@@ -1,16 +1,16 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-control-plane-api-contract-v1-md"
+uuid: "f97a31be-815a-4cd2-bb2a-446ee17539ed"
 title: "Control-plane API contract v1"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.125Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/control-plane-api-contract-v1.md"
+source: "kanban/drafts/control-plane-api-contract-v1.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/control-plane-api-contract-v1.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/control-plane-api-contract-v1.md`
+> Source: `kanban/drafts/control-plane-api-contract-v1.md`
+> Migrated-to-kanban: `kanban/drafts/control-plane-api-contract-v1.md`
 
 # Control-plane API contract v1
 
@@ -29,9 +29,9 @@ This spec must land before any major feature-slice extraction so that route move
 - `docs/notes/experimental-design/2026.03.25.17.52.10.md`
 
 ## Related specs
-- `specs/drafts/control-plane-mvc-transition-roadmap.md`
-- `specs/lint-complexity-reduction/app-modularization.spec.md`
-- `specs/lint-complexity-reduction/ui-routes-flattening.spec.md`
+- `kanban/drafts/control-plane-mvc-transition-roadmap.md`
+- `kanban/lint-complexity-reduction/app-modularization.spec.md`
+- `kanban/lint-complexity-reduction/ui-routes-flattening.spec.md`
 
 ## Problem statement
 Current operator APIs are effectively owned by `src/lib/ui-routes.ts`, while `/api/v1/*` exists only as partial scaffolding. Without a contract-first transition, the repository risks:

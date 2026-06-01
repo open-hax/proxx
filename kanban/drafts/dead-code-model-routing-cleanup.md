@@ -1,22 +1,22 @@
 ---
-uuid: "inbox-worktrees-proxx-pr-156-coderabbit-kanban-inbox-worktrees-proxx-pr-156-coderabbit-specs-drafts-dead-code-model-routing-cleanup-md"
+uuid: "2d91b5a4-042b-423d-926a-6387aaa7417e"
 title: "Spec: Dead code cleanup — model-selection-policies and provider-route-policies"
 status: incoming
 priority: P3
 labels: ["specs", "migrated-spec"]
 created_at: "2026-05-29T04:01:30.150Z"
-source: "inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/dead-code-model-routing-cleanup.md"
+source: "kanban/drafts/dead-code-model-routing-cleanup.md"
 category: "specs"
 ---
 
-> Source: `inbox/worktrees/proxx-pr-156-coderabbit/specs/drafts/dead-code-model-routing-cleanup.md`
-> Migrated-to-kanban: `inbox/worktrees/proxx-pr-156-coderabbit/kanban/drafts/dead-code-model-routing-cleanup.md`
+> Source: `kanban/drafts/dead-code-model-routing-cleanup.md`
+> Migrated-to-kanban: `kanban/drafts/dead-code-model-routing-cleanup.md`
 
 # Spec: Dead code cleanup — model-selection-policies and provider-route-policies
 
 **Status:** Draft
 **Story points:** 1
-**Audit ref:** `specs/audits/2026-04-02-ad-hoc-routing-code-audit.md` Finding 1
+**Audit ref:** `kanban/audits/2026-04-02-ad-hoc-routing-code-audit.md` Finding 1
 
 ## Problem
 
