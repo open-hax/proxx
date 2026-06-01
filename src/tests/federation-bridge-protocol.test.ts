@@ -56,7 +56,7 @@ test("parseBridgeMessage parses capabilities with topology targets", () => {
       {
         providerId: "openai",
         modelPrefixes: ["gpt-"],
-        models: ["gpt-5.2", "gpt-5.2-codex"],
+        models: ["gpt-5.4-mini", "gpt-5.4-mini"],
         paths: ["/v1/models", "/v1/chat/completions", "/v1/responses"],
         routes: ["/v1/models", "/v1/chat/completions", "/v1/responses"],
         authType: "oauth_bearer",

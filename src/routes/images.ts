@@ -59,7 +59,7 @@ export function registerImagesRoutes(deps: AppDeps, app: FastifyInstance): void 
     providerRoutes = filterDeclaredProviderRoutes(deps.config.cljsPolicyManifestPath, {
       config: deps.config,
       modelId: context.routedModel || context.requestedModelInput,
-      requestKind: "images-passthrough",
+      requestKind: "images",
       tenantSettings,
       providerRoutes,
     }).providerRoutes;
