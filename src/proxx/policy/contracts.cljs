@@ -861,8 +861,6 @@
                                            :base-url base-url}
                                    (contains? route :auth/required?)
                                    (assoc :auth-required? (:auth/required? route))
-                                   (contains? route :auth-required?)
-                                   (assoc :auth-required? (:auth-required? route))
                                    (contains? route :paths)
                                    (assoc :paths (:paths route)))]))))
         (:provider-routes compiled)))
