@@ -82,7 +82,7 @@ services:
     environment:
       POSTGRES_DB: openai_proxy
       POSTGRES_USER: openai_proxy
-      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-openai_proxy}"
     volumes:
       - open-hax-openai-proxy-db-data:/var/lib/postgresql/data
     healthcheck:
@@ -100,7 +100,7 @@ services:
     environment:
       POSTGRES_DB: openai_proxy
       POSTGRES_USER: openai_proxy
-      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-openai_proxy}"
     volumes:
       - open-hax-openai-proxy-db-b-data:/var/lib/postgresql/data
     healthcheck:
@@ -120,7 +120,7 @@ services:
         condition: service_healthy
     environment:
       <<: *proxx-node-env
-      DATABASE_URL: postgresql://openai_proxy:${POSTGRES_PASSWORD}@open-hax-openai-proxy-db:5432/openai_proxy
+      DATABASE_URL: postgresql://openai_proxy:${POSTGRES_PASSWORD:-openai_proxy}@open-hax-openai-proxy-db:5432/openai_proxy
       FEDERATION_SELF_NODE_ID: a1
       FEDERATION_SELF_GROUP_ID: group-a
       FEDERATION_SELF_PEER_DID: did:web:a1.${FEDERATION_PUBLIC_HOST_SUFFIX:-invalid.local}
@@ -136,7 +136,7 @@ services:
         condition: service_healthy
     environment:
       <<: *proxx-node-env
-      DATABASE_URL: postgresql://openai_proxy:${POSTGRES_PASSWORD}@open-hax-openai-proxy-db:5432/openai_proxy
+      DATABASE_URL: postgresql://openai_proxy:${POSTGRES_PASSWORD:-openai_proxy}@open-hax-openai-proxy-db:5432/openai_proxy
       FEDERATION_SELF_NODE_ID: a2
       FEDERATION_SELF_GROUP_ID: group-a
       FEDERATION_SELF_PEER_DID: did:web:a2.${FEDERATION_PUBLIC_HOST_SUFFIX:-invalid.local}
@@ -152,7 +152,7 @@ services:
         condition: service_healthy
     environment:
       <<: *proxx-node-env
-      DATABASE_URL: postgresql://openai_proxy:${POSTGRES_PASSWORD}@open-hax-openai-proxy-db-b:5432/openai_proxy
+      DATABASE_URL: postgresql://openai_proxy:${POSTGRES_PASSWORD:-openai_proxy}@open-hax-openai-proxy-db-b:5432/openai_proxy
       FEDERATION_SELF_NODE_ID: b1
       FEDERATION_SELF_GROUP_ID: group-b
       FEDERATION_SELF_PEER_DID: did:web:b1.${FEDERATION_PUBLIC_HOST_SUFFIX:-invalid.local}
@@ -168,7 +168,7 @@ services:
         condition: service_healthy
     environment:
       <<: *proxx-node-env
-      DATABASE_URL: postgresql://openai_proxy:${POSTGRES_PASSWORD}@open-hax-openai-proxy-db-b:5432/openai_proxy
+      DATABASE_URL: postgresql://openai_proxy:${POSTGRES_PASSWORD:-openai_proxy}@open-hax-openai-proxy-db-b:5432/openai_proxy
       FEDERATION_SELF_NODE_ID: b2
       FEDERATION_SELF_GROUP_ID: group-b
       FEDERATION_SELF_PEER_DID: did:web:b2.${FEDERATION_PUBLIC_HOST_SUFFIX:-invalid.local}
