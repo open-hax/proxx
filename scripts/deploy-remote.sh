@@ -450,6 +450,14 @@ EOF
 }
 
 build_runtime_payloads
+if [[ -f "$TMP_DIR/.env" ]]; then
+  validate_required_env_vars "$TMP_DIR/.env"
+else
+  remote_env="$TMP_DIR/remote.env"
+  if fetch_remote_file_if_exists "$REMOTE" "$DEPLOY_PATH/.env" "$remote_env"; then
+    validate_required_env_vars "$remote_env"
+  fi
+fi
 sync_repo_tree
 if [[ -f "$TMP_DIR/.env" ]]; then
   validate_required_env_vars "$TMP_DIR/.env"
