@@ -261,39 +261,6 @@ interface BuildPayloadResult {
   readonly serviceTierSource: "fast_mode" | "explicit" | "none";
 }
 
-function gptModelRequiresPaidPlan(routedModel: string): boolean {
-  const match = routedModel.match(/^gpt-(\d+)(?:[.-]([a-z0-9]+))?/i);
-  if (!match) {
-    return false;
-  }
-
-  const major = Number.parseInt(match[1] ?? "", 10);
-  if (!Number.isFinite(major)) {
-    return false;
-  }
-
-  if (major > 5) {
-    return true;
-  }
-
-  if (major !== 5) {
-    return false;
-  }
-
-  const qualifier = match[2];
-  if (!qualifier) {
-    return false;
-  }
-
-  if (/^\d+$/.test(qualifier)) {
-    const minor = Number.parseInt(qualifier, 10);
-    return Number.isFinite(minor) && minor >= 3;
-  }
-
-  // Non-numeric qualifiers like `gpt-5-mini` should be treated as paid-required.
-  return true;
-}
-
 function providerAccountsForRequest(
   accounts: readonly ProviderCredential[],
   providerId: string,
@@ -306,39 +273,6 @@ function providerAccountsForRequest(
   const isGptModel = routedModel.startsWith("gpt-");
   if (!isGptModel) {
     return [...accounts];
-  }
-
-  if (gptModelRequiresPaidPlan(routedModel)) {
-    const stronglySupportedPlans = new Set(["plus", "pro", "business", "enterprise"]);
-
-    const stronglySupportedAccounts = accounts.filter(
-      (account) => stronglySupportedPlans.has(account.planType ?? ""),
-    );
-
-    const teamAccounts = accounts.filter((account) => account.planType === "team");
-
-    const otherPaidAccounts = accounts.filter((account) => {
-      const planType = account.planType ?? "unknown";
-      if (planType === "free") {
-        return false;
-      }
-      if (planType === "team") {
-        return false;
-      }
-      if (stronglySupportedPlans.has(planType)) {
-        return false;
-      }
-      return true;
-    });
-
-    const freeAccounts = accounts.filter((account) => account.planType === "free");
-
-    return [
-      ...stronglySupportedAccounts,
-      ...teamAccounts,
-      ...otherPaidAccounts,
-      ...freeAccounts,
-    ];
   }
 
   const freeAccounts = accounts.filter((account) => account.planType === "free");
@@ -1711,7 +1645,7 @@ async function updateUsageCountsFromResponse(
   });
 }
 
-const CODEX_RESPONSES_IMAGES_MODEL = "gpt-5.2-codex";
+const CODEX_RESPONSES_IMAGES_MODEL = "gpt-5.4-mini";
 
 function buildCodexResponsesImagesBody(imagesBody: Record<string, unknown>): string {
   // The Responses API requires a text model that supports the image_generation tool,
@@ -1849,7 +1783,6 @@ export {
   shouldCooldownCredentialOnAuthFailure,
   shouldPermanentlyDisableCredential,
   reorderCandidatesForAffinity,
-  gptModelRequiresPaidPlan,
   providerAccountsForRequest,
   providerUsesOpenAiChatCompletions,
   reorderAccountsForLatency,

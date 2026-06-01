@@ -1138,7 +1138,7 @@ test("OpenAI images auto mode falls back to Codex Responses image_generation whe
   // Ensure the fallback request is a Responses API payload forcing image_generation.
   const fallbackBody = seenBodies.find((body) => body["tools"] !== undefined);
   assert.ok(fallbackBody && isRecord(fallbackBody));
-  assert.equal(fallbackBody["model"], "gpt-5.2-codex");
+  assert.equal(fallbackBody["model"], "gpt-5.4-mini");
   assert.equal(fallbackBody["tool_choice"], "required");
   assert.ok(Array.isArray(fallbackBody["tools"]));
   const tools = fallbackBody["tools"] as unknown[];
@@ -2130,14 +2130,14 @@ test("probes an OpenAI account with a minimal hello request", async () => {
         assert.equal(payload.ok, true);
         assert.equal(payload.matchesExpectedOutput, true);
         assert.equal(payload.outputText, "hello");
-        assert.equal(payload.model, "gpt-5.2");
+        assert.equal(payload.model, "gpt-5.4-mini");
       },
     );
 
     assert.equal(observedRequests.length, 1);
     assert.equal(observedRequests[0]?.headers.get("chatgpt-account-id"), "workspace-probe-a");
     assert.equal(observedRequests[0]?.headers.get("originator"), "codex_cli_rs");
-    assert.equal(observedRequests[0]?.body.model, "gpt-5.2");
+    assert.equal(observedRequests[0]?.body.model, "gpt-5.4-mini");
     assert.equal((observedRequests[0]?.body.reasoning as { readonly effort?: string } | undefined)?.effort, "none");
     assert.equal(observedRequests[0]?.body.stream, true);
     assert.equal(observedRequests[0]?.body.store, false);
@@ -8127,7 +8127,7 @@ test("/api/tools/websearch falls back to Exa when OpenAI returns empty output", 
         });
 
         assert.equal(response.statusCode, 200);
-        assert.deepEqual(callOrder, ["openai", "openai", "exa"]);
+        assert.deepEqual(callOrder, ["openai", "openai", "openai", "openai", "exa"]);
 
         const payload: unknown = response.json();
         assert.ok(isRecord(payload));
