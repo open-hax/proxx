@@ -185,7 +185,7 @@ async function pullPeerProjectedAccounts(input: {
     }
 
     for (const account of remoteAccounts.projectedAccounts) {
-      if (localAccountKeys.has(accountKey(account.providerId, account.accountId))) {
+      if (account.sourcePeerId === input.peer.id && localAccountKeys.has(accountKey(account.providerId, account.accountId))) {
         continue;
       }
 
