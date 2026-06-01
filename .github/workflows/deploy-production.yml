@@ -90,6 +90,13 @@ jobs:
             FEDERATION_PUBLIC_HOST_SUFFIX=${{ vars.PRODUCTION_PUBLIC_HOST || 'prod.proxx.ussy.promethean.rest' }}
             FEDERATION_DEFAULT_OWNER_SUBJECT=did:web:${{ vars.PRODUCTION_PUBLIC_HOST || 'prod.proxx.ussy.promethean.rest' }}
             FEDERATION_NGINX_PUBLISHED_PORT=${{ vars.PRODUCTION_NGINX_PUBLISHED_PORT || '8890' }}
+            PROXX_CONTAINER_UID=${{ vars.PRODUCTION_CONTAINER_UID || '1000' }}
+            PROXX_CONTAINER_GID=${{ vars.PRODUCTION_CONTAINER_GID || '1000' }}
+            PROXX_RUNTIME_DATA_DIR=${{ vars.PRODUCTION_RUNTIME_DATA_DIR || './data' }}
+            PROXX_CONTAINER_HOME=${{ vars.PRODUCTION_CONTAINER_HOME || '/home/node' }}
+            PM2_HOME=${{ vars.PRODUCTION_PM2_HOME || '/home/node/.pm2' }}
+            COREPACK_HOME=${{ vars.PRODUCTION_COREPACK_HOME || '/home/node/.cache/node/corepack' }}
+            XDG_CACHE_HOME=${{ vars.PRODUCTION_XDG_CACHE_HOME || '/home/node/.cache' }}
           DEPLOY_ENV_FILE: ${{ secrets.PRODUCTION_ENV_FILE }}
           DEPLOY_MODELS_JSON: ${{ secrets.PRODUCTION_MODELS_JSON }}
       - name: production deploy failure logs
