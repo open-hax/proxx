@@ -346,7 +346,9 @@ export function DashboardPage(): JSX.Element {
 
       {overview?.coverage && !overview.coverage.hasFullWindowCoverage && (
         <span className="dashboard-coverage-note">
-          {windowLabel} window partially covered since {formatDate(overview.coverage.coverageStart)}.
+          {overview.coverage.coverageStart
+            ? `${windowLabel} window partially covered since ${formatDate(overview.coverage.coverageStart)}.`
+            : `${windowLabel} window partially covered.`}
         </span>
       )}
 

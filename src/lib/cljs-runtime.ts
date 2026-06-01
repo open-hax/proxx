@@ -63,6 +63,20 @@ export interface CljsProviderRoutesResult {
   readonly data?: unknown;
 }
 
+export interface CljsFederationRouteCandidatesResult {
+  readonly status: "ok" | "error" | "exhausted";
+  readonly candidates?: readonly unknown[];
+  readonly error?: string;
+  readonly data?: unknown;
+}
+
+export interface CljsTenantProviderPolicyAuthorizationResult {
+  readonly status: "ok" | "error";
+  readonly allowed?: boolean;
+  readonly error?: string;
+  readonly data?: unknown;
+}
+
 export interface CljsModelCandidatesRunResult {
   readonly status: string;
   readonly [key: string]: unknown;
@@ -82,6 +96,8 @@ export interface ProxxCljsRuntime {
   readonly resolveAutoModelCandidates?: (manifestPath: string, input: unknown) => CljsAutoModelCandidatesResult;
   readonly getProviderRoutes?: (manifestPath: string) => CljsProviderRoutesResult;
   readonly filterProviderRoutes?: (manifestPath: string, input: unknown) => CljsProviderRoutesResult;
+  readonly resolveFederationRouteCandidates?: (manifestPath: string, input: unknown) => CljsFederationRouteCandidatesResult;
+  readonly authorizeTenantProviderPolicy?: (manifestPath: string, input: unknown) => CljsTenantProviderPolicyAuthorizationResult;
   readonly runModelCandidates?: (
     manifestPath: string,
     input: unknown,
@@ -127,6 +143,8 @@ function isProxxCljsRuntime(value: Record<string, unknown>): value is Record<str
     typeof value.resolveModelAlias === "function" &&
     (value.resolveAutoModelCandidates === undefined || typeof value.resolveAutoModelCandidates === "function") &&
     (value.filterProviderRoutes === undefined || typeof value.filterProviderRoutes === "function") &&
+    (value.resolveFederationRouteCandidates === undefined || typeof value.resolveFederationRouteCandidates === "function") &&
+    (value.authorizeTenantProviderPolicy === undefined || typeof value.authorizeTenantProviderPolicy === "function") &&
     (value.runModelCandidates === undefined || typeof value.runModelCandidates === "function") &&
     (value.resolveQueuePolicy === undefined || typeof value.resolveQueuePolicy === "function") &&
     (value.getProviderRoutes === undefined || typeof value.getProviderRoutes === "function") &&
@@ -359,9 +377,9 @@ export async function assertCljsRuntimeReady(runtime: ProxxCljsRuntime): Promise
   }
 
   const reasoningResult = runtime.normalizeReasoningRequest("resources/policies/runtime/00-manifest.edn", {
-    modelId: "gpt-5.2",
+    modelId: "gpt-5.4-mini",
     requestBody: {
-      model: "gpt-5.2",
+      model: "gpt-5.4-mini",
       reasoning: { effort: "max" },
     },
   });

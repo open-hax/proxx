@@ -505,33 +505,34 @@ export class SqlFederationStore {
       accountId: input.accountId,
     });
 
-    const rows = await this.sql.unsafe<FederationProjectedAccountRow[]>(
-      `INSERT INTO federation_projected_accounts (
-         source_peer_id, owner_subject, provider_id, account_id, account_subject, chatgpt_account_id, email, plan_type, availability_state, metadata, updated_at
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, NOW())
-       ON CONFLICT (source_peer_id, provider_id, account_id) DO UPDATE SET
-         owner_subject = EXCLUDED.owner_subject,
-         account_subject = EXCLUDED.account_subject,
-         chatgpt_account_id = EXCLUDED.chatgpt_account_id,
-         email = EXCLUDED.email,
-         plan_type = EXCLUDED.plan_type,
-         availability_state = EXCLUDED.availability_state,
-         metadata = EXCLUDED.metadata,
-         updated_at = NOW()
-       RETURNING *`,
-      [
-        input.sourcePeerId.trim(),
-        input.ownerSubject.trim(),
-        input.providerId.trim().toLowerCase(),
-        input.accountId.trim(),
-        input.accountSubject !== undefined ? (input.accountSubject.trim() || null) : existing?.accountSubject ?? null,
-        input.chatgptAccountId !== undefined ? (input.chatgptAccountId.trim() || null) : existing?.chatgptAccountId ?? null,
-        input.email !== undefined ? (input.email.trim().toLowerCase() || null) : existing?.email ?? null,
-        input.planType !== undefined ? (input.planType.trim().toLowerCase() || null) : existing?.planType ?? null,
-        input.availabilityState ?? existing?.availabilityState ?? "descriptor",
-        JSON.stringify(input.metadata ?? existing?.metadata ?? {}),
-      ],
-    );
+    const metadata = input.metadata ?? existing?.metadata ?? {};
+    const rows = await this.sql<FederationProjectedAccountRow[]>`
+      INSERT INTO federation_projected_accounts (
+        source_peer_id, owner_subject, provider_id, account_id, account_subject, chatgpt_account_id, email, plan_type, availability_state, metadata, updated_at
+      ) VALUES (
+        ${input.sourcePeerId.trim()},
+        ${input.ownerSubject.trim()},
+        ${input.providerId.trim().toLowerCase()},
+        ${input.accountId.trim()},
+        ${input.accountSubject !== undefined ? (input.accountSubject.trim() || null) : existing?.accountSubject ?? null},
+        ${input.chatgptAccountId !== undefined ? (input.chatgptAccountId.trim() || null) : existing?.chatgptAccountId ?? null},
+        ${input.email !== undefined ? (input.email.trim().toLowerCase() || null) : existing?.email ?? null},
+        ${input.planType !== undefined ? (input.planType.trim().toLowerCase() || null) : existing?.planType ?? null},
+        ${input.availabilityState ?? existing?.availabilityState ?? "descriptor"},
+        ${this.sql.json(metadata as never)},
+        NOW()
+      )
+      ON CONFLICT (source_peer_id, provider_id, account_id) DO UPDATE SET
+        owner_subject = EXCLUDED.owner_subject,
+        account_subject = EXCLUDED.account_subject,
+        chatgpt_account_id = EXCLUDED.chatgpt_account_id,
+        email = EXCLUDED.email,
+        plan_type = EXCLUDED.plan_type,
+        availability_state = EXCLUDED.availability_state,
+        metadata = EXCLUDED.metadata,
+        updated_at = NOW()
+      RETURNING *
+    `;
 
     return toProjectedAccountRecord(rows[0]!);
   }

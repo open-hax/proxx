@@ -22,7 +22,6 @@ export {
   reorderAccountsForLatency,
   reorderCandidatesForAffinities,
   reorderCandidatesForAffinity,
-  gptModelRequiresPaidPlan,
 } from "./credential-selector.js";
 
 export type { PreferredAffinity } from "./credential-selector.js";

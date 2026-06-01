@@ -12,7 +12,7 @@ const OPENAI_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
 const OPENAI_REFRESH_BUFFER_MS = 60 * 1000;
 const OPENAI_USAGE_TIMEOUT_MS = 15_000;
 const OPENAI_PROBE_TIMEOUT_MS = 30_000;
-const DEFAULT_OPENAI_PROBE_MODEL = "gpt-5.2";
+const DEFAULT_OPENAI_PROBE_MODEL = "gpt-5.4-mini";
 const DEFAULT_OPENAI_PROBE_EXPECTED_TEXT = "hello";
 
 export interface OpenAiQuotaWindow {

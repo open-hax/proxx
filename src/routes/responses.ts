@@ -18,6 +18,7 @@ import {
   inspectProviderAvailability,
 } from "../lib/provider-strategy.js";
 import { resolveFederationOwnerSubject } from "../lib/federation/federation-helpers.js";
+import { executeBridgeRequestRouting } from "../lib/federation/bridge-routing.js";
 import {
   filterDeclaredProviderRoutes,
   filterResponsesApiRoutes,
@@ -342,10 +343,11 @@ export function registerResponsesRoutes(deps: AppDeps, app: FastifyInstance): vo
       const federatedResponsesHandled = await runCljsQueued(
         deps.config.cljsPolicyManifestPath,
         { "tenant-id": request.openHaxAuth?.tenantId ?? "default", "provider-id": providerRoutes[0]?.providerId, "request-kind": "responses" },
-        async (controller) => await deps.executeFederatedRequestFallback({
+        async (controller) => await deps.executeFederatedRequestRouting({
           requestHeaders: request.headers,
           requestBody,
           requestAuth: request.openHaxAuth ?? undefined,
+          requestKind: "responses",
           providerRoutes,
           upstreamPath: "/v1/responses",
           reply,
@@ -354,6 +356,31 @@ export function registerResponsesRoutes(deps: AppDeps, app: FastifyInstance): vo
         }),
       );
       if (federatedResponsesHandled) {
+        return;
+      }
+
+      const bridgedResponsesHandled = await runCljsQueued(
+        deps.config.cljsPolicyManifestPath,
+        { "tenant-id": request.openHaxAuth?.tenantId ?? "default", "provider-id": providerRoutes[0]?.providerId, "request-kind": "responses" },
+        async () => await executeBridgeRequestRouting({
+          bridgeRelay: deps.bridgeRelay,
+          app: deps.app,
+          config: deps.config,
+          sqlTenantProviderPolicyStore: deps.sqlTenantProviderPolicyStore,
+          runtimeCredentialStore: deps.runtimeCredentialStore,
+          keyPool: deps.keyPool,
+        }, {
+          requestHeaders: request.headers,
+          requestBody,
+          requestAuth: request.openHaxAuth ?? undefined,
+          requestKind: "responses",
+          allowedProviderIds: providerRoutes.map((route) => route.providerId),
+          upstreamPath: "/v1/responses",
+          reply,
+          timeoutMs: executionContext.upstreamAttemptTimeoutMs,
+        }),
+      );
+      if (bridgedResponsesHandled) {
         return;
       }
 

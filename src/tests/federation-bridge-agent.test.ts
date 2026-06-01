@@ -33,7 +33,7 @@ async function withBridgeApp(
   const settingsPath = path.join(tempDir, "proxy-settings.json");
 
   await writeFile(keysPath, JSON.stringify({ keys: ["test-key-1"] }, null, 2), "utf8");
-  await writeFile(modelsPath, JSON.stringify({ object: "list", data: [{ id: "gpt-5.2" }] }, null, 2), "utf8");
+  await writeFile(modelsPath, JSON.stringify({ object: "list", data: [{ id: "gpt-5.4-mini" }] }, null, 2), "utf8");
 
   const upstream = createServer((_request, response) => {
     response.statusCode = 200;
@@ -185,7 +185,7 @@ test("bridge agent connects, publishes capabilities/health, and stops cleanly", 
       getCapabilities: async () => [{
         providerId: "openai",
         modelPrefixes: ["gpt-"],
-        models: ["gpt-5.2"],
+        models: ["gpt-5.4-mini"],
         authType: "oauth_bearer",
         accountCount: 4,
         availableAccountCount: 3,
@@ -401,7 +401,7 @@ test("bridge relay requestStream preserves streamed chunks and provenance from t
       path: "/v1/chat/completions",
       timeoutMs: 1_000,
       headers: { accept: "text/event-stream", "content-type": "application/json" },
-      body: JSON.stringify({ model: "gpt-5.2", stream: true }),
+      body: JSON.stringify({ model: "gpt-5.4-mini", stream: true }),
     })) {
       events.push({
         type: event.type,
