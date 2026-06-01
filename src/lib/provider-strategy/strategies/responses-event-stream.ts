@@ -42,6 +42,7 @@ export async function handleResponsesEventStreamAsChatCompletion(
       }
     } catch (err) {
       console.error("[responses-event-stream] stream read error", { providerId: context.providerId, message: err instanceof Error ? err.message : String(err) });
+      void upstreamResponse.body?.cancel();
     }
     if (!rawResponse.writableEnded) {
       rawResponse.end();
