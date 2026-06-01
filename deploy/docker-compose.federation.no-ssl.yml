@@ -1,4 +1,4 @@
 services:
   federation-nginx:
     ports:
-      - "0.0.0.0:8890:80"
+      - "0.0.0.0:${FEDERATION_NGINX_PUBLISHED_PORT:-8890}:80"
