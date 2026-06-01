@@ -33,12 +33,15 @@ export async function handleResponsesEventStreamAsChatCompletion(
         upstreamResponse.body,
         { fallbackModel: context.routedModel, writeFn: (data) => rawResponse.write(data) },
       );
-      if (result.sawError && !rawResponse.writableEnded) {
-        rawResponse.end();
+      if (result.sawError) {
+        console.error("[responses-event-stream] upstream SSE error", { providerId: context.providerId, routedModel: context.routedModel });
+        if (!rawResponse.writableEnded) {
+          rawResponse.end();
+        }
         return { kind: "handled" };
       }
-    } catch {
-      // Stream read error — close gracefully
+    } catch (err) {
+      console.error("[responses-event-stream] stream read error", { providerId: context.providerId, message: err instanceof Error ? err.message : String(err) });
     }
     if (!rawResponse.writableEnded) {
       rawResponse.end();
