@@ -134,7 +134,7 @@ async function withBridgeApp(
   const settingsPath = path.join(tempDir, "proxy-settings.json");
 
   await writeFile(keysPath, JSON.stringify({ keys: ["test-key-1"] }, null, 2), "utf8");
-  await writeFile(modelsPath, JSON.stringify({ object: "list", data: [{ id: "gpt-5.2" }] }, null, 2), "utf8");
+  await writeFile(modelsPath, JSON.stringify({ object: "list", data: [{ id: "gpt-5.4-mini" }] }, null, 2), "utf8");
 
   const upstream = createServer((_request, response) => {
     response.statusCode = 200;
@@ -192,7 +192,7 @@ async function withTenantScopedBridgeUiApp(
   const settingsPath = path.join(tempDir, "proxy-settings.json");
 
   await writeFile(keysPath, JSON.stringify({ keys: ["test-key-1"] }, null, 2), "utf8");
-  await writeFile(modelsPath, JSON.stringify({ object: "list", data: [{ id: "gpt-5.2" }] }, null, 2), "utf8");
+  await writeFile(modelsPath, JSON.stringify({ object: "list", data: [{ id: "gpt-5.4-mini" }] }, null, 2), "utf8");
 
   const upstream = createServer((_request, response) => {
     response.statusCode = 200;
@@ -451,7 +451,7 @@ test("bridge relay returns a typed stub error for request execution frames", asy
       method: "POST",
       path: "/v1/chat/completions",
       headers: { "content-type": "application/json" },
-      routingIntent: { providerId: "openai", model: "gpt-5.2" },
+      routingIntent: { providerId: "openai", model: "gpt-5.4-mini" },
       hopCount: 0,
     }));
 

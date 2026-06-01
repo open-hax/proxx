@@ -47,7 +47,7 @@ test("gptModelRequiresPaidPlan returns true for gpt-5.3+", () => {
   assert.ok(gptModelRequiresPaidPlan("gpt-5.4"));
   assert.ok(gptModelRequiresPaidPlan("gpt-6"));
   assert.ok(gptModelRequiresPaidPlan("gpt-5-mini"));
-  assert.ok(!gptModelRequiresPaidPlan("gpt-5.2"));
+  assert.ok(!gptModelRequiresPaidPlan("gpt-5.4-mini"));
   assert.ok(!gptModelRequiresPaidPlan("gpt-5"));
   assert.ok(!gptModelRequiresPaidPlan("gpt-4"));
   assert.ok(!gptModelRequiresPaidPlan("claude-3"));

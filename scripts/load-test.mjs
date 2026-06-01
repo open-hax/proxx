@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 const baseUrl = process.env.DEV_PROXY_URL ?? "http://127.0.0.1:8795";
-const model = process.env.LOAD_TEST_MODEL ?? "gpt-5.2";
+const model = process.env.LOAD_TEST_MODEL ?? "gpt-5.4-mini";
 const concurrency = parsePositiveInt(process.env.LOAD_TEST_CONCURRENCY, 16);
 const totalRequests = parsePositiveInt(process.env.LOAD_TEST_REQUESTS, concurrency);
 const timeoutMs = parsePositiveInt(process.env.LOAD_TEST_TIMEOUT_MS, 60000);
