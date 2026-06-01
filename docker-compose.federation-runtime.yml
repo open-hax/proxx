@@ -4,12 +4,17 @@ x-proxx-node: &proxx-node
   build:
     context: .
     dockerfile: Dockerfile
+  user: "${PROXX_CONTAINER_UID:-1000}:${PROXX_CONTAINER_GID:-1000}"
   environment: &proxx-node-env
     NODE_ENV: production
     PROXY_HOST: 0.0.0.0
     PROXY_PORT: "8789"
     PORT: "8789"
     PROXX_CLJS_POLICY_AUTHORITATIVE: "true"
+    HOME: "${PROXX_CONTAINER_HOME:-/home/node}"
+    PM2_HOME: "${PM2_HOME:-/home/node/.pm2}"
+    COREPACK_HOME: "${COREPACK_HOME:-/home/node/.cache/node/corepack}"
+    XDG_CACHE_HOME: "${XDG_CACHE_HOME:-/home/node/.cache}"
     PROXY_AUTH_TOKEN: "${PROXY_AUTH_TOKEN:?PROXY_AUTH_TOKEN must be set}"
     PROXY_MODELS_FILE: /workspace/service-config/models.json
     PROXY_REQUEST_LOGS_FILE: /app/data/request-logs.jsonl
@@ -58,6 +63,7 @@ x-proxx-node: &proxx-node
     CHROMA_COLLECTION: "${CHROMA_COLLECTION:-open_hax_proxy_sessions}"
     CHROMA_EMBED_MODEL: "${CHROMA_EMBED_MODEL:-nomic-embed-text:latest}"
     FEDERATION_REQUEST_TIMEOUT_MS: "${FEDERATION_REQUEST_TIMEOUT_MS:-5000}"
+    VITE_ALLOWED_HOSTS: "${VITE_ALLOWED_HOSTS:-}"
     FEDERATION_SELF_CLUSTER_ID: "${FEDERATION_SELF_CLUSTER_ID:-proxx-federation}"
     FEDERATION_DEFAULT_OWNER_SUBJECT: "${FEDERATION_DEFAULT_OWNER_SUBJECT:-}"
   restart: unless-stopped
@@ -127,7 +133,7 @@ services:
       FEDERATION_SELF_PUBLIC_BASE_URL: "${FEDERATION_SCHEME:-https}://a1.${FEDERATION_PUBLIC_HOST_SUFFIX:-invalid.local}"
     volumes:
       - ./models.json:/workspace/service-config/models.json:ro
-      - ./data/federation/a1:/app/data
+      - ${PROXX_RUNTIME_DATA_DIR:-./data}/federation/a1:/app/data
 
   federation-proxx-a2:
     <<: *proxx-node
@@ -143,7 +149,7 @@ services:
       FEDERATION_SELF_PUBLIC_BASE_URL: "${FEDERATION_SCHEME:-https}://a2.${FEDERATION_PUBLIC_HOST_SUFFIX:-invalid.local}"
     volumes:
       - ./models.json:/workspace/service-config/models.json:ro
-      - ./data/federation/a2:/app/data
+      - ${PROXX_RUNTIME_DATA_DIR:-./data}/federation/a2:/app/data
 
   federation-proxx-b1:
     <<: *proxx-node
@@ -159,7 +165,7 @@ services:
       FEDERATION_SELF_PUBLIC_BASE_URL: "${FEDERATION_SCHEME:-https}://b1.${FEDERATION_PUBLIC_HOST_SUFFIX:-invalid.local}"
     volumes:
       - ./models.json:/workspace/service-config/models.json:ro
-      - ./data/federation/b1:/app/data
+      - ${PROXX_RUNTIME_DATA_DIR:-./data}/federation/b1:/app/data
 
   federation-proxx-b2:
     <<: *proxx-node
@@ -175,7 +181,7 @@ services:
       FEDERATION_SELF_PUBLIC_BASE_URL: "${FEDERATION_SCHEME:-https}://b2.${FEDERATION_PUBLIC_HOST_SUFFIX:-invalid.local}"
     volumes:
       - ./models.json:/workspace/service-config/models.json:ro
-      - ./data/federation/b2:/app/data
+      - ${PROXX_RUNTIME_DATA_DIR:-./data}/federation/b2:/app/data
 
   federation-nginx:
     image: nginx:1.27-alpine
