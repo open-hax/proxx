@@ -455,6 +455,6 @@ curl -s -H "Authorization: Bearer ${PROXX_API_KEY}" \
 
 curl -s -H "Authorization: Bearer ${PROXX_PROD_AUTH_TOKEN}" \
   -H "Content-Type: application/json" \
-  -d '{"model":"ollama-cloud/gemma4:31b","messages":[{"role":"user","content":"Say hello in one sentence."}],"max_tokens":100,"stream":false}' \
+  -d '{"model":"gpt-5.5","messages":[{"role":"user","content":"Say hello in one sentence."}],"max_tokens":100,"stream":false}' \
   "https://proxx.promethean.rest/v1/chat/completions" 2>&1
 ```
