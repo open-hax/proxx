@@ -17,7 +17,6 @@ import {
   executeProviderRoutingPlan,
   inspectProviderAvailability,
 } from "../lib/provider-strategy.js";
-import { resolveFederationOwnerSubject } from "../lib/federation/federation-helpers.js";
 import { executeBridgeRequestRouting } from "../lib/federation/bridge-routing.js";
 import {
   filterDeclaredProviderRoutes,
@@ -26,7 +25,6 @@ import {
   type ProviderRoutesFilterResult,
   type ProviderRoute,
 } from "../lib/provider-routing.js";
-import { discoverDynamicOllamaRoutes, prependDynamicOllamaRoutes } from "../lib/dynamic-ollama-routes.js";
 import { getActiveCljsRuntime } from "../lib/cljs-runtime.js";
 import { toErrorMessage } from "../lib/errors/index.js";
 import { handleRoutingOutcome } from "../lib/routing-outcome-handler.js";
@@ -215,11 +213,6 @@ export function registerResponsesRoutes(deps: AppDeps, app: FastifyInstance): vo
       );
       reply.header("x-open-hax-upstream-mode", strategy.mode);
       const requestAuth = request.openHaxAuth ?? undefined;
-      const federationOwnerSubject = resolveFederationOwnerSubject({
-        headers: request.headers as Record<string, unknown>,
-        requestAuth,
-        hopCount: 0,
-      });
 
       let providerRoutes: ProviderRoute[];
       if (context.factoryPrefixed) {
@@ -228,15 +221,6 @@ export function registerResponsesRoutes(deps: AppDeps, app: FastifyInstance): vo
         );
       } else {
         providerRoutes = getDeclaredProviderRoutes(deps.config);
-      }
-
-      const dynamicOllamaRoutes = await discoverDynamicOllamaRoutes(
-        deps.sqlCredentialStore,
-        deps.sqlFederationStore,
-        federationOwnerSubject,
-      );
-      if (dynamicOllamaRoutes.length > 0) {
-        providerRoutes = prependDynamicOllamaRoutes(providerRoutes, dynamicOllamaRoutes);
       }
 
       providerRoutes = filterResponsesApiRoutes(providerRoutes, deps.config.openaiProviderId);

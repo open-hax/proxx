@@ -189,8 +189,9 @@
     {
       "path": "src/lib/dynamic-ollama-routes.ts",
       "owner": "T1-core-proxx-cljs-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "core Proxx runtime starts and serves from CLJS with TS shims removed"
+      "disposition": "removed",
+      "removalCondition": "Removed because dynamic Ollama routing/provider rules are policy DSL concerns, not TypeScript helpers.",
+      "removed": true
     },
     {
       "path": "src/lib/embeddings-providers/index.ts",
@@ -1185,8 +1186,9 @@
     {
       "path": "src/tests/dynamic-ollama-routes.test.ts",
       "owner": "T4-test-harness-cljs-migration",
-      "disposition": "port-test-to-cljs",
-      "removalCondition": "test coverage runs from CLJS/node-test or an accepted non-TS harness"
+      "disposition": "removed",
+      "removalCondition": "Removed because dynamic Ollama routing/provider rules are policy DSL concerns, not TypeScript helpers.",
+      "removed": true
     },
     {
       "path": "src/tests/embeddings-strategy.test.ts",
