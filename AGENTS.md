@@ -79,6 +79,23 @@ Loaded in order via `00-manifest.edn`:
 
 **Invariant**: Files append/override in order. Facts first, derived rules next, root router last. More-specific clauses precede catch-all clauses.
 
+## ABSOLUTE POLICY BOUNDARY: EDN DSL or CLJS Interpreter Only
+
+Provider/model facts and rules are forbidden in TypeScript. This includes:
+
+- model-family classification
+- provider-family classification
+- model-to-provider routing
+- provider ordering or filtering
+- strategy preference by provider/model
+- dynamic/local/Ollama/cloud special cases
+- booleans like `wantsDynamicOllamaRoutes`
+- helper names like `discoverDynamicOllamaRoutes`, `prependDynamicOllamaRoutes`, `filterDedicatedOllamaRoutes`, `resolveProviderRoutesForModel`, or `providerIdLooksLikeOllama`
+
+The EDN runtime policy files are a declarative programming language. CLJS interprets that language. TypeScript must not re-create fragments of the interpreter or make shadow routing decisions.
+
+Mechanical enforcement: `pnpm run check:no-new-typescript` also runs `scripts/check-policy-boundary.mjs`, which fails if forbidden TypeScript provider/model routing helpers reappear. If a future change needs one of these concepts, add/modify EDN contracts and CLJS interpreter behavior instead of weakening the gate.
+
 ## The Policy DSL
 
 ### Contract Kinds

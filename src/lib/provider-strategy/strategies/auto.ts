@@ -42,7 +42,6 @@ export function buildAutoModelCandidates(input: {
   readonly requestBody: unknown;
   readonly catalog: ResolvedModelCatalog | null;
   readonly availableModels?: readonly string[];
-  readonly excludeDynamicOllama?: boolean;
   readonly providerId: string;
   readonly requestLogStore?: RequestLogStore;
   readonly accountHealthStore?: AccountHealthStore;
@@ -51,18 +50,10 @@ export function buildAutoModelCandidates(input: {
     return [input.routingModelInput];
   }
 
-  const dynamicOllamaModelIds = new Set(
-    (input.excludeDynamicOllama !== false ? input.catalog?.dynamicOllamaModelIds ?? [] : [])
-      .map((modelId) => modelId.trim().toLowerCase()),
-  );
-  const filteredAvailableModels = (input.availableModels ?? input.catalog?.modelIds)?.filter((modelId) => {
-    return !dynamicOllamaModelIds.has(modelId.trim().toLowerCase());
-  });
-
   const ranked = rankAutoModels(
     input.routingModelInput,
     input.requestBody,
-    filteredAvailableModels,
+    input.availableModels ?? input.catalog?.modelIds,
     input.providerId,
     input.requestLogStore,
     input.accountHealthStore,

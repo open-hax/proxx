@@ -29,7 +29,7 @@
     "build": "pnpm clean && pnpm build:ts && pnpm build:cljs",
     "build:runtime": "rm -rf dist && pnpm build:cljs && tsc -p tsconfig.json",
     "pricing:update": "node scripts/update-models-dev-pricing.mjs",
-    "check:no-new-typescript": "node scripts/check-no-new-typescript.mjs",
+    "check:no-new-typescript": "node scripts/check-no-new-typescript.mjs && node scripts/check-policy-boundary.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "start": "node --env-file-if-exists=.env dist/main.js",
     "test": "pnpm run build && node --test --test-concurrency=1 'dist/tests/**/*.test.js'",
