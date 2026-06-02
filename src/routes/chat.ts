@@ -20,7 +20,6 @@ import {
 import { getActiveCljsRuntime, type CljsModelCandidatesRunResult } from "../lib/cljs-runtime.js";
 import { toErrorMessage } from "../lib/errors/index.js";
 import { handleRoutingOutcome } from "../lib/routing-outcome-handler.js";
-import { isCephalonAutoModel } from "../lib/provider-strategy/strategies/cephalon.js";
 import { requestHasExplicitNumCtx } from "../lib/ollama-compat.js";
 import { ensureOllamaContextFits } from "../lib/ollama-context.js";
 import { executeBridgeRequestRouting } from "../lib/federation/bridge-routing.js";
@@ -81,10 +80,8 @@ async function executeChatCandidate(input: ChatCandidateInput): Promise<CljsMode
     proxySettings,
     requestBody,
     requestedModelInput,
-    routingModelInput,
     candidateRoutingModel,
     hasMoreModelCandidates,
-    resolvedModelCatalog,
   } = input;
 
   const { strategy, context } = selectProviderStrategy(

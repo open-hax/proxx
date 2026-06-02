@@ -212,7 +212,6 @@ export function registerResponsesRoutes(deps: AppDeps, app: FastifyInstance): vo
         { surface: "responses-passthrough" },
       );
       reply.header("x-open-hax-upstream-mode", strategy.mode);
-      const requestAuth = request.openHaxAuth ?? undefined;
 
       let providerRoutes: ProviderRoute[];
       if (context.factoryPrefixed) {
