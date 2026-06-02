@@ -48,7 +48,7 @@ type BridgeAccountDescriptor = {
 };
 
 async function bridgeAccountIsAvailable(deps: BridgeLeaseRouteDeps, providerId: string, accountId: string): Promise<boolean> {
-  const accounts = await deps.keyPool.getRequestOrder(providerId).catch(() => []);
+  const accounts = await deps.keyPool.getRequestOrder(providerId);
   return accounts.some((account) => account.accountId === accountId);
 }
 
@@ -80,7 +80,7 @@ export async function registerBridgeLeaseRoutes(
     const limit = typeof limitRaw === "number" && Number.isFinite(limitRaw) ? Math.max(1, Math.min(limitRaw, 5000)) : 5000;
 
     try {
-      const accounts = await deps.keyPool.getRequestOrder(providerId).catch(() => []);
+      const accounts = await deps.keyPool.getRequestOrder(providerId);
       const descriptors: BridgeAccountDescriptor[] = accounts
         .slice(0, limit)
         .map((account): BridgeAccountDescriptor => ({
@@ -94,7 +94,7 @@ export async function registerBridgeLeaseRoutes(
           credentialMobility: account.authType === "oauth_bearer" ? "access_token_only" : "importable",
         }))
         .sort((a, b) => a.accountId.localeCompare(b.accountId));
-      const status = await deps.keyPool.getStatus(providerId).catch(() => undefined);
+      const status = await deps.keyPool.getStatus(providerId);
 
       reply.send({
         providerId,

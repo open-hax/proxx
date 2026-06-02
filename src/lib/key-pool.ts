@@ -1167,7 +1167,7 @@ export class KeyPool {
         const disabled = this.disabledAccountKeys.has(key);
         const expired = typeof credential.expiresAt === "number" && credential.expiresAt <= now + expiryBuffer;
         const inFlight = (this.inFlightByAccountKey.get(key) ?? 0) > 0;
-        const available = !disabled && !expired && (cooldownUntil ?? 0) <= now;
+        const available = (cooldownUntil ?? 0) <= now;
         return {
           providerId,
           accountId: credential.accountId,
