@@ -1,6 +1,6 @@
 {
   "name": "@open-hax/proxx",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "type": "module",
   "description": "OpenAI-compatible proxy with provider account rotation, federation, and websocket bridge.",
   "license": "GPL-3.0-only",
