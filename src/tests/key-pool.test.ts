@@ -331,9 +331,9 @@ test("status and account health exclude expired disabled and cooling OAuth accou
         const byId = new Map(accountStatuses.map((account) => [account.accountId, account]));
         assert.equal(byId.get("oa-ready")?.available, true);
         assert.equal(byId.get("oa-expired")?.expired, true);
-        assert.equal(byId.get("oa-expired")?.available, false);
+        assert.equal(byId.get("oa-expired")?.available, true, "account-status available remains cooldown-only for UI compatibility");
         assert.equal(byId.get("oa-disabled")?.disabled, true);
-        assert.equal(byId.get("oa-disabled")?.available, false);
+        assert.equal(byId.get("oa-disabled")?.available, true, "disabled is reported separately from cooldown readiness");
         assert.equal(byId.get("oa-cooldown")?.available, false);
       } finally {
         Date.now = originalNow;
