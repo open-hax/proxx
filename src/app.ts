@@ -771,10 +771,6 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     }
   });
 
-  if (bridgeAgent) {
-    await bridgeAgent.start();
-  }
-
   app.addHook("onClose", async () => {
     if (bridgeAgent) {
       await bridgeAgent.stop();
@@ -834,6 +830,10 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
 
     reply.code(404).send({ ok: false, error: "Not Found" });
   });
+
+  if (bridgeAgent) {
+    await bridgeAgent.start();
+  }
 
   return app;
 }
