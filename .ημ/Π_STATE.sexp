@@ -1,21 +1,26 @@
 (fork-tax-state
-  (timestamp "2026-06-02T02:45:52Z")
+  (timestamp "2026-06-02T05:59:56Z")
   (repo "/home/err/devel/orgs/open-hax/proxx")
   (worktree "/home/err/devel/orgs/open-hax/proxx")
-  (branch "docs/clade-docs-reports")
+  (branch "docs/prod-gpt55-example")
   (base "origin/staging")
-  (intent "Preserve local Proxx dirt, remove generated jscpd reports from PR #255, and prepare the outstanding PR merge campaign.")
+  (intent "Preserve final residual DEVEL.md production gpt-5.5 example dirt through protected PR flow after merging all previously-open Proxx PRs and PR #260 promotion.")
   (owned-paths
-    ".gitignore"
     "DEVEL.md"
     "receipts.edn"
-    "reports/jscpd/** (removed)"
     ".ημ/Π_LAST.md"
     ".ημ/Π_STATE.sexp"
     ".ημ/Π_MANIFEST.sha256")
+  (merged-prs
+    (pr 256 "merged into chore/no-new-typescript-gate")
+    (pr 255 "merged into staging")
+    (pr 254 "merged into staging")
+    (pr 260 "merged into main"))
   (verification
-    "git diff --check -> pass"
-    "full build not run; docs/receipts/generated-artifact cleanup only")
-  (concurrent-guardrails
-    "No repo-wide reset/restore/clean used."
-    "Unrelated root workspace and other worktrees left untouched."))
+    "pnpm run check:no-new-typescript -> pass on PR #254 branch"
+    "PR #260 production deploy run 26801068165 -> success"
+    "https://proxx.promethean.rest/health -> HTTP 200"
+    "final residual branch full build not run; docs/receipts/handoff only")
+  (guardrails
+    "No secret values logged."
+    "No destructive cleanup of unrelated worktrees or root workspace dirt."))

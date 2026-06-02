@@ -1,32 +1,34 @@
-# Π Last Snapshot — Proxx PR closeout
+# Π Last Snapshot — Proxx fork-tax PR closeout
 
-- Timestamp: 2026-06-02T02:45:52Z
-- Repo: /home/err/devel/orgs/open-hax/proxx
-- Branch: `docs/clade-docs-reports`
+- Timestamp: 2026-06-02T05:59:56Z
+- Repo: `/home/err/devel/orgs/open-hax/proxx`
+- Branch: `docs/prod-gpt55-example`
 - Base target: `origin/staging`
-- Intent: preserve local Proxx dirt, remove generated jscpd artifacts from PR #255, and create a deterministic handoff before merging the outstanding Proxx PR queue.
+- Promotion already completed: PR #260 merged `staging` to `main` at `be38eb80708f14f1a1fc27b04f7ca2ca22e912a2`.
+- Residual dirt being preserved: `DEVEL.md` production curl example now uses `gpt-5.5` with the `${PROXX_PROD_AUTH_TOKEN}` placeholder.
 
 ## Changed
 
-- Preserved local `DEVEL.md` production curl example using only an environment-variable token placeholder.
-- Preserved append-only `receipts.edn` entries from the Proxx deploy/bridge repair campaign.
-- Removed generated `reports/jscpd/**` HTML/CSS/JS/JSON artifacts from the docs PR.
-- Added `reports/jscpd/` to `.gitignore` so regenerated reports do not become source dirt.
-- Refreshed Π handoff artifacts in `.ημ/`.
+- Merged outstanding PRs #256, #255, #254, and promotion PR #260.
+- Preserved final local `DEVEL.md` dirt by creating this docs branch rather than resetting it away.
+- Appended `receipts.edn` with the fork-tax/PR closeout ledger.
+- Refreshed Π handoff artifacts in `.ημ/` for the residual docs branch.
 
 ## Boundary
 
-- Did not touch secrets or inline token values.
-- Did not destructively clean unrelated branches, worktrees, submodules, or root workspace dirt.
-- Existing local worktrees/branches are treated as concurrent history and left intact.
+- No secrets were added; production auth remains an environment-variable placeholder.
+- No repo-wide reset/restore/clean was used.
+- Unrelated worktrees and root workspace dirt were left untouched.
 
 ## Verification
 
-- `git diff --check` passed before commit.
-- No full build was run for this docs/receipt/generated-artifact cleanup slice.
+- PR #254 checks passed after review fixes; local `pnpm run check:no-new-typescript` passed on that branch.
+- PR #255 checks passed after generated jscpd artifacts were removed.
+- PR #260 was admin-merged after code checks passed; production deploy run `26801068165` succeeded.
+- Public `https://proxx.promethean.rest/health` returned HTTP 200 after the main deploy.
+- This residual branch is docs/receipts/handoff only; no full build was run for the final `DEVEL.md` example change.
 
-## Follow-up merge campaign
+## Follow-up
 
-- Merge the stacked CodeRabbit autofix PR #256 into PR #254.
-- Merge PR #254 and PR #255 into `staging` after checks/update-branch.
-- Promote `staging` to `main` with a PR and push a deterministic fork-tax tag.
+- Open and merge this residual docs branch to `staging`, then promote `staging` to `main` again.
+- Create the final deterministic Π tag on the final `main` merge commit.
