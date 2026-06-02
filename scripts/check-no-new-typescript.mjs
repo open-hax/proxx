@@ -91,7 +91,7 @@ function validateEntry(entry, index) {
   if (missing.length > 0) {
     return `entry[${index}] ${entry.path || "<missing path>"} missing ${missing.join(", ")}`;
   }
-  if (path.isAbsolute(entry.path) || entry.path.includes("\\") || entry.path.includes("..")) {
+  if (path.isAbsolute(entry.path) || entry.path.includes("\\") || entry.path.split("/").includes("..")) {
     return `entry[${index}] has invalid relative POSIX path: ${entry.path}`;
   }
   return null;
