@@ -7742,7 +7742,7 @@ test("openai passthrough still reaches codex when provider catalog lookup is una
   );
 });
 
-test("openai passthrough strips max_output_tokens for codex path (regression: unsupported parameter)", async () => {
+test("openai passthrough strips codex-unsupported response parameters", async () => {
   let observedBody: Record<string, unknown> | undefined;
 
   await withProxyApp(
@@ -7786,6 +7786,7 @@ test("openai passthrough strips max_output_tokens for codex path (regression: un
           input: [{ role: "user", content: [{ type: "input_text", text: "hello" }] }],
           instructions: "",
           max_output_tokens: 32000,
+          prompt_cache_retention: "24h",
           stream: true
         }
       });
@@ -7793,6 +7794,7 @@ test("openai passthrough strips max_output_tokens for codex path (regression: un
       assert.equal(response.statusCode, 200);
       assert.ok(observedBody);
       assert.equal(observedBody.max_output_tokens, undefined, "max_output_tokens must be stripped for codex path");
+      assert.equal(observedBody.prompt_cache_retention, undefined, "prompt_cache_retention must be stripped for codex path");
     }
   );
 });
