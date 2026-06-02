@@ -6,8 +6,11 @@ coverage/
 target/
 .shadow-cljs/
 .clj-kondo/.cache/
+.lsp/
 .factory/
 
 .env
 keys.json
 models.json
+
+reports/jscpd/
