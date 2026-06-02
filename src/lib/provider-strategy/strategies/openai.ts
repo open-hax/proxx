@@ -27,6 +27,7 @@ import {
  */
 const CODEX_UNSUPPORTED_PARAMS = [
   "max_output_tokens",
+  "prompt_cache_retention",
   "temperature",
   "top_p",
   "presence_penalty",
