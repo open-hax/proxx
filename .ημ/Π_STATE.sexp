@@ -1,26 +1,27 @@
 (fork-tax-state
-  (timestamp "2026-06-02T05:59:56Z")
+  (timestamp "2026-06-03T20:14:11Z")
   (repo "/home/err/devel/orgs/open-hax/proxx")
   (worktree "/home/err/devel/orgs/open-hax/proxx")
-  (branch "docs/prod-gpt55-example")
+  (branch "devops/promethean-service-module-deploy")
   (base "origin/staging")
-  (intent "Preserve final residual DEVEL.md production gpt-5.5 example dirt through protected PR flow after merging all previously-open Proxx PRs and PR #260 promotion.")
+  (intent "Absorb the defaults policy-tree README (three-policy-trees doctrine: defaults vs local peer vs Promethean relay) and promote the branch into staging via PR with a testing-label deploy.")
   (owned-paths
-    "DEVEL.md"
-    "receipts.edn"
+    "resources/policies/README.md"
     ".ημ/Π_LAST.md"
     ".ημ/Π_STATE.sexp"
-    ".ημ/Π_MANIFEST.sha256")
-  (merged-prs
-    (pr 256 "merged into chore/no-new-typescript-gate")
-    (pr 255 "merged into staging")
-    (pr 254 "merged into staging")
-    (pr 260 "merged into main"))
+    ".ημ/Π_MANIFEST.sha256"
+    ".ημ/registry.jsonl")
+  (state
+    "deploy-module commit 74b8b85 already merged into origin/staging as 0269ada"
+    "relay policy tree preserved in open-hax/services Π/20260603T201215Z (contracts/proxx/policies)")
   (verification
-    "pnpm run check:no-new-typescript -> pass on PR #254 branch"
-    "PR #260 production deploy run 26801068165 -> success"
-    "https://proxx.promethean.rest/health -> HTTP 200"
-    "final residual branch full build not run; docs/receipts/handoff only")
+    "README-referenced policy files exist: runtime/60-tenant-enforcement.edn, runtime/65-federation-routing.edn"
+    "docs-only change; CI gates (staging-typecheck, staging-unit-tests) run on the PR")
+  (deployment
+    "pending: PR devops/promethean-service-module-deploy -> staging"
+    "pending: testing label -> deploy-testing.yml label-gated test deploy"
+    "staging deploy routes through open-hax/services/.github/workflows/deploy-promethean.yml@main service=proxx")
+  (concurrent-dirt-left-untouched)
   (guardrails
-    "No secret values logged."
-    "No destructive cleanup of unrelated worktrees or root workspace dirt."))
+    "Path-scoped staging; no repo-wide reset/restore/clean."
+    "No secrets logged."))
