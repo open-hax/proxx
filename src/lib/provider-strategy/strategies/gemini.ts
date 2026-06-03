@@ -145,8 +145,66 @@ function joinUrl(baseUrl: string, path: string): string {
   return `${baseUrl.replace(/\/+$/, "")}/${path.replace(/^\/+/, "")}`;
 }
 
-export function openAiMessagesToGeminiContents(messages: unknown[]): Array<{ role: string; parts: Array<{ text: string }> }> {
-  const contents: Array<{ role: string; parts: Array<{ text: string }> }> = [];
+export type GeminiPart = {
+  text?: string;
+  functionCall?: { name: string; args: Record<string, unknown> };
+  functionResponse?: { name: string; response: Record<string, unknown> };
+};
+export type GeminiContent = { role: string; parts: GeminiPart[] };
+
+// OpenAI tool_calls carry arguments as a JSON string; Gemini functionCall.args is an object.
+function parseToolCallArguments(raw: unknown): Record<string, unknown> {
+  if (isRecord(raw)) {
+    return raw;
+  }
+  const text = asString(raw);
+  if (!text) {
+    return {};
+  }
+  try {
+    const parsed = JSON.parse(text);
+    return isRecord(parsed) ? parsed : { value: parsed };
+  } catch {
+    return {};
+  }
+}
+
+// OpenAI tool-result content is typically a string; Gemini functionResponse.response must be an object.
+function buildFunctionResponsePayload(content: unknown): Record<string, unknown> {
+  const text = openAiContentToText(content);
+  if (text.length === 0) {
+    return { result: "" };
+  }
+  try {
+    const parsed = JSON.parse(text);
+    return isRecord(parsed) ? parsed : { result: parsed };
+  } catch {
+    return { result: text };
+  }
+}
+
+export function openAiMessagesToGeminiContents(messages: unknown[]): GeminiContent[] {
+  const contents: GeminiContent[] = [];
+
+  // Tool-result messages may omit the function name, so map tool_call_id -> name
+  // from the assistant tool_calls that requested them.
+  const toolCallNames = new Map<string, string>();
+  for (const message of messages) {
+    if (!isRecord(message) || !Array.isArray(message.tool_calls)) {
+      continue;
+    }
+    for (const call of message.tool_calls) {
+      if (!isRecord(call)) {
+        continue;
+      }
+      const id = asString(call.id);
+      const fn = isRecord(call.function) ? call.function : undefined;
+      const name = fn ? asString(fn.name) : undefined;
+      if (id && name) {
+        toolCallNames.set(id, name);
+      }
+    }
+  }
 
   for (const message of messages) {
     if (!isRecord(message)) {
@@ -154,10 +212,6 @@ export function openAiMessagesToGeminiContents(messages: unknown[]): Array<{ rol
     }
 
     const role = asString(message.role)?.trim().toLowerCase() ?? "";
-    const text = openAiContentToText(message.content).trim();
-    if (text.length === 0) {
-      continue;
-    }
 
     if (role === "system") {
       // System messages are handled separately via systemInstruction
@@ -165,12 +219,49 @@ export function openAiMessagesToGeminiContents(messages: unknown[]): Array<{ rol
     }
 
     if (role === "user") {
-      contents.push({ role: "user", parts: [{ text }] });
+      const text = openAiContentToText(message.content).trim();
+      if (text.length > 0) {
+        contents.push({ role: "user", parts: [{ text }] });
+      }
       continue;
     }
 
     if (role === "assistant") {
-      contents.push({ role: "model", parts: [{ text }] });
+      const parts: GeminiPart[] = [];
+      const text = openAiContentToText(message.content).trim();
+      if (text.length > 0) {
+        parts.push({ text });
+      }
+      if (Array.isArray(message.tool_calls)) {
+        for (const call of message.tool_calls) {
+          if (!isRecord(call)) {
+            continue;
+          }
+          const fn = isRecord(call.function) ? call.function : undefined;
+          const name = fn ? asString(fn.name) : undefined;
+          if (!name) {
+            continue;
+          }
+          parts.push({ functionCall: { name, args: parseToolCallArguments(fn?.arguments) } });
+        }
+      }
+      // Gemini Content.role only accepts "user"/"model"; assistant -> model.
+      if (parts.length > 0) {
+        contents.push({ role: "model", parts });
+      }
+      continue;
+    }
+
+    if (role === "tool" || role === "function") {
+      const toolCallId = asString(message.tool_call_id);
+      const name = asString(message.name)
+        ?? (toolCallId ? toolCallNames.get(toolCallId) : undefined)
+        ?? "tool";
+      // Function responses are sent back under role "user" (Gemini has no tool role).
+      contents.push({
+        role: "user",
+        parts: [{ functionResponse: { name, response: buildFunctionResponsePayload(message.content) } }],
+      });
       continue;
     }
   }
@@ -344,6 +435,59 @@ export function geminiResponseToChatCompletion(response: unknown, routedModel: s
         }
       : {}),
   };
+}
+
+export function geminiPayloadToSdkRequest(model: string, payload: Record<string, unknown>): { model: string; contents: GeminiContent[]; config: Record<string, unknown> } {
+  const contents = Array.isArray(payload.contents)
+    ? payload.contents as GeminiContent[]
+    : [];
+  const systemInstruction = isRecord(payload.systemInstruction)
+    ? payload.systemInstruction as { parts?: unknown }
+    : undefined;
+  const generationConfig = isRecord(payload.generationConfig)
+    ? payload.generationConfig
+    : undefined;
+
+  // Preserve all part shapes (text, functionCall, functionResponse) — do NOT
+  // remap to { text } only, which would silently drop tool-call/result parts.
+  const sdkContents = contents.map((content) => ({
+    role: content.role,
+    parts: [...content.parts],
+  }));
+
+  const config: Record<string, unknown> = {};
+
+  if (generationConfig) {
+    if (generationConfig.temperature !== undefined) {
+      config.temperature = generationConfig.temperature;
+    }
+    if (generationConfig.maxOutputTokens !== undefined) {
+      config.maxOutputTokens = generationConfig.maxOutputTokens;
+    }
+    if (generationConfig.thinkingConfig) {
+      config.thinkingConfig = generationConfig.thinkingConfig;
+    }
+  }
+
+  if (systemInstruction && Array.isArray(systemInstruction.parts)) {
+    const systemText = systemInstruction.parts
+      .filter(isRecord)
+      .map((part) => asString(part.text) ?? "")
+      .join("\n\n");
+    if (systemText) {
+      config.systemInstruction = systemText;
+    }
+  }
+
+  if (Array.isArray(payload.tools)) {
+    config.tools = payload.tools;
+  }
+
+  if (isRecord(payload.toolConfig)) {
+    config.toolConfig = payload.toolConfig;
+  }
+
+  return { model, contents: sdkContents, config };
 }
 
 export class GeminiChatProviderStrategy extends BaseProviderStrategy implements DirectExecutionProviderStrategy {
@@ -530,44 +674,11 @@ export class GeminiChatProviderStrategy extends BaseProviderStrategy implements 
     }
 
     try {
-      const contents = payload.contents as Array<{ role: string; parts: Array<{ text: string }> }>;
-      const systemInstruction = payload.systemInstruction as { parts: Array<{ text: string }> } | undefined;
-      const generationConfig = payload.generationConfig as Record<string, unknown> | undefined;
-
-      // Convert contents to SDK format
-      const sdkContents = contents.map((content) => ({
-        role: content.role,
-        parts: content.parts.map((part) => ({ text: part.text })),
-      }));
-
-      // Build config for SDK
-      const config: Record<string, unknown> = {};
-      
-      if (generationConfig) {
-        if (generationConfig.temperature !== undefined) {
-          config.temperature = generationConfig.temperature;
-        }
-        if (generationConfig.maxOutputTokens !== undefined) {
-          config.maxOutputTokens = generationConfig.maxOutputTokens;
-        }
-        if (generationConfig.thinkingConfig) {
-          config.thinkingConfig = generationConfig.thinkingConfig;
-        }
-      }
-
-      // Add system instruction if present
-      if (systemInstruction) {
-        const systemText = systemInstruction.parts.map((p) => p.text).join("\n\n");
-        config.systemInstruction = systemText;
-      }
+      const sdkRequest = geminiPayloadToSdkRequest(model, payload);
 
       if (context.clientWantsStream) {
         // Handle streaming
-        const streamResult = await genAI.models.generateContentStream({
-          model,
-          contents: sdkContents,
-          config,
-        });
+        const streamResult = await genAI.models.generateContentStream(sdkRequest);
 
         // Convert stream to SSE
         reply.code(200);
@@ -589,26 +700,52 @@ export class GeminiChatProviderStrategy extends BaseProviderStrategy implements 
         try {
           let accumulatedText = "";
           let accumulatedReasoning = "";
-          
+          const functionCallParts: Array<Record<string, unknown>> = [];
+
           for await (const chunk of streamResult) {
-            const chunkText = chunk.text ?? "";
-            if (chunkText) {
-              accumulatedText += chunkText;
-            }
-            
-            // Check for reasoning/thoughts in the chunk
             const chunkData = chunk as unknown as Record<string, unknown>;
-            if (chunkData.thought === true && chunkText) {
-              accumulatedReasoning += chunkText;
+            const candidates = Array.isArray(chunkData.candidates) ? chunkData.candidates : [];
+            const firstCandidate = candidates.length > 0 && isRecord(candidates[0]) ? candidates[0] : undefined;
+            const content = firstCandidate && isRecord(firstCandidate.content) ? firstCandidate.content : undefined;
+            const parts = content && Array.isArray(content.parts) ? content.parts : [];
+
+            for (const part of parts) {
+              if (!isRecord(part)) {
+                continue;
+              }
+              // Accumulate function-call parts so streamed tool calls are not lost.
+              if (part.functionCall) {
+                functionCallParts.push(part);
+                continue;
+              }
+              const partText = asString(part.text) ?? "";
+              if (!partText) {
+                continue;
+              }
+              if (part.thought === true) {
+                accumulatedReasoning += partText;
+              } else {
+                accumulatedText += partText;
+              }
             }
           }
+
+          // Reassemble parts so geminiResponseToChatCompletion sees text, reasoning,
+          // and any function calls (which it maps to OpenAI tool_calls).
+          const finalParts: Array<Record<string, unknown>> = [];
+          if (accumulatedText) {
+            finalParts.push({ text: accumulatedText });
+          }
+          if (accumulatedReasoning) {
+            finalParts.push({ text: accumulatedReasoning, thought: true });
+          }
+          finalParts.push(...functionCallParts);
 
           // Send final completion as SSE
           const chatCompletion = geminiResponseToChatCompletion({
             candidates: [{
               content: {
-                parts: [{ text: accumulatedText }],
-                ...(accumulatedReasoning ? { reasoningContent: accumulatedReasoning } : {}),
+                parts: finalParts.length > 0 ? finalParts : [{ text: "" }],
               },
               finishReason: "STOP",
             }],
@@ -629,11 +766,7 @@ export class GeminiChatProviderStrategy extends BaseProviderStrategy implements 
         return { kind: "handled" };
       } else {
         // Non-streaming request
-        const response = await genAI.models.generateContent({
-          model,
-          contents: sdkContents,
-          config,
-        });
+        const response = await genAI.models.generateContent(sdkRequest);
 
         const chatCompletion = geminiResponseToChatCompletion(response as unknown as Record<string, unknown>, context.routedModel);
 
