@@ -442,10 +442,17 @@ curl -s -H "Authorization: Bearer ${PROD_PROXX_AUTH_TOKEN}" \
 
 
 ```bash
-
 curl -s -H "Authorization: Bearer ${PROXX_API_KEY}" \
   -H "Content-Type: application/json" \
-  -d '{"model":"ollama-lan/gemma4:e4b","messages":[{"role":"user","content":"Say hello in one sentence."}],"max_tokens":100,"stream":false}' \
+  -d '{"model":"ollama-lan/gemma4:e4b","messages":[{"role":"user","content":"Say hello in one sentence."}],"max_tokens":100}' \
+  "http://localhost:8789/v1/chat/completions" 2>&1
+```
+
+### ollama cloude from local proxx
+```bash
+curl -s -H "Authorization: Bearer ${PROXX_API_KEY}" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"gemma4:31b","messages":[{"role":"user","content":"Say hello in one sentence."}],"max_tokens":100}' \
   "http://localhost:8789/v1/chat/completions" 2>&1
 ```
 
@@ -453,6 +460,13 @@ curl -s -H "Authorization: Bearer ${PROXX_API_KEY}" \
 
 ```bash
 
+curl -s -H "Authorization: Bearer ${PROXX_PROD_AUTH_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"gemma4:31b","messages":[{"role":"user","content":"Say hello in one sentence."}],"max_tokens":100}' \
+  "https://proxx.promethean.rest/v1/chat/completions" 2>&1
+```
+
+```bash
 curl -s -H "Authorization: Bearer ${PROXX_PROD_AUTH_TOKEN}" \
   -H "Content-Type: application/json" \
   -d '{"model":"gpt-5.5","messages":[{"role":"user","content":"Say hello in one sentence."}],"max_tokens":100,"stream":false}' \
