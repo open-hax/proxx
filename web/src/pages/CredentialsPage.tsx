@@ -48,25 +48,6 @@ const LS_CREDENTIALS_ACCOUNT_SEARCH = "open-hax-proxy.ui.credentials.accountSear
 const LS_CREDENTIALS_LOG_PROVIDER = "open-hax-proxy.ui.credentials.logProvider";
 const LS_CREDENTIALS_LOG_ACCOUNT = "open-hax-proxy.ui.credentials.logAccount";
 
-function validateBoolean(value: unknown): boolean | undefined {
-  if (typeof value === "boolean") {
-    return value;
-  }
-
-  // Backwards compat: older versions might store as strings.
-  if (typeof value === "string") {
-    const normalized = value.trim().toLowerCase();
-    if (normalized === "true" || normalized === "1" || normalized === "yes" || normalized === "on") {
-      return true;
-    }
-    if (normalized === "false" || normalized === "0" || normalized === "no" || normalized === "off") {
-      return false;
-    }
-  }
-
-  return undefined;
-}
-
 function validateString(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
