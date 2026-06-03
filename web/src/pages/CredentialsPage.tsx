@@ -43,7 +43,6 @@ interface DeviceAuthState {
   readonly intervalMs: number;
 }
 
-const LS_CREDENTIALS_REVEAL_SECRETS = "open-hax-proxy.ui.credentials.revealSecrets";
 const LS_CREDENTIALS_GROUPING = "open-hax-proxy.ui.credentials.grouping";
 const LS_CREDENTIALS_ACCOUNT_SEARCH = "open-hax-proxy.ui.credentials.accountSearch";
 const LS_CREDENTIALS_LOG_PROVIDER = "open-hax-proxy.ui.credentials.logProvider";
@@ -369,7 +368,7 @@ function humanIdentityLabel(entry: AccountEntry): string | null {
 export function CredentialsPage(): JSX.Element {
   // NOTE: Persisting revealSecrets can be risky on shared machines; you asked
   // for persistence so we do it, but it will auto-load on refresh.
-  const [revealSecrets, setRevealSecrets] = useStoredState(LS_CREDENTIALS_REVEAL_SECRETS, false, validateBoolean);
+  const [revealSecrets, setRevealSecrets] = useState(false);
   const [providers, setProviders] = useState<CredentialProvider[]>([]);
   const [keyPoolStatuses, setKeyPoolStatuses] = useState<Record<string, KeyPoolStatus>>({});
   const [requestLogSummary, setRequestLogSummary] = useState<Record<string, ProviderRequestLogSummary>>({});
