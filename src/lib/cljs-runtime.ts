@@ -91,6 +91,11 @@ export interface ProxxCljsRuntime {
   readonly loadModelPricingOverrides: (manifestPath: string) => unknown;
   readonly loadProviderSeedSpecs: (manifestPath: string) => unknown;
   readonly previewPolicyDecision: (manifestPath: string, input: unknown) => CljsPolicyDecisionPreviewResult;
+  readonly executePolicyTree?: (
+    manifestPath: string,
+    input: unknown,
+    tryCandidate: (candidate: unknown) => Promise<{ readonly status: string; readonly reason?: string }>,
+  ) => Promise<{ readonly status: string; readonly result?: unknown; readonly trace?: readonly unknown[] }>;
   readonly normalizeReasoningRequest: (manifestPath: string, input: unknown) => CljsReasoningNormalizationResult;
   readonly resolveModelAlias: (manifestPath: string, modelId: string, providerId: string) => CljsModelAliasResult;
   readonly resolveAutoModelCandidates?: (manifestPath: string, input: unknown) => CljsAutoModelCandidatesResult;
@@ -146,6 +151,7 @@ function isProxxCljsRuntime(value: Record<string, unknown>): value is Record<str
     (value.resolveFederationRouteCandidates === undefined || typeof value.resolveFederationRouteCandidates === "function") &&
     (value.authorizeTenantProviderPolicy === undefined || typeof value.authorizeTenantProviderPolicy === "function") &&
     (value.runModelCandidates === undefined || typeof value.runModelCandidates === "function") &&
+    (value.executePolicyTree === undefined || typeof value.executePolicyTree === "function") &&
     (value.resolveQueuePolicy === undefined || typeof value.resolveQueuePolicy === "function") &&
     (value.getProviderRoutes === undefined || typeof value.getProviderRoutes === "function") &&
     (value.runQueued === undefined || typeof value.runQueued === "function")
