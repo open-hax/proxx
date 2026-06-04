@@ -241,7 +241,7 @@ export async function persistFactoryAuthV2(accessToken: string, refreshToken: st
       access_token: accessToken,
       refresh_token: refreshToken,
     });
-    await writeFile(authV2File, encrypted, "utf-8");
+    await writeFile(authV2File, encrypted, { encoding: "utf-8", mode: 0o600 });
   } catch (error) {
     console.warn(
       `[factory-auth] Failed to persist refreshed tokens to ${authV2File}: ${error instanceof Error ? error.message : String(error)}`
