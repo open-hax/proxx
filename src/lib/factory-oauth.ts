@@ -348,10 +348,9 @@ export class FactoryOAuthManager {
       throw new Error("Unknown or expired OAuth state");
     }
 
-    this.browserPending.delete(state);
-
     const completion = this.exchangeAuthorizationCode(code)
       .then((tokens) => {
+        this.browserPending.delete(state);
         this.browserCompletions.set(state, {
           tokens,
           expiresAt: this.now() + this.browserCompletionTtlMs,
