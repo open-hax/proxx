@@ -194,11 +194,14 @@ async function withProxyApp(
   if (cljsRuntime) {
     setActiveCljsRuntime(cljsRuntime);
   }
-  const app = await createApp(config);
+  let app: FastifyInstance | undefined;
   try {
+    app = await createApp(config);
     await fn({ app, upstream, tempDir });
   } finally {
-    await app.close();
+    if (app) {
+      await app.close();
+    }
     setActiveCljsRuntime(previousCljsRuntime);
     await new Promise<void>((resolve, reject) => {
       upstream.close((error) => {
