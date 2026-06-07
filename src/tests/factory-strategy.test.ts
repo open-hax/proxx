@@ -538,7 +538,7 @@ test("factory route returns 503 when no factory credentials exist", { concurrenc
           });
 
           // Should get an error — no factory credentials
-          assert.ok(response.statusCode >= 400);
+          assert.equal(response.statusCode, 503);
         },
       );
     },
