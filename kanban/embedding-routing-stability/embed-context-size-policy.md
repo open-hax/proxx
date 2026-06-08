@@ -54,8 +54,12 @@ The already-correct `recommendedNumCtx` is ignored on the happy path.
    - Add an embedding context-size knob to policy (e.g. in `20-provider-capabilities.edn`),
      resolvable **per provider-route and/or per model-family** — so a constrained box
      (`ollama-lan`) can cap embeddings at, say, **8192**, while a roomy backend may allow more.
-   - Resolution order: explicit request `num_ctx` → policy per-route cap → policy per-family cap →
-     conservative global default (propose **8192**, replacing the 256k default).
+   - Resolve the **policy cap** in order: per-route cap → per-family cap → conservative global
+     default (propose **8192**, replacing the 256k default).
+   - A request-supplied `num_ctx` is a *desired* value, never an override of the cap. Always
+     clamp it: `effective_ctx = min(requested_num_ctx ?? recommendedNumCtx, policy_cap)`. A
+     request may shrink `num_ctx` but can never exceed the resolved cap — otherwise a client
+     could bypass the very safeguard this task introduces. (Per CodeRabbit on #274.)
    - Keep the overflow guard: if input genuinely exceeds the cap, error clearly
      (`embed_context_overflow`) rather than silently ballooning the cache.
 3. Plumb the resolved cap through `embeddings.ts` → `ensureNativeOllamaEmbedContextFits`
