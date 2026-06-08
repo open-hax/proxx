@@ -1,32 +1,27 @@
 (fork-tax-state
-  (timestamp "2026-06-03T01:53:20Z")
+  (timestamp "2026-06-03T20:14:11Z")
   (repo "/home/err/devel/orgs/open-hax/proxx")
   (worktree "/home/err/devel/orgs/open-hax/proxx")
-  (branch "fix/gemini-tool-call-roundtrip")
+  (branch "devops/promethean-service-module-deploy")
   (base "origin/staging")
-  (intent "Round-trip tool calls/results through the gemini-chat completions translation so gemma4:31b (alias gemma-4-31b-it) stops returning :agent-turn/empty-output in knoxx. Builds on the prior uncommitted geminiPayloadToSdkRequest SDK-tools-preservation fix.")
+  (intent "Absorb the defaults policy-tree README (three-policy-trees doctrine: defaults vs local peer vs Promethean relay) and promote the branch into staging via PR with a testing-label deploy.")
   (owned-paths
-    "src/lib/provider-strategy/strategies/gemini.ts"
-    "src/tests/gemini-strategy.test.ts"
-    "DEVEL.md"
-    "receipts.edn"
+    "resources/policies/README.md"
     ".ημ/Π_LAST.md"
     ".ημ/Π_STATE.sexp"
-    ".ημ/Π_MANIFEST.sha256")
-  (defects-fixed
-    (request-history "openAiMessagesToGeminiContents dropped assistant tool_calls (content:null) and role:tool results; now emits functionCall/functionResponse parts")
-    (part-mapping "geminiPayloadToSdkRequest flattened parts to {text}, stripping function parts; now preserves all part shapes")
-    (streaming "stream handler only accumulated chunk.text; now collects functionCall parts so streamed tool calls survive"))
+    ".ημ/Π_MANIFEST.sha256"
+    ".ημ/registry.jsonl")
+  (state
+    "deploy-module commit 74b8b85 already merged into origin/staging as 0269ada"
+    "relay policy tree preserved in open-hax/services Π/20260603T201215Z (contracts/proxx/policies)")
   (verification
-    "pnpm typecheck -> pass"
-    "npx tsx --test src/tests/gemini-strategy.test.ts -> 29/29 pass (4 new)"
-    "pnpm build (TS + CLJS release) -> pass"
-    "live proxy.test.ts -> NOT run (needs running instance + PROXY_AUTH_TOKEN)")
+    "README-referenced policy files exist: runtime/60-tenant-enforcement.edn, runtime/65-federation-routing.edn"
+    "docs-only change; CI gates (staging-typecheck, staging-unit-tests) run on the PR")
   (deployment
-    "pending: PR fix/gemini-tool-call-roundtrip -> staging, then staging -> main promotion")
-  (concurrent-dirt-left-untouched
-    ".#DEVEL.md emacs lockfile (untracked, not staged)")
+    "pending: PR devops/promethean-service-module-deploy -> staging"
+    "pending: testing label -> deploy-testing.yml label-gated test deploy"
+    "staging deploy routes through open-hax/services/.github/workflows/deploy-promethean.yml@main service=proxx")
+  (concurrent-dirt-left-untouched)
   (guardrails
-    "No secret values logged; DEVEL.md uses env-var placeholders only."
     "Path-scoped staging; no repo-wide reset/restore/clean."
-    "New branch cut from origin/staging; prior merged branch left intact."))
+    "No secrets logged."))
