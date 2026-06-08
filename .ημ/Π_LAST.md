@@ -1,56 +1,47 @@
-# Π Last Snapshot — Gemini tool-call round-trip fix
+# Π Last Snapshot — defaults policy-tree README + staging promotion
 
-- Timestamp: 2026-06-03T01:53:20Z
+- Timestamp: 2026-06-03T20:14:11Z
 - Repo: `/home/err/devel/orgs/open-hax/proxx`
-- Branch: `fix/gemini-tool-call-roundtrip`
+- Branch: `devops/promethean-service-module-deploy`
 - Base target: `origin/staging`
-- Fix commit: `51feb10`
 
-## Problem
+## State
 
-`gemma4:31b` routes (by deployed EDN policy) to provider `gemini` / strategy
-`gemini-chat`, aliased to `gemma-4-31b-it`. The gemini completions translation
-round-trip lost tool calls/results, so knoxx agent turns finalized with
-`:agent-turn/empty-output` ("Agent turn completed without assistant text, tool
-calls, or content parts").
+The promethean-module deploy commit (74b8b85) is already merged into
+`origin/staging` (as 0269ada). The only remaining working-tree dirt was
+`resources/policies/README.md`, new documentation for the **defaults**
+policy tree.
 
 ## Changed
 
-Three defects fixed in `src/lib/provider-strategy/strategies/gemini.ts`:
-
-1. **Request history** — `openAiMessagesToGeminiContents` only emitted text for
-   user/assistant. Assistant `tool_calls` messages (content:null) were dropped
-   and `role:"tool"` results had no path. Now maps assistant `tool_calls` →
-   `functionCall` parts (role `model`) and tool results → `functionResponse`
-   parts (role `user`; Gemini accepts only user/model), resolving the function
-   name from `tool_call_id` when omitted and parsing stringified `arguments`.
-2. **Part mapping** — `geminiPayloadToSdkRequest` flattened every part to
-   `{ text }`, stripping function parts before the SDK call. Now preserves all
-   part shapes.
-3. **Streaming** — the stream handler only accumulated `chunk.text`, so a
-   streamed `functionCall` produced empty content + no tool_calls → empty
-   output. Now reads candidate parts and accumulates `functionCall` parts.
-
-Adds `GeminiPart`/`GeminiContent` types and 5 tests. Builds on the prior
-(previously uncommitted) `geminiPayloadToSdkRequest` SDK-tools-preservation fix,
-which is included in the same commit.
+- `resources/policies/README.md` — documents the single-node/single-user
+  assumptions of the shipped defaults, the `:deny`-by-default tenant share
+  policy (`runtime/60-tenant-enforcement.edn`), the inert-until-peers
+  federation routing (`runtime/65-federation-routing.edn`), and the rule
+  that peer-node / Promethean-relay deployments get their OWN policy trees
+  via `PROXX_CLJS_POLICY_MANIFEST` instead of growing the defaults.
+  Encodes the three-policy-trees doctrine: defaults vs local peer vs
+  Promethean relay; never consolidate. (The relay tree itself is preserved
+  in open-hax/services @ Π/20260603T201215Z snapshot, contracts/proxx/policies.)
 
 ## Boundary
 
-- No secrets added; `DEVEL.md` curls use env-var placeholders only.
+- Docs-only change; no secrets.
 - Path-scoped staging; no repo-wide reset/restore/clean.
-- New branch cut from `origin/staging`; the merged `fix/policy-boundary-gemma4-deploy`
-  branch was left intact. The `.#DEVEL.md` emacs lockfile was left untracked.
+- No concurrent dirt present at snapshot time (tree otherwise clean).
 
 ## Verification
 
-- `pnpm typecheck` → pass
-- `npx tsx --test src/tests/gemini-strategy.test.ts` → 29/29 pass (4 new)
-- `pnpm build` (TS + CLJS release) → pass
-- Live `proxy.test.ts` → NOT run here (needs a running instance + `PROXY_AUTH_TOKEN`)
+- Both policy files referenced by the README exist in
+  `resources/policies/runtime/` (60-tenant-enforcement, 65-federation-routing).
+- Docs-only change; build/test gates deferred to PR CI (staging-typecheck,
+  staging-unit-tests).
 
 ## Follow-up
 
-- PR `fix/gemini-tool-call-roundtrip` → `staging`; merge after staging checks.
-- Promotion PR `staging` → `main`; verify production deploy + a live
-  `gemma4:31b` tool-call probe against `https://proxx.promethean.rest`.
+- PR `devops/promethean-service-module-deploy` → `staging`.
+- Add `testing` label → label-gated test deploy via
+  `.github/workflows/deploy-testing.yml` (direct ssh slot, ussy2).
+- Staging push deploy routes through
+  `open-hax/services/.github/workflows/deploy-promethean.yml@main`
+  (service: proxx).
