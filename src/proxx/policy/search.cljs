@@ -12,8 +12,7 @@
    the search backtracks to the nearest sibling with unexplored children.
    This replaces the flat candidate-list approach with a structured decision
    tree that respects provider-strategy-account hierarchy."
-  (:require [clojure.string :as str]
-            [proxx.policy.contracts :as contracts]))
+  (:require [proxx.policy.contracts :as contracts]))
 
 ;; ─────────────────────────────────────────────────────────────────────────────
 ;; Search tree nodes
