@@ -319,6 +319,19 @@
     (catch :default e
       (js/Promise.reject e))))
 
+(defn classify-rate-limit-js
+  "Classify a rate-limit response using provider-specific EDN contracts.
+   Returns a JS object with {status, result} where result is 'volume', 'concurrency', or null."
+  [manifest-path provider-id status retry-after-ms]
+  (try
+    (let [compiled (compiled-policy-for-manifest manifest-path)
+          result (queue-policy/classify-rate-limit compiled provider-id status retry-after-ms)]
+      (clj->js {:status "ok"
+                :result (when result (name result))}))
+    (catch :default e
+      (clj->js {:status "error"
+                :error (.-message e)}))))
+
 (def exports
   #js {:normalizeKeys normalize-keys-js
        :validateEntity validate-entity-js
@@ -338,4 +351,5 @@
         :authorizeTenantProviderPolicy authorize-tenant-provider-policy-js
         :runModelCandidates run-model-candidates-js
        :resolveQueuePolicy resolve-queue-policy-js
-       :runQueued run-queued-js})
+       :runQueued run-queued-js
+       :classifyRateLimit classify-rate-limit-js})

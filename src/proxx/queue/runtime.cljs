@@ -125,12 +125,22 @@
 (defn ^:async run-attempt [task attempt policy total-deadline]
   (let [controller (js/AbortController.)
         tms        (effective-timeout-ms policy total-deadline)
-        timer      (arm-abort-timer! controller tms)
+        timer-ref  (atom (arm-abort-timer! controller tms))
+        completed? (atom false)
+        extend-timeout! (fn []
+                          (when-not @completed?
+                            (let [stream-tms (:queue/stream-timeout-ms policy 120000)]
+                              (js/clearTimeout @timer-ref)
+                              (reset! timer-ref (arm-abort-timer! controller stream-tms)))))
         abort-p    (make-abort-promise (.-signal controller) attempt)]
+    ;; Attach extendTimeout as a JS property for TS interop
+    (set! (.-extendTimeout controller) extend-timeout!)
+    (set! (.-extendTimeout (.-signal controller)) extend-timeout!)
     (try
       (await (js/Promise.race #js [(task controller) abort-p]))
       (finally
-        (js/clearTimeout timer)))))
+        (reset! completed? true)
+        (js/clearTimeout @timer-ref)))))
 
 ;; ── Retry classification ──────────────────────────────────────
 
