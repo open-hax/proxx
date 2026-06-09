@@ -25,8 +25,9 @@
                                               resolveFederationRouteCandidates proxx.runtime/resolve-federation-route-candidates-js
                                               authorizeTenantProviderPolicy proxx.runtime/authorize-tenant-provider-policy-js
                                              runModelCandidates proxx.runtime/run-model-candidates-js
-                                           resolveQueuePolicy proxx.runtime/resolve-queue-policy-js
-                                           runQueued proxx.runtime/run-queued-js}}}
+                                            resolveQueuePolicy proxx.runtime/resolve-queue-policy-js
+                                            runQueued proxx.runtime/run-queued-js
+                                            classifyRateLimit proxx.runtime/classify-rate-limit-js}}}
    :js-options {:js-provider :import
                 :keep-as-import #{"node:fs" "node:path"}}
    :compiler-options {:output-feature-set :es-next

@@ -214,6 +214,7 @@ export function classifyRateLimitKind(
   retryAfterMs: number | undefined,
   concurrencyThresholdMs: number = 30_000,
   providerId?: string,
+  manifestPath?: string,
 ): RateLimitKind {
   // Check provider-specific EDN policy first.
   if (providerId) {
@@ -221,7 +222,7 @@ export function classifyRateLimitKind(
     if (runtime?.classifyRateLimit) {
       try {
         const cljsResult = runtime.classifyRateLimit(
-          "resources/policies/runtime/00-manifest.edn",
+          manifestPath ?? "resources/policies/runtime/00-manifest.edn",
           providerId,
           429,
           retryAfterMs,
