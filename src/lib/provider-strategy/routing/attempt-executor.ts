@@ -255,6 +255,7 @@ export async function executeProviderRoutingPlan(
           ...baseProviderContext,
           baseUrl: step.baseUrl,
           attempt: accumulator.attempts,
+          queueSignal,
         };
 
         const upstreamUrl = joinUrl(providerContext.baseUrl, upstreamPath);
@@ -537,6 +538,7 @@ export async function executeProviderRoutingPlan(
             responseBody,
             cooldownMs,
             context.config.concurrencyThrottleThresholdMs,
+            candidate.providerId,
           );
 
           if (rateLimitKind === "concurrency_throttle") {
@@ -645,7 +647,7 @@ export async function executeProviderRoutingPlan(
               } catch {
                 retryBody = undefined;
               }
-              const retryKind = classifyRateLimitKind(retryBody, retryCooldownMs, context.config.concurrencyThrottleThresholdMs);
+              const retryKind = classifyRateLimitKind(retryBody, retryCooldownMs, context.config.concurrencyThrottleThresholdMs, candidate.providerId);
               try { await retryResponse.arrayBuffer(); } catch { /* ignore */ }
 
               if (retryKind !== "concurrency_throttle") {

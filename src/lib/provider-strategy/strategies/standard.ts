@@ -152,6 +152,13 @@ export class ResponsesProviderStrategy extends TransformedJsonProviderStrategy {
         }
       }
       rawResponse.flushHeaders();
+
+      // Extend queue timeout now that streaming has started successfully
+      const signal = context.queueSignal;
+      if (signal && typeof (signal as any).extendTimeout === "function") {
+        (signal as any).extendTimeout();
+      }
+
       await writeInterleavedResponsesSse(upstreamJson, context.routedModel, (data) => rawResponse.write(data));
       rawResponse.end();
       return { kind: "handled" };
@@ -322,12 +329,36 @@ export class ResponsesPassthroughStrategy extends BaseProviderStrategy {
         }
       }
       rawResponse.flushHeaders();
+
+      // Extend queue timeout now that streaming has started successfully
+      const signal = context.queueSignal;
+      if (signal && typeof (signal as any).extendTimeout === "function") {
+        (signal as any).extendTimeout();
+      }
+
       const nodeStream = Readable.fromWeb(upstreamResponse.body as never);
       nodeStream.on("error", () => {
         if (!rawResponse.writableEnded) {
           rawResponse.end();
         }
       });
+
+      // Emit SSE error if the queue aborts us mid-stream
+      if (signal) {
+        const onAbort = () => {
+          if (!rawResponse.writableEnded) {
+            rawResponse.write(
+              `data: ${JSON.stringify({
+                error: { message: "Provider stream aborted by request queue timeout" },
+              })}\n\n`
+            );
+            rawResponse.end();
+          }
+        };
+        signal.addEventListener("abort", onAbort, { once: true });
+        nodeStream.on("end", () => signal.removeEventListener("abort", onAbort));
+      }
+
       nodeStream.pipe(rawResponse);
       return { kind: "handled" };
     }

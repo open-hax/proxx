@@ -110,6 +110,12 @@ export interface ProxxCljsRuntime {
   ) => Promise<CljsModelCandidatesRunResult>;
   readonly resolveQueuePolicy?: (manifestPath: string, ctx: unknown) => CljsQueuePolicyResult;
   readonly runQueued?: <T>(manifestPath: string, ctx: unknown, task: (controller: AbortController) => Promise<T>) => Promise<T>;
+  readonly classifyRateLimit?: (
+    manifestPath: string,
+    providerId: string,
+    status: number,
+    retryAfterMs: number | undefined,
+  ) => { readonly status: string; readonly result?: string | null };
 }
 
 export type CljsRuntimeLoadResult =

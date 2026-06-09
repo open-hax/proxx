@@ -2,6 +2,7 @@ import type { IncomingHttpHeaders } from "node:http";
 import type { FastifyReply } from "fastify";
 
 import type { ProviderCredential } from "./key-pool.js";
+import { getActiveCljsRuntime } from "./cljs-runtime.js";
 
 const HOP_BY_HOP_HEADERS = new Set([
   "connection",
@@ -212,7 +213,33 @@ export function classifyRateLimitKind(
   errorBody: unknown,
   retryAfterMs: number | undefined,
   concurrencyThresholdMs: number = 30_000,
+  providerId?: string,
 ): RateLimitKind {
+  // Check provider-specific EDN policy first.
+  if (providerId) {
+    const runtime = getActiveCljsRuntime();
+    if (runtime?.classifyRateLimit) {
+      try {
+        const cljsResult = runtime.classifyRateLimit(
+          "resources/policies/runtime/00-manifest.edn",
+          providerId,
+          429,
+          retryAfterMs,
+        );
+        if (cljsResult.status === "ok" && cljsResult.result) {
+          if (cljsResult.result === "volume") {
+            return "quota_exhausted";
+          }
+          if (cljsResult.result === "concurrency") {
+            return "concurrency_throttle";
+          }
+        }
+      } catch {
+        // Fall back to generic heuristics on CLJS error.
+      }
+    }
+  }
+
   // Ollama session/weekly limits are always quota exhaustion.
   const ollamaKind = detectOllamaLimitKind(errorBody);
   if (ollamaKind === "session" || ollamaKind === "weekly") {

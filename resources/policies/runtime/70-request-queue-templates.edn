@@ -25,6 +25,6 @@
   :match/request-kind :images}
 
  {:contract/id :queue/default-embeddings
-  :contract/kind :request-queue-instance
-  :queue/template-id :queue/default
-  :match/request-kind :embeddings}]
+ :contract/kind :request-queue-instance
+ :queue/template-id :queue/default
+ :match/request-kind :embeddings}]

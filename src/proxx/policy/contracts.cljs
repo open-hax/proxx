@@ -100,6 +100,11 @@
        (filter #(= :request-queue-instance (:contract/kind %)))
        vec))
 
+(defn rate-limit-classifications [idx]
+  (->> (:contracts idx)
+       (filter #(= :rate-limit-classification (:contract/kind %)))
+       vec))
+
 (defn- provider-route-provider-id [route]
   (or (:provider/id route)
       (:provider-id route)
