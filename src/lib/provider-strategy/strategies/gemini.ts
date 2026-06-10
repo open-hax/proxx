@@ -724,8 +724,9 @@ export class GeminiChatProviderStrategy extends BaseProviderStrategy implements 
 
         // Extend queue timeout now that streaming has started successfully
         const signal = context.queueSignal;
-        if (signal && typeof (signal as any).extendTimeout === "function") {
-          (signal as any).extendTimeout();
+        const extendedSignal = signal as AbortSignal & { extendTimeout?: () => void } | undefined;
+        if (extendedSignal && typeof extendedSignal.extendTimeout === "function") {
+          extendedSignal.extendTimeout();
         }
 
         // Emit SSE error if the queue aborts us mid-stream

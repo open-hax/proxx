@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { assertCljsRuntimeReady, loadCljsRuntime } from "../lib/cljs-runtime.js";
+import { loadCljsRuntime } from "../lib/cljs-runtime.js";
 
 test("runQueued attaches extendTimeout to AbortController signal", async (t) => {
   const loaded = await loadCljsRuntime({ required: false });
@@ -29,7 +29,7 @@ test("runQueued attaches extendTimeout to AbortController signal", async (t) => 
 
   assert.ok(capturedSignal, "signal should be captured");
   assert.ok(
-    typeof (capturedSignal as any).extendTimeout === "function",
+    typeof (capturedSignal as AbortSignal & { extendTimeout?: () => void }).extendTimeout === "function",
     "signal should have extendTimeout function",
   );
 });
@@ -60,7 +60,7 @@ test("runQueued signal extendTimeout is callable", async (t) => {
   assert.ok(capturedSignal);
   // Should not throw
   assert.doesNotThrow(() => {
-    (capturedSignal as any).extendTimeout();
+    (capturedSignal as AbortSignal & { extendTimeout?: () => void }).extendTimeout?.();
   });
 });
 
