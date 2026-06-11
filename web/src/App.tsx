@@ -59,6 +59,18 @@ export function App(): JSX.Element {
       });
   }, []);
 
+  useEffect(() => {
+    if (fastModeMessage == null) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      setFastModeMessage(null);
+    }, 3000);
+
+    return () => clearTimeout(timer);
+  }, [fastModeMessage]);
+
   const handleSaveToken = () => {
     const trimmed = tokenInput.trim();
     saveAuthToken(trimmed);
