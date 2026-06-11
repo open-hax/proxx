@@ -298,3 +298,113 @@ test("CLJS runtime authorizes tenant-provider share modes from federation policy
   assert.equal(projectionResult?.status, "ok");
   assert.equal(projectionResult?.allowed, false);
 });
+
+test("CLJS runtime executes policy tree with backtracking", async (t) => {
+  const loaded = await loadCljsRuntime({ required: false });
+  if (!loaded.loaded) {
+    t.skip(`CLJS runtime artifact not built: ${loaded.reason}`);
+    return;
+  }
+  await assertCljsRuntimeReady(loaded.runtime);
+
+  assert.equal(typeof loaded.runtime.executePolicyTree, "function");
+
+  const attempts: Array<{ readonly providerId: string; readonly accountId: string; readonly strategyMode: string }> = [];
+
+  const result = await loaded.runtime.executePolicyTree!(
+    "resources/policies/runtime/00-manifest.edn",
+    {
+      modelId: "gpt-5-mini",
+      requestKind: "chat",
+      tenantSettings: {
+        allowedProviderIds: ["openai", "factory"],
+      },
+      accountsByProvider: {
+        openai: [
+          { accountId: "free", planType: "free" },
+          { accountId: "plus", planType: "plus" },
+        ],
+        factory: [
+          { accountId: "team", planType: "team" },
+        ],
+      },
+      strategiesByProvider: {
+        openai: [
+          { mode: "chat-completions", priority: 1 },
+        ],
+        factory: [
+          { mode: "chat-completions", priority: 1 },
+        ],
+      },
+    },
+    (candidate: unknown) => {
+      const c = candidate as {
+        readonly "provider-id"?: string;
+        readonly account?: { readonly accountId?: string };
+        readonly "strategy-mode"?: string;
+      };
+      attempts.push({
+        providerId: c["provider-id"] ?? "",
+        accountId: c.account?.accountId ?? "",
+        strategyMode: c["strategy-mode"] ?? "",
+      });
+      // Fail the first attempt, succeed on the second
+      if (attempts.length < 2) {
+        return Promise.resolve({ status: "failure", reason: "simulated" });
+      }
+      return Promise.resolve({ status: "success" });
+    },
+  );
+
+  assert.equal(result.status, "ok");
+  assert.ok(result.result);
+  const resultCtx = result.result as {
+    readonly "provider-id"?: string;
+    readonly account?: { readonly accountId?: string };
+  };
+  // With gpt-free-blocked, free accounts are excluded.
+  // Order is: openai plus (fail) -> factory team (success)
+  assert.equal(resultCtx["provider-id"], "factory");
+  assert.equal(resultCtx.account?.accountId, "team");
+
+  assert.equal(attempts.length, 2);
+  assert.equal(attempts[0]?.providerId, "openai");
+  assert.equal(attempts[0]?.accountId, "plus");
+  assert.equal(attempts[1]?.providerId, "factory");
+  assert.equal(attempts[1]?.accountId, "team");
+});
+
+test("CLJS policy tree exhausts when all candidates fail", async (t) => {
+  const loaded = await loadCljsRuntime({ required: false });
+  if (!loaded.loaded) {
+    t.skip(`CLJS runtime artifact not built: ${loaded.reason}`);
+    return;
+  }
+  await assertCljsRuntimeReady(loaded.runtime);
+
+  const result = await loaded.runtime.executePolicyTree!(
+    "resources/policies/runtime/00-manifest.edn",
+    {
+      modelId: "gpt-5-mini",
+      requestKind: "chat",
+      tenantSettings: {
+        allowedProviderIds: ["openai"],
+      },
+      accountsByProvider: {
+        openai: [
+          { accountId: "plus", planType: "plus" },
+        ],
+      },
+      strategiesByProvider: {
+        openai: [
+          { mode: "chat-completions", priority: 1 },
+        ],
+      },
+    },
+    () => Promise.resolve({ status: "failure", reason: "always-fails" }),
+  );
+
+  assert.equal(result.status, "exhausted");
+  assert.ok(Array.isArray(result.trace));
+  assert.ok(result.trace.length > 0);
+});

@@ -115,6 +115,7 @@ export async function executeLocalStrategy(
 
     await strategy.handleLocalAttempt(reply, upstreamResponse, {
       ...context,
-      baseUrl: context.config.ollamaBaseUrl
+      baseUrl: context.config.ollamaBaseUrl,
+      queueSignal,
     });
 }
