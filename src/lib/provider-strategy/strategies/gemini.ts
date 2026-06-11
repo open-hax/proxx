@@ -490,6 +490,31 @@ export function geminiPayloadToSdkRequest(model: string, payload: Record<string,
   return { model, contents: sdkContents, config };
 }
 
+export function classifyGeminiSdkError(errorMessage: string): ProviderAttemptOutcome {
+  if (
+    errorMessage.includes("rate limit")
+    || errorMessage.includes("RATE_LIMIT")
+    || errorMessage.includes("UNAVAILABLE")
+    || errorMessage.includes("503")
+  ) {
+    return { kind: "continue", rateLimit: true };
+  }
+
+  if (errorMessage.includes("model not found") || errorMessage.includes("MODEL_NOT_FOUND")) {
+    return { kind: "continue", modelNotFound: true };
+  }
+
+  if (errorMessage.includes("not supported") || errorMessage.includes("NOT_SUPPORTED")) {
+    return { kind: "continue", modelNotSupportedForAccount: true, requestError: true };
+  }
+
+  if (errorMessage.includes("invalid request") || errorMessage.includes("INVALID_ARGUMENT")) {
+    return { kind: "continue", requestError: true, upstreamInvalidRequest: true };
+  }
+
+  return { kind: "continue", requestError: true };
+}
+
 export class GeminiChatProviderStrategy extends BaseProviderStrategy implements DirectExecutionProviderStrategy {
   public readonly mode = "gemini_chat" as const;
 
@@ -697,6 +722,28 @@ export class GeminiChatProviderStrategy extends BaseProviderStrategy implements 
         }
         rawResponse.flushHeaders();
 
+        // Extend queue timeout now that streaming has started successfully
+        const signal = context.queueSignal;
+        const extendedSignal = signal as AbortSignal & { extendTimeout?: () => void } | undefined;
+        if (extendedSignal && typeof extendedSignal.extendTimeout === "function") {
+          extendedSignal.extendTimeout();
+        }
+
+        // Emit SSE error if the queue aborts us mid-stream
+        if (signal) {
+          const onAbort = () => {
+            if (!rawResponse.writableEnded) {
+              rawResponse.write(
+                `data: ${JSON.stringify({
+                  error: { message: "Provider stream aborted by request queue timeout" },
+                })}\n\n`
+              );
+              rawResponse.end();
+            }
+          };
+          signal.addEventListener("abort", onAbort, { once: true });
+        }
+
         try {
           let accumulatedText = "";
           let accumulatedReasoning = "";
@@ -783,26 +830,7 @@ export class GeminiChatProviderStrategy extends BaseProviderStrategy implements 
         return { kind: "handled" };
       }
     } catch (error) {
-      // Handle specific Gemini SDK errors
-      const errorMessage = String(error);
-      
-      if (errorMessage.includes("rate limit") || errorMessage.includes("RATE_LIMIT")) {
-        return { kind: "continue", rateLimit: true };
-      }
-      
-      if (errorMessage.includes("model not found") || errorMessage.includes("MODEL_NOT_FOUND")) {
-        return { kind: "continue", modelNotFound: true };
-      }
-      
-      if (errorMessage.includes("not supported") || errorMessage.includes("NOT_SUPPORTED")) {
-        return { kind: "continue", modelNotSupportedForAccount: true, requestError: true };
-      }
-      
-      if (errorMessage.includes("invalid request") || errorMessage.includes("INVALID_ARGUMENT")) {
-        return { kind: "continue", requestError: true, upstreamInvalidRequest: true };
-      }
-
-      return { kind: "continue", requestError: true };
+      return classifyGeminiSdkError(String(error));
     }
   }
 
