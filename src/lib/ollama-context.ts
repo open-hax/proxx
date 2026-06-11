@@ -164,7 +164,17 @@ export async function fetchOllamaModelContextLength(
     ?? asNumber(modelInfo?.["gemma3.context_length"])
     ?? asNumber(modelInfo?.["general.context_length"]);
 
-  const result = directContext ?? modelInfoContext ?? null;
+  // Respect model-specific num_ctx parameter if set (e.g. via Modelfile)
+  const parameters = asString(payload["parameters"]);
+  let paramContext: number | null = null;
+  if (parameters) {
+    const match = parameters.match(/num_ctx\s+(\d+)/);
+    if (match) {
+      paramContext = asNumber(Number(match[1])) ?? null;
+    }
+  }
+
+  const result = paramContext ?? directContext ?? modelInfoContext ?? null;
   if (result !== null) {
     contextLengthCache.set(cacheKey, { length: result, fetchedAt: Date.now() });
   }
