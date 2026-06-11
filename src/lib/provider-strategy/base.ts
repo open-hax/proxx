@@ -177,6 +177,13 @@ async function streamEventStreamToClient(
   }
   rawResponse.flushHeaders();
 
+  // Extend queue timeout now that streaming has started successfully
+  const signal = context.queueSignal;
+  const extendedSignal = signal as AbortSignal & { extendTimeout?: () => void } | undefined;
+  if (extendedSignal && typeof extendedSignal.extendTimeout === "function") {
+    extendedSignal.extendTimeout();
+  }
+
   try {
     for (const chunk of bootstrap.bufferedChunks) {
       rawResponse.write(chunk);
@@ -200,6 +207,15 @@ async function streamEventStreamToClient(
     }
 
     if (!rawResponse.writableEnded) {
+      // If the queue aborted us mid-stream, emit an SSE error so the client
+      // sees a proper error rather than a silent EOF.
+      if (signal?.aborted) {
+        rawResponse.write(
+          `data: ${JSON.stringify({
+            error: { message: "Provider stream aborted by request queue timeout" },
+          })}\n\n`
+        );
+      }
       rawResponse.end();
     }
   }
