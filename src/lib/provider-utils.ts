@@ -93,16 +93,22 @@ export async function runCljsQueued<T>(
 export function sendQueueError(reply: FastifyReply, error: unknown): boolean {
   const data = errorData(error);
   const code = keywordName(data?.code);
-  if (code === "queue/full") {
+
+  function setRetryAfter(): void {
     const retryAfterMs = data?.["retry-after-ms"] ?? data?.retryAfterMs;
     if (typeof retryAfterMs === "number" && Number.isFinite(retryAfterMs)) {
       reply.header("retry-after", String(Math.max(1, Math.ceil(retryAfterMs / 1000))));
     }
+  }
+
+  if (code === "queue/full") {
+    setRetryAfter();
     sendOpenAiError(reply, 429, "Request queue full", "server_error", "queue_full");
     return true;
   }
-  if (code === "queue/dropped" || code === "queue/total-timeout" || code === "queue/exhausted") {
-    sendOpenAiError(reply, 503, "Request queue dropped or timed out", "server_error", "queue_dropped");
+  if (code === "queue/dropped" || code === "queue/total-timeout" || code === "queue/attempt-timeout" || code === "queue/exhausted") {
+    setRetryAfter();
+    sendOpenAiError(reply, 429, "Request queue dropped or timed out", "server_error", "queue_dropped");
     return true;
   }
   return false;
