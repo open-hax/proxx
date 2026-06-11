@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import type { AppDeps } from "../lib/app-deps.js";
 import { DEFAULT_TENANT_ID } from "../lib/tenant-api-key.js";
 import { joinUrl } from "../lib/http/index.js";
-import { getActiveCljsRuntime } from "../lib/cljs-runtime.js";
+import { getActiveCljsRuntime, resolveModelAliasWithCljs } from "../lib/cljs-runtime.js";
 import { buildForwardHeaders } from "../lib/proxy.js";
 import {
   nativeEmbedToOpenAiRequest,
@@ -121,7 +121,11 @@ export function registerEmbeddingsRoutes(deps: AppDeps, app: FastifyInstance): v
       const candidateIsOllama = !isOpenAiCompatEmbedProvider(candidateId);
 
       const candidateModel = candidateIsOllama
-        ? routingModelWithoutProviderPrefix
+        ? (resolveModelAliasWithCljs({
+            manifestPath: deps.config.cljsPolicyManifestPath,
+            modelId: routingModelWithoutProviderPrefix,
+            providerId: candidateId,
+          }) ?? routingModelWithoutProviderPrefix)
         : normalizeLlamacppModelName(routingModelWithoutProviderPrefix);
       const candidateEmbedBody = nativeEmbedToOpenAiRequest({ ...request.body, model: candidateModel });
       const inputSummary = summarizeEmbeddingInput(candidateEmbedBody.input);
@@ -149,7 +153,7 @@ export function registerEmbeddingsRoutes(deps: AppDeps, app: FastifyInstance): v
             deps.config.cljsPolicyManifestPath,
             { "tenant-id": request.openHaxAuth?.tenantId ?? "default", "provider-id": candidateId, "request-kind": "embeddings" },
             async (controller) => await ensureNativeOllamaEmbedContextFits(
-              deps.config.ollamaBaseUrl,
+              candidate.baseUrl,
               { model: candidateModel, input: candidateEmbedBody.input },
               Math.min(deps.config.requestTimeoutMs, 30_000),
               controller.signal,
@@ -185,7 +189,7 @@ export function registerEmbeddingsRoutes(deps: AppDeps, app: FastifyInstance): v
             deps.config.cljsPolicyManifestPath,
             { "tenant-id": request.openHaxAuth?.tenantId ?? "default", "provider-id": candidateId, "request-kind": "embeddings" },
             async (controller) => await fetchWithResponseTimeout(
-              joinUrl(deps.config.ollamaBaseUrl, "/api/embed"),
+              joinUrl(candidate.baseUrl, "/api/embed"),
               { method: "POST", headers: buildForwardHeaders(request.headers), body: JSON.stringify(upstreamBody), signal: controller.signal },
               deps.config.requestTimeoutMs,
             ),
