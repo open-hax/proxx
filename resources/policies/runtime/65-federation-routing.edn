@@ -1,0 +1,11 @@
+[{:contract/id :federation-routing/default-relay
+  :contract/kind :federation-routing-clause
+  :admit/share-modes {:relay [:relay-only :warm-import :project-credentials]
+                      :warm-import [:warm-import :project-credentials]
+                      :project-credentials [:project-credentials]}
+  :admit/availability-states [:remote-route :descriptor]
+  :selection/order [:availability-state
+                    :warm-request-count-desc
+                    :provider-id
+                    :account-id
+                    :source-peer-id]}]

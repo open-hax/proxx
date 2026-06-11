@@ -105,41 +105,6 @@ function normalizeRequiredString(value: string, label: string): string {
   return normalized;
 }
 
-export function shareModeAllowsRelay(mode: TenantProviderShareMode): boolean {
-  return mode === "relay_only" || mode === "warm_import" || mode === "project_credentials";
-}
-
-export function shareModeAllowsWarmImport(mode: TenantProviderShareMode): boolean {
-  return mode === "warm_import" || mode === "project_credentials";
-}
-
-export function tenantProviderPolicyAllowsUse(
-  policy: TenantProviderPolicyRecord | undefined,
-  input: {
-    readonly ownerSubject: string;
-    readonly providerKind: TenantProviderKind;
-    readonly requestedModel?: string;
-    readonly requiredShareMode?: "relay" | "warm_import" | "project_credentials";
-  },
-): boolean {
-  if (!policy || policy.ownerSubject !== input.ownerSubject || policy.providerKind !== input.providerKind) {
-    return false;
-  }
-
-  const requestedModel = typeof input.requestedModel === "string" ? input.requestedModel.trim() : "";
-  if (requestedModel.length > 0 && policy.allowedModels.length > 0 && !policy.allowedModels.includes(requestedModel)) {
-    return false;
-  }
-
-  if (input.requiredShareMode === "project_credentials") {
-    return policy.shareMode === "project_credentials";
-  }
-  if (input.requiredShareMode === "warm_import") {
-    return shareModeAllowsWarmImport(policy.shareMode);
-  }
-  return shareModeAllowsRelay(policy.shareMode);
-}
-
 function normalizeTenantProviderPolicyInput(input: TenantProviderPolicyUpsertInput): Omit<TenantProviderPolicyRecord, "createdAt" | "updatedAt"> {
   const shareMode = normalizeTenantProviderShareMode(input.shareMode);
   return {

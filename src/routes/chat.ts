@@ -12,23 +12,18 @@ import {
 import { selectExecutionStrategyForProviderRoutes } from "../lib/provider-strategy/registry.js";
 import { executeLocalStrategy } from "../lib/provider-strategy.js";
 import {
-  catalogHasDynamicOllamaModel,
   filterDeclaredProviderRoutes,
   getDeclaredProviderRoutes,
-  resolveProviderRoutesForModel,
   type ProviderRoute,
   type ResolvedModelCatalog,
 } from "../lib/provider-routing.js";
 import { getActiveCljsRuntime, type CljsModelCandidatesRunResult } from "../lib/cljs-runtime.js";
 import { toErrorMessage } from "../lib/errors/index.js";
 import { handleRoutingOutcome } from "../lib/routing-outcome-handler.js";
-import { isCephalonAutoModel } from "../lib/provider-strategy/strategies/cephalon.js";
-import { resolveFederationOwnerSubject } from "../lib/federation/federation-helpers.js";
 import { requestHasExplicitNumCtx } from "../lib/ollama-compat.js";
 import { ensureOllamaContextFits } from "../lib/ollama-context.js";
-import { executeBridgeRequestFallback } from "../lib/federation/bridge-fallback.js";
+import { executeBridgeRequestRouting } from "../lib/federation/bridge-routing.js";
 import type { AppDeps } from "../lib/app-deps.js";
-import { discoverDynamicOllamaRoutes, filterDedicatedOllamaRoutes, hasDedicatedOllamaRoutes, prependDynamicOllamaRoutes } from "../lib/dynamic-ollama-routes.js";
 import type { StrategyRequestContext } from "../lib/provider-strategy/shared.js";
 
 function openAiRouteError(statusCode: number, message: string, type: string, code: string, meta?: Record<string, unknown>): OpenAiHttpError {
@@ -85,10 +80,8 @@ async function executeChatCandidate(input: ChatCandidateInput): Promise<CljsMode
     proxySettings,
     requestBody,
     requestedModelInput,
-    routingModelInput,
     candidateRoutingModel,
     hasMoreModelCandidates,
-    resolvedModelCatalog,
   } = input;
 
   const { strategy, context } = selectProviderStrategy(
@@ -101,11 +94,6 @@ async function executeChatCandidate(input: ChatCandidateInput): Promise<CljsMode
   );
   reply.header("x-open-hax-upstream-mode", strategy.mode);
   const requestAuth = request.openHaxAuth ?? undefined;
-  const federationOwnerSubject = resolveFederationOwnerSubject({
-    headers: request.headers as Record<string, unknown>,
-    requestAuth,
-    hopCount: 0,
-  });
 
   let providerRoutes: ProviderRoute[];
   if (context.factoryPrefixed) {
@@ -118,27 +106,6 @@ async function executeChatCandidate(input: ChatCandidateInput): Promise<CljsMode
     );
   } else {
     providerRoutes = getDeclaredProviderRoutes(deps.config);
-    if (!context.openAiPrefixed && resolvedModelCatalog) {
-      providerRoutes = resolveProviderRoutesForModel(providerRoutes, context.routedModel, resolvedModelCatalog);
-    }
-  }
-
-  const wantsDynamicOllamaRoutes = context.localOllama
-    || isCephalonAutoModel(requestedModelInput)
-    || isCephalonAutoModel(routingModelInput)
-    || catalogHasDynamicOllamaModel(resolvedModelCatalog, context.routedModel);
-  const dynamicOllamaRoutes = wantsDynamicOllamaRoutes
-    ? await discoverDynamicOllamaRoutes(deps.sqlCredentialStore, deps.sqlFederationStore, federationOwnerSubject)
-    : [];
-
-  if (wantsDynamicOllamaRoutes && dynamicOllamaRoutes.length > 0) {
-    providerRoutes = prependDynamicOllamaRoutes(providerRoutes, dynamicOllamaRoutes);
-  }
-  if (wantsDynamicOllamaRoutes) {
-    const dedicatedOllamaRoutes = filterDedicatedOllamaRoutes(providerRoutes);
-    if (dedicatedOllamaRoutes.length > 0) {
-      providerRoutes = dedicatedOllamaRoutes;
-    }
   }
 
   const cljsPolicyResult = filterDeclaredProviderRoutes(deps.config.cljsPolicyManifestPath, {
@@ -224,7 +191,7 @@ async function executeChatCandidate(input: ChatCandidateInput): Promise<CljsMode
 
   if (executionStrategy.mode === "ollama_chat" || executionStrategy.mode === "local_ollama_chat") {
     const candidateRequestBody = payload.upstreamPayload;
-    if (isRecord(candidateRequestBody) && !requestHasExplicitNumCtx(requestBody) && !hasDedicatedOllamaRoutes(providerRoutes)) {
+    if (isRecord(candidateRequestBody) && !requestHasExplicitNumCtx(requestBody)) {
       const ollamaUrl = deps.config.ollamaBaseUrl;
       const budget = await runCljsQueued(
         deps.config.cljsPolicyManifestPath,
@@ -309,10 +276,11 @@ async function executeChatCandidate(input: ChatCandidateInput): Promise<CljsMode
   const federatedChatHandled = await runCljsQueued(
     deps.config.cljsPolicyManifestPath,
     { "tenant-id": request.openHaxAuth?.tenantId ?? "default", "provider-id": providerRoutes[0]?.providerId, "request-kind": "chat" },
-    async (controller) => await deps.executeFederatedRequestFallback({
+    async (controller) => await deps.executeFederatedRequestRouting({
       requestHeaders: request.headers,
       requestBody,
       requestAuth: requestAuth as { readonly kind: "legacy_admin" | "tenant_api_key" | "ui_session" | "unauthenticated"; readonly subject?: string },
+      requestKind: "chat",
       providerRoutes,
       upstreamPath: "/v1/chat/completions",
       reply,
@@ -327,7 +295,7 @@ async function executeChatCandidate(input: ChatCandidateInput): Promise<CljsMode
   const bridgedChatHandled = await runCljsQueued(
     deps.config.cljsPolicyManifestPath,
     { "tenant-id": request.openHaxAuth?.tenantId ?? "default", "provider-id": providerRoutes[0]?.providerId, "request-kind": "chat" },
-    async () => await executeBridgeRequestFallback({
+    async () => await executeBridgeRequestRouting({
       bridgeRelay: deps.bridgeRelay,
       app: deps.app,
       config: deps.config,
@@ -338,6 +306,7 @@ async function executeChatCandidate(input: ChatCandidateInput): Promise<CljsMode
       requestHeaders: request.headers,
       requestBody,
       requestAuth: request.openHaxAuth ?? undefined,
+      requestKind: "chat",
       allowedProviderIds: providerRoutes.map((route) => route.providerId),
       upstreamPath: "/v1/chat/completions",
       reply,

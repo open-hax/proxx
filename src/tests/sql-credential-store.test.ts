@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { UPSERT_PROVIDER } from "../lib/db/schema.js";
-import { selectLegacyOpenAiDuplicateIds } from "../lib/db/sql-credential-store.js";
+import { selectLegacyOpenAiDuplicateIds, SqlCredentialStore } from "../lib/db/sql-credential-store.js";
 
 test("selectLegacyOpenAiDuplicateIds removes only legacy openai ids with current siblings", () => {
   const idsToDelete = selectLegacyOpenAiDuplicateIds([
@@ -38,4 +38,20 @@ test("selectLegacyOpenAiDuplicateIds removes only legacy openai ids with current
 
 test("UPSERT_PROVIDER preserves an existing base_url when no replacement is provided", () => {
   assert.match(UPSERT_PROVIDER, /base_url = COALESCE\(EXCLUDED\.base_url, providers\.base_url\)/);
+});
+
+test("SqlCredentialStore loadCooldowns normalizes bigint string cooldowns", async () => {
+  const store = new SqlCredentialStore({
+    unsafe: async (query: string) => {
+      if (query.includes("SELECT provider_id, account_id, cooldown_until FROM account_cooldown")) {
+        return [{ provider_id: "openai", account_id: "acct-1", cooldown_until: "1780632049684" }];
+      }
+      return [];
+    },
+  } as never);
+
+  const cooldowns = await store.loadCooldowns();
+
+  assert.equal(cooldowns.get("openai\0acct-1"), 1780632049684);
+  assert.equal(store.getCooldown("openai", "acct-1"), 1780632049684);
 });

@@ -59,7 +59,7 @@ export function registerImagesRoutes(deps: AppDeps, app: FastifyInstance): void 
     providerRoutes = filterDeclaredProviderRoutes(deps.config.cljsPolicyManifestPath, {
       config: deps.config,
       modelId: context.routedModel || context.requestedModelInput,
-      requestKind: "images-passthrough",
+      requestKind: "images",
       tenantSettings,
       providerRoutes,
     }).providerRoutes;
@@ -114,10 +114,11 @@ export function registerImagesRoutes(deps: AppDeps, app: FastifyInstance): void 
     const federatedImagesHandled = await runCljsQueued(
       deps.config.cljsPolicyManifestPath,
       { "tenant-id": request.openHaxAuth?.tenantId ?? "default", "provider-id": providerRoutes[0]?.providerId, "request-kind": "images" },
-      async (controller) => await deps.executeFederatedRequestFallback({
+      async (controller) => await deps.executeFederatedRequestRouting({
         requestHeaders: request.headers,
         requestBody,
         requestAuth: request.openHaxAuth ?? undefined,
+        requestKind: "images",
         providerRoutes,
         upstreamPath: "/v1/images/generations",
         reply,

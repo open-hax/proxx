@@ -1,7 +1,6 @@
 import type { ProxyConfig } from "./config.js";
 import { getActiveCljsRuntime } from "./cljs-runtime.js";
 import type { KeyPool } from "./key-pool.js";
-import { isGlmModel } from "./glm-compat.js";
 import { allProviderStrategyInfos } from "./provider-strategy/registry.js";
 import type { UpstreamMode } from "./provider-strategy/shared.js";
 
@@ -145,6 +144,7 @@ export function getDeclaredProviderRoutes(configOrManifestPath?: ProviderRouteRu
 export function filterDeclaredProviderRoutes(manifestPath: string | undefined, input: {
   readonly modelId: string;
   readonly requestKind: string;
+  readonly requestedProviderIds?: readonly string[];
   readonly tenantSettings: unknown;
   readonly providerRoutes: readonly ProviderRoute[];
   readonly config?: unknown;
@@ -168,6 +168,7 @@ export function filterDeclaredProviderRoutes(manifestPath: string | undefined, i
     requestKind: input.requestKind,
     tenantSettings: input.tenantSettings,
     providerIds: filteredRoutes.map((route) => route.providerId),
+    ...(input.requestedProviderIds ? { requestedProviderIds: input.requestedProviderIds } : {}),
     strategies: PROVIDER_STRATEGY_INFOS,
   });
   const decision = preview.status === "ok" && isRecord(preview.decision)
@@ -197,15 +198,6 @@ export function filterDeclaredProviderRoutes(manifestPath: string | undefined, i
     ...(strategyModeByProvider ? { strategyModeByProvider } : {}),
     catalog: result.catalog,
   };
-}
-
-export function catalogHasDynamicOllamaModel(
-  catalog: Pick<ResolvedModelCatalog, "dynamicOllamaModelIds"> | null | undefined,
-  modelId: string,
-): boolean {
-  const normalizedModelId = modelId.trim().toLowerCase();
-  return normalizedModelId.length > 0
-    && (catalog?.dynamicOllamaModelIds ?? []).some((candidateModelId) => candidateModelId.trim().toLowerCase() === normalizedModelId);
 }
 
 function asString(value: unknown): string | undefined {
@@ -496,60 +488,6 @@ export function buildOllamaCatalogRoutes(config: ProxyConfig): ProviderRoute[] {
     seen.add(providerId);
     return route.baseUrl.trim().length > 0;
   });
-}
-
-export function providerIdLooksLikeOllama(providerId: string): boolean {
-  return providerId.toLowerCase().includes("ollama");
-}
-
-/**
- * Selects and orders provider routes for a given model based on the resolved model catalog and Ollama availability.
- *
- * Uses the catalog to decide whether to keep routes unchanged, prefer Ollama providers, or restrict to non-Ollama providers:
- * - If there is at most one candidate route, returns a shallow copy of `routes`.
- * - If the model is a statically configured model (and not listed as a dynamic Ollama model), returns the routes unchanged.
- * - If no dynamic Ollama models are defined, returns the routes unchanged.
- * - If the model is not known on Ollama and is not a GLM model, returns only non-Ollama routes when any exist; otherwise returns all routes.
- * - Otherwise, returns Ollama routes first followed by non-Ollama routes, preserving relative order within each group.
- *
- * @param routes - Candidate provider routes to filter and order.
- * @param routedModel - The model identifier being routed (compared case-insensitively).
- * @param catalog - Resolved model catalog including `modelIds` and `dynamicOllamaModelIds`.
- * @returns The filtered and/or reordered list of provider routes appropriate for `routedModel`.
- */
-export function resolveProviderRoutesForModel(
-  routes: readonly ProviderRoute[],
-  routedModel: string,
-  catalog: ResolvedModelCatalog
-): ProviderRoute[] {
-  if (routes.length <= 1) {
-    return [...routes];
-  }
-
-  const normalizedModel = routedModel.trim().toLowerCase();
-  const configuredModels = new Set(
-    catalog.modelIds.map((modelId) => modelId.trim().toLowerCase()).filter((modelId) => modelId.length > 0)
-  );
-  if (configuredModels.has(normalizedModel) && !catalog.dynamicOllamaModelIds.some((modelId) => modelId.trim().toLowerCase() === normalizedModel)) {
-    return [...routes];
-  }
-
-  const dynamicOllamaModels = new Set(
-    catalog.dynamicOllamaModelIds.map((modelId) => modelId.trim().toLowerCase()).filter((modelId) => modelId.length > 0)
-  );
-  if (dynamicOllamaModels.size === 0) {
-    return [...routes];
-  }
-  const modelKnownOnOllama = dynamicOllamaModels.has(normalizedModel);
-
-  if (!modelKnownOnOllama && !isGlmModel(normalizedModel)) {
-    const nonOllamaRoutes = routes.filter((route) => !providerIdLooksLikeOllama(route.providerId));
-    return nonOllamaRoutes.length > 0 ? nonOllamaRoutes : [...routes];
-  }
-
-  const ollamaRoutes = routes.filter((route) => providerIdLooksLikeOllama(route.providerId));
-  const nonOllamaRoutes = routes.filter((route) => !providerIdLooksLikeOllama(route.providerId));
-  return [...ollamaRoutes, ...nonOllamaRoutes];
 }
 
 const OPENAI_COMPATIBLE_API_PROVIDERS = new Set(["vivgrid", "openai", "factory", "requesty", "zen", "xiaomi"]);

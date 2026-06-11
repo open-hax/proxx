@@ -50,7 +50,7 @@ async function createFixtureDir(prefix: string): Promise<{ readonly tempDir: str
   const settingsPath = path.join(tempDir, "proxy-settings.json");
 
   await writeFile(keysPath, JSON.stringify({ keys: ["test-key-1"] }, null, 2), "utf8");
-  await writeFile(modelsPath, JSON.stringify({ object: "list", data: [{ id: "gpt-5.2" }] }, null, 2), "utf8");
+  await writeFile(modelsPath, JSON.stringify({ object: "list", data: [{ id: "gpt-5.4-mini" }] }, null, 2), "utf8");
 
   return {
     tempDir,

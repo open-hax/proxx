@@ -544,9 +544,13 @@ export async function registerFederationUiRoutes(
       ? request.query.ownerSubject.trim()
       : undefined;
     const projectedAccounts = await deps.sqlFederationStore.listProjectedAccounts(ownerSubject);
-    const { localAccounts, knownAccounts } = await buildFederationAccountKnowledge(deps.credentialStore, projectedAccounts, {
+    const activeCooldowns = typeof deps.sqlCredentialStore?.loadCooldowns === "function"
+      ? await deps.sqlCredentialStore.loadCooldowns()
+      : undefined;
+    const { localAccounts, knownAccounts } = await buildFederationAccountKnowledge(deps.sqlCredentialStore ?? deps.credentialStore, projectedAccounts, {
       ownerSubject,
       defaultOwnerSubject: process.env.FEDERATION_DEFAULT_OWNER_SUBJECT,
+      activeCooldowns,
     });
 
     reply.send({

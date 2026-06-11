@@ -53,23 +53,25 @@ Alternative credential sources:
 
 ~~not really federation~~
 
-If you want several `proxx` instances to behave like one mirrored operator surface, point them at the same `DATABASE_URL`.
+If you want several `proxx` instances to behave like one mirrored operator surface, point them at the same `DATABASE_URL` only for non-secret control-plane state.
 
 In this mode the shared SQL database becomes the control plane for:
 - GitHub/UI operator login state and tenant membership
 - tenant API keys and proxy settings
-- provider credentials, including OpenAI OAuth accounts added through the UI
 - dashboard / analytics usage data
 
 That means:
-- add an OpenAI OAuth account on one instance -> the other instances can pick it up from the same DB-backed credential store
+- operator and tenant settings can be managed once and observed across the fleet
 - usage analytics aggregate across the fleet instead of fragmenting per instance
+- provider credentials, OAuth refresh tokens, API keys, and secret keys must stay local to the instance that owns them
+- cross-instance provider access should use federation peer projection or the WebSocket bridge instead of shared credential tables
 
 Promethean branch promotion + federated environment mapping is documented in [`docs/promethean-federated-deployments.md`](docs/promethean-federated-deployments.md).
 
 Current boundary:
-- shared in v1: operator/admin state, tenant API keys and proxy settings, provider credentials including OAuth accounts, analytics
+- shared in v1: operator/admin state, tenant API keys and proxy settings, analytics, non-secret control-plane runtime state
 - still local for now: chat sessions, prompt affinity, and other convenience file state
+- never shared through DB sync: credential tables, OAuth refresh tokens, API keys, secret keys, service-account secrets
 
 Env-backed providers:
 
@@ -292,7 +294,7 @@ Those legacy formats map to `UPSTREAM_PROVIDER_ID`.
 
 ## `models.json` Preferences
 
-`models.json` is now **preference metadata**, not the source of truth. The proxy discovers models dynamically via provider `/v1/models` (and provider-specific catalog endpoints) and uses `models.json` to:
+`models.json` is now **preference metadata**, not the source of truth. Routing decisions come from the CLJS/EDN policy runtime under `resources/policies/runtime/`; the proxy discovers models dynamically via provider `/v1/models` and provider-specific catalog endpoints, then uses `models.json` only to:
 
 - **declare** static model IDs for upstreams that do not advertise a reliable catalog
 - **prioritize** models in listings and routing
@@ -314,6 +316,17 @@ Notes:
 - Preferred models only **reorder** discovered models (they do **not** add undiscovered models).
 - Disabled models are excluded even if a provider advertises them.
 - Aliases only apply when the **target** model exists in the discovered or declared catalog.
+
+## Policy Runtime
+
+Routing, provider admission, account ordering, tenant authorization, federation relay admission, and queue policy are declared as EDN contracts in `resources/policies/runtime/*.edn` and interpreted by ClojureScript in `src/proxx/**/*.cljs`.
+
+Operational rules:
+
+- Do not add provider/model routing knobs to `.env`, Compose files, or TypeScript conditionals.
+- Do not use `models.json` to force routing; it is catalog preference metadata only.
+- Set `PROXX_CLJS_POLICY_MANIFEST` only when mounting an alternate complete policy manifest, such as `/etc/proxx/policies/runtime/00-manifest.edn`.
+- Restart the server after changing mounted EDN policy files; a CLJS rebuild is only needed when interpreter code changes.
 
 Personal llama.cpp example:
 
@@ -503,15 +516,16 @@ Each tenant gets their own API key and can have separate provider allowlists.
 
 ### Mode C: Federated Cloud Deployment
 
-Multiple cloud instances sharing state via PostgreSQL.
+Multiple cloud instances sharing operator/control-plane state via PostgreSQL.
 
 1. Deploy to multiple hosts (testing, staging, production)
-2. Point all instances at the same `DATABASE_URL`
+2. Point instances at the same `DATABASE_URL` only when that database excludes credential-bearing tables and secrets
 3. Instances automatically share:
-   - Operator/admin login state
-   - Tenant API keys and settings
-   - Provider credentials (including OAuth accounts)
-   - Usage analytics
+    - Operator/admin login state
+    - Tenant API keys and settings
+    - Usage analytics
+
+Provider credentials are not a routing policy source. Keep OAuth refresh tokens local to the instance that owns them. Use federation peer projection or the WebSocket bridge to lease/use access across instances without copying refresh tokens to another host.
 
 ```bash
 # Each instance sets its own identity:
@@ -577,12 +591,9 @@ Each bridge session displays:
 
 ### Federation Health
 
-### Dynamic Federated Fallback (Routing-time)
+### Routing-Time Federation
 
-When a request exhausts local credentials, Proxx can attempt a federated fallback using
-previously-synced projected accounts. To reduce the need for external cron/daemon syncs,
-Proxx will also (by default) perform an **on-demand pull** from configured federation peers
-when it has no projected candidates available.
+When local routing has no usable credential, Proxx can route through previously synced projected accounts from federation peers. Projection admission and order are controlled by `65-federation-routing.edn`; TypeScript only loads peer/account facts and performs HTTP transport. To reduce the need for external cron/daemon syncs, Proxx also performs an **on-demand pull** from configured peers when it has no projected candidates available.
 
 Relevant environment variables:
 
@@ -595,8 +606,8 @@ FEDERATION_ON_DEMAND_PULL_ENABLED=true
 # Default: 60000
 FEDERATION_ON_DEMAND_PULL_TTL_MS=60000
 
-# How many successful federated routes must occur before Proxx imports (leases) a
-# peer credential into the local runtime credential store.
+# How many successful federated routes must occur before Proxx may warm-import a
+# credential lease into the local runtime credential store, if policy allows it.
 # Default: 3
 FEDERATION_WARM_IMPORT_REQUEST_THRESHOLD=3
 ```
@@ -641,7 +652,7 @@ npx @apidevtools/swagger-cli validate openapi.json
 For AI assistants outside the devel workspace, use this prompt:
 
 ```
-Set up proxx (OpenAI-compatible proxy with account rotation and federation):
+Set up proxx (OpenAI-compatible proxy with account rotation and CLJS/EDN policy routing):
 
 1. Clone and install:
    git clone https://github.com/open-hax/proxx.git && cd proxx && pnpm install
@@ -652,10 +663,13 @@ Set up proxx (OpenAI-compatible proxy with account rotation and federation):
    Required in .env:
    - PROXY_AUTH_TOKEN=<your-secret-token>
    
-   Optional:
-   - DATABASE_URL=postgresql://... (for multi-tenant or federation)
-   - UPSTREAM_PROVIDER_ID=vivgrid|openai|ollama-cloud
-   - OPENAI_API_KEY, FACTORY_API_KEY, etc. for provider credentials
+    Optional:
+    - DATABASE_URL=postgresql://... (for multi-tenant or federation)
+    - UPSTREAM_PROVIDER_ID=vivgrid|openai|ollama-cloud
+    - OPENAI_API_KEY, FACTORY_API_KEY, etc. for provider credentials
+
+   Do not add provider/model routing switches to .env. Routing policy lives in resources/policies/runtime/*.edn.
+   models.json is preference/catalog metadata only, not a routing source of truth.
 
 3. Run:
    pnpm dev
@@ -678,6 +692,44 @@ Semantic versioning: See package.json for current version.
 Fork tax releases are tagged vX.Y.Z and published to npm as @open-hax/proxx.
 ```
 
+### Agent Federation Prompt
+
+Use this prompt when asking an assistant to connect a local credential-owning Proxx to a cloud Proxx without copying OAuth refresh tokens:
+
+```text
+Configure Proxx federation/bridge safely:
+
+1. Keep OAuth refresh tokens on the machine that owns the browser/device login.
+2. Do not copy account database credentials to the remote host.
+3. On the credential-owning local instance, set:
+   FEDERATION_BRIDGE_RELAY_URL=wss://<cloud-host>/api/ui/federation/bridge/ws
+   FEDERATION_BRIDGE_AUTHORIZATION=Bearer <bridge-token>
+   FEDERATION_SELF_CLUSTER_ID=local
+   FEDERATION_SELF_GROUP_ID=local
+   FEDERATION_SELF_NODE_ID=<local-node-name>
+4. On the cloud instance, verify the bridge session at /api/v1/federation/bridges.
+5. Leave routing/admission decisions in resources/policies/runtime/65-federation-routing.edn and CLJS interpreter code; do not implement routing exceptions in TypeScript.
+6. Verify with health checks and one OpenAI-compatible request through /v1/responses or /v1/chat/completions.
+```
+
+## Code Quality
+
+Proxx includes repository-wide code duplication scanning via `jscpd`.
+
+```bash
+# Generate console, HTML, and JSON duplication reports
+pnpm duplication:scan
+
+# Run the CI-suitable duplication gate
+pnpm duplication:check
+```
+
+Reports are written to `reports/jscpd/` and are ignored as regenerable artifacts. The default gate focuses on executable and policy code in `src`, `test`, `web/src`, `web/test`, `scripts`, `resources`, `deploy`, `examples`, and `pseudo`, while excluding generated output, vendored dependencies, local runtime data, worktrees, lockfiles, sourcemaps, and other noisy artifacts.
+
+The GitHub Actions workflow at `.github/workflows/code-quality.yml` runs the duplication gate on pull requests and pushes to `main`/`staging`.
+
+See [`docs/code-quality.md`](docs/code-quality.md) for scanner scope, thresholds, ignored paths, and triage guidance.
+
 ## Contributing
 
 1. Fork the repository
@@ -687,3 +739,7 @@ Fork tax releases are tagged vX.Y.Z and published to npm as @open-hax/proxx.
 5. Submit a PR into `staging` branch
 
 See [`DEVEL.md`](DEVEL.md) for development workflow details.
+
+## Testing deploys
+
+Adding the `testing` label to an eligible PR deploys the PR head to the shared staging slot via the open-hax/services Promethean deploy module (`.github/workflows/deploy-testing.yml`).

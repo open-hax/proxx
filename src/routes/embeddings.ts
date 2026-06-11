@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import type { AppDeps } from "../lib/app-deps.js";
 import { DEFAULT_TENANT_ID } from "../lib/tenant-api-key.js";
 import { joinUrl } from "../lib/http/index.js";
-import { getActiveCljsRuntime } from "../lib/cljs-runtime.js";
+import { getActiveCljsRuntime, resolveModelAliasWithCljs } from "../lib/cljs-runtime.js";
 import { buildForwardHeaders } from "../lib/proxy.js";
 import {
   nativeEmbedToOpenAiRequest,
@@ -20,6 +20,15 @@ import { filterDeclaredProviderRoutes, getDeclaredProviderRoutes, hasModelPrefix
 
 function openAiRouteError(statusCode: number, message: string, type: string, code: string, meta?: Record<string, unknown>, cause?: unknown): OpenAiHttpError {
   return new OpenAiHttpError({ statusCode, message, type, code, meta, cause });
+}
+
+function providerIdFromModelPrefix(prefix: string): string {
+  return prefix.trim().replace(/[/:]+$/, "");
+}
+
+function matchedModelPrefix(model: string, prefixes: readonly string[]): string | undefined {
+  const normalizedModel = model.toLowerCase();
+  return prefixes.find((prefix) => prefix.trim().length > 0 && normalizedModel.startsWith(prefix.toLowerCase()));
 }
 
 function summarizeEmbeddingInput(
@@ -46,7 +55,15 @@ export function registerEmbeddingsRoutes(deps: AppDeps, app: FastifyInstance): v
     }
 
     const explicitlyLlamaCpp = hasModelPrefix(model, deps.config.llamacppModelPrefixes ?? []);
-    const explicitlyOllama = !explicitlyLlamaCpp && hasModelPrefix(model, deps.config.ollamaModelPrefixes);
+    const matchedOllamaPrefix = !explicitlyLlamaCpp
+      ? matchedModelPrefix(model, deps.config.ollamaModelPrefixes)
+      : undefined;
+    const explicitlyOllama = typeof matchedOllamaPrefix === "string";
+    const requestedProviderIds = explicitlyLlamaCpp
+      ? ["llamacpp-embed"]
+      : matchedOllamaPrefix
+        ? [providerIdFromModelPrefix(matchedOllamaPrefix)]
+        : undefined;
 
     const proxySettings = await deps.proxySettingsStore.getForTenant(
       (request.openHaxAuth?.tenantId) ?? DEFAULT_TENANT_ID,
@@ -87,10 +104,11 @@ export function registerEmbeddingsRoutes(deps: AppDeps, app: FastifyInstance): v
       config: deps.config,
       modelId: routingModelWithoutProviderPrefix,
       requestKind: "embeddings",
+      ...(requestedProviderIds ? { requestedProviderIds } : {}),
       tenantSettings: proxySettings,
       providerRoutes: declaredRoutes,
     }).providerRoutes;
-    const explicitProviderId = explicitlyLlamaCpp ? "llamacpp-embed" : explicitlyOllama ? "ollama" : undefined;
+    const explicitProviderId = explicitlyLlamaCpp ? "llamacpp-embed" : matchedOllamaPrefix ? providerIdFromModelPrefix(matchedOllamaPrefix) : undefined;
     const selectedRoutes = explicitProviderId
       ? policySelectedRoutes.filter((candidate) => candidate.providerId === explicitProviderId)
       : policySelectedRoutes;
@@ -103,7 +121,11 @@ export function registerEmbeddingsRoutes(deps: AppDeps, app: FastifyInstance): v
       const candidateIsOllama = !isOpenAiCompatEmbedProvider(candidateId);
 
       const candidateModel = candidateIsOllama
-        ? routingModelWithoutProviderPrefix
+        ? (resolveModelAliasWithCljs({
+            manifestPath: deps.config.cljsPolicyManifestPath,
+            modelId: routingModelWithoutProviderPrefix,
+            providerId: candidateId,
+          }) ?? routingModelWithoutProviderPrefix)
         : normalizeLlamacppModelName(routingModelWithoutProviderPrefix);
       const candidateEmbedBody = nativeEmbedToOpenAiRequest({ ...request.body, model: candidateModel });
       const inputSummary = summarizeEmbeddingInput(candidateEmbedBody.input);
@@ -131,7 +153,7 @@ export function registerEmbeddingsRoutes(deps: AppDeps, app: FastifyInstance): v
             deps.config.cljsPolicyManifestPath,
             { "tenant-id": request.openHaxAuth?.tenantId ?? "default", "provider-id": candidateId, "request-kind": "embeddings" },
             async (controller) => await ensureNativeOllamaEmbedContextFits(
-              deps.config.ollamaBaseUrl,
+              candidate.baseUrl,
               { model: candidateModel, input: candidateEmbedBody.input },
               Math.min(deps.config.requestTimeoutMs, 30_000),
               controller.signal,
@@ -167,7 +189,7 @@ export function registerEmbeddingsRoutes(deps: AppDeps, app: FastifyInstance): v
             deps.config.cljsPolicyManifestPath,
             { "tenant-id": request.openHaxAuth?.tenantId ?? "default", "provider-id": candidateId, "request-kind": "embeddings" },
             async (controller) => await fetchWithResponseTimeout(
-              joinUrl(deps.config.ollamaBaseUrl, "/api/embed"),
+              joinUrl(candidate.baseUrl, "/api/embed"),
               { method: "POST", headers: buildForwardHeaders(request.headers), body: JSON.stringify(upstreamBody), signal: controller.signal },
               deps.config.requestTimeoutMs,
             ),
