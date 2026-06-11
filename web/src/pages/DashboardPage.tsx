@@ -251,10 +251,11 @@ export function DashboardPage(): JSX.Element {
   const windowLabel = usageWindowLabel(usageWindow);
 
   useEffect(() => {
+    if (!overview) return;
     if (accountProviderFilter !== ALL_PROVIDERS_FILTER && !accountProviderOptions.includes(accountProviderFilter)) {
       setAccountProviderFilter(ALL_PROVIDERS_FILTER);
     }
-  }, [accountProviderFilter, accountProviderOptions, setAccountProviderFilter]);
+  }, [overview, accountProviderFilter, accountProviderOptions, setAccountProviderFilter]);
 
   useEffect(() => {
     let cancelled = false;
