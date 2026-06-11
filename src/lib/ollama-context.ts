@@ -138,22 +138,22 @@ export async function fetchOllamaModelContextLength(
       signal,
     }, timeoutMs);
   } catch {
-    return cached?.length ?? null;
+    return null;
   }
 
   if (!response.ok) {
-    return cached?.length ?? null;
+    return null;
   }
 
   let payload: unknown;
   try {
     payload = await response.json();
   } catch {
-    return cached?.length ?? null;
+    return null;
   }
 
   if (!isRecord(payload)) {
-    return cached?.length ?? null;
+    return null;
   }
 
   const modelInfo = isRecord(payload["model_info"]) ? payload["model_info"] : null;
