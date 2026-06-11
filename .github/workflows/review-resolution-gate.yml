@@ -1,4 +1,4 @@
-name: eta-mu-review-gate
+name: Review Resolution Gate
 
 on:
   pull_request:
