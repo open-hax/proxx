@@ -40,11 +40,17 @@ type BridgeAccountDescriptor = {
   readonly providerId: string;
   readonly accountId: string;
   readonly authType: "api_key" | "oauth_bearer";
+  readonly available: true;
   readonly expiresAt?: number;
   readonly chatgptAccountId?: string;
   readonly planType?: string;
   readonly credentialMobility: "importable" | "access_token_only";
 };
+
+async function bridgeAccountIsAvailable(deps: BridgeLeaseRouteDeps, providerId: string, accountId: string): Promise<boolean> {
+  const accounts = await deps.keyPool.getRequestOrder(providerId);
+  return accounts.some((account) => account.accountId === accountId);
+}
 
 export async function registerBridgeLeaseRoutes(
   app: FastifyInstance,
@@ -74,21 +80,36 @@ export async function registerBridgeLeaseRoutes(
     const limit = typeof limitRaw === "number" && Number.isFinite(limitRaw) ? Math.max(1, Math.min(limitRaw, 5000)) : 5000;
 
     try {
-      const accounts = await deps.keyPool.getAllAccounts(providerId);
+      const accounts = await deps.keyPool.getRequestOrder(providerId);
       const descriptors: BridgeAccountDescriptor[] = accounts
         .slice(0, limit)
         .map((account): BridgeAccountDescriptor => ({
           providerId: account.providerId,
           accountId: account.accountId,
           authType: account.authType,
+          available: true,
           expiresAt: account.expiresAt,
           chatgptAccountId: account.chatgptAccountId,
           planType: account.planType,
           credentialMobility: account.authType === "oauth_bearer" ? "access_token_only" : "importable",
         }))
         .sort((a, b) => a.accountId.localeCompare(b.accountId));
+      const status = await deps.keyPool.getStatus(providerId);
 
-      reply.send({ providerId, accounts: descriptors });
+      reply.send({
+        providerId,
+        accounts: descriptors,
+        health: status
+          ? {
+              totalAccounts: status.totalAccounts,
+              availableAccounts: status.availableAccounts,
+              cooldownAccounts: status.cooldownAccounts,
+              disabledAccounts: status.disabledAccounts,
+              expiredAccounts: status.expiredAccounts,
+              nextReadyInMs: status.nextReadyInMs,
+            }
+          : undefined,
+      });
     } catch (error) {
       reply.code(502).send({ error: "bridge_accounts_failed", detail: toErrorMessage(error) });
     }
@@ -109,11 +130,16 @@ export async function registerBridgeLeaseRoutes(
     try {
       const statuses = await deps.keyPool.getAllStatuses();
       const providers = Object.values(statuses)
+        .filter((status) => status.availableAccounts > 0)
         .map((status) => ({
           providerId: status.providerId,
           authType: status.authType,
           totalAccounts: status.totalAccounts,
           availableAccounts: status.availableAccounts,
+          cooldownAccounts: status.cooldownAccounts,
+          disabledAccounts: status.disabledAccounts,
+          expiredAccounts: status.expiredAccounts,
+          nextReadyInMs: status.nextReadyInMs,
           credentialMobility: status.authType === "oauth_bearer" ? "access_token_only" : "importable",
         }))
         .sort((a, b) => a.providerId.localeCompare(b.providerId));
@@ -161,6 +187,7 @@ export async function registerBridgeLeaseRoutes(
 
         if (needsRefresh && hasRefreshToken && providerMatchesOpenAi && deps.refreshOpenAiOauthAccounts) {
           await deps.refreshOpenAiOauthAccounts(exported.accountId).catch(() => undefined);
+          await deps.keyPool.warmup().catch(() => undefined);
           const refreshed = await findCredentialForFederationExport(deps.credentialStore, providerId, accountId);
           if (refreshed) {
             exported = refreshed;
@@ -169,6 +196,11 @@ export async function registerBridgeLeaseRoutes(
       }
 
       if (exported) {
+        if (!await bridgeAccountIsAvailable(deps, providerId, accountId)) {
+          reply.code(409).send({ error: "credential_account_unavailable" });
+          return;
+        }
+
         const sanitized: FederationCredentialExport = exported.authType === "oauth_bearer"
           ? { ...exported, refreshToken: undefined }
           : exported;
@@ -181,6 +213,11 @@ export async function registerBridgeLeaseRoutes(
       const candidate = poolAccounts.find((entry) => entry.accountId === accountId);
       if (!candidate) {
         reply.code(404).send({ error: "credential_account_not_found" });
+        return;
+      }
+
+      if (!await bridgeAccountIsAvailable(deps, providerId, accountId)) {
+        reply.code(409).send({ error: "credential_account_unavailable" });
         return;
       }
 

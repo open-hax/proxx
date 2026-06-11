@@ -94,3 +94,13 @@ test("detectOllamaLimitKind still works: weekly", () => {
 test("detectOllamaLimitKind still works: unknown", () => {
   assert.equal(detectOllamaLimitKind({ error: "Something else" }), "unknown");
 });
+
+test("classifyRateLimitKind with providerId falls back to generic heuristics when CLJS unavailable", () => {
+  const body = { error: { message: "Too many requests" } };
+  assert.equal(classifyRateLimitKind(body, 5000, 30000, "unknown-provider"), "concurrency_throttle");
+});
+
+test("classifyRateLimitKind with providerId still applies Ollama rules", () => {
+  const body = { error: "Session usage limit reached" };
+  assert.equal(classifyRateLimitKind(body, 5000, 30000, "ollama"), "quota_exhausted");
+});

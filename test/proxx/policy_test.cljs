@@ -266,6 +266,23 @@
     (is (= true (get-in rejected [:catalog :rejected])))
     (is (= true (get-in disabled [:catalog :disabled])))))
 
+(deftest dynamic-ollama-catalog-does-not-override-policy-provider-universe
+  (let [result (contracts/filter-provider-routes
+                {}
+                {:model-id "gemma4:31b"
+                 :config {:openaiProviderId "openai"}
+                 :tenantSettings {}
+                 :providerRoutes [{:providerId "gemini" :baseUrl "https://generativelanguage.googleapis.com/v1beta"}
+                                  {:providerId "ollama-cloud" :baseUrl "https://ollama.com"}
+                                  {:providerId "ollama" :baseUrl "http://ollama:11434"}]
+                 :catalogBundle {:catalog {:declaredModelIds []
+                                           :dynamicOllamaModelIds ["gemma4:31b"]}
+                                 :preferences {:disabled []}
+                                 :providerCatalogs {"ollama" {:modelIds ["gemma4:31b"]}}}})]
+    (is (= ["gemini" "ollama-cloud" "ollama"]
+           (mapv :providerId (:providerRoutes result))))
+    (is (= false (get-in result [:catalog :rejected])))))
+
 (deftest decision-tree-policy-can-call-contract-apply-in-condition
   (policy/clear-strategies!)
   (policy/clear-contracts!)

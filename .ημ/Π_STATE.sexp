@@ -1,36 +1,27 @@
 (fork-tax-state
-  (timestamp "2026-05-30T01:16:12Z")
+  (timestamp "2026-06-03T20:14:11Z")
   (repo "/home/err/devel/orgs/open-hax/proxx")
-  (worktree "/home/err/devel/orgs/open-hax/proxx/.worktrees/proxx-pr215-into-staging-20260530T004530Z")
-  (branch "pi/proxx-pr215-into-staging-20260530T004530Z")
-  (base "origin/staging@6a132ef")
-  (intent "Merge PR #215 requested-provider policy runtime fixes into staging after the original intermediate base branch was merged without PR #215.")
+  (worktree "/home/err/devel/orgs/open-hax/proxx")
+  (branch "devops/promethean-service-module-deploy")
+  (base "origin/staging")
+  (intent "Absorb the defaults policy-tree README (three-policy-trees doctrine: defaults vs local peer vs Promethean relay) and promote the branch into staging via PR with a testing-label deploy.")
   (owned-paths
-    "receipts.edn"
-    "src/proxx/policy/contracts.cljs"
-    "src/lib/provider-routing.ts"
-    "src/routes/embeddings.ts"
-    "src/routes/native-ollama.ts"
-    "src/tests/cljs-policy-preview.test.ts"
-    "src/tests/proxy.test.ts"
-    "test/proxx/policy_test.cljs"
-    ".ημ/Π_STATE.sexp"
+    "resources/policies/README.md"
     ".ημ/Π_LAST.md"
-    ".ημ/Π_MANIFEST.sha256")
-  (source-pr
-    (url "https://github.com/open-hax/proxx/pull/215")
-    (commits "5f8d3f0" "5cf6280")
-    (status "closed before staging received these commits; cherry-picked onto fresh staging branch"))
+    ".ημ/Π_STATE.sexp"
+    ".ημ/Π_MANIFEST.sha256"
+    ".ημ/registry.jsonl")
+  (state
+    "deploy-module commit 74b8b85 already merged into origin/staging as 0269ada"
+    "relay policy tree preserved in open-hax/services Π/20260603T201215Z (contracts/proxx/policies)")
   (verification
-    "pnpm install --frozen-lockfile -> pass"
-    "pnpm test:cljs -> 113 tests/302 assertions, 0 failures/errors; 8 pre-existing infer warnings"
-    "pnpm build:cljs -> pass"
-    "targeted tsx proxy tests -> 4 pass"
-    "pnpm test -> 643 tests, 641 pass, 2 skipped, 0 fail"
-    "pnpm test:coverage -> 643 tests, 641 pass, 2 skipped, 0 fail; all files lines 81.81%, branches 73.01%, funcs 78.53%"
-    "touched TS eslint --quiet -> pass"
-    "git diff --check -> pass")
-  (policy-boundary
-    "No services/proxx/policies EDN edited."
-    "No orgs/open-hax/proxx/resources/policies EDN edited."
-    "Tests assert CLJS interpreter behavior and requested-provider facts rather than preserving the staging TypeScript explicit-provider filter."))
+    "README-referenced policy files exist: runtime/60-tenant-enforcement.edn, runtime/65-federation-routing.edn"
+    "docs-only change; CI gates (staging-typecheck, staging-unit-tests) run on the PR")
+  (deployment
+    "pending: PR devops/promethean-service-module-deploy -> staging"
+    "pending: testing label -> deploy-testing.yml label-gated test deploy"
+    "staging deploy routes through open-hax/services/.github/workflows/deploy-promethean.yml@main service=proxx")
+  (concurrent-dirt-left-untouched)
+  (guardrails
+    "Path-scoped staging; no repo-wide reset/restore/clean."
+    "No secrets logged."))

@@ -27,6 +27,7 @@ import {
  */
 const CODEX_UNSUPPORTED_PARAMS = [
   "max_output_tokens",
+  "prompt_cache_retention",
   "temperature",
   "top_p",
   "presence_penalty",
@@ -103,6 +104,13 @@ async function streamResponsesPassthroughToClient(
   }
   rawResponse.flushHeaders();
 
+  // Extend queue timeout now that streaming has started successfully
+  const signal = context.queueSignal;
+  const extendedSignal = signal as AbortSignal & { extendTimeout?: () => void } | undefined;
+  if (extendedSignal && typeof extendedSignal.extendTimeout === "function") {
+    extendedSignal.extendTimeout();
+  }
+
   try {
     if (firstChunk.value && firstChunk.value.byteLength > 0) {
       rawResponse.write(firstChunk.value);
@@ -133,6 +141,13 @@ async function streamResponsesPassthroughToClient(
       // Ignore reader release errors while closing the downstream stream.
     }
     if (!rawResponse.writableEnded) {
+      if (signal?.aborted) {
+        rawResponse.write(
+          `data: ${JSON.stringify({
+            error: { message: "Provider stream aborted by request queue timeout" },
+          })}\n\n`
+        );
+      }
       rawResponse.end();
     }
   }

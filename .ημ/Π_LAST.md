@@ -1,37 +1,48 @@
-# Π Last Snapshot — PR #215 into staging
+# Π Last Snapshot — defaults policy-tree README + staging promotion
 
-- Timestamp: 2026-05-30T01:16:12Z
-- Branch: `pi/proxx-pr215-into-staging-20260530T004530Z`
-- Base: `origin/staging@6a132ef`
-- Source PR: https://github.com/open-hax/proxx/pull/215
-- Source commits: `5f8d3f0`, `5cf6280`
-- Intent: land the PR #215 requested-provider CLJS policy runtime fixes into staging after `chores/policy-driven-embeddings` was merged without those commits.
+- Timestamp: 2026-06-03T20:14:11Z
+- Repo: `/home/err/devel/orgs/open-hax/proxx`
+- Branch: `devops/promethean-service-module-deploy`
+- Base target: `origin/staging`
+
+## State
+
+The promethean-module deploy commit (74b8b85) is already merged into
+`origin/staging` (as 0269ada). The only remaining working-tree dirt was
+`resources/policies/README.md`, new documentation for the **defaults**
+policy tree.
 
 ## Changed
 
-- Cherry-picked the PR #215 policy/runtime/test commits onto current staging.
-- CLJS policy interpreter filters by declarative request-surface defaults and requested provider facts before tenant provider enforcement.
-- `/v1/embeddings` supplies requested provider facts derived from explicit `llamacpp-embed`, `ollama`, or exact Ollama-family model prefixes.
-- Native Ollama `/api/embed` and `/api/embeddings` bridge requests enter `/v1/embeddings` scoped as native Ollama requests, independent of prefix-list order.
-- Added CLJS, policy-preview, and proxy regression coverage.
+- `resources/policies/README.md` — documents the single-node/single-user
+  assumptions of the shipped defaults, the `:deny`-by-default tenant share
+  policy (`runtime/60-tenant-enforcement.edn`), the inert-until-peers
+  federation routing (`runtime/65-federation-routing.edn`), and the rule
+  that peer-node / Promethean-relay deployments get their OWN policy trees
+  via `PROXX_CLJS_POLICY_MANIFEST` instead of growing the defaults.
+  Encodes the three-policy-trees doctrine: defaults vs local peer vs
+  Promethean relay; never consolidate. (The relay tree itself is preserved
+  in open-hax/services @ Π/20260603T201215Z snapshot, contracts/proxx/policies.)
 
 ## Boundary
 
-- Did not edit `services/proxx/policies/**`.
-- Did not edit `orgs/open-hax/proxx/resources/policies/**` EDN.
-- The service overlay and package resource policy trees remain distinct.
+- Docs-only change; no secrets.
+- Path-scoped staging; no repo-wide reset/restore/clean.
+- No concurrent dirt present at snapshot time (tree otherwise clean).
 
 ## Verification
 
-- `pnpm install --frozen-lockfile` passed.
-- `pnpm test:cljs` passed: 113 tests, 302 assertions; 8 pre-existing infer warnings.
-- `pnpm build:cljs` passed.
-- Targeted proxy tests passed: tenant-disabled Ollama, explicit `ollama-lan`, native `/api/embed`, and native prefix-order coverage: 4/4.
-- `pnpm test` passed: 643 tests, 641 pass, 2 skipped, 0 fail.
-- `pnpm test:coverage` passed: 643 tests, 641 pass, 2 skipped, 0 fail; all files lines 81.81%, branches 73.01%, funcs 78.53%.
-- Touched TS eslint `--quiet` passed.
-- `git diff --check` passed.
+- Both policy files referenced by the README exist in
+  `resources/policies/runtime/` (60-tenant-enforcement, 65-federation-routing).
+- `pnpm run lint` (workspace, including `orgs/**`) passed.
+- Docs-only change; build/test gates deferred to PR CI (staging-typecheck,
+  staging-unit-tests).
 
-## Note
+## Follow-up
 
-- An initial targeted `tsx` run failed before `pnpm build:cljs` because the fresh worktree had no `dist/cljs/proxx-runtime.js`; after `pnpm build:cljs`, the same targeted tests passed.
+- PR `devops/promethean-service-module-deploy` → `staging`.
+- Add `testing` label → label-gated test deploy via
+  `.github/workflows/deploy-testing.yml` (direct ssh slot, ussy2).
+- Staging push deploy routes through
+  `open-hax/services/.github/workflows/deploy-promethean.yml@main`
+  (service: proxx).

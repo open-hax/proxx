@@ -276,6 +276,72 @@ test("refresh ordering omits accounts that are still cooling down", async () => 
   );
 });
 
+
+test("status and account health exclude expired disabled and cooling OAuth accounts", async () => {
+  await withKeysFile(
+    {
+      providers: {
+        openai: {
+          auth: "oauth_bearer",
+          accounts: [
+            { id: "oa-ready", access_token: "oa-token-ready", expires_at: 1_700_000_120_000 },
+            { id: "oa-expired", access_token: "oa-token-expired", expires_at: 1_699_999_999_000 },
+            { id: "oa-disabled", access_token: "oa-token-disabled", expires_at: 1_700_000_120_000 },
+            { id: "oa-cooldown", access_token: "oa-token-cooldown", expires_at: 1_700_000_120_000 },
+          ],
+        },
+      },
+    },
+    async (keysFilePath) => {
+      const originalNow = Date.now;
+      Date.now = () => 1_700_000_000_000;
+
+      try {
+        const keyPool = new KeyPool({
+          keysFilePath,
+          reloadIntervalMs: 10,
+          defaultCooldownMs: 1_000,
+          defaultProviderId: "openai",
+          cooldownJitterFactor: 0,
+          disabledStore: {
+            async loadDisabledAccounts() {
+              return new Set(["openai\0oa-disabled"]);
+            },
+            async setAccountDisabled() {
+              return;
+            },
+          },
+        });
+
+        await keyPool.warmup();
+        const cooldown = (await keyPool.getAllAccounts("openai")).find((account) => account.accountId === "oa-cooldown")!;
+        keyPool.markRateLimited(cooldown, 60_000);
+
+        const requestOrder = await keyPool.getRequestOrder("openai");
+        assert.deepEqual(requestOrder.map((account) => account.accountId), ["oa-ready"]);
+
+        const status = await keyPool.getStatus("openai");
+        assert.equal(status.totalAccounts, 4);
+        assert.equal(status.availableAccounts, 1);
+        assert.equal(status.expiredAccounts, 1);
+        assert.equal(status.disabledAccounts, 1);
+        assert.equal(status.cooldownAccounts, 1);
+
+        const accountStatuses = (await keyPool.getAllAccountStatuses()).openai ?? [];
+        const byId = new Map(accountStatuses.map((account) => [account.accountId, account]));
+        assert.equal(byId.get("oa-ready")?.available, true);
+        assert.equal(byId.get("oa-expired")?.expired, true);
+        assert.equal(byId.get("oa-expired")?.available, true, "account-status available remains cooldown-only for UI compatibility");
+        assert.equal(byId.get("oa-disabled")?.disabled, true);
+        assert.equal(byId.get("oa-disabled")?.available, true, "disabled is reported separately from cooldown readiness");
+        assert.equal(byId.get("oa-cooldown")?.available, false);
+      } finally {
+        Date.now = originalNow;
+      }
+    },
+  );
+});
+
 test("weighted shuffle rescales remaining weight mass between picks", async () => {
   await withKeysFile(
     {

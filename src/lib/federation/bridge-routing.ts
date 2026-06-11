@@ -156,10 +156,13 @@ export async function executeBridgeRequestRouting(
     .filter((session) => session.state === "connected")
     .filter((session) => session.ownerSubject === ownerSubject)
     .filter((session) => session.tenantId === tenantId)
+    .filter((session) => session.health === undefined
+      || (session.health.upstreamHealthy === true && session.health.availableAccountCount > 0))
     .map(async (session) => {
       for (const capability of session.capabilities) {
         const capabilityProviderId = capability.providerId.trim().toLowerCase();
         if ((allowedProviderIds.size > 0 && !allowedProviderIds.has(capabilityProviderId))
+          || capability.availableAccountCount <= 0
           || !bridgeCapabilitySupportsPath(capability, normalizedPath)
           || !bridgeCapabilitySupportsModel(capability, requestedModel)) {
           continue;
@@ -312,6 +315,9 @@ export const handleBridgeRequest = async (
     "/v1/responses",
     "/v1/embeddings",
     "/v1/images/generations",
+    "/api/bridge/credentials/accounts",
+    "/api/bridge/credentials/providers",
+    "/api/bridge/credentials/export",
   ];
   const normalizedPath = new URL(input.path.split("?")[0]!, "http://x").pathname;
   if (!allowedBridgePaths.includes(normalizedPath)) {
