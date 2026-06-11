@@ -2,6 +2,7 @@ import assert from "node:assert";
 import { describe, test } from "node:test";
 import {
   GeminiChatProviderStrategy,
+  classifyGeminiSdkError,
   geminiPayloadToSdkRequest,
   geminiResponseToChatCompletion,
   openAiMessagesToGeminiContents,
@@ -794,5 +795,23 @@ describe("Gemini strategy end-to-end", () => {
     assert.equal(usage!.prompt_tokens, 10);
     assert.equal(usage!.completion_tokens, 5);
     assert.equal(usage!.total_tokens, 15);
+  });
+
+  test("classifyGeminiSdkError treats UNAVAILABLE/503 as rate limit", () => {
+    const unavailable = classifyGeminiSdkError("ApiError: got status: UNAVAILABLE. {\"error\":{\"code\":503}}");
+    assert.equal(unavailable.kind, "continue");
+    assert.equal((unavailable as Extract<typeof unavailable, { kind: "continue" }>).rateLimit, true);
+
+    const rateLimit = classifyGeminiSdkError("RATE_LIMIT_EXCEEDED");
+    assert.equal(rateLimit.kind, "continue");
+    assert.equal((rateLimit as Extract<typeof rateLimit, { kind: "continue" }>).rateLimit, true);
+
+    const modelNotFound = classifyGeminiSdkError("MODEL_NOT_FOUND");
+    assert.equal(modelNotFound.kind, "continue");
+    assert.equal((modelNotFound as Extract<typeof modelNotFound, { kind: "continue" }>).modelNotFound, true);
+
+    const generic = classifyGeminiSdkError("Some random error");
+    assert.equal(generic.kind, "continue");
+    assert.equal((generic as Extract<typeof generic, { kind: "continue" }>).requestError, true);
   });
 });

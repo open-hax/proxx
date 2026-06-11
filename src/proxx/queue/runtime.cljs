@@ -47,25 +47,26 @@
             :retry-after-ms (policy/drain-estimate-ms policy active-count)
             :limit          (:queue/max-queue-size policy)}))
 
-(defn- queue-dropped-error []
+(defn- queue-dropped-error [policy active-count]
   (ex-info "Request dropped: queue at capacity"
-           {:code :queue/dropped}))
+           {:code           :queue/dropped
+            :retry-after-ms (policy/drain-estimate-ms policy active-count)}))
 
 (defn- queue-wait-timeout-error []
   (ex-info "Timed out waiting in queue"
-           {:code :queue/total-timeout :attempt 0}))
+           {:code :queue/total-timeout :attempt 0 :retry-after-ms 5000}))
 
 (defn- attempt-timeout-error [attempt]
   (ex-info (str "Attempt " attempt " timed out")
-           {:code :queue/attempt-timeout :attempt attempt}))
+           {:code :queue/attempt-timeout :attempt attempt :retry-after-ms 5000}))
 
 (defn- exhausted-error []
   (ex-info "Max retries exhausted"
-           {:code :queue/exhausted}))
+           {:code :queue/exhausted :retry-after-ms 10000}))
 
 (defn- total-timeout-error [attempt]
   (ex-info "Total timeout exceeded"
-           {:code :queue/total-timeout :attempt attempt}))
+           {:code :queue/total-timeout :attempt attempt :retry-after-ms 5000}))
 
 ;; ── Waiter construction ───────────────────────────────────────
 
@@ -99,7 +100,7 @@
       (>= queued max-q)
       (throw (if (= (:queue/overflow-policy policy) :reject)
                (queue-full-error policy active)
-               (queue-dropped-error)))
+                (queue-dropped-error policy active)))
 
       :else
       (await (park-caller! state-atom total-deadline)))))
@@ -125,12 +126,22 @@
 (defn ^:async run-attempt [task attempt policy total-deadline]
   (let [controller (js/AbortController.)
         tms        (effective-timeout-ms policy total-deadline)
-        timer      (arm-abort-timer! controller tms)
+        timer-ref  (atom (arm-abort-timer! controller tms))
+        completed? (atom false)
+        extend-timeout! (fn []
+                          (when-not @completed?
+                            (let [stream-tms (:queue/stream-timeout-ms policy 120000)]
+                              (js/clearTimeout @timer-ref)
+                              (reset! timer-ref (arm-abort-timer! controller stream-tms)))))
         abort-p    (make-abort-promise (.-signal controller) attempt)]
+    ;; Attach extendTimeout as a JS property for TS interop
+    (set! (.-extendTimeout controller) extend-timeout!)
+    (set! (.-extendTimeout (.-signal controller)) extend-timeout!)
     (try
       (await (js/Promise.race #js [(task controller) abort-p]))
       (finally
-        (js/clearTimeout timer)))))
+        (reset! completed? true)
+        (js/clearTimeout @timer-ref)))))
 
 ;; ── Retry classification ──────────────────────────────────────
 

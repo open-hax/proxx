@@ -195,10 +195,12 @@ interface ProviderAttemptContext extends StrategyRequestContext {
   readonly account: ProviderCredential;
   readonly hasMoreCandidates: boolean;
   readonly attempt: number;
+  readonly queueSignal?: AbortSignal;
 }
 
 interface LocalAttemptContext extends StrategyRequestContext {
   readonly baseUrl: string;
+  readonly queueSignal?: AbortSignal;
 }
 
 interface ProviderAttemptOutcomeHandled {

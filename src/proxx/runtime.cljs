@@ -5,6 +5,7 @@
             [proxx.policy.evidence :as policy-evidence]
             [proxx.policy.loader :as policy-loader]
             [proxx.policy.router :as router]
+            [proxx.policy.search :as policy-search]
             [proxx.processor :as processor]
             [proxx.queue.policy :as queue-policy]
             [proxx.queue.runtime :as queue-runtime]
@@ -125,6 +126,37 @@
       (clj->js {:status "error"
                 :error (.-message e)
                 :data (ex-data e)}))))
+
+(defn execute-policy-tree-js
+  "Compile policy contracts into a Prolog-inspired search tree and execute it
+   with backtracking.
+
+   try-candidate-js is a JS async function of (candidate-context-js) that returns
+   a JS Promise resolving to {:status 'success' ...} or {:status 'failure' ...}.
+
+   Returns a JS Promise resolving to:
+     {:status 'ok' :result <candidate-context> :trace [...]}
+     {:status 'exhausted' :trace [...]}"
+  [manifest-path input try-candidate-js]
+  (try
+    (let [compiled (compiled-policy-for-manifest manifest-path)
+          clj-input (js->clj (or input #js {}) :keywordize-keys true)
+          tree (policy-search/compile-policy-tree compiled clj-input)]
+       (-> (policy-search/execute-policy-tree tree try-candidate-js)
+           (.then (fn [result]
+                    (clj->js (assoc result :status (case (:status result)
+                                                      :success "ok"
+                                                      :exhausted "exhausted"
+                                                      (name (:status result)))))))
+           (.catch (fn [err]
+                     #js {"status" "error"
+                          "error" (.-message err)
+                          "data" (ex-data err)}))))
+    (catch :default e
+      (js/Promise.resolve
+       #js {"status" "error"
+            "error" (.-message e)
+            "data" (ex-data e)}))))
 
 (defn normalize-reasoning-request-js
   "Load declarative policy contracts and normalize request reasoning controls for
@@ -287,6 +319,19 @@
     (catch :default e
       (js/Promise.reject e))))
 
+(defn classify-rate-limit-js
+  "Classify a rate-limit response using provider-specific EDN contracts.
+   Returns a JS object with {status, result} where result is 'volume', 'concurrency', or null."
+  [manifest-path provider-id status retry-after-ms]
+  (try
+    (let [compiled (compiled-policy-for-manifest manifest-path)
+          result (queue-policy/classify-rate-limit compiled provider-id status retry-after-ms)]
+      (clj->js {:status "ok"
+                :result (when result (name result))}))
+    (catch :default e
+      (clj->js {:status "error"
+                :error (.-message e)}))))
+
 (def exports
   #js {:normalizeKeys normalize-keys-js
        :validateEntity validate-entity-js
@@ -296,6 +341,7 @@
        :loadModelPricingOverrides load-model-pricing-overrides-js
        :loadProviderSeedSpecs load-provider-seed-specs-js
        :previewPolicyDecision preview-policy-decision-js
+       :executePolicyTree execute-policy-tree-js
        :normalizeReasoningRequest normalize-reasoning-request-js
        :resolveModelAlias resolve-model-alias-js
         :getProviderRoutes get-provider-routes-js
@@ -305,4 +351,5 @@
         :authorizeTenantProviderPolicy authorize-tenant-provider-policy-js
         :runModelCandidates run-model-candidates-js
        :resolveQueuePolicy resolve-queue-policy-js
-       :runQueued run-queued-js})
+       :runQueued run-queued-js
+       :classifyRateLimit classify-rate-limit-js})
