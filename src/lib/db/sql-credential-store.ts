@@ -157,8 +157,11 @@ export function selectLegacyOpenAiDuplicateIds(rows: readonly SqlOpenAiAccountId
 }
 
 function maskSecret(secret: string): string {
+  if (secret.length <= 4) {
+    return "****";
+  }
   if (secret.length <= 8) {
-    return `${secret.slice(0, 2)}***${secret.slice(-2)}`;
+    return `${secret.slice(0, 1)}***${secret.slice(-1)}`;
   }
 
   return `${secret.slice(0, 4)}...${secret.slice(-4)}`;
