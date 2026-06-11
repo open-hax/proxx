@@ -242,6 +242,7 @@ export class FederationBridgeRelay {
     }
 
     const streamId = randomUUID();
+    const method = input.method ?? "GET";
     const request: BridgeRequestOpenMessage = {
       type: "request_open",
       protocolVersion: BRIDGE_PROTOCOL_VERSION,
@@ -252,7 +253,7 @@ export class FederationBridgeRelay {
       ownerSubject: session.ownerSubject,
       clusterId: session.clusterId,
       agentId: session.agentId,
-      method: input.method ?? "GET",
+      method,
       path: input.path,
       headers: input.headers ?? { accept: "application/json" },
       requestContext: input.requestContext,
@@ -280,7 +281,7 @@ export class FederationBridgeRelay {
 
     this.pendingRequests.set(streamId, pending);
     channel.send(JSON.stringify(request));
-    if (typeof input.body === "string" && input.body.length > 0) {
+    if (method !== "GET") {
       channel.send(JSON.stringify({
         type: "request_chunk",
         protocolVersion: BRIDGE_PROTOCOL_VERSION,
@@ -291,7 +292,7 @@ export class FederationBridgeRelay {
         ownerSubject: session.ownerSubject,
         clusterId: session.clusterId,
         agentId: session.agentId,
-        chunk: input.body,
+        chunk: typeof input.body === "string" ? input.body : "",
         encoding: "utf8",
         final: true,
       }));
