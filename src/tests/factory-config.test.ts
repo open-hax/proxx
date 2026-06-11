@@ -148,7 +148,7 @@ test("FACTORY_API_KEY env var creates factory provider in KeyPool", { concurrenc
 
           assert.equal(factoryAccounts.length, 1);
           assert.equal(factoryAccounts[0]?.providerId, "factory");
-          assert.equal(factoryAccounts[0]?.token, "fk-test-factory-key-123");
+          assert.equal(factoryAccounts[0]?.token, "fk-test-factory-key-123"); // pragma: allowlist secret
           assert.equal(factoryAccounts[0]?.authType, "api_key");
           assert.ok(UUID_PATTERN.test(factoryAccounts[0]?.accountId ?? ""));
         },
@@ -268,12 +268,12 @@ test("resolveRequestRoutingState does not set factoryPrefixed for non-factory mo
 
 test("decryptAuthV2 correctly decrypts AES-256-GCM encrypted credentials", () => {
   const keyBase64 = randomBytes(32).toString("base64");
-  const originalData = { access_token: "test-access-token-jwt", refresh_token: "test-refresh-token" };
+  const originalData = { access_token: "test-access-token-jwt", refresh_token: "test-refresh-token" }; // pragma: allowlist secret
   const encrypted = encryptAuthV2(keyBase64, originalData);
 
   const decrypted = decryptAuthV2(keyBase64, encrypted);
-  assert.equal(decrypted.accessToken, "test-access-token-jwt");
-  assert.equal(decrypted.refreshToken, "test-refresh-token");
+  assert.equal(decrypted.accessToken, "test-access-token-jwt"); // pragma: allowlist secret
+  assert.equal(decrypted.refreshToken, "test-refresh-token"); // pragma: allowlist secret
 });
 
 test("decryptAuthV2 throws on invalid format", () => {
@@ -304,7 +304,7 @@ test("parseJwtExpiry extracts expiry from valid JWT", () => {
 });
 
 test("parseJwtExpiry returns null for non-JWT token", () => {
-  assert.equal(parseJwtExpiry("fk-some-api-key"), null);
+  assert.equal(parseJwtExpiry("fk-some-api-key"), null); // pragma: allowlist secret
   assert.equal(parseJwtExpiry("not-a-jwt"), null);
 });
 
@@ -332,7 +332,7 @@ test("FACTORY_API_KEY and file-based factory keys coexist in KeyPool", { concurr
             vivgrid: { accounts: ["vg-key-1"] },
             factory: {
               auth: "api_key",
-              accounts: ["fk-file-key"],
+              accounts: ["fk-file-key"], // pragma: allowlist secret
             },
           },
         },
@@ -349,8 +349,8 @@ test("FACTORY_API_KEY and file-based factory keys coexist in KeyPool", { concurr
 
           assert.equal(factoryAccounts.length, 2);
           const tokens = new Set(factoryAccounts.map((a) => a.token));
-          assert.ok(tokens.has("fk-env-key"));
-          assert.ok(tokens.has("fk-file-key"));
+          assert.ok(tokens.has("fk-env-key")); // pragma: allowlist secret
+          assert.ok(tokens.has("fk-file-key")); // pragma: allowlist secret
         },
       );
     },
@@ -514,7 +514,7 @@ test("OAuth tokens loaded from encrypted auth.v2 files into KeyPool", { concurre
   const header = Buffer.from(JSON.stringify({ alg: "RS256", typ: "JWT" })).toString("base64url");
   const payload = Buffer.from(JSON.stringify({ exp: expSeconds, sub: "test-user" })).toString("base64url");
   const fakeJwt = `${header}.${payload}.fake-signature`;
-  const authData = { access_token: fakeJwt, refresh_token: "test-refresh-token" };
+  const authData = { access_token: fakeJwt, refresh_token: "test-refresh-token" }; // pragma: allowlist secret
   const encrypted = encryptAuthV2(keyBase64, authData);
 
   const authV2FilePath = path.join(tempDir, "auth.v2.file");
@@ -551,7 +551,7 @@ test("OAuth tokens loaded from encrypted auth.v2 files into KeyPool", { concurre
             assert.equal(factoryAccounts[0]?.token, fakeJwt);
             assert.equal(factoryAccounts[0]?.authType, "oauth_bearer");
             assert.equal(factoryAccounts[0]?.providerId, "factory");
-            assert.equal(factoryAccounts[0]?.refreshToken, "test-refresh-token");
+            assert.equal(factoryAccounts[0]?.refreshToken, "test-refresh-token"); // pragma: allowlist secret
             assert.equal(factoryAccounts[0]?.expiresAt, expSeconds * 1000);
           },
         );
@@ -609,13 +609,13 @@ test("fk- API key and OAuth token coexist as separate accounts under factory", {
             const oauthAccount = factoryAccounts.find((a) => a.authType === "oauth_bearer");
 
             assert.ok(apiKeyAccount);
-            assert.equal(apiKeyAccount.token, "fk-my-api-key");
+            assert.equal(apiKeyAccount.token, "fk-my-api-key"); // pragma: allowlist secret
             assert.equal(apiKeyAccount.providerId, "factory");
 
             assert.ok(oauthAccount);
             assert.equal(oauthAccount.token, fakeJwt);
             assert.equal(oauthAccount.providerId, "factory");
-            assert.equal(oauthAccount.refreshToken, "test-refresh");
+            assert.equal(oauthAccount.refreshToken, "test-refresh"); // pragma: allowlist secret
           },
         );
       },
@@ -681,7 +681,7 @@ test("fk- prefixed API key loads into KeyPool under factory provider", { concurr
           const factoryAccounts = await keyPool.getRequestOrder("factory");
 
           assert.equal(factoryAccounts.length, 1);
-          assert.equal(factoryAccounts[0]?.token, "fk-abcdef123456");
+          assert.equal(factoryAccounts[0]?.token, "fk-abcdef123456"); // pragma: allowlist secret
           assert.equal(factoryAccounts[0]?.authType, "api_key");
           assert.equal(factoryAccounts[0]?.providerId, "factory");
         },
