@@ -739,3 +739,7 @@ See [`docs/code-quality.md`](docs/code-quality.md) for scanner scope, thresholds
 5. Submit a PR into `staging` branch
 
 See [`DEVEL.md`](DEVEL.md) for development workflow details.
+
+## Testing deploys
+
+Adding the `testing` label to an eligible PR deploys the PR head to the shared staging slot via the open-hax/services Promethean deploy module (`.github/workflows/deploy-testing.yml`).
