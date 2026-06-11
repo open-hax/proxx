@@ -175,40 +175,48 @@ export async function refreshFactoryOAuthToken(
   formBody.append("refresh_token", refreshToken);
   formBody.append("client_id", WORKOS_CLIENT_ID);
 
-  const response = await fetchFn(WORKOS_REFRESH_URL, {
-    method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded" },
-    body: formBody.toString(),
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`WorkOS token refresh failed: ${response.status} ${errorText}`);
+  try {
+    const response = await fetchFn(WORKOS_REFRESH_URL, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: formBody.toString(),
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`WorkOS token refresh failed: ${response.status} ${errorText}`);
+    }
+
+    const data: unknown = await response.json();
+    if (typeof data !== "object" || data === null) {
+      throw new Error("WorkOS token refresh returned invalid JSON");
+    }
+
+    const record = data as Record<string, unknown>;
+    const newAccessToken = typeof record["access_token"] === "string" ? record["access_token"].trim() : "";
+    const newRefreshToken = typeof record["refresh_token"] === "string" ? record["refresh_token"].trim() : "";
+
+    if (newAccessToken.length === 0) {
+      throw new Error("WorkOS token refresh response missing access_token");
+    }
+    if (newRefreshToken.length === 0) {
+      throw new Error("WorkOS token refresh response missing refresh_token");
+    }
+
+    const expiresAt = parseJwtExpiry(newAccessToken) ?? undefined;
+
+    return {
+      accessToken: newAccessToken,
+      refreshToken: newRefreshToken,
+      expiresAt,
+    };
+  } finally {
+    clearTimeout(timeout);
   }
-
-  const data: unknown = await response.json();
-  if (typeof data !== "object" || data === null) {
-    throw new Error("WorkOS token refresh returned invalid JSON");
-  }
-
-  const record = data as Record<string, unknown>;
-  const newAccessToken = typeof record["access_token"] === "string" ? record["access_token"].trim() : "";
-  const newRefreshToken = typeof record["refresh_token"] === "string" ? record["refresh_token"].trim() : "";
-
-  if (newAccessToken.length === 0) {
-    throw new Error("WorkOS token refresh response missing access_token");
-  }
-  if (newRefreshToken.length === 0) {
-    throw new Error("WorkOS token refresh response missing refresh_token");
-  }
-
-  const expiresAt = parseJwtExpiry(newAccessToken) ?? undefined;
-
-  return {
-    accessToken: newAccessToken,
-    refreshToken: newRefreshToken,
-    expiresAt,
-  };
 }
 
 // ─── Auth V2 Encryption (for persisting refreshed tokens) ───────────────────
