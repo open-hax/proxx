@@ -177,6 +177,13 @@ async function streamEventStreamToClient(
   }
   rawResponse.flushHeaders();
 
+  // Extend queue timeout now that streaming has started successfully
+  const signal = context.queueSignal;
+  const extendedSignal = signal as AbortSignal & { extendTimeout?: () => void } | undefined;
+  if (extendedSignal && typeof extendedSignal.extendTimeout === "function") {
+    extendedSignal.extendTimeout();
+  }
+
   try {
     for (const chunk of bootstrap.bufferedChunks) {
       rawResponse.write(chunk);
@@ -200,6 +207,15 @@ async function streamEventStreamToClient(
     }
 
     if (!rawResponse.writableEnded) {
+      // If the queue aborted us mid-stream, emit an SSE error so the client
+      // sees a proper error rather than a silent EOF.
+      if (signal?.aborted) {
+        rawResponse.write(
+          `data: ${JSON.stringify({
+            error: { message: "Provider stream aborted by request queue timeout" },
+          })}\n\n`
+        );
+      }
       rawResponse.end();
     }
   }
@@ -257,10 +273,14 @@ export abstract class BaseProviderStrategy implements ProviderStrategy {
           const looksLikeImagesPayload = context.imagesPassthrough === true
             && isRecord(parsed)
             && Array.isArray(parsed["data"]);
+          const looksLikeNativeOllamaPayload = context.providerId === "ollama"
+            && isRecord(parsed)
+            && (isRecord(parsed["message"]) || typeof parsed["response"] === "string");
           if (
             ((typeof parsed !== "object" || parsed === null)
             || (!("choices" in parsed) && !("object" in parsed) && !("id" in parsed)))
             && !looksLikeImagesPayload
+            && !looksLikeNativeOllamaPayload
           ) {
             return { kind: "continue", requestError: true };
           }

@@ -1,33 +1,27 @@
-;; Π State Snapshot
-;; Generated: 2026-04-04T03:31:21Z
-
-(
-  :repo "open-hax/proxx"
-  :branch "fork-tax/20260404-033121-proxx-night-owl-dashboard-finish"
-  :base-branch "fix/prompt-cache-audit-followups"
-  :previous-tag "Π/20260404-010801-request-log-cache-rollup-failure-exclusion"
-  :intended-tag "Π/20260404-033121-proxx-night-owl-dashboard-finish"
-  :remote "origin"
-
-  :work-description
-  "Adopt the published UXX runtime theming surface in Proxx, add a persisted Monokai/Night Owl theme toggle, and finish the dashboard/home-page migration so both UXX primitives and Proxx-owned CSS panels respond to the active theme.
-
-  Changes:
-  - Upgraded @open-hax/uxx to 0.1.3
-  - Wrapped the app in ThemeProvider with persisted theme selection in local storage
-  - Moved Proxx theme aliases/background ownership to the themed wrapper instead of :root
-  - Verified the dashboard, nav, inputs, and panels all switch to Night Owl instead of only the metric cards
-  - Rebuilt and recreated services/proxx against the published package"
-
-  :verification (
-    :build "pass (pnpm build)"
-    :web-build "pass (pnpm web:build)"
-    :runtime "pass (docker compose up -d --build --force-recreate; service healthy on :5174)"
-    :browser-check "pass (Night Owl applied across dashboard panels + controls)"))
-    :store-tests "pass (npx tsx --test src/tests/request-log-store.test.ts)"
-    :proxy-analytics "pass (targeted src/tests/proxy.test.ts cache-hit summary regressions)"
-    :known-red "unrelated proxy.test failure remains: glm chat requests skip ollama-cloud when provider catalog does not advertise the requested model")
-
-  :deferred (
-    :metadata-rebuild "Rebuild live services/proxx request-log metadata to refresh stale weekly/monthly cache counters"
-    :ui-labeling "Disambiguate cache hit rate vs cached token share in operator UI"))
+(fork-tax-state
+  (timestamp "2026-06-03T20:14:11Z")
+  (repo "/home/err/devel/orgs/open-hax/proxx")
+  (worktree "/home/err/devel/orgs/open-hax/proxx")
+  (branch "devops/promethean-service-module-deploy")
+  (base "origin/staging")
+  (intent "Absorb the defaults policy-tree README (three-policy-trees doctrine: defaults vs local peer vs Promethean relay) and promote the branch into staging via PR with a testing-label deploy.")
+  (owned-paths
+    "resources/policies/README.md"
+    ".ημ/Π_LAST.md"
+    ".ημ/Π_STATE.sexp"
+    ".ημ/Π_MANIFEST.sha256"
+    ".ημ/registry.jsonl")
+  (state
+    "deploy-module commit 74b8b85 already merged into origin/staging as 0269ada"
+    "relay policy tree preserved in open-hax/services Π/20260603T201215Z (contracts/proxx/policies)")
+  (verification
+    "README-referenced policy files exist: runtime/60-tenant-enforcement.edn, runtime/65-federation-routing.edn"
+    "docs-only change; CI gates (staging-typecheck, staging-unit-tests) run on the PR")
+  (deployment
+    "pending: PR devops/promethean-service-module-deploy -> staging"
+    "pending: testing label -> deploy-testing.yml label-gated test deploy"
+    "staging deploy routes through open-hax/services/.github/workflows/deploy-promethean.yml@main service=proxx")
+  (concurrent-dirt-left-untouched)
+  (guardrails
+    "Path-scoped staging; no repo-wide reset/restore/clean."
+    "No secrets logged."))

@@ -16,6 +16,7 @@ DEVEL instructions live in `DEVEL.md`.
 - Global fast-mode toggle for Responses traffic: the proxy can inject `service_tier: "priority"` for GPT/Responses requests, with per-request overrides still respected.
 - Model-aware routing to Ollama base API: models prefixed with `ollama/` or `ollama:` are sent to Ollama `POST /api/chat`.
 - Built-in React/Vite console with a usage dashboard plus Chat, Credentials, and Tools/MCP pages.
+- Runtime model pricing refresh from `https://models.dev/api.json` so new model analytics can pick up fresh token-price data without waiting for a code snapshot update.
 - OpenAI OAuth browser + device flows based on OpenCode Codex plugin behavior (PKCE, state, callback exchange, account extraction).
 - Chroma-backed semantic history search with lexical fallback for chat session recall.
 - `GET /v1/models` and `GET /v1/models/:id` model listing.
@@ -50,23 +51,27 @@ Alternative credential sources:
 
 ## Shared-state federation v1
 
-If you want several `proxx` instances to behave like one mirrored operator surface, point them at the same `DATABASE_URL`.
+~~not really federation~~
+
+If you want several `proxx` instances to behave like one mirrored operator surface, point them at the same `DATABASE_URL` only for non-secret control-plane state.
 
 In this mode the shared SQL database becomes the control plane for:
 - GitHub/UI operator login state and tenant membership
 - tenant API keys and proxy settings
-- provider credentials, including OpenAI OAuth accounts added through the UI
 - dashboard / analytics usage data
 
 That means:
-- add an OpenAI OAuth account on one instance -> the other instances can pick it up from the same DB-backed credential store
+- operator and tenant settings can be managed once and observed across the fleet
 - usage analytics aggregate across the fleet instead of fragmenting per instance
+- provider credentials, OAuth refresh tokens, API keys, and secret keys must stay local to the instance that owns them
+- cross-instance provider access should use federation peer projection or the WebSocket bridge instead of shared credential tables
 
 Promethean branch promotion + federated environment mapping is documented in [`docs/promethean-federated-deployments.md`](docs/promethean-federated-deployments.md).
 
 Current boundary:
-- shared in v1: operator/admin state, tenant API keys and proxy settings, provider credentials including OAuth accounts, analytics
+- shared in v1: operator/admin state, tenant API keys and proxy settings, analytics, non-secret control-plane runtime state
 - still local for now: chat sessions, prompt affinity, and other convenience file state
+- never shared through DB sync: credential tables, OAuth refresh tokens, API keys, secret keys, service-account secrets
 
 Env-backed providers:
 
@@ -75,7 +80,6 @@ Env-backed providers:
 - `GEMINI_API_KEY` automatically exposes a `gemini` provider route (native Gemini REST via `generateContent`).
 - `ZAI_API_KEY` (or `ZHIPU_API_KEY`) automatically exposes a `zai` provider route (z.ai GLM chat via `https://api.z.ai/api/paas/v4`).
 - `openrouter` and `requesty` default to OpenAI-compatible `/v1/chat/completions` routing.
-- You can target them by setting `UPSTREAM_PROVIDER_ID=openrouter|requesty|gemini|zai`, or by listing them in `UPSTREAM_FALLBACK_PROVIDER_IDS`.
 
 Additional provider ids:
 
@@ -196,7 +200,6 @@ Notes:
 - `STREAM_CHUNK_DELAY_MS` (optional; default: `0`; fixed delay added between synthetic SSE chunks)
 - `STREAM_CHUNK_DELAY_MS_MIN` / `STREAM_CHUNK_DELAY_MS_MAX` (optional; default: unset; random delay range between chunks)
 - `UPSTREAM_PROVIDER_ID` (default: `vivgrid`; provider id to target for routing; if you still use seed files, it also names the legacy default file provider)
-- `UPSTREAM_FALLBACK_PROVIDER_IDS` (default: auto `ollama-cloud` when primary is `vivgrid`, or `vivgrid` when primary is `ollama-cloud`; comma-separated)
 - `UPSTREAM_BASE_URL` (default: `https://api.vivgrid.com`)
 - `UPSTREAM_PROVIDER_BASE_URLS` (optional mapping: `provider=url,provider=url`; defaults include `vivgrid=https://api.vivgrid.com`, `ollama-cloud=https://ollama.com`, `zai=https://api.z.ai/api/paas/v4`, `openrouter=https://openrouter.ai/api/v1`, `requesty=https://router.requesty.ai/v1`, `gemini=https://generativelanguage.googleapis.com/v1beta`, and `factory=https://api.factory.ai`)
 - `OPENAI_PROVIDER_ID` (default: `openai`; provider id for OpenAI-routed accounts)
@@ -217,12 +220,17 @@ Notes:
 - `UPSTREAM_RESPONSES_MODEL_PREFIXES` (default: `gpt-`; comma-separated prefixes)
 - `OPENAI_MODEL_PREFIXES` (default: `openai/,openai:`; comma-separated prefixes)
 - `OLLAMA_CHAT_PATH` (default: `/api/chat`)
-- `OLLAMA_MODEL_PREFIXES` (default: `ollama/,ollama:`; comma-separated prefixes)
+- `OLLAMA_MODEL_PREFIXES` (default: `ollama/,ollama:,ollama-lan/,ollama-lan:`; comma-separated prefixes)
 - `PROXY_KEYS_FILE` (optional seed file path; DB-backed runtimes do not need it)
 - `PROXY_MODELS_FILE` (default: `./models.json`, fallback: `VIVGRID_MODELS_FILE`)
 - `PROXY_REQUEST_LOGS_FILE` (default: `./data/request-logs.jsonl`)
 - `PROXY_REQUEST_LOGS_MAX_ENTRIES` (default: `100000`; retained raw request-log entries used for backfill/debug/recent views)
 - `PROXY_SETTINGS_FILE` (default: `./data/proxy-settings.json`)
+- `MODELS_DEV_PRICING_URL` (default: `https://models.dev/api.json`; source for the live model price index)
+- `PROXY_MODEL_PRICING_REFRESH_MS` / `MODELS_DEV_PRICING_REFRESH_MS` (default: `21600000`; background price-index refresh interval, set `0` with startup refresh disabled to turn off live refresh)
+- `PROXY_MODEL_PRICING_STARTUP_REFRESH` / `MODELS_DEV_PRICING_STARTUP_REFRESH` (default: `true`; refresh the price index once when the API starts)
+- `PROXY_MODEL_PRICING_REFRESH_TIMEOUT_MS` / `MODELS_DEV_PRICING_REFRESH_TIMEOUT_MS` (default: `10000`; timeout for each models.dev fetch)
+- **Pricing override commandment**: token-price overrides MUST be expressed as **EDN policy contracts** (see `resources/policies/runtime/15-model-pricing-overrides.edn` or service-mounted `/etc/proxx/policies/runtime/15-model-pricing-overrides.edn`). Do **not** add JSON override blobs or hard-coded TypeScript pricing tables for one-off models.
 - `PROXY_KEY_RELOAD_MS` (default: `5000`, fallback: `VIVGRID_KEY_RELOAD_MS`)
 - `PROXY_KEY_COOLDOWN_MS` (default: `30000`, fallback: `VIVGRID_KEY_COOLDOWN_MS`)
 - `UPSTREAM_REQUEST_TIMEOUT_MS` (default: `180000`)
@@ -286,7 +294,7 @@ Those legacy formats map to `UPSTREAM_PROVIDER_ID`.
 
 ## `models.json` Preferences
 
-`models.json` is now **preference metadata**, not the source of truth. The proxy discovers models dynamically via provider `/v1/models` (and provider-specific catalog endpoints) and uses `models.json` to:
+`models.json` is now **preference metadata**, not the source of truth. Routing decisions come from the CLJS/EDN policy runtime under `resources/policies/runtime/`; the proxy discovers models dynamically via provider `/v1/models` and provider-specific catalog endpoints, then uses `models.json` only to:
 
 - **declare** static model IDs for upstreams that do not advertise a reliable catalog
 - **prioritize** models in listings and routing
@@ -308,6 +316,17 @@ Notes:
 - Preferred models only **reorder** discovered models (they do **not** add undiscovered models).
 - Disabled models are excluded even if a provider advertises them.
 - Aliases only apply when the **target** model exists in the discovered or declared catalog.
+
+## Policy Runtime
+
+Routing, provider admission, account ordering, tenant authorization, federation relay admission, and queue policy are declared as EDN contracts in `resources/policies/runtime/*.edn` and interpreted by ClojureScript in `src/proxx/**/*.cljs`.
+
+Operational rules:
+
+- Do not add provider/model routing knobs to `.env`, Compose files, or TypeScript conditionals.
+- Do not use `models.json` to force routing; it is catalog preference metadata only.
+- Set `PROXX_CLJS_POLICY_MANIFEST` only when mounting an alternate complete policy manifest, such as `/etc/proxx/policies/runtime/00-manifest.edn`.
+- Restart the server after changing mounted EDN policy files; a CLJS rebuild is only needed when interpreter code changes.
 
 Personal llama.cpp example:
 
@@ -497,15 +516,16 @@ Each tenant gets their own API key and can have separate provider allowlists.
 
 ### Mode C: Federated Cloud Deployment
 
-Multiple cloud instances sharing state via PostgreSQL.
+Multiple cloud instances sharing operator/control-plane state via PostgreSQL.
 
 1. Deploy to multiple hosts (testing, staging, production)
-2. Point all instances at the same `DATABASE_URL`
+2. Point instances at the same `DATABASE_URL` only when that database excludes credential-bearing tables and secrets
 3. Instances automatically share:
-   - Operator/admin login state
-   - Tenant API keys and settings
-   - Provider credentials (including OAuth accounts)
-   - Usage analytics
+    - Operator/admin login state
+    - Tenant API keys and settings
+    - Usage analytics
+
+Provider credentials are not a routing policy source. Keep OAuth refresh tokens local to the instance that owns them. Use federation peer projection or the WebSocket bridge to lease/use access across instances without copying refresh tokens to another host.
 
 ```bash
 # Each instance sets its own identity:
@@ -571,12 +591,9 @@ Each bridge session displays:
 
 ### Federation Health
 
-### Dynamic Federated Fallback (Routing-time)
+### Routing-Time Federation
 
-When a request exhausts local credentials, Proxx can attempt a federated fallback using
-previously-synced projected accounts. To reduce the need for external cron/daemon syncs,
-Proxx will also (by default) perform an **on-demand pull** from configured federation peers
-when it has no projected candidates available.
+When local routing has no usable credential, Proxx can route through previously synced projected accounts from federation peers. Projection admission and order are controlled by `65-federation-routing.edn`; TypeScript only loads peer/account facts and performs HTTP transport. To reduce the need for external cron/daemon syncs, Proxx also performs an **on-demand pull** from configured peers when it has no projected candidates available.
 
 Relevant environment variables:
 
@@ -589,8 +606,8 @@ FEDERATION_ON_DEMAND_PULL_ENABLED=true
 # Default: 60000
 FEDERATION_ON_DEMAND_PULL_TTL_MS=60000
 
-# How many successful federated routes must occur before Proxx imports (leases) a
-# peer credential into the local runtime credential store.
+# How many successful federated routes must occur before Proxx may warm-import a
+# credential lease into the local runtime credential store, if policy allows it.
 # Default: 3
 FEDERATION_WARM_IMPORT_REQUEST_THRESHOLD=3
 ```
@@ -635,7 +652,7 @@ npx @apidevtools/swagger-cli validate openapi.json
 For AI assistants outside the devel workspace, use this prompt:
 
 ```
-Set up proxx (OpenAI-compatible proxy with account rotation and federation):
+Set up proxx (OpenAI-compatible proxy with account rotation and CLJS/EDN policy routing):
 
 1. Clone and install:
    git clone https://github.com/open-hax/proxx.git && cd proxx && pnpm install
@@ -646,10 +663,13 @@ Set up proxx (OpenAI-compatible proxy with account rotation and federation):
    Required in .env:
    - PROXY_AUTH_TOKEN=<your-secret-token>
    
-   Optional:
-   - DATABASE_URL=postgresql://... (for multi-tenant or federation)
-   - UPSTREAM_PROVIDER_ID=vivgrid|openai|ollama-cloud
-   - OPENAI_API_KEY, FACTORY_API_KEY, etc. for provider credentials
+    Optional:
+    - DATABASE_URL=postgresql://... (for multi-tenant or federation)
+    - UPSTREAM_PROVIDER_ID=vivgrid|openai|ollama-cloud
+    - OPENAI_API_KEY, FACTORY_API_KEY, etc. for provider credentials
+
+   Do not add provider/model routing switches to .env. Routing policy lives in resources/policies/runtime/*.edn.
+   models.json is preference/catalog metadata only, not a routing source of truth.
 
 3. Run:
    pnpm dev
@@ -672,6 +692,44 @@ Semantic versioning: See package.json for current version.
 Fork tax releases are tagged vX.Y.Z and published to npm as @open-hax/proxx.
 ```
 
+### Agent Federation Prompt
+
+Use this prompt when asking an assistant to connect a local credential-owning Proxx to a cloud Proxx without copying OAuth refresh tokens:
+
+```text
+Configure Proxx federation/bridge safely:
+
+1. Keep OAuth refresh tokens on the machine that owns the browser/device login.
+2. Do not copy account database credentials to the remote host.
+3. On the credential-owning local instance, set:
+   FEDERATION_BRIDGE_RELAY_URL=wss://<cloud-host>/api/ui/federation/bridge/ws
+   FEDERATION_BRIDGE_AUTHORIZATION=Bearer <bridge-token>
+   FEDERATION_SELF_CLUSTER_ID=local
+   FEDERATION_SELF_GROUP_ID=local
+   FEDERATION_SELF_NODE_ID=<local-node-name>
+4. On the cloud instance, verify the bridge session at /api/v1/federation/bridges.
+5. Leave routing/admission decisions in resources/policies/runtime/65-federation-routing.edn and CLJS interpreter code; do not implement routing exceptions in TypeScript.
+6. Verify with health checks and one OpenAI-compatible request through /v1/responses or /v1/chat/completions.
+```
+
+## Code Quality
+
+Proxx includes repository-wide code duplication scanning via `jscpd`.
+
+```bash
+# Generate console, HTML, and JSON duplication reports
+pnpm duplication:scan
+
+# Run the CI-suitable duplication gate
+pnpm duplication:check
+```
+
+Reports are written to `reports/jscpd/` and are ignored as regenerable artifacts. The default gate focuses on executable and policy code in `src`, `test`, `web/src`, `web/test`, `scripts`, `resources`, `deploy`, `examples`, and `pseudo`, while excluding generated output, vendored dependencies, local runtime data, worktrees, lockfiles, sourcemaps, and other noisy artifacts.
+
+The GitHub Actions workflow at `.github/workflows/code-quality.yml` runs the duplication gate on pull requests and pushes to `main`/`staging`.
+
+See [`docs/code-quality.md`](docs/code-quality.md) for scanner scope, thresholds, ignored paths, and triage guidance.
+
 ## Contributing
 
 1. Fork the repository
@@ -681,3 +739,7 @@ Fork tax releases are tagged vX.Y.Z and published to npm as @open-hax/proxx.
 5. Submit a PR into `staging` branch
 
 See [`DEVEL.md`](DEVEL.md) for development workflow details.
+
+## Testing deploys
+
+Adding the `testing` label to an eligible PR deploys the PR head to the shared staging slot via the open-hax/services Promethean deploy module (`.github/workflows/deploy-testing.yml`).

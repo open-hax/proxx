@@ -1,0 +1,48 @@
+name: OpenCode Kimi PR Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+concurrency:
+  group: opencode-kimi-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    name: Review pull request with OpenCode
+    if: ${{ github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: write
+      issues: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure review git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Run OpenCode review
+        # v1.15.13 pinned by commit SHA for reproducible review behavior.
+        uses: anomalyco/opencode/github@385cb694419f98103af0e8fc6187ddcbcbb6eecb
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          KIMI_API_KEY: ${{ secrets.KIMI_FOR_CODING_API_KEY }}
+        with:
+          model: kimi-for-coding/k2p5
+          use_github_token: true
+          prompt: |
+            Review this pull request as a senior maintainer.
+            Focus on correctness, security, maintainability, tests, and repo-specific conventions.
+            Check linked GitHub issues and any synced Kanban markers (`openhax-kanban-sync`) to understand the task intent.
+            If this repository has a kanban/ directory or docs/agent-workflows.md, use it as planning context and keep status/priority labels in mind.
+            Submit concrete findings as GitHub PR inline review comments on the exact changed lines whenever GitHub can attach them.
+            If there are no actionable findings, leave a short passing review summary instead of inventing comments.
+            Do not request cosmetic churn unless it prevents confusion or future defects.

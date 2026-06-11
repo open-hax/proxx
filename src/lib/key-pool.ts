@@ -50,6 +50,7 @@ export interface KeyPoolStatus {
   readonly availableAccounts: number;
   readonly cooldownAccounts: number;
   readonly disabledAccounts: number;
+  readonly expiredAccounts: number;
   readonly inFlightAccounts: number;
   readonly nextReadyInMs: number;
 }
@@ -59,8 +60,11 @@ export interface KeyPoolAccountStatus {
   readonly accountId: string;
   readonly authType: ProviderAuthType;
   readonly available: boolean;
+  readonly disabled: boolean;
+  readonly expired: boolean;
   readonly inFlight: boolean;
   readonly cooldownUntil?: number;
+  readonly expiresAt?: number;
   readonly nextReadyInMs: number;
 }
 
@@ -326,7 +330,7 @@ function readProvidersFromJsonValue(raw: unknown, defaultProviderId: string): Ma
 }
 
 function readProvidersFromJsonEnv(defaultProviderId: string): Map<string, ProviderState> {
-  const raw = process.env.PROXY_KEYS_JSON ?? process.env.UPSTREAM_KEYS_JSON ?? process.env.VIVGRID_KEYS_JSON;
+  const raw = process.env.PROXY_KEYS_JSON ?? process.env.VIVGRID_KEYS_JSON;
   const normalized = raw?.trim();
   if (!normalized) {
     return new Map<string, ProviderState>();
@@ -1077,6 +1081,7 @@ export class KeyPool {
         availableAccounts: 0,
         cooldownAccounts: 0,
         disabledAccounts: 0,
+        expiredAccounts: 0,
         inFlightAccounts: 0,
         nextReadyInMs: 0
       };
@@ -1086,17 +1091,26 @@ export class KeyPool {
     let availableAccounts = 0;
     let cooldownAccounts = 0;
     let disabledAccounts = 0;
+    let expiredAccounts = 0;
     let inFlightAccounts = 0;
     let minDelay = Number.POSITIVE_INFINITY;
+    const expiryBuffer = resolveExpiryBufferMs(this.config.expiryBufferMs);
 
     for (const credential of providerState.accounts) {
-      if (this.disabledAccountKeys.has(accountStateKey(credential))) {
+      const key = accountStateKey(credential);
+      if (this.disabledAccountKeys.has(key)) {
         disabledAccounts += 1;
         continue;
       }
 
-      const cooldownUntil = this.cooldownByAccountKey.get(accountStateKey(credential)) ?? 0;
-      if ((this.inFlightByAccountKey.get(accountStateKey(credential)) ?? 0) > 0) {
+      const isExpired = typeof credential.expiresAt === "number" && credential.expiresAt <= now + expiryBuffer;
+      if (isExpired) {
+        expiredAccounts += 1;
+        continue;
+      }
+
+      const cooldownUntil = this.cooldownByAccountKey.get(key) ?? 0;
+      if ((this.inFlightByAccountKey.get(key) ?? 0) > 0) {
         inFlightAccounts += 1;
       }
       if (cooldownUntil <= now) {
@@ -1122,6 +1136,7 @@ export class KeyPool {
       availableAccounts,
       cooldownAccounts,
       disabledAccounts,
+      expiredAccounts,
       inFlightAccounts,
       nextReadyInMs,
     };
@@ -1142,12 +1157,15 @@ export class KeyPool {
     await this.ensureFreshProviders(false);
 
     const now = Date.now();
+    const expiryBuffer = resolveExpiryBufferMs(this.config.expiryBufferMs);
     const statuses: Record<string, readonly KeyPoolAccountStatus[]> = {};
 
     for (const [providerId, providerState] of this.providers.entries()) {
       statuses[providerId] = providerState.accounts.map((credential) => {
         const key = accountStateKey(credential);
         const cooldownUntil = this.cooldownByAccountKey.get(key);
+        const disabled = this.disabledAccountKeys.has(key);
+        const expired = typeof credential.expiresAt === "number" && credential.expiresAt <= now + expiryBuffer;
         const inFlight = (this.inFlightByAccountKey.get(key) ?? 0) > 0;
         const available = (cooldownUntil ?? 0) <= now;
         return {
@@ -1155,8 +1173,11 @@ export class KeyPool {
           accountId: credential.accountId,
           authType: credential.authType,
           available,
+          disabled,
+          expired,
           inFlight,
           cooldownUntil,
+          expiresAt: credential.expiresAt,
           nextReadyInMs: available || cooldownUntil === undefined ? 0 : Math.max(cooldownUntil - now, 0),
         };
       });

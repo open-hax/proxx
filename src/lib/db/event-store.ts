@@ -456,18 +456,45 @@ export class EventStore {
   }
 }
 
+function extractUrls(value: unknown): string[] {
+  const urls: string[] = [];
+  if (typeof value === "string") {
+    // Look for http(s) URLs, especially media/asset URLs
+    if (/^https?:\/\//.test(value)) {
+      urls.push(value);
+    }
+  } else if (Array.isArray(value)) {
+    for (const item of value) {
+      urls.push(...extractUrls(item));
+    }
+  } else if (typeof value === "object" && value !== null) {
+    for (const v of Object.values(value as Record<string, unknown>)) {
+      urls.push(...extractUrls(v));
+    }
+  }
+  return urls;
+}
+
 function sanitizePayload(payload: Record<string, unknown>): Record<string, unknown> {
   const json = JSON.stringify(payload);
   if (Buffer.byteLength(json, "utf8") > MAX_PAYLOAD_BYTES) {
+    const urls = extractUrls(payload);
     return {
       _truncated: true,
       _originalBytes: Buffer.byteLength(json, "utf8"),
       model: payload["model"],
       _messageCount: Array.isArray(payload["messages"]) ? payload["messages"].length : undefined,
       _inputCount: Array.isArray(payload["input"]) ? payload["input"].length : undefined,
+      ...(urls.length > 0 ? { _urls: urls } : {}),
     };
   }
   return stripInvalidJsonChars(payload) as Record<string, unknown>;
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (value === null || typeof value !== "object") return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
 }
 
 function stripInvalidJsonChars(obj: unknown): unknown {
@@ -481,9 +508,9 @@ function stripInvalidJsonChars(obj: unknown): unknown {
   if (Array.isArray(obj)) {
     return obj.map(stripInvalidJsonChars);
   }
-  if (typeof obj === "object") {
+  if (isPlainObject(obj)) {
     const result: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
+    for (const [key, value] of Object.entries(obj)) {
       result[key] = stripInvalidJsonChars(value);
     }
     return result;

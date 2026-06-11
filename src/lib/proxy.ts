@@ -2,6 +2,7 @@ import type { IncomingHttpHeaders } from "node:http";
 import type { FastifyReply } from "fastify";
 
 import type { ProviderCredential } from "./key-pool.js";
+import { getActiveCljsRuntime } from "./cljs-runtime.js";
 
 const HOP_BY_HOP_HEADERS = new Set([
   "connection",
@@ -20,6 +21,7 @@ const BLOCKED_REQUEST_HEADERS = new Set([
   "connection",
   "content-length",
   "cookie",
+  "expect",
   "host",
   "proxy-authenticate",
   "proxy-authorization",
@@ -103,7 +105,9 @@ export function buildUpstreamHeadersForCredential(
   credential: ProviderCredential,
   options?: { readonly useOpenAiCodexHeaderProfile?: boolean },
 ): Headers {
-  const headers = buildUpstreamHeaders(clientHeaders, credential.token);
+  const headers = credential.token.length > 0
+    ? buildUpstreamHeaders(clientHeaders, credential.token)
+    : buildForwardHeaders(clientHeaders);
   if (credential.chatgptAccountId) {
     headers.set("chatgpt-account-id", credential.chatgptAccountId);
   }
@@ -209,7 +213,34 @@ export function classifyRateLimitKind(
   errorBody: unknown,
   retryAfterMs: number | undefined,
   concurrencyThresholdMs: number = 30_000,
+  providerId?: string,
+  manifestPath?: string,
 ): RateLimitKind {
+  // Check provider-specific EDN policy first.
+  if (providerId) {
+    const runtime = getActiveCljsRuntime();
+    if (runtime?.classifyRateLimit) {
+      try {
+        const cljsResult = runtime.classifyRateLimit(
+          manifestPath ?? "resources/policies/runtime/00-manifest.edn",
+          providerId,
+          429,
+          retryAfterMs,
+        );
+        if (cljsResult.status === "ok" && cljsResult.result) {
+          if (cljsResult.result === "volume") {
+            return "quota_exhausted";
+          }
+          if (cljsResult.result === "concurrency") {
+            return "concurrency_throttle";
+          }
+        }
+      } catch {
+        // Fall back to generic heuristics on CLJS error.
+      }
+    }
+  }
+
   // Ollama session/weekly limits are always quota exhaustion.
   const ollamaKind = detectOllamaLimitKind(errorBody);
   if (ollamaKind === "session" || ollamaKind === "weekly") {

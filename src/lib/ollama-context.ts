@@ -119,6 +119,7 @@ export async function fetchOllamaModelContextLength(
   baseUrl: string,
   model: string,
   timeoutMs: number,
+  signal?: AbortSignal,
 ): Promise<number | null> {
   const cacheKey = `${baseUrl}::${model}`;
   const cached = contextLengthCache.get(cacheKey);
@@ -134,6 +135,7 @@ export async function fetchOllamaModelContextLength(
         "content-type": "application/json",
       },
       body: JSON.stringify({ model }),
+      signal,
     }, timeoutMs);
   } catch {
     return cached?.length ?? null;
@@ -162,7 +164,17 @@ export async function fetchOllamaModelContextLength(
     ?? asNumber(modelInfo?.["gemma3.context_length"])
     ?? asNumber(modelInfo?.["general.context_length"]);
 
-  const result = directContext ?? modelInfoContext ?? null;
+  // Respect model-specific num_ctx parameter if set (e.g. via Modelfile)
+  const parameters = asString(payload["parameters"]);
+  let paramContext: number | null = null;
+  if (parameters) {
+    const match = parameters.match(/num_ctx\s+(\d+)/);
+    if (match) {
+      paramContext = asNumber(Number(match[1])) ?? null;
+    }
+  }
+
+  const result = paramContext ?? directContext ?? modelInfoContext ?? null;
   if (result !== null) {
     contextLengthCache.set(cacheKey, { length: result, fetchedAt: Date.now() });
   }
@@ -174,13 +186,14 @@ export async function ensureOllamaContextFits(
   baseUrl: string,
   requestBody: Record<string, unknown>,
   timeoutMs: number,
+  signal?: AbortSignal,
 ): Promise<OllamaContextBudget | null> {
   const model = asString(requestBody["model"]);
   if (!model || model.length === 0) {
     return null;
   }
 
-  const contextLength = await fetchOllamaModelContextLength(baseUrl, model, timeoutMs);
+  const contextLength = await fetchOllamaModelContextLength(baseUrl, model, timeoutMs, signal);
   if (!contextLength || contextLength <= 0) {
     return null;
   }
@@ -206,13 +219,14 @@ export async function ensureNativeOllamaChatContextFits(
   baseUrl: string,
   requestBody: Record<string, unknown>,
   timeoutMs: number,
+  signal?: AbortSignal,
 ): Promise<OllamaContextBudget | null> {
   const model = asString(requestBody["model"]);
   if (!model || model.length === 0) {
     return null;
   }
 
-  const contextLength = await fetchOllamaModelContextLength(baseUrl, model, timeoutMs);
+  const contextLength = await fetchOllamaModelContextLength(baseUrl, model, timeoutMs, signal);
   if (!contextLength || contextLength <= 0) {
     return null;
   }
@@ -240,13 +254,14 @@ export async function ensureNativeOllamaEmbedContextFits(
   baseUrl: string,
   requestBody: Record<string, unknown>,
   timeoutMs: number,
+  signal?: AbortSignal,
 ): Promise<OllamaContextBudget | null> {
   const model = asString(requestBody["model"]);
   if (!model || model.length === 0) {
     return null;
   }
 
-  const contextLength = await fetchOllamaModelContextLength(baseUrl, model, timeoutMs);
+  const contextLength = await fetchOllamaModelContextLength(baseUrl, model, timeoutMs, signal);
   if (!contextLength || contextLength <= 0) {
     return null;
   }

@@ -2,11 +2,10 @@ import type { ProviderCredential } from "../../key-pool.js";
 import type { StrategyRequestContext } from "../shared.js";
 import {
   providerAccountsForRequest,
-  providerAccountsForRequestWithPolicy,
   reorderAccountsForLatency,
   reorderCandidatesForAffinities,
 } from "./credential-selector.js";
-import type { FallbackCandidate, FallbackDeps } from "./types.js";
+import type { RoutingCandidate, RoutingDeps } from "./types.js";
 
 function resolveForcedCredentialSelection(context: StrategyRequestContext): {
   readonly providerId?: string;
@@ -30,17 +29,17 @@ function readHeaderValue(headers: Record<string, unknown>, name: string): string
 }
 
 export interface BuildCandidatesResult {
-  readonly candidates: readonly FallbackCandidate[];
+  readonly candidates: readonly RoutingCandidate[];
   readonly preferredAffinity: { readonly providerId: string; readonly accountId: string } | undefined;
   readonly provisionalAffinity: { readonly providerId: string; readonly accountId: string } | undefined;
 }
 
-export async function buildFallbackCandidates(
-  deps: FallbackDeps,
+export async function buildRoutingCandidates(
+  deps: RoutingDeps,
 ): Promise<BuildCandidatesResult> {
-  const { keyPool, providerRoutes, context, promptAffinityStore, promptCacheKey, policy, healthStore, quotaMonitor, strategy, requestLogStore } = deps;
+  const { keyPool, providerRoutes, context, promptAffinityStore, promptCacheKey, quotaMonitor, strategy, requestLogStore } = deps;
 
-  const candidatesByProvider: Record<string, FallbackCandidate[]> = {};
+  const candidatesByProvider: Record<string, RoutingCandidate[]> = {};
   const forcedCredentialSelection = resolveForcedCredentialSelection(context);
 
   for (const route of providerRoutes) {
@@ -51,15 +50,22 @@ export async function buildFallbackCandidates(
     let routeAccounts: ProviderCredential[];
     try {
       const rawAccounts = await keyPool.getRequestOrder(route.providerId);
-      routeAccounts = policy
-        ? providerAccountsForRequestWithPolicy(policy, rawAccounts, route.providerId, context.routedModel, {
-            openAiPrefixed: context.openAiPrefixed,
-            localOllama: context.localOllama,
-            explicitOllama: context.explicitOllama,
-          }, healthStore)
-        : providerAccountsForRequest(rawAccounts, route.providerId, context.routedModel);
+      routeAccounts = providerAccountsForRequest(rawAccounts, route.providerId, context.routedModel);
     } catch {
-      continue;
+      if (route.authRequired !== false) {
+        continue;
+      }
+      routeAccounts = [];
+    }
+
+    if (route.authRequired === false) {
+      routeAccounts = [{
+        providerId: route.providerId,
+        accountId: `${route.providerId}-no-auth`,
+        token: "",
+        authType: "api_key",
+        planType: "free",
+      }];
     }
 
     if (quotaMonitor?.tracksProvider(route.providerId)) {
@@ -76,6 +82,7 @@ export async function buildFallbackCandidates(
       providerId: route.providerId,
       baseUrl: route.baseUrl,
       account,
+      ...(route.paths ? { paths: route.paths } : {}),
     }));
 
     if (routeCandidates.length > 0) {

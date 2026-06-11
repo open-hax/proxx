@@ -154,7 +154,7 @@ export function toUsageWindow(value: unknown): UsageWindow {
   if (normalized === "month" || normalized === "monthly" || normalized === "30d") {
     return "monthly";
   }
-  if (normalized === "week" || normalized === "7d") {
+  if (normalized === "week" || normalized === "weekly" || normalized === "7d") {
     return "weekly";
   }
   return "daily";

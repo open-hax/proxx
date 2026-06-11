@@ -1,15 +1,16 @@
 node_modules/
 dist/
-web/dist/
 logs/
 /data/
 coverage/
 target/
 .shadow-cljs/
 .clj-kondo/.cache/
-.tmp-go-bin/
+.lsp/
 .factory/
 
 .env
 keys.json
 models.json
+
+reports/jscpd/

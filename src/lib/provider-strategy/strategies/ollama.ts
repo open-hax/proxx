@@ -8,6 +8,7 @@ import {
 } from "../../ollama-compat.js";
 import { sendOpenAiError } from "../../provider-utils.js";
 import { toErrorMessage } from "../../errors/index.js";
+import { normalizeReasoningRequestWithCljs } from "../../cljs-runtime.js";
 import { BaseProviderStrategy } from "../base.js";
 import {
   buildPayloadResult,
@@ -20,7 +21,7 @@ import {
 export class LocalOllamaProviderStrategy extends BaseProviderStrategy {
   public readonly mode = "local_ollama_chat" as const;
 
-  public readonly isLocal = true;
+  public readonly isLocal: boolean = true;
 
   public matches(context: StrategyRequestContext): boolean {
     return context.localOllama && !context.explicitOllama;
@@ -78,7 +79,7 @@ export class LocalOllamaProviderStrategy extends BaseProviderStrategy {
 export class OllamaProviderStrategy extends BaseProviderStrategy {
   public readonly mode = "ollama_chat" as const;
 
-  public readonly isLocal = true;
+  public readonly isLocal: boolean = true;
 
   public matches(context: StrategyRequestContext): boolean {
     return context.explicitOllama;
@@ -88,8 +89,19 @@ export class OllamaProviderStrategy extends BaseProviderStrategy {
     return context.config.ollamaChatPath;
   }
 
+  protected getReasoningProviderId(context: StrategyRequestContext): string {
+    return context.routeProviderId ?? "ollama";
+  }
+
   public buildPayload(context: StrategyRequestContext): BuildPayloadResult {
-    return buildPayloadResult(chatRequestToOllamaRequest(context.requestBody, context.config.ollamaModelPrefixes), context);
+    const requestBody = normalizeReasoningRequestWithCljs({
+      manifestPath: context.config.cljsPolicyManifestPath,
+      requestBody: context.requestBody,
+      modelId: context.routedModel,
+      providerId: this.getReasoningProviderId(context),
+      strategyMode: this.mode,
+    });
+    return buildPayloadResult(chatRequestToOllamaRequest(requestBody, context.config.ollamaModelPrefixes), context);
   }
 
   public override async handleLocalAttempt(
@@ -116,6 +128,28 @@ export class OllamaProviderStrategy extends BaseProviderStrategy {
         }
       }
       rawResponse.flushHeaders();
+
+      // Extend queue timeout now that streaming has started successfully
+      const signal = context.queueSignal;
+      const extendedSignal = signal as AbortSignal & { extendTimeout?: () => void } | undefined;
+      if (extendedSignal && typeof extendedSignal.extendTimeout === "function") {
+        extendedSignal.extendTimeout();
+      }
+
+      // Emit SSE error if the queue aborts us mid-stream
+      if (signal) {
+        const onAbort = () => {
+          if (!rawResponse.writableEnded) {
+            rawResponse.write(
+              `data: ${JSON.stringify({
+                error: { message: "Provider stream aborted by request queue timeout" },
+              })}\n\n`
+            );
+            rawResponse.end();
+          }
+        };
+        signal.addEventListener("abort", onAbort, { once: true });
+      }
 
       try {
         await streamOllamaNdjsonToChatCompletionSse(upstreamResponse.body, context.routedModel, (data) => {
@@ -163,5 +197,15 @@ export class OllamaProviderStrategy extends BaseProviderStrategy {
 
     reply.header("content-type", "application/json");
     reply.send(chatCompletion);
+  }
+}
+
+export class RemoteOllamaProviderStrategy extends OllamaProviderStrategy {
+  public override readonly isLocal = false;
+
+  public override matches(context: StrategyRequestContext): boolean {
+    return context.policyPreferredStrategyMode === "ollama_chat"
+      && context.responsesPassthrough !== true
+      && context.imagesPassthrough !== true;
   }
 }

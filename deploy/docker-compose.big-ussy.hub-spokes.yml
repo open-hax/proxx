@@ -33,7 +33,6 @@ x-proxx-env: &proxx-env
   PROXY_REQUEST_LOGS_FLUSH_MS: "${PROXY_REQUEST_LOGS_FLUSH_MS:-1000}"
   PROXY_PROMPT_AFFINITY_FLUSH_MS: "${PROXY_PROMPT_AFFINITY_FLUSH_MS:-250}"
   UPSTREAM_PROVIDER_ID: "${UPSTREAM_PROVIDER_ID:-openai}"
-  UPSTREAM_FALLBACK_PROVIDER_IDS: "${UPSTREAM_FALLBACK_PROVIDER_IDS:-ollama-cloud,requesty}"
   DISABLED_PROVIDER_IDS: "${DISABLED_PROVIDER_IDS:-}"
   UPSTREAM_BASE_URL: "${UPSTREAM_BASE_URL:-}"
   UPSTREAM_PROVIDER_BASE_URLS: "${UPSTREAM_PROVIDER_BASE_URLS:-ollama-cloud=https://ollama.com,ob1=https://dashboard.openblocklabs.com/api,openai=https://chatgpt.com/backend-api,openrouter=https://openrouter.ai/api/v1,requesty=https://router.requesty.ai/v1,vivgrid=https://api.vivgrid.com,zen=https://opencode.ai/zen/v1,ollama-stealth=http://host.docker.internal:11434,ollama-big-ussy=http://10.0.0.2:11434}"
@@ -295,7 +294,6 @@ services:
       PROXY_MODELS_FILE: /workspace/service-config/models.json
       DATABASE_URL: "${PROXX_DATABASE_URL:-postgresql://cephalon_proxx:cephalon_proxx@cephalon-hive-proxx-db:5432/cephalon_proxx}"
       UPSTREAM_PROVIDER_ID: "${PROXX_UPSTREAM_PROVIDER_ID:-ollama-cloud}"
-      UPSTREAM_FALLBACK_PROVIDER_IDS: "${PROXX_UPSTREAM_FALLBACK_PROVIDER_IDS:-}"
       OLLAMA_BASE_URL: "${PROXX_OLLAMA_BASE_URL:-https://ollama.com}"
       OLLAMA_CHAT_PATH: "${PROXX_OLLAMA_CHAT_PATH:-/api/chat}"
       OLLAMA_MODEL_PREFIXES: "${PROXX_OLLAMA_MODEL_PREFIXES:-ollama/,ollama:}"

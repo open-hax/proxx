@@ -1,8 +1,5 @@
 import type { ProviderCredential } from "../../key-pool.js";
-import type { PolicyEngine } from "../../policy/index.js";
-import type { AccountHealthStore } from "../../db/account-health-store.js";
 import type { RequestLogStore } from "../../request-log-store.js";
-import { orderAccountsByPolicy } from "../../provider-policy.js";
 
 export interface PreferredAffinity {
   readonly providerId: string;
@@ -51,38 +48,6 @@ export function reorderCandidatesForAffinity<T extends { readonly providerId: st
   return reorderCandidatesForAffinities(candidates, preferred ? [preferred] : []);
 }
 
-export function gptModelRequiresPaidPlan(routedModel: string): boolean {
-  const match = routedModel.match(/^gpt-(\d+)(?:[.-]([a-z0-9]+))?/i);
-  if (!match) {
-    return false;
-  }
-
-  const major = Number.parseInt(match[1] ?? "", 10);
-  if (!Number.isFinite(major)) {
-    return false;
-  }
-
-  if (major > 5) {
-    return true;
-  }
-
-  if (major !== 5) {
-    return false;
-  }
-
-  const qualifier = match[2];
-  if (!qualifier) {
-    return false;
-  }
-
-  if (/^\d+$/.test(qualifier)) {
-    const minor = Number.parseInt(qualifier, 10);
-    return Number.isFinite(minor) && minor >= 3;
-  }
-
-  return true;
-}
-
 function planCostTier(planType: string | undefined): number {
   const normalized = (planType ?? "").trim().toLowerCase();
   switch (normalized) {
@@ -115,39 +80,6 @@ export function providerAccountsForRequest(
     return [...accounts];
   }
 
-  if (gptModelRequiresPaidPlan(routedModel)) {
-    const stronglySupportedPlans = new Set(["plus", "pro", "business", "enterprise"]);
-
-    const stronglySupportedAccounts = accounts.filter(
-      (account) => stronglySupportedPlans.has(account.planType ?? ""),
-    );
-
-    const teamAccounts = accounts.filter((account) => account.planType === "team");
-
-    const otherPaidAccounts = accounts.filter((account) => {
-      const planType = account.planType ?? "unknown";
-      if (planType === "free") {
-        return false;
-      }
-      if (planType === "team") {
-        return false;
-      }
-      if (stronglySupportedPlans.has(planType)) {
-        return false;
-      }
-      return true;
-    });
-
-    const freeAccounts = accounts.filter((account) => account.planType === "free");
-
-    return [
-      ...stronglySupportedAccounts,
-      ...teamAccounts,
-      ...otherPaidAccounts,
-      ...freeAccounts,
-    ];
-  }
-
   const freeAccounts = accounts.filter((account) => account.planType === "free");
   const nonFreeAccounts = accounts.filter((account) => account.planType !== "free");
   const prioritized = freeAccounts.length > 0
@@ -155,21 +87,6 @@ export function providerAccountsForRequest(
     : [...accounts];
 
   return prioritized;
-}
-
-export function providerAccountsForRequestWithPolicy(
-  policy: PolicyEngine,
-  accounts: readonly ProviderCredential[],
-  providerId: string,
-  routedModel: string,
-  context: {
-    openAiPrefixed: boolean;
-    localOllama: boolean;
-    explicitOllama: boolean;
-  },
-  healthStore?: AccountHealthStore,
-): ProviderCredential[] {
-  return orderAccountsByPolicy(policy, providerId, accounts, routedModel, context, healthStore);
 }
 
 export function reorderAccountsForLatency(

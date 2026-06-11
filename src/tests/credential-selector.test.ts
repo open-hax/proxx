@@ -4,8 +4,7 @@ import test from "node:test";
 import {
   reorderCandidatesForAffinities,
   reorderCandidatesForAffinity,
-  gptModelRequiresPaidPlan,
-} from "../lib/provider-strategy/fallback/credential-selector.js";
+} from "../lib/provider-strategy/routing/credential-selector.js";
 
 test("reorderCandidatesForAffinities moves preferred candidates to front", () => {
   const candidates = [
@@ -40,15 +39,4 @@ test("reorderCandidatesForAffinity delegates to reorderCandidatesForAffinities",
 
   const noPref = reorderCandidatesForAffinity(candidates, undefined);
   assert.deepEqual(noPref, candidates);
-});
-
-test("gptModelRequiresPaidPlan returns true for gpt-5.3+", () => {
-  assert.ok(gptModelRequiresPaidPlan("gpt-5.3"));
-  assert.ok(gptModelRequiresPaidPlan("gpt-5.4"));
-  assert.ok(gptModelRequiresPaidPlan("gpt-6"));
-  assert.ok(gptModelRequiresPaidPlan("gpt-5-mini"));
-  assert.ok(!gptModelRequiresPaidPlan("gpt-5.2"));
-  assert.ok(!gptModelRequiresPaidPlan("gpt-5"));
-  assert.ok(!gptModelRequiresPaidPlan("gpt-4"));
-  assert.ok(!gptModelRequiresPaidPlan("claude-3"));
 });

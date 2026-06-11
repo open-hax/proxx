@@ -1,32 +1,48 @@
-# Π Snapshot: Proxx dashboard Night Owl completion
+# Π Last Snapshot — defaults policy-tree README + staging promotion
 
-- **Repo:** `open-hax/proxx`
-- **Branch:** `fork-tax/20260404-033121-proxx-night-owl-dashboard-finish`
-- **Base branch:** `fix/prompt-cache-audit-followups`
-- **Previous tag:** `Π/20260404-010801-request-log-cache-rollup-failure-exclusion`
-- **Intended Π tag:** `Π/20260404-033121-proxx-night-owl-dashboard-finish`
-- **Generated:** `2026-04-04T03:31:21Z`
+- Timestamp: 2026-06-03T20:14:11Z
+- Repo: `/home/err/devel/orgs/open-hax/proxx`
+- Branch: `devops/promethean-service-module-deploy`
+- Base target: `origin/staging`
 
-## What this snapshot preserves
+## State
 
-This Π handoff captures the downstream Proxx integration of the published UXX theming runtime. The app now persists a theme preference, exposes a Monokai/Night Owl toggle, and themes the full dashboard surface instead of only the UXX metric cards.
+The promethean-module deploy commit (74b8b85) is already merged into
+`origin/staging` (as 0269ada). The only remaining working-tree dirt was
+`resources/policies/README.md`, new documentation for the **defaults**
+policy tree.
 
-### App wiring
-- `package.json` — upgraded to `@open-hax/uxx@0.1.3`
-- `web/src/App.tsx` — `ThemeProvider` wrapper plus persisted theme toggle
+## Changed
 
-### Consumer CSS alignment
-- `web/src/styles.css` — moved theme-derived aliases and page background from `:root` to `.app-theme-root`
-- This fixes the scoped-variable mismatch where UXX primitives updated but Proxx-owned panels, nav, and inputs kept default-theme values
+- `resources/policies/README.md` — documents the single-node/single-user
+  assumptions of the shipped defaults, the `:deny`-by-default tenant share
+  policy (`runtime/60-tenant-enforcement.edn`), the inert-until-peers
+  federation routing (`runtime/65-federation-routing.edn`), and the rule
+  that peer-node / Promethean-relay deployments get their OWN policy trees
+  via `PROXX_CLJS_POLICY_MANIFEST` instead of growing the defaults.
+  Encodes the three-policy-trees doctrine: defaults vs local peer vs
+  Promethean relay; never consolidate. (The relay tree itself is preserved
+  in open-hax/services @ Π/20260603T201215Z snapshot, contracts/proxx/policies.)
 
-### Runtime validation
-- Local build and web build pass
-- `services/proxx` recreated successfully
-- Browser verification confirmed Night Owl across dashboard cards, panels, nav, and controls
+## Boundary
+
+- Docs-only change; no secrets.
+- Path-scoped staging; no repo-wide reset/restore/clean.
+- No concurrent dirt present at snapshot time (tree otherwise clean).
 
 ## Verification
 
-- Build: `pnpm build` ✅
-- Web build: `pnpm web:build` ✅
-- Service recreate: `docker compose up -d --build --force-recreate` ✅
-- Runtime: `docker compose ps` healthy on `http://127.0.0.1:5174` ✅
+- Both policy files referenced by the README exist in
+  `resources/policies/runtime/` (60-tenant-enforcement, 65-federation-routing).
+- `pnpm run lint` (workspace, including `orgs/**`) passed.
+- Docs-only change; build/test gates deferred to PR CI (staging-typecheck,
+  staging-unit-tests).
+
+## Follow-up
+
+- PR `devops/promethean-service-module-deploy` → `staging`.
+- Add `testing` label → label-gated test deploy via
+  `.github/workflows/deploy-testing.yml` (direct ssh slot, ussy2).
+- Staging push deploy routes through
+  `open-hax/services/.github/workflows/deploy-promethean.yml@main`
+  (service: proxx).

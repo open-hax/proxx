@@ -1,0 +1,58 @@
+[{:contract/id :queue/default
+  :contract/kind :request-queue-template
+  :queue/name "Default request queue"
+  :queue/concurrency-limit 8
+  :queue/max-queue-size 256
+  :queue/overflow-policy :reject
+  :queue/attempt-timeout-ms 30000
+  :queue/total-timeout-ms 120000
+  :queue/max-retries 0
+  :queue/retry-backoff :immediate}
+
+ {:contract/id :queue/mimo-v2-5-pro-chat
+   :contract/kind :request-queue-instance
+   :queue/template-id :queue/default
+   :queue/provider-id "xiaomi"
+   :match/request-kind :chat
+   :queue/attempt-timeout-ms 60000}
+
+ {:contract/id :queue/ollama-lan-chat
+   :contract/kind :request-queue-instance
+   :queue/template-id :queue/default
+   :queue/provider-id "ollama-lan"
+   :match/request-kind :chat
+   :queue/attempt-timeout-ms 120000}
+
+ {:contract/id :queue/ollama-chat
+   :contract/kind :request-queue-instance
+   :queue/template-id :queue/default
+   :queue/provider-id "ollama"
+   :match/request-kind :chat
+   :queue/attempt-timeout-ms 120000}
+
+ {:contract/id :queue/ollama-cloud-chat
+   :contract/kind :request-queue-instance
+   :queue/template-id :queue/default
+   :queue/provider-id "ollama-cloud"
+   :match/request-kind :chat
+   :queue/attempt-timeout-ms 120000}
+
+ {:contract/id :queue/default-chat
+  :contract/kind :request-queue-instance
+  :queue/template-id :queue/default
+  :match/request-kind :chat}
+
+ {:contract/id :queue/default-responses
+  :contract/kind :request-queue-instance
+  :queue/template-id :queue/default
+  :match/request-kind :responses}
+
+ {:contract/id :queue/default-images
+  :contract/kind :request-queue-instance
+  :queue/template-id :queue/default
+  :match/request-kind :images}
+
+ {:contract/id :queue/default-embeddings
+  :contract/kind :request-queue-instance
+  :queue/template-id :queue/default
+  :match/request-kind :embeddings}]

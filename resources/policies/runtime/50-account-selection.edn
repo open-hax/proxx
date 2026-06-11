@@ -1,0 +1,18 @@
+[{:contract/id :account-order/prefer-free
+  :contract/kind :account-ordering
+  :selection/domain :account
+  :selection/order [{:prefer/plan :free} :original-candidate-order]
+  :quota/filter :exclude-quota-exhausted-when-any-qualified-remain}
+
+ {:contract/id :account-order/paid-plan-weight
+  :contract/kind :account-ordering
+  :selection/domain :account
+  :selection/order [{:score/by-plan :domain/plan-weights} :original-candidate-order]
+  :quota/filter :exclude-quota-exhausted-when-any-qualified-remain}
+
+ {:contract/id :account-constraint/free-blocked-models
+  :contract/kind :account-constraint
+  :match/models ["gpt-5.3-codex" "gpt-5-mini"]
+  :require/plans :domain/paid-plans
+  :exclude/plans [:free]
+  :constraint/reason "Model requires a paid OpenAI-compatible account plan."}]

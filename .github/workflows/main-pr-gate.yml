@@ -61,6 +61,17 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: actions/cache@v4
+        with:
+          path: |
+            .shadow-cljs
+            ~/.m2/repository
+          key: shadow-cljs-${{ runner.os }}-${{ hashFiles('shadow-cljs.edn') }}
+          restore-keys: shadow-cljs-${{ runner.os }}-
       - run: pnpm install --frozen-lockfile
       - run: pnpm test
 
@@ -77,6 +88,17 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: actions/cache@v4
+        with:
+          path: |
+            .shadow-cljs
+            ~/.m2/repository
+          key: shadow-cljs-${{ runner.os }}-${{ hashFiles('shadow-cljs.edn') }}
+          restore-keys: shadow-cljs-${{ runner.os }}-
       - run: pnpm install --frozen-lockfile
       - name: Run tests with coverage
         run: pnpm run test:coverage
@@ -114,6 +136,17 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: actions/cache@v4
+        with:
+          path: |
+            .shadow-cljs
+            ~/.m2/repository
+          key: shadow-cljs-${{ runner.os }}-${{ hashFiles('shadow-cljs.edn') }}
+          restore-keys: shadow-cljs-${{ runner.os }}-
       - run: pnpm install --frozen-lockfile
       - run: pnpm run build
 
@@ -152,8 +185,10 @@ jobs:
             const { owner, repo } = context.repo;
             const ref = context.payload.pull_request.head.sha;
             const checks = await github.rest.checks.listForRef({ owner, repo, ref, per_page: 100 });
-            const byName = new Map(checks.data.check_runs.map((run) => [run.name, run.conclusion]));
-            const missing = requiredChecks.filter((name) => byName.get(name) !== 'success');
+            // Reusable-workflow jobs surface as "<job> / <child job>", so match prefixes too.
+            const satisfied = (name) => checks.data.check_runs.some((run) =>
+              (run.name === name || run.name.startsWith(`${name} / `)) && run.conclusion === 'success');
+            const missing = requiredChecks.filter((name) => !satisfied(name));
             if (missing.length > 0) {
               core.setFailed(`Missing successful staging checks for ${ref}: ${missing.join(', ')}`);
             }

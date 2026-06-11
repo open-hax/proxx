@@ -2,7 +2,7 @@ import type { FastifyReply } from "fastify";
 
 import type { KeyPool } from "./key-pool.js";
 import type { ProviderRoute } from "./provider-routing.js";
-import type { ProviderFallbackExecutionResult, ProviderAvailabilitySummary } from "./provider-strategy.js";
+import type { ProviderRoutingExecutionResult, ProviderAvailabilitySummary } from "./provider-strategy.js";
 import { minMsUntilAnyProviderKeyReady } from "./provider-routing.js";
 import { sendOpenAiError } from "./provider-utils.js";
 
@@ -13,7 +13,7 @@ export interface RoutingOutcomeDeps {
 export interface RoutingOutcomeInput {
   readonly keyPool: KeyPool;
   readonly reply: FastifyReply;
-  readonly execution: ProviderFallbackExecutionResult;
+  readonly execution: ProviderRoutingExecutionResult;
   readonly availability: ProviderAvailabilitySummary;
   readonly providerRoutes: readonly ProviderRoute[];
   readonly strategyMode: string;
@@ -25,7 +25,7 @@ export interface RoutingOutcomeInput {
 /**
  * Handles the error outcome after executeProviderRoutingPlan returns with handled=false.
  * Sends an appropriate error response based on the execution summary.
- * Returns true if a response was sent, false if the caller should continue (e.g. try fallback).
+ * Returns true if a response was sent, false if the caller should continue (e.g. try routing).
  */
 export async function handleRoutingOutcome(input: RoutingOutcomeInput): Promise<boolean> {
   const { keyPool, reply, execution, availability, providerRoutes, strategyMode, routedModel, log, logPrefix } = input;
@@ -129,7 +129,7 @@ export async function handleRoutingOutcome(input: RoutingOutcomeInput): Promise<
 
   const message = summary.sawRequestError
     ? "All upstream attempts failed due to network/transport errors."
-    : "Upstream rejected the request with no successful fallback.";
+    : "Upstream rejected the request with no successful routing.";
 
   log.error({ providerRoutes, attempts: summary.attempts, upstreamMode: strategyMode, sawRequestError: summary.sawRequestError }, `${prefix}all upstream attempts exhausted`);
   sendOpenAiError(reply, 502, message, "server_error", "upstream_unavailable");

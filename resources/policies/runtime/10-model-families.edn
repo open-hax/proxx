@@ -1,0 +1,272 @@
+[{:contract/id :model-family/glm
+  :contract/kind :model-family
+  :match/model-pattern "^glm-"
+  :reasoning/control :effort-level
+  :reasoning/native-efforts [:none :low :medium :high :max]}
+
+ {:contract/id :model-family/claude-opus-4-6
+  :contract/kind :model-family
+  :match/model-pattern "^claude-opus-4-6(?:-fast)?$"
+  :reasoning/control :budget-tokens
+  :reasoning/native-efforts [:none :minimal :low :medium :high :xhigh]
+  :reasoning/budget-by-effort {:none 0 :minimal 1024 :low 4096 :medium 12288 :high 24576 :xhigh 32768}}
+
+ {:contract/id :model-family/claude
+  :contract/kind :model-family
+  :match/model-pattern "^claude-"
+  :reasoning/control :budget-tokens
+  :reasoning/native-efforts [:none :minimal :low :medium :high :xhigh]
+  :reasoning/budget-by-effort {:none 0 :minimal 1024 :low 4096 :medium 12288 :high 24576 :xhigh 32768}}
+
+ {:contract/id :model-family/gpt-oss
+  :contract/kind :model-family
+  :match/model-pattern "^gpt-oss"
+  :reasoning/control :effort-level
+  :reasoning/native-efforts [:none :low :medium :high :max]}
+
+ {:contract/id :model/gpt-5.3-codex
+  :contract/kind :model
+  :model/id "gpt-5.3-codex"
+  :model/free-tier-blocked? true}
+
+ {:contract/id :model/gpt-5-mini
+  :contract/kind :model
+  :model/id "gpt-5-mini"
+  :model/free-tier-blocked? true}
+
+ {:contract/id :model-family/gpt-free-blocked
+  :contract/kind :model-family
+  :match/model-pattern "^(?:gpt-5\\.3-codex|gpt-5-mini)$"
+  :reasoning/control :effort-level
+  :reasoning/native-efforts [:none :minimal :low :medium :high :xhigh]}
+
+ {:contract/id :model-family/gpt-6-plus
+  :contract/kind :model-family
+  :match/model-pattern "^gpt-[6-9]"
+  :reasoning/control :effort-level
+  :reasoning/native-efforts [:none :minimal :low :medium :high :xhigh]}
+
+ {:contract/id :model-family/gpt
+  :contract/kind :model-family
+  :match/model-pattern "^gpt-"
+  :reasoning/control :effort-level
+  :reasoning/native-efforts [:none :minimal :low :medium :high :xhigh]}
+
+ {:contract/id :model-family/mimo-v2-5-pro
+  :contract/kind :model-family
+  :match/model-pattern "(?i)^(?:xiaomi/|xiaomimimo/)?mimo-v2\\.5-pro$"}
+
+ {:contract/id :model-family/mimo
+  :contract/kind :model-family
+  :match/model-pattern "(?i)^(?:xiaomi/|xiaomimimo/)?mimo-v2(?:-|\\.)"}
+
+ {:contract/id :model-family/qwen3-embedding
+  :contract/kind :model-family
+  :match/model-pattern "(?i)^qwen3-embedding(?::|-).*"}
+
+ {:contract/id :model-family/kimi
+  :contract/kind :model-family
+  :match/model-pattern "(?i)^(?:kimi-|moonshot-v1-)"
+  :reasoning/control :effort-level
+  :reasoning/native-efforts [:none :low :medium :high]}
+
+ {:contract/id :model-family/gemma
+  :contract/kind :model-family
+  :match/model-pattern "(?i)^gemma"
+  :reasoning/control :effort-level
+  :reasoning/native-efforts [:none :low :medium :high :max]}
+
+ {:contract/id :model-family/gemma-e
+  :contract/kind :model-family
+  :match/model-pattern "(?i)^gemma\\d+:e\\d+b$"
+  :reasoning/control :effort-level
+  :reasoning/native-efforts [:none :low :medium :high :max]}
+
+ {:contract/id :model-family/gemma4-e4b
+  :contract/kind :model-family
+  :match/model-pattern "(?i)^gemma4:e4b$"
+  :reasoning/control :effort-level
+  :reasoning/native-efforts [:none :low :medium :high :max]}
+
+ {:contract/id :model-family/gemma4
+  :contract/kind :model-family
+  :match/model-pattern "(?i)^gemma4"
+  :reasoning/control :effort-level
+  :reasoning/native-efforts [:none :low :medium :high :max]}
+
+ {:contract/id :model-alias/gemma4-gemini
+  :contract/kind :model-alias
+  :match/model-pattern "(?i)^gemma4:31b$"
+  :match/provider-pattern "^gemini$"
+  :alias/model-id "gemma-4-31b-it"}
+
+ {:contract/id :model-alias/gemma4-e4b-ollama-lan-128k
+  :contract/kind :model-alias
+  :match/model-pattern "(?i)^gemma4:e4b$"
+  :match/provider-pattern "^ollama-lan$"
+  :alias/model-id "gemma4:e4b-128k"}
+
+ {:contract/id :model-alias/qwen3-embedding-8k
+  :contract/kind :model-alias
+  :match/model-pattern "(?i)^qwen3-embedding:0\\.6b$"
+  :match/provider-pattern "^ollama-lan$"
+  :alias/model-id "qwen3-embedding:0.6b-8k"}
+
+ {:contract/id :model-family/blaze-text
+  :contract/kind :model-family
+  :match/model-pattern "(?i)^(?:DeepSeek-V4-Flash-TEST|MiniMax-M2\\.[157]-highspeed|claude-opus-4\\.[567]|openai/gpt-4o|qwen/qwen3\\.5-397b|qwen3\\.[56]-(?:omni|plus|max).*|x-ai/grok-4\\.20-fast|z-ai/glm4\\.7)$"
+  :reasoning/control :effort-level
+  :reasoning/native-efforts [:none :low :medium :high]}
+
+ {:contract/id :model-family/blaze-images
+  :contract/kind :model-family
+  :match/model-pattern "(?i)^(?:MiniMax-image-01-highspeed|qwen3\\.[56].*(?:image|thinking-search).*)$"
+  :reasoning/control :effort-level
+  :reasoning/native-efforts [:none :low :medium :high]}
+
+ {:contract/id :model-family/blaze-video
+  :contract/kind :model-family
+  :match/model-pattern "(?i)^(?:qwen3\\.[56].*(?:video|thinking-search).*)$"
+  :reasoning/control :effort-level
+  :reasoning/native-efforts [:none :low :medium :high]}
+
+ {:contract/id :model-family/minimax-music
+  :contract/kind :model-family
+  :match/model-pattern "(?i)^MiniMax-music-2\\.[56]-(?:highspeed|free)$"
+  :reasoning/control :none}
+
+ {:contract/id :model-family/blaze-tts
+  :contract/kind :model-family
+  :match/model-pattern "(?i)^MiniMax-speech-2\\.8-hd-highspeed$"
+  :reasoning/control :none}
+
+ {:contract/id :model-family/musicgen
+  :contract/kind :model-family
+  :match/model-pattern "(?i)^musicgen(?::|-).*"
+  :reasoning/control :none}
+
+ {:contract/id :model-family/default
+  :contract/kind :model-family
+  :match/model-pattern ".*"
+  :reasoning/control :effort-level
+  :reasoning/native-efforts [:none :low :medium :high]}
+
+ {:contract/id :reasoning-normalization/gpt-free-blocked
+  :contract/kind :reasoning-normalization
+  :match/family :model-family/gpt-free-blocked
+  :normalize/from :gpt-thinking-level
+  :normalize/effort-map {:off :none :disabled :none :auto :medium :normal :medium :max :xhigh :very-high :xhigh :x-high :xhigh}}
+
+ {:contract/id :reasoning-normalization/gpt-6-plus
+  :contract/kind :reasoning-normalization
+  :match/family :model-family/gpt-6-plus
+  :normalize/from :gpt-thinking-level
+  :normalize/effort-map {:off :none :disabled :none :auto :medium :normal :medium :max :xhigh :very-high :xhigh :x-high :xhigh}}
+
+ {:contract/id :reasoning-normalization/gpt
+  :contract/kind :reasoning-normalization
+  :match/family :model-family/gpt
+  :normalize/from :gpt-thinking-level
+  :normalize/effort-map {:off :none :disabled :none :auto :medium :normal :medium :max :xhigh :very-high :xhigh :x-high :xhigh}}
+
+ {:contract/id :reasoning-normalization/ollama-style-max-glm
+  :contract/kind :reasoning-normalization
+  :match/family :model-family/glm
+  :normalize/from :gpt-thinking-level
+  :normalize/effort-map {:off :none :disabled :none :minimal :low :auto :medium :normal :medium :xhigh :max :very-high :max :x-high :max}}
+
+ {:contract/id :reasoning-normalization/ollama-style-max-gpt-oss
+  :contract/kind :reasoning-normalization
+  :match/family :model-family/gpt-oss
+  :normalize/from :gpt-thinking-level
+  :normalize/effort-map {:off :none :disabled :none :minimal :low :auto :medium :normal :medium :xhigh :max :very-high :max :x-high :max}}
+
+ {:contract/id :reasoning-normalization/ollama-style-max-gemma
+  :contract/kind :reasoning-normalization
+  :match/family :model-family/gemma
+  :normalize/from :gpt-thinking-level
+  :normalize/effort-map {:off :none :disabled :none :minimal :low :auto :medium :normal :medium :xhigh :max :very-high :max :x-high :max}}
+
+ {:contract/id :reasoning-normalization/ollama-style-max-gemma-e
+  :contract/kind :reasoning-normalization
+  :match/family :model-family/gemma-e
+  :normalize/from :gpt-thinking-level
+  :normalize/effort-map {:off :none :disabled :none :minimal :low :auto :medium :normal :medium :xhigh :max :very-high :max :x-high :max}}
+
+ {:contract/id :reasoning-normalization/ollama-style-max-gemma4
+  :contract/kind :reasoning-normalization
+  :match/family :model-family/gemma4
+  :normalize/from :gpt-thinking-level
+  :normalize/effort-map {:off :none :disabled :none :minimal :low :auto :medium :normal :medium :xhigh :max :very-high :max :x-high :max}}
+
+ {:contract/id :reasoning-normalization/claude-thinking-budget
+  :contract/kind :reasoning-normalization
+  :match/family :model-family/claude
+  :normalize/from :gpt-thinking-level
+  :normalize/effort-map {:off 0 :none 0 :disabled 0 :minimal 1024 :low 4096 :auto 12288 :normal 12288 :medium 12288 :high 24576 :xhigh 32768 :max 32768 :very-high 32768 :x-high 32768}}
+
+ {:contract/id :reasoning-normalization/claude-opus-4-6-thinking-budget
+   :contract/kind :reasoning-normalization
+   :match/family :model-family/claude-opus-4-6
+   :normalize/from :gpt-thinking-level
+   :normalize/effort-map {:off 0 :none 0 :disabled 0 :minimal 1024 :low 4096 :auto 12288 :normal 12288 :medium 12288 :high 24576 :xhigh 32768 :max 32768 :very-high 32768 :x-high 32768}}
+
+ {:contract/id :model-family/gemini
+  :contract/kind :model-family
+  :match/model-pattern "(?i)^gemini-"
+  :reasoning/control :effort-level
+  :reasoning/native-efforts [:none :low :medium :high]}
+
+ {:contract/id :reasoning-normalization/gemini
+  :contract/kind :reasoning-normalization
+  :match/family :model-family/gemini
+  :normalize/from :gpt-thinking-level
+  :normalize/effort-map {:off :none :disabled :none :minimal :low :auto :medium :normal :medium :max :high :xhigh :high :very-high :high :x-high :high}}
+
+ {:contract/id :model-family/ollama-llama
+  :contract/kind :model-family
+  :match/model-pattern "(?i)^llama"
+  :reasoning/control :effort-level
+  :reasoning/native-efforts [:none :low :medium :high]}
+
+ {:contract/id :model-family/ollama-qwen
+  :contract/kind :model-family
+  :match/model-pattern "(?i)^qwen"
+  :reasoning/control :effort-level
+  :reasoning/native-efforts [:none :low :medium :high]}
+
+ {:contract/id :model-family/ollama-phi
+  :contract/kind :model-family
+  :match/model-pattern "(?i)^phi"
+  :reasoning/control :effort-level
+  :reasoning/native-efforts [:none :low :medium :high]}
+
+ {:contract/id :model-family/mistral
+  :contract/kind :model-family
+  :match/model-pattern "(?i)^mistral-"
+  :reasoning/control :effort-level
+  :reasoning/native-efforts [:none :low :medium :high]}
+
+ {:contract/id :model-family/ollama-mistral
+  :contract/kind :model-family
+  :match/model-pattern "(?i)^(mistral|mixtral)"
+  :reasoning/control :effort-level
+  :reasoning/native-efforts [:none :low :medium :high]}
+
+ {:contract/id :model-family/ollama-codellama
+  :contract/kind :model-family
+  :match/model-pattern "(?i)^codellama"
+  :reasoning/control :effort-level
+  :reasoning/native-efforts [:none :low :medium :high]}
+
+ {:contract/id :model-family/ollama-deepseek
+  :contract/kind :model-family
+  :match/model-pattern "(?i)^deepseek"
+  :reasoning/control :effort-level
+  :reasoning/native-efforts [:none :low :medium :high]}
+
+ {:contract/id :model-family/ollama-default
+  :contract/kind :model-family
+  :match/model-pattern "(?i):(?:2b|3b|4b|7b|8b|14b|32b|70b|small|medium|large)$"
+  :reasoning/control :effort-level
+  :reasoning/native-efforts [:none :low :medium :high]}]

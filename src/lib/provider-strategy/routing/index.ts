@@ -1,6 +1,5 @@
 export {
   executeProviderRoutingPlan,
-  executeProviderFallback,
   inspectProviderAvailability,
 } from "./attempt-executor.js";
 
@@ -20,16 +19,14 @@ export {
 
 export {
   providerAccountsForRequest,
-  providerAccountsForRequestWithPolicy,
   reorderAccountsForLatency,
   reorderCandidatesForAffinities,
   reorderCandidatesForAffinity,
-  gptModelRequiresPaidPlan,
 } from "./credential-selector.js";
 
 export type { PreferredAffinity } from "./credential-selector.js";
 
-export type { FallbackCandidate, FallbackDeps, FallbackKeyPool } from "./types.js";
+export type { RoutingCandidate, RoutingDeps, RoutingKeyPool } from "./types.js";
 
 export {
   clampRouteQuality,
@@ -38,6 +35,6 @@ export {
   successResult,
 } from "./types.js";
 
-export { buildFallbackCandidates } from "./candidate-builder.js";
+export { buildRoutingCandidates } from "./candidate-builder.js";
 
 export type { BuildCandidatesResult } from "./candidate-builder.js";

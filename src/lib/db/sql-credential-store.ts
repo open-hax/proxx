@@ -157,8 +157,11 @@ export function selectLegacyOpenAiDuplicateIds(rows: readonly SqlOpenAiAccountId
 }
 
 function maskSecret(secret: string): string {
+  if (secret.length <= 4) {
+    return "****";
+  }
   if (secret.length <= 8) {
-    return `${secret.slice(0, 2)}***${secret.slice(-2)}`;
+    return `${secret.slice(0, 1)}***${secret.slice(-1)}`;
   }
 
   return `${secret.slice(0, 4)}...${secret.slice(-4)}`;
@@ -764,7 +767,7 @@ export class SqlCredentialStore {
     const now = Date.now();
     await this.sql.unsafe(CLEAR_EXPIRED_COOLDOWNS, [now]);
 
-    const rows = await this.sql.unsafe<Array<{ provider_id: string; account_id: string; cooldown_until: number }>>(
+    const rows = await this.sql.unsafe<Array<{ provider_id: string; account_id: string; cooldown_until: number | string }>>(
       SELECT_ALL_ACTIVE_COOLDOWNS,
       [now],
     );
@@ -772,9 +775,15 @@ export class SqlCredentialStore {
     this.cooldowns.clear();
     const result = new Map<string, number>();
     for (const row of rows) {
+      const cooldownUntil = typeof row.cooldown_until === "number"
+        ? row.cooldown_until
+        : Number.parseInt(row.cooldown_until, 10);
+      if (!Number.isFinite(cooldownUntil)) {
+        continue;
+      }
       const key = `${row.provider_id}\0${row.account_id}`;
-      result.set(key, row.cooldown_until);
-      this.cooldowns.set(`${row.provider_id}:${row.account_id}`, row.cooldown_until);
+      result.set(key, cooldownUntil);
+      this.cooldowns.set(`${row.provider_id}:${row.account_id}`, cooldownUntil);
     }
     return result;
   }

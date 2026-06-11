@@ -3,7 +3,6 @@ import type { FastifyReply } from "fastify";
 import type { AccountHealthStore } from "../../db/account-health-store.js";
 import type { EventStore } from "../../db/event-store.js";
 import type { ProviderCredential } from "../../key-pool.js";
-import type { PolicyEngine } from "../../policy/index.js";
 import type { IPromptAffinityStore } from "../../db/sql-prompt-affinity-store.js";
 import type { ProviderRoutePheromoneStore } from "../../provider-route-pheromone-store.js";
 import type { RequestLogStore } from "../../request-log-store.js";
@@ -28,6 +27,7 @@ import {
 import { getTelemetry } from "../../telemetry/otel.js";
 import { selectRemoteProviderStrategyForRoute } from "../registry.js";
 import {
+  applyProviderModelAliasToPayload,
   buildCodexResponsesImagesBody,
   buildFactory4xxDiagnostics,
   extractImagesFromCodexEventStream,
@@ -42,9 +42,10 @@ import {
   type BuildPayloadResult,
   type ProviderAttemptContext,
   type ProviderAvailabilitySummary,
-  type ProviderFallbackExecutionResult,
+  type ProviderRoutingExecutionResult,
   type ProviderStrategy,
   type StrategyRequestContext,
+  type DirectExecutionProviderStrategy,
 } from "../shared.js";
 import {
   PERMANENT_DISABLE_COOLDOWN_MS,
@@ -53,8 +54,8 @@ import {
   shouldRetrySameCredentialForServerError,
 } from "./error-classifier.js";
 import { requestyModelProvider } from "../../model-family.js";
-import { buildFallbackCandidates } from "./candidate-builder.js";
-import { clampRouteQuality, createAccumulator, emptyResult, type FallbackDeps } from "./types.js";
+import { buildRoutingCandidates } from "./candidate-builder.js";
+import { clampRouteQuality, createAccumulator, emptyResult, type RoutingDeps } from "./types.js";
 
 function shouldUseOpenAiCodexHeaderProfile(
   providerId: string,
@@ -65,6 +66,23 @@ function shouldUseOpenAiCodexHeaderProfile(
 }
 
 const MAX_STICKY_TRANSPORT_FAILURE_CANDIDATES = 4;
+
+function transportErrorMessage(error: unknown): string {
+  const base = toErrorMessage(error);
+  if (typeof error !== "object" || error === null || !("cause" in error)) {
+    return base;
+  }
+
+  const cause = (error as { readonly cause?: unknown }).cause;
+  if (typeof cause !== "object" || cause === null) {
+    return base;
+  }
+
+  const causeRecord = cause as { readonly code?: unknown; readonly name?: unknown; readonly message?: unknown };
+  const causeParts = [causeRecord.code, causeRecord.name, causeRecord.message]
+    .filter((part): part is string => typeof part === "string" && part.length > 0);
+  return causeParts.length > 0 ? `${base} (${causeParts.join(": ")})` : base;
+}
 
 function requestyModelPrefix(model: string): string {
   return requestyModelProvider(model);
@@ -80,7 +98,7 @@ function candidateMatchesAffinity(
 }
 
 /**
- * Executes the provider routing plan: iterates over fallback candidates,
+ * Executes the provider routing plan: iterates over routing candidates,
  * attempts each one, and handles success/failure/rate-limit outcomes.
  * Supports prompt-cache-key affinity for session stickiness and
  * hidden quota error detection (200 OK with error in stream body).
@@ -107,20 +125,20 @@ export async function executeProviderRoutingPlan(
   payload: BuildPayloadResult,
   promptCacheKey?: string,
   refreshExpiredToken?: (credential: ProviderCredential) => Promise<ProviderCredential | null>,
-  policy?: PolicyEngine,
   healthStore?: AccountHealthStore,
   eventStore?: EventStore,
   quotaMonitor?: QuotaMonitor,
-): Promise<ProviderFallbackExecutionResult> {
+  queueSignal?: AbortSignal,
+): Promise<ProviderRoutingExecutionResult> {
   const accumulator = createAccumulator();
 
-  const deps: FallbackDeps = {
+  const deps: RoutingDeps = {
     strategy, reply, requestLogStore, promptAffinityStore, providerRoutePheromoneStore,
     keyPool, providerRoutes, context, payload, promptCacheKey, refreshExpiredToken,
-    policy, healthStore, eventStore, quotaMonitor,
+    healthStore, eventStore, quotaMonitor,
   };
 
-  const { candidates, preferredAffinity, provisionalAffinity } = await buildFallbackCandidates(deps);
+  const { candidates, preferredAffinity, provisionalAffinity } = await buildRoutingCandidates(deps);
 
   if (candidates.length === 0) {
     return emptyResult(0);
@@ -139,10 +157,11 @@ export async function executeProviderRoutingPlan(
       continue;
     }
 
-    const candidateStrategy = selectRemoteProviderStrategyForRoute(context, candidate.providerId, policy);
+    const candidateStrategy = selectRemoteProviderStrategyForRoute(context, candidate.providerId);
     let candidatePayload = candidateStrategy === strategy
       ? payload
       : candidateStrategy.buildPayload(context);
+    candidatePayload = applyProviderModelAliasToPayload(candidatePayload, context, candidate.providerId);
 
     // Requesty requires model names in "provider/model" format (e.g., "openai/gpt-5.4").
     if (candidate.providerId.trim().toLowerCase() === "requesty") {
@@ -162,15 +181,18 @@ export async function executeProviderRoutingPlan(
     for (let retryIndex = 0; retryIndex <= context.config.upstreamTransientRetryCount; retryIndex += 1) {
       const baseProviderContext: Omit<ProviderAttemptContext, "attempt"> = {
         ...context,
+        routeProviderId: candidate.providerId,
         providerId: candidate.providerId,
         // This may be overridden per-attempt when `OPENAI_IMAGES_UPSTREAM_MODE=platform|auto`.
         baseUrl: candidate.baseUrl,
         account: candidate.account,
         hasMoreCandidates,
+        ...(candidate.paths ? { providerPaths: candidate.paths } : {}),
       };
 
       const primaryUpstreamPath = candidateStrategy.getUpstreamPath(baseProviderContext);
       const isOpenAiImages = candidate.providerId === context.config.openaiProviderId && candidateStrategy.mode === "images";
+      const openAiPlatformImagesPath = context.config.imagesGenerationsPath;
 
       type UpstreamStepKind = "default" | "openai_platform" | "openai_chatgpt" | "openai_codex_responses_images";
       type UpstreamStep = {
@@ -178,7 +200,7 @@ export async function executeProviderRoutingPlan(
         readonly upstreamPath: string;
         readonly kind: UpstreamStepKind;
         /** HTTP statuses that should fall through to the *next base URL* step (used for platform → ChatGPT). */
-        readonly fallbackToNextBaseOnStatuses?: readonly number[];
+        readonly tryNextBaseOnStatuses?: readonly number[];
       };
 
       const upstreamSteps: readonly UpstreamStep[] = (() => {
@@ -189,7 +211,7 @@ export async function executeProviderRoutingPlan(
 
         // API keys should always use the Platform endpoint.
         if (candidate.account.authType === "api_key") {
-          return [{ baseUrl: context.config.openaiApiBaseUrl, upstreamPath: primaryUpstreamPath, kind: "openai_platform" as const }];
+          return [{ baseUrl: context.config.openaiApiBaseUrl, upstreamPath: openAiPlatformImagesPath, kind: "openai_platform" as const }];
         }
 
         // ChatGPT mode uses the Codex backend Responses stream + the built-in `image_generation`
@@ -203,7 +225,7 @@ export async function executeProviderRoutingPlan(
         }
 
         if (mode === "platform") {
-          return [{ baseUrl: context.config.openaiApiBaseUrl, upstreamPath: primaryUpstreamPath, kind: "openai_platform" as const }];
+          return [{ baseUrl: context.config.openaiApiBaseUrl, upstreamPath: openAiPlatformImagesPath, kind: "openai_platform" as const }];
         }
 
         // auto: try Platform Images API first, then fall back to Codex Responses image generation
@@ -211,9 +233,9 @@ export async function executeProviderRoutingPlan(
         return [
           {
             baseUrl: context.config.openaiApiBaseUrl,
-            upstreamPath: primaryUpstreamPath,
+            upstreamPath: openAiPlatformImagesPath,
             kind: "openai_platform" as const,
-            fallbackToNextBaseOnStatuses: [401, 403],
+            tryNextBaseOnStatuses: [401, 403],
           },
           {
             baseUrl: context.config.openaiBaseUrl,
@@ -233,6 +255,7 @@ export async function executeProviderRoutingPlan(
           ...baseProviderContext,
           baseUrl: step.baseUrl,
           attempt: accumulator.attempts,
+          queueSignal,
         };
 
         const upstreamUrl = joinUrl(providerContext.baseUrl, upstreamPath);
@@ -255,7 +278,7 @@ export async function executeProviderRoutingPlan(
           "proxy.model": context.routedModel,
           "proxy.requested_model": context.requestedModelInput,
           "proxy.base_url": providerContext.baseUrl,
-          "proxy.fallback_attempt": accumulator.attempts,
+          "proxy.routing_attempt": accumulator.attempts,
         });
         upstreamSpan.setAttributes({
           "proxy.service_tier": candidatePayload.serviceTier,
@@ -289,10 +312,48 @@ export async function executeProviderRoutingPlan(
 
         let upstreamResponse: Response;
         try {
+          // Check if the strategy wants to handle execution directly (e.g., via SDK)
+          const directExecution = candidateStrategy as Partial<DirectExecutionProviderStrategy>;
+          if (directExecution.executeDirect) {
+            const outcome = await directExecution.executeDirect(reply, providerContext, candidatePayload.upstreamPayload);
+            const latencyMs = Date.now() - attemptStartedAt;
+            upstreamSpan.setAttribute("proxy.latency_ms", latencyMs);
+
+            if (outcome.kind === "handled") {
+              upstreamSpan.setStatus("ok");
+              upstreamSpan.end();
+              await providerRoutePheromoneStore.noteSuccess(
+                candidate.providerId,
+                context.routedModel,
+                clampRouteQuality(latencyMs),
+              );
+              releaseInFlight();
+              return { handled: true, candidateCount: candidates.length, summary: accumulator };
+            }
+
+            // Track errors for continue outcomes
+            accumulator.sawRequestError = outcome.requestError ?? true;
+            if (outcome.rateLimit) {
+              accumulator.sawRateLimit = true;
+            }
+            if (outcome.modelNotFound) {
+              accumulator.sawModelNotFound = true;
+            }
+            if (outcome.modelNotSupportedForAccount) {
+              accumulator.sawModelNotSupportedForAccount = true;
+            }
+            if (outcome.upstreamInvalidRequest) {
+              accumulator.sawUpstreamInvalidRequest = true;
+            }
+            upstreamSpan.end();
+            break;
+          }
+
           upstreamResponse = await fetchWithResponseTimeout(upstreamUrl, {
             method: "POST",
             headers: upstreamHeaders,
-            body: effectiveBody
+            body: effectiveBody,
+            signal: queueSignal,
           }, context.upstreamAttemptTimeoutMs);
         } catch (error) {
           const latencyMs = Date.now() - attemptStartedAt;
@@ -312,12 +373,12 @@ export async function executeProviderRoutingPlan(
             serviceTier: candidatePayload.serviceTier,
             serviceTierSource: candidatePayload.serviceTierSource,
             factoryDiagnostics: buildFactory4xxDiagnostics(candidatePayload.upstreamPayload, promptCacheKey),
-            error: toErrorMessage(error)
+            error: transportErrorMessage(error)
           }, candidateStrategy.mode);
 
           if (eventStore) {
             eventStore.emitError(attemptEntryId, candidate.providerId, candidate.account.accountId, context.routedModel, 0, {
-              error: toErrorMessage(error),
+              error: transportErrorMessage(error),
               logEntryId,
             }, { latencyMs });
           }
@@ -398,18 +459,18 @@ export async function executeProviderRoutingPlan(
         // scope/auth failures.
         if (isOpenAiImages) {
           const nextStep = stepIndex < upstreamSteps.length - 1 ? upstreamSteps[stepIndex + 1] : undefined;
-          const canFallbackToNextBase =
-            step.fallbackToNextBaseOnStatuses?.includes(upstreamResponse.status) === true
+          const canTryNextBase =
+            step.tryNextBaseOnStatuses?.includes(upstreamResponse.status) === true
             && nextStep
             && nextStep.baseUrl !== step.baseUrl;
 
-          if (canFallbackToNextBase) {
+          if (canTryNextBase) {
             try {
               await upstreamResponse.arrayBuffer();
             } catch {
               // ignore
             }
-            upstreamSpan.setStatus("error", "openai_images_fallback_to_next_base");
+            upstreamSpan.setStatus("error", "openai_images_try_next_base");
             upstreamSpan.end();
             continue;
           }
@@ -477,6 +538,8 @@ export async function executeProviderRoutingPlan(
             responseBody,
             cooldownMs,
             context.config.concurrencyThrottleThresholdMs,
+            candidate.providerId,
+            context.config.cljsPolicyManifestPath,
           );
 
           if (rateLimitKind === "concurrency_throttle") {
@@ -515,9 +578,10 @@ export async function executeProviderRoutingPlan(
                   method: "POST",
                   headers: retryHeaders,
                   body: effectiveBody,
+                  signal: queueSignal,
                 }, context.upstreamAttemptTimeoutMs);
               } catch {
-                // Transport error on retry — fall through to normal fallback.
+                // Transport error on retry — fall through to normal routing.
                 break;
               }
 
@@ -566,7 +630,7 @@ export async function executeProviderRoutingPlan(
                   return { handled: true, candidateCount: candidates.length, summary: accumulator };
                 }
 
-                // Non-429 error on retry — accumulate and break to fallback loop.
+                // Non-429 error on retry — accumulate and break to routing loop.
                 accumulator.sawUpstreamServerError ||= retryResponse.status >= 500;
                 accumulator.sawUpstreamInvalidRequest ||= retryResponse.status >= 400 && retryResponse.status < 500;
                 try { await retryResponse.arrayBuffer(); } catch { /* ignore */ }
@@ -584,7 +648,7 @@ export async function executeProviderRoutingPlan(
               } catch {
                 retryBody = undefined;
               }
-              const retryKind = classifyRateLimitKind(retryBody, retryCooldownMs, context.config.concurrencyThrottleThresholdMs);
+              const retryKind = classifyRateLimitKind(retryBody, retryCooldownMs, context.config.concurrencyThrottleThresholdMs, candidate.providerId, context.config.cljsPolicyManifestPath);
               try { await retryResponse.arrayBuffer(); } catch { /* ignore */ }
 
               if (retryKind !== "concurrency_throttle") {
@@ -836,7 +900,7 @@ export async function executeProviderRoutingPlan(
          * Handle hidden upstream errors: providers that return 200 OK but carry a
          * quota error ("stream_quota_error") or empty/invalid body ("stream_empty_or_invalid")
          * in the SSE stream. These accounts must be put into cooldown and the sticky
-         * affinity record deleted so the fallback loop can try the next candidate.
+         * affinity record deleted so the routing loop can try the next candidate.
          */
         if (upstreamResponse.ok && (outcome.rateLimit === true || outcome.requestError === true)) {
           const cooldownMs = outcome.rateLimit === true
@@ -898,7 +962,8 @@ export async function executeProviderRoutingPlan(
               refreshedResponse = await fetchWithResponseTimeout(upstreamUrl, {
                 method: "POST",
                 headers: refreshedHeaders,
-                body: effectiveBody
+                body: effectiveBody,
+                signal: queueSignal,
               }, context.upstreamAttemptTimeoutMs);
             } catch (error) {
               refreshedRelease();
@@ -1115,7 +1180,7 @@ export async function executeProviderRoutingPlan(
           await summarizeUpstreamError(upstreamResponse);
         }
 
-        upstreamSpan.setStatus("error", `fallback_continue_${upstreamResponse.status}`);
+        upstreamSpan.setStatus("error", `routing_continue_${upstreamResponse.status}`);
         upstreamSpan.end();
         break;
       }
@@ -1141,7 +1206,6 @@ export async function executeProviderRoutingPlan(
   };
 }
 
-export const executeProviderFallback = executeProviderRoutingPlan;
 
 export async function inspectProviderAvailability(
   keyPool: {

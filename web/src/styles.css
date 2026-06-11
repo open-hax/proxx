@@ -831,6 +831,8 @@ button:disabled {
 .tools-layout {
   display: grid;
   gap: 14px;
+  min-width: 0;
+  overflow-x: hidden;
 }
 
 .analytics-layout {
@@ -903,7 +905,8 @@ button:disabled {
 }
 
 .analytics-table-wrap {
-  overflow: auto;
+  overflow-x: auto;
+  overflow-y: visible;
 }
 
 .analytics-table {
@@ -1445,6 +1448,123 @@ button:disabled {
   border-color: var(--token-colors-alpha-red-_50);
 }
 
+/* ─── Collapsible sections ─────────────────────────────────── */
+
+.credentials-section-details {
+  border: 1px solid var(--token-colors-alpha-bg-_30);
+  border-radius: 14px;
+  padding: 10px;
+  background: var(--token-colors-surface-cardAlt);
+}
+
+.credentials-section-details > summary {
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 6px;
+}
+
+.credentials-section-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.credentials-section-details > summary::after {
+  content: "▸";
+  font-size: 1.1rem;
+  color: var(--text-dim);
+  transition: transform 150ms ease;
+}
+
+.credentials-section-details[open] > summary::after {
+  transform: rotate(90deg);
+}
+
+.credentials-section-details > summary h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.credentials-section-details > summary p {
+  margin: 4px 0 0;
+  color: var(--text-dim);
+  font-size: 0.78rem;
+}
+
+.credentials-audit-details {
+  border: 1px solid var(--token-colors-alpha-bg-_16);
+  border-radius: 12px;
+  padding: 10px;
+  background: var(--token-colors-alpha-bg-_62);
+}
+
+.credentials-audit-details > summary {
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+  display: grid;
+  grid-template-columns: minmax(120px, 1.1fr) minmax(100px, 0.9fr) minmax(100px, 0.9fr) minmax(80px, 0.7fr) minmax(100px, 0.9fr) minmax(100px, 0.8fr);
+  gap: 10px;
+  align-items: start;
+  font-size: 0.82rem;
+}
+
+.credentials-audit-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.credentials-audit-details > summary::before {
+  content: "▸";
+  position: absolute;
+  left: -2px;
+  color: var(--text-dim);
+  transition: transform 150ms ease;
+}
+
+.credentials-audit-details[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.credentials-audit-details > summary > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.credentials-audit-details > summary > span:first-child {
+  padding-left: 14px;
+  position: relative;
+}
+
+.credentials-audit-details > summary strong {
+  display: block;
+  font-size: 0.84rem;
+}
+
+.credentials-audit-details > summary small {
+  color: var(--text-dim);
+  font-size: 0.72rem;
+}
+
+.credentials-audit-details .credentials-audit-row {
+  margin-top: 10px;
+  border-top: 1px solid var(--token-colors-alpha-bg-_14);
+  padding-top: 10px;
+}
+
+/* Horizontal scroll for audit table on mobile */
+.credentials-audit-table-wrap {
+  overflow-x: auto;
+  min-width: 0;
+  -webkit-overflow-scrolling: touch;
+}
+
+.credentials-audit-table-wrap .credentials-audit-table {
+  min-width: 720px;
+}
+
 .credentials-form {
   display: grid;
   gap: 8px;
@@ -1544,6 +1664,33 @@ a {
 
   .credentials-account-detail-item-copyable {
     grid-template-columns: 1fr;
+  }
+
+  /* Collapsible sections stack on mobile */
+  .credentials-section-details > summary {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+
+  .credentials-section-details > summary::after {
+    align-self: flex-end;
+    margin-top: -24px;
+  }
+
+  .credentials-audit-details > summary {
+    grid-template-columns: 1fr 1fr;
+    gap: 6px 10px;
+  }
+
+  .credentials-audit-details > summary > span:first-child {
+    grid-column: 1 / -1;
+    padding-left: 14px;
+  }
+
+  .credentials-audit-details > summary > span:nth-child(5),
+  .credentials-audit-details > summary > span:nth-child(6) {
+    display: none;
   }
 
   /* ── Dashboard: single-column stack ── */

@@ -6,7 +6,8 @@ import fastifySwaggerUi from "@fastify/swagger-ui";
 
 import "./lib/fastify-types.js";
 
-import { DEFAULT_MODELS, type ProxyConfig } from "./lib/config.js";
+import type { ProxyConfig } from "./lib/config.js";
+import { getActiveCljsRuntime } from "./lib/cljs-runtime.js";
 import {
   PROXY_AUTH_COOKIE_NAME,
   readCookieToken,
@@ -21,19 +22,18 @@ import { KeyPool, type ProviderCredential } from "./lib/key-pool.js";
 import { CredentialStore } from "./lib/credential-store.js";
 import { OpenAiOAuthManager } from "./lib/openai-oauth.js";
 import { ProviderCatalogStore } from "./lib/provider-catalog.js";
-import { initializePolicyEngine, createPolicyEngine, type PolicyEngine } from "./lib/policy/index.js";
-import { DEFAULT_POLICY_CONFIG } from "./lib/policy/index.js";
 import {
   buildOllamaCatalogRoutes,
   parseModelIdsFromCatalogPayload,
   type ResolvedModelCatalog,
-  buildProviderRoutesWithDynamicBaseUrls,
   createDynamicProviderBaseUrlGetter,
+  getDeclaredProviderRoutes,
 } from "./lib/provider-routing.js";
-import { discoverDynamicOllamaRoutes, prependDynamicOllamaRoutes } from "./lib/dynamic-ollama-routes.js";
 import {
+  isOpenAiHttpError,
   sendOpenAiError,
 } from "./lib/provider-utils.js";
+import { openAiError } from "./lib/proxy.js";
 import { toErrorMessage } from "./lib/errors/index.js";
 import { getTelemetry } from "./lib/telemetry/otel.js";
 import { RequestLogStore } from "./lib/request-log-store.js";
@@ -57,7 +57,6 @@ import { SqlRequestUsageStore } from "./lib/db/sql-request-usage-store.js";
 import { SqlFederationStore } from "./lib/db/sql-federation-store.js";
 import { SqlTenantProviderPolicyStore } from "./lib/db/sql-tenant-provider-policy-store.js";
 import { SqlAuthPersistence } from "./lib/auth/sql-persistence.js";
-import { seedApiKeyProvidersFromEnv, seedFromJsonFile, seedFromJsonValue, seedFactoryAuthFromFiles, seedModelsFromFile } from "./lib/db/json-seeder.js";
 import { RuntimeCredentialStore } from "./lib/runtime-credential-store.js";
 import {
   createTokenRefreshRuntime,
@@ -68,15 +67,16 @@ import { createEnvFederationBridgeAgent } from "./lib/federation/bridge-agent-au
 import type { FederationBridgeRelay } from "./lib/federation/bridge-relay.js";
 import { type AppDeps } from "./lib/app-deps.js";
 import {
-  executeFederatedRequestFallback,
-} from "./lib/federation/federated-fallback.js";
+  executeFederatedRequestRouting,
+} from "./lib/federation/federated-routing.js";
 import {
   handleBridgeRequest,
   injectNativeBridge,
-} from "./lib/federation/bridge-fallback.js";
+} from "./lib/federation/bridge-routing.js";
 import { registerChatRoutes } from "./routes/chat.js";
 import { registerResponsesRoutes } from "./routes/responses.js";
 import { registerImagesRoutes } from "./routes/images.js";
+import { registerMediaGenerationRoutes } from "./routes/media-generations.js";
 import { registerWebsearchRoutes } from "./routes/websearch.js";
 import { registerModelsRoutes } from "./routes/models.js";
 import { registerEmbeddingsRoutes } from "./routes/embeddings.js";
@@ -87,6 +87,29 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
   const app = Fastify({
     logger: true,
     bodyLimit: 300 * 1024 * 1024
+  });
+
+  app.setErrorHandler(async (error, request, reply) => {
+    if (isOpenAiHttpError(error)) {
+      request.log.warn({
+        err: error,
+        code: error.code,
+        type: error.type,
+        meta: error.meta,
+        tenantId: request.openHaxAuth?.tenantId,
+      }, "request failed with typed OpenAI error");
+      if (error.code) {
+        reply.header("x-open-hax-error-code", error.code);
+      }
+      reply.code(error.statusCode).send(openAiError(error.message, error.type, error.code));
+      return;
+    }
+
+    request.log.error({
+      err: error,
+      tenantId: request.openHaxAuth?.tenantId,
+    }, "request failed with unhandled error");
+    reply.code(500).send(openAiError("Internal server error", "server_error", "internal_error"));
   });
 
   await app.register(fastifySwagger, {
@@ -169,61 +192,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       await sqlAuthPersistence.init();
       app.log.info("auth persistence initialized");
 
-      if (config.keysFilePath) {
-        try {
-          const seedResult = await seedFromJsonFile(sql, config.keysFilePath, config.upstreamProviderId, {
-            skipExistingProviders: true,
-          });
-          app.log.info({ providers: seedResult.providers, accounts: seedResult.accounts }, "seeded credentials from json file");
-        } catch (error) {
-          app.log.warn({ error: toErrorMessage(error) }, "failed to seed credentials from json file; continuing with existing data");
-        }
-      }
 
-      const inlineKeysJson = process.env.PROXY_KEYS_JSON ?? process.env.UPSTREAM_KEYS_JSON ?? process.env.VIVGRID_KEYS_JSON;
-      if (typeof inlineKeysJson === "string" && inlineKeysJson.trim().length > 0) {
-        try {
-          const parsedInlineKeys: unknown = JSON.parse(inlineKeysJson);
-          const seedResult = await seedFromJsonValue(sql, parsedInlineKeys, config.upstreamProviderId, {
-            skipExistingProviders: true,
-          });
-          app.log.info({ providers: seedResult.providers, accounts: seedResult.accounts }, "seeded credentials from inline json env");
-        } catch (error) {
-          app.log.warn({ error: toErrorMessage(error) }, "failed to seed credentials from inline json env; continuing with existing data");
-        }
-      }
-
-      try {
-        const envSeedResult = await seedApiKeyProvidersFromEnv(sql);
-        if (envSeedResult.providers > 0 || envSeedResult.accounts > 0) {
-          app.log.info({ providers: envSeedResult.providers, accounts: envSeedResult.accounts }, "seeded api-key providers from env into database");
-        }
-      } catch (error) {
-        app.log.warn({ error: toErrorMessage(error) }, "failed to seed api-key providers from env; continuing with existing data");
-      }
-
-      // Seed Factory OAuth credentials from encrypted auth.v2 files into the DB.
-      // Only imports on first boot when no factory accounts exist in the DB yet.
-      try {
-        const factorySeed = await seedFactoryAuthFromFiles(sql);
-        if (factorySeed.seeded) {
-          app.log.info("seeded Factory OAuth credentials from auth.v2 files into database");
-        }
-      } catch (error) {
-        app.log.warn({ error: toErrorMessage(error) }, "failed to seed Factory OAuth credentials from auth.v2 files");
-      }
-
-      // Seed models from models.json into the DB (first boot only).
-      if (config.modelsFilePath) {
-        try {
-          const modelSeed = await seedModelsFromFile(sql, config.modelsFilePath, DEFAULT_MODELS);
-          if (modelSeed.seeded) {
-            app.log.info({ count: modelSeed.count }, "seeded models from file into database");
-          }
-        } catch (error) {
-          app.log.warn({ error: toErrorMessage(error) }, "failed to seed models from file");
-        }
-      }
 
       const removedLegacyOpenAiAccounts = await sqlCredentialStore.cleanupLegacyOpenAiDuplicates();
       if (removedLegacyOpenAiAccounts > 0) {
@@ -274,13 +243,8 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
   const proxySettingsStore = new ProxySettingsStore(config.settingsFilePath, sql);
   await proxySettingsStore.warmup();
 
-  let policyEngine: PolicyEngine;
-  try {
-    policyEngine = await initializePolicyEngine(config.policyConfigPath);
-    app.log.info({ policyConfigPath: config.policyConfigPath }, "policy engine initialized");
-  } catch (error) {
-    app.log.warn({ error: toErrorMessage(error) }, "failed to load policy config; using defaults");
-    policyEngine = createPolicyEngine(DEFAULT_POLICY_CONFIG);
+  if (getActiveCljsRuntime()) {
+    app.log.info("CLJS policy router runtime boundary available");
   }
 
   const credentialStore = new CredentialStore(config.keysFilePath, config.upstreamProviderId);
@@ -429,20 +393,9 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
   );
   quotaMonitor.start();
 
-  const bootstrapOwnerSubject = process.env.FEDERATION_DEFAULT_OWNER_SUBJECT?.trim() || undefined;
-  const federatedDynamicOllamaRoutes = await discoverDynamicOllamaRoutes(
-    sqlCredentialStore,
-    sqlFederationStore,
-    bootstrapOwnerSubject,
-  );
-  const ollamaCatalogRoutes = prependDynamicOllamaRoutes(
-    buildOllamaCatalogRoutes(config),
-    federatedDynamicOllamaRoutes,
-  );
-  const providerCatalogRoutes = prependDynamicOllamaRoutes(
-    (await buildProviderRoutesWithDynamicBaseUrls(config, false, dynamicProviderBaseUrlGetter, true))
-      .filter((route) => route.providerId !== "factory" || !config.disabledProviderIds.includes("factory")),
-    federatedDynamicOllamaRoutes,
+  const ollamaCatalogRoutes = buildOllamaCatalogRoutes(config);
+  const providerCatalogRoutes = getDeclaredProviderRoutes(config).filter(
+    (route) => route.providerId !== "factory" || !config.disabledProviderIds.includes("factory"),
   );
   const providerCatalogStore = new ProviderCatalogStore(
     config,
@@ -508,7 +461,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     const bridgedModels = await getBridgeAdvertisedModelIds();
     return [...new Set([...localCatalog.modelIds, ...bridgedModels])];
   }
-  const fedDeps = { app, sqlFederationStore, runtimeCredentialStore, keyPool, sqlTenantProviderPolicyStore };
+  const fedDeps = { app, cljsPolicyManifestPath: config.cljsPolicyManifestPath, sqlFederationStore, runtimeCredentialStore, keyPool, sqlTenantProviderPolicyStore };
   const getBridgeDeps = () => ({ bridgeRelay, app, config, runtimeCredentialStore, keyPool, sqlTenantProviderPolicyStore });
 
   const bridgeAgent = createEnvFederationBridgeAgent({
@@ -698,7 +651,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     app, config, keyPool, credentialStore, runtimeCredentialStore,
     sqlCredentialStore, sqlFederationStore, sqlTenantProviderPolicyStore,
     accountHealthStore, eventStore, requestLogStore, promptAffinityStore, providerRoutePheromoneStore,
-    proxySettingsStore, policyEngine, providerCatalogStore, tokenRefreshManager,
+    proxySettingsStore,  providerCatalogStore, tokenRefreshManager,
     dynamicProviderBaseUrlGetter: dynamicProviderBaseUrlGetter
       ? async (id: string) => (await dynamicProviderBaseUrlGetter(id)) ?? undefined
       : async () => undefined, bridgeRelay, quotaMonitor,
@@ -706,7 +659,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     refreshFactoryAccount,
     ensureFreshAccounts,
     getMergedModelIds,
-    executeFederatedRequestFallback: async (input) => executeFederatedRequestFallback(fedDeps, input),
+    executeFederatedRequestRouting: async (input) => executeFederatedRequestRouting(fedDeps, input),
     injectNativeBridge: async (url, payload, headers) => injectNativeBridge(getBridgeDeps(), url, payload, headers),
   };
 
@@ -716,6 +669,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
   registerChatRoutes(deps, app);
   registerResponsesRoutes(deps, app);
   registerImagesRoutes(deps, app);
+  registerMediaGenerationRoutes(deps, app);
   registerEmbeddingsRoutes(deps, app);
   registerNativeOllamaRoutes(deps, app);
 
@@ -804,10 +758,6 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     }
   });
 
-  if (bridgeAgent) {
-    await bridgeAgent.start();
-  }
-
   app.addHook("onClose", async () => {
     if (bridgeAgent) {
       await bridgeAgent.stop();
@@ -867,6 +817,10 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
 
     reply.code(404).send({ ok: false, error: "Not Found" });
   });
+
+  if (bridgeAgent) {
+    await bridgeAgent.start();
+  }
 
   return app;
 }

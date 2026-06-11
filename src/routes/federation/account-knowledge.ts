@@ -16,6 +16,7 @@ export interface FederationKnownAccountSummary {
   readonly warmRequestCount?: number;
   readonly hasCredentials: boolean;
   readonly knowledgeSources: readonly string[];
+  readonly cooldownUntilMs?: number;
 }
 
 export interface FederationAccountsResponse {
@@ -48,6 +49,7 @@ export async function buildFederationAccountKnowledge(
   options: {
     readonly ownerSubject?: string;
     readonly defaultOwnerSubject?: string;
+    readonly activeCooldowns?: ReadonlyMap<string, number>;
   } = {},
 ): Promise<{
   readonly localAccounts: readonly FederationKnownAccountSummary[];
@@ -58,9 +60,11 @@ export async function buildFederationAccountKnowledge(
   const known = new Map<string, FederationKnownAccountSummary>();
   const requestedOwnerSubject = options.ownerSubject?.trim();
   const defaultOwnerSubject = options.defaultOwnerSubject?.trim();
+  const activeCooldowns = options.activeCooldowns;
   const includeAllLocalAccounts = !requestedOwnerSubject
     || (defaultOwnerSubject !== undefined && defaultOwnerSubject.length > 0 && requestedOwnerSubject === defaultOwnerSubject);
   const projectedAccountKeys = new Set(projectedAccounts.map((projected) => accountKnowledgeKey(projected.providerId, projected.accountId)));
+  const now = Date.now();
 
   for (const provider of providers) {
     for (const account of provider.accounts) {
@@ -71,6 +75,10 @@ export async function buildFederationAccountKnowledge(
       if (!includeAllLocalAccounts && !hasNoOwner && !matchesOwner && !projectedAccountKeys.has(key)) {
         continue;
       }
+
+      const cooldownKey = `${provider.id}\0${account.id}`;
+      const cooldownUntilMs = activeCooldowns?.get(cooldownKey);
+      const effectiveCooldown = typeof cooldownUntilMs === "number" && cooldownUntilMs > now ? cooldownUntilMs : undefined;
 
       const summary: FederationKnownAccountSummary = {
         providerId: provider.id,
@@ -84,6 +92,7 @@ export async function buildFederationAccountKnowledge(
         ownerSubject: requestedOwnerSubject,
         hasCredentials: true,
         knowledgeSources: ["local_credential"],
+        cooldownUntilMs: effectiveCooldown,
       };
       localAccounts.push(summary);
       known.set(key, summary);
