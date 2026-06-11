@@ -63,6 +63,20 @@ export interface CljsProviderRoutesResult {
   readonly data?: unknown;
 }
 
+export interface CljsFederationRouteCandidatesResult {
+  readonly status: "ok" | "error" | "exhausted";
+  readonly candidates?: readonly unknown[];
+  readonly error?: string;
+  readonly data?: unknown;
+}
+
+export interface CljsTenantProviderPolicyAuthorizationResult {
+  readonly status: "ok" | "error";
+  readonly allowed?: boolean;
+  readonly error?: string;
+  readonly data?: unknown;
+}
+
 export interface CljsModelCandidatesRunResult {
   readonly status: string;
   readonly [key: string]: unknown;
@@ -77,11 +91,18 @@ export interface ProxxCljsRuntime {
   readonly loadModelPricingOverrides: (manifestPath: string) => unknown;
   readonly loadProviderSeedSpecs: (manifestPath: string) => unknown;
   readonly previewPolicyDecision: (manifestPath: string, input: unknown) => CljsPolicyDecisionPreviewResult;
+  readonly executePolicyTree?: (
+    manifestPath: string,
+    input: unknown,
+    tryCandidate: (candidate: unknown) => Promise<{ readonly status: string; readonly reason?: string }>,
+  ) => Promise<{ readonly status: string; readonly result?: unknown; readonly trace?: readonly unknown[] }>;
   readonly normalizeReasoningRequest: (manifestPath: string, input: unknown) => CljsReasoningNormalizationResult;
   readonly resolveModelAlias: (manifestPath: string, modelId: string, providerId: string) => CljsModelAliasResult;
   readonly resolveAutoModelCandidates?: (manifestPath: string, input: unknown) => CljsAutoModelCandidatesResult;
   readonly getProviderRoutes?: (manifestPath: string) => CljsProviderRoutesResult;
   readonly filterProviderRoutes?: (manifestPath: string, input: unknown) => CljsProviderRoutesResult;
+  readonly resolveFederationRouteCandidates?: (manifestPath: string, input: unknown) => CljsFederationRouteCandidatesResult;
+  readonly authorizeTenantProviderPolicy?: (manifestPath: string, input: unknown) => CljsTenantProviderPolicyAuthorizationResult;
   readonly runModelCandidates?: (
     manifestPath: string,
     input: unknown,
@@ -89,6 +110,12 @@ export interface ProxxCljsRuntime {
   ) => Promise<CljsModelCandidatesRunResult>;
   readonly resolveQueuePolicy?: (manifestPath: string, ctx: unknown) => CljsQueuePolicyResult;
   readonly runQueued?: <T>(manifestPath: string, ctx: unknown, task: (controller: AbortController) => Promise<T>) => Promise<T>;
+  readonly classifyRateLimit?: (
+    manifestPath: string,
+    providerId: string,
+    status: number,
+    retryAfterMs: number | undefined,
+  ) => { readonly status: string; readonly result?: string | null };
 }
 
 export type CljsRuntimeLoadResult =
@@ -127,7 +154,10 @@ function isProxxCljsRuntime(value: Record<string, unknown>): value is Record<str
     typeof value.resolveModelAlias === "function" &&
     (value.resolveAutoModelCandidates === undefined || typeof value.resolveAutoModelCandidates === "function") &&
     (value.filterProviderRoutes === undefined || typeof value.filterProviderRoutes === "function") &&
+    (value.resolveFederationRouteCandidates === undefined || typeof value.resolveFederationRouteCandidates === "function") &&
+    (value.authorizeTenantProviderPolicy === undefined || typeof value.authorizeTenantProviderPolicy === "function") &&
     (value.runModelCandidates === undefined || typeof value.runModelCandidates === "function") &&
+    (value.executePolicyTree === undefined || typeof value.executePolicyTree === "function") &&
     (value.resolveQueuePolicy === undefined || typeof value.resolveQueuePolicy === "function") &&
     (value.getProviderRoutes === undefined || typeof value.getProviderRoutes === "function") &&
     (value.runQueued === undefined || typeof value.runQueued === "function")
@@ -359,9 +389,9 @@ export async function assertCljsRuntimeReady(runtime: ProxxCljsRuntime): Promise
   }
 
   const reasoningResult = runtime.normalizeReasoningRequest("resources/policies/runtime/00-manifest.edn", {
-    modelId: "gpt-5.2",
+    modelId: "gpt-5.4-mini",
     requestBody: {
-      model: "gpt-5.2",
+      model: "gpt-5.4-mini",
       reasoning: { effort: "max" },
     },
   });

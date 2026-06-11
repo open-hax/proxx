@@ -1138,7 +1138,7 @@ test("OpenAI images auto mode falls back to Codex Responses image_generation whe
   // Ensure the fallback request is a Responses API payload forcing image_generation.
   const fallbackBody = seenBodies.find((body) => body["tools"] !== undefined);
   assert.ok(fallbackBody && isRecord(fallbackBody));
-  assert.equal(fallbackBody["model"], "gpt-5.2-codex");
+  assert.equal(fallbackBody["model"], "gpt-5.4-mini");
   assert.equal(fallbackBody["tool_choice"], "required");
   assert.ok(Array.isArray(fallbackBody["tools"]));
   const tools = fallbackBody["tools"] as unknown[];
@@ -1947,7 +1947,7 @@ test("fetches live OpenAI Codex quota windows and persists refreshed OAuth token
     await withProxyApp(
       {
         keys: [],
-        models: ["gpt-5.2"],
+        models: ["gpt-5.4-mini"],
         keysPayload: {
           providers: {
             openai: {
@@ -2050,7 +2050,7 @@ test("probes an OpenAI account with a minimal hello request", async () => {
             response: {
               id: "resp_probe_hello",
               status: "completed",
-              model: "gpt-5.2",
+              model: "gpt-5.4-mini",
               output: [{
                 type: "message",
                 role: "assistant",
@@ -2130,14 +2130,14 @@ test("probes an OpenAI account with a minimal hello request", async () => {
         assert.equal(payload.ok, true);
         assert.equal(payload.matchesExpectedOutput, true);
         assert.equal(payload.outputText, "hello");
-        assert.equal(payload.model, "gpt-5.2");
+        assert.equal(payload.model, "gpt-5.4-mini");
       },
     );
 
     assert.equal(observedRequests.length, 1);
     assert.equal(observedRequests[0]?.headers.get("chatgpt-account-id"), "workspace-probe-a");
     assert.equal(observedRequests[0]?.headers.get("originator"), "codex_cli_rs");
-    assert.equal(observedRequests[0]?.body.model, "gpt-5.2");
+    assert.equal(observedRequests[0]?.body.model, "gpt-5.4-mini");
     assert.equal((observedRequests[0]?.body.reasoning as { readonly effort?: string } | undefined)?.effort, "none");
     assert.equal(observedRequests[0]?.body.stream, true);
     assert.equal(observedRequests[0]?.body.store, false);
@@ -2916,7 +2916,7 @@ test("falls back from vivgrid through free codex oauth to paid accounts for gpt-
   );
 });
 
-test("prefers free codex oauth accounts for gpt-5.2-codex before paid accounts", async () => {
+test("prefers free codex oauth accounts for gpt-5.4-mini before paid accounts", async () => {
   const observedAuth: string[] = [];
 
   await withProxyApp(
@@ -2954,7 +2954,7 @@ test("prefers free codex oauth accounts for gpt-5.2-codex before paid accounts",
 
         const parsedBody = JSON.parse(body);
         assert.ok(isRecord(parsedBody));
-        assert.equal(parsedBody.model, "gpt-5.2-codex");
+        assert.equal(parsedBody.model, "gpt-5.4-mini");
         assert.equal(request.headers["chatgpt-account-id"], "cgpt-free");
 
         return {
@@ -2964,7 +2964,7 @@ test("prefers free codex oauth accounts for gpt-5.2-codex before paid accounts",
             id: "resp-free-openai-priority",
             object: "response",
             created_at: 1772916804,
-            model: "gpt-5.2-codex",
+            model: "gpt-5.4-mini",
             output: [
               {
                 id: "msg-free-openai-priority",
@@ -2995,7 +2995,7 @@ test("prefers free codex oauth accounts for gpt-5.2-codex before paid accounts",
           "content-type": "application/json"
         },
         payload: {
-          model: "gpt-5.2-codex",
+          model: "gpt-5.4-mini",
           messages: [{ role: "user", content: "hello" }],
           stream: false
         }
@@ -3009,7 +3009,7 @@ test("prefers free codex oauth accounts for gpt-5.2-codex before paid accounts",
       const payload: unknown = response.json();
       assert.ok(isRecord(payload));
       assert.equal(payload.object, "chat.completion");
-      assert.equal(payload.model, "gpt-5.2-codex");
+      assert.equal(payload.model, "gpt-5.4-mini");
       assert.ok(Array.isArray(payload.choices));
       assert.ok(isRecord(payload.choices[0]));
       assert.ok(isRecord(payload.choices[0].message));
@@ -3576,7 +3576,7 @@ test("skips ollama-cloud entirely when routing gpt models", async () => {
   );
 });
 
-test("skips ollama-cloud entirely when routing gpt-5.2 models", async () => {
+test("skips ollama-cloud entirely when routing gpt-5.4-mini models", async () => {
   const observedAuth: string[] = [];
 
   await withProxyApp(
@@ -3615,7 +3615,7 @@ test("skips ollama-cloud entirely when routing gpt-5.2 models", async () => {
             },
             body: JSON.stringify({
               error: {
-                message: "model \"gpt-5.2\" not found"
+                message: "model \"gpt-5.4-mini\" not found"
               }
             })
           };
@@ -3623,7 +3623,7 @@ test("skips ollama-cloud entirely when routing gpt-5.2 models", async () => {
 
         const parsedBody = JSON.parse(body);
         assert.ok(isRecord(parsedBody));
-        assert.equal(parsedBody.model, "gpt-5.2");
+        assert.equal(parsedBody.model, "gpt-5.4-mini");
 
         return {
           status: 200,
@@ -3634,7 +3634,7 @@ test("skips ollama-cloud entirely when routing gpt-5.2 models", async () => {
             id: "resp-gpt52-fallback-ok",
             object: "response",
             created_at: 1772516816,
-            model: "gpt-5.2",
+            model: "gpt-5.4-mini",
             output: [
               {
                 id: "msg-gpt52-fallback-ok",
@@ -3643,7 +3643,7 @@ test("skips ollama-cloud entirely when routing gpt-5.2 models", async () => {
                 content: [
                   {
                     type: "output_text",
-                    text: "gpt-5.2-fallback-ok"
+                    text: "gpt-5.4-mini-fallback-ok"
                   }
                 ]
               }
@@ -3660,7 +3660,7 @@ test("skips ollama-cloud entirely when routing gpt-5.2 models", async () => {
           "content-type": "application/json"
         },
         payload: {
-          model: "gpt-5.2",
+          model: "gpt-5.4-mini",
           messages: [{ role: "user", content: "hello" }],
           stream: false
         }
@@ -3677,7 +3677,7 @@ test("skips ollama-cloud entirely when routing gpt-5.2 models", async () => {
       assert.ok(Array.isArray(payload.choices));
       assert.ok(isRecord(payload.choices[0]));
       assert.ok(isRecord(payload.choices[0].message));
-      assert.equal(payload.choices[0].message.content, "gpt-5.2-fallback-ok");
+      assert.equal(payload.choices[0].message.content, "gpt-5.4-mini-fallback-ok");
     }
   );
 });
@@ -4974,6 +4974,40 @@ test("tenant disabledProviderIds blocks local ollama usage", async () => {
   );
 });
 
+test("explicit ollama-lan embedding prefix does not collapse to native ollama", async () => {
+  let upstreamCalled = false;
+
+  await withProxyApp(
+    {
+      keys: [],
+      configOverrides: {
+        ollamaModelPrefixes: ["ollama/", "ollama:", "ollama-lan/", "ollama-lan:"],
+      },
+      upstreamHandler: async () => {
+        upstreamCalled = true;
+        throw new Error("explicit ollama-lan embeddings should not fall back to ollama");
+      },
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/embeddings",
+        headers: {
+          "content-type": "application/json",
+        },
+        payload: {
+          model: "ollama-lan/qwen3-embedding:0.6b",
+          input: "must not fall back",
+        },
+      });
+
+      assert.equal(response.statusCode, 403);
+      assert.equal(response.headers["x-open-hax-error-code"], "provider_not_allowed");
+      assert.equal(upstreamCalled, false);
+    },
+  );
+});
+
 test("weekly dashboard uses persisted daily model/account aggregates and reports incomplete coverage", async () => {
   const DAY_MS = 24 * 60 * 60 * 1000;
   const day0 = Math.floor((Date.now() - 5 * DAY_MS) / DAY_MS) * DAY_MS;
@@ -6101,7 +6135,7 @@ test("falls back to top-level output_text when responses output message text is 
           id: "resp_top_level_output_text",
           object: "response",
           created_at: 1772516800,
-          model: "gpt-5.2",
+          model: "gpt-5.4-mini",
           output_text: "top-level-output-text-ok",
           output: [
             {
@@ -6127,7 +6161,7 @@ test("falls back to top-level output_text when responses output message text is 
           "content-type": "application/json"
         },
         payload: {
-          model: "gpt-5.2",
+          model: "gpt-5.4-mini",
           messages: [{ role: "user", content: "hello" }],
           stream: false
         }
@@ -6161,7 +6195,7 @@ test("preserves xhigh reasoning effort for gpt chat requests routed to responses
             id: "resp_reasoning_xhigh",
             object: "response",
             created_at: 1772516800,
-            model: "gpt-5.2",
+            model: "gpt-5.4-mini",
             output: [
               {
                 id: "msg_reasoning_xhigh",
@@ -6192,7 +6226,7 @@ test("preserves xhigh reasoning effort for gpt chat requests routed to responses
           "content-type": "application/json"
         },
         payload: {
-          model: "gpt-5.2",
+          model: "gpt-5.4-mini",
           messages: [{ role: "user", content: "hello" }],
           reasoning_effort: "xhigh",
           stream: false
@@ -6930,9 +6964,9 @@ test("buffers openai responses SSE deltas into chat content when the terminal re
           "content-type": "text/event-stream; charset=utf-8"
         },
         body: [
-          `event: response.created\ndata: ${JSON.stringify({ type: "response.created", response: { id: "resp_empty_terminal", status: "in_progress", model: "gpt-5.2", output: [] } })}\n\n`,
+          `event: response.created\ndata: ${JSON.stringify({ type: "response.created", response: { id: "resp_empty_terminal", status: "in_progress", model: "gpt-5.4-mini", output: [] } })}\n\n`,
           `event: response.output_text.delta\ndata: ${JSON.stringify({ type: "response.output_text.delta", delta: "OK" })}\n\n`,
-          `event: response.completed\ndata: ${JSON.stringify({ type: "response.completed", response: { id: "resp_empty_terminal", status: "completed", model: "gpt-5.2", output: [{ type: "message", role: "assistant", content: [] }], usage: { input_tokens: 5, output_tokens: 2, total_tokens: 7 } } })}\n\n`,
+          `event: response.completed\ndata: ${JSON.stringify({ type: "response.completed", response: { id: "resp_empty_terminal", status: "completed", model: "gpt-5.4-mini", output: [{ type: "message", role: "assistant", content: [] }], usage: { input_tokens: 5, output_tokens: 2, total_tokens: 7 } } })}\n\n`,
         ].join("")
       })
     },
@@ -6944,7 +6978,7 @@ test("buffers openai responses SSE deltas into chat content when the terminal re
           "content-type": "application/json"
         },
         payload: {
-          model: "gpt-5.2",
+          model: "gpt-5.4-mini",
           messages: [{ role: "user", content: "Reply with exactly: OK" }],
           stream: false
         }
@@ -7522,7 +7556,7 @@ test("prompt cache audit watchlist is computed from all grouped hashes, not only
   );
 });
 
-test("injects instructions for gpt-5.2 routed through openai oauth (regression: codex instructions required)", async () => {
+test("injects instructions for gpt-5.4-mini routed through openai oauth (regression: codex instructions required)", async () => {
   let observedPath = "";
   let observedBody: Record<string, unknown> | undefined;
 
@@ -7553,7 +7587,7 @@ test("injects instructions for gpt-5.2 routed through openai oauth (regression: 
             id: "resp_gpt52",
             object: "response",
             created_at: 1772516810,
-            model: "gpt-5.2",
+            model: "gpt-5.4-mini",
             output: [
               {
                 id: "msg_gpt52",
@@ -7573,7 +7607,7 @@ test("injects instructions for gpt-5.2 routed through openai oauth (regression: 
         url: "/v1/chat/completions",
         headers: { "content-type": "application/json" },
         payload: {
-          model: "gpt-5.2",
+          model: "gpt-5.4-mini",
           messages: [{ role: "user", content: "hello" }],
           stream: false
         }
@@ -7590,7 +7624,7 @@ test("injects instructions for gpt-5.2 routed through openai oauth (regression: 
       const payload: unknown = response.json();
       assert.ok(isRecord(payload));
       assert.equal(payload.object, "chat.completion");
-      assert.equal(payload.model, "gpt-5.2");
+      assert.equal(payload.model, "gpt-5.4-mini");
     }
   );
 });
@@ -7618,8 +7652,8 @@ test("openai passthrough coerces null instructions to empty string (regression: 
         observedBody = JSON.parse(body);
 
         const streamText = [
-          `event: response.created\ndata: ${JSON.stringify({ type: "response.created", response: { id: "resp_pt", status: "in_progress", model: "gpt-5.2", output: [] } })}\n\n`,
-          `event: response.completed\ndata: ${JSON.stringify({ type: "response.completed", response: { id: "resp_pt", status: "completed", model: "gpt-5.2", output: [{ type: "message", role: "assistant", content: [{ type: "output_text", text: "OK" }] }], usage: { input_tokens: 5, output_tokens: 2, total_tokens: 7 } } })}\n\n`,
+          `event: response.created\ndata: ${JSON.stringify({ type: "response.created", response: { id: "resp_pt", status: "in_progress", model: "gpt-5.4-mini", output: [] } })}\n\n`,
+          `event: response.completed\ndata: ${JSON.stringify({ type: "response.completed", response: { id: "resp_pt", status: "completed", model: "gpt-5.4-mini", output: [{ type: "message", role: "assistant", content: [{ type: "output_text", text: "OK" }] }], usage: { input_tokens: 5, output_tokens: 2, total_tokens: 7 } } })}\n\n`,
         ].join("");
 
         return {
@@ -7635,7 +7669,7 @@ test("openai passthrough coerces null instructions to empty string (regression: 
         url: "/v1/responses",
         headers: { "content-type": "application/json" },
         payload: {
-          model: "gpt-5.2",
+          model: "gpt-5.4-mini",
           input: [{ role: "user", content: [{ type: "input_text", text: "hello" }] }],
           instructions: null,
           stream: true
@@ -7708,7 +7742,7 @@ test("openai passthrough still reaches codex when provider catalog lookup is una
   );
 });
 
-test("openai passthrough strips max_output_tokens for codex path (regression: unsupported parameter)", async () => {
+test("openai passthrough strips codex-unsupported response parameters", async () => {
   let observedBody: Record<string, unknown> | undefined;
 
   await withProxyApp(
@@ -7731,8 +7765,8 @@ test("openai passthrough strips max_output_tokens for codex path (regression: un
         observedBody = JSON.parse(body);
 
         const streamText = [
-          `event: response.created\ndata: ${JSON.stringify({ type: "response.created", response: { id: "resp_mot", status: "in_progress", model: "gpt-5.2", output: [] } })}\n\n`,
-          `event: response.completed\ndata: ${JSON.stringify({ type: "response.completed", response: { id: "resp_mot", status: "completed", model: "gpt-5.2", output: [{ type: "message", role: "assistant", content: [{ type: "output_text", text: "OK" }] }], usage: { input_tokens: 5, output_tokens: 2, total_tokens: 7 } } })}\n\n`,
+          `event: response.created\ndata: ${JSON.stringify({ type: "response.created", response: { id: "resp_mot", status: "in_progress", model: "gpt-5.4-mini", output: [] } })}\n\n`,
+          `event: response.completed\ndata: ${JSON.stringify({ type: "response.completed", response: { id: "resp_mot", status: "completed", model: "gpt-5.4-mini", output: [{ type: "message", role: "assistant", content: [{ type: "output_text", text: "OK" }] }], usage: { input_tokens: 5, output_tokens: 2, total_tokens: 7 } } })}\n\n`,
         ].join("");
 
         return {
@@ -7748,10 +7782,11 @@ test("openai passthrough strips max_output_tokens for codex path (regression: un
         url: "/v1/responses",
         headers: { "content-type": "application/json" },
         payload: {
-          model: "gpt-5.2",
+          model: "gpt-5.4-mini",
           input: [{ role: "user", content: [{ type: "input_text", text: "hello" }] }],
           instructions: "",
           max_output_tokens: 32000,
+          prompt_cache_retention: "24h",
           stream: true
         }
       });
@@ -7759,6 +7794,54 @@ test("openai passthrough strips max_output_tokens for codex path (regression: un
       assert.equal(response.statusCode, 200);
       assert.ok(observedBody);
       assert.equal(observedBody.max_output_tokens, undefined, "max_output_tokens must be stripped for codex path");
+      assert.equal(observedBody.prompt_cache_retention, undefined, "prompt_cache_retention must be stripped for codex path");
+    }
+  );
+});
+
+test("openai responses passthrough closes stalled streaming bodies", async () => {
+  await withProxyApp(
+    {
+      keys: [],
+      keysPayload: {
+        providers: {
+          openai: {
+            auth: "oauth_bearer",
+            accounts: [
+              { id: "openai-a", access_token: "oa-token-a", chatgpt_account_id: "chatgpt-a" },
+            ]
+          }
+        }
+      },
+      configOverrides: {
+        upstreamProviderId: "openai",
+        requestTimeoutMs: 25,
+        streamBootstrapTimeoutMs: 25,
+      },
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: { "content-type": "text/event-stream; charset=utf-8" },
+        streamBody: async (response) => {
+          response.write(`event: response.created\ndata: ${JSON.stringify({ type: "response.created", response: { id: "resp_stalled", status: "in_progress", model: "gpt-5.5", output: [] } })}\n\n`);
+          await once(response, "close");
+        },
+      })
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/responses",
+        headers: { "content-type": "application/json" },
+        payload: {
+          model: "gpt-5.5",
+          input: [{ role: "user", content: [{ type: "input_text", text: "hello" }] }],
+          instructions: "",
+          stream: true
+        }
+      });
+
+      assert.equal(response.statusCode, 200);
+      assert.match(response.body, /response\.created/);
     }
   );
 });
@@ -7791,14 +7874,14 @@ test("/api/tools/websearch proxies via Responses web_search and extracts url cit
         const streamText = [
           `event: response.created\ndata: ${JSON.stringify({
             type: "response.created",
-            response: { id: "resp_ws", status: "in_progress", model: "gpt-5.2", output: [] },
+            response: { id: "resp_ws", status: "in_progress", model: "gpt-5.4-mini", output: [] },
           })}\n\n`,
           `event: response.completed\ndata: ${JSON.stringify({
             type: "response.completed",
             response: {
               id: "resp_ws",
               status: "completed",
-              model: "gpt-5.2",
+              model: "gpt-5.4-mini",
               output: [
                 { type: "web_search_call", id: "ws_1", status: "completed", action: { type: "search", query: "example query" } },
                 {
@@ -7839,7 +7922,7 @@ test("/api/tools/websearch proxies via Responses web_search and extracts url cit
           query: "example query",
           numResults: 5,
           searchContextSize: "medium",
-          model: "gpt-5.2",
+          model: "gpt-5.4-mini",
         },
       });
 
@@ -7854,7 +7937,7 @@ test("/api/tools/websearch proxies via Responses web_search and extracts url cit
       assert.equal(typeof payload.output, "string");
       assert.ok(Array.isArray(payload.sources));
       assert.equal(payload.responseId, "resp_ws");
-      assert.equal(payload.model, "gpt-5.2");
+      assert.equal(payload.model, "gpt-5.4-mini");
       assert.equal(payload.backend, "openai");
 
       const sources = payload.sources as unknown[];
@@ -8009,14 +8092,14 @@ test("/api/tools/websearch falls back to Exa when OpenAI returns empty output", 
           const streamText = [
             `event: response.created\ndata: ${JSON.stringify({
               type: "response.created",
-              response: { id: "resp_empty_ws", status: "in_progress", model: "gpt-5.2", output: [] },
+              response: { id: "resp_empty_ws", status: "in_progress", model: "gpt-5.4-mini", output: [] },
             })}\n\n`,
             `event: response.completed\ndata: ${JSON.stringify({
               type: "response.completed",
               response: {
                 id: "resp_empty_ws",
                 status: "completed",
-                model: "gpt-5.2",
+                model: "gpt-5.4-mini",
                 output: [],
                 usage: { input_tokens: 5, output_tokens: 0, total_tokens: 5 },
               },
@@ -8046,7 +8129,7 @@ test("/api/tools/websearch falls back to Exa when OpenAI returns empty output", 
         });
 
         assert.equal(response.statusCode, 200);
-        assert.deepEqual(callOrder, ["openai", "openai", "exa"]);
+        assert.deepEqual(callOrder, ["openai", "openai", "openai", "openai", "exa"]);
 
         const payload: unknown = response.json();
         assert.ok(isRecord(payload));
@@ -8081,8 +8164,8 @@ test("records token usage from codex SSE responses with missing content-type (re
       },
       upstreamHandler: async () => {
         const streamText = [
-          `event: response.created\ndata: ${JSON.stringify({ type: "response.created", response: { id: "resp_usage", status: "in_progress", model: "gpt-5.2", output: [] } })}\n\n`,
-          `event: response.completed\ndata: ${JSON.stringify({ type: "response.completed", response: { id: "resp_usage", status: "completed", model: "gpt-5.2", output: [{ type: "message", role: "assistant", content: [{ type: "output_text", text: "OK" }] }], usage: { input_tokens: 42, output_tokens: 7, total_tokens: 49, input_tokens_details: { cached_tokens: 30 } } } })}\n\n`,
+          `event: response.created\ndata: ${JSON.stringify({ type: "response.created", response: { id: "resp_usage", status: "in_progress", model: "gpt-5.4-mini", output: [] } })}\n\n`,
+          `event: response.completed\ndata: ${JSON.stringify({ type: "response.completed", response: { id: "resp_usage", status: "completed", model: "gpt-5.4-mini", output: [{ type: "message", role: "assistant", content: [{ type: "output_text", text: "OK" }] }], usage: { input_tokens: 42, output_tokens: 7, total_tokens: 49, input_tokens_details: { cached_tokens: 30 } } } })}\n\n`,
         ].join("");
 
         return {
@@ -8098,7 +8181,7 @@ test("records token usage from codex SSE responses with missing content-type (re
         url: "/v1/chat/completions",
         headers: { "content-type": "application/json" },
         payload: {
-          model: "gpt-5.2",
+          model: "gpt-5.4-mini",
           messages: [{ role: "user", content: "hello" }],
           stream: false
         }
@@ -9565,6 +9648,53 @@ test("proxies native /api/embed and /api/embeddings to their matching upstream o
       assert.ok(isRecord(singlePayload));
       assert.deepEqual(singlePayload.embedding, [1, 2, 3]);
     }
+  );
+});
+
+test("native /api/embed scopes unprefixed models to native ollama regardless of prefix order", async () => {
+  let observedPath = "";
+
+  await withProxyApp(
+    {
+      keys: [],
+      configOverrides: {
+        ollamaModelPrefixes: ["ollama-lan/", "ollama/"],
+      },
+      upstreamHandler: async (request) => {
+        observedPath = request.url ?? "";
+
+        if (observedPath === "/api/show") {
+          return {
+            status: 200,
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              model_info: {
+                "qwen3.context_length": 40960,
+              },
+            }),
+          };
+        }
+
+        return {
+          status: 200,
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ embeddings: [[1, 2, 3]] }),
+        };
+      },
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/embed",
+        payload: {
+          model: "qwen3-embedding:0.6b",
+          input: ["a"],
+        },
+      });
+
+      assert.equal(response.statusCode, 200);
+      assert.equal(observedPath, "/api/embed");
+    },
   );
 });
 

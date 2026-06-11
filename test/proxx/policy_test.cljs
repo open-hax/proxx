@@ -266,6 +266,23 @@
     (is (= true (get-in rejected [:catalog :rejected])))
     (is (= true (get-in disabled [:catalog :disabled])))))
 
+(deftest dynamic-ollama-catalog-does-not-override-policy-provider-universe
+  (let [result (contracts/filter-provider-routes
+                {}
+                {:model-id "gemma4:31b"
+                 :config {:openaiProviderId "openai"}
+                 :tenantSettings {}
+                 :providerRoutes [{:providerId "gemini" :baseUrl "https://generativelanguage.googleapis.com/v1beta"}
+                                  {:providerId "ollama-cloud" :baseUrl "https://ollama.com"}
+                                  {:providerId "ollama" :baseUrl "http://ollama:11434"}]
+                 :catalogBundle {:catalog {:declaredModelIds []
+                                           :dynamicOllamaModelIds ["gemma4:31b"]}
+                                 :preferences {:disabled []}
+                                 :providerCatalogs {"ollama" {:modelIds ["gemma4:31b"]}}}})]
+    (is (= ["gemini" "ollama-cloud" "ollama"]
+           (mapv :providerId (:providerRoutes result))))
+    (is (= false (get-in result [:catalog :rejected])))))
+
 (deftest decision-tree-policy-can-call-contract-apply-in-condition
   (policy/clear-strategies!)
   (policy/clear-contracts!)
@@ -934,6 +951,35 @@
             (:provider-routes decision)))
     (is (= "llamacpp-embed" (:provider-id decision)))
     (is (= :embeddings (get-in decision [:strategy :mode])))))
+
+(deftest compiler-constrains-embedding-policy-to-requested-provider
+  (let [compiled (contracts/compile-contracts
+                  (loader/load-policy-contracts! "resources/policies/runtime/00-manifest.edn"))
+        base-input {:model-id "qwen3-embedding:0.6b"
+                    :request-kind :embeddings
+                    :provider-ids ["llamacpp-embed" "ollama" "ollama-lan"]
+                    :requested-provider-ids ["ollama"]
+                    :strategies-by-provider {"llamacpp-embed" [{:mode :embeddings :priority 0}]
+                                             "ollama" [{:mode :embeddings :priority 1}]
+                                             "ollama-lan" [{:mode :embeddings :priority 1}]}}
+        allowed-decision (contracts/preview-policy-decision
+                          compiled
+                          (assoc base-input :tenant-settings {}))
+        selected-route (first (:provider-routes allowed-decision))
+        disabled-decision (contracts/preview-policy-decision
+                           compiled
+                           (assoc base-input
+                                  :tenant-settings {:disabled-provider-ids ["ollama"]}))]
+    (is (= :ok (:status allowed-decision)))
+    (is (= ["ollama"] (:providers allowed-decision)))
+    (is (= "ollama" (:provider-id allowed-decision)))
+    (is (= ["ollama"] (mapv :provider-id (:provider-routes allowed-decision))))
+    (is (= "ollama" (:provider-id selected-route)))
+    (is (= "http://ollama:11434" (:base-url selected-route)))
+    (is (false? (:auth-required? selected-route)))
+    (is (= :exhausted (:status disabled-decision)))
+    (is (= :no-provider-candidates (:reason disabled-decision)))
+    (is (= [] (:providers disabled-decision)))))
 
 (deftest compiler-previews-blaze-media-policy-decision
   (let [compiled (contracts/compile-contracts

@@ -9,14 +9,17 @@ The target is not a line-for-line TypeScript port. The target is a declarative, 
 `resources/policies/runtime/00-manifest.edn` declares the expected load order:
 
 1. `00-domain.edn` — enums, plan weights, paid-plan set, default strategy order.
-2. `10-model-families.edn` — model-family and exact-model facts.
-3. `20-provider-capabilities.edn` — provider preference orders and request/provider capability facts.
-4. `30-model-routing.edn` — ordered routing clauses. This replaces TypeScript rule arrays semantically, not mechanically.
-5. `40-strategy-selection.edn` — generic strategy/provider selection rules.
-6. `50-account-selection.edn` — account plan constraints, quota handling, and ordering rules.
-7. `60-tenant-enforcement.edn` — model/provider/share authorization clauses.
-8. `70-fallback.edn` — retry/backtracking policy constants.
-9. `90-router.edn` — root policy program and strategy bindings.
+2. `05-provider-seed.edn` — provider seed specs and base routes.
+3. `10-model-families.edn` — model-family and exact-model facts.
+4. `15-model-pricing-overrides.edn` — token-price override contracts.
+5. `20-provider-capabilities.edn` — provider preference orders and request/provider capability facts.
+6. `30-model-routing.edn` — ordered routing clauses. This replaces TypeScript rule arrays semantically, not mechanically.
+7. `40-strategy-selection.edn` — generic strategy/provider selection rules.
+8. `50-account-selection.edn` — account plan constraints, quota handling, and ordering rules.
+9. `60-tenant-enforcement.edn` — model/provider/share authorization clauses.
+10. `65-federation-routing.edn` — projected-account admission/order and tenant provider share-mode requirements for federation/bridge routing.
+11. `70-request-queue-templates.edn` — queue policy templates and instances.
+12. `90-router.edn` — root policy program and strategy bindings.
 
 ## Current TypeScript behavior covered
 
@@ -26,7 +29,7 @@ The target is not a line-for-line TypeScript port. The target is a declarative, 
 - Default strategy ordering.
 - Paid-plan weights and free-tier blocked GPT models.
 - Tenant model/provider allow/deny checks and federated provider share-mode authorization.
-- Fallback retry constants and skip policy.
+- Federation projected-account admission/order and relay/warm-import share-mode requirements.
 
 ## Intentional gap
 

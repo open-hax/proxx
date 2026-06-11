@@ -188,7 +188,7 @@ function serviceTierShareBars(summary: UsageOverview["summary"]): JSX.Element {
   return (
     <div className="dashboard-tier-summary">
       {tiers.map((tier) => {
-        const percent = total > 0 ? (tier.value / total) * 100 : 0;
+        const percent = (tier.value / total) * 100;
         return (
           <div key={tier.label} className="dashboard-tier-summary-row">
             <div className="dashboard-tier-summary-labels">
@@ -346,7 +346,9 @@ export function DashboardPage(): JSX.Element {
 
       {overview?.coverage && !overview.coverage.hasFullWindowCoverage && (
         <span className="dashboard-coverage-note">
-          {windowLabel} window partially covered since {formatDate(overview.coverage.coverageStart)}.
+          {overview.coverage.coverageStart
+            ? `${windowLabel} window partially covered since ${formatDate(overview.coverage.coverageStart)}.`
+            : `${windowLabel} window partially covered.`}
         </span>
       )}
 

@@ -97,6 +97,66 @@ test("CLJS runtime routes bare qwen3 embeddings through the declarative embeddin
   assert.equal(decision.strategy?.mode, "embeddings");
 });
 
+test("CLJS runtime constrains embeddings to requested provider facts before tenant enforcement", async (t) => {
+  const loaded = await loadCljsRuntime({ required: false });
+  if (!loaded.loaded) {
+    t.skip(`CLJS runtime artifact not built: ${loaded.reason}`);
+    return;
+  }
+  await assertCljsRuntimeReady(loaded.runtime);
+
+  const baseInput = {
+    modelId: "qwen3-embedding:0.6b",
+    requestKind: "embeddings",
+    providerIds: ["llamacpp-embed", "ollama", "ollama-lan"],
+    requestedProviderIds: ["ollama"],
+    strategiesByProvider: {
+      "llamacpp-embed": [{ mode: "embeddings", priority: 0 }],
+      ollama: [{ mode: "embeddings", priority: 1 }],
+      "ollama-lan": [{ mode: "embeddings", priority: 1 }],
+    },
+  };
+
+  const allowedResult = loaded.runtime.previewPolicyDecision("resources/policies/runtime/00-manifest.edn", {
+    ...baseInput,
+    tenantSettings: {},
+  });
+  const disabledResult = loaded.runtime.previewPolicyDecision("resources/policies/runtime/00-manifest.edn", {
+    ...baseInput,
+    tenantSettings: { disabledProviderIds: ["ollama"] },
+  });
+
+  assert.equal(allowedResult.status, "ok");
+  const allowedDecision = allowedResult.decision as {
+    readonly status?: string;
+    readonly providers?: readonly string[];
+    readonly "provider-id"?: string;
+    readonly "provider-routes"?: readonly {
+      readonly "provider-id"?: string;
+      readonly "base-url"?: string;
+      readonly "auth-required?"?: boolean;
+    }[];
+  };
+  assert.equal(allowedDecision.status, "ok");
+  assert.deepEqual(allowedDecision.providers, ["ollama"]);
+  assert.equal(allowedDecision["provider-id"], "ollama");
+  assert.deepEqual(allowedDecision["provider-routes"]?.map((route) => route["provider-id"]), ["ollama"]);
+  const [allowedRoute] = allowedDecision["provider-routes"] ?? [];
+  assert.equal(allowedRoute?.["provider-id"], "ollama");
+  assert.equal(allowedRoute?.["base-url"], "http://ollama:11434");
+  assert.equal(allowedRoute?.["auth-required?"], false);
+
+  assert.equal(disabledResult.status, "ok");
+  const disabledDecision = disabledResult.decision as {
+    readonly status?: string;
+    readonly reason?: string;
+    readonly providers?: readonly string[];
+  };
+  assert.equal(disabledDecision.status, "exhausted");
+  assert.equal(disabledDecision.reason, "no-provider-candidates");
+  assert.deepEqual(disabledDecision.providers, []);
+});
+
 test("CLJS runtime keeps gpt and mimo routes pinned to their canonical providers", async (t) => {
   const loaded = await loadCljsRuntime({ required: false });
   if (!loaded.loaded) {
@@ -168,4 +228,183 @@ test("CLJS runtime keeps gpt and mimo routes pinned to their canonical providers
     { "provider-id": "ollama-lan", "base-url": "http://192.168.12.68:11434", "auth-required?": false, paths: { "chat-completions": "/v1/chat/completions" } },
   ]);
   assert.equal(gemma4E4bDecision.strategy?.mode, "chat_completions");
+});
+
+test("CLJS runtime orders federation projected accounts from declarative policy", async (t) => {
+  const loaded = await loadCljsRuntime({ required: false });
+  if (!loaded.loaded) {
+    t.skip(`CLJS runtime artifact not built: ${loaded.reason}`);
+    return;
+  }
+  await assertCljsRuntimeReady(loaded.runtime);
+
+  assert.equal(typeof loaded.runtime.resolveFederationRouteCandidates, "function");
+  const result = loaded.runtime.resolveFederationRouteCandidates?.("resources/policies/runtime/00-manifest.edn", {
+    requestKind: "responses",
+    providerIds: ["openai"],
+    nowMs: 1000,
+    localProviderAccountKeys: ["openai\u0000local-account"],
+    projectedAccounts: [
+      { sourcePeerId: "peer-b", providerId: "openai", accountId: "descriptor-hot", availabilityState: "descriptor", warmRequestCount: 10, metadata: {} },
+      { sourcePeerId: "peer-a", providerId: "openai", accountId: "remote-cold", availabilityState: "remote_route", warmRequestCount: 0, metadata: {} },
+      { sourcePeerId: "peer-c", providerId: "openai", accountId: "remote-hot", availabilityState: "remote_route", warmRequestCount: 5, metadata: {} },
+      { sourcePeerId: "peer-d", providerId: "openai", accountId: "cooling", availabilityState: "remote_route", warmRequestCount: 99, metadata: { cooldownUntilMs: 2000 } },
+      { sourcePeerId: "peer-e", providerId: "openai", accountId: "local-account", availabilityState: "remote_route", warmRequestCount: 99, metadata: {} },
+    ],
+  });
+
+  assert.equal(result?.status, "ok");
+  const candidates = result?.candidates as readonly { readonly accountId?: string; readonly account_id?: string }[] | undefined;
+  assert.deepEqual(candidates?.map((candidate) => candidate.accountId ?? candidate.account_id), [
+    "remote-hot",
+    "remote-cold",
+    "descriptor-hot",
+  ]);
+});
+
+test("CLJS runtime authorizes tenant-provider share modes from federation policy", async (t) => {
+  const loaded = await loadCljsRuntime({ required: false });
+  if (!loaded.loaded) {
+    t.skip(`CLJS runtime artifact not built: ${loaded.reason}`);
+    return;
+  }
+  await assertCljsRuntimeReady(loaded.runtime);
+
+  assert.equal(typeof loaded.runtime.authorizeTenantProviderPolicy, "function");
+  const basePolicy = {
+    ownerSubject: "did:plc:owner",
+    providerKind: "peer_proxx",
+    shareMode: "warm_import",
+    allowedModels: ["gpt-5.5"],
+  };
+
+  const relayResult = loaded.runtime.authorizeTenantProviderPolicy?.("resources/policies/runtime/00-manifest.edn", {
+    policy: basePolicy,
+    ownerSubject: "did:plc:owner",
+    providerKind: "peer_proxx",
+    requestedModel: "gpt-5.5",
+    requiredShareMode: "relay",
+  });
+  const projectionResult = loaded.runtime.authorizeTenantProviderPolicy?.("resources/policies/runtime/00-manifest.edn", {
+    policy: basePolicy,
+    ownerSubject: "did:plc:owner",
+    providerKind: "peer_proxx",
+    requestedModel: "gpt-5.5",
+    requiredShareMode: "project_credentials",
+  });
+
+  assert.equal(relayResult?.status, "ok");
+  assert.equal(relayResult?.allowed, true);
+  assert.equal(projectionResult?.status, "ok");
+  assert.equal(projectionResult?.allowed, false);
+});
+
+test("CLJS runtime executes policy tree with backtracking", async (t) => {
+  const loaded = await loadCljsRuntime({ required: false });
+  if (!loaded.loaded) {
+    t.skip(`CLJS runtime artifact not built: ${loaded.reason}`);
+    return;
+  }
+  await assertCljsRuntimeReady(loaded.runtime);
+
+  assert.equal(typeof loaded.runtime.executePolicyTree, "function");
+
+  const attempts: Array<{ readonly providerId: string; readonly accountId: string; readonly strategyMode: string }> = [];
+
+  const result = await loaded.runtime.executePolicyTree!(
+    "resources/policies/runtime/00-manifest.edn",
+    {
+      modelId: "gpt-5-mini",
+      requestKind: "chat",
+      tenantSettings: {
+        allowedProviderIds: ["openai", "factory"],
+      },
+      accountsByProvider: {
+        openai: [
+          { accountId: "free", planType: "free" },
+          { accountId: "plus", planType: "plus" },
+        ],
+        factory: [
+          { accountId: "team", planType: "team" },
+        ],
+      },
+      strategiesByProvider: {
+        openai: [
+          { mode: "chat-completions", priority: 1 },
+        ],
+        factory: [
+          { mode: "chat-completions", priority: 1 },
+        ],
+      },
+    },
+    (candidate: unknown) => {
+      const c = candidate as {
+        readonly "provider-id"?: string;
+        readonly account?: { readonly accountId?: string };
+        readonly "strategy-mode"?: string;
+      };
+      attempts.push({
+        providerId: c["provider-id"] ?? "",
+        accountId: c.account?.accountId ?? "",
+        strategyMode: c["strategy-mode"] ?? "",
+      });
+      // Fail the first attempt, succeed on the second
+      if (attempts.length < 2) {
+        return Promise.resolve({ status: "failure", reason: "simulated" });
+      }
+      return Promise.resolve({ status: "success" });
+    },
+  );
+
+  assert.equal(result.status, "ok");
+  assert.ok(result.result);
+  const resultCtx = result.result as {
+    readonly "provider-id"?: string;
+    readonly account?: { readonly accountId?: string };
+  };
+  // With gpt-free-blocked, free accounts are excluded.
+  // Order is: openai plus (fail) -> factory team (success)
+  assert.equal(resultCtx["provider-id"], "factory");
+  assert.equal(resultCtx.account?.accountId, "team");
+
+  assert.equal(attempts.length, 2);
+  assert.equal(attempts[0]?.providerId, "openai");
+  assert.equal(attempts[0]?.accountId, "plus");
+  assert.equal(attempts[1]?.providerId, "factory");
+  assert.equal(attempts[1]?.accountId, "team");
+});
+
+test("CLJS policy tree exhausts when all candidates fail", async (t) => {
+  const loaded = await loadCljsRuntime({ required: false });
+  if (!loaded.loaded) {
+    t.skip(`CLJS runtime artifact not built: ${loaded.reason}`);
+    return;
+  }
+  await assertCljsRuntimeReady(loaded.runtime);
+
+  const result = await loaded.runtime.executePolicyTree!(
+    "resources/policies/runtime/00-manifest.edn",
+    {
+      modelId: "gpt-5-mini",
+      requestKind: "chat",
+      tenantSettings: {
+        allowedProviderIds: ["openai"],
+      },
+      accountsByProvider: {
+        openai: [
+          { accountId: "plus", planType: "plus" },
+        ],
+      },
+      strategiesByProvider: {
+        openai: [
+          { mode: "chat-completions", priority: 1 },
+        ],
+      },
+    },
+    () => Promise.resolve({ status: "failure", reason: "always-fails" }),
+  );
+
+  assert.equal(result.status, "exhausted");
+  assert.ok(Array.isArray(result.trace));
+  assert.ok(result.trace.length > 0);
 });

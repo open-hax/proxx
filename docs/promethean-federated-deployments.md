@@ -36,23 +36,36 @@ All three environments use the federation runtime compose stack plus the federat
 - `deploy/docker-compose.federation.ssl.yml`
 - `deploy/Caddyfile.federation.template`
 
-Staging and testing seed their runtime env/models files and operational DB state from production by default:
+Staging and testing seed their runtime env/models files and non-secret control-plane state from production by default:
 
 - source host: `ussy.promethean.rest`
 - source path: `~/devel/services/proxx`
 - source compose project: `open-hax-openai-proxy`
 
-Credential state is **not** shipped as `keys.json` in this flow.
+Credential state is **not** shipped as `keys.json` in this flow, and OAuth refresh tokens should not be copied between hosts.
 
 - `keys.json` is treated as a one-time seed artifact for older/manual setups.
-- federated Promethean deploys rely on the SQL credential store as the source of truth.
-- staging/testing copy operational credential state by DB sync from production.
+- federated Promethean deploys rely on each environment's SQL credential store for local credentials.
+- staging/testing may sync schema migrations, service configuration metadata, routing tables, feature flags, analytics aggregates, and other non-secret control-plane runtime state.
+- staging/testing must not receive credential tables, OAuth refresh tokens, API keys, secret keys, or service-account secrets through DB sync.
+- cross-environment access should use federation peer projection or the WebSocket bridge, where remote nodes route or lease access without owning the source refresh token.
 - production keeps its credential state in its own persistent DB volume.
 
 That means first-time bring-up should either:
 
-1. deploy production first and let downstream environments sync from that DB-backed runtime, or
-2. bootstrap credentials directly into the production SQL-backed runtime through the UI/API/provider env vars.
+1. deploy production first and let downstream environments sync only the non-secret artifacts listed above, or
+2. bootstrap credentials directly into the production SQL-backed runtime through the UI/API/provider env vars and expose cross-environment use through peer projection or bridge routing.
+
+## Policy runtime contract
+
+Provider/model routing, account ordering, federation relay admission, warm-import eligibility, tenant provider share-mode checks, and queue policy are owned by the CLJS/EDN policy runtime:
+
+- EDN contracts: `resources/policies/runtime/*.edn`
+- Federation routing clause: `resources/policies/runtime/65-federation-routing.edn`
+- CLJS interpreters: `src/proxx/**/*.cljs`
+- TypeScript responsibility: HTTP routes, storage facts, and transport execution
+
+Do not add provider/model/federation routing exceptions to `.env`, Compose files, `models.json`, or TypeScript branches. Mount a complete policy directory and set `PROXX_CLJS_POLICY_MANIFEST=/etc/proxx/policies/runtime/00-manifest.edn` when an environment needs policy overrides.
 
 ## Shared testing slot
 

@@ -332,6 +332,16 @@
     [:require/plans {:optional true} [:or :keyword KeywordVector]]
     [:exclude/plans {:optional true} KeywordVector]]])
 
+(def FederationRoutingClauseContract
+  [:and
+   ContractBase
+   [:map
+    [:contract/kind [:enum :federation-routing-clause]]
+    [:match/request-kind {:optional true} :keyword]
+    [:admit/share-modes {:optional true} [:map-of :keyword KeywordVector]]
+    [:admit/availability-states {:optional true} KeywordVector]
+    [:selection/order {:optional true} [:vector :keyword]]]])
+
 (def AuthorizationClauseContract
   [:and
    ContractBase
@@ -428,10 +438,21 @@
                    (:match/family m)
                    (:match/request-kind m))))]
    [:fn {:error/message ":queue/total-timeout-ms must exceed :queue/attempt-timeout-ms"}
-    (fn [m]
-      (if (and (:queue/total-timeout-ms m) (:queue/attempt-timeout-ms m))
-        (> (:queue/total-timeout-ms m) (:queue/attempt-timeout-ms m))
-        true))]])
+     (fn [m]
+       (if (and (:queue/total-timeout-ms m) (:queue/attempt-timeout-ms m))
+         (> (:queue/total-timeout-ms m) (:queue/attempt-timeout-ms m))
+         true))]])
+
+(def RateLimitClassificationContract
+  [:and
+   ContractBase
+   [:map
+    [:contract/kind [:enum :rate-limit-classification]]
+    [:match/provider-id ProviderId]
+    [:classify/status {:optional true} [:int {:min 100 :max 599}]]
+    [:classify/retry-after-ms {:optional true}
+     [:map [:max [:int {:min 0}]]]]
+     [:classify/result [:enum :rate-limit/volume :rate-limit/concurrency]]]])
 
 (def PolicyProgramContract
   [:and
@@ -465,15 +486,17 @@
    [:request-surface-default RequestSurfaceDefaultContract]
    [:routing-clause RoutingClauseContract]
    [:selection-rule SelectionRuleContract]
-   [:account-ordering AccountOrderingContract]
-   [:account-constraint AccountConstraintContract]
-   [:authorization-clause AuthorizationClauseContract]
+    [:account-ordering AccountOrderingContract]
+    [:account-constraint AccountConstraintContract]
+    [:federation-routing-clause FederationRoutingClauseContract]
+    [:authorization-clause AuthorizationClauseContract]
     [:model-pricing-override ModelPricingOverrideContract]
     [:model-alias ModelAliasContract]
     [:reasoning-normalization ReasoningNormalizationContract]
    [:request-queue-template RequestQueueTemplateContract]
-   [:request-queue-instance RequestQueueInstanceContract]
-   [:policy-program PolicyProgramContract]
+    [:request-queue-instance RequestQueueInstanceContract]
+    [:rate-limit-classification RateLimitClassificationContract]
+    [:policy-program PolicyProgramContract]
    [:strategy-binding StrategyBindingContract]
    [:policy Policy]
    [:strategy Policy]])
@@ -512,8 +535,9 @@
    :proxx/contract-request-surface-default RequestSurfaceDefaultContract
    :proxx/contract-routing-clause RoutingClauseContract
    :proxx/contract-selection-rule SelectionRuleContract
-   :proxx/contract-account-ordering AccountOrderingContract
-   :proxx/contract-account-constraint AccountConstraintContract
+    :proxx/contract-account-ordering AccountOrderingContract
+    :proxx/contract-account-constraint AccountConstraintContract
+    :proxx/contract-federation-routing-clause FederationRoutingClauseContract
    :proxx/contract-authorization-clause AuthorizationClauseContract
     :proxx/contract-model-pricing-override ModelPricingOverrideContract
     :proxx/contract-model-alias ModelAliasContract

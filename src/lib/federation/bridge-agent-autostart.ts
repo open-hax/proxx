@@ -252,14 +252,19 @@ async function buildCapabilities(
   const topologyTargets = groupId && nodeId ? [{ groupId, nodeId }] : [];
   const resolvedModelCatalog = getResolvedModelCatalog ? await getResolvedModelCatalog().catch(() => ({ modelIds: [] })) : { modelIds: [] };
 
-  return providers.map((provider) => {
+  return providers.flatMap((provider) => {
     const providerStatus = statuses[provider.id];
+    const availableAccountCount = providerStatus?.availableAccounts ?? provider.accountCount;
+    if (availableAccountCount <= 0) {
+      return [];
+    }
+
     const modelPrefixes = capabilityPrefixesForProvider(provider.id, config);
     const paths = capabilityPathsForProvider(config);
     const models = modelPrefixes.length > 0
       ? resolvedModelCatalog.modelIds.filter((modelId) => modelPrefixes.some((prefix) => modelId.startsWith(prefix.replace(/[:/]$/u, ""))))
       : [];
-    return {
+    return [{
       providerId: provider.id,
       modelPrefixes,
       models,
@@ -267,17 +272,17 @@ async function buildCapabilities(
       routes: paths,
       authType: provider.authType,
       accountCount: provider.accountCount,
-      availableAccountCount: providerStatus?.availableAccounts ?? provider.accountCount,
+      availableAccountCount,
       supportsModelsList: true,
       supportsChatCompletions: true,
       supportsResponses: true,
       supportsStreaming: true,
-      supportsWarmImport: false,
+      supportsWarmImport: provider.authType === "oauth_bearer",
       credentialMobility: provider.authType === "oauth_bearer" ? "access_token_only" : "importable",
       credentialOrigin: provider.authType === "oauth_bearer" ? "localhost_oauth" : "local_api_key",
-      lastHealthyAt: provider.accountCount > 0 ? new Date().toISOString() : undefined,
+      lastHealthyAt: new Date().toISOString(),
       topologyTargets,
-    };
+    }];
   });
 }
 
@@ -290,11 +295,16 @@ async function buildHealth(keyPool: KeyPool, credentialStore: CredentialStoreLik
   const groupId = process.env.FEDERATION_SELF_GROUP_ID?.trim();
   const nodeId = process.env.FEDERATION_SELF_NODE_ID?.trim();
   const availableAccountCount = Object.values(statuses).reduce((sum, status) => sum + status.availableAccounts, 0);
-  const localOauthBootstrapReady = providers.some((provider) => provider.authType === "oauth_bearer" && provider.accountCount > 0);
+  const localOauthBootstrapReady = providers.some((provider) => {
+    if (provider.authType !== "oauth_bearer") {
+      return false;
+    }
+    return (statuses[provider.id]?.availableAccounts ?? 0) > 0;
+  });
 
   return {
     processHealthy: true,
-    upstreamHealthy: availableAccountCount > 0 || providers.length > 0,
+    upstreamHealthy: availableAccountCount > 0,
     availableAccountCount,
     localOauthBootstrapReady,
     queuedRequests: 0,

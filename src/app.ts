@@ -29,7 +29,6 @@ import {
   createDynamicProviderBaseUrlGetter,
   getDeclaredProviderRoutes,
 } from "./lib/provider-routing.js";
-import { discoverDynamicOllamaRoutes, prependDynamicOllamaRoutes } from "./lib/dynamic-ollama-routes.js";
 import {
   isOpenAiHttpError,
   sendOpenAiError,
@@ -68,12 +67,12 @@ import { createEnvFederationBridgeAgent } from "./lib/federation/bridge-agent-au
 import type { FederationBridgeRelay } from "./lib/federation/bridge-relay.js";
 import { type AppDeps } from "./lib/app-deps.js";
 import {
-  executeFederatedRequestFallback,
-} from "./lib/federation/federated-fallback.js";
+  executeFederatedRequestRouting,
+} from "./lib/federation/federated-routing.js";
 import {
   handleBridgeRequest,
   injectNativeBridge,
-} from "./lib/federation/bridge-fallback.js";
+} from "./lib/federation/bridge-routing.js";
 import { registerChatRoutes } from "./routes/chat.js";
 import { registerResponsesRoutes } from "./routes/responses.js";
 import { registerImagesRoutes } from "./routes/images.js";
@@ -394,21 +393,9 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
   );
   quotaMonitor.start();
 
-  const bootstrapOwnerSubject = process.env.FEDERATION_DEFAULT_OWNER_SUBJECT?.trim() || undefined;
-  const federatedDynamicOllamaRoutes = await discoverDynamicOllamaRoutes(
-    sqlCredentialStore,
-    sqlFederationStore,
-    bootstrapOwnerSubject,
-  );
-  const ollamaCatalogRoutes = prependDynamicOllamaRoutes(
-    buildOllamaCatalogRoutes(config),
-    federatedDynamicOllamaRoutes,
-  );
-  const providerCatalogRoutes = prependDynamicOllamaRoutes(
-    getDeclaredProviderRoutes(config).filter(
-      (route) => route.providerId !== "factory" || !config.disabledProviderIds.includes("factory"),
-    ),
-    federatedDynamicOllamaRoutes,
+  const ollamaCatalogRoutes = buildOllamaCatalogRoutes(config);
+  const providerCatalogRoutes = getDeclaredProviderRoutes(config).filter(
+    (route) => route.providerId !== "factory" || !config.disabledProviderIds.includes("factory"),
   );
   const providerCatalogStore = new ProviderCatalogStore(
     config,
@@ -474,7 +461,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     const bridgedModels = await getBridgeAdvertisedModelIds();
     return [...new Set([...localCatalog.modelIds, ...bridgedModels])];
   }
-  const fedDeps = { app, sqlFederationStore, runtimeCredentialStore, keyPool, sqlTenantProviderPolicyStore };
+  const fedDeps = { app, cljsPolicyManifestPath: config.cljsPolicyManifestPath, sqlFederationStore, runtimeCredentialStore, keyPool, sqlTenantProviderPolicyStore };
   const getBridgeDeps = () => ({ bridgeRelay, app, config, runtimeCredentialStore, keyPool, sqlTenantProviderPolicyStore });
 
   const bridgeAgent = createEnvFederationBridgeAgent({
@@ -672,7 +659,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     refreshFactoryAccount,
     ensureFreshAccounts,
     getMergedModelIds,
-    executeFederatedRequestFallback: async (input) => executeFederatedRequestFallback(fedDeps, input),
+    executeFederatedRequestRouting: async (input) => executeFederatedRequestRouting(fedDeps, input),
     injectNativeBridge: async (url, payload, headers) => injectNativeBridge(getBridgeDeps(), url, payload, headers),
   };
 
@@ -771,10 +758,6 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     }
   });
 
-  if (bridgeAgent) {
-    await bridgeAgent.start();
-  }
-
   app.addHook("onClose", async () => {
     if (bridgeAgent) {
       await bridgeAgent.stop();
@@ -834,6 +817,10 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
 
     reply.code(404).send({ ok: false, error: "Not Found" });
   });
+
+  if (bridgeAgent) {
+    await bridgeAgent.start();
+  }
 
   return app;
 }
