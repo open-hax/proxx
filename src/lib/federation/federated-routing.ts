@@ -390,9 +390,7 @@ export async function executeFederatedRequestRouting(
     headers.set(FEDERATION_HOP_HEADER, String(hopCount + 1));
     headers.set(FEDERATION_OWNER_SUBJECT_HEADER, ownerSubject);
     headers.set(FEDERATION_FORCED_PROVIDER_HEADER, candidate.projectedAccount.providerId);
-    if (candidate.projectedAccount.availabilityState !== "remote_route") {
-      headers.set(FEDERATION_FORCED_ACCOUNT_ID_HEADER, candidate.projectedAccount.accountId);
-    }
+    headers.set(FEDERATION_FORCED_ACCOUNT_ID_HEADER, candidate.projectedAccount.accountId);
 
     let remoteResponse: Response;
     try {

@@ -29,7 +29,6 @@ import {
   createDynamicProviderBaseUrlGetter,
   getDeclaredProviderRoutes,
 } from "./lib/provider-routing.js";
-import { discoverDynamicOllamaRoutes, prependDynamicOllamaRoutes } from "./lib/dynamic-ollama-routes.js";
 import {
   isOpenAiHttpError,
   sendOpenAiError,
@@ -394,21 +393,9 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
   );
   quotaMonitor.start();
 
-  const bootstrapOwnerSubject = process.env.FEDERATION_DEFAULT_OWNER_SUBJECT?.trim() || undefined;
-  const federatedDynamicOllamaRoutes = await discoverDynamicOllamaRoutes(
-    sqlCredentialStore,
-    sqlFederationStore,
-    bootstrapOwnerSubject,
-  );
-  const ollamaCatalogRoutes = prependDynamicOllamaRoutes(
-    buildOllamaCatalogRoutes(config),
-    federatedDynamicOllamaRoutes,
-  );
-  const providerCatalogRoutes = prependDynamicOllamaRoutes(
-    getDeclaredProviderRoutes(config).filter(
-      (route) => route.providerId !== "factory" || !config.disabledProviderIds.includes("factory"),
-    ),
-    federatedDynamicOllamaRoutes,
+  const ollamaCatalogRoutes = buildOllamaCatalogRoutes(config);
+  const providerCatalogRoutes = getDeclaredProviderRoutes(config).filter(
+    (route) => route.providerId !== "factory" || !config.disabledProviderIds.includes("factory"),
   );
   const providerCatalogStore = new ProviderCatalogStore(
     config,
@@ -771,10 +758,6 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     }
   });
 
-  if (bridgeAgent) {
-    await bridgeAgent.start();
-  }
-
   app.addHook("onClose", async () => {
     if (bridgeAgent) {
       await bridgeAgent.stop();
@@ -834,6 +817,10 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
 
     reply.code(404).send({ ok: false, error: "Not Found" });
   });
+
+  if (bridgeAgent) {
+    await bridgeAgent.start();
+  }
 
   return app;
 }

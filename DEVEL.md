@@ -111,6 +111,7 @@ Notes:
 - `OLLAMA_CHAT_PATH` (default: `/api/chat`)
 - `OLLAMA_MODEL_PREFIXES` (default: `ollama/,ollama:,ollama-lan/,ollama-lan:`; comma-separated prefixes)
 - `PROXY_KEYS_FILE` (optional seed file path; DB-backed runtimes do not need it)
+- `DATABASE_URL` (optional SQL DSN for DB-backed credentials and multi-tenant data; format: `postgres://user:pass@host:port/dbname`)
 - `PROXY_MODELS_FILE` (default: `./models.json`, fallback: `VIVGRID_MODELS_FILE`)
 - `PROXY_REQUEST_LOGS_FILE` (default: `./data/request-logs.jsonl`)
 - `PROXY_KEY_RELOAD_MS` (default: `5000`, fallback: `VIVGRID_KEY_RELOAD_MS`)
@@ -442,9 +443,33 @@ curl -s -H "Authorization: Bearer ${PROD_PROXX_AUTH_TOKEN}" \
 
 
 ```bash
-
 curl -s -H "Authorization: Bearer ${PROXX_API_KEY}" \
   -H "Content-Type: application/json" \
-  -d '{"model":"ollama-lan/gemma4:e4b","messages":[{"role":"user","content":"Say hello in one sentence."}],"max_tokens":100,"stream":false}' \
+  -d '{"model":"ollama-lan/gemma4:e4b","messages":[{"role":"user","content":"Say hello in one sentence."}],"max_tokens":100}' \
   "http://localhost:8789/v1/chat/completions" 2>&1
+```
+
+### ollama cloude from local proxx
+```bash
+curl -s -H "Authorization: Bearer ${PROXX_API_KEY}" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"gemma4:31b","messages":[{"role":"user","content":"Say hello in one sentence."}],"max_tokens":100}' \
+  "http://localhost:8789/v1/chat/completions" 2>&1
+```
+
+## Prod
+
+```bash
+
+curl -s -H "Authorization: Bearer ${PROXX_PROD_AUTH_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"gemma4:31b","messages":[{"role":"user","content":"Say hello in one sentence."}],"max_tokens":100}' \
+  "https://proxx.promethean.rest/v1/chat/completions" 2>&1
+```
+
+```bash
+curl -s -H "Authorization: Bearer ${PROXX_PROD_AUTH_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"gpt-5.5","messages":[{"role":"user","content":"Say hello in one sentence."}],"max_tokens":100,"stream":false}' \
+  "https://proxx.promethean.rest/v1/chat/completions" 2>&1
 ```

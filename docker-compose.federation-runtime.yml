@@ -4,13 +4,18 @@ x-proxx-node: &proxx-node
   build:
     context: .
     dockerfile: Dockerfile
+  user: "${PROXX_CONTAINER_UID:-1000}:${PROXX_CONTAINER_GID:-1000}"
   environment: &proxx-node-env
     NODE_ENV: production
     PROXY_HOST: 0.0.0.0
     PROXY_PORT: "8789"
     PORT: "8789"
     PROXX_CLJS_POLICY_AUTHORITATIVE: "true"
-    PROXY_AUTH_TOKEN: "${PROXY_AUTH_TOKEN:-change-me-open-hax-proxy-token}"
+    HOME: "${PROXX_CONTAINER_HOME:-/home/node}"
+    PM2_HOME: "${PM2_HOME:-/home/node/.pm2}"
+    COREPACK_HOME: "${COREPACK_HOME:-/home/node/.cache/node/corepack}"
+    XDG_CACHE_HOME: "${XDG_CACHE_HOME:-/home/node/.cache}"
+    PROXY_AUTH_TOKEN: "${PROXY_AUTH_TOKEN:?PROXY_AUTH_TOKEN must be set}"
     PROXY_MODELS_FILE: /workspace/service-config/models.json
     PROXY_REQUEST_LOGS_FILE: /app/data/request-logs.jsonl
     PROXY_REQUEST_LOGS_MAX_ENTRIES: "${PROXY_REQUEST_LOGS_MAX_ENTRIES:-100000}"
@@ -58,6 +63,7 @@ x-proxx-node: &proxx-node
     CHROMA_COLLECTION: "${CHROMA_COLLECTION:-open_hax_proxy_sessions}"
     CHROMA_EMBED_MODEL: "${CHROMA_EMBED_MODEL:-nomic-embed-text:latest}"
     FEDERATION_REQUEST_TIMEOUT_MS: "${FEDERATION_REQUEST_TIMEOUT_MS:-5000}"
+    VITE_ALLOWED_HOSTS: "${VITE_ALLOWED_HOSTS:-}"
     FEDERATION_SELF_CLUSTER_ID: "${FEDERATION_SELF_CLUSTER_ID:-proxx-federation}"
     FEDERATION_DEFAULT_OWNER_SUBJECT: "${FEDERATION_DEFAULT_OWNER_SUBJECT:-}"
   restart: unless-stopped
@@ -82,7 +88,7 @@ services:
     environment:
       POSTGRES_DB: openai_proxy
       POSTGRES_USER: openai_proxy
-      POSTGRES_PASSWORD: openai_proxy
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}"
     volumes:
       - open-hax-openai-proxy-db-data:/var/lib/postgresql/data
     healthcheck:
@@ -100,7 +106,7 @@ services:
     environment:
       POSTGRES_DB: openai_proxy
       POSTGRES_USER: openai_proxy
-      POSTGRES_PASSWORD: openai_proxy
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}"
     volumes:
       - open-hax-openai-proxy-db-b-data:/var/lib/postgresql/data
     healthcheck:
@@ -120,14 +126,14 @@ services:
         condition: service_healthy
     environment:
       <<: *proxx-node-env
-      DATABASE_URL: postgresql://openai_proxy:openai_proxy@open-hax-openai-proxy-db:5432/openai_proxy
+      DATABASE_URL: postgresql://openai_proxy:${POSTGRES_PASSWORD}@open-hax-openai-proxy-db:5432/openai_proxy
       FEDERATION_SELF_NODE_ID: a1
       FEDERATION_SELF_GROUP_ID: group-a
       FEDERATION_SELF_PEER_DID: did:web:a1.${FEDERATION_PUBLIC_HOST_SUFFIX:-invalid.local}
-      FEDERATION_SELF_PUBLIC_BASE_URL: https://a1.${FEDERATION_PUBLIC_HOST_SUFFIX:-invalid.local}
+      FEDERATION_SELF_PUBLIC_BASE_URL: "${FEDERATION_SCHEME:-https}://a1.${FEDERATION_PUBLIC_HOST_SUFFIX:-invalid.local}"
     volumes:
       - ./models.json:/workspace/service-config/models.json:ro
-      - ./data/federation/a1:/app/data
+      - ${PROXX_RUNTIME_DATA_DIR:-./data}/federation/a1:/app/data
 
   federation-proxx-a2:
     <<: *proxx-node
@@ -136,14 +142,14 @@ services:
         condition: service_healthy
     environment:
       <<: *proxx-node-env
-      DATABASE_URL: postgresql://openai_proxy:openai_proxy@open-hax-openai-proxy-db:5432/openai_proxy
+      DATABASE_URL: postgresql://openai_proxy:${POSTGRES_PASSWORD}@open-hax-openai-proxy-db:5432/openai_proxy
       FEDERATION_SELF_NODE_ID: a2
       FEDERATION_SELF_GROUP_ID: group-a
       FEDERATION_SELF_PEER_DID: did:web:a2.${FEDERATION_PUBLIC_HOST_SUFFIX:-invalid.local}
-      FEDERATION_SELF_PUBLIC_BASE_URL: https://a2.${FEDERATION_PUBLIC_HOST_SUFFIX:-invalid.local}
+      FEDERATION_SELF_PUBLIC_BASE_URL: "${FEDERATION_SCHEME:-https}://a2.${FEDERATION_PUBLIC_HOST_SUFFIX:-invalid.local}"
     volumes:
       - ./models.json:/workspace/service-config/models.json:ro
-      - ./data/federation/a2:/app/data
+      - ${PROXX_RUNTIME_DATA_DIR:-./data}/federation/a2:/app/data
 
   federation-proxx-b1:
     <<: *proxx-node
@@ -152,14 +158,14 @@ services:
         condition: service_healthy
     environment:
       <<: *proxx-node-env
-      DATABASE_URL: postgresql://openai_proxy:openai_proxy@open-hax-openai-proxy-db-b:5432/openai_proxy
+      DATABASE_URL: postgresql://openai_proxy:${POSTGRES_PASSWORD}@open-hax-openai-proxy-db-b:5432/openai_proxy
       FEDERATION_SELF_NODE_ID: b1
       FEDERATION_SELF_GROUP_ID: group-b
       FEDERATION_SELF_PEER_DID: did:web:b1.${FEDERATION_PUBLIC_HOST_SUFFIX:-invalid.local}
-      FEDERATION_SELF_PUBLIC_BASE_URL: https://b1.${FEDERATION_PUBLIC_HOST_SUFFIX:-invalid.local}
+      FEDERATION_SELF_PUBLIC_BASE_URL: "${FEDERATION_SCHEME:-https}://b1.${FEDERATION_PUBLIC_HOST_SUFFIX:-invalid.local}"
     volumes:
       - ./models.json:/workspace/service-config/models.json:ro
-      - ./data/federation/b1:/app/data
+      - ${PROXX_RUNTIME_DATA_DIR:-./data}/federation/b1:/app/data
 
   federation-proxx-b2:
     <<: *proxx-node
@@ -168,14 +174,14 @@ services:
         condition: service_healthy
     environment:
       <<: *proxx-node-env
-      DATABASE_URL: postgresql://openai_proxy:openai_proxy@open-hax-openai-proxy-db-b:5432/openai_proxy
+      DATABASE_URL: postgresql://openai_proxy:${POSTGRES_PASSWORD}@open-hax-openai-proxy-db-b:5432/openai_proxy
       FEDERATION_SELF_NODE_ID: b2
       FEDERATION_SELF_GROUP_ID: group-b
       FEDERATION_SELF_PEER_DID: did:web:b2.${FEDERATION_PUBLIC_HOST_SUFFIX:-invalid.local}
-      FEDERATION_SELF_PUBLIC_BASE_URL: https://b2.${FEDERATION_PUBLIC_HOST_SUFFIX:-invalid.local}
+      FEDERATION_SELF_PUBLIC_BASE_URL: "${FEDERATION_SCHEME:-https}://b2.${FEDERATION_PUBLIC_HOST_SUFFIX:-invalid.local}"
     volumes:
       - ./models.json:/workspace/service-config/models.json:ro
-      - ./data/federation/b2:/app/data
+      - ${PROXX_RUNTIME_DATA_DIR:-./data}/federation/b2:/app/data
 
   federation-nginx:
     image: nginx:1.27-alpine

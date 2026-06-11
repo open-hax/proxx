@@ -2,6 +2,8 @@ import assert from "node:assert";
 import { describe, test } from "node:test";
 import {
   GeminiChatProviderStrategy,
+  classifyGeminiSdkError,
+  geminiPayloadToSdkRequest,
   geminiResponseToChatCompletion,
   openAiMessagesToGeminiContents,
   extractSystemInstructions,
@@ -77,6 +79,74 @@ describe("Gemini strategy request transformation", () => {
     assert.equal(contents.length, 1);
     assert.equal(contents[0]?.parts[0]?.text, "Valid");
   });
+
+  test("round-trips assistant tool_calls into Gemini functionCall parts", () => {
+    const messages = [
+      { role: "user", content: "List the files" },
+      {
+        role: "assistant",
+        content: null,
+        tool_calls: [
+          {
+            id: "call_0",
+            type: "function",
+            function: { name: "run_bash", arguments: '{"command":"ls -F"}' },
+          },
+        ],
+      },
+    ];
+
+    const contents = openAiMessagesToGeminiContents(messages);
+    assert.equal(contents.length, 2);
+    // The content:null assistant message must NOT be dropped — it carries the tool call.
+    assert.equal(contents[1]?.role, "model");
+    const fnCall = contents[1]?.parts[0]?.functionCall;
+    assert.ok(fnCall, "expected a functionCall part");
+    assert.equal(fnCall?.name, "run_bash");
+    assert.deepEqual(fnCall?.args, { command: "ls -F" });
+  });
+
+  test("round-trips tool-result messages into Gemini functionResponse parts", () => {
+    const messages = [
+      { role: "user", content: "List the files" },
+      {
+        role: "assistant",
+        content: null,
+        tool_calls: [
+          { id: "call_0", type: "function", function: { name: "run_bash", arguments: "{}" } },
+        ],
+      },
+      // OpenAI tool result, name omitted — must be resolved from tool_call_id.
+      { role: "tool", tool_call_id: "call_0", content: "file_a\nfile_b" },
+    ];
+
+    const contents = openAiMessagesToGeminiContents(messages);
+    assert.equal(contents.length, 3);
+    // Function responses go back under role "user" (Gemini has no tool role).
+    assert.equal(contents[2]?.role, "user");
+    const fnResp = contents[2]?.parts[0]?.functionResponse;
+    assert.ok(fnResp, "expected a functionResponse part");
+    assert.equal(fnResp?.name, "run_bash");
+    assert.deepEqual(fnResp?.response, { result: "file_a\nfile_b" });
+  });
+
+  test("keeps assistant text alongside tool calls", () => {
+    const messages = [
+      {
+        role: "assistant",
+        content: "Let me check.",
+        tool_calls: [
+          { id: "c1", type: "function", function: { name: "f", arguments: '{"x":1}' } },
+        ],
+      },
+    ];
+
+    const contents = openAiMessagesToGeminiContents(messages);
+    assert.equal(contents.length, 1);
+    assert.equal(contents[0]?.role, "model");
+    assert.equal(contents[0]?.parts[0]?.text, "Let me check.");
+    assert.equal(contents[0]?.parts[1]?.functionCall?.name, "f");
+  });
 });
 
 describe("Gemini strategy tool request transformation", () => {
@@ -147,6 +217,43 @@ describe("Gemini strategy tool request transformation", () => {
     assert.ok(isRecord(upstreamPayload.toolConfig));
     const functionCallingConfig = (upstreamPayload.toolConfig as Record<string, unknown>).functionCallingConfig as Record<string, unknown>;
     assert.equal(functionCallingConfig.mode, "AUTO");
+  });
+
+  test("preserves Gemini tool declarations and toolConfig for SDK direct execution", () => {
+    const payload = {
+      contents: [{ role: "user", parts: [{ text: "Send it." }] }],
+      tools: [{ functionDeclarations: [{ name: "discord_send" }] }],
+      toolConfig: { functionCallingConfig: { mode: "AUTO" } },
+      generationConfig: { maxOutputTokens: 128 },
+      systemInstruction: { parts: [{ text: "Use tools when asked." }] },
+    };
+
+    const sdkRequest = geminiPayloadToSdkRequest("gemma-4-31b-it", payload);
+
+    assert.deepEqual(sdkRequest.contents, payload.contents);
+    assert.ok(isRecord(sdkRequest.config));
+    assert.deepEqual(sdkRequest.config.tools, payload.tools);
+    assert.deepEqual(sdkRequest.config.toolConfig, payload.toolConfig);
+    assert.equal(sdkRequest.config.maxOutputTokens, 128);
+    assert.equal(sdkRequest.config.systemInstruction, "Use tools when asked.");
+  });
+
+  test("preserves functionCall/functionResponse parts for SDK direct execution", () => {
+    const payload = {
+      contents: [
+        { role: "user", parts: [{ text: "List files" }] },
+        { role: "model", parts: [{ functionCall: { name: "run_bash", args: { command: "ls" } } }] },
+        { role: "user", parts: [{ functionResponse: { name: "run_bash", response: { result: "a\nb" } } }] },
+      ],
+    };
+
+    const sdkRequest = geminiPayloadToSdkRequest("gemma-4-31b-it", payload);
+
+    // The part shapes must survive — not be flattened to { text: undefined }.
+    assert.equal(sdkRequest.contents.length, 3);
+    assert.equal(sdkRequest.contents[1]?.parts[0]?.functionCall?.name, "run_bash");
+    assert.deepEqual(sdkRequest.contents[1]?.parts[0]?.functionCall?.args, { command: "ls" });
+    assert.equal(sdkRequest.contents[2]?.parts[0]?.functionResponse?.name, "run_bash");
   });
 
   test("transforms OpenAI tool_choice: none to Gemini NONE mode", () => {
@@ -688,5 +795,23 @@ describe("Gemini strategy end-to-end", () => {
     assert.equal(usage!.prompt_tokens, 10);
     assert.equal(usage!.completion_tokens, 5);
     assert.equal(usage!.total_tokens, 15);
+  });
+
+  test("classifyGeminiSdkError treats UNAVAILABLE/503 as rate limit", () => {
+    const unavailable = classifyGeminiSdkError("ApiError: got status: UNAVAILABLE. {\"error\":{\"code\":503}}");
+    assert.equal(unavailable.kind, "continue");
+    assert.equal((unavailable as Extract<typeof unavailable, { kind: "continue" }>).rateLimit, true);
+
+    const rateLimit = classifyGeminiSdkError("RATE_LIMIT_EXCEEDED");
+    assert.equal(rateLimit.kind, "continue");
+    assert.equal((rateLimit as Extract<typeof rateLimit, { kind: "continue" }>).rateLimit, true);
+
+    const modelNotFound = classifyGeminiSdkError("MODEL_NOT_FOUND");
+    assert.equal(modelNotFound.kind, "continue");
+    assert.equal((modelNotFound as Extract<typeof modelNotFound, { kind: "continue" }>).modelNotFound, true);
+
+    const generic = classifyGeminiSdkError("Some random error");
+    assert.equal(generic.kind, "continue");
+    assert.equal((generic as Extract<typeof generic, { kind: "continue" }>).requestError, true);
   });
 });

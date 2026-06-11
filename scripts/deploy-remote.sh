@@ -134,6 +134,12 @@ sync_repo_tree() {
   ssh "${SSH_OPTS[@]}" "$REMOTE" bash -s -- "$DEPLOY_PATH" "$DEPLOY_PATH/data" "$DEPLOY_PATH/db-backups" "$DEPLOY_PATH/deploy" <<'EOF'
 set -euo pipefail
 mkdir -p "$1" "$2" "$3" "$4"
+mkdir -p "$2/federation/a1" "$2/federation/a2" "$2/federation/b1" "$2/federation/b2"
+mkdir -p "$1/runtime-data/federation/a1" "$1/runtime-data/federation/a2" "$1/runtime-data/federation/b1" "$1/runtime-data/federation/b2"
+mkdir -p "$1/runtime-data-v2/federation/a1" "$1/runtime-data-v2/federation/a2" "$1/runtime-data-v2/federation/b1" "$1/runtime-data-v2/federation/b2"
+mkdir -p "$1/runtime-data-v3/federation/a1" "$1/runtime-data-v3/federation/a2" "$1/runtime-data-v3/federation/b1" "$1/runtime-data-v3/federation/b2"
+chmod -R g+rwX "$2" "$1/runtime-data" "$1/runtime-data-v2" 2>/dev/null || true
+chmod -R a+rwX "$1/runtime-data-v3" 2>/dev/null || true
 EOF
 
   rsync -az --delete \
@@ -144,6 +150,9 @@ EOF
     --exclude '/.env' \
     --exclude '/models.json' \
     --exclude '/data/' \
+    --exclude '/runtime-data/' \
+    --exclude '/runtime-data-v2/' \
+    --exclude '/runtime-data-v3/' \
     --exclude '/db-backups/' \
     "$ROOT_DIR/" "$REMOTE:$DEPLOY_PATH/"
 
@@ -157,6 +166,38 @@ EOF
   if [[ "$DEPLOY_ENABLE_TLS" == "true" ]]; then
     rsync -az "$ROOT_DIR/deploy/docker-compose.ssl.yml" "$REMOTE:$DEPLOY_PATH/deploy/docker-compose.ssl.yml"
     rsync -az "$TMP_DIR/Caddyfile" "$REMOTE:$DEPLOY_PATH/Caddyfile"
+  fi
+}
+
+validate_required_env_vars() {
+  local env_file="$1"
+  local missing=()
+  local required_vars=("PROXY_AUTH_TOKEN" "POSTGRES_PASSWORD")
+
+  if [[ ! -f "$env_file" ]]; then
+    printf 'Aborting deploy: no .env file found at %s\n' "$env_file" >&2
+    return 1
+  fi
+
+  for var in "${required_vars[@]}"; do
+    if ! grep -q "^${var}=" "$env_file"; then
+      missing+=("$var")
+    else
+      local value
+      value=$(grep "^${var}=" "$env_file" | cut -d'=' -f2-)
+      value=$(echo "$value" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+      if [[ -z "${value:-}" ]]; then
+        missing+=("$var (empty value)")
+      fi
+    fi
+  done
+
+  if [[ ${#missing[@]} -gt 0 ]]; then
+    printf 'Aborting deploy: missing required environment variables in .env:\n' >&2
+    for var in "${missing[@]}"; do
+      printf '  - %s\n' "$var" >&2
+    done
+    return 1
   fi
 }
 
@@ -418,7 +459,23 @@ EOF
 }
 
 build_runtime_payloads
+if [[ -f "$TMP_DIR/.env" ]]; then
+  validate_required_env_vars "$TMP_DIR/.env"
+else
+  remote_env="$TMP_DIR/remote.env"
+  if fetch_remote_file_if_exists "$REMOTE" "$DEPLOY_PATH/.env" "$remote_env"; then
+    validate_required_env_vars "$remote_env"
+  fi
+fi
 sync_repo_tree
+if [[ -f "$TMP_DIR/.env" ]]; then
+  validate_required_env_vars "$TMP_DIR/.env"
+else
+  remote_env="$TMP_DIR/remote.env"
+  if fetch_remote_file_if_exists "$REMOTE" "$DEPLOY_PATH/.env" "$remote_env"; then
+    validate_required_env_vars "$remote_env"
+  fi
+fi
 remote_compose_up
 if [[ "$DEPLOY_SYNC_DB_FROM_SOURCE" == "true" ]]; then
   sync_operational_db_from_source

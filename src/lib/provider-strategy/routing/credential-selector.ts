@@ -48,38 +48,6 @@ export function reorderCandidatesForAffinity<T extends { readonly providerId: st
   return reorderCandidatesForAffinities(candidates, preferred ? [preferred] : []);
 }
 
-export function gptModelRequiresPaidPlan(routedModel: string): boolean {
-  const match = routedModel.match(/^gpt-(\d+)(?:[.-]([a-z0-9]+))?/i);
-  if (!match) {
-    return false;
-  }
-
-  const major = Number.parseInt(match[1] ?? "", 10);
-  if (!Number.isFinite(major)) {
-    return false;
-  }
-
-  if (major > 5) {
-    return true;
-  }
-
-  if (major !== 5) {
-    return false;
-  }
-
-  const qualifier = match[2];
-  if (!qualifier) {
-    return false;
-  }
-
-  if (/^\d+$/.test(qualifier)) {
-    const minor = Number.parseInt(qualifier, 10);
-    return Number.isFinite(minor) && minor >= 3;
-  }
-
-  return true;
-}
-
 function planCostTier(planType: string | undefined): number {
   const normalized = (planType ?? "").trim().toLowerCase();
   switch (normalized) {
@@ -110,39 +78,6 @@ export function providerAccountsForRequest(
   const isGptModel = routedModel.startsWith("gpt-");
   if (!isGptModel) {
     return [...accounts];
-  }
-
-  if (gptModelRequiresPaidPlan(routedModel)) {
-    const stronglySupportedPlans = new Set(["plus", "pro", "business", "enterprise"]);
-
-    const stronglySupportedAccounts = accounts.filter(
-      (account) => stronglySupportedPlans.has(account.planType ?? ""),
-    );
-
-    const teamAccounts = accounts.filter((account) => account.planType === "team");
-
-    const otherPaidAccounts = accounts.filter((account) => {
-      const planType = account.planType ?? "unknown";
-      if (planType === "free") {
-        return false;
-      }
-      if (planType === "team") {
-        return false;
-      }
-      if (stronglySupportedPlans.has(planType)) {
-        return false;
-      }
-      return true;
-    });
-
-    const freeAccounts = accounts.filter((account) => account.planType === "free");
-
-    return [
-      ...stronglySupportedAccounts,
-      ...teamAccounts,
-      ...otherPaidAccounts,
-      ...freeAccounts,
-    ];
   }
 
   const freeAccounts = accounts.filter((account) => account.planType === "free");

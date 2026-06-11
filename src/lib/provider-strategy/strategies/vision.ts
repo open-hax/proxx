@@ -37,7 +37,6 @@ export function buildVisionModelCandidates(input: {
   readonly requestBody: unknown;
   readonly catalog: ResolvedModelCatalog | null;
   readonly availableModels?: readonly string[];
-  readonly excludeDynamicOllama?: boolean;
   readonly providerId: string;
   readonly requestLogStore?: RequestLogStore;
   readonly accountHealthStore?: AccountHealthStore;
@@ -46,15 +45,8 @@ export function buildVisionModelCandidates(input: {
     return [input.routingModelInput];
   }
 
-  const dynamicOllamaModelIds = input.excludeDynamicOllama !== false && input.catalog?.dynamicOllamaModelIds
-    ? input.catalog.dynamicOllamaModelIds
-    : undefined;
-
   const availableSet = new Set(
-    [
-      ...(input.availableModels ?? input.catalog?.modelIds ?? []),
-      ...(dynamicOllamaModelIds ?? []),
-    ].map(normalizeModel),
+    (input.availableModels ?? input.catalog?.modelIds ?? []).map(normalizeModel),
   );
 
   const preferredAvailable = VISION_MODEL_CHAIN.filter((modelId) => availableSet.has(normalizeModel(modelId)));
