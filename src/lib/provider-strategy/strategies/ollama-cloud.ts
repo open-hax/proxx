@@ -75,6 +75,28 @@ export class OllamaCloudProviderStrategy extends BaseProviderStrategy {
       }
       rawResponse.flushHeaders();
 
+      // Extend queue timeout now that streaming has started successfully
+      const signal = context.queueSignal;
+      const extendedSignal = signal as AbortSignal & { extendTimeout?: () => void } | undefined;
+      if (extendedSignal && typeof extendedSignal.extendTimeout === "function") {
+        extendedSignal.extendTimeout();
+      }
+
+      // Emit SSE error if the queue aborts us mid-stream
+      if (signal) {
+        const onAbort = () => {
+          if (!rawResponse.writableEnded) {
+            rawResponse.write(
+              `data: ${JSON.stringify({
+                error: { message: "Provider stream aborted by request queue timeout" },
+              })}\n\n`
+            );
+            rawResponse.end();
+          }
+        };
+        signal.addEventListener("abort", onAbort, { once: true });
+      }
+
       try {
         await streamOllamaNdjsonToChatCompletionSse(upstreamResponse.body, context.routedModel, (data) => {
           rawResponse.write(data);
@@ -82,7 +104,8 @@ export class OllamaCloudProviderStrategy extends BaseProviderStrategy {
         });
       } catch (error) {
         if (!rawResponse.writableEnded) {
-          rawResponse.write(`data: ${JSON.stringify({ error: { message: toErrorMessage(error) } })}\n\n`);
+          rawResponse.write(`data: ${JSON.stringify({ error: { message: toErrorMessage(error) } })}
+\n`);
         }
       }
 
