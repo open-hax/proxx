@@ -15,6 +15,9 @@ RUN npm install -g pnpm && pnpm install --prod
 
 COPY --from=builder /app/dist ./dist
 
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+USER appuser
+
 ENV NODE_ENV=production
 ENV PROXY_HOST=0.0.0.0
 
