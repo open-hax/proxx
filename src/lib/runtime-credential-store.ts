@@ -8,11 +8,14 @@ export class RuntimeCredentialStore implements CredentialStoreLike {
   ) {}
 
   public async listProviders(revealSecrets: boolean): Promise<CredentialProviderView[]> {
+    const fileProviders = await this.fileStore.listProviders(revealSecrets);
     if (!this.sqlStore) {
-      return this.fileStore.listProviders(revealSecrets);
+      return fileProviders;
     }
 
-    return this.sqlStore.listProviders(revealSecrets);
+    const sqlProviders = await this.sqlStore.listProviders(revealSecrets);
+    const sqlProviderIds = new Set(sqlProviders.map((provider) => provider.id));
+    return [...sqlProviders, ...fileProviders.filter((provider) => !sqlProviderIds.has(provider.id))];
   }
 
   public async upsertApiKeyAccount(providerId: string, accountId: string, apiKey: string): Promise<void> {
