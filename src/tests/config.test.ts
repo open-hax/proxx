@@ -27,7 +27,7 @@ async function withEnv(values: Record<string, string | undefined>, fn: () => Pro
   }
 }
 
-test("loadConfig falls back to PORT when PROXY_PORT is unset", async () => {
+test("loadConfig falls back to PORT when PROXY_PORT is unset", { concurrency: false }, async () => {
   await withEnv(
     {
       PROXY_AUTH_TOKEN: "test-token",
