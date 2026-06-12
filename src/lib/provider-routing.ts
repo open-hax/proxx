@@ -471,7 +471,10 @@ export function buildOllamaCatalogRoutes(config: ProxyConfig): ProviderRoute[] {
     : null;
 
   const configuredRoutes = Object.entries(config.upstreamProviderBaseUrls)
-    .filter(([providerId]) => providerId.toLowerCase().includes("ollama"))
+    .filter(([providerId]) =>
+      providerId.toLowerCase().includes("ollama")
+      && !config.disabledProviderIds.includes(providerId)
+    )
     .map(([providerId, baseUrl]) => ({
       providerId,
       baseUrl: baseUrl.replace(/\/+$/, "")
