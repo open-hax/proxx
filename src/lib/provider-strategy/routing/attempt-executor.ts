@@ -941,7 +941,12 @@ export async function executeProviderRoutingPlan(
         }
 
         if (!upstreamResponse.ok && outcome.requestError === true && upstreamResponse.status === 401 && candidate.account.authType === "oauth_bearer" && candidate.account.refreshToken && refreshExpiredToken) {
-          const refreshedCredential = await refreshExpiredToken(candidate.account);
+          let refreshedCredential: ProviderCredential | null = null;
+          try {
+            refreshedCredential = await refreshExpiredToken(candidate.account);
+          } catch {
+            refreshedCredential = null;
+          }
           if (refreshedCredential) {
             const refreshedProviderContext: ProviderAttemptContext = { ...providerContext, account: refreshedCredential };
             const refreshedHeaders = buildUpstreamHeadersForCredential(context.clientHeaders, refreshedCredential, {
