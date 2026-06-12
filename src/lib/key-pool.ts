@@ -558,19 +558,19 @@ async function readProvidersFromSources(
     merged.set(providerId, state);
   }
   for (const [providerId, state] of fileProviders ?? []) {
-    if (preferAccountStoreProviders && merged.has(providerId)) {
+    if (accountStoreProviders?.has(providerId) || (preferAccountStoreProviders && merged.has(providerId))) {
       continue;
     }
     merged.set(providerId, mergeProviderStates(merged.get(providerId), state) ?? state);
   }
   for (const [providerId, state] of inlineJsonProviders) {
-    if (preferAccountStoreProviders && merged.has(providerId)) {
+    if (accountStoreProviders?.has(providerId) || (preferAccountStoreProviders && merged.has(providerId))) {
       continue;
     }
     merged.set(providerId, mergeProviderStates(merged.get(providerId), state) ?? state);
   }
   for (const [providerId, state] of envProviders) {
-    if (preferAccountStoreProviders && merged.has(providerId)) {
+    if (accountStoreProviders?.has(providerId) || (preferAccountStoreProviders && merged.has(providerId))) {
       continue;
     }
     merged.set(providerId, mergeProviderStates(merged.get(providerId), state) ?? state);
