@@ -67,8 +67,10 @@ export class MessagesProviderStrategy extends TransformedJsonProviderStrategy {
   }
 
   public override applyRequestHeaders(headers: Headers, context: ProviderAttemptContext, payload: Record<string, unknown>): void {
-    if (!headers.has("anthropic-version")) {
-      headers.set("anthropic-version", "2023-06-01");
+    if (context.providerId === "anthropic") {
+      if (!headers.has("anthropic-version")) {
+        headers.set("anthropic-version", "2023-06-01");
+      }
     }
     if (context.config.messagesInterleavedThinkingBeta && shouldEnableInterleavedThinkingHeader(payload)) {
       appendCsvHeaderValue(headers, "anthropic-beta", context.config.messagesInterleavedThinkingBeta);
