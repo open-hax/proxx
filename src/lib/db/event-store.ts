@@ -494,10 +494,9 @@ function sanitizePayload(payload: Record<string, unknown>): Record<string, unkno
 function stripInvalidJsonChars(obj: unknown): unknown {
   if (obj === null || obj === undefined) return obj;
   if (typeof obj === "string") {
+    // NUL is unsafe for Postgres text/jsonb storage; JSON.stringify handles remaining control chars
     // eslint-disable-next-line no-control-regex
-    return obj.replace(new RegExp("\\x00", "g"), "").replace(new RegExp("[\\x01-\\x1F]", "g"), (c) =>
-      c === "\x1F" ? "\u241F" : c
-    );
+    return obj.replace(/\x00/g, "");
   }
   if (Array.isArray(obj)) {
     return obj.map(stripInvalidJsonChars);
