@@ -2,10 +2,19 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { MessagesProviderStrategy } from "../lib/provider-strategy/strategies/standard.js";
+import type { ProxyConfig } from "../lib/config.js";
 import type { ProviderAttemptContext } from "../lib/provider-strategy/shared.js";
 
 function createHeaders(): Headers {
   return new Headers();
+}
+
+function configStub(overrides: Partial<ProxyConfig> = {}): ProxyConfig {
+  return {
+    messagesPath: "/v1/messages",
+    messagesInterleavedThinkingBeta: "interleaved-thinking-2025-05-14",
+    ...overrides,
+  } as unknown as ProxyConfig;
 }
 
 function createContext(overrides: Partial<ProviderAttemptContext> = {}): ProviderAttemptContext {
@@ -15,10 +24,7 @@ function createContext(overrides: Partial<ProviderAttemptContext> = {}): Provide
     routedModel: "claude-haiku-4-5",
     clientHeaders: {},
     clientWantsStream: false,
-    config: {
-      messagesPath: "/v1/messages",
-      messagesInterleavedThinkingBeta: "interleaved-thinking-2025-05-14",
-    },
+    config: configStub(),
     ...overrides,
   } as ProviderAttemptContext;
 }
@@ -60,10 +66,7 @@ test("MessagesProviderStrategy adds anthropic-beta header when thinking is enabl
   const headers = createHeaders();
   const context = createContext({
     providerId: "anthropic",
-    config: {
-      messagesPath: "/v1/messages",
-      messagesInterleavedThinkingBeta: "interleaved-thinking-2025-05-14",
-    },
+    config: configStub(),
   });
   const payload = {
     messages: [{ role: "user", content: "hi" }],
@@ -79,10 +82,7 @@ test("MessagesProviderStrategy does not add anthropic-beta header when thinking 
   const headers = createHeaders();
   const context = createContext({
     providerId: "anthropic",
-    config: {
-      messagesPath: "/v1/messages",
-      messagesInterleavedThinkingBeta: "interleaved-thinking-2025-05-14",
-    },
+    config: configStub(),
   });
   const payload = { messages: [{ role: "user", content: "hi" }] };
 
@@ -94,9 +94,7 @@ test("MessagesProviderStrategy does not add anthropic-beta header when thinking 
 test("MessagesProviderStrategy uses correct upstream path for messages mode", () => {
   const context = createContext({
     providerId: "anthropic",
-    config: {
-      messagesPath: "/v1/messages",
-    },
+    config: configStub({ messagesPath: "/v1/messages" }),
   });
 
   const path = strategy.getUpstreamPath(context);
@@ -108,9 +106,7 @@ test("MessagesProviderStrategy uses provider-specific path when available", () =
   const context = createContext({
     providerId: "anthropic",
     providerPaths: { messages: "/custom/messages" },
-    config: {
-      messagesPath: "/v1/messages",
-    },
+    config: configStub({ messagesPath: "/v1/messages" }),
   });
 
   const path = strategy.getUpstreamPath(context);
