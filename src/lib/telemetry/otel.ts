@@ -200,7 +200,6 @@ class OtlpHttpTelemetry implements TelemetryClient {
   async flush(): Promise<void> {
     if (this.flushInFlight) {
       await this.flushInFlight;
-      return;
     }
 
     const traces = this.traceQueue;
@@ -234,6 +233,10 @@ class OtlpHttpTelemetry implements TelemetryClient {
     })();
 
     await this.flushInFlight;
+
+    if (this.traceQueue.length > 0 || this.logQueue.length > 0 || this.metricQueue.length > 0) {
+      await this.flush();
+    }
   }
 
   async shutdown(): Promise<void> {
