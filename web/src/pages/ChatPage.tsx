@@ -140,9 +140,19 @@ export function ChatPage(): JSX.Element {
         ? preferred
         : next[0]?.id;
       if (desired) {
-        const loaded = await getSession(desired);
-        setActiveSession(loaded);
-        setStoredActiveSessionId(loaded.id);
+        try {
+          const loaded = await getSession(desired);
+          setActiveSession(loaded);
+          setStoredActiveSessionId(loaded.id);
+        } catch {
+          setStoredActiveSessionId("");
+          const fallback = next[0]?.id;
+          if (fallback && fallback !== desired) {
+            const loaded = await getSession(fallback);
+            setActiveSession(loaded);
+            setStoredActiveSessionId(loaded.id);
+          }
+        }
       }
     }
   }, [activeSession, setStoredActiveSessionId, storedActiveSessionId]);
