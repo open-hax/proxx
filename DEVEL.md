@@ -118,6 +118,7 @@ Notes:
 - `UPSTREAM_REQUEST_TIMEOUT_MS` (default: `180000`)
 - `PROXY_AUTH_TOKEN` (required unless `PROXY_ALLOW_UNAUTHENTICATED=true`)
 - `PROXY_ALLOW_UNAUTHENTICATED` (default: `false`; use `true` only for local debugging)
+- `DATABASE_URL` (optional PostgreSQL DSN for SQL-backed credentials and runtime state; e.g. `postgres://user:pass@host:port/dbname`; when set, SQL and provider env vars are authoritative and `keys.json` / `PROXY_KEYS_JSON` / `UPSTREAM_KEYS_JSON` are treated only as optional bootstrap seeds)
 - `PROXY_KEYS_JSON` / `UPSTREAM_KEYS_JSON` (optional inline JSON seed payload; useful when you intentionally want to bootstrap from JSON rather than DB)
 - `DISABLED_PROVIDER_IDS` (optional comma-separated provider ids to remove from routing without deleting stored credentials)
 - `CHROMA_URL` (optional; default: `http://127.0.0.1:8000`)
