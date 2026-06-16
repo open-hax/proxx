@@ -1,5 +1,5 @@
 import React from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { NavLink, Route, Routes, useLocation } from "react-router-dom";
 
 import { Button, Input, Modal, ThemeProvider, ToastProvider } from "@open-hax/uxx";
@@ -44,6 +44,7 @@ export function App(): JSX.Element {
   const [fastMode, setFastMode] = useState(false);
   const [fastModeSaving, setFastModeSaving] = useState(false);
   const [fastModeMessage, setFastModeMessage] = useState<string | null>(null);
+  const fastModeMessageTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [showOnboarding, setShowOnboarding] = useState(() => {
     const stored = localStorage.getItem(LS_ONBOARDED);
     return stored !== "true" && getSavedAuthToken().trim().length === 0;
@@ -82,10 +83,19 @@ export function App(): JSX.Element {
     setFastModeSaving(true);
     setFastModeMessage(null);
 
+    if (fastModeMessageTimeoutRef.current) {
+      clearTimeout(fastModeMessageTimeoutRef.current);
+      fastModeMessageTimeoutRef.current = null;
+    }
+
     try {
       const saved = await saveProxyUiSettings({ fastMode: nextValue });
       setFastMode(saved.fastMode);
-      setFastModeMessage(saved.fastMode ? "Fast mode enabled for the current tenant." : "Fast mode disabled for the current tenant.");
+      const message = saved.fastMode ? "Fast mode enabled for the current tenant." : "Fast mode disabled for the current tenant.";
+      setFastModeMessage(message);
+      fastModeMessageTimeoutRef.current = setTimeout(() => {
+        setFastModeMessage(null);
+      }, 3000);
     } catch (error) {
       setFastMode(!nextValue);
       setFastModeMessage(error instanceof Error ? error.message : String(error));
