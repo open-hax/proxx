@@ -132,7 +132,7 @@ export interface FactoryRefreshedTokens {
  * Returns true when the JWT exp claim is within 30 minutes of current time,
  * or when expiresAt is missing but the credential has a refresh token.
  */
-export function factoryCredentialNeedsRefresh(credential: ProviderCredential): boolean {
+export function factoryCredentialNeedsRefresh(credential: ProviderCredential, now = Date.now()): boolean {
   if (credential.providerId !== "factory") {
     return false;
   }
@@ -146,12 +146,12 @@ export function factoryCredentialNeedsRefresh(credential: ProviderCredential): b
   // Check JWT exp claim directly from the token for accuracy
   const jwtExpiry = parseJwtExpiry(credential.token);
   if (jwtExpiry !== null) {
-    return jwtExpiry - Date.now() < FACTORY_REFRESH_BUFFER_MS;
+    return jwtExpiry - now < FACTORY_REFRESH_BUFFER_MS;
   }
 
   // If we have an expiresAt from the credential store, use that
   if (typeof credential.expiresAt === "number") {
-    return credential.expiresAt - Date.now() < FACTORY_REFRESH_BUFFER_MS;
+    return credential.expiresAt - now < FACTORY_REFRESH_BUFFER_MS;
   }
 
   // No expiry information available but we have a refresh token — don't force refresh

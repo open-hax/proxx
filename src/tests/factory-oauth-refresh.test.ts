@@ -195,21 +195,20 @@ test("factoryCredentialNeedsRefresh returns false when expiresAt is far in the f
 });
 
 test("factoryCredentialNeedsRefresh boundary: exactly 30 minutes triggers refresh", () => {
-  // Token expires exactly at the buffer boundary — should trigger refresh
-  const expSeconds = Math.floor((Date.now() + FACTORY_REFRESH_BUFFER_MS) / 1000);
+  const now = Date.now();
+  const expSeconds = Math.floor((now + FACTORY_REFRESH_BUFFER_MS) / 1000);
   const jwt = makeJwt({ exp: expSeconds });
   const credential = makeFactoryCredential({ token: jwt });
 
-  // At exactly 30 min boundary, (expiresAt - now) < FACTORY_REFRESH_BUFFER_MS should be true
-  // because we're using strict <, and the token expires at exactly the 30 min mark
-  assert.equal(factoryCredentialNeedsRefresh(credential), true);
+  assert.equal(factoryCredentialNeedsRefresh(credential, now), true);
 });
 
 test("factoryCredentialNeedsRefresh boundary: 31 minutes does not trigger refresh", () => {
+  const now = Date.now();
   const jwt = makeFreshJwt(31);
   const credential = makeFactoryCredential({ token: jwt });
 
-  assert.equal(factoryCredentialNeedsRefresh(credential), false);
+  assert.equal(factoryCredentialNeedsRefresh(credential, now), false);
 });
 
 // ─── refreshFactoryOAuthToken Tests ─────────────────────────────────────────
