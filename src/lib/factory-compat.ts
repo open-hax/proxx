@@ -184,7 +184,7 @@ export function inlineSystemPrompt(payload: Record<string, unknown>): Record<str
     }
 
     messages[firstUserIndex] = { ...firstUser, content: mergedContent };
-  } else if (messages.length > 0) {
+  } else {
     // No user message found — insert a user message with the system content at the beginning
     messages.unshift({ role: "user", content: systemText });
   }
