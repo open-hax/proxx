@@ -136,6 +136,8 @@ export class ProxySettingsStore {
     [DEFAULT_TENANT_ID, { fastMode: false, requestsPerMinute: null, allowedModels: null, allowedProviderIds: null, disabledProviderIds: null }],
   ]);
 
+  private writeLock: Promise<void> = Promise.resolve();
+
   public constructor(
     private readonly filePath: string,
     private readonly sql?: Sql,
@@ -225,38 +227,53 @@ export class ProxySettingsStore {
   }
 
   public async setForTenant(next: Partial<ProxySettings>, tenantId?: string): Promise<ProxySettings> {
-    const normalizedTenantId = normalizeSettingsTenantId(tenantId);
-    const currentSettings = await this.getForTenant(normalizedTenantId);
-    const mergedSettings: ProxySettings = {
-      ...currentSettings,
-      ...next,
-    };
-    this.settingsByTenant.set(normalizedTenantId, mergedSettings);
+    return this.withWriteLock(async () => {
+      const normalizedTenantId = normalizeSettingsTenantId(tenantId);
+      const currentSettings = await this.getForTenant(normalizedTenantId);
+      const mergedSettings: ProxySettings = {
+        ...currentSettings,
+        ...next,
+      };
+      this.settingsByTenant.set(normalizedTenantId, mergedSettings);
 
-    if (this.sql) {
+      if (this.sql) {
+        try {
+          await this.sql`
+            INSERT INTO config (key, value, updated_at)
+            VALUES (${configKeyForTenant(normalizedTenantId)}, ${JSON.stringify(mergedSettings)}::jsonb, NOW())
+            ON CONFLICT (key) DO UPDATE SET
+              value = EXCLUDED.value,
+              updated_at = NOW()
+          `;
+          return { ...mergedSettings };
+        } catch {
+          return { ...mergedSettings };
+        }
+      }
+
       try {
-        await this.sql`
-          INSERT INTO config (key, value, updated_at)
-          VALUES (${configKeyForTenant(normalizedTenantId)}, ${JSON.stringify(mergedSettings)}::jsonb, NOW())
-          ON CONFLICT (key) DO UPDATE SET
-            value = EXCLUDED.value,
-            updated_at = NOW()
-        `;
-        return { ...mergedSettings };
+        await mkdir(dirname(this.filePath), { recursive: true });
+        if (normalizedTenantId === DEFAULT_TENANT_ID) {
+          await writeFile(this.filePath, JSON.stringify(mergedSettings, null, 2), "utf8");
+        }
       } catch {
-        return { ...mergedSettings };
+        // Read-only filesystem; settings are still in memory
       }
-    }
 
-    try {
-      await mkdir(dirname(this.filePath), { recursive: true });
-      if (normalizedTenantId === DEFAULT_TENANT_ID) {
-        await writeFile(this.filePath, JSON.stringify(mergedSettings, null, 2), "utf8");
-      }
-    } catch {
-      // Read-only filesystem; settings are still in memory
-    }
+      return { ...mergedSettings };
+    });
+  }
 
-    return { ...mergedSettings };
+  private withWriteLock<T>(operation: () => Promise<T>): Promise<T> {
+    const previousLock = this.writeLock;
+    let releaseLock: () => void;
+    this.writeLock = new Promise((resolve) => {
+      releaseLock = resolve;
+    });
+    return previousLock
+      .then(operation)
+      .finally(() => {
+        releaseLock!();
+      });
   }
 }
