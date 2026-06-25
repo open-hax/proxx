@@ -1869,7 +1869,7 @@ test("persists request logs with usage counts for dashboard surfaces", async () 
   assert.equal(entry.totalTokens, 24);
 });
 
-test("fetches live OpenAI Codex quota windows and persists refreshed OAuth tokens", async () => {
+test("fetches live OpenAI Codex quota windows and persists refreshed OAuth tokens", { concurrency: false }, async () => {
   const originalFetch = globalThis.fetch;
   const refreshedAccessToken = makeJwt({
     "https://api.openai.com/auth": {
