@@ -1,8 +1,7 @@
 name: OpenCode Kimi PR Review
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
 
 concurrency:
   group: opencode-kimi-review-${{ github.event.pull_request.number }}

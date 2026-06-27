@@ -1,10 +1,6 @@
 name: OpenCode Kimi Issue Agent
 
 on:
-  issues:
-    types: [opened, reopened, edited]
-  schedule:
-    - cron: "23 10 * * *"
   workflow_dispatch:
 
 concurrency:
@@ -18,8 +14,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       id-token: write
-      contents: read
-      pull-requests: read
+      contents: write
+      pull-requests: write
       issues: write
     steps:
       - name: Checkout repository
@@ -48,7 +44,7 @@ jobs:
             - Decide whether the issue is actionable, duplicate, irrelevant, spam, or needs more information.
             - If the issue is clearly irrelevant, spam, out of scope, or a duplicate, leave a concise explanatory comment and close it.
             - If the issue is valid but underspecified, ask specific follow-up questions and leave it open.
-            - If a small, safe code or documentation fix is appropriate, describe the proposed fix for a maintainer; do not create branches, commits, or pull requests from issue-triggered runs.
+            - If a small, safe code or documentation fix is appropriate, create a branch, commit the fix, and open a pull request linked to the issue.
             - If the work is larger or risky, leave an implementation plan and keep the issue open.
 
             Guardrails:
