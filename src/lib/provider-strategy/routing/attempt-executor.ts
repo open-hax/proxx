@@ -963,9 +963,39 @@ export async function executeProviderRoutingPlan(
                 signal: queueSignal,
               }, context.upstreamAttemptTimeoutMs);
             } catch (error) {
-              refreshedRelease();
-              releaseInFlight();
-              throw error;
+              const refreshedLatencyMs = Date.now() - refreshedAttemptStartedAt;
+              upstreamSpan.setAttribute("proxy.latency_ms", refreshedLatencyMs);
+              upstreamSpan.setAttribute("proxy.status", 0);
+              upstreamSpan.recordError(error);
+              upstreamSpan.end();
+              accumulator.sawRequestError = true;
+              await providerRoutePheromoneStore.noteFailure(candidate.providerId, context.routedModel);
+              const refreshedLogId = recordAttempt(requestLogStore, refreshedProviderContext, {
+                providerId: candidate.providerId,
+                accountId: refreshedCredential.accountId,
+                authType: refreshedCredential.authType,
+                upstreamPath,
+                status: 0,
+                latencyMs: refreshedLatencyMs,
+                serviceTier: candidatePayload.serviceTier,
+                serviceTierSource: candidatePayload.serviceTierSource,
+                factoryDiagnostics: buildFactory4xxDiagnostics(candidatePayload.upstreamPayload, promptCacheKey),
+                error: transportErrorMessage(error),
+              }, candidateStrategy.mode);
+
+              if (eventStore) {
+                eventStore.emitError(attemptEntryId, candidate.providerId, refreshedCredential.accountId, context.routedModel, 0, {
+                  error: transportErrorMessage(error),
+                  logEntryId: refreshedLogId,
+                }, { latencyMs: refreshedLatencyMs });
+              }
+              if (hasStickyAffinity) {
+                stickyTransportFailureCandidates += 1;
+                if (stickyTransportFailureCandidates >= MAX_STICKY_TRANSPORT_FAILURE_CANDIDATES) {
+                  abortRemainingCandidatesForStickyTransportFailure = true;
+                }
+              }
+              break;
             }
 
             try {
