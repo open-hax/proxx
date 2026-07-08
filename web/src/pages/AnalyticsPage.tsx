@@ -188,16 +188,18 @@ export function AnalyticsPage(): JSX.Element {
   );
 
   useEffect(() => {
+    if (!analytics) return;
     if (providerFocus && !providerOptions.includes(providerFocus)) {
       setProviderFocus("");
     }
-  }, [providerFocus, providerOptions, setProviderFocus]);
+  }, [analytics, providerFocus, providerOptions, setProviderFocus]);
 
   useEffect(() => {
+    if (!analytics) return;
     if (modelFocus && !modelOptions.includes(modelFocus)) {
       setModelFocus("");
     }
-  }, [modelFocus, modelOptions, setModelFocus]);
+  }, [analytics, modelFocus, modelOptions, setModelFocus]);
 
   const filteredModels = useMemo(() => {
     const query = modelSearch.trim().toLowerCase();
