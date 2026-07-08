@@ -13,6 +13,7 @@ function validateString(value: unknown): string | undefined {
 
 export function ToolsPage(): JSX.Element {
   const [model, setModel] = useStoredState(LS_TOOLS_MODEL, "gpt-5.3-codex", validateString);
+  const [modelInput, setModelInput] = useState(model);
   const [tools, setTools] = useState<ToolSeed[]>([]);
   const [servers, setServers] = useState<McpServerSeed[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -36,8 +37,11 @@ export function ToolsPage(): JSX.Element {
     event.preventDefault();
     setError(null);
 
+    const submittedModel = modelInput.trim().length > 0 ? modelInput.trim() : "gpt-5.3-codex";
+    setModel(submittedModel);
+
     try {
-      await refreshData(model.trim().length > 0 ? model.trim() : "gpt-5.3-codex");
+      await refreshData(submittedModel);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : String(loadError));
     }
@@ -53,8 +57,8 @@ export function ToolsPage(): JSX.Element {
 
         <form className="tools-model-form" onSubmit={(event) => void handleModelSubmit(event)}>
           <Input
-            value={model}
-            onChange={(event) => setModel(event.currentTarget.value)}
+            value={modelInput}
+            onChange={(event) => setModelInput(event.currentTarget.value)}
             placeholder="model id"
           />
           <Button type="submit">Refresh</Button>
