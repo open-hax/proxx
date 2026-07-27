@@ -21,8 +21,12 @@ on:
       - "scripts/**"
       - ".github/workflows/sandbox-bundle.yml"
   push:
+    branches:
+      - "**"
     tags:
       - "sandbox-bundle-*"
+    paths:
+      - ".github/workflows/sandbox-bundle.yml"
 
 permissions:
   contents: read
