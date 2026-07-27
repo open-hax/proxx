@@ -1,0 +1,188 @@
+name: Sandbox bundle
+
+on:
+  workflow_dispatch:
+    inputs:
+      include_dependency_cache:
+        description: Include package-manager and JVM caches in a separate short-lived artifact
+        required: false
+        default: false
+        type: boolean
+  pull_request:
+    paths:
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "deps.edn"
+      - "shadow-cljs.edn"
+      - "src/**"
+      - "test/**"
+      - "tests/**"
+      - "web/**"
+      - "scripts/**"
+      - ".github/workflows/sandbox-bundle.yml"
+  push:
+    tags:
+      - "sandbox-bundle-*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sandbox-bundle-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bundle:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      OUT: ${{ runner.temp }}/sandbox-export
+      DEPS_OUT: ${{ runner.temp }}/sandbox-deps
+      CLOJURE_TOOLS_VERSION: "1.12.5.1654"
+      BABASHKA_VERSION: "1.13.219"
+
+    steps:
+      - name: Check out full repository history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Prepare revision-bound source bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf "$OUT"
+          mkdir -p "$OUT"/{source,runtime,logs,toolchain,metadata}
+          repo_name="${GITHUB_REPOSITORY#*/}"
+          git bundle create "$OUT/source/${repo_name}.bundle" --all
+          git archive --format=tar.gz --prefix="${repo_name}/" --output="$OUT/source/source.tar.gz" HEAD
+          git rev-parse HEAD > "$OUT/metadata/revision.txt"
+          git status --short > "$OUT/metadata/worktree.txt"
+          git submodule status --recursive > "$OUT/metadata/submodules.txt" 2>&1 || true
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Set up pnpm 10.14.0
+        uses: pnpm/action-setup@v4
+        with:
+          version: "10.14.0"
+          run_install: false
+
+      - name: Set up pinned Clojure CLI
+        uses: DeLaGuardo/setup-clojure@13.4
+        with:
+          cli: ${{ env.CLOJURE_TOOLS_VERSION }}
+
+      - name: Install, validate, test, and build
+        id: validate
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            pnpm install --frozen-lockfile
+            pnpm test
+            pnpm web:build
+          } 2>&1 | tee "$OUT/logs/validate.log"
+
+      - name: Collect generated outputs and portable toolchains
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          paths_file="$RUNNER_TEMP/sandbox-runtime-paths"
+          : > "$paths_file"
+          find . -type d \( -name dist -o -name 'dist-*' -o -name target -o -name coverage -o -name reports \) \
+            -not -path '*/node_modules/*' \
+            -not -path '*/.git/*' \
+            -not -path '*/.shadow-cljs/*' \
+            -print0 >> "$paths_file"
+          if [[ -s "$paths_file" ]]; then
+            tar --null --files-from="$paths_file" -czf "$OUT/runtime/runtime.tar.gz"
+          fi
+
+          if [[ -n "${PNPM_HOME:-}" && -d "$PNPM_HOME" ]]; then
+            tar -czf "$OUT/toolchain/pnpm-home.tar.gz" -C "$(dirname "$PNPM_HOME")" "$(basename "$PNPM_HOME")"
+          fi
+          curl -fsSL \
+            "https://download.clojure.org/install/clojure-tools-${CLOJURE_TOOLS_VERSION}.tar.gz" \
+            -o "$OUT/toolchain/clojure-tools-${CLOJURE_TOOLS_VERSION}.tar.gz"
+          curl -fsSL \
+            "https://github.com/babashka/babashka/releases/download/v${BABASHKA_VERSION}/babashka-${BABASHKA_VERSION}-linux-amd64-static.tar.gz" \
+            -o "$OUT/toolchain/babashka-${BABASHKA_VERSION}-linux-amd64-static.tar.gz"
+
+          for file in package.json pnpm-lock.yaml pnpm-workspace.yaml deps.edn shadow-cljs.edn; do
+            [[ -f "$file" ]] && cp "$file" "$OUT/metadata/$file"
+          done
+          {
+            node --version
+            pnpm --version
+            java -version
+            command -v clojure >/dev/null 2>&1 && clojure -Sdescribe || true
+          } > "$OUT/metadata/tool-versions.txt" 2>&1
+
+          cat > "$OUT/manifest.json" <<EOF
+          {
+            "sandbox_bundle_version": 1,
+            "repository": "${GITHUB_REPOSITORY}",
+            "revision": "${GITHUB_SHA}",
+            "ref": "${GITHUB_REF}",
+            "generated_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "validation": "${{ steps.validate.outcome }}",
+            "entrypoint": "pnpm test",
+            "network_required_after_restore": false
+          }
+          EOF
+          (cd "$OUT" && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
+
+      - name: Package optional dependency cache
+        if: github.event_name == 'workflow_dispatch' && inputs.include_dependency_cache
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf "$DEPS_OUT"
+          mkdir -p "$DEPS_OUT"
+          store="$(pnpm store path 2>/dev/null || true)"
+          if [[ -n "$store" && -d "$store" ]]; then
+            tar -czf "$DEPS_OUT/pnpm-store.tar.gz" -C "$(dirname "$store")" "$(basename "$store")"
+          fi
+          if [[ -d "$HOME/.m2/repository" ]]; then
+            tar -czf "$DEPS_OUT/m2-repository.tar.gz" -C "$HOME/.m2" repository
+          fi
+          if [[ -d "$HOME/.gitlibs" ]]; then
+            tar -czf "$DEPS_OUT/gitlibs.tar.gz" -C "$HOME" .gitlibs
+          fi
+          (cd "$DEPS_OUT" && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
+
+      - name: Upload sandbox bundle
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxx-sandbox-${{ github.sha }}
+          path: ${{ runner.temp }}/sandbox-export
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload optional dependency cache
+        if: github.event_name == 'workflow_dispatch' && inputs.include_dependency_cache
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxx-sandbox-deps-${{ github.sha }}
+          path: ${{ runner.temp }}/sandbox-deps
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Preserve validation result
+        if: always() && steps.validate.outcome == 'failure'
+        shell: bash
+        run: exit 1
