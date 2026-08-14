@@ -4,6 +4,12 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
 
+# Reusable workflow calls run with `none` unless the caller grants scopes;
+# the called jobs request contents:read and pull-requests:read.
+permissions:
+  contents: read
+  pull-requests: read
+
 jobs:
   review:
     name: Evidence-first review (eta-mu)
