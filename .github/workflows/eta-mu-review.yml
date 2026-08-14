@@ -13,7 +13,7 @@ permissions:
 jobs:
   review:
     name: Evidence-first review (eta-mu)
-    uses: open-hax/eta-mu/.github/workflows/opencode-code-review.yml@a82ecf7e8ed2d770039424f0d88c38252bf58a0e
+    uses: open-hax/eta-mu/.github/workflows/opencode-code-review.yml@a7b65017cacc7624037318f79c05fb18d7e9f7cb
     with:
       setup_eta_mu_toolchain: false
       evidence_gates_script: |
