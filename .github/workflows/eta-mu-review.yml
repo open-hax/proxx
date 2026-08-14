@@ -1,0 +1,15 @@
+name: eta-mu evidence review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+jobs:
+  review:
+    name: Evidence-first review (eta-mu)
+    uses: open-hax/eta-mu/.github/workflows/opencode-code-review.yml@976d45fea52dcea97c63787f8b62b4c2f22a4838
+    with:
+      setup_eta_mu_toolchain: false
+      evidence_gates_script: |
+        run_gate diff_stat git diff --stat "${PR_BASE_SHA}...HEAD"
+    secrets: inherit
