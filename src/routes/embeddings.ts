@@ -3,7 +3,7 @@ import type { AppDeps } from "../lib/app-deps.js";
 import { DEFAULT_TENANT_ID } from "../lib/tenant-api-key.js";
 import { joinUrl } from "../lib/http/index.js";
 import { getActiveCljsRuntime } from "../lib/cljs-runtime.js";
-import { buildForwardHeaders } from "../lib/proxy.js";
+import { buildForwardHeaders, buildUpstreamHeadersForCredential } from "../lib/proxy.js";
 import {
   nativeEmbedToOpenAiRequest,
   nativeEmbedResponseToOpenAiEmbeddings,
@@ -203,12 +203,19 @@ export function registerEmbeddingsRoutes(deps: AppDeps, app: FastifyInstance): v
             request.log.warn({ providerId: candidateId }, "no base URL for provider, skipping");
             continue;
           }
+          // OpenAI-compatible providers with registered accounts (e.g.
+          // requesty) need their own credential upstream; providers without
+          // accounts (llamacpp) keep the passthrough headers as before.
+          const credentials = await deps.keyPool.getRequestOrder(candidateId).catch(() => []);
+          const upstreamHeaders = credentials.length > 0
+            ? buildUpstreamHeadersForCredential(request.headers, credentials[0])
+            : buildForwardHeaders(request.headers);
           upstreamResponse = await runCljsQueued(
             deps.config.cljsPolicyManifestPath,
             { "tenant-id": request.openHaxAuth?.tenantId ?? "default", "provider-id": candidateId, "request-kind": "embeddings" },
             async (controller) => await fetchWithResponseTimeout(
               joinUrl(candidateBaseUrl, "/v1/embeddings"),
-              { method: "POST", headers: buildForwardHeaders(request.headers), body: JSON.stringify({ ...candidateEmbedBody, model: candidateModel }), signal: controller.signal },
+              { method: "POST", headers: upstreamHeaders, body: JSON.stringify({ ...candidateEmbedBody, model: candidateModel }), signal: controller.signal },
               deps.config.requestTimeoutMs,
             ),
           );

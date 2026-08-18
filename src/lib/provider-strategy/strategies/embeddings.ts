@@ -16,7 +16,7 @@ import { normalizeLlamacppModelName } from "./llamacpp.js";
  * Providers that speak OpenAI-compatible /v1/embeddings natively.
  * These never use the Ollama /api/embed path.
  */
-export const OPENAI_COMPAT_EMBED_PROVIDERS = new Set(["llamacpp-embed", "llamacpp"]);
+export const OPENAI_COMPAT_EMBED_PROVIDERS = new Set(["llamacpp-embed", "llamacpp", "requesty"]);
 
 export function isOpenAiCompatEmbedProvider(providerId: string): boolean {
   return OPENAI_COMPAT_EMBED_PROVIDERS.has(providerId.trim().toLowerCase());

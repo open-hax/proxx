@@ -64,6 +64,10 @@
   :contract/kind :model-family
   :match/model-pattern "(?i)^qwen3-embedding(?::|-).*"}
 
+ {:contract/id :model-family/text-embedding
+  :contract/kind :model-family
+  :match/model-pattern "(?i)^(?:openai/)?text-embedding-.*"}
+
  {:contract/id :model-family/kimi
   :contract/kind :model-family
   :match/model-pattern "(?i)^(?:kimi-|moonshot-v1-)"

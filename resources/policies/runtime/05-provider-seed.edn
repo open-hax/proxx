@@ -129,6 +129,13 @@
   :paths {:chat-completions "/v1/chat/completions"
           :images-generations "/v1/images/generations"}}
 
+ {:contract/id :provider-route/requesty
+  :contract/kind :provider-route
+  :provider/id "requesty"
+  :provider/base-url "https://router.requesty.ai/v1"
+  :paths {:chat-completions "/v1/chat/completions"
+          :embeddings "/v1/embeddings"}}
+
  {:contract/id :provider-route/ollama
   :contract/kind :provider-route
   :provider/id "ollama"

@@ -124,6 +124,14 @@
   :prefer/strategies [:embeddings]
   :account/order :account-order/prefer-free}
 
+ {:contract/id :route/text-embedding
+  :contract/kind :routing-clause
+  :match/family :model-family/text-embedding
+  :prefer/providers :provider-order/embeddings
+  :prefer/providers-strict? true
+  :prefer/strategies [:embeddings]
+  :account/order :account-order/prefer-free}
+
  {:contract/id :route/kimi
   :contract/kind :routing-clause
   :match/family :model-family/kimi

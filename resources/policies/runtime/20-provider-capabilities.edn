@@ -40,7 +40,7 @@
 
  {:contract/id :provider-order/embeddings
   :contract/kind :preference-order
-  :preference/items ["llamacpp-embed" "ollama"]}
+  :preference/items ["requesty" "llamacpp-embed" "ollama"]}
 
  {:contract/id :provider-order/gemma
   :contract/kind :preference-order
@@ -226,6 +226,6 @@
 
  {:contract/id :request-surface/embeddings
   :contract/kind :request-surface-default
-  :match/provider-pattern "^(llamacpp-embed|ollama)$"
+  :match/provider-pattern "^(requesty|llamacpp-embed|ollama)$"
   :match/request-kind :embeddings
   :prefer/strategies [:embeddings]}]

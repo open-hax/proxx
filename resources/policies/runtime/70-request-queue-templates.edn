@@ -4,8 +4,13 @@
   :queue/concurrency-limit 8
   :queue/max-queue-size 256
   :queue/overflow-policy :reject
-  :queue/attempt-timeout-ms 30000
-  :queue/total-timeout-ms 120000
+  ;; Slow reasoning upstreams are legitimate traffic: the attempt ceiling now
+  ;; sits just under the total ceiling (15 min, matching the fetch-level
+  ;; default), so a request only fails when it is truly wedged, never at an
+  ;; arbitrary 30s boundary. (The contract law requires a template to declare
+  ;; an attempt timeout; making it omittable is a schema.cljs change.)
+  :queue/attempt-timeout-ms 850000
+  :queue/total-timeout-ms 900000
   :queue/max-retries 0
   :queue/retry-backoff :immediate}
 

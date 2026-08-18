@@ -88,9 +88,10 @@ test("CLJS runtime routes bare qwen3 embeddings through the declarative embeddin
     readonly strategy?: { readonly mode?: string };
   };
   assert.equal(decision["route-id"], "qwen3-embedding");
-  assert.equal(decision["provider-id"], "llamacpp-embed");
-  assert.deepEqual(decision.providers, ["llamacpp-embed", "ollama"]);
+  assert.equal(decision["provider-id"], "requesty");
+  assert.deepEqual(decision.providers, ["requesty", "llamacpp-embed", "ollama"]);
   assert.deepEqual(decision["provider-routes"], [
+    { "provider-id": "requesty", "base-url": "https://router.requesty.ai/v1", paths: { "chat-completions": "/v1/chat/completions", embeddings: "/v1/embeddings" } },
     { "provider-id": "llamacpp-embed", "base-url": "http://llamacpp-embed:8081", paths: { "chat-completions": "/v1/chat/completions" } },
     { "provider-id": "ollama", "base-url": "http://ollama:11434", "auth-required?": false, paths: { "chat-completions": "/v1/chat/completions" } },
   ]);
@@ -182,7 +183,7 @@ test("CLJS runtime keeps gpt and mimo routes pinned to their canonical providers
   assert.deepEqual(gptDecision["provider-routes"], [
     { "provider-id": "vivgrid", "base-url": "https://api.vivgrid.com", paths: { "chat-completions": "/v1/chat/completions", responses: "/v1/responses", messages: "/v1/messages", "images-generations": "/v1/images/generations" } },
     { "provider-id": "openai", "base-url": "https://chatgpt.com/backend-api", paths: { "chat-completions": "/codex/responses/compact", responses: "/codex/responses", "images-generations": "/images/generations" } },
-    { "provider-id": "requesty", "base-url": "https://router.requesty.ai/v1" },
+    { "provider-id": "requesty", "base-url": "https://router.requesty.ai/v1", paths: { "chat-completions": "/v1/chat/completions", embeddings: "/v1/embeddings" } },
     { "provider-id": "factory", "base-url": "https://api.factory.ai", paths: { "chat-completions": "/v1/chat/completions", responses: "/v1/responses", "images-generations": "/v1/images/generations" } },
   ]);
 
