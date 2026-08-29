@@ -24,7 +24,8 @@ module.exports = {
       args: ["exec", "vite", "preview", "--config", "web/vite.config.ts", "--host", "0.0.0.0", "--port", "5174"],
       cwd: "/app",
       env: {
-        NODE_ENV: "production"
+        NODE_ENV: "production",
+        CI: "true"
       },
       autorestart: true,
       watch: false,
