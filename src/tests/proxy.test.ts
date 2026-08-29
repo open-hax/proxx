@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 106938)
-Total output lines: 13376
-
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import assert from "node:assert/strict";
 import { once } from "node:events";
@@ -3041,7 +3038,7210 @@ test("falls back from vivgrid to expired openai account which refreshes token be
         refreshCalls += 1;
         const body = typeof init?.body === "string" ? init.body : "";
         assert.match(body, /grant_type=refresh_token/);
-        assert.match(body, /refresh_t…56938 tokens truncated…responses reasoning output into chat reasoning_content for stream clients", async () => {
+        assert.match(body, /refresh_token=expired-openai-refresh/);
+        return new Response(JSON.stringify({
+          access_token: refreshedAccessToken,
+          refresh_token: "refreshed-openai-refresh",
+          expires_in: 3600,
+          chatgpt_plan_type: "plus",
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+
+      return originalFetch(input, init);
+    },
+    async () => {
+      await withProxyApp(
+        {
+          keys: [],
+          keysPayload: {
+            providers: {
+              vivgrid: ["vivgrid-failing-key"],
+              openai: {
+                auth: "oauth_bearer",
+                accounts: [
+                  {
+                    id: "oa-expired-plus",
+                    access_token: "expired-openai-access",
+                    refresh_token: "expired-openai-refresh",
+                    expires_at: Date.now() - 1000,
+                    chatgpt_account_id: "cgpt-stale",
+                    plan_type: "plus",
+                  },
+                ],
+              },
+            },
+          },
+          configOverrides: {
+            upstreamProviderId: "vivgrid",
+          },
+          upstreamHandler: async (request, body) => {
+            if (request.url === "/api/embed" || request.url === "/api/embeddings") {
+              return {
+                status: 200,
+                headers: { "content-type": "application/json" } as Record<string, string>,
+                body: JSON.stringify({ embeddings: [[0.1, 0.2, 0.3]] }),
+              };
+            }
+
+            const auth = request.headers.authorization;
+            if (typeof auth === "string") {
+              observedAuth.push(auth.replace(/^Bearer\s+/i, ""));
+            }
+
+            if (auth === "Bearer vivgrid-failing-key") {
+              const ratelimitHeaders: Record<string, string> = {
+                "content-type": "application/json",
+                "retry-after": "60",
+              };
+              return {
+                status: 429,
+                headers: ratelimitHeaders,
+                body: JSON.stringify({ error: { message: "rate limit" } }),
+              };
+            }
+
+            assert.equal(auth, `Bearer ${refreshedAccessToken}`);
+            assert.equal(request.headers["chatgpt-account-id"], "cgpt-refreshed");
+
+            const parsedBody = JSON.parse(body);
+            assert.ok(isRecord(parsedBody));
+            assert.equal(parsedBody.model, "gpt-5.4");
+
+            return {
+              status: 200,
+              headers: { "content-type": "application/json" } as Record<string, string>,
+              body: JSON.stringify({
+                id: "resp-refreshed-openai-fallback",
+                object: "response",
+                created_at: 1772916803,
+                model: "gpt-5.4",
+                output: [
+                  {
+                    id: "msg-refreshed-openai-fallback",
+                    type: "message",
+                    role: "assistant",
+                    content: [
+                      {
+                        type: "output_text",
+                        text: "refreshed-openai-account-ok",
+                      },
+                    ],
+                  },
+                ],
+              }),
+            };
+          },
+        },
+        async ({ app }) => {
+          const response = await app.inject({
+            method: "POST",
+            url: "/v1/chat/completions",
+            headers: {
+              "content-type": "application/json",
+            },
+            payload: {
+              model: "gpt-5.4",
+              messages: [{ role: "user", content: "hello" }],
+              stream: false,
+            },
+          });
+
+          assert.equal(response.statusCode, 200);
+          assert.equal(response.headers["x-open-hax-upstream-provider"], "openai");
+          assert.equal(response.headers["x-open-hax-upstream-mode"], "openai_responses");
+          assert.equal(refreshCalls, 1);
+          assert.deepEqual(observedAuth, ["vivgrid-failing-key", refreshedAccessToken]);
+
+          const payload: unknown = response.json();
+          assert.ok(isRecord(payload));
+          assert.equal(payload.object, "chat.completion");
+          assert.ok(Array.isArray(payload.choices));
+          assert.ok(isRecord(payload.choices[0]));
+          assert.ok(isRecord(payload.choices[0].message));
+          assert.equal(payload.choices[0].message.content, "refreshed-openai-account-ok");
+        },
+      );
+    },
+  );
+});
+
+test("refreshes oauth tokens on 401 unauthorized before marking rate-limited", async () => {
+  const observedAuth: string[] = [];
+  const validAccessToken = makeJwt({
+    chatgpt_account_id: "cgpt-refreshed-from-401",
+    chatgpt_plan_type: "team",
+  });
+  let refreshCalls = 0;
+  let firstRequest = true;
+
+  await withPatchedFetch(
+    async (input, init, originalFetch) => {
+      const url = typeof input === "string"
+        ? input
+        : input instanceof URL
+          ? input.toString()
+          : input.url;
+
+      if (url === "https://auth.openai.com/oauth/token") {
+        refreshCalls += 1;
+        const body = typeof init?.body === "string" ? init.body : "";
+        assert.match(body, /grant_type=refresh_token/);
+        assert.match(body, /refresh_token=revoked-openai-refresh/);
+        return new Response(JSON.stringify({
+          access_token: validAccessToken,
+          refresh_token: "refreshed-from-401-refresh",
+          expires_in: 3600,
+          chatgpt_plan_type: "team",
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+
+      return originalFetch(input, init);
+    },
+    async () => {
+      await withProxyApp(
+        {
+          keys: [],
+          keysPayload: {
+            providers: {
+              openai: {
+                auth: "oauth_bearer",
+                accounts: [
+                  {
+                    id: "oa-revoked-team",
+                    access_token: "revoked-openai-access",
+                    refresh_token: "revoked-openai-refresh",
+                    expires_at: Date.now() + 86400000,
+                    chatgpt_account_id: "cgpt-revoked",
+                    plan_type: "team",
+                  },
+                ],
+              },
+            },
+          },
+          configOverrides: {
+            upstreamProviderId: "openai",
+          },
+          upstreamHandler: async (request, _body) => {
+            const auth = request.headers.authorization;
+            if (typeof auth === "string") {
+              observedAuth.push(auth.replace(/^Bearer\s+/i, ""));
+            }
+
+            if (firstRequest && auth === "Bearer revoked-openai-access") {
+              firstRequest = false;
+              return {
+                status: 401,
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ error: { message: "Unauthorized", type: "invalid_request_error" } }),
+              };
+            }
+
+            assert.equal(auth, `Bearer ${validAccessToken}`);
+            assert.equal(request.headers["chatgpt-account-id"], "cgpt-refreshed-from-401");
+
+            return {
+              status: 200,
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                id: "resp-refreshed-after-401",
+                object: "response",
+                created_at: 1772916803,
+                model: "gpt-5.4",
+                output: [
+                  {
+                    id: "msg-refreshed-after-401",
+                    type: "message",
+                    role: "assistant",
+                    content: [{ type: "output_text", text: "refreshed-after-401-ok" }],
+                  },
+                ],
+              }),
+            };
+          },
+        },
+        async ({ app }) => {
+          const response = await app.inject({
+            method: "POST",
+            url: "/v1/chat/completions",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              model: "gpt-5.4",
+              messages: [{ role: "user", content: "test" }],
+            }),
+          });
+
+          assert.equal(response.statusCode, 200);
+          assert.equal(response.headers["x-open-hax-upstream-provider"], "openai");
+          assert.equal(response.headers["x-open-hax-upstream-mode"], "openai_responses");
+          assert.equal(refreshCalls, 1);
+          assert.deepEqual(observedAuth, ["revoked-openai-access", validAccessToken]);
+
+          const payload: unknown = response.json();
+          assert.ok(isRecord(payload));
+          assert.equal(payload.object, "chat.completion");
+          assert.ok(Array.isArray(payload.choices));
+          assert.ok(isRecord(payload.choices[0]));
+          assert.ok(isRecord(payload.choices[0].message));
+          assert.equal(payload.choices[0].message.content, "refreshed-after-401-ok");
+        },
+      );
+    },
+  );
+});
+
+test("terminal OpenAI refresh failures clear the refresh token and do not retry indefinitely", async () => {
+  let refreshCalls = 0;
+
+  await withPatchedFetch(
+    async (input, init, originalFetch) => {
+      const url = typeof input === "string"
+        ? input
+        : input instanceof URL
+          ? input.toString()
+          : input.url;
+
+      if (url === "https://auth.openai.com/oauth/token") {
+        refreshCalls += 1;
+        const body = typeof init?.body === "string" ? init.body : "";
+        assert.match(body, /grant_type=refresh_token/);
+        assert.match(body, /refresh_token=stale-openai-refresh/);
+        return new Response(JSON.stringify({
+          error: {
+            message: "Your refresh token has already been used to generate a new access token. Please try signing in again.",
+            type: "invalid_request_error",
+            code: "refresh_token_reused",
+          },
+        }), {
+          status: 401,
+          headers: { "content-type": "application/json" },
+        });
+      }
+
+      return originalFetch(input, init);
+    },
+    async () => {
+      await withProxyApp(
+        {
+          keys: [],
+          keysPayload: {
+            providers: {
+              openai: {
+                auth: "oauth_bearer",
+                accounts: [
+                  {
+                    id: "oa-terminal-refresh",
+                    access_token: makeJwt({
+                      chatgpt_account_id: "cgpt-terminal-refresh",
+                      chatgpt_plan_type: "free",
+                      exp: Math.floor((Date.now() - 60_000) / 1000),
+                    }),
+                    refresh_token: "stale-openai-refresh",
+                    expires_at: Date.now() - 60_000,
+                    chatgpt_account_id: "cgpt-terminal-refresh",
+                    plan_type: "free",
+                  },
+                ],
+              },
+            },
+          },
+          configOverrides: {
+            upstreamProviderId: "openai",
+          },
+          upstreamHandler: async () => ({
+            status: 200,
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ object: "response", output: [] }),
+          }),
+        },
+        async ({ app, tempDir }) => {
+          const firstResponse = await app.inject({
+            method: "POST",
+            url: "/v1/chat/completions",
+            payload: {
+              model: "gpt-5.4",
+              messages: [{ role: "user", content: "hello" }],
+              stream: false,
+            },
+          });
+
+          assert.equal(firstResponse.statusCode, 429);
+          assert.equal(refreshCalls, 1);
+
+          const secondResponse = await app.inject({
+            method: "POST",
+            url: "/v1/chat/completions",
+            payload: {
+              model: "gpt-5.4",
+              messages: [{ role: "user", content: "hello again" }],
+              stream: false,
+            },
+          });
+
+          assert.equal(secondResponse.statusCode, 429);
+          assert.equal(refreshCalls, 1);
+
+          const persisted = JSON.parse(await readFile(path.join(tempDir, "keys.json"), "utf8")) as Record<string, unknown>;
+          assert.ok(isRecord(persisted.providers));
+          const openAi = persisted.providers.openai;
+          assert.ok(isRecord(openAi));
+          assert.ok(Array.isArray(openAi.accounts));
+          assert.ok(isRecord(openAi.accounts[0]));
+          assert.equal(openAi.accounts[0].refresh_token, undefined);
+        },
+      );
+    },
+  );
+});
+
+test("falls back from ollama-cloud to vivgrid for shared models when primary provider auth fails", async () => {
+  const observedAuth: string[] = [];
+
+  await withProxyApp(
+    {
+      keys: [],
+      keysPayload: {
+        providers: {
+          "ollama-cloud": ["ollama-cloud-failing-key"],
+          vivgrid: ["vivgrid-working-key"]
+        }
+      },
+      configOverrides: {
+        upstreamProviderId: "ollama-cloud",
+      },
+      upstreamHandler: async (request) => {
+        const auth = request.headers.authorization;
+        if (typeof auth === "string") {
+          observedAuth.push(auth.replace(/^Bearer\s+/i, ""));
+        }
+
+        if (auth === "Bearer ollama-cloud-failing-key") {
+          return {
+            status: 403,
+            headers: {
+              "content-type": "application/json"
+            },
+            body: JSON.stringify({ error: { message: "forbidden" } })
+          };
+        }
+
+        return {
+          status: 200,
+          headers: {
+            "content-type": "application/json"
+          },
+          body: JSON.stringify({
+            id: "chatcmpl-provider-fallback-2",
+            object: "chat.completion",
+            model: "Kimi-K2.5",
+            choices: [
+              {
+                index: 0,
+                message: {
+                  role: "assistant",
+                  content: "provider-fallback-reverse-ok"
+                },
+                finish_reason: "stop"
+              }
+            ]
+          })
+        };
+      }
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json"
+        },
+        payload: {
+          model: "Kimi-K2.5",
+          messages: [{ role: "user", content: "hello" }],
+          stream: false
+        }
+      });
+
+      assert.equal(response.statusCode, 200);
+      assert.equal(response.headers["x-open-hax-upstream-provider"], "vivgrid");
+      assert.ok(observedAuth.length >= 2);
+      assert.deepEqual(observedAuth.slice(-2), ["ollama-cloud-failing-key", "vivgrid-working-key"]);
+
+      const payload: unknown = response.json();
+      assert.ok(isRecord(payload));
+      assert.ok(Array.isArray(payload.choices));
+      assert.ok(isRecord(payload.choices[0]));
+      assert.ok(isRecord(payload.choices[0].message));
+      assert.equal(payload.choices[0].message.content, "provider-fallback-reverse-ok");
+    }
+  );
+});
+
+test("skips ollama-cloud entirely when routing gpt models", async () => {
+  const observedAuth: string[] = [];
+
+  await withProxyApp(
+    {
+      keys: [],
+      keysPayload: {
+        providers: {
+          "ollama-cloud": ["ollama-cloud-missing-model-key"],
+          vivgrid: ["vivgrid-gpt-key"]
+        }
+      },
+      configOverrides: {
+        upstreamProviderId: "ollama-cloud",
+      },
+      upstreamHandler: async (request, body) => {
+        const auth = request.headers.authorization;
+        if (typeof auth === "string" && request.method === "POST") {
+          observedAuth.push(auth.replace(/^Bearer\s+/i, ""));
+        }
+
+        if (auth === "Bearer ollama-cloud-missing-model-key") {
+          return {
+            status: 404,
+            headers: {
+              "content-type": "application/json"
+            },
+            body: JSON.stringify({
+              error: {
+                message: "model \"gpt-5.3-codex\" not found"
+              }
+            })
+          };
+        }
+
+        const parsedBody = JSON.parse(body);
+        assert.ok(isRecord(parsedBody));
+        assert.equal(parsedBody.model, "gpt-5.3-codex");
+
+        return {
+          status: 200,
+          headers: {
+            "content-type": "application/json"
+          },
+          body: JSON.stringify({
+            id: "resp-gpt-fallback-ok",
+            object: "response",
+            created_at: 1772516816,
+            model: "gpt-5.3-codex",
+            output: [
+              {
+                id: "msg-gpt-fallback-ok",
+                type: "message",
+                role: "assistant",
+                content: [
+                  {
+                    type: "output_text",
+                    text: "gpt-fallback-ok"
+                  }
+                ]
+              }
+            ]
+          })
+        };
+      },
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json"
+        },
+        payload: {
+          model: "gpt-5.3-codex",
+          messages: [{ role: "user", content: "hello" }],
+          stream: false
+        }
+      });
+
+      assert.equal(response.statusCode, 200);
+      assert.equal(response.headers["x-open-hax-upstream-provider"], "vivgrid");
+      assert.deepEqual(observedAuth, ["vivgrid-gpt-key"]);
+
+      const payload: unknown = response.json();
+      assert.ok(isRecord(payload));
+      assert.ok(Array.isArray(payload.choices));
+      assert.ok(isRecord(payload.choices[0]));
+      assert.ok(isRecord(payload.choices[0].message));
+      assert.equal(payload.choices[0].message.content, "gpt-fallback-ok");
+    }
+  );
+});
+
+test("skips ollama-cloud entirely when routing gpt-5.4-mini models", async () => {
+  const observedAuth: string[] = [];
+
+  await withProxyApp(
+    {
+      keys: [],
+      keysPayload: {
+        providers: {
+          "ollama-cloud": ["ollama-cloud-should-not-run"],
+          vivgrid: ["vivgrid-gpt52-key"]
+        }
+      },
+      configOverrides: {
+        upstreamProviderId: "ollama-cloud",
+      },
+      upstreamHandler: async (request, body) => {
+        if (request.method !== "POST") {
+          return {
+            status: 404,
+            headers: {
+              "content-type": "application/json"
+            },
+            body: JSON.stringify({ error: { message: "not found" } })
+          };
+        }
+
+        const auth = request.headers.authorization;
+        if (typeof auth === "string" && request.method === "POST") {
+          observedAuth.push(auth.replace(/^Bearer\s+/i, ""));
+        }
+
+        if (auth === "Bearer ollama-cloud-should-not-run") {
+          return {
+            status: 404,
+            headers: {
+              "content-type": "application/json"
+            },
+            body: JSON.stringify({
+              error: {
+                message: "model \"gpt-5.4-mini\" not found"
+              }
+            })
+          };
+        }
+
+        const parsedBody = JSON.parse(body);
+        assert.ok(isRecord(parsedBody));
+        assert.equal(parsedBody.model, "gpt-5.4-mini");
+
+        return {
+          status: 200,
+          headers: {
+            "content-type": "application/json"
+          },
+          body: JSON.stringify({
+            id: "resp-gpt52-fallback-ok",
+            object: "response",
+            created_at: 1772516816,
+            model: "gpt-5.4-mini",
+            output: [
+              {
+                id: "msg-gpt52-fallback-ok",
+                type: "message",
+                role: "assistant",
+                content: [
+                  {
+                    type: "output_text",
+                    text: "gpt-5.4-mini-fallback-ok"
+                  }
+                ]
+              }
+            ]
+          })
+        };
+      },
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json"
+        },
+        payload: {
+          model: "gpt-5.4-mini",
+          messages: [{ role: "user", content: "hello" }],
+          stream: false
+        }
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 25));
+
+      assert.equal(response.statusCode, 200);
+      assert.equal(response.headers["x-open-hax-upstream-provider"], "vivgrid");
+      assert.deepEqual(observedAuth, ["vivgrid-gpt52-key"]);
+
+      const payload: unknown = response.json();
+      assert.ok(isRecord(payload));
+      assert.ok(Array.isArray(payload.choices));
+      assert.ok(isRecord(payload.choices[0]));
+      assert.ok(isRecord(payload.choices[0].message));
+      assert.equal(payload.choices[0].message.content, "gpt-5.4-mini-fallback-ok");
+    }
+  );
+});
+
+test("requires bearer token when proxy auth token is configured", async () => {
+  await withProxyApp(
+    {
+      keys: ["key-a"],
+      proxyAuthToken: "proxy-secret",
+      allowUnauthenticated: false,
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: {
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({ id: "chatcmpl-auth", object: "chat.completion", choices: [] })
+      })
+    },
+    async ({ app }) => {
+      const unauthorized = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json"
+        },
+        payload: {
+          model: "gemini-3.1-pro-preview",
+          messages: [{ role: "user", content: "hello" }],
+          stream: false
+        }
+      });
+
+      assert.equal(unauthorized.statusCode, 401);
+      assert.equal(unauthorized.headers["x-open-hax-error-code"], "unauthorized");
+
+      const unauthorizedPayload: unknown = unauthorized.json();
+      assert.ok(isRecord(unauthorizedPayload));
+      assert.ok(isRecord(unauthorizedPayload.error));
+      assert.equal(unauthorizedPayload.error.code, "unauthorized");
+
+      const authorized = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          authorization: "Bearer proxy-secret",
+          "content-type": "application/json"
+        },
+        payload: {
+          model: "gemini-3.1-pro-preview",
+          messages: [{ role: "user", content: "hello" }],
+          stream: false
+        }
+      });
+
+      assert.equal(authorized.statusCode, 200);
+      assert.equal(authorized.headers["x-open-hax-upstream-mode"], "chat_completions");
+    }
+  );
+});
+
+test("accepts proxy auth token from cookie for browser-served UI and API requests", async () => {
+  await withProxyApp(
+    {
+      keys: ["key-a"],
+      proxyAuthToken: "proxy-secret",
+      allowUnauthenticated: false,
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: {
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({ id: "chatcmpl-cookie-auth", object: "chat.completion", choices: [] })
+      })
+    },
+    async ({ app }) => {
+      const authorized = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          cookie: "open_hax_proxy_auth_token=proxy-secret",
+          "content-type": "application/json"
+        },
+        payload: {
+          model: "gemini-3.1-pro-preview",
+          messages: [{ role: "user", content: "hello" }],
+          stream: false
+        }
+      });
+
+      assert.equal(authorized.statusCode, 200);
+      assert.equal(authorized.headers["x-open-hax-upstream-mode"], "chat_completions");
+    }
+  );
+});
+
+test("returns OpenAI-style error for unsupported /v1 endpoints", async () => {
+  await withProxyApp(
+    {
+      keys: ["key-a"],
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: {
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({ ok: true })
+      })
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "GET",
+        url: "/v1/unknown"
+      });
+
+      assert.equal(response.statusCode, 404);
+      assert.equal(response.headers["x-open-hax-error-code"], "unsupported_endpoint");
+
+      const payload: unknown = response.json();
+      assert.ok(isRecord(payload));
+      assert.ok(isRecord(payload.error));
+      assert.equal(payload.error.code, "unsupported_endpoint");
+      assert.match(String(payload.error.message), /Supported endpoints:/);
+    }
+  );
+});
+
+test("restricts OPTIONS preflight to declared endpoints", async () => {
+  await withProxyApp(
+    {
+      keys: ["key-a"],
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: {
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({ ok: true })
+      })
+    },
+    async ({ app }) => {
+      const known = await app.inject({
+        method: "OPTIONS",
+        url: "/v1/chat/completions"
+      });
+
+      assert.equal(known.statusCode, 204);
+
+      const unknown = await app.inject({
+        method: "OPTIONS",
+        url: "/v1/unknown"
+      });
+
+      assert.equal(unknown.statusCode, 404);
+      assert.equal(unknown.headers["x-open-hax-error-code"], "unsupported_endpoint");
+    }
+  );
+});
+
+test("returns 429 when every key is rate-limited", async () => {
+  await withProxyApp(
+    {
+      keys: ["key-a", "key-b"],
+      upstreamHandler: async () => ({
+        status: 429,
+        headers: {
+          "content-type": "application/json",
+          "retry-after": "60"
+        },
+        body: JSON.stringify({ error: { message: "rate limit" } })
+      })
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json"
+        },
+        payload: {
+          model: "gpt-5.3-codex",
+          messages: [{ role: "user", content: "hello" }],
+          stream: false
+        }
+      });
+
+      assert.equal(response.statusCode, 429);
+      assert.ok(response.headers["retry-after"]);
+
+      const payload: unknown = response.json();
+      assert.ok(isRecord(payload));
+      assert.ok(isRecord(payload.error));
+      assert.equal(payload.error.code, "no_available_key");
+    }
+  );
+});
+
+test("ollama weekly limit applies the multiplied cooldown until it expires", async () => {
+  const baseCooldownMs = 10_000;
+  const weeklyCooldownMs = baseCooldownMs * 24;
+  let upstreamCalls = 0;
+  const originalNow = Date.now;
+  let now = 1_700_000_000_000;
+  Date.now = () => now;
+
+  try {
+    await withProxyApp(
+      {
+        keys: [],
+        keysPayload: {
+          providers: {
+            "ollama-cloud": ["ollama-weekly-key"],
+          },
+        },
+        configOverrides: {
+          upstreamProviderId: "ollama-cloud",
+        },
+        upstreamHandler: async () => {
+          upstreamCalls += 1;
+          return {
+            status: 429,
+            headers: {
+              "content-type": "application/json",
+            },
+            body: JSON.stringify({
+              error: "you (weekly-test) have reached your weekly usage limit, upgrade for higher limits: https://ollama.com/upgrade",
+            }),
+          };
+        },
+      },
+      async ({ app }) => {
+        const payload = {
+          model: "gemma3:12b",
+          messages: [{ role: "user", content: "hello" }],
+          stream: false,
+        };
+
+        const first = await app.inject({
+          method: "POST",
+          url: "/v1/chat/completions",
+          headers: { "content-type": "application/json" },
+          payload,
+        });
+        assert.equal(first.statusCode, 429);
+        assert.equal(upstreamCalls, 1);
+
+        const second = await app.inject({
+          method: "POST",
+          url: "/v1/chat/completions",
+          headers: { "content-type": "application/json" },
+          payload,
+        });
+        assert.equal(second.statusCode, 429);
+        assert.equal(upstreamCalls, 1, "cooled weekly-limited account should be skipped immediately");
+
+        now += weeklyCooldownMs - 1;
+        const third = await app.inject({
+          method: "POST",
+          url: "/v1/chat/completions",
+          headers: { "content-type": "application/json" },
+          payload,
+        });
+        assert.equal(third.statusCode, 429);
+        assert.equal(upstreamCalls, 1, "weekly cooldown should still block before multiplied interval expires");
+
+        now += 1;
+        const fourth = await app.inject({
+          method: "POST",
+          url: "/v1/chat/completions",
+          headers: { "content-type": "application/json" },
+          payload,
+        });
+        assert.equal(fourth.statusCode, 429);
+        assert.equal(upstreamCalls, 2, "provider should be retried once the multiplied cooldown expires");
+      },
+    );
+  } finally {
+    Date.now = originalNow;
+  }
+});
+
+test("permanently disables api_key accounts on 402 (payment required)", async () => {
+  let requestCount = 0;
+
+  await withProxyApp(
+    {
+      keys: ["suspended-key"],
+      upstreamHandler: async () => {
+        requestCount++;
+        return {
+          status: 402,
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ error: { message: "Payment required" } })
+        };
+      }
+    },
+    async ({ app }) => {
+      const first = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: { "content-type": "application/json" },
+        payload: {
+          model: "gpt-5.3-codex",
+          messages: [{ role: "user", content: "hello" }],
+          stream: false
+        }
+      });
+
+      assert.ok([402, 429, 500, 502].includes(first.statusCode), `first request should fail, got ${first.statusCode}`);
+      const firstCount = requestCount;
+      assert.equal(firstCount, 1, "should have made exactly one upstream attempt");
+
+      const second = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: { "content-type": "application/json" },
+        payload: {
+          model: "gpt-5.3-codex",
+          messages: [{ role: "user", content: "hello" }],
+          stream: false
+        }
+      });
+
+      assert.equal(requestCount, firstCount, "second request must not reach upstream — account is permanently disabled");
+      assert.ok([429, 500, 502].includes(second.statusCode), `second request should fail with no keys, got ${second.statusCode}`);
+    }
+  );
+});
+
+test("permanently disables api_key accounts on 403 (forbidden/suspended)", async () => {
+  let requestCount = 0;
+
+  await withProxyApp(
+    {
+      keys: ["banned-key"],
+      upstreamHandler: async () => {
+        requestCount++;
+        return {
+          status: 403,
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ error: { message: "Forbidden" } })
+        };
+      }
+    },
+    async ({ app }) => {
+      const first = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: { "content-type": "application/json" },
+        payload: {
+          model: "gpt-5.3-codex",
+          messages: [{ role: "user", content: "hello" }],
+          stream: false
+        }
+      });
+
+      assert.ok(first.statusCode >= 400, `first request should fail, got ${first.statusCode}`);
+      const firstCount = requestCount;
+
+      const _second = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: { "content-type": "application/json" },
+        payload: {
+          model: "gpt-5.3-codex",
+          messages: [{ role: "user", content: "hello" }],
+          stream: false
+        }
+      });
+
+      assert.equal(requestCount, firstCount, "second request must not reach upstream — account is permanently disabled");
+    }
+  );
+});
+
+test("model-gated glm-5 accounts stay usable for gemma4", async () => {
+  const requestsByModel = new Map<string, number>();
+
+  await withProxyApp(
+    {
+      keys: [],
+      keysPayload: {
+        providers: {
+          "ollama-cloud": ["ollama-cloud-key-a"],
+        },
+      },
+      configOverrides: {
+        upstreamProviderId: "ollama-cloud",
+        localOllamaEnabled: false,
+        keyCooldownJitterFactor: 0,
+      },
+      upstreamHandler: async (_request, body) => {
+        const payload = JSON.parse(body) as Record<string, unknown>;
+        const model = typeof payload.model === "string" ? payload.model : "";
+        requestsByModel.set(model, (requestsByModel.get(model) ?? 0) + 1);
+
+        if (model === "glm-5") {
+          return {
+            status: 403,
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              error: { message: "this model requires a subscription, upgrade for access" },
+            }),
+          };
+        }
+
+        assert.equal(model, "gemma4:31b");
+        return {
+          status: 200,
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            id: "chatcmpl_gemma4_ok",
+            object: "chat.completion",
+            model: "gemma4:31b",
+            choices: [{
+              index: 0,
+              message: {
+                role: "assistant",
+                content: "gemma4-still-works",
+              },
+              finish_reason: "stop",
+            }],
+          }),
+        };
+      }
+    },
+    async ({ app }) => {
+      const first = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: { "content-type": "application/json" },
+        payload: {
+          model: "glm-5",
+          messages: [{ role: "user", content: "hello" }],
+          stream: false,
+        },
+      });
+
+      assert.equal(first.statusCode, 403);
+
+      const third = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: { "content-type": "application/json" },
+        payload: {
+          model: "gemma4:31b",
+          messages: [{ role: "user", content: "hello gemma" }],
+          stream: false,
+        },
+      });
+
+      assert.equal(third.statusCode, 200);
+      assert.ok((requestsByModel.get("gemma4:31b") ?? 0) >= 1);
+      const payload: unknown = third.json();
+      assert.ok(isRecord(payload));
+      assert.ok(Array.isArray(payload.choices));
+      assert.equal((payload.choices as any)[0].message.content, "gemma4-still-works");
+    }
+  );
+});
+
+test("does not classify successful payload text as quota exhaustion", async () => {
+  const observedKeys: string[] = [];
+
+  await withProxyApp(
+    {
+      keys: ["key-a", "key-b"],
+      upstreamHandler: async (request) => {
+        const auth = request.headers.authorization;
+        if (typeof auth === "string") {
+          observedKeys.push(auth.replace(/^Bearer\s+/i, ""));
+        }
+
+        if (auth === "Bearer key-a") {
+          return {
+            status: 200,
+            headers: {
+              "content-type": "application/json"
+            },
+            body: JSON.stringify({
+              id: "chatcmpl-first-key-success",
+              object: "chat.completion",
+              message: "An outstanding balance sheet can still be healthy.",
+              choices: [
+                {
+                  index: 0,
+                  message: {
+                    role: "assistant",
+                    content: "ok-from-first-key"
+                  },
+                  finish_reason: "stop"
+                }
+              ]
+            })
+          };
+        }
+
+        return {
+          status: 200,
+          headers: {
+            "content-type": "application/json"
+          },
+          body: JSON.stringify({
+            id: "chatcmpl-second-key-should-not-run",
+            object: "chat.completion",
+            choices: [
+              {
+                index: 0,
+                message: {
+                  role: "assistant",
+                  content: "unexpected-second-key"
+                },
+                finish_reason: "stop"
+              }
+            ]
+          })
+        };
+      }
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json"
+        },
+        payload: {
+          model: "glm-5",
+          messages: [{ role: "user", content: "hello" }],
+          stream: false
+        }
+      });
+
+      assert.equal(response.statusCode, 200);
+      assert.deepEqual(observedKeys, ["key-a"]);
+
+      const payload: unknown = response.json();
+      assert.ok(isRecord(payload));
+      assert.equal(payload.id, "chatcmpl-first-key-success");
+    }
+  );
+});
+
+test("treats 503 + retry-after as upstream server error, not account rate limit", async () => {
+  await withProxyApp(
+    {
+      keys: ["key-a", "key-b"],
+      upstreamHandler: async () => ({
+        status: 503,
+        headers: {
+          "content-type": "application/json",
+          "retry-after": "1"
+        },
+        body: JSON.stringify({ error: { message: "temporary upstream outage" } })
+      })
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json"
+        },
+        payload: {
+          model: "glm-5",
+          messages: [{ role: "user", content: "hello" }],
+          stream: false
+        }
+      });
+
+      assert.equal(response.statusCode, 502);
+      const payload: unknown = response.json();
+      assert.ok(isRecord(payload));
+      assert.ok(isRecord(payload.error));
+      assert.equal(payload.error.code, "upstream_server_error");
+    }
+  );
+});
+
+test("returns 400 when invalid-request and rate-limit responses are mixed", async () => {
+  await withProxyApp(
+    {
+      keys: ["key-a", "key-b"],
+      upstreamHandler: async (request) => {
+        const auth = request.headers.authorization;
+        if (auth === "Bearer key-a") {
+          const headers: Record<string, string> = {
+            "content-type": "application/json"
+          };
+
+          return {
+            status: 400,
+            headers,
+            body: JSON.stringify({
+              error: {
+                type: "invalid_request_error",
+                code: "bad_request",
+                message: "unsupported request parameter: stream_options"
+              }
+            })
+          };
+        }
+
+        const headers: Record<string, string> = {
+          "content-type": "application/json",
+          "retry-after": "1"
+        };
+
+        return {
+          status: 429,
+          headers,
+          body: JSON.stringify({ error: { message: "rate limit" } })
+        };
+      }
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json"
+        },
+        payload: {
+          model: "glm-5",
+          messages: [{ role: "user", content: "hello" }],
+          stream: false,
+          stream_options: { include_usage: true }
+        }
+      });
+
+      assert.equal(response.statusCode, 400);
+      const payload: unknown = response.json();
+      assert.ok(isRecord(payload));
+      assert.ok(isRecord(payload.error));
+      assert.equal(payload.error.type, "invalid_request_error");
+      assert.equal(payload.error.code, "upstream_rejected_request");
+    }
+  );
+});
+
+test("returns graceful aggregated error when all upstream accounts fail with auth errors", async () => {
+  await withProxyApp(
+    {
+      keys: ["key-a", "key-b"],
+      upstreamHandler: async (request) => {
+        const auth = request.headers.authorization;
+        if (auth === "Bearer key-a") {
+          return {
+            status: 401,
+            headers: {
+              "content-type": "application/json"
+            },
+            body: JSON.stringify({ error: { message: "token invalidated" } })
+          };
+        }
+
+        return {
+          status: 403,
+          headers: {
+            "content-type": "application/octet-stream"
+          },
+          body: ""
+        };
+      }
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json"
+        },
+        payload: {
+          model: "glm-5",
+          messages: [{ role: "user", content: "hello" }],
+          stream: false
+        }
+      });
+
+      assert.equal(response.statusCode, 502);
+      const payload: unknown = response.json();
+      assert.ok(isRecord(payload));
+      assert.ok(isRecord(payload.error));
+      assert.equal(payload.error.code, "upstream_unavailable");
+    }
+  );
+});
+
+test("returns graceful invalid-request error when the final upstream candidate rejects the payload", async () => {
+  await withProxyApp(
+    {
+      keys: ["key-a"],
+      upstreamHandler: async () => ({
+        status: 400,
+        headers: {
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({
+          error: {
+            type: "invalid_request_error",
+            code: "bad_request",
+            message: "unsupported request parameter: stream_options"
+          }
+        })
+      })
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json"
+        },
+        payload: {
+          model: "glm-5",
+          messages: [{ role: "user", content: "hello" }],
+          stream: false,
+          stream_options: { include_usage: true }
+        }
+      });
+
+      assert.equal(response.statusCode, 400);
+      const payload: unknown = response.json();
+      assert.ok(isRecord(payload));
+      assert.ok(isRecord(payload.error));
+      assert.equal(payload.error.code, "upstream_rejected_request");
+    }
+  );
+});
+
+test("treats outstanding_balance responses as rate-limit-like and rotates keys", async () => {
+  const observedKeys: string[] = [];
+
+  await withProxyApp(
+    {
+      keys: ["key-a", "key-b"],
+      upstreamHandler: async (request) => {
+        const auth = request.headers.authorization;
+        if (typeof auth === "string") {
+          observedKeys.push(auth.replace(/^Bearer\s+/i, ""));
+        }
+
+        if (auth === "Bearer key-a") {
+          return {
+            status: 402,
+            headers: {
+              "content-type": "application/json"
+            },
+            body: JSON.stringify({
+              error: {
+                code: "outstanding_balance",
+                message: "outstanding_balance"
+              }
+            })
+          };
+        }
+
+        return {
+          status: 200,
+          headers: {
+            "content-type": "application/json"
+          },
+          body: JSON.stringify({ id: "chatcmpl-outstanding-fallback", object: "chat.completion", choices: [] })
+        };
+      }
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json"
+        },
+        payload: {
+          model: "gpt-5.3-codex",
+          messages: [{ role: "user", content: "hello" }],
+          stream: false
+        }
+      });
+
+      assert.equal(response.statusCode, 200);
+      assert.deepEqual(observedKeys, ["key-a", "key-b"]);
+    }
+  );
+});
+
+test("returns 429 when every key has outstanding_balance", async () => {
+  await withProxyApp(
+    {
+      keys: ["key-a", "key-b"],
+      upstreamHandler: async () => ({
+        status: 402,
+        headers: {
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({
+          error: {
+            code: "outstanding_balance",
+            message: "outstanding_balance"
+          }
+        })
+      })
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json"
+        },
+        payload: {
+          model: "gpt-5.3-codex",
+          messages: [{ role: "user", content: "hello" }],
+          stream: false
+        }
+      });
+
+      assert.equal(response.statusCode, 429);
+
+      const payload: unknown = response.json();
+      assert.ok(isRecord(payload));
+      assert.ok(isRecord(payload.error));
+      assert.equal(payload.error.code, "no_available_key");
+      assert.match(String(payload.error.message), /outstanding balances|quota-exhausted/i);
+    }
+  );
+});
+
+test("retries with next key when upstream returns 500", async () => {
+  const observedKeys: string[] = [];
+
+  await withProxyApp(
+    {
+      keys: ["key-a", "key-b"],
+      upstreamHandler: async (request) => {
+        const auth = request.headers.authorization;
+        if (typeof auth === "string") {
+          observedKeys.push(auth.replace(/^Bearer\s+/i, ""));
+        }
+
+        if (auth === "Bearer key-a") {
+          return {
+            status: 500,
+            headers: {
+              "content-type": "application/json"
+            },
+            body: JSON.stringify({ error: { message: "temporary upstream error" } })
+          };
+        }
+
+        return {
+          status: 200,
+          headers: {
+            "content-type": "application/json"
+          },
+          body: JSON.stringify({ id: "chatcmpl-500-fallback", object: "chat.completion", choices: [] })
+        };
+      }
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json"
+        },
+        payload: {
+          model: "gemini-3.1-pro-preview",
+          messages: [{ role: "user", content: "hello" }],
+          stream: false
+        }
+      });
+
+      assert.equal(response.statusCode, 200);
+      const payload: unknown = response.json();
+      assert.ok(isRecord(payload));
+      assert.equal(payload.id, "chatcmpl-500-fallback");
+      assert.deepEqual(observedKeys, ["key-a", "key-b"]);
+    }
+  );
+});
+
+test("retries transient upstream server errors on the same key before rotating", async () => {
+  const observedKeys: string[] = [];
+  let keyAAttempts = 0;
+
+  await withProxyApp(
+    {
+      keys: ["key-a", "key-b"],
+      upstreamHandler: async (request) => {
+        const auth = request.headers.authorization;
+        if (typeof auth === "string") {
+          observedKeys.push(auth.replace(/^Bearer\s+/i, ""));
+        }
+
+        if (auth === "Bearer key-a") {
+          keyAAttempts += 1;
+          if (keyAAttempts < 3) {
+            return {
+              status: 503,
+              headers: {
+                "content-type": "application/json"
+              },
+              body: JSON.stringify({ error: { message: "temporary upstream outage" } })
+            };
+          }
+        }
+
+        return {
+          status: 200,
+          headers: {
+            "content-type": "application/json"
+          },
+          body: JSON.stringify({ id: "chatcmpl-retry-same-key", object: "chat.completion", choices: [] })
+        };
+      }
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json"
+        },
+        payload: {
+          model: "gemini-3.1-pro-preview",
+          messages: [{ role: "user", content: "hello" }],
+          stream: false
+        }
+      });
+
+      assert.equal(response.statusCode, 200);
+      const payload: unknown = response.json();
+      assert.ok(isRecord(payload));
+      assert.equal(payload.id, "chatcmpl-retry-same-key");
+      assert.deepEqual(observedKeys, ["key-a", "key-a", "key-a"]);
+    }
+  );
+});
+
+test("applies global fast mode to responses requests through proxy settings", async () => {
+  let observedBody: unknown;
+
+  await withProxyApp(
+    {
+      keys: ["key-a"],
+      upstreamHandler: async (_request, body) => {
+        observedBody = JSON.parse(body);
+
+        return {
+          status: 200,
+          headers: {
+            "content-type": "application/json"
+          },
+          body: JSON.stringify({
+            id: "resp_fast_mode",
+            object: "response",
+            created_at: 1772516800,
+            model: "gpt-5.3-codex",
+            output: [
+              {
+                id: "msg_fast_mode",
+                type: "message",
+                role: "assistant",
+                content: [
+                  {
+                    type: "output_text",
+                    text: "fast-mode-ok"
+                  }
+                ]
+              }
+            ]
+          })
+        };
+      }
+    },
+    async ({ app }) => {
+      const settingsResponse = await app.inject({
+        method: "POST",
+        url: "/api/v1/settings",
+        headers: {
+          "content-type": "application/json"
+        },
+        payload: {
+          fastMode: true
+        }
+      });
+
+      assert.equal(settingsResponse.statusCode, 200);
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json"
+        },
+        payload: {
+          model: "gpt-5.3-codex",
+          messages: [{ role: "user", content: "hello" }],
+          stream: false
+        }
+      });
+
+      assert.equal(response.statusCode, 200);
+      assert.ok(isRecord(observedBody));
+      assert.equal(observedBody.service_tier, "priority");
+      assert.equal(observedBody.open_hax, undefined);
+
+      const requestLogsPayload = await app.inject({
+        method: "GET",
+        url: "/api/v1/request-logs?limit=1",
+      });
+      assert.equal(requestLogsPayload.statusCode, 200);
+      const requestLogsBody: unknown = requestLogsPayload.json();
+      assert.ok(isRecord(requestLogsBody));
+      assert.ok(Array.isArray(requestLogsBody.entries));
+      assert.ok(isRecord(requestLogsBody.entries[0]));
+      assert.equal(requestLogsBody.entries[0].serviceTier, "priority");
+      assert.equal(requestLogsBody.entries[0].serviceTierSource, "fast_mode");
+
+      const overviewResponse = await app.inject({
+        method: "GET",
+        url: "/api/v1/dashboard/overview",
+      });
+      assert.equal(overviewResponse.statusCode, 200);
+      const overviewPayload: unknown = overviewResponse.json();
+      assert.ok(isRecord(overviewPayload));
+      assert.ok(isRecord(overviewPayload.summary));
+      assert.ok(isRecord(overviewPayload.summary.serviceTierRequests24h));
+      assert.equal(overviewPayload.summary.serviceTierRequests24h.fastMode, 1);
+      assert.equal(overviewPayload.summary.serviceTierRequests24h.priority, 0);
+      assert.equal(overviewPayload.summary.serviceTierRequests24h.standard, 0);
+    }
+  );
+});
+
+test("request-level service tier overrides global fast mode", async () => {
+  let observedBody: unknown;
+
+  await withProxyApp(
+    {
+      keys: ["key-a"],
+      upstreamHandler: async (_request, body) => {
+        observedBody = JSON.parse(body);
+
+        return {
+          status: 200,
+          headers: {
+            "content-type": "application/json"
+          },
+          body: JSON.stringify({
+            id: "resp_service_tier_override",
+            object: "response",
+            created_at: 1772516800,
+            model: "gpt-5.3-codex",
+            output: []
+          })
+        };
+      }
+    },
+    async ({ app }) => {
+      await app.inject({
+        method: "POST",
+        url: "/api/v1/settings",
+        headers: {
+          "content-type": "application/json"
+        },
+        payload: {
+          fastMode: true
+        }
+      });
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json"
+        },
+        payload: {
+          model: "gpt-5.3-codex",
+          messages: [{ role: "user", content: "hello" }],
+          stream: false,
+          service_tier: "default"
+        }
+      });
+
+      assert.equal(response.statusCode, 200);
+      assert.ok(isRecord(observedBody));
+      assert.equal(observedBody.service_tier, "default");
+
+      const requestLogsPayload = await app.inject({
+        method: "GET",
+        url: "/api/v1/request-logs?limit=1",
+      });
+      assert.equal(requestLogsPayload.statusCode, 200);
+      const requestLogsBody: unknown = requestLogsPayload.json();
+      assert.ok(isRecord(requestLogsBody));
+      assert.ok(Array.isArray(requestLogsBody.entries));
+      assert.ok(isRecord(requestLogsBody.entries[0]));
+      assert.equal(requestLogsBody.entries[0].serviceTier, "default");
+      assert.equal(requestLogsBody.entries[0].serviceTierSource, "explicit");
+
+      const overviewResponse = await app.inject({
+        method: "GET",
+        url: "/api/v1/dashboard/overview",
+      });
+      assert.equal(overviewResponse.statusCode, 200);
+      const overviewPayload: unknown = overviewResponse.json();
+      assert.ok(isRecord(overviewPayload));
+      assert.ok(isRecord(overviewPayload.summary));
+      assert.ok(isRecord(overviewPayload.summary.serviceTierRequests24h));
+      assert.equal(overviewPayload.summary.serviceTierRequests24h.fastMode, 0);
+      assert.equal(overviewPayload.summary.serviceTierRequests24h.priority, 0);
+      assert.equal(overviewPayload.summary.serviceTierRequests24h.standard, 1);
+    }
+  );
+});
+
+test("tenant requests per minute quota blocks excess requests", async () => {
+  let upstreamCallCount = 0;
+
+  await withProxyApp(
+    {
+      keys: ["key-a"],
+      proxyAuthToken: "tenant-admin-token",
+      upstreamHandler: async (_request, _body) => {
+        upstreamCallCount += 1;
+
+        return {
+          status: 200,
+          headers: {
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            id: `resp_quota_${upstreamCallCount}`,
+            object: "response",
+            created_at: 1772516800,
+            model: "gpt-5.3-codex",
+            output: [],
+          }),
+        };
+      },
+    },
+    async ({ app }) => {
+      const settingsResponse = await app.inject({
+        method: "POST",
+        url: "/api/v1/settings",
+        headers: {
+          authorization: "Bearer tenant-admin-token",
+          "content-type": "application/json",
+        },
+        payload: {
+          requestsPerMinute: 1,
+        },
+      });
+
+      assert.equal(settingsResponse.statusCode, 200);
+
+      const firstResponse = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          authorization: "Bearer tenant-admin-token",
+          "content-type": "application/json",
+        },
+        payload: {
+          model: "gpt-5.3-codex",
+          messages: [{ role: "user", content: "hello once" }],
+          stream: false,
+        },
+      });
+
+      assert.equal(firstResponse.statusCode, 200);
+
+      const secondResponse = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          authorization: "Bearer tenant-admin-token",
+          "content-type": "application/json",
+        },
+        payload: {
+          model: "gpt-5.3-codex",
+          messages: [{ role: "user", content: "hello twice" }],
+          stream: false,
+        },
+      });
+
+      assert.equal(secondResponse.statusCode, 429);
+      assert.equal(secondResponse.headers["x-open-hax-error-code"], "tenant_quota_exceeded");
+      assert.equal(secondResponse.headers["retry-after"], "60");
+      assert.equal(upstreamCallCount, 1);
+    },
+  );
+});
+
+test("tenant allowedProviderIds blocks disallowed upstream providers", async () => {
+  let upstreamCallCount = 0;
+
+  await withProxyApp(
+    {
+      keys: ["key-a"],
+      proxyAuthToken: "tenant-admin-token",
+      upstreamHandler: async (_request, _body) => {
+        upstreamCallCount += 1;
+        return {
+          status: 200,
+          headers: {
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            id: `resp_provider_policy_${upstreamCallCount}`,
+            object: "response",
+            created_at: 1772516800,
+            model: "gpt-5.3-codex",
+            output: [],
+          }),
+        };
+      },
+    },
+    async ({ app }) => {
+      const settingsResponse = await app.inject({
+        method: "POST",
+        url: "/api/v1/settings",
+        headers: {
+          authorization: "Bearer tenant-admin-token",
+          "content-type": "application/json",
+        },
+        payload: {
+          allowedProviderIds: ["openai"],
+        },
+      });
+
+      assert.equal(settingsResponse.statusCode, 200);
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          authorization: "Bearer tenant-admin-token",
+          "content-type": "application/json",
+        },
+        payload: {
+          model: "factory/gpt-5.3-codex",
+          messages: [{ role: "user", content: "blocked" }],
+          stream: false,
+        },
+      });
+
+      assert.equal(response.statusCode, 403);
+      assert.equal(response.headers["x-open-hax-error-code"], "provider_not_allowed");
+      assert.equal(upstreamCallCount, 0);
+    },
+  );
+});
+
+test("tenant disabledProviderIds blocks local ollama usage", async () => {
+  await withProxyApp(
+    {
+      keys: ["key-a"],
+      proxyAuthToken: "tenant-admin-token",
+      upstreamHandler: async () => {
+        throw new Error("upstream should not be called");
+      },
+    },
+    async ({ app }) => {
+      const settingsResponse = await app.inject({
+        method: "POST",
+        url: "/api/v1/settings",
+        headers: {
+          authorization: "Bearer tenant-admin-token",
+          "content-type": "application/json",
+        },
+        payload: {
+          disabledProviderIds: ["ollama"],
+        },
+      });
+
+      assert.equal(settingsResponse.statusCode, 200);
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/embeddings",
+        headers: {
+          authorization: "Bearer tenant-admin-token",
+          "content-type": "application/json",
+        },
+        payload: {
+          model: "ollama/llama3.2",
+          input: "blocked",
+        },
+      });
+
+      assert.equal(response.statusCode, 403);
+      assert.equal(response.headers["x-open-hax-error-code"], "provider_not_allowed");
+    },
+  );
+});
+
+test("explicit ollama-lan embedding prefix does not collapse to native ollama", async () => {
+  let upstreamCalled = false;
+
+  await withProxyApp(
+    {
+      keys: [],
+      configOverrides: {
+        ollamaModelPrefixes: ["ollama/", "ollama:", "ollama-lan/", "ollama-lan:"],
+      },
+      upstreamHandler: async () => {
+        upstreamCalled = true;
+        throw new Error("explicit ollama-lan embeddings should not fall back to ollama");
+      },
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/embeddings",
+        headers: {
+          "content-type": "application/json",
+        },
+        payload: {
+          model: "ollama-lan/qwen3-embedding:0.6b",
+          input: "must not fall back",
+        },
+      });
+
+      assert.equal(response.statusCode, 403);
+      assert.equal(response.headers["x-open-hax-error-code"], "provider_not_allowed");
+      assert.equal(upstreamCalled, false);
+    },
+  );
+});
+
+test("weekly dashboard uses persisted daily model/account aggregates and reports incomplete coverage", async () => {
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const day0 = Math.floor((Date.now() - 5 * DAY_MS) / DAY_MS) * DAY_MS;
+  const day1 = day0 + DAY_MS;
+  const requestLogsPayload = {
+    entries: [
+      {
+        id: "recent-entry",
+        timestamp: Date.now() - 60_000,
+        providerId: "openai",
+        accountId: "acct-openai",
+        authType: "oauth_bearer",
+        model: "gpt-5.4",
+        upstreamMode: "responses",
+        upstreamPath: "/v1/responses",
+        status: 200,
+        latencyMs: 120,
+        promptTokens: 20,
+        completionTokens: 10,
+        totalTokens: 30,
+        costUsd: 0.001,
+        energyJoules: 10,
+        waterEvaporatedMl: 0.005,
+      },
+    ],
+    hourlyBuckets: [],
+    dailyBuckets: [
+      {
+        startMs: day0,
+        requestCount: 5,
+        errorCount: 0,
+        totalTokens: 1500,
+        promptTokens: 1000,
+        completionTokens: 500,
+        cachedPromptTokens: 0,
+        imageCount: 0,
+        imageCostUsd: 0,
+        cacheHitCount: 0,
+        cacheKeyUseCount: 0,
+        fastModeRequestCount: 0,
+        priorityRequestCount: 0,
+        standardRequestCount: 5,
+        costUsd: 1.5,
+        energyJoules: 150,
+        waterEvaporatedMl: 0.075,
+      },
+      {
+        startMs: day1,
+        requestCount: 4,
+        errorCount: 1,
+        totalTokens: 900,
+        promptTokens: 600,
+        completionTokens: 300,
+        cachedPromptTokens: 0,
+        imageCount: 0,
+        imageCostUsd: 0,
+        cacheHitCount: 0,
+        cacheKeyUseCount: 0,
+        fastModeRequestCount: 0,
+        priorityRequestCount: 0,
+        standardRequestCount: 4,
+        costUsd: 0.9,
+        energyJoules: 90,
+        waterEvaporatedMl: 0.045,
+      },
+    ],
+    dailyModelBuckets: [
+      {
+        startMs: day0,
+        providerId: "openai",
+        model: "gpt-5.4",
+        requestCount: 5,
+        errorCount: 0,
+        totalTokens: 1500,
+        promptTokens: 1000,
+        completionTokens: 500,
+        cachedPromptTokens: 0,
+        imageCount: 0,
+        imageCostUsd: 0,
+        cacheHitCount: 0,
+        cacheKeyUseCount: 0,
+        fastModeRequestCount: 0,
+        priorityRequestCount: 0,
+        standardRequestCount: 5,
+        costUsd: 1.5,
+        energyJoules: 150,
+        waterEvaporatedMl: 0.075,
+      },
+      {
+        startMs: day1,
+        providerId: "factory",
+        model: "claude-sonnet-4-5",
+        requestCount: 4,
+        errorCount: 1,
+        totalTokens: 900,
+        promptTokens: 600,
+        completionTokens: 300,
+        cachedPromptTokens: 0,
+        imageCount: 0,
+        imageCostUsd: 0,
+        cacheHitCount: 0,
+        cacheKeyUseCount: 0,
+        fastModeRequestCount: 0,
+        priorityRequestCount: 0,
+        standardRequestCount: 4,
+        costUsd: 0.9,
+        energyJoules: 90,
+        waterEvaporatedMl: 0.045,
+      },
+    ],
+    dailyAccountBuckets: [
+      {
+        startMs: day0,
+        providerId: "openai",
+        accountId: "acct-openai",
+        authType: "oauth_bearer",
+        requestCount: 5,
+        errorCount: 0,
+        totalTokens: 1500,
+        promptTokens: 1000,
+        completionTokens: 500,
+        cachedPromptTokens: 0,
+        imageCount: 0,
+        imageCostUsd: 0,
+        cacheHitCount: 0,
+        cacheKeyUseCount: 0,
+        fastModeRequestCount: 0,
+        priorityRequestCount: 0,
+        standardRequestCount: 5,
+        ttftSum: 500,
+        ttftCount: 5,
+        tpsSum: 50,
+        tpsCount: 5,
+        lastUsedAtMs: day0 + 12 * 60 * 60 * 1000,
+        costUsd: 1.5,
+        energyJoules: 150,
+        waterEvaporatedMl: 0.075,
+      },
+      {
+        startMs: day1,
+        providerId: "factory",
+        accountId: "acct-factory",
+        authType: "oauth_bearer",
+        requestCount: 4,
+        errorCount: 1,
+        totalTokens: 900,
+        promptTokens: 600,
+        completionTokens: 300,
+        cachedPromptTokens: 0,
+        imageCount: 0,
+        imageCostUsd: 0,
+        cacheHitCount: 0,
+        cacheKeyUseCount: 0,
+        fastModeRequestCount: 0,
+        priorityRequestCount: 0,
+        standardRequestCount: 4,
+        ttftSum: 400,
+        ttftCount: 4,
+        tpsSum: 40,
+        tpsCount: 4,
+        lastUsedAtMs: day1 + 12 * 60 * 60 * 1000,
+        costUsd: 0.9,
+        energyJoules: 90,
+        waterEvaporatedMl: 0.045,
+      },
+    ],
+    accountAccumulators: [],
+  };
+
+  await withProxyApp(
+    {
+      keys: [],
+      keysPayload: {
+        providers: {
+          openai: {
+            auth: "oauth_bearer",
+            accounts: [
+              {
+                account_id: "acct-openai",
+                access_token: makeJwt({
+                  "https://api.openai.com/auth": {
+                    chatgpt_account_id: "acct-openai",
+                    chatgpt_plan_type: "plus",
+                  },
+                  "https://api.openai.com/profile": {
+                    email: "acct-openai@example.com",
+                  },
+                  sub: "acct-openai-user",
+                }),
+              },
+            ],
+          },
+          factory: {
+            auth: "oauth_bearer",
+            accounts: [
+              {
+                account_id: "acct-factory",
+                access_token: "factory-token-b",
+                plan_type: "pro",
+              },
+            ],
+          },
+        },
+      },
+      requestLogsPayload,
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ok: true }),
+      }),
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "GET",
+        url: "/api/v1/dashboard/overview?window=weekly&sort=tokens",
+      });
+
+      assert.equal(response.statusCode, 200);
+      const payload: any = response.json();
+      assert.equal(payload.window, "weekly");
+      assert.equal(payload.summary.tokens24h, 2400);
+      assert.equal(payload.summary.costUsd24h, 2.4);
+      assert.equal(payload.summary.topModel, "gpt-5.4");
+      assert.equal(payload.summary.topProvider, "openai");
+      assert.equal(payload.coverage.hasFullWindowCoverage, false);
+      assert.equal(payload.accounts[0].providerId, "openai");
+      assert.equal(payload.accounts[0].totalTokens, 1500);
+      assert.equal(payload.accounts[1].providerId, "factory");
+      assert.equal(payload.accounts[1].totalTokens, 900);
+    },
+  );
+});
+
+test("/api/v1/me exposes resolved auth context for legacy admin token", async () => {
+  await withProxyApp(
+    {
+      keys: ["key-a"],
+      proxyAuthToken: "ui-token",
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ok: true }),
+      }),
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "GET",
+        url: "/api/v1/me",
+        headers: {
+          authorization: "Bearer ui-token",
+        },
+      });
+
+      assert.equal(response.statusCode, 200);
+      const payload: any = response.json();
+      assert.equal(payload.auth.kind, "legacy_admin");
+      assert.equal(payload.auth.tenantId, "default");
+      assert.equal(payload.activeTenantId, "default");
+      assert.ok(Array.isArray(payload.tenants));
+    },
+  );
+});
+
+test("/api/v1/me exposes resolved auth context for legacy admin token", async () => {
+  await withProxyApp(
+    {
+      keys: ["key-a"],
+      proxyAuthToken: "ui-token",
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ok: true }),
+      }),
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "GET",
+        url: "/api/v1/me",
+        headers: {
+          authorization: "Bearer ui-token",
+        },
+      });
+
+      assert.equal(response.statusCode, 200);
+      const payload: any = response.json();
+      assert.equal(payload.auth.kind, "legacy_admin");
+      assert.equal(payload.auth.tenantId, "default");
+      assert.equal(payload.activeTenantId, "default");
+      assert.ok(Array.isArray(payload.tenants));
+    },
+  );
+});
+
+test("/api/v1/settings round-trips settings for legacy admin token", async () => {
+  await withProxyApp(
+    {
+      keys: ["key-a"],
+      proxyAuthToken: "ui-token",
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ok: true }),
+      }),
+    },
+    async ({ app }) => {
+      const updateResponse = await app.inject({
+        method: "POST",
+        url: "/api/v1/settings",
+        headers: {
+          authorization: "Bearer ui-token",
+          "content-type": "application/json",
+        },
+        payload: {
+          fastMode: true,
+          requestsPerMinute: 5,
+        },
+      });
+
+      assert.equal(updateResponse.statusCode, 200);
+      const updatedSettings: any = updateResponse.json();
+      assert.equal(updatedSettings.fastMode, true);
+      assert.equal(updatedSettings.requestsPerMinute, 5);
+
+      const getResponse = await app.inject({
+        method: "GET",
+        url: "/api/v1/settings",
+        headers: {
+          authorization: "Bearer ui-token",
+        },
+      });
+
+      assert.equal(getResponse.statusCode, 200);
+      const fetchedSettings: any = getResponse.json();
+      assert.equal(fetchedSettings.fastMode, true);
+      assert.equal(fetchedSettings.requestsPerMinute, 5);
+    },
+  );
+});
+
+test("/api/v1 root labels planned migration targets separately from implemented documentation", async () => {
+  await withProxyApp(
+    {
+      keys: ["key-a"],
+      proxyAuthToken: "ui-token",
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ok: true }),
+      }),
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "GET",
+        url: "/api/v1",
+        headers: {
+          authorization: "Bearer ui-token",
+        },
+      });
+
+      assert.equal(response.statusCode, 200);
+      const payload: any = response.json();
+      assert.equal(payload.migration.legacyPrefix, "/api/ui");
+      assert.equal(payload.migration.targetPrefix, "/api/v1");
+      assert.equal(payload.summary.planned, 2);
+      assert.equal(payload.summary.implemented, 6);
+      assert.equal(payload.endpoints.sessions.path, "/api/v1/sessions");
+      assert.equal(payload.endpoints.sessions.legacyPath, "/api/ui/sessions");
+      assert.equal(payload.endpoints.sessions.status, "implemented");
+      assert.equal(payload.endpoints.settings.status, "implemented");
+      assert.equal(payload.endpoints.credentials.status, "implemented");
+      assert.equal(payload.endpoints.hosts.status, "implemented");
+      assert.equal(payload.endpoints.events.status, "implemented");
+      assert.equal(payload.endpoints.observability.status, "implemented");
+      assert.equal(payload.endpoints.mcp.status, "planned");
+      assert.equal(payload.documentation.path, "/api/v1/openapi.json");
+      assert.equal(payload.documentation.status, "implemented");
+    },
+  );
+});
+
+test("provider-model analytics summarizes global models, providers, and provider-model pairs", async () => {
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const day0 = Math.floor((Date.now() - 5 * DAY_MS) / DAY_MS) * DAY_MS;
+  const day1 = day0 + DAY_MS;
+  const requestLogsPayload = {
+    entries: [],
+    hourlyBuckets: [],
+    dailyBuckets: [],
+    dailyModelBuckets: [
+      {
+        startMs: day0,
+        providerId: "openai",
+        model: "gpt-5.4",
+        requestCount: 6,
+        errorCount: 0,
+        totalTokens: 1800,
+        promptTokens: 1200,
+        completionTokens: 600,
+        cachedPromptTokens: 100,
+        imageCount: 0,
+        imageCostUsd: 0,
+        cacheHitCount: 2,
+        cacheKeyUseCount: 4,
+        fastModeRequestCount: 0,
+        priorityRequestCount: 0,
+        standardRequestCount: 6,
+        ttftSum: 600,
+        ttftCount: 6,
+        tpsSum: 72,
+        tpsCount: 6,
+        lastUsedAtMs: day0 + 12 * 60 * 60 * 1000,
+        costUsd: 1.8,
+        energyJoules: 180,
+        waterEvaporatedMl: 0.09,
+      },
+      {
+        startMs: day1,
+        providerId: "factory",
+        model: "gpt-5.4",
+        requestCount: 4,
+        errorCount: 1,
+        totalTokens: 1000,
+        promptTokens: 700,
+        completionTokens: 300,
+        cachedPromptTokens: 40,
+        imageCount: 0,
+        imageCostUsd: 0,
+        cacheHitCount: 1,
+        cacheKeyUseCount: 2,
+        fastModeRequestCount: 0,
+        priorityRequestCount: 0,
+        standardRequestCount: 4,
+        ttftSum: 500,
+        ttftCount: 4,
+        tpsSum: 44,
+        tpsCount: 4,
+        lastUsedAtMs: day1 + 12 * 60 * 60 * 1000,
+        costUsd: 1.0,
+        energyJoules: 100,
+        waterEvaporatedMl: 0.05,
+      },
+      {
+        startMs: day1,
+        providerId: "factory",
+        model: "claude-sonnet-4-5",
+        requestCount: 3,
+        errorCount: 0,
+        totalTokens: 900,
+        promptTokens: 600,
+        completionTokens: 300,
+        cachedPromptTokens: 0,
+        imageCount: 0,
+        imageCostUsd: 0,
+        cacheHitCount: 0,
+        cacheKeyUseCount: 0,
+        fastModeRequestCount: 0,
+        priorityRequestCount: 0,
+        standardRequestCount: 3,
+        ttftSum: 420,
+        ttftCount: 3,
+        tpsSum: 24,
+        tpsCount: 3,
+        lastUsedAtMs: day1 + 15 * 60 * 60 * 1000,
+        costUsd: 0.9,
+        energyJoules: 90,
+        waterEvaporatedMl: 0.045,
+      },
+    ],
+    dailyAccountBuckets: [],
+    accountAccumulators: [],
+  };
+
+  await withProxyApp(
+    {
+      keys: [],
+      requestLogsPayload,
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ok: true }),
+      }),
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "GET",
+        url: "/api/v1/analytics/provider-model?window=weekly&sort=tokens",
+      });
+
+      assert.equal(response.statusCode, 200);
+      const payload: any = response.json();
+      assert.equal(payload.window, "weekly");
+      assert.equal(payload.coverage.hasFullWindowCoverage, false);
+      assert.equal(payload.models[0].model, "gpt-5.4");
+      assert.equal(payload.models[0].providerCoverageCount, 2);
+      assert.equal(payload.models[0].requestCount, 10);
+      assert.equal(payload.models[0].totalTokens, 2800);
+      assert.equal(Math.round(payload.models[0].avgTtftMs), 110);
+      assert.equal(Math.round(payload.models[0].avgTps * 10) / 10, 11.6);
+
+      assert.equal(payload.providers[0].providerId, "factory");
+      assert.equal(payload.providers[0].modelCoverageCount, 2);
+      assert.equal(payload.providers[0].requestCount, 7);
+      assert.equal(payload.providers[0].totalTokens, 1900);
+
+      const openAiPair = payload.providerModels.find((row: any) => row.providerId === "openai" && row.model === "gpt-5.4");
+      assert.ok(openAiPair);
+      assert.equal(openAiPair.requestCount, 6);
+      assert.equal(Math.round(openAiPair.avgTtftMs), 100);
+      assert.equal(Math.round(openAiPair.avgTps), 12);
+      assert.ok(typeof openAiPair.suitabilityScore === "number");
+    },
+  );
+});
+
+test("dashboard overview scopes usage to the requested tenant", async () => {
+  const now = Date.now();
+  const requestLogsPayload = {
+    entries: [
+      {
+        id: "entry-acme-openai",
+        timestamp: now - 3 * 60 * 60 * 1000,
+        tenantId: "acme",
+        issuer: "local",
+        keyId: "key-acme-1",
+        providerId: "openai",
+        accountId: "acct-1",
+        authType: "oauth_bearer",
+        model: "gpt-5.4",
+        upstreamMode: "responses",
+        upstreamPath: "/v1/responses",
+        status: 200,
+        latencyMs: 120,
+        promptTokens: 700,
+        completionTokens: 300,
+        totalTokens: 1000,
+        costUsd: 1.0,
+        energyJoules: 100,
+        waterEvaporatedMl: 0.05,
+      },
+      {
+        id: "entry-acme-factory",
+        timestamp: now - 2 * 60 * 60 * 1000,
+        tenantId: "acme",
+        issuer: "local",
+        keyId: "key-acme-2",
+        providerId: "factory",
+        accountId: "acct-2",
+        authType: "oauth_bearer",
+        model: "claude-sonnet-4-5",
+        upstreamMode: "messages",
+        upstreamPath: "/v1/messages",
+        status: 500,
+        latencyMs: 240,
+        promptTokens: 300,
+        completionTokens: 200,
+        totalTokens: 500,
+        error: "upstream failed",
+        costUsd: 0.5,
+        energyJoules: 50,
+        waterEvaporatedMl: 0.025,
+      },
+      {
+        id: "entry-beta-openai",
+        timestamp: now - 60 * 60 * 1000,
+        tenantId: "beta",
+        issuer: "local",
+        keyId: "key-beta-1",
+        providerId: "openai",
+        accountId: "acct-1",
+        authType: "oauth_bearer",
+        model: "gpt-5.4",
+        upstreamMode: "responses",
+        upstreamPath: "/v1/responses",
+        status: 200,
+        latencyMs: 110,
+        promptTokens: 600,
+        completionTokens: 300,
+        totalTokens: 900,
+        costUsd: 0.9,
+        energyJoules: 90,
+        waterEvaporatedMl: 0.045,
+      },
+    ],
+    hourlyBuckets: [],
+    dailyBuckets: [],
+    dailyModelBuckets: [],
+    dailyAccountBuckets: [],
+    accountAccumulators: [],
+  };
+
+  await withProxyApp(
+    {
+      keys: [],
+      requestLogsPayload,
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ok: true }),
+      }),
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "GET",
+        url: "/api/v1/dashboard/overview?window=weekly&tenantId=acme",
+      });
+
+      assert.equal(response.statusCode, 200);
+      const payload: any = response.json();
+      assert.equal(payload.summary.tokens24h, 1500);
+      assert.equal(payload.summary.costUsd24h, 1.5);
+      assert.equal(payload.summary.topProvider, "openai");
+      assert.equal(payload.summary.topModel, "gpt-5.4");
+      assert.equal(payload.accounts.length, 2);
+      assert.equal(payload.accounts[0].providerId, "openai");
+      assert.equal(payload.accounts[0].totalTokens, 1000);
+      assert.equal(payload.accounts[1].providerId, "factory");
+      assert.equal(payload.accounts[1].totalTokens, 500);
+    },
+  );
+});
+
+test("provider-model analytics scopes rollups to the requested tenant", async () => {
+  const now = Date.now();
+  const requestLogsPayload = {
+    entries: [
+      {
+        id: "entry-acme-openai",
+        timestamp: now - 3 * 60 * 60 * 1000,
+        tenantId: "acme",
+        issuer: "local",
+        keyId: "key-acme-1",
+        providerId: "openai",
+        accountId: "acct-1",
+        authType: "oauth_bearer",
+        model: "gpt-5.4",
+        upstreamMode: "responses",
+        upstreamPath: "/v1/responses",
+        status: 200,
+        latencyMs: 100,
+        promptTokens: 700,
+        completionTokens: 300,
+        totalTokens: 1000,
+        costUsd: 1.0,
+        energyJoules: 100,
+        waterEvaporatedMl: 0.05,
+      },
+      {
+        id: "entry-acme-factory",
+        timestamp: now - 2 * 60 * 60 * 1000,
+        tenantId: "acme",
+        issuer: "local",
+        keyId: "key-acme-2",
+        providerId: "factory",
+        accountId: "acct-2",
+        authType: "oauth_bearer",
+        model: "claude-sonnet-4-5",
+        upstreamMode: "messages",
+        upstreamPath: "/v1/messages",
+        status: 500,
+        latencyMs: 240,
+        promptTokens: 300,
+        completionTokens: 200,
+        totalTokens: 500,
+        error: "upstream failed",
+        costUsd: 0.5,
+        energyJoules: 50,
+        waterEvaporatedMl: 0.025,
+      },
+      {
+        id: "entry-beta-openai",
+        timestamp: now - 60 * 60 * 1000,
+        tenantId: "beta",
+        issuer: "local",
+        keyId: "key-beta-1",
+        providerId: "openai",
+        accountId: "acct-1",
+        authType: "oauth_bearer",
+        model: "gpt-5.4",
+        upstreamMode: "responses",
+        upstreamPath: "/v1/responses",
+        status: 200,
+        latencyMs: 90,
+        promptTokens: 600,
+        completionTokens: 300,
+        totalTokens: 900,
+        costUsd: 0.9,
+        energyJoules: 90,
+        waterEvaporatedMl: 0.045,
+      },
+    ],
+    hourlyBuckets: [],
+    dailyBuckets: [],
+    dailyModelBuckets: [],
+    dailyAccountBuckets: [],
+    accountAccumulators: [],
+  };
+
+  await withProxyApp(
+    {
+      keys: [],
+      requestLogsPayload,
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ok: true }),
+      }),
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "GET",
+        url: "/api/v1/analytics/provider-model?window=weekly&tenantId=acme",
+      });
+
+      assert.equal(response.statusCode, 200);
+      const payload: any = response.json();
+      assert.equal(payload.models.length, 2);
+      assert.equal(payload.models[0].totalTokens, 1000);
+      assert.equal(payload.providers.length, 2);
+      assert.equal(payload.providers[0].providerId, "openai");
+      assert.equal(payload.providers[0].totalTokens, 1000);
+      assert.equal(payload.providers[1].providerId, "factory");
+      assert.equal(payload.providers[1].totalTokens, 500);
+      assert.equal(payload.providerModels.length, 2);
+      assert.ok(!payload.providerModels.some((row: any) => row.totalTokens === 900));
+    },
+  );
+});
+
+test("provider-model analytics excludes failed prompt-cache attempts from cache-hit rates", async () => {
+  const now = Date.now();
+  const requestLogsPayload = {
+    entries: [
+      {
+        id: "entry-cache-miss",
+        timestamp: now - 60_000,
+        providerId: "openai",
+        accountId: "acct-1",
+        authType: "oauth_bearer",
+        model: "gpt-5.4",
+        upstreamMode: "responses",
+        upstreamPath: "/v1/responses",
+        status: 200,
+        latencyMs: 120,
+        promptTokens: 800,
+        completionTokens: 200,
+        totalTokens: 1000,
+        promptCacheKeyUsed: true,
+        cacheHit: false,
+        cachedPromptTokens: 0,
+        ttftMs: 90,
+        tps: 10,
+        endToEndTps: 8,
+      },
+      {
+        id: "entry-cache-hit",
+        timestamp: now - 45_000,
+        providerId: "openai",
+        accountId: "acct-1",
+        authType: "oauth_bearer",
+        model: "gpt-5.4",
+        upstreamMode: "responses",
+        upstreamPath: "/v1/responses",
+        status: 200,
+        latencyMs: 110,
+        promptTokens: 700,
+        completionTokens: 300,
+        totalTokens: 1000,
+        promptCacheKeyUsed: true,
+        cacheHit: true,
+        cachedPromptTokens: 600,
+        ttftMs: 80,
+        tps: 12,
+        endToEndTps: 10,
+      },
+      {
+        id: "entry-cache-rate-limit",
+        timestamp: now - 30_000,
+        providerId: "openai",
+        accountId: "acct-1",
+        authType: "oauth_bearer",
+        model: "gpt-5.4",
+        upstreamMode: "responses",
+        upstreamPath: "/v1/responses",
+        status: 429,
+        latencyMs: 40,
+        promptCacheKeyUsed: true,
+        cacheHit: false,
+        error: "rate limit",
+      },
+    ],
+    hourlyBuckets: [],
+    dailyBuckets: [],
+    dailyModelBuckets: [],
+    dailyAccountBuckets: [],
+    accountAccumulators: [],
+  };
+
+  await withProxyApp(
+    {
+      keys: [],
+      requestLogsPayload,
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ok: true }),
+      }),
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "GET",
+        url: "/api/v1/analytics/provider-model?window=daily",
+      });
+
+      assert.equal(response.statusCode, 200);
+      const payload: any = response.json();
+      const pair = payload.providerModels.find((row: any) => row.providerId === "openai" && row.model === "gpt-5.4");
+      assert.ok(pair);
+      assert.equal(pair.requestCount, 3);
+      assert.equal(pair.errorCount, 1);
+      assert.equal(pair.cacheHitRate, 50);
+
+      const provider = payload.providers.find((row: any) => row.providerId === "openai");
+      assert.ok(provider);
+      assert.equal(provider.cacheHitRate, 50);
+
+      const model = payload.models.find((row: any) => row.model === "gpt-5.4");
+      assert.ok(model);
+      assert.equal(model.cacheHitRate, 50);
+    },
+  );
+});
+
+test("dashboard overview excludes failed prompt-cache attempts from cache-hit summary", async () => {
+  const now = Date.now();
+  const requestLogsPayload = {
+    entries: [
+      {
+        id: "entry-overview-cache-miss",
+        timestamp: now - 60_000,
+        providerId: "openai",
+        accountId: "acct-1",
+        authType: "oauth_bearer",
+        model: "gpt-5.4",
+        upstreamMode: "responses",
+        upstreamPath: "/v1/responses",
+        status: 200,
+        latencyMs: 120,
+        promptTokens: 800,
+        completionTokens: 200,
+        totalTokens: 1000,
+        promptCacheKeyUsed: true,
+        cacheHit: false,
+        cachedPromptTokens: 0,
+      },
+      {
+        id: "entry-overview-cache-hit",
+        timestamp: now - 45_000,
+        providerId: "openai",
+        accountId: "acct-1",
+        authType: "oauth_bearer",
+        model: "gpt-5.4",
+        upstreamMode: "responses",
+        upstreamPath: "/v1/responses",
+        status: 200,
+        latencyMs: 110,
+        promptTokens: 700,
+        completionTokens: 300,
+        totalTokens: 1000,
+        promptCacheKeyUsed: true,
+        cacheHit: true,
+        cachedPromptTokens: 600,
+      },
+      {
+        id: "entry-overview-cache-rate-limit",
+        timestamp: now - 30_000,
+        providerId: "openai",
+        accountId: "acct-1",
+        authType: "oauth_bearer",
+        model: "gpt-5.4",
+        upstreamMode: "responses",
+        upstreamPath: "/v1/responses",
+        status: 429,
+        latencyMs: 40,
+        promptCacheKeyUsed: true,
+        cacheHit: false,
+        error: "rate limit",
+      },
+    ],
+    hourlyBuckets: [],
+    dailyBuckets: [],
+    dailyModelBuckets: [],
+    dailyAccountBuckets: [],
+    accountAccumulators: [],
+  };
+
+  await withProxyApp(
+    {
+      keys: [],
+      requestLogsPayload,
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ok: true }),
+      }),
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "GET",
+        url: "/api/v1/dashboard/overview?window=daily",
+      });
+
+      assert.equal(response.statusCode, 200);
+      const payload: any = response.json();
+      assert.equal(payload.summary.cacheKeyUses24h, 2);
+      assert.equal(payload.summary.cacheHitRate24h, 50);
+
+      const account = payload.accounts.find((row: any) => row.providerId === "openai" && row.accountId === "acct-1");
+      assert.ok(account);
+      assert.equal(account.cacheKeyUseCount, 2);
+      assert.equal(account.cacheHitCount, 1);
+    },
+  );
+});
+
+test("does not tag non-responses requests with a service tier", async () => {
+  let observedBody: unknown;
+
+  await withProxyApp(
+    {
+      keys: ["key-a"],
+      upstreamHandler: async (_request, body) => {
+        observedBody = JSON.parse(body);
+
+        return {
+          status: 200,
+          headers: {
+            "content-type": "application/json"
+          },
+          body: JSON.stringify({
+            id: "chatcmpl_non_responses_tier",
+            object: "chat.completion",
+            created: 1772516801,
+            model: "claude-3-7-sonnet",
+            choices: [
+              {
+                index: 0,
+                message: {
+                  role: "assistant",
+                  content: "ok"
+                },
+                finish_reason: "stop"
+              }
+            ]
+          })
+        };
+      }
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json",
+          "x-open-hax-fast-mode": "true"
+        },
+        payload: {
+          model: "claude-3-7-sonnet",
+          messages: [{ role: "user", content: "hello" }],
+          stream: false
+        }
+      });
+
+      assert.equal(response.statusCode, 200);
+      assert.ok(isRecord(observedBody));
+      assert.equal(observedBody.service_tier, undefined);
+
+      const requestLogsPayload = await app.inject({
+        method: "GET",
+        url: "/api/v1/request-logs?limit=1",
+      });
+      assert.equal(requestLogsPayload.statusCode, 200);
+      const requestLogsBody: unknown = requestLogsPayload.json();
+      assert.ok(isRecord(requestLogsBody));
+      assert.ok(Array.isArray(requestLogsBody.entries));
+      assert.ok(isRecord(requestLogsBody.entries[0]));
+      assert.equal(requestLogsBody.entries[0].serviceTier, undefined);
+      assert.equal(requestLogsBody.entries[0].serviceTierSource, "none");
+    }
+  );
+});
+
+test("routes gpt chat requests to responses endpoint and maps response", async () => {
+  let observedPath = "";
+  let observedBody: unknown;
+
+  await withProxyApp(
+    {
+      keys: ["key-a"],
+      upstreamHandler: async (request, body) => {
+        observedPath = request.url ?? "";
+        observedBody = JSON.parse(body);
+
+        return {
+          status: 200,
+          headers: {
+            "content-type": "application/json"
+          },
+          body: JSON.stringify({
+            id: "resp_abc",
+            object: "response",
+            created_at: 1772516800,
+            model: "gpt-5.3-codex",
+            output: [
+              {
+                id: "msg_abc",
+                type: "message",
+                role: "assistant",
+                content: [
+                  {
+                    type: "output_text",
+                    text: "responses-route-ok"
+                  }
+                ]
+              }
+            ],
+            usage: {
+              input_tokens: 9,
+              output_tokens: 4,
+              total_tokens: 13
+            }
+          })
+        };
+      }
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json"
+        },
+        payload: {
+          model: "gpt-5.3-codex",
+          messages: [{ role: "user", content: "hello" }],
+          stream: false,
+          max_tokens: 256,
+          reasoningEffort: "high",
+          reasoningSummary: "auto",
+          textVerbosity: "low",
+          include: ["reasoning.encrypted_content"],
+          tools: [
+            {
+              type: "function",
+              function: {
+                name: "bash",
+                description: "Run shell command",
+                parameters: {
+                  type: "object",
+                  properties: {
+                    command: {
+                      type: "string"
+                    }
+                  },
+                  required: ["command"],
+                  additionalProperties: false
+                }
+              }
+            }
+          ],
+          tool_choice: {
+            type: "function",
+            function: {
+              name: "bash"
+            }
+          }
+        }
+      });
+
+      assert.equal(response.statusCode, 200);
+      assert.equal(observedPath, "/v1/responses");
+      assert.ok(isRecord(observedBody));
+      assert.ok(observedBody.stream === false || observedBody.stream === undefined);
+      assert.equal(observedBody.max_output_tokens, 256);
+      assert.ok(Array.isArray(observedBody.input));
+      assert.ok(Array.isArray(observedBody.tools));
+      assert.ok(isRecord(observedBody.tools[0]));
+      assert.equal(observedBody.tools[0].name, "bash");
+      assert.equal(observedBody.tools[0].type, "function");
+      assert.ok(isRecord(observedBody.tool_choice));
+      assert.equal(observedBody.tool_choice.type, "function");
+      assert.equal(observedBody.tool_choice.name, "bash");
+      assert.ok(isRecord(observedBody.reasoning));
+      assert.equal(observedBody.reasoning.effort, "high");
+      assert.equal(observedBody.reasoning.summary, "auto");
+      assert.ok(isRecord(observedBody.text));
+      assert.equal(observedBody.text.verbosity, "low");
+      assert.ok(Array.isArray(observedBody.include));
+      assert.equal(observedBody.include[0], "reasoning.encrypted_content");
+      assert.ok(observedBody.prompt_cache_key === undefined || typeof observedBody.prompt_cache_key === "string");
+
+      const payload: unknown = response.json();
+      assert.ok(isRecord(payload));
+      assert.equal(payload.object, "chat.completion");
+      assert.equal(payload.model, "gpt-5.3-codex");
+      assert.ok(Array.isArray(payload.choices));
+      assert.ok(isRecord(payload.choices[0]));
+      assert.ok(isRecord(payload.choices[0].message));
+      assert.equal(payload.choices[0].message.content, "responses-route-ok");
+      assert.ok(isRecord(payload.usage));
+      assert.equal(payload.usage.total_tokens, 13);
+    }
+  );
+});
+
+test("falls back to top-level output_text when responses output message text is empty", async () => {
+  await withProxyApp(
+    {
+      keys: ["key-a"],
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: {
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({
+          id: "resp_top_level_output_text",
+          object: "response",
+          created_at: 1772516800,
+          model: "gpt-5.4-mini",
+          output_text: "top-level-output-text-ok",
+          output: [
+            {
+              id: "msg_top_level_output_text",
+              type: "message",
+              role: "assistant",
+              content: []
+            }
+          ],
+          usage: {
+            input_tokens: 9,
+            output_tokens: 4,
+            total_tokens: 13
+          }
+        })
+      })
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json"
+        },
+        payload: {
+          model: "gpt-5.4-mini",
+          messages: [{ role: "user", content: "hello" }],
+          stream: false
+        }
+      });
+
+      assert.equal(response.statusCode, 200);
+      const payload: unknown = response.json();
+      assert.ok(isRecord(payload));
+      assert.ok(Array.isArray(payload.choices));
+      assert.ok(isRecord(payload.choices[0]));
+      assert.ok(isRecord(payload.choices[0].message));
+      assert.equal(payload.choices[0].message.content, "top-level-output-text-ok");
+    }
+  );
+});
+
+test("preserves xhigh reasoning effort for gpt chat requests routed to responses", async () => {
+  let observedBody: Record<string, unknown> = {};
+
+  await withProxyApp(
+    {
+      keys: ["key-a"],
+      upstreamHandler: async (_request, body) => {
+        observedBody = JSON.parse(body) as Record<string, unknown>;
+        return {
+          status: 200,
+          headers: {
+            "content-type": "application/json"
+          },
+          body: JSON.stringify({
+            id: "resp_reasoning_xhigh",
+            object: "response",
+            created_at: 1772516800,
+            model: "gpt-5.4-mini",
+            output: [
+              {
+                id: "msg_reasoning_xhigh",
+                type: "message",
+                role: "assistant",
+                content: [
+                  {
+                    type: "output_text",
+                    text: "xhigh-ok"
+                  }
+                ]
+              }
+            ],
+            usage: {
+              input_tokens: 9,
+              output_tokens: 4,
+              total_tokens: 13
+            }
+          })
+        };
+      }
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json"
+        },
+        payload: {
+          model: "gpt-5.4-mini",
+          messages: [{ role: "user", content: "hello" }],
+          reasoning_effort: "xhigh",
+          stream: false
+        }
+      });
+
+      assert.equal(response.statusCode, 200);
+      assert.ok(isRecord(observedBody.reasoning));
+      assert.equal(observedBody.reasoning.effort, "xhigh");
+    }
+  );
+});
+
+test.skip("CLJS policy normalizes xhigh reasoning effort to max for ollama-cloud provider", async () => {
+  await withProxyApp(
+    {
+      keys: [],
+      keysPayload: {
+        providers: {
+          "ollama-cloud": ["ollama-cloud-key"]
+        }
+      },
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          id: "chatcmpl-ollama-xhigh",
+          object: "chat.completion",
+          model: "glm-4.7",
+          choices: [{ index: 0, message: { role: "assistant", content: "ok" }, finish_reason: "stop" }]
+        })
+      })
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: { "content-type": "application/json" },
+        payload: {
+          model: "glm-4.7",
+          messages: [{ role: "user", content: "hello" }],
+          reasoning_effort: "xhigh",
+          stream: false
+        }
+      });
+
+      assert.equal(response.statusCode, 200);
+      assert.equal(response.headers["x-open-hax-upstream-provider"], "ollama-cloud");
+    }
+  );
+});
+
+test("routes glm chat requests to chat-completions upstream", async () => {
+  let observedPath = "";
+  let observedBody: unknown;
+
+  await withProxyApp(
+    {
+      keys: ["key-a"],
+      upstreamHandler: async (request, body) => {
+        observedPath = request.url ?? "";
+        observedBody = JSON.parse(body);
+
+        return {
+          status: 200,
+          headers: {
+            "content-type": "application/json"
+          },
+          body: JSON.stringify({
+            id: "chatcmpl_glm",
+            object: "chat.completion",
+            created: 1772516801,
+            model: "glm-5",
+            choices: [
+              {
+                index: 0,
+                message: {
+                  role: "assistant",
+                  content: "glm-chat-completions-route-ok"
+                },
+                finish_reason: "stop"
+              }
+            ]
+          })
+        };
+      }
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json"
+        },
+        payload: {
+          model: "glm-5",
+          messages: [{ role: "user", content: "hello" }],
+          stream: false
+        }
+      });
+
+      assert.equal(response.statusCode, 200);
+      assert.equal(response.headers["x-open-hax-upstream-mode"], "chat_completions");
+      assert.equal(observedPath, "/v1/chat/completions");
+      assert.ok(isRecord(observedBody));
+      assert.equal(observedBody.model, "glm-5");
+      assert.ok(Array.isArray(observedBody.messages));
+
+      const payload: unknown = response.json();
+      assert.ok(isRecord(payload));
+      assert.equal(payload.object, "chat.completion");
+      assert.equal(payload.model, "glm-5");
+      assert.ok(Array.isArray(payload.choices));
+      assert.ok(isRecord(payload.choices[0]));
+      assert.ok(isRecord(payload.choices[0].message));
+      assert.equal(payload.choices[0].message.content, "glm-chat-completions-route-ok");
+    }
+  );
+});
+
+test("fails over gpt responses accounts when requested reasoning trace is missing", async () => {
+  const observedKeys: string[] = [];
+
+  await withProxyApp(
+    {
+      keys: ["key-no-reasoning", "key-with-reasoning"],
+      upstreamHandler: async (request, body) => {
+        const auth = request.headers.authorization;
+        if (typeof auth === "string") {
+          observedKeys.push(auth.replace(/^Bearer\s+/i, ""));
+        }
+
+        const parsedBody = JSON.parse(body);
+        assert.ok(isRecord(parsedBody));
+        assert.ok(isRecord(parsedBody.reasoning));
+
+        if (auth === "Bearer key-no-reasoning") {
+          return {
+            status: 200,
+            headers: {
+              "content-type": "application/json"
+            },
+            body: JSON.stringify({
+              id: "resp_no_reasoning",
+              object: "response",
+              created_at: 1772516810,
+              model: "gpt-5.3-codex",
+              output: [
+                {
+                  id: "msg_no_reasoning",
+                  type: "message",
+                  role: "assistant",
+                  content: [
+                    {
+                      type: "output_text",
+                      text: "gpt-no-reasoning"
+                    }
+                  ]
+                }
+              ]
+            })
+          };
+        }
+
+        return {
+          status: 200,
+          headers: {
+            "content-type": "application/json"
+          },
+          body: JSON.stringify({
+            id: "resp_with_reasoning",
+            object: "response",
+            created_at: 1772516811,
+            model: "gpt-5.3-codex",
+            output: [
+              {
+                id: "rs_glm",
+                type: "reasoning",
+                summary: [
+                  {
+                    type: "summary_text",
+                    text: "gpt-reasoning-ok"
+                  }
+                ]
+              },
+              {
+                id: "msg_with_reasoning",
+                type: "message",
+                role: "assistant",
+                content: [
+                  {
+                    type: "output_text",
+                    text: "gpt-with-reasoning"
+                  }
+                ]
+              }
+            ]
+          })
+        };
+      }
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json"
+        },
+        payload: {
+          model: "gpt-5.3-codex",
+          messages: [{ role: "user", content: "hello" }],
+          reasoning_effort: "low",
+          include: ["reasoning.encrypted_content"],
+          stream: false
+        }
+      });
+
+      assert.equal(response.statusCode, 200);
+      assert.deepEqual(observedKeys, ["key-no-reasoning", "key-with-reasoning"]);
+
+      const payload: unknown = response.json();
+      assert.ok(isRecord(payload));
+      assert.ok(Array.isArray(payload.choices));
+      assert.ok(isRecord(payload.choices[0]));
+      assert.ok(isRecord(payload.choices[0].message));
+      assert.equal(payload.choices[0].message.content, "gpt-with-reasoning");
+      assert.equal(payload.choices[0].message.reasoning_content, "gpt-reasoning-ok");
+    }
+  );
+});
+
+test("fails over chat-completions accounts when requested reasoning trace is missing", async () => {
+  const observedKeys: string[] = [];
+
+  await withProxyApp(
+    {
+      keys: ["key-kimi-no-reasoning", "key-kimi-with-reasoning"],
+      upstreamHandler: async (request) => {
+        const auth = request.headers.authorization;
+        if (typeof auth === "string") {
+          observedKeys.push(auth.replace(/^Bearer\s+/i, ""));
+        }
+
+        if (auth === "Bearer key-kimi-no-reasoning") {
+          return {
+            status: 200,
+            headers: {
+              "content-type": "application/json"
+            },
+            body: JSON.stringify({
+              id: "chatcmpl_kimi_no_reasoning",
+              object: "chat.completion",
+              created: 1772516812,
+              model: "Kimi-K2.5",
+              choices: [
+                {
+                  index: 0,
+                  message: {
+                    role: "assistant",
+                    content: "kimi-no-reasoning"
+                  },
+                  finish_reason: "stop"
+                }
+              ]
+            })
+          };
+        }
+
+        return {
+          status: 200,
+          headers: {
+            "content-type": "application/json"
+          },
+          body: JSON.stringify({
+            id: "chatcmpl_kimi_with_reasoning",
+            object: "chat.completion",
+            created: 1772516813,
+            model: "Kimi-K2.5",
+            choices: [
+              {
+                index: 0,
+                message: {
+                  role: "assistant",
+                  content: "kimi-with-reasoning",
+                  reasoning_content: "kimi-reasoning-ok"
+                },
+                finish_reason: "stop"
+              }
+            ]
+          })
+        };
+      }
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json"
+        },
+        payload: {
+          model: "Kimi-K2.5",
+          messages: [{ role: "user", content: "hello" }],
+          reasoning_effort: "low",
+          include: ["reasoning.encrypted_content"],
+          stream: false
+        }
+      });
+
+      assert.equal(response.statusCode, 200);
+      assert.deepEqual(observedKeys, ["key-kimi-no-reasoning", "key-kimi-with-reasoning"]);
+
+      const payload: unknown = response.json();
+      assert.ok(isRecord(payload));
+      assert.ok(Array.isArray(payload.choices));
+      assert.ok(isRecord(payload.choices[0]));
+      assert.ok(isRecord(payload.choices[0].message));
+      assert.equal(payload.choices[0].message.content, "kimi-with-reasoning");
+      assert.equal(payload.choices[0].message.reasoning_content, "kimi-reasoning-ok");
+    }
+  );
+});
+
+test("fails over streamed chat-completions accounts when requested reasoning trace is missing", async () => {
+  const observedKeys: string[] = [];
+
+  await withProxyApp(
+    {
+      keys: ["key-kimi-stream-no-reasoning", "key-kimi-stream-with-reasoning"],
+      upstreamHandler: async (request) => {
+        const auth = request.headers.authorization;
+        if (typeof auth === "string") {
+          observedKeys.push(auth.replace(/^Bearer\s+/i, ""));
+        }
+
+        if (auth === "Bearer key-kimi-stream-no-reasoning") {
+          return {
+            status: 200,
+            headers: {
+              "content-type": "text/event-stream"
+            },
+            body:
+              "data: {\"id\":\"chatcmpl_kimi_stream_no_reasoning\",\"object\":\"chat.completion.chunk\",\"created\":1772516814,\"model\":\"Kimi-K2.5\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"stream-no-reasoning\"},\"finish_reason\":null}]}\n\n" +
+              "data: {\"id\":\"chatcmpl_kimi_stream_no_reasoning\",\"object\":\"chat.completion.chunk\",\"created\":1772516814,\"model\":\"Kimi-K2.5\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n" +
+              "data: [DONE]\n\n"
+          };
+        }
+
+        return {
+          status: 200,
+          headers: {
+            "content-type": "text/event-stream"
+          },
+          body:
+            "data: {\"id\":\"chatcmpl_kimi_stream_with_reasoning\",\"object\":\"chat.completion.chunk\",\"created\":1772516815,\"model\":\"Kimi-K2.5\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"reasoning_content\":\"stream-reasoning-ok\",\"content\":\"stream-with-reasoning\"},\"finish_reason\":null}]}\n\n" +
+            "data: {\"id\":\"chatcmpl_kimi_stream_with_reasoning\",\"object\":\"chat.completion.chunk\",\"created\":1772516815,\"model\":\"Kimi-K2.5\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n" +
+            "data: [DONE]\n\n"
+        };
+      }
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json"
+        },
+        payload: {
+          model: "Kimi-K2.5",
+          messages: [{ role: "user", content: "hello" }],
+          reasoning_effort: "low",
+          include: ["reasoning.encrypted_content"],
+          stream: true
+        }
+      });
+
+      assert.equal(response.statusCode, 200);
+      assert.ok(typeof response.headers["content-type"] === "string");
+      assert.match(String(response.headers["content-type"]), /text\/event-stream/i);
+      assert.deepEqual(observedKeys, ["key-kimi-stream-no-reasoning", "key-kimi-stream-with-reasoning"]);
+      assert.ok(response.body.includes("stream-reasoning-ok"));
+      assert.ok(response.body.includes("data: [DONE]"));
+    }
+  );
+});
+
+test("routes openai-prefixed models with oauth account failover", async () => {
+  let observedPath = "";
+  let observedBody: unknown;
+  const observedAuth: string[] = [];
+  const observedAccountIds: string[] = [];
+
+  await withProxyApp(
+    {
+      keys: [],
+      keysPayload: {
+        providers: {
+          vivgrid: {
+            auth: "api_key",
+            accounts: ["vivgrid-key-1", "vivgrid-key-2"]
+          },
+          openai: {
+            auth: "oauth_bearer",
+            accounts: [
+              { id: "openai-a", access_token: "oa-token-a", chatgpt_account_id: "chatgpt-a" },
+              { id: "openai-b", access_token: "oa-token-b", chatgpt_account_id: "chatgpt-b" }
+            ]
+          }
+        }
+      },
+      upstreamHandler: async (request, body) => {
+        const jsonHeaders: Record<string, string> = {
+          "content-type": "application/json"
+        };
+        observedPath = request.url ?? "";
+        observedBody = JSON.parse(body);
+
+        const auth = request.headers.authorization;
+        const chatgptAccountId = request.headers["chatgpt-account-id"];
+        if (typeof auth === "string") {
+          observedAuth.push(auth);
+        }
+        if (typeof chatgptAccountId === "string") {
+          observedAccountIds.push(chatgptAccountId);
+        }
+
+        if (auth === "Bearer oa-token-a") {
+          return {
+            status: 429,
+            headers: {
+              ...jsonHeaders,
+              "retry-after": "60"
+            },
+            body: JSON.stringify({ error: { message: "rate limit" } })
+          };
+        }
+
+        const successHeaders: Record<string, string> = {
+          "content-type": "application/json"
+        };
+
+        return {
+          status: 200,
+          headers: successHeaders,
+          body: JSON.stringify({
+            id: "resp_openai_oauth",
+            object: "response",
+            created_at: 1772516809,
+            model: "gpt-5.3-codex",
+            output: [
+              {
+                id: "msg_openai_oauth",
+                type: "message",
+                role: "assistant",
+                content: [
+                  {
+                    type: "output_text",
+                    text: "openai-oauth-ok"
+                  }
+                ]
+              }
+            ],
+            usage: {
+              input_tokens: 7,
+              output_tokens: 5,
+              total_tokens: 12
+            }
+          })
+        };
+      }
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json"
+        },
+        payload: {
+          model: "openai/gpt-5.3-codex",
+          messages: [{ role: "user", content: "hello" }],
+          stream: false
+        }
+      });
+
+      assert.equal(response.statusCode, 200);
+      assert.equal(response.headers["x-open-hax-upstream-mode"], "openai_responses");
+      assert.equal(observedPath, "/v1/responses");
+      assert.ok(isRecord(observedBody));
+      assert.equal(observedBody.model, "gpt-5.3-codex");
+      assert.deepEqual(observedAuth, ["Bearer oa-token-a", "Bearer oa-token-b"]);
+      assert.deepEqual(observedAccountIds, ["chatgpt-a", "chatgpt-b"]);
+
+      const payload: unknown = response.json();
+      assert.ok(isRecord(payload));
+      assert.equal(payload.object, "chat.completion");
+      assert.equal(payload.model, "gpt-5.3-codex");
+      assert.ok(Array.isArray(payload.choices));
+      assert.ok(isRecord(payload.choices[0]));
+      assert.ok(isRecord(payload.choices[0].message));
+      assert.equal(payload.choices[0].message.content, "openai-oauth-ok");
+      assert.ok(isRecord(payload.usage));
+      assert.equal(payload.usage.total_tokens, 12);
+    }
+  );
+});
+
+test("openai oauth accounts stay cooled until quota reset after a quota lookup refresh", async () => {
+  let upstreamCalls = 0;
+  const quotaLookups: string[] = [];
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = async (input, init) => {
+    const url = typeof input === "string"
+      ? input
+      : input instanceof URL
+        ? input.toString()
+        : input.url;
+    if (url === "https://chatgpt.com/backend-api/wham/usage") {
+      const headers = new Headers(init?.headers);
+      const auth = headers.get("authorization");
+      quotaLookups.push(auth ?? "missing");
+
+      const resetAfterSeconds = auth === "Bearer oa-token-a" ? 7200 : 10800;
+      return new Response(JSON.stringify({
+        usage: {
+          rate_limit: {
+            allowed: false,
+            limit_reached: true,
+            primary_window: {
+              remaining_percent: 80,
+              limit_window_seconds: 18000,
+              reset_after_seconds: resetAfterSeconds,
+            },
+          },
+        },
+      }), {
+        status: 200,
+        headers: {
+          "content-type": "application/json",
+        },
+      });
+    }
+
+    return originalFetch(input, init);
+  };
+
+  try {
+    await withProxyApp(
+      {
+        keys: [],
+        keysPayload: {
+          providers: {
+            openai: {
+              auth: "oauth_bearer",
+              accounts: [
+                { id: "openai-a", access_token: "oa-token-a", chatgpt_account_id: "chatgpt-a" },
+                { id: "openai-b", access_token: "oa-token-b", chatgpt_account_id: "chatgpt-b" },
+              ],
+            },
+          },
+        },
+        upstreamHandler: async () => {
+          upstreamCalls += 1;
+
+          return {
+            status: 429,
+            headers: {
+              "content-type": "application/json",
+            },
+            body: JSON.stringify({ error: { message: "rate limit" } }),
+          };
+        },
+      },
+      async ({ app }) => {
+        const first = await app.inject({
+          method: "POST",
+          url: "/v1/chat/completions",
+          headers: {
+            "content-type": "application/json",
+          },
+          payload: {
+            model: "openai/gpt-5.3-codex",
+            messages: [{ role: "user", content: "hello" }],
+            stream: false,
+          },
+        });
+
+        assert.equal(first.statusCode, 429);
+        assert.equal(upstreamCalls, 2);
+        assert.deepEqual(quotaLookups, ["Bearer oa-token-a", "Bearer oa-token-b"]);
+
+        const second = await app.inject({
+          method: "POST",
+          url: "/v1/chat/completions",
+          headers: {
+            "content-type": "application/json",
+          },
+          payload: {
+            model: "openai/gpt-5.3-codex",
+            messages: [{ role: "user", content: "hello again" }],
+            stream: false,
+          },
+        });
+
+        assert.equal(second.statusCode, 429);
+        assert.equal(upstreamCalls, 2);
+        assert.deepEqual(quotaLookups, ["Bearer oa-token-a", "Bearer oa-token-b"]);
+      },
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("routes gpt-5.4 through responses for openai oauth accounts", async () => {
+  let observedPath = "";
+  let observedBody: unknown;
+  let observedAuthorization: string | undefined;
+  let observedAccountId: string | undefined;
+
+  await withProxyApp(
+    {
+      keys: [],
+      keysPayload: {
+        providers: {
+          openai: {
+            auth: "oauth_bearer",
+            accounts: [
+              { id: "openai-a", access_token: "oa-token-a", chatgpt_account_id: "chatgpt-a" },
+            ]
+          }
+        }
+      },
+      configOverrides: {
+        upstreamProviderId: "openai",
+      },
+      upstreamHandler: async (request, body) => {
+        observedPath = request.url ?? "";
+        observedBody = JSON.parse(body);
+        observedAuthorization = typeof request.headers.authorization === "string"
+          ? request.headers.authorization
+          : undefined;
+        observedAccountId = typeof request.headers["chatgpt-account-id"] === "string"
+          ? request.headers["chatgpt-account-id"]
+          : undefined;
+
+        return {
+          status: 200,
+          headers: {
+            "content-type": "application/json"
+          },
+          body: JSON.stringify({
+            id: "resp_gpt54_openai",
+            object: "response",
+            created_at: 1772516810,
+            model: "gpt-5.4",
+            output: [
+              {
+                id: "msg_gpt54_openai",
+                type: "message",
+                role: "assistant",
+                content: [
+                  {
+                    type: "output_text",
+                    text: "OK"
+                  }
+                ]
+              }
+            ],
+            usage: {
+              input_tokens: 11,
+              output_tokens: 5,
+              total_tokens: 16
+            }
+          })
+        };
+      }
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json"
+        },
+        payload: {
+          model: "gpt-5.4",
+          messages: [{ role: "user", content: "Reply with exactly: OK" }],
+          stream: false
+        }
+      });
+
+      assert.equal(response.statusCode, 200);
+      assert.equal(response.headers["x-open-hax-upstream-mode"], "openai_responses");
+      assert.equal(observedPath, "/v1/responses");
+      assert.equal(observedAuthorization, "Bearer oa-token-a");
+      assert.equal(observedAccountId, "chatgpt-a");
+      assert.ok(isRecord(observedBody));
+      assert.equal(observedBody.model, "gpt-5.4");
+      assert.ok(Array.isArray(observedBody.input));
+
+      const payload: unknown = response.json();
+      assert.ok(isRecord(payload));
+      assert.equal(payload.object, "chat.completion");
+      assert.equal(payload.model, "gpt-5.4");
+      assert.ok(Array.isArray(payload.choices));
+      assert.ok(isRecord(payload.choices[0]));
+      assert.ok(isRecord(payload.choices[0].message));
+      assert.equal(payload.choices[0].message.content, "OK");
+    }
+  );
+});
+
+test("buffers openai responses SSE deltas into chat content when the terminal response is empty", async () => {
+  await withProxyApp(
+    {
+      keys: [],
+      keysPayload: {
+        providers: {
+          openai: {
+            auth: "oauth_bearer",
+            accounts: [
+              { id: "openai-a", access_token: "oa-token-a", chatgpt_account_id: "chatgpt-a" },
+            ]
+          }
+        }
+      },
+      configOverrides: {
+        upstreamProviderId: "openai",
+      },
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: {
+          "content-type": "text/event-stream; charset=utf-8"
+        },
+        body: [
+          `event: response.created\ndata: ${JSON.stringify({ type: "response.created", response: { id: "resp_empty_terminal", status: "in_progress", model: "gpt-5.4-mini", output: [] } })}\n\n`,
+          `event: response.output_text.delta\ndata: ${JSON.stringify({ type: "response.output_text.delta", delta: "OK" })}\n\n`,
+          `event: response.completed\ndata: ${JSON.stringify({ type: "response.completed", response: { id: "resp_empty_terminal", status: "completed", model: "gpt-5.4-mini", output: [{ type: "message", role: "assistant", content: [] }], usage: { input_tokens: 5, output_tokens: 2, total_tokens: 7 } } })}\n\n`,
+        ].join("")
+      })
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json"
+        },
+        payload: {
+          model: "gpt-5.4-mini",
+          messages: [{ role: "user", content: "Reply with exactly: OK" }],
+          stream: false
+        }
+      });
+
+      assert.equal(response.statusCode, 200);
+      const payload: unknown = response.json();
+      assert.ok(isRecord(payload));
+      assert.ok(Array.isArray(payload.choices));
+      assert.ok(isRecord(payload.choices[0]));
+      assert.ok(isRecord(payload.choices[0].message));
+      assert.equal(payload.choices[0].message.content, "OK");
+    }
+  );
+});
+
+test("reuses the same openai oauth codex account for repeated gpt prompt_cache_key requests", async () => {
+  const observedAuth: string[] = [];
+  const observedAccountIds: string[] = [];
+  const observedPromptCacheKeys: string[] = [];
+
+  await withProxyApp(
+    {
+      keys: [],
+      keysPayload: {
+        providers: {
+          openai: {
+            auth: "oauth_bearer",
+            accounts: [
+              { id: "openai-a", access_token: "oa-token-a", chatgpt_account_id: "chatgpt-a", plan_type: "plus" },
+              { id: "openai-b", access_token: "oa-token-b", chatgpt_account_id: "chatgpt-b", plan_type: "plus" },
+            ]
+          }
+        }
+      },
+      configOverrides: {
+        upstreamProviderId: "openai",
+      },
+      upstreamHandler: async (request, body) => {
+        const parsedBody = JSON.parse(body) as Record<string, unknown>;
+        const auth = typeof request.headers.authorization === "string"
+          ? request.headers.authorization.replace(/^Bearer\s+/i, "")
+          : undefined;
+        const accountId = typeof request.headers["chatgpt-account-id"] === "string"
+          ? request.headers["chatgpt-account-id"]
+          : undefined;
+        const promptCacheKey = typeof parsedBody.prompt_cache_key === "string"
+          ? parsedBody.prompt_cache_key
+          : undefined;
+
+        if (auth) {
+          observedAuth.push(auth);
+        }
+        if (accountId) {
+          observedAccountIds.push(accountId);
+        }
+        if (promptCacheKey) {
+          observedPromptCacheKeys.push(promptCacheKey);
+        }
+
+        return {
+          status: 200,
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            id: crypto.randomUUID(),
+            object: "response",
+            created_at: 1772516810,
+            model: "gpt-5.4",
+            output: [
+              {
+                id: crypto.randomUUID(),
+                type: "message",
+                role: "assistant",
+                content: [{ type: "output_text", text: "OK" }]
+              }
+            ],
+            usage: { input_tokens: 11, output_tokens: 5, total_tokens: 16 }
+          })
+        };
+      }
+    },
+    async ({ app }) => {
+      for (let index = 0; index < 3; index += 1) {
+        const response = await app.inject({
+          method: "POST",
+          url: "/v1/chat/completions",
+          headers: {
+            "content-type": "application/json"
+          },
+          payload: {
+            model: "gpt-5.4",
+            messages: [{ role: "user", content: "Reply with exactly: OK" }],
+            prompt_cache_key: "sticky-gpt-oauth-1",
+            stream: false,
+          }
+        });
+
+        assert.equal(response.statusCode, 200);
+      }
+
+      assert.deepEqual(observedAuth, ["oa-token-a", "oa-token-a", "oa-token-a"]);
+      assert.deepEqual(observedAccountIds, ["chatgpt-a", "chatgpt-a", "chatgpt-a"]);
+      assert.deepEqual(observedPromptCacheKeys, ["sticky-gpt-oauth-1", "sticky-gpt-oauth-1", "sticky-gpt-oauth-1"]);
+    }
+  );
+});
+
+test("reassigns openai oauth codex prompt_cache_key affinity when the pinned gpt account becomes rate-limited", async () => {
+  const observedAuth: string[] = [];
+  const observedAccountIds: string[] = [];
+  let openAiAAttempts = 0;
+
+  await withProxyApp(
+    {
+      keys: [],
+      keysPayload: {
+        providers: {
+          openai: {
+            auth: "oauth_bearer",
+            accounts: [
+              { id: "openai-a", access_token: "oa-token-a", chatgpt_account_id: "chatgpt-a", plan_type: "plus" },
+              { id: "openai-b", access_token: "oa-token-b", chatgpt_account_id: "chatgpt-b", plan_type: "plus" },
+            ]
+          }
+        }
+      },
+      configOverrides: {
+        upstreamProviderId: "openai",
+      },
+      upstreamHandler: async (request) => {
+        const auth = typeof request.headers.authorization === "string"
+          ? request.headers.authorization.replace(/^Bearer\s+/i, "")
+          : undefined;
+        const accountId = typeof request.headers["chatgpt-account-id"] === "string"
+          ? request.headers["chatgpt-account-id"]
+          : undefined;
+
+        if (auth) {
+          observedAuth.push(auth);
+        }
+        if (accountId) {
+          observedAccountIds.push(accountId);
+        }
+
+        if (auth === "oa-token-a") {
+          openAiAAttempts += 1;
+          if (openAiAAttempts >= 2) {
+            const headers: Record<string, string> = {
+              "content-type": "application/json",
+              "retry-after": "60",
+            };
+            return {
+              status: 429,
+              headers,
+              body: JSON.stringify({ error: { message: "rate limit" } })
+            };
+          }
+        }
+
+        const headers: Record<string, string> = { "content-type": "application/json" };
+
+        return {
+          status: 200,
+          headers,
+          body: JSON.stringify({
+            id: crypto.randomUUID(),
+            object: "response",
+            created_at: 1772516810,
+            model: "gpt-5.4",
+            output: [
+              {
+                id: crypto.randomUUID(),
+                type: "message",
+                role: "assistant",
+                content: [{ type: "output_text", text: "OK" }]
+              }
+            ],
+            usage: { input_tokens: 11, output_tokens: 5, total_tokens: 16 }
+          })
+        };
+      }
+    },
+    async ({ app }) => {
+      const payload = {
+        model: "gpt-5.4",
+        messages: [{ role: "user", content: "Reply with exactly: OK" }],
+        prompt_cache_key: "sticky-gpt-oauth-2",
+        stream: false,
+      };
+
+      assert.equal((await app.inject({ method: "POST", url: "/v1/chat/completions", headers: { "content-type": "application/json" }, payload })).statusCode, 200);
+      assert.equal((await app.inject({ method: "POST", url: "/v1/chat/completions", headers: { "content-type": "application/json" }, payload })).statusCode, 200);
+      assert.equal((await app.inject({ method: "POST", url: "/v1/chat/completions", headers: { "content-type": "application/json" }, payload })).statusCode, 200);
+
+      assert.deepEqual(observedAuth, ["oa-token-a", "oa-token-a", "oa-token-b", "oa-token-b"]);
+      assert.deepEqual(observedAccountIds, ["chatgpt-a", "chatgpt-a", "chatgpt-b", "chatgpt-b"]);
+    }
+  );
+});
+
+test("does not immediately promote fallback affinity after one successful reassignment", async () => {
+  const observedAuth: string[] = [];
+  let openAiAAttempts = 0;
+
+  await withProxyApp(
+    {
+      keys: [],
+      keysPayload: {
+        providers: {
+          openai: {
+            auth: "oauth_bearer",
+            accounts: [
+              { id: "openai-a", access_token: "oa-token-a", chatgpt_account_id: "chatgpt-a", plan_type: "plus" },
+              { id: "openai-b", access_token: "oa-token-b", chatgpt_account_id: "chatgpt-b", plan_type: "plus" },
+            ]
+          }
+        }
+      },
+      configOverrides: {
+        upstreamProviderId: "openai",
+      },
+      upstreamHandler: async (request) => {
+        const auth = typeof request.headers.authorization === "string"
+          ? request.headers.authorization.replace(/^Bearer\s+/i, "")
+          : undefined;
+        if (auth) {
+          observedAuth.push(auth);
+        }
+
+        if (auth === "oa-token-a") {
+          openAiAAttempts += 1;
+          if (openAiAAttempts === 2) {
+            const headers: Record<string, string> = {
+              "content-type": "application/json",
+              "retry-after": "1",
+            };
+            return {
+              status: 429,
+              headers,
+              body: JSON.stringify({ error: { message: "daily quota exceeded" } }),
+            };
+          }
+        }
+
+        const headers: Record<string, string> = { "content-type": "application/json" };
+        return {
+          status: 200,
+          headers,
+          body: JSON.stringify({
+            id: crypto.randomUUID(),
+            object: "response",
+            created_at: 1772516810,
+            model: "gpt-5.4",
+            output: [
+              {
+                id: crypto.randomUUID(),
+                type: "message",
+                role: "assistant",
+                content: [{ type: "output_text", text: "OK" }],
+              },
+            ],
+            usage: { input_tokens: 11, output_tokens: 5, total_tokens: 16 },
+          }),
+        };
+      }
+    },
+    async ({ app }) => {
+      const payload = {
+        model: "gpt-5.4",
+        messages: [{ role: "user", content: "Reply with exactly: OK" }],
+        prompt_cache_key: "sticky-gpt-oauth-conservative-1",
+        stream: false,
+      };
+
+      assert.equal((await app.inject({ method: "POST", url: "/v1/chat/completions", headers: { "content-type": "application/json" }, payload })).statusCode, 200);
+      assert.equal((await app.inject({ method: "POST", url: "/v1/chat/completions", headers: { "content-type": "application/json" }, payload })).statusCode, 200);
+      await new Promise((resolve) => setTimeout(resolve, 1_100));
+      assert.equal((await app.inject({ method: "POST", url: "/v1/chat/completions", headers: { "content-type": "application/json" }, payload })).statusCode, 200);
+
+      assert.deepEqual(observedAuth, ["oa-token-a", "oa-token-a", "oa-token-b", "oa-token-a"]);
+    }
+  );
+});
+
+test("groups prompt cache audit rows by hash and distinct accounts touched", async () => {
+  let openAiAAttempts = 0;
+
+  await withProxyApp(
+    {
+      keys: [],
+      keysPayload: {
+        providers: {
+          openai: {
+            auth: "oauth_bearer",
+            accounts: [
+              { id: "openai-a", access_token: "oa-token-a", chatgpt_account_id: "chatgpt-a", plan_type: "plus" },
+              { id: "openai-b", access_token: "oa-token-b", chatgpt_account_id: "chatgpt-b", plan_type: "plus" },
+            ]
+          }
+        }
+      },
+      configOverrides: {
+        upstreamProviderId: "openai",
+      },
+      upstreamHandler: async (request) => {
+        const auth = typeof request.headers.authorization === "string"
+          ? request.headers.authorization.replace(/^Bearer\s+/i, "")
+          : undefined;
+
+        if (auth === "oa-token-a") {
+          openAiAAttempts += 1;
+          if (openAiAAttempts >= 2) {
+            const headers: Record<string, string> = {
+              "content-type": "application/json",
+              "retry-after": "1",
+            };
+            return {
+              status: 429,
+              headers,
+              body: JSON.stringify({ error: { message: "rate limit" } }),
+            };
+          }
+        }
+
+        const headers: Record<string, string> = { "content-type": "application/json" };
+        return {
+          status: 200,
+          headers,
+          body: JSON.stringify({
+            id: crypto.randomUUID(),
+            object: "response",
+            created_at: 1772516810,
+            model: "gpt-5.4",
+            output: [
+              {
+                id: crypto.randomUUID(),
+                type: "message",
+                role: "assistant",
+                content: [{ type: "output_text", text: "OK" }],
+              },
+            ],
+            usage: {
+              input_tokens: 11,
+              output_tokens: 5,
+              total_tokens: 16,
+              input_tokens_details: {
+                cached_tokens: auth === "oa-token-b" ? 9 : 0,
+              },
+            },
+          }),
+        };
+      },
+    },
+    async ({ app }) => {
+      const payload = {
+        model: "gpt-5.4",
+        messages: [{ role: "user", content: "Reply with exactly: OK" }],
+        prompt_cache_key: "sticky-gpt-oauth-audit-1",
+        stream: false,
+      };
+
+      assert.equal((await app.inject({ method: "POST", url: "/v1/chat/completions", headers: { "content-type": "application/json" }, payload })).statusCode, 200);
+      assert.equal((await app.inject({ method: "POST", url: "/v1/chat/completions", headers: { "content-type": "application/json" }, payload })).statusCode, 200);
+
+      const auditResponse = await app.inject({
+        method: "GET",
+        url: "/api/v1/credentials/openai/prompt-cache-audit?limit=10&scanLimit=100",
+      });
+
+      assert.equal(auditResponse.statusCode, 200);
+      const payloadJson: unknown = auditResponse.json();
+      assert.ok(isRecord(payloadJson));
+      assert.equal(payloadJson.crossAccountHashCount, 1);
+      assert.equal(payloadJson.crossSuccessfulAccountHashCount, 1);
+      assert.ok(Array.isArray(payloadJson.rows));
+      assert.equal(payloadJson.rows.length, 1);
+      assert.ok(isRecord(payloadJson.rows[0]));
+      assert.equal(payloadJson.rows[0].accountCount, 2);
+      assert.deepEqual(payloadJson.rows[0].accountIds, ["openai-a", "openai-b"]);
+      assert.equal(payloadJson.rows[0].successfulAccountCount, 2);
+      assert.deepEqual(payloadJson.rows[0].successfulAccountIds, ["openai-a", "openai-b"]);
+      assert.equal(payloadJson.rows[0].failedAccountCount, 1);
+      assert.deepEqual(payloadJson.rows[0].failedAccountIds, ["openai-a"]);
+      assert.equal(payloadJson.rows[0].successfulRequestCount, 2);
+      assert.equal(payloadJson.rows[0].failedRequestCount, 1);
+      assert.equal(payloadJson.rows[0].requestCount, 3);
+    }
+  );
+});
+
+test("prompt cache audit respects configured openai provider id and keeps latest model from newest entry", async () => {
+  await withProxyApp(
+    {
+      keys: [],
+      requestLogsPayload: {
+        entries: [
+          {
+            id: "custom-openai-older",
+            timestamp: Date.UTC(2026, 3, 4, 12, 0, 0),
+            providerId: "chatgpt-oauth",
+            accountId: "acct-1",
+            authType: "oauth_bearer",
+            model: "gpt-4.1",
+            upstreamMode: "responses",
+            upstreamPath: "/v1/responses",
+            status: 200,
+            latencyMs: 110,
+            promptCacheKeyHash: "sha256:custom-openai-hash",
+            promptTokens: 100,
+            completionTokens: 20,
+            totalTokens: 120,
+          },
+          {
+            id: "custom-openai-newer",
+            timestamp: Date.UTC(2026, 3, 4, 12, 5, 0),
+            providerId: "chatgpt-oauth",
+            accountId: "acct-1",
+            authType: "oauth_bearer",
+            model: "gpt-5.4",
+            upstreamMode: "responses",
+            upstreamPath: "/v1/responses",
+            status: 200,
+            latencyMs: 105,
+            promptCacheKeyHash: "sha256:custom-openai-hash",
+            promptTokens: 120,
+            completionTokens: 25,
+            totalTokens: 145,
+            cacheHit: true,
+            promptCacheKeyUsed: true,
+            cachedPromptTokens: 90,
+          },
+          {
+            id: "wrong-provider",
+            timestamp: Date.UTC(2026, 3, 4, 12, 10, 0),
+            providerId: "openai",
+            accountId: "acct-2",
+            authType: "oauth_bearer",
+            model: "gpt-5.4",
+            upstreamMode: "responses",
+            upstreamPath: "/v1/responses",
+            status: 200,
+            latencyMs: 100,
+            promptCacheKeyHash: "sha256:wrong-provider-hash",
+            promptTokens: 200,
+            completionTokens: 30,
+            totalTokens: 230,
+          },
+        ],
+        hourlyBuckets: [],
+        dailyBuckets: [],
+        dailyModelBuckets: [],
+        dailyAccountBuckets: [],
+        accountAccumulators: [],
+      },
+      configOverrides: {
+        openaiProviderId: "chatgpt-oauth",
+        upstreamProviderId: "chatgpt-oauth",
+      },
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ok: true }),
+      }),
+    },
+    async ({ app }) => {
+      const auditResponse = await app.inject({
+        method: "GET",
+        url: "/api/v1/credentials/openai/prompt-cache-audit?limit=10&scanLimit=100",
+      });
+
+      assert.equal(auditResponse.statusCode, 200);
+      const payloadJson: unknown = auditResponse.json();
+      assert.ok(isRecord(payloadJson));
+      assert.ok(Array.isArray(payloadJson.rows));
+      assert.equal(payloadJson.rows.length, 1);
+      assert.ok(isRecord(payloadJson.rows[0]));
+      assert.equal(payloadJson.rows[0].providerId, "chatgpt-oauth");
+      assert.equal(payloadJson.rows[0].latestModel, "gpt-5.4");
+      assert.equal(payloadJson.rows[0].promptCacheKeyHash, "sha256:custom-openai-hash");
+    },
+  );
+});
+
+test("prompt cache audit watchlist is computed from all grouped hashes, not only truncated rows", async () => {
+  const stableEntries = Array.from({ length: 4 }, (_, index) => ({
+    id: `stable-${index}`,
+    timestamp: Date.UTC(2026, 3, 4, 13, index, 0),
+    providerId: "openai",
+    accountId: "acct-stable",
+    authType: "oauth_bearer" as const,
+    model: "gpt-5.4",
+    upstreamMode: "responses" as const,
+    upstreamPath: "/v1/responses",
+    status: 200,
+    latencyMs: 100,
+    promptCacheKeyHash: "sha256:stable-watch-hash",
+    promptTokens: 3_000,
+    completionTokens: 100,
+    totalTokens: 3_100,
+    cachedPromptTokens: index === 0 ? 0 : 150,
+    cacheHit: false,
+    promptCacheKeyUsed: true,
+    factoryDiagnostics: {
+      shapeFingerprint: "shape-stable",
+    },
+  }));
+
+  await withProxyApp(
+    {
+      keys: [],
+      requestLogsPayload: {
+        entries: [
+          {
+            id: "cross-newer",
+            timestamp: Date.UTC(2026, 3, 4, 14, 0, 0),
+            providerId: "openai",
+            accountId: "acct-a",
+            authType: "oauth_bearer",
+            model: "gpt-5.4",
+            upstreamMode: "responses",
+            upstreamPath: "/v1/responses",
+            status: 200,
+            latencyMs: 120,
+            promptCacheKeyHash: "sha256:cross-account-hash",
+            promptTokens: 500,
+            completionTokens: 50,
+            totalTokens: 550,
+          },
+          {
+            id: "cross-older",
+            timestamp: Date.UTC(2026, 3, 4, 13, 59, 0),
+            providerId: "openai",
+            accountId: "acct-b",
+            authType: "oauth_bearer",
+            model: "gpt-5.4",
+            upstreamMode: "responses",
+            upstreamPath: "/v1/responses",
+            status: 200,
+            latencyMs: 118,
+            promptCacheKeyHash: "sha256:cross-account-hash",
+            promptTokens: 500,
+            completionTokens: 50,
+            totalTokens: 550,
+          },
+          ...stableEntries,
+        ],
+        hourlyBuckets: [],
+        dailyBuckets: [],
+        dailyModelBuckets: [],
+        dailyAccountBuckets: [],
+        accountAccumulators: [],
+      },
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ok: true }),
+      }),
+    },
+    async ({ app }) => {
+      const auditResponse = await app.inject({
+        method: "GET",
+        url: "/api/v1/credentials/openai/prompt-cache-audit?limit=1&scanLimit=100",
+      });
+
+      assert.equal(auditResponse.statusCode, 200);
+      const payloadJson: unknown = auditResponse.json();
+      assert.ok(isRecord(payloadJson));
+      assert.ok(Array.isArray(payloadJson.rows));
+      assert.ok(Array.isArray(payloadJson.watchRows));
+      assert.equal(payloadJson.rows.length, 1);
+      assert.equal(payloadJson.rows[0]?.promptCacheKeyHash, "sha256:cross-account-hash");
+      assert.equal(payloadJson.watchRows.length, 1);
+      assert.equal(payloadJson.watchRows[0]?.promptCacheKeyHash, "sha256:stable-watch-hash");
+    },
+  );
+});
+
+test("injects instructions for gpt-5.4-mini routed through openai oauth (regression: codex instructions required)", async () => {
+  let observedPath = "";
+  let observedBody: Record<string, unknown> | undefined;
+
+  await withProxyApp(
+    {
+      keys: [],
+      keysPayload: {
+        providers: {
+          openai: {
+            auth: "oauth_bearer",
+            accounts: [
+              { id: "openai-a", access_token: "oa-token-a", chatgpt_account_id: "chatgpt-a" },
+            ]
+          }
+        }
+      },
+      configOverrides: {
+        upstreamProviderId: "openai",
+      },
+      upstreamHandler: async (request, body) => {
+        observedPath = request.url ?? "";
+        observedBody = JSON.parse(body);
+
+        return {
+          status: 200,
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            id: "resp_gpt52",
+            object: "response",
+            created_at: 1772516810,
+            model: "gpt-5.4-mini",
+            output: [
+              {
+                id: "msg_gpt52",
+                type: "message",
+                role: "assistant",
+                content: [{ type: "output_text", text: "Hello" }]
+              }
+            ],
+            usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 }
+          })
+        };
+      }
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: { "content-type": "application/json" },
+        payload: {
+          model: "gpt-5.4-mini",
+          messages: [{ role: "user", content: "hello" }],
+          stream: false
+        }
+      });
+
+      assert.equal(response.statusCode, 200);
+      assert.equal(observedPath, "/v1/responses");
+      assert.ok(observedBody);
+      assert.ok(Array.isArray(observedBody.input), "payload must use responses input format");
+      assert.equal(typeof observedBody.instructions, "string", "instructions must be a string");
+      assert.equal(observedBody.store, false);
+      assert.equal(observedBody.stream, true);
+
+      const payload: unknown = response.json();
+      assert.ok(isRecord(payload));
+      assert.equal(payload.object, "chat.completion");
+      assert.equal(payload.model, "gpt-5.4-mini");
+    }
+  );
+});
+
+test("openai passthrough coerces null instructions to empty string (regression: codex instructions required)", async () => {
+  let observedBody: Record<string, unknown> | undefined;
+
+  await withProxyApp(
+    {
+      keys: [],
+      keysPayload: {
+        providers: {
+          openai: {
+            auth: "oauth_bearer",
+            accounts: [
+              { id: "openai-a", access_token: "oa-token-a", chatgpt_account_id: "chatgpt-a" },
+            ]
+          }
+        }
+      },
+      configOverrides: {
+        upstreamProviderId: "openai",
+      },
+      upstreamHandler: async (request, body) => {
+        observedBody = JSON.parse(body);
+
+        const streamText = [
+          `event: response.created\ndata: ${JSON.stringify({ type: "response.created", response: { id: "resp_pt", status: "in_progress", model: "gpt-5.4-mini", output: [] } })}\n\n`,
+          `event: response.completed\ndata: ${JSON.stringify({ type: "response.completed", response: { id: "resp_pt", status: "completed", model: "gpt-5.4-mini", output: [{ type: "message", role: "assistant", content: [{ type: "output_text", text: "OK" }] }], usage: { input_tokens: 5, output_tokens: 2, total_tokens: 7 } } })}\n\n`,
+        ].join("");
+
+        return {
+          status: 200,
+          headers: { "content-type": "text/event-stream; charset=utf-8" },
+          body: streamText
+        };
+      }
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/responses",
+        headers: { "content-type": "application/json" },
+        payload: {
+          model: "gpt-5.4-mini",
+          input: [{ role: "user", content: [{ type: "input_text", text: "hello" }] }],
+          instructions: null,
+          stream: true
+        }
+      });
+
+      assert.equal(response.statusCode, 200);
+      assert.ok(observedBody);
+      assert.equal(observedBody.instructions, "", "null instructions must be coerced to empty string");
+      assert.equal(observedBody.store, false);
+      assert.equal(observedBody.stream, true);
+    }
+  );
+});
+
+test("openai passthrough still reaches codex when provider catalog lookup is unavailable", async () => {
+  let observedPath = "";
+  let observedBody: Record<string, unknown> | undefined;
+
+  await withProxyApp(
+    {
+      keys: [],
+      keysPayload: {
+        providers: {
+          openai: {
+            auth: "oauth_bearer",
+            accounts: [
+              { id: "openai-a", access_token: "oa-token-a", chatgpt_account_id: "chatgpt-a" },
+            ]
+          }
+        }
+      },
+      configOverrides: {
+        upstreamProviderId: "openai",
+      },
+      upstreamHandler: async (request, body) => {
+        observedPath = request.url ?? "";
+        observedBody = JSON.parse(body);
+
+        const streamText = [
+          `event: response.created\ndata: ${JSON.stringify({ type: "response.created", response: { id: "resp_gpt54", status: "in_progress", model: "gpt-5.4", output: [] } })}\n\n`,
+          `event: response.completed\ndata: ${JSON.stringify({ type: "response.completed", response: { id: "resp_gpt54", status: "completed", model: "gpt-5.4", output: [{ type: "message", role: "assistant", content: [{ type: "output_text", text: "OK" }] }], usage: { input_tokens: 5, output_tokens: 2, total_tokens: 7 } } })}\n\n`,
+        ].join("");
+
+        return {
+          status: 200,
+          headers: { "content-type": "text/event-stream; charset=utf-8" },
+          body: streamText,
+        };
+      }
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/responses",
+        headers: { "content-type": "application/json" },
+        payload: {
+          model: "gpt-5.4",
+          input: [{ role: "user", content: [{ type: "input_text", text: "hello" }] }],
+          instructions: "",
+          stream: true,
+        }
+      });
+
+      assert.equal(response.statusCode, 200);
+      assert.equal(observedPath, "/v1/responses");
+      assert.ok(observedBody);
+      assert.equal(observedBody.model, "gpt-5.4");
+    }
+  );
+});
+
+test("openai passthrough strips codex-unsupported response parameters", async () => {
+  let observedBody: Record<string, unknown> | undefined;
+
+  await withProxyApp(
+    {
+      keys: [],
+      keysPayload: {
+        providers: {
+          openai: {
+            auth: "oauth_bearer",
+            accounts: [
+              { id: "openai-a", access_token: "oa-token-a", chatgpt_account_id: "chatgpt-a" },
+            ]
+          }
+        }
+      },
+      configOverrides: {
+        upstreamProviderId: "openai",
+      },
+      upstreamHandler: async (request, body) => {
+        observedBody = JSON.parse(body);
+
+        const streamText = [
+          `event: response.created\ndata: ${JSON.stringify({ type: "response.created", response: { id: "resp_mot", status: "in_progress", model: "gpt-5.4-mini", output: [] } })}\n\n`,
+          `event: response.completed\ndata: ${JSON.stringify({ type: "response.completed", response: { id: "resp_mot", status: "completed", model: "gpt-5.4-mini", output: [{ type: "message", role: "assistant", content: [{ type: "output_text", text: "OK" }] }], usage: { input_tokens: 5, output_tokens: 2, total_tokens: 7 } } })}\n\n`,
+        ].join("");
+
+        return {
+          status: 200,
+          headers: { "content-type": "text/event-stream; charset=utf-8" },
+          body: streamText
+        };
+      }
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/responses",
+        headers: { "content-type": "application/json" },
+        payload: {
+          model: "gpt-5.4-mini",
+          input: [{ role: "user", content: [{ type: "input_text", text: "hello" }] }],
+          instructions: "",
+          max_output_tokens: 32000,
+          prompt_cache_retention: "24h",
+          stream: true
+        }
+      });
+
+      assert.equal(response.statusCode, 200);
+      assert.ok(observedBody);
+      assert.equal(observedBody.max_output_tokens, undefined, "max_output_tokens must be stripped for codex path");
+      assert.equal(observedBody.prompt_cache_retention, undefined, "prompt_cache_retention must be stripped for codex path");
+    }
+  );
+});
+
+test("openai responses passthrough closes stalled streaming bodies", async () => {
+  await withProxyApp(
+    {
+      keys: [],
+      keysPayload: {
+        providers: {
+          openai: {
+            auth: "oauth_bearer",
+            accounts: [
+              { id: "openai-a", access_token: "oa-token-a", chatgpt_account_id: "chatgpt-a" },
+            ]
+          }
+        }
+      },
+      configOverrides: {
+        upstreamProviderId: "openai",
+        requestTimeoutMs: 25,
+        streamBootstrapTimeoutMs: 25,
+      },
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: { "content-type": "text/event-stream; charset=utf-8" },
+        streamBody: async (response) => {
+          response.write(`event: response.created\ndata: ${JSON.stringify({ type: "response.created", response: { id: "resp_stalled", status: "in_progress", model: "gpt-5.5", output: [] } })}\n\n`);
+          await once(response, "close");
+        },
+      })
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/responses",
+        headers: { "content-type": "application/json" },
+        payload: {
+          model: "gpt-5.5",
+          input: [{ role: "user", content: [{ type: "input_text", text: "hello" }] }],
+          instructions: "",
+          stream: true
+        }
+      });
+
+      assert.equal(response.statusCode, 200);
+      assert.match(response.body, /response\.created/);
+    }
+  );
+});
+
+test("/api/tools/websearch proxies via Responses web_search and extracts url citations", async () => {
+  let observedPath = "";
+  let observedBody: Record<string, unknown> | undefined;
+
+  await withProxyApp(
+    {
+      keys: [],
+      keysPayload: {
+        providers: {
+          openai: {
+            auth: "oauth_bearer",
+            accounts: [
+              { id: "openai-a", access_token: "oa-token-a", chatgpt_account_id: "chatgpt-a" },
+            ]
+          }
+        }
+      },
+      proxyAuthToken: "proxy-token",
+      configOverrides: {
+        upstreamProviderId: "openai",
+      },
+      upstreamHandler: async (request, body) => {
+        observedPath = request.url ?? "";
+        observedBody = JSON.parse(body);
+
+        const streamText = [
+          `event: response.created\ndata: ${JSON.stringify({
+            type: "response.created",
+            response: { id: "resp_ws", status: "in_progress", model: "gpt-5.4-mini", output: [] },
+          })}\n\n`,
+          `event: response.completed\ndata: ${JSON.stringify({
+            type: "response.completed",
+            response: {
+              id: "resp_ws",
+              status: "completed",
+              model: "gpt-5.4-mini",
+              output: [
+                { type: "web_search_call", id: "ws_1", status: "completed", action: { type: "search", query: "example query" } },
+                {
+                  type: "message",
+                  role: "assistant",
+                  content: [
+                    {
+                      type: "output_text",
+                      text: "- [Example](https://example.com) — Example snippet.",
+                      annotations: [
+                        { type: "url_citation", url: "https://example.com", title: "Example" },
+                      ],
+                    },
+                  ],
+                },
+              ],
+              usage: { input_tokens: 5, output_tokens: 2, total_tokens: 7 },
+            },
+          })}\n\n`,
+        ].join("");
+
+        return {
+          status: 200,
+          headers: { "content-type": "text/event-stream; charset=utf-8" },
+          body: streamText,
+        };
+      }
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/tools/websearch",
+        headers: {
+          authorization: "Bearer proxy-token",
+          "content-type": "application/json",
+        },
+        payload: {
+          query: "example query",
+          numResults: 5,
+          searchContextSize: "medium",
+          model: "gpt-5.4-mini",
+        },
+      });
+
+      assert.equal(response.statusCode, 200);
+      assert.equal(observedPath, "/v1/responses");
+      assert.ok(observedBody);
+      assert.ok(Array.isArray(observedBody.tools));
+      assert.ok((observedBody.tools as any[]).some((tool) => isRecord(tool) && tool.type === "web_search"));
+
+      const payload: unknown = response.json();
+      assert.ok(isRecord(payload));
+      assert.equal(typeof payload.output, "string");
+      assert.ok(Array.isArray(payload.sources));
+      assert.equal(payload.responseId, "resp_ws");
+      assert.equal(payload.model, "gpt-5.4-mini");
+      assert.equal(payload.backend, "openai");
+
+      const sources = payload.sources as unknown[];
+      assert.ok(isRecord(sources[0]));
+      assert.equal((sources[0] as any).url, "https://example.com");
+    }
+  );
+});
+
+test("/api/tools/websearch falls back to Exa when OpenAI fails", async () => {
+  const originalFetch = globalThis.fetch;
+  let exaCalled = false;
+  const callOrder: string[] = [];
+
+  globalThis.fetch = (async (input: any, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input.url;
+    if (url?.includes("mcp.exa.ai")) {
+      callOrder.push("exa");
+      exaCalled = true;
+      const body = init?.body ? JSON.parse(init.body as string) : {};
+      assert.equal(body.method, "tools/call");
+      assert.equal(body.params.name, "web_search_exa");
+
+      return new Response(
+        `data: ${JSON.stringify({
+          jsonrpc: "2.0",
+          result: {
+            content: [
+              {
+                type: "text",
+                text: "- [Exa Result](https://exa.example.com) — Found via Exa fallback.",
+              },
+            ],
+          },
+        })}\n\n`,
+        { status: 200, headers: { "content-type": "text/event-stream" } }
+      );
+    }
+    if (typeof url === "string" && url.startsWith("http://127.0.0.1:")) {
+      return originalFetch(input, init);
+    }
+    throw new Error(`Unexpected fetch URL: ${url}`);
+  }) as typeof fetch;
+
+  try {
+    await withProxyApp(
+      {
+        keys: [],
+        keysPayload: {
+          providers: {
+            openai: {
+              auth: "oauth_bearer",
+              accounts: [{ id: "openai-a", access_token: "oa-token-a", chatgpt_account_id: "chatgpt-a" }],
+            },
+          },
+        },
+        proxyAuthToken: "proxy-token",
+        configOverrides: {
+          upstreamProviderId: "openai",
+        },
+        upstreamHandler: async () => {
+          callOrder.push("openai");
+          return {
+            status: 500,
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ error: { message: "OpenAI web search unavailable" } }),
+          };
+        },
+      },
+      async ({ app }) => {
+        const response = await app.inject({
+          method: "POST",
+          url: "/api/tools/websearch",
+          headers: {
+            authorization: "Bearer proxy-token",
+            "content-type": "application/json",
+          },
+          payload: {
+            query: "test query",
+            numResults: 5,
+          },
+        });
+
+        assert.equal(response.statusCode, 200);
+        assert.ok(exaCalled, "Exa MCP should have been called");
+        assert.deepEqual(callOrder, ["openai", "exa"]);
+
+        const payload: unknown = response.json();
+        assert.ok(isRecord(payload));
+        assert.equal(payload.backend, "exa");
+        assert.ok(typeof payload.output === "string");
+        assert.ok(payload.output.includes("Exa Result"));
+        assert.ok(Array.isArray(payload.sources));
+      }
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("/api/tools/websearch falls back to Exa when OpenAI returns empty output", async () => {
+  const originalFetch = globalThis.fetch;
+  const callOrder: string[] = [];
+
+  globalThis.fetch = (async (input: any, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input.url;
+    if (url?.includes("mcp.exa.ai")) {
+      callOrder.push("exa");
+      const body = init?.body ? JSON.parse(init.body as string) : {};
+      assert.equal(body.method, "tools/call");
+      assert.equal(body.params.name, "web_search_exa");
+
+      return new Response(
+        `data: ${JSON.stringify({
+          jsonrpc: "2.0",
+          result: {
+            content: [
+              {
+                type: "text",
+                text: "- [Exa Empty Fallback](https://exa.example.com/empty) — Recovered from empty OpenAI output.",
+              },
+            ],
+          },
+        })}\n\n`,
+        { status: 200, headers: { "content-type": "text/event-stream" } }
+      );
+    }
+    if (typeof url === "string" && url.startsWith("http://127.0.0.1:")) {
+      return originalFetch(input, init);
+    }
+    throw new Error(`Unexpected fetch URL: ${url}`);
+  }) as typeof fetch;
+
+  try {
+    await withProxyApp(
+      {
+        keys: [],
+        keysPayload: {
+          providers: {
+            openai: {
+              auth: "oauth_bearer",
+              accounts: [{ id: "openai-a", access_token: "oa-token-a", chatgpt_account_id: "chatgpt-a" }],
+            },
+          },
+        },
+        proxyAuthToken: "proxy-token",
+        configOverrides: {
+          upstreamProviderId: "openai",
+        },
+        upstreamHandler: async () => {
+          callOrder.push("openai");
+          const streamText = [
+            `event: response.created\ndata: ${JSON.stringify({
+              type: "response.created",
+              response: { id: "resp_empty_ws", status: "in_progress", model: "gpt-5.4-mini", output: [] },
+            })}\n\n`,
+            `event: response.completed\ndata: ${JSON.stringify({
+              type: "response.completed",
+              response: {
+                id: "resp_empty_ws",
+                status: "completed",
+                model: "gpt-5.4-mini",
+                output: [],
+                usage: { input_tokens: 5, output_tokens: 0, total_tokens: 5 },
+              },
+            })}\n\n`,
+          ].join("");
+
+          return {
+            status: 200,
+            headers: { "content-type": "text/event-stream; charset=utf-8" },
+            body: streamText,
+          };
+        },
+      },
+      async ({ app }) => {
+        const response = await app.inject({
+          method: "POST",
+          url: "/api/tools/websearch",
+          headers: {
+            authorization: "Bearer proxy-token",
+            "content-type": "application/json",
+          },
+          payload: {
+            query: "empty query",
+            numResults: 5,
+            model: "gpt-5.4-mini",
+          },
+        });
+
+        assert.equal(response.statusCode, 200);
+        // Requested and fallback models are both gpt-5.4-mini, so candidate
+        // deduplication keeps one model with the two domain-hint shapes.
+        assert.deepEqual(callOrder, ["openai", "openai", "exa"]);
+
+        const payload: unknown = response.json();
+        assert.ok(isRecord(payload));
+        assert.equal(payload.backend, "exa");
+        assert.ok(typeof payload.output === "string");
+        assert.ok(payload.output.includes("Exa Empty Fallback"));
+        assert.ok(Array.isArray(payload.sources));
+      }
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("records token usage from codex SSE responses with missing content-type (regression)", async () => {
+  await withProxyApp(
+    {
+      keys: [],
+      keysPayload: {
+        providers: {
+          openai: {
+            auth: "oauth_bearer",
+            accounts: [
+              { id: "openai-a", access_token: "oa-token-a", chatgpt_account_id: "chatgpt-a" },
+            ]
+          }
+        }
+      },
+      configOverrides: {
+        upstreamProviderId: "openai",
+        responsesModelPrefixes: ["gpt-"],
+      },
+      upstreamHandler: async () => {
+        const streamText = [
+          `event: response.created\ndata: ${JSON.stringify({ type: "response.created", response: { id: "resp_usage", status: "in_progress", model: "gpt-5.4-mini", output: [] } })}\n\n`,
+          `event: response.completed\ndata: ${JSON.stringify({ type: "response.completed", response: { id: "resp_usage", status: "completed", model: "gpt-5.4-mini", output: [{ type: "message", role: "assistant", content: [{ type: "output_text", text: "OK" }] }], usage: { input_tokens: 42, output_tokens: 7, total_tokens: 49, input_tokens_details: { cached_tokens: 30 } } } })}\n\n`,
+        ].join("");
+
+        return {
+          status: 200,
+          headers: {},
+          body: streamText
+        };
+      }
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: { "content-type": "application/json" },
+        payload: {
+          model: "gpt-5.4-mini",
+          messages: [{ role: "user", content: "hello" }],
+          stream: false
+        }
+      });
+
+      assert.equal(response.statusCode, 200);
+
+      const logsResponse = await app.inject({
+        method: "GET",
+        url: "/api/v1/request-logs?limit=1",
+      });
+
+      assert.equal(logsResponse.statusCode, 200);
+      const logs: unknown = logsResponse.json();
+      assert.ok(isRecord(logs));
+      assert.ok(Array.isArray(logs.entries));
+      const entry = logs.entries[0];
+      assert.ok(isRecord(entry));
+      assert.equal(entry.promptTokens, 42, "promptTokens must be extracted from codex SSE usage.input_tokens");
+      assert.equal(entry.completionTokens, 7, "completionTokens must be extracted from codex SSE usage.output_tokens");
+      assert.equal(entry.totalTokens, 49, "totalTokens must be extracted from codex SSE usage.total_tokens");
+      assert.equal(entry.cachedPromptTokens, 30, "cachedPromptTokens must be extracted from input_tokens_details.cached_tokens");
+      assert.equal(entry.cacheHit, true, "cacheHit must be true when cached_tokens > 0");
+    }
+  );
+});
+
+test("extracts cached prompt tokens from messages usage cache_read_input_tokens", async () => {
+  await withProxyApp(
+    {
+      keys: ["key-a"],
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          id: "msg_cache_usage",
+          type: "message",
+          role: "assistant",
+          model: "claude-3-7-sonnet",
+          content: [
+            {
+              type: "text",
+              text: "OK",
+            },
+          ],
+          usage: {
+            input_tokens: 42,
+            output_tokens: 7,
+            cache_read_input_tokens: 28,
+            cache_creation_input_tokens: 128,
+          },
+        }),
+      }),
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: { "content-type": "application/json" },
+        payload: {
+          model: "claude-3-7-sonnet",
+          messages: [{ role: "user", content: "hello" }],
+          stream: false,
+        },
+      });
+
+      assert.equal(response.statusCode, 200);
+
+      const logsResponse = await app.inject({
+        method: "GET",
+        url: "/api/v1/request-logs?providerId=vivgrid&limit=1",
+      });
+
+      assert.equal(logsResponse.statusCode, 200);
+      const logs: unknown = logsResponse.json();
+      assert.ok(isRecord(logs));
+      assert.ok(Array.isArray(logs.entries));
+      const entry = logs.entries[0];
+      assert.ok(isRecord(entry));
+      assert.equal(entry.promptTokens, 42);
+      assert.equal(entry.completionTokens, 7);
+      assert.equal(entry.totalTokens, 49);
+      assert.equal(entry.cachedPromptTokens, 28);
+      assert.equal(entry.cacheHit, true);
+    },
+  );
+});
+
+test("openai chat completions strategy converts GPT requests to responses format for codex path (regression)", async () => {
+  let observedPath = "";
+  let observedBody: Record<string, unknown> | undefined;
+
+  await withProxyApp(
+    {
+      keys: [],
+      keysPayload: {
+        providers: {
+          openai: {
+            auth: "oauth_bearer",
+            accounts: [
+              { id: "openai-a", access_token: "oa-token-a", chatgpt_account_id: "chatgpt-a" },
+            ]
+          }
+        }
+      },
+      models: ["gpt-5.4"],
+      configOverrides: {
+        upstreamProviderId: "openai",
+        responsesModelPrefixes: ["gpt-"],
+      },
+      upstreamHandler: async (request, body) => {
+        observedPath = request.url ?? "";
+        observedBody = JSON.parse(body);
+
+        return {
+          status: 200,
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            id: "resp_gpt54",
+            object: "response",
+            created_at: 1772516810,
+            model: "gpt-5.4",
+            output: [
+              {
+                id: "msg_gpt54",
+                type: "message",
+                role: "assistant",
+                content: [{ type: "output_text", text: "GPT response" }]
+              }
+            ],
+            usage: { input_tokens: 8, output_tokens: 3, total_tokens: 11 }
+          })
+        };
+      }
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: { "content-type": "application/json" },
+        payload: {
+          model: "gpt-5.4",
+          messages: [{ role: "user", content: "hello" }],
+          stream: false
+        }
+      });
+
+      assert.equal(response.statusCode, 200);
+      assert.equal(observedPath, "/v1/responses");
+      assert.ok(observedBody);
+      assert.ok(Array.isArray(observedBody.input), "payload must use responses input format");
+      assert.equal(typeof observedBody.instructions, "string", "instructions must be a string");
+      assert.equal(observedBody.store, false);
+      assert.equal(observedBody.stream, true);
+      assert.equal(observedBody.messages, undefined, "messages must not be sent to codex path");
+
+      const payload: unknown = response.json();
+      assert.ok(isRecord(payload));
+      assert.equal(payload.object, "chat.completion");
+    }
+  );
+});
+
+test("glm chat requests route to rotussy instead of ollama-cloud or the openai provider when rotussy is configured", { concurrency: false }, async () => {
+  await withEnv(
+    {
+      ROTUSSY_API_KEY: "rotussy-key-1", // pragma: allowlist secret
+      ROTUSSY_PROVIDER_ID: undefined,
+      REQUESTY_API_TOKEN: undefined,
+      REQUESTY_API_KEY: undefined,
+      OPENROUTER_API_KEY: undefined,
+      GEMINI_API_KEY: undefined,
+      ZAI_API_KEY: undefined,
+    },
+    async () => {
+      const observedAttempts: Array<{ path: string; auth: string | undefined }> = [];
+      let observedBody: Record<string, unknown> | undefined;
+
+      await withProxyApp(
+        {
+          keys: [],
+          keysPayload: {
+            providers: {
+              openai: {
+                auth: "oauth_bearer",
+                accounts: [
+                  { id: "openai-a", access_token: "oa-token-a", chatgpt_account_id: "chatgpt-a" },
+                ],
+              },
+            },
+          },
+          models: ["glm-5"],
+          configOverrides: {
+            upstreamProviderId: "openai",
+            localOllamaEnabled: false,
+            cljsPolicyShadowMode: true,
+          },
+          upstreamHandler: async (request, body) => {
+            if (request.method === "GET" && request.url === "/models") {
+              return {
+                status: 200,
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ object: "list", data: [{ id: "glm-5" }] }),
+              };
+            }
+
+            observedAttempts.push({
+              path: request.url ?? "",
+              auth: typeof request.headers.authorization === "string"
+                ? request.headers.authorization
+                : undefined,
+            });
+            observedBody = JSON.parse(body) as Record<string, unknown>;
+
+            return {
+              status: 200,
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                id: "chatcmpl_rotussy_glm",
+                object: "chat.completion",
+                created: 1772516811,
+                model: "glm-5",
+                choices: [{
+                  index: 0,
+                  message: { role: "assistant", content: "rotussy-glm-routed" },
+                  finish_reason: "stop",
+                }],
+              }),
+            };
+          },
+        },
+        async ({ app }) => {
+          const response = await app.inject({
+            method: "POST",
+            url: "/v1/chat/completions",
+            headers: { "content-type": "application/json" },
+            payload: {
+              model: "glm-5",
+              messages: [{ role: "user", content: "hello" }],
+              stream: false,
+            },
+          });
+
+          assert.equal(response.statusCode, 200);
+          assert.deepEqual(observedAttempts, [
+            { path: "/v1/chat/completions", auth: "Bearer rotussy-key-1" },
+          ]);
+          assert.ok(isRecord(observedBody));
+          assert.equal(observedBody.model, "glm-5");
+          assert.equal(response.headers["x-open-hax-upstream-provider"], "rotussy");
+
+          const payload: unknown = response.json();
+          assert.ok(isRecord(payload));
+          assert.equal((payload.choices as any)[0].message.content, "rotussy-glm-routed");
+        },
+      );
+    },
+  );
+});
+
+test("glm chat requests skip ollama-cloud when provider catalog does not advertise the requested model", { concurrency: false }, async () => {
+  await withEnv(
+    {
+      ROTUSSY_API_KEY: "rotussy-key-1", // pragma: allowlist secret
+      ROTUSSY_PROVIDER_ID: undefined,
+      REQUESTY_API_TOKEN: undefined,
+      REQUESTY_API_KEY: undefined,
+      OPENROUTER_API_KEY: undefined,
+      GEMINI_API_KEY: undefined,
+      ZAI_API_KEY: undefined,
+    },
+    async () => {
+      const upstreamAuths: string[] = [];
+
+      await withProxyApp(
+        {
+          keys: [],
+          handleModelCatalog: true,
+          keysPayload: {
+            providers: {
+              openai: {
+                auth: "oauth_bearer",
+                accounts: [
+                  { id: "openai-a", access_token: "oa-token-a", chatgpt_account_id: "chatgpt-a" },
+                ],
+              },
+              "ollama-cloud": ["ollama-cloud-key"],
+            },
+          },
+          models: ["glm-4.7-flash"],
+          configOverrides: {
+            upstreamProviderId: "openai",
+            localOllamaEnabled: false,
+            cljsPolicyShadowMode: true,
+          },
+          upstreamHandler: async (request, body) => {
+            const auth = request.headers.authorization;
+
+            if (request.method === "GET" && (request.url === "/v1/models" || request.url === "/models")) {
+              if (auth === "Bearer ollama-cloud-key") {
+                return {
+                  status: 200,
+                  headers: { "content-type": "application/json" },
+                  body: JSON.stringify({ object: "list", data: [{ id: "Kimi-K2.5" }] }),
+                };
+              }
+
+              if (auth === "Bearer rotussy-key-1") {
+                return {
+                  status: 200,
+                  headers: { "content-type": "application/json" },
+                  body: JSON.stringify({ object: "list", data: [{ id: "glm-4.7-flash" }] }),
+                };
+              }
+
+              return {
+                status: 200,
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ object: "list", data: [{ id: "gpt-5.4" }] }),
+              };
+            }
+
+            upstreamAuths.push(auth ?? "");
+            assert.notEqual(auth, "Bearer ollama-cloud-key");
+            assert.equal(auth, "Bearer rotussy-key-1");
+            const observedBody = JSON.parse(body) as Record<string, unknown>;
+            assert.equal(observedBody.model, "glm-4.7-flash");
+
+            return {
+              status: 200,
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                id: "chatcmpl_rotussy_glm_skip_ollama",
+                object: "chat.completion",
+                created: 1772516811,
+                model: "glm-4.7-flash",
+                choices: [{
+                  index: 0,
+                  message: { role: "assistant", content: "rotussy-only" },
+                  finish_reason: "stop",
+                }],
+              }),
+            };
+          },
+        },
+        async ({ app }) => {
+          const response = await app.inject({
+            method: "POST",
+            url: "/v1/chat/completions",
+            headers: { "content-type": "application/json" },
+            payload: {
+              model: "glm-4.7-flash",
+              messages: [{ role: "user", content: "hello" }],
+              stream: false,
+            },
+          });
+
+          assert.equal(response.statusCode, 200);
+          assert.equal(response.headers["x-open-hax-upstream-provider"], "rotussy");
+          assert.deepEqual(upstreamAuths, ["Bearer rotussy-key-1"]);
+        },
+      );
+    },
+  );
+});
+
+test("glm /v1/responses requests route through rotussy chat-completions compatibility when rotussy is configured", { concurrency: false }, async () => {
+  await withEnv(
+    {
+      ROTUSSY_API_KEY: "rotussy-key-1", // pragma: allowlist secret
+      ROTUSSY_PROVIDER_ID: undefined,
+      OPENROUTER_API_KEY: undefined,
+      GEMINI_API_KEY: undefined,
+      ZAI_API_KEY: undefined,
+      ZHIPU_API_KEY: undefined,
+      REQUESTY_API_TOKEN: undefined,
+      REQUESTY_API_KEY: undefined,
+    },
+    async () => {
+      const observedAttempts: Array<{ path: string; auth: string | undefined }> = [];
+      let observedBody: Record<string, unknown> | undefined;
+
+      await withProxyApp(
+        {
+          keys: [],
+          keysPayload: {
+            providers: {
+              openai: {
+                auth: "oauth_bearer",
+                accounts: [
+                  { id: "openai-a", access_token: "oa-token-a", chatgpt_account_id: "chatgpt-a" },
+                ],
+              },
+            },
+          },
+          models: ["glm-5"],
+          configOverrides: {
+            upstreamProviderId: "openai",
+            localOllamaEnabled: false,
+            cljsPolicyShadowMode: true,
+          },
+          upstreamHandler: async (request, body) => {
+            if (request.method === "GET" && request.url === "/models") {
+              return {
+                status: 200,
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ object: "list", data: [{ id: "glm-5" }] }),
+              };
+            }
+
+            observedAttempts.push({
+              path: request.url ?? "",
+              auth: typeof request.headers.authorization === "string"
+                ? request.headers.authorization
+                : undefined,
+            });
+            observedBody = JSON.parse(body) as Record<string, unknown>;
+
+            return {
+              status: 200,
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                id: "chatcmpl_rotussy_glm5",
+                object: "chat.completion",
+                created: 1772516812,
+                model: "glm-5",
+                choices: [{
+                  index: 0,
+                  message: { role: "assistant", content: "rotussy-responses-routed", reasoning_content: "brief reasoning" },
+                  finish_reason: "stop",
+                }],
+                usage: {
+                  prompt_tokens: 6,
+                  completion_tokens: 3,
+                  total_tokens: 9,
+                  completion_tokens_details: { reasoning_tokens: 2 },
+                },
+              }),
+            };
+          },
+        },
+        async ({ app }) => {
+          const response = await app.inject({
+            method: "POST",
+            url: "/v1/responses",
+            headers: {
+              authorization: "Bearer local-test",
+              "content-type": "application/json",
+            },
+            payload: {
+              model: "glm-5",
+              input: [{ role: "user", content: [{ type: "input_text", text: "hello" }] }],
+              instructions: "",
+              stream: false,
+            },
+          });
+
+          assert.equal(response.statusCode, 200);
+          assert.deepEqual(observedAttempts, [
+            { path: "/v1/chat/completions", auth: "Bearer rotussy-key-1" },
+          ]);
+          assert.ok(isRecord(observedBody));
+          assert.equal(observedBody.model, "glm-5");
+          assert.ok(Array.isArray(observedBody.messages));
+          assert.equal(response.headers["x-open-hax-upstream-provider"], "rotussy");
+          assert.equal(response.headers["x-open-hax-upstream-mode"], "chat_completions");
+
+          const payload: unknown = response.json();
+          assert.ok(isRecord(payload));
+          assert.equal(payload.object, "response");
+          assert.equal(payload.model, "glm-5");
+          assert.ok(Array.isArray(payload.output));
+          assert.equal((payload.output as any)[1].content[0].text, "rotussy-responses-routed");
+        },
+      );
+    },
+  );
+});
+
+test("routes ollama-prefixed models to /api/chat and forwards num_ctx controls", async () => {
+  let observedPath = "";
+  let observedBody: unknown;
+  let observedAuthorization: string | undefined;
+
+  await withProxyApp(
+    {
+      keys: [],
+      upstreamHandler: async (request, body) => {
+        observedPath = request.url ?? "";
+        observedBody = JSON.parse(body);
+        observedAuthorization = request.headers.authorization;
+
+        return {
+          status: 200,
+          headers: {
+            "content-type": "application/json"
+          },
+          body: JSON.stringify({
+            model: "llama3.2:latest",
+            created_at: "2026-03-03T00:00:00.000Z",
+            message: {
+              role: "assistant",
+              content: "ollama-ok"
+            },
+            done: true,
+            done_reason: "stop",
+            prompt_eval_count: 12,
+            eval_count: 6
+          })
+        };
+      }
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json"
+        },
+        payload: {
+          model: "ollama/llama3.2:latest",
+          messages: [{ role: "user", content: "hello" }],
+          stream: false,
+          open_hax: {
+            ollama: {
+              num_ctx: 8192
+            }
+          }
+        }
+      });
+
+      assert.equal(response.statusCode, 200);
+      assert.equal(response.headers["x-open-hax-upstream-mode"], "ollama_chat");
+      assert.equal(observedPath, "/api/chat");
+      assert.equal(observedAuthorization, undefined);
+
+      assert.ok(isRecord(observedBody));
+      assert.equal(observedBody.model, "llama3.2:latest");
+      assert.ok(Array.isArray(observedBody.messages));
+      assert.ok(isRecord(observedBody.options));
+      assert.equal(observedBody.options.num_ctx, 8192);
+
+      const payload: unknown = response.json();
+      assert.ok(isRecord(payload));
+      assert.equal(payload.object, "chat.completion");
+      assert.equal(payload.model, "llama3.2:latest");
+      assert.ok(Array.isArray(payload.choices));
+      assert.ok(isRecord(payload.choices[0]));
+      assert.ok(isRecord(payload.choices[0].message));
+      assert.equal(payload.choices[0].message.content, "ollama-ok");
+      assert.ok(isRecord(payload.usage));
+      assert.equal(payload.usage.prompt_tokens, 12);
+      assert.equal(payload.usage.completion_tokens, 6);
+      assert.equal(payload.usage.total_tokens, 18);
+    }
+  );
+});
+
+test("maps reasoning effort to ollama think true and exposes thinking as reasoning_content", async () => {
+  let observedBody: unknown;
+
+  await withProxyApp(
+    {
+      keys: [],
+      upstreamHandler: async (_request, body) => {
+        observedBody = JSON.parse(body);
+
+        return {
+          status: 200,
+          headers: {
+            "content-type": "application/json"
+          },
+          body: JSON.stringify({
+            model: "llama3.2:latest",
+            created_at: "2026-03-03T00:00:00.000Z",
+            message: {
+              role: "assistant",
+              content: "ollama-answer",
+              thinking: "ollama-thinking"
+            },
+            done: true,
+            done_reason: "stop",
+            prompt_eval_count: 12,
+            eval_count: 6
+          })
+        };
+      }
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json"
+        },
+        payload: {
+          model: "ollama/llama3.2:latest",
+          messages: [{ role: "user", content: "hello" }],
+          reasoning_effort: "high",
+          include: ["reasoning.encrypted_content"],
+          stream: false
+        }
+      });
+
+      assert.equal(response.statusCode, 200);
+      assert.ok(isRecord(observedBody));
+      assert.equal(observedBody.think, true);
+
+      const payload: unknown = response.json();
+      assert.ok(isRecord(payload));
+      assert.equal((payload.choices as any)[0].message.content, "ollama-answer");
+      assert.equal((payload.choices as any)[0].message.reasoning_content, "ollama-thinking");
+    }
+  );
+});
+
+test("maps none reasoning effort to ollama think false", async () => {
+  let observedBody: unknown;
+
+  await withProxyApp(
+    {
+      keys: [],
+      upstreamHandler: async (_request, body) => {
+        observedBody = JSON.parse(body);
+
+        return {
+          status: 200,
+          headers: {
+            "content-type": "application/json"
+          },
+          body: JSON.stringify({
+            model: "llama3.2:latest",
+            created_at: "2026-03-03T00:00:00.000Z",
+            message: {
+              role: "assistant",
+              content: "ollama-no-think"
+            },
+            done: true,
+            done_reason: "stop",
+            prompt_eval_count: 2,
+            eval_count: 1
+          })
+        };
+      }
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json"
+        },
+        payload: {
+          model: "ollama/llama3.2:latest",
+          messages: [{ role: "user", content: "hello" }],
+          reasoning_effort: "none",
+          stream: false
+        }
+      });
+
+      assert.equal(response.statusCode, 200);
+      assert.ok(isRecord(observedBody));
+      assert.equal(observedBody.think, false);
+    }
+  );
+});
+
+test("returns true streaming chat-completion SSE for ollama stream requests", async () => {
+  let observedBody: unknown;
+
+  await withProxyApp(
+    {
+      keys: [],
+      upstreamHandler: async (_request, body) => {
+        observedBody = JSON.parse(body);
+
+        return {
+          status: 200,
+          headers: {
+            "content-type": "application/x-ndjson"
+          },
+          body:
+            '{"model":"llama3.2:latest","created_at":"2026-03-03T00:00:00.000Z","message":{"role":"assistant","content":"ollama-"},"done":false}\n' +
+            '{"model":"llama3.2:latest","created_at":"2026-03-03T00:00:00.000Z","message":{"role":"assistant","content":"stream-ok"},"done":false}\n' +
+            '{"model":"llama3.2:latest","created_at":"2026-03-03T00:00:00.000Z","message":{"role":"assistant","content":""},"done":true,"done_reason":"stop","prompt_eval_count":3,"eval_count":2}\n'
+        };
+      }
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json"
+        },
+        payload: {
+          model: "ollama:llama3.2:latest",
+          messages: [{ role: "user", content: "hello" }],
+          stream: true,
+          num_ctx: 4096
+        }
+      });
+
+      assert.equal(response.statusCode, 200);
+      assert.equal(response.headers["content-type"], "text/event-stream; charset=utf-8");
+
+      assert.ok(isRecord(observedBody));
+      assert.equal(observedBody.stream, true);
+      assert.ok(isRecord(observedBody.options));
+      assert.equal(observedBody.options.num_ctx, 4096);
+
+      const ssePayloads = parseSseDataPayloads(response.body);
+      assert.equal(ssePayloads.at(-1), "[DONE]");
+
+      const firstChunk = JSON.parse(ssePayloads[0]!);
+      const secondChunk = JSON.parse(ssePayloads[1]!);
+      const finalChunk = JSON.parse(ssePayloads[2]!);
+
+      assert.equal(firstChunk.object, "chat.completion.chunk");
+      assert.equal(firstChunk.choices[0].delta.role, "assistant");
+      assert.equal(firstChunk.choices[0].delta.content, "ollama-");
+      assert.equal(secondChunk.object, "chat.completion.chunk");
+      assert.equal(secondChunk.choices[0].delta.content, "stream-ok");
+      assert.equal(finalChunk.object, "chat.completion.chunk");
+      assert.deepEqual(finalChunk.choices[0].delta, {});
+      assert.equal(finalChunk.choices[0].finish_reason, "stop");
+      assert.equal(firstChunk.id, secondChunk.id);
+      assert.equal(secondChunk.id, finalChunk.id);
+    }
+  );
+});
+
+test("collapses duplicated first thinking token in ollama stream reasoning", async () => {
+  await withProxyApp(
+    {
+      keys: [],
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: {
+          "content-type": "application/x-ndjson"
+        },
+        body:
+          '{"model":"gemma3:latest","created_at":"2026-03-03T00:00:00.000Z","message":{"role":"assistant","thinking":"The"},"done":false}\n' +
+          '{"model":"gemma3:latest","created_at":"2026-03-03T00:00:00.000Z","message":{"role":"assistant","thinking":"TheThe model should reason once.","content":"answer"},"done":false}\n' +
+          '{"model":"gemma3:latest","created_at":"2026-03-03T00:00:00.000Z","message":{"role":"assistant","thinking":"TheThe model should reason once.","content":"answer"},"done":true,"done_reason":"stop"}\n'
+      })
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json"
+        },
+        payload: {
+          model: "ollama:gemma3:latest",
+          messages: [{ role: "user", content: "hello" }],
+          reasoning_effort: "high",
+          stream: true
+        }
+      });
+
+      assert.equal(response.statusCode, 200);
+      const chunks = parseSseDataPayloads(response.body)
+        .filter((payload) => payload !== "[DONE]")
+        .map((payload) => JSON.parse(payload));
+      const reasoning = chunks
+        .map((chunk) => chunk.choices?.[0]?.delta?.reasoning_content ?? "")
+        .join("");
+
+      assert.equal(reasoning, "The model should reason once.");
+    }
+  );
+});
+
+test("preserves ollama stream content when tool calls are present", async () => {
+  await withProxyApp(
+    {
+      keys: [],
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: {
+          "content-type": "application/x-ndjson"
+        },
+        body:
+          '{"model":"llama3.2:latest","created_at":"2026-03-03T00:00:00.000Z","message":{"role":"assistant","content":"tool-call-transcript","tool_calls":[{"function":{"name":"bash","arguments":{"command":"pwd"}}}]},"done":false}\n' +
+          '{"model":"llama3.2:latest","created_at":"2026-03-03T00:00:00.000Z","message":{"role":"assistant","content":"","tool_calls":[{"function":{"name":"bash","arguments":{"command":"pwd"}}}]},"done":true,"done_reason":"stop"}\n'
+      })
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json"
+        },
+        payload: {
+          model: "ollama:llama3.2:latest",
+          messages: [{ role: "user", content: "hello" }],
+          stream: true
+        }
+      });
+
+      assert.equal(response.statusCode, 200);
+
+      const ssePayloads = parseSseDataPayloads(response.body);
+      assert.equal(ssePayloads.at(-1), "[DONE]");
+
+      const firstChunk = JSON.parse(ssePayloads[0]!);
+      const finalChunk = JSON.parse(ssePayloads[1]!);
+
+      assert.equal(firstChunk.object, "chat.completion.chunk");
+      assert.equal(firstChunk.choices[0].delta.content, "tool-call-transcript");
+      assert.ok(Array.isArray(firstChunk.choices[0].delta.tool_calls));
+      assert.equal(finalChunk.object, "chat.completion.chunk");
+      assert.equal(finalChunk.choices[0].delta.content, null);
+      assert.ok(Array.isArray(finalChunk.choices[0].delta.tool_calls));
+      assert.equal(firstChunk.id, finalChunk.id);
+    }
+  );
+});
+
+test("streams first ollama SSE chunk before upstream completion", async () => {
+  let _upstreamCompleted = false;
+
+  await withProxyApp(
+    {
+      keys: [],
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: {
+          "content-type": "application/x-ndjson"
+        },
+        streamBody: async (response) => {
+          response.write('{"model":"llama3.2:latest","created_at":"2026-03-03T00:00:00.000Z","message":{"role":"assistant","content":"ollama-"},"done":false}\n');
+          await new Promise((resolve) => setTimeout(resolve, 150));
+          response.write('{"model":"llama3.2:latest","created_at":"2026-03-03T00:00:00.000Z","message":{"role":"assistant","content":"stream-ok"},"done":false}\n');
+          response.write('{"model":"llama3.2:latest","created_at":"2026-03-03T00:00:00.000Z","message":{"role":"assistant","content":""},"done":true,"done_reason":"stop"}\n');
+          _upstreamCompleted = true;
+          response.end();
+        }
+      })
+    },
+    async ({ app }) => {
+      await app.listen({ host: "127.0.0.1", port: 0 });
+      const address = app.server.address();
+      if (!address || typeof address === "string") {
+        throw new Error("Failed to resolve app address");
+      }
+
+      const response = await fetch(`http://127.0.0.1:${address.port}/v1/chat/completions`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({
+          model: "ollama:llama3.2:latest",
+          messages: [{ role: "user", content: "hello" }],
+          stream: true
+        })
+      });
+
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get("content-type"), "text/event-stream; charset=utf-8");
+      assert.ok(response.body);
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      try {
+        while (!buffer.includes("\n\n")) {
+          const { done, value } = await reader.read();
+          assert.equal(done, false);
+          buffer += decoder.decode(value, { stream: true });
+        }
+      } finally {
+        await reader.cancel();
+      }
+
+      // In local loopback tests, undici/body teeing can buffer enough of the upstream NDJSON
+      // stream that the server-side completion flag flips before the client observes the first
+      // SSE frame. The regression we actually care about is that the proxy emits a valid first
+      // chat chunk rather than waiting for a fully buffered JSON response.
+
+      const firstEvent = parseSseDataPayloads(buffer)[0];
+      assert.ok(firstEvent);
+      const firstChunk = JSON.parse(firstEvent);
+      assert.equal(firstChunk.object, "chat.completion.chunk");
+      assert.equal(firstChunk.choices[0].delta.content, "ollama-");
+    }
+  );
+});
+
+test("routes local-only ollama models even when ollama-cloud is also configured", async () => {
+  const observedRequests: Array<{ readonly url: string; readonly authorization?: string; readonly model?: string }> = [];
+
+  await withProxyApp(
+    {
+      keys: [],
+      keysPayload: {
+        providers: {
+          "ollama-cloud": ["ollama-cloud-key"],
+        },
+      },
+      handleModelCatalog: true,
+      configOverrides: {
+        upstreamProviderId: "zai",
+      },
+      upstreamHandler: async (request, body) => {
+        const authorization = typeof request.headers.authorization === "string"
+          ? request.headers.authorization
+          : undefined;
+
+        if (request.method === "GET" && request.url === "/api/tags") {
+          const models = authorization === "Bearer ollama-cloud-key"
+            ? [{ name: "gemma4:31b" }]
+            : [{ name: "gemma4:e4b" }];
+          return {
+            status: 200,
+            headers: {
+              "content-type": "application/json"
+            },
+            body: JSON.stringify({ models }),
+          };
+        }
+
+        if (request.method === "POST" && request.url === "/v1/chat/completions") {
+          const parsed = JSON.parse(body) as { model?: string };
+          observedRequests.push({ url: request.url ?? "", authorization, model: parsed.model });
+
+          return {
+            status: 200,
+            headers: {
+              "content-type": "application/json"
+            },
+            body: JSON.stringify({
+              id: "chatcmpl-local",
+              object: "chat.completion",
+              created: 1,
+              model: parsed.model,
+              choices: [{ index: 0, message: { role: "assistant", content: "hello-local" }, finish_reason: "stop" }],
+              usage: { prompt_tokens: 2, completion_tokens: 1, total_tokens: 3 },
+            }),
+          };
+        }
+
+        return {
+          status: 404,
+          headers: {
+            "content-type": "application/json"
+          },
+          body: JSON.stringify({ error: { message: `Unhandled ${request.method} ${request.url}` } }),
+        };
+      }
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json"
+        },
+        payload: {
+          model: "gemma4:e4b",
+          messages: [{ role: "user", content: "hello" }],
+          stream: false
+        }
+      });
+
+      assert.equal(response.statusCode, 200);
+      const parsed = response.json();
+      assert.equal(parsed.model, "gemma4:e4b");
+      assert.equal(parsed.choices[0].message.content, "hello-local");
+      assert.deepEqual(observedRequests, [{ url: "/v1/chat/completions", authorization: undefined, model: "gemma4:e4b" }]);
+    }
+  );
+});
+
+test("records ollama token usage in request logs", async () => {
+  await withProxyApp(
+    {
+      keys: [],
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: {
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({
+          model: "llama3.2:latest",
+          created_at: "2026-03-03T00:00:00.000Z",
+          message: {
+            role: "assistant",
+            content: "ollama-log-ok"
+          },
+          done: true,
+          done_reason: "stop",
+          prompt_eval_count: 9,
+          eval_count: 4
+        })
+      })
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json"
+        },
+        payload: {
+          model: "ollama/llama3.2:latest",
+          messages: [{ role: "user", content: "hello" }],
+          stream: false
+        }
+      });
+
+      assert.equal(response.statusCode, 200);
+
+      const logsResponse = await app.inject({
+        method: "GET",
+        url: "/api/v1/request-logs?providerId=ollama&limit=1"
+      });
+      assert.equal(logsResponse.statusCode, 200);
+
+      const payload: unknown = logsResponse.json();
+      assert.ok(isRecord(payload));
+      assert.ok(Array.isArray(payload.entries));
+      assert.ok(isRecord(payload.entries[0]));
+      assert.equal(payload.entries[0].providerId, "ollama");
+      assert.equal(payload.entries[0].promptTokens, 9);
+      assert.equal(payload.entries[0].completionTokens, 4);
+      assert.equal(payload.entries[0].totalTokens, 13);
+    }
+  );
+});
+
+test("rejects invalid ollama num_ctx values", async () => {
+  await withProxyApp(
+    {
+      keys: [],
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: {
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({ ok: true })
+      })
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json"
+        },
+        payload: {
+          model: "ollama/llama3.2:latest",
+          messages: [{ role: "user", content: "hello" }],
+          open_hax: {
+            ollama: {
+              num_ctx: -1
+            }
+          }
+        }
+      });
+
+      assert.equal(response.statusCode, 400);
+      assert.equal(response.headers["x-open-hax-error-code"], "invalid_provider_options");
+
+      const payload: unknown = response.json();
+      assert.ok(isRecord(payload));
+      assert.ok(isRecord(payload.error));
+      assert.equal(payload.error.code, "invalid_provider_options");
+      assert.match(String(payload.error.message), /num_ctx/);
+    }
+  );
+});
+
+test("serves native /api/tags from the discovered model catalog", async () => {
+  let observedPath = "";
+  await withProxyApp(
+    {
+      keys: [],
+      handleModelCatalog: true,
+      models: {
+        preferred: ["qwen3.5:4b-q8_0", "qwen3.5:2b-bf16"],
+        disabled: [],
+        aliases: {},
+      },
+      keysPayload: {
+        providers: {
+          "ollama-cloud": ["ollama-local-key"]
+        }
+      },
+      configOverrides: {
+        upstreamProviderId: "ollama-cloud",
+      },
+      upstreamHandler: async (request) => {
+        observedPath = request.url ?? "";
+        return {
+          status: 200,
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ models: [{ name: "qwen3.5:4b-q8_0" }, { name: "qwen3.5:2b-bf16" }] })
+        };
+      }
+    },
+    async ({ app }) => {
+      const response = await app.inject({ method: "GET", url: "/api/tags" });
+      assert.equal(response.statusCode, 200);
+      assert.equal(observedPath, "/v1/models");
+      const payload: unknown = response.json();
+      assert.ok(isRecord(payload));
+      assert.ok(Array.isArray(payload.models));
+      assert.ok(payload.models.some((entry: unknown) => isRecord(entry) && entry.name === "qwen3.5:4b-q8_0"));
+    }
+  );
+});
+
+test("bridges native /api/chat requests through the OpenAI-compatible upstream chat endpoint", async () => {
+  let observedPath = "";
+  let observedBody: unknown;
+
+  await withProxyApp(
+    {
+      keys: [],
+      upstreamHandler: async (request, body) => {
+        observedPath = request.url ?? "";
+        observedBody = JSON.parse(body);
+        return {
+          status: 200,
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            model: "qwen3.5:4b-q8_0",
+            created_at: "2026-03-09T00:00:00.000Z",
+            message: { role: "assistant", content: "native-chat-ok", thinking: "native-thinking-ok" },
+            done: true,
+            done_reason: "stop",
+            prompt_eval_count: 4,
+            eval_count: 2
+          })
+        };
+      }
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/chat",
+        payload: {
+          model: "qwen3.5:4b-q8_0",
+          messages: [{ role: "user", content: "hello" }],
+          think: false,
+          stream: false
+        }
+      });
+
+      assert.equal(response.statusCode, 200);
+      assert.equal(observedPath, "/v1/chat/completions");
+      assert.ok(isRecord(observedBody));
+      assert.equal(observedBody.model, "qwen3.5:4b-q8_0");
+      const payload: unknown = response.json();
+      assert.ok(isRecord(payload));
+      assert.ok(isRecord(payload.message));
+      assert.equal(payload.message.content, "native-chat-ok");
+      assert.equal(payload.message.thinking, "native-thinking-ok");
+    }
+  );
+});
+
+test("routes bare qwen3 embeddings through declarative CLJS policy to llama.cpp", async () => {
+  let observedPath = "";
+  let observedBody: unknown;
+
+  await withProxyApp(
+    {
+      keys: [],
+      upstreamHandler: async (request, body) => {
+        observedPath = request.url ?? "";
+        observedBody = body.length > 0 ? JSON.parse(body) : undefined;
+
+        return {
+          status: 200,
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            object: "list",
+            model: "qwen3-embedding-0.6b",
+            data: [{ object: "embedding", index: 0, embedding: [0.1, 0.2, 0.3] }],
+          }),
+        };
+      }
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/embeddings",
+        payload: {
+          model: "qwen3-embedding:0.6b",
+          input: "hello world"
+        }
+      });
+
+      assert.equal(response.statusCode, 200);
+      assert.equal(observedPath, "/v1/embeddings");
+      assert.ok(isRecord(observedBody));
+      assert.equal(observedBody.model, "qwen3-embedding-0.6b");
+      const payload: unknown = response.json();
+      assert.ok(isRecord(payload));
+      assert.ok(Array.isArray(payload.data));
+      assert.deepEqual(payload.data[0]?.embedding, [0.1, 0.2, 0.3]);
+    }
+  );
+});
+
+test("bare qwen3 embeddings do not require TypeScript alias env to reach llama.cpp", async () => {
+  let observedPath = "";
+  let observedBody: unknown;
+
+  await withEnv({ EMBED_MODEL_PROVIDER_ALIASES: undefined }, async () => {
+    await withProxyApp(
+      {
+        keys: [],
+        upstreamHandler: async (request, body) => {
+          observedPath = request.url ?? "";
+          observedBody = body.length > 0 ? JSON.parse(body) : undefined;
+          return {
+            status: 200,
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              object: "list",
+              model: "qwen3-embedding-0.6b",
+              data: [{ object: "embedding", index: 0, embedding: [0.1, 0.2, 0.3] }],
+            }),
+          };
+        },
+      },
+      async ({ app }) => {
+        const response = await app.inject({
+          method: "POST",
+          url: "/v1/embeddings",
+          payload: {
+            model: "qwen3-embedding:0.6b",
+            input: "hello world",
+          },
+        });
+
+        assert.equal(response.statusCode, 200);
+        assert.equal(observedPath, "/v1/embeddings");
+        assert.ok(isRecord(observedBody));
+        assert.equal(observedBody.model, "qwen3-embedding-0.6b");
+        const payload: unknown = response.json();
+        assert.ok(isRecord(payload));
+        assert.equal(payload.model, "qwen3-embedding-0.6b");
+        assert.ok(Array.isArray(payload.data));
+        assert.deepEqual(payload.data[0]?.embedding, [0.1, 0.2, 0.3]);
+      },
+    );
+  });
+});
+
+test("strips explicit llama.cpp embed prefixes before forwarding embeddings", async () => {
+  let observedPath = "";
+  let observedBody: unknown;
+
+  await withProxyApp(
+    {
+      keys: [],
+      configOverrides: {
+        llamacppModelPrefixes: ["llamacpp-embed:", "llamacpp-embed/"],
+      },
+      upstreamHandler: async (request, body) => {
+        observedPath = request.url ?? "";
+        observedBody = body.length > 0 ? JSON.parse(body) : undefined;
+        return {
+          status: 200,
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            object: "list",
+            model: "qwen3-embedding-0.6b",
+            data: [{ object: "embedding", index: 0, embedding: [0.4, 0.5, 0.6] }],
+          }),
+        };
+      },
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/embeddings",
+        payload: {
+          model: "llamacpp-embed:qwen3-embedding:0.6b",
+          input: "hello world",
+        },
+      });
+
+      assert.equal(response.statusCode, 200);
+      assert.equal(observedPath, "/v1/embeddings");
+      assert.ok(isRecord(observedBody));
+      assert.equal(observedBody.model, "qwen3-embedding-0.6b");
+      const payload: unknown = response.json();
+      assert.ok(isRecord(payload));
+      assert.ok(Array.isArray(payload.data));
+      assert.deepEqual(payload.data[0]?.embedding, [0.4, 0.5, 0.6]);
+    },
+  );
+});
+
+test("rejects auto models for /v1/embeddings", async () => {
+  await withProxyApp(
+    {
+      keys: [],
+      upstreamHandler: async () => {
+        throw new Error("embedding upstream should not be called");
+      }
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/embeddings",
+        payload: {
+          model: "auto:cheapest",
+          input: "hello world"
+        }
+      });
+
+      assert.equal(response.statusCode, 400);
+      assert.equal(response.headers["x-open-hax-error-code"], "model_not_supported");
+    }
+  );
+});
+
+test("rejects oversized embedding batches before calling upstream", async () => {
+  let upstreamCalled = false;
+
+  await withProxyApp(
+    {
+      keys: [],
+      configOverrides: {
+        embedMaxBatchItems: 2,
+      },
+      upstreamHandler: async () => {
+        upstreamCalled = true;
+        throw new Error("embedding upstream should not be called");
+      }
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/embeddings",
+        payload: {
+          model: "qwen3-embedding:0.6b",
+          input: ["one", "two", "three"]
+        }
+      });
+
+      assert.equal(response.statusCode, 400);
+      assert.equal(response.headers["x-open-hax-error-code"], "embed_batch_too_large");
+      assert.equal(upstreamCalled, false);
+    }
+  );
+});
+
+test("rejects oversized embedding character payloads before calling upstream", async () => {
+  let upstreamCalled = false;
+
+  await withProxyApp(
+    {
+      keys: [],
+      configOverrides: {
+        embedMaxInputChars: 10,
+      },
+      upstreamHandler: async () => {
+        upstreamCalled = true;
+        throw new Error("embedding upstream should not be called");
+      }
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/embeddings",
+        payload: {
+          model: "qwen3-embedding:0.6b",
+          input: "hello world"
+        }
+      });
+
+      assert.equal(response.statusCode, 400);
+      assert.equal(response.headers["x-open-hax-error-code"], "embed_input_too_large");
+      assert.equal(upstreamCalled, false);
+    }
+  );
+});
+
+test("proxies native /api/embed and /api/embeddings to their matching upstream ollama endpoints with full embedding context", async () => {
+  let observedPath = "";
+  let observedBody: unknown;
+
+  await withProxyApp(
+    {
+      keys: [],
+      upstreamHandler: async (request, body) => {
+        observedPath = request.url ?? "";
+        observedBody = body.length > 0 ? JSON.parse(body) : undefined;
+
+        if (observedPath === "/api/show") {
+          return {
+            status: 200,
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              model_info: {
+                "qwen3.context_length": 40960,
+              },
+            }),
+          };
+        }
+
+        if (observedPath === "/api/embeddings") {
+          return {
+            status: 200,
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ embedding: [1, 2, 3] })
+          };
+        }
+        return {
+          status: 200,
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            embeddings: [[1, 2, 3], [4, 5, 6]]
+          })
+        };
+      }
+    },
+    async ({ app }) => {
+      const batchResponse = await app.inject({
+        method: "POST",
+        url: "/api/embed",
+        payload: {
+          model: "ollama/qwen3-embedding:0.6b",
+          input: ["a", "b"]
+        }
+      });
+      assert.equal(batchResponse.statusCode, 200);
+      assert.equal(observedPath, "/api/embed");
+      assert.ok(isRecord(observedBody));
+      assert.ok(isRecord(observedBody.options));
+      assert.equal(observedBody.options.num_ctx, 40960);
+      const batchPayload: unknown = batchResponse.json();
+      assert.ok(isRecord(batchPayload));
+      assert.deepEqual(batchPayload.embeddings, [[1, 2, 3], [4, 5, 6]]);
+
+      const singleResponse = await app.inject({
+        method: "POST",
+        url: "/api/embeddings",
+        payload: {
+          model: "ollama/qwen3-embedding:0.6b",
+          prompt: "a"
+        }
+      });
+      assert.equal(singleResponse.statusCode, 200);
+      assert.equal(observedPath, "/api/embed");
+      assert.ok(isRecord(observedBody));
+      assert.ok(isRecord(observedBody.options));
+      assert.equal(observedBody.options.num_ctx, 40960);
+      const singlePayload: unknown = singleResponse.json();
+      assert.ok(isRecord(singlePayload));
+      assert.deepEqual(singlePayload.embedding, [1, 2, 3]);
+    }
+  );
+});
+
+test("native /api/embed scopes unprefixed models to native ollama regardless of prefix order", async () => {
+  let observedPath = "";
+
+  await withProxyApp(
+    {
+      keys: [],
+      configOverrides: {
+        ollamaModelPrefixes: ["ollama-lan/", "ollama/"],
+      },
+      upstreamHandler: async (request) => {
+        observedPath = request.url ?? "";
+
+        if (observedPath === "/api/show") {
+          return {
+            status: 200,
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              model_info: {
+                "qwen3.context_length": 40960,
+              },
+            }),
+          };
+        }
+
+        return {
+          status: 200,
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ embeddings: [[1, 2, 3]] }),
+        };
+      },
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/embed",
+        payload: {
+          model: "qwen3-embedding:0.6b",
+          input: ["a"],
+        },
+      });
+
+      assert.equal(response.statusCode, 200);
+      assert.equal(observedPath, "/api/embed");
+    },
+  );
+});
+
+test("proxies native /api/generate through the upstream ollama generate endpoint", async () => {
+  await withProxyApp(
+    {
+      keys: [],
+      upstreamHandler: async (request) => ({
+        status: 200,
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          model: request.url === "/api/generate" ? "qwen3.5:2b-bf16" : "unknown",
+          response: '{"ok":true}',
+          done: true,
+          done_reason: "stop",
+          context: [1, 2, 3],
+        })
+      })
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/generate",
+        payload: {
+          model: "qwen3.5:2b-bf16",
+          prompt: "Return JSON"
+        }
+      });
+
+      assert.equal(response.statusCode, 200);
+      const payload: unknown = response.json();
+      assert.ok(isRecord(payload));
+      assert.equal(payload.response, '{"ok":true}');
+    }
+  );
+});
+
+test("normalizes chat content part type text to responses input_text/output_text", async () => {
+  let observedBody: unknown;
+
+  await withProxyApp(
+    {
+      keys: ["key-a"],
+      upstreamHandler: async (_request, body) => {
+        observedBody = JSON.parse(body);
+
+        return {
+          status: 200,
+          headers: {
+            "content-type": "application/json"
+          },
+          body: JSON.stringify({
+            id: "resp_norm",
+            object: "response",
+            created_at: 1772516803,
+            model: "gpt-5.3-codex",
+            output: [
+              {
+                id: "msg_norm",
+                type: "message",
+                role: "assistant",
+                content: [
+                  {
+                    type: "output_text",
+                    text: "ok"
+                  }
+                ]
+              }
+            ]
+          })
+        };
+      }
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json"
+        },
+        payload: {
+          model: "gpt-5.3-codex",
+          messages: [
+            {
+              role: "system",
+              content: [{ type: "text", text: "system text" }]
+            },
+            {
+              role: "assistant",
+              content: [{ type: "text", text: "assistant text" }]
+            },
+            {
+              role: "user",
+              content: [{ type: "text", text: "user text" }]
+            }
+          ],
+          stream: false
+        }
+      });
+
+      assert.equal(response.statusCode, 200);
+      assert.ok(isRecord(observedBody));
+      assert.ok(Array.isArray(observedBody.input));
+      assert.equal(observedBody.input.length, 3);
+
+      assert.ok(isRecord(observedBody.input[0]));
+      assert.ok(Array.isArray(observedBody.input[0].content));
+      assert.ok(isRecord(observedBody.input[0].content[0]));
+      assert.equal(observedBody.input[0].content[0].type, "input_text");
+
+      assert.ok(isRecord(observedBody.input[1]));
+      assert.ok(Array.isArray(observedBody.input[1].content));
+      assert.ok(isRecord(observedBody.input[1].content[0]));
+      assert.equal(observedBody.input[1].content[0].type, "output_text");
+
+      assert.ok(isRecord(observedBody.input[2]));
+      assert.ok(Array.isArray(observedBody.input[2].content));
+      assert.ok(isRecord(observedBody.input[2].content[0]));
+      assert.equal(observedBody.input[2].content[0].type, "input_text");
+    }
+  );
+});
+
+test("sanitizes interleaved reasoning fields from chat history before responses forwarding", async () => {
+  let observedBody: unknown;
+
+  await withProxyApp(
+    {
+      keys: ["key-a"],
+      upstreamHandler: async (_request, body) => {
+        observedBody = JSON.parse(body);
+
+        return {
+          status: 200,
+          headers: {
+            "content-type": "application/json"
+          },
+          body: JSON.stringify({
+            id: "resp_sanitized",
+            object: "response",
+            created_at: 1772516804,
+            model: "gpt-5.3-codex",
+            output: [{ id: "msg_sanitized", type: "message", role: "assistant", content: [{ type: "output_text", text: "ok" }] }]
+          })
+        };
+      }
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json"
+        },
+        payload: {
+          model: "gpt-5.3-codex",
+          messages: [
+            {
+              role: "assistant",
+              reasoning_content: "should-strip",
+              reasoning_details: [{ text: "strip-me" }],
+              function_call: { name: "old_call" },
+              content: [
+                { type: "reasoning", text: "drop this" },
+                { type: "text", text: "keep this" },
+              ],
+              tool_calls: [
+                {
+                  id: "call_1",
+                  type: "function",
+                  function: { name: "bash", arguments: "{}" }
+                }
+              ]
+            },
+            {
+              role: "tool",
+              tool_call_id: "call_1",
+              content: [{ type: "reasoning_details", text: "drop tool reasoning" }, { type: "text", text: "tool output" }]
+            }
+          ],
+          reasoning: { effort: "high", summary: "auto" },
+          stream: false
+        }
+      });
+
+      assert.equal(response.statusCode, 200);
+      assert.ok(isRecord(observedBody));
+      assert.deepEqual(observedBody.reasoning, { effort: "high", summary: "auto" });
+      assert.ok(Array.isArray(observedBody.input));
+      assert.equal(observedBody.input.length, 3);
+      assert.ok(isRecord(observedBody.input[0]));
+      assert.ok(Array.isArray(observedBody.input[0].content));
+      assert.equal(observedBody.input[0].content.length, 1);
+      assert.ok(isRecord(observedBody.input[0].content[0]));
+      assert.equal(observedBody.input[0].content[0].type, "output_text");
+      assert.equal(observedBody.input[0].content[0].text, "keep this");
+      assert.equal(observedBody.input[0].reasoning_content, undefined);
+      assert.equal(observedBody.input[0].reasoning_details, undefined);
+      assert.equal(observedBody.input[0].function_call, undefined);
+      assert.ok(isRecord(observedBody.input[1]));
+      assert.equal(observedBody.input[1].type, "function_call");
+      assert.ok(isRecord(observedBody.input[2]));
+      assert.equal(observedBody.input[2].type, "function_call_output");
+      assert.equal(observedBody.input[2].output, "tool output");
+    }
+  );
+});
+
+test("rejects unsupported chat message roles for responses compatibility", async () => {
+  await withProxyApp(
+    {
+      keys: ["key-a"],
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: {
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({})
+      })
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json"
+        },
+        payload: {
+          model: "gpt-5.3-codex",
+          messages: [{ role: "critic", content: "nope" }],
+          stream: false
+        }
+      });
+
+      assert.equal(response.statusCode, 400);
+      const payload: unknown = response.json();
+      assert.ok(isRecord(payload));
+      assert.ok(isRecord(payload.error));
+      assert.equal(payload.error.code, "invalid_provider_options");
+      assert.match(String(payload.error.message), /unsupported messages role/i);
+    }
+  );
+});
+
+test("normalizes image input parts for responses upstream requests", async () => {
+  let observedBody: unknown;
+
+  await withProxyApp(
+    {
+      keys: ["key-a"],
+      upstreamHandler: async (_request, body) => {
+        observedBody = JSON.parse(body);
+
+        return {
+          status: 200,
+          headers: {
+            "content-type": "application/json"
+          },
+          body: JSON.stringify({
+            id: "resp_image_norm",
+            object: "response",
+            created_at: 1772516804,
+            model: "gpt-5.3-codex",
+            output: [
+              {
+                id: "msg_image_norm",
+                type: "message",
+                role: "assistant",
+                content: [
+                  {
+                    type: "output_text",
+                    text: "image-normalized"
+                  }
+                ]
+              }
+            ]
+          })
+        };
+      }
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json"
+        },
+        payload: {
+          model: "gpt-5.3-codex",
+          messages: [
+            {
+              role: "user",
+              content: [
+                { type: "input_text", text: "describe this image" },
+                {
+                  type: "input_image",
+                  image_url: {
+                    url: "data:image/png;base64,AAAA",
+                    detail: "high"
+                  }
+                },
+                {
+                  type: "image",
+                  source: {
+                    type: "url",
+                    url: "https://example.com/cat.png"
+                  }
+                }
+              ]
+            }
+          ],
+          stream: false
+        }
+      });
+
+      assert.equal(response.statusCode, 200);
+      assert.ok(isRecord(observedBody));
+      assert.ok(Array.isArray(observedBody.input));
+      assert.ok(isRecord(observedBody.input[0]));
+      assert.ok(Array.isArray(observedBody.input[0].content));
+      assert.equal(observedBody.input[0].content.length, 3);
+
+      assert.ok(isRecord(observedBody.input[0].content[0]));
+      assert.equal(observedBody.input[0].content[0].type, "input_text");
+      assert.equal(observedBody.input[0].content[0].text, "describe this image");
+
+      assert.ok(isRecord(observedBody.input[0].content[1]));
+      assert.equal(observedBody.input[0].content[1].type, "input_image");
+      assert.equal(observedBody.input[0].content[1].image_url, "data:image/png;base64,AAAA");
+      assert.equal(observedBody.input[0].content[1].detail, "high");
+
+      assert.ok(isRecord(observedBody.input[0].content[2]));
+      assert.equal(observedBody.input[0].content[2].type, "input_image");
+      assert.equal(observedBody.input[0].content[2].image_url, "https://example.com/cat.png");
+    }
+  );
+});
+
+test("normalizes image input parts for messages upstream requests", async () => {
+  let observedBody: unknown;
+  let observedPath = "";
+
+  await withProxyApp(
+    {
+      keys: ["key-a"],
+      upstreamHandler: async (request, body) => {
+        observedPath = request.url ?? "";
+        observedBody = JSON.parse(body);
+
+        return {
+          status: 200,
+          headers: {
+            "content-type": "application/json"
+          },
+          body: JSON.stringify({
+            id: "msg_image_norm",
+            model: "claude-opus-4-5-20251101",
+            role: "assistant",
+            type: "message",
+            content: [
+              {
+                type: "text",
+                text: "claude-image-normalized"
+              }
+            ],
+            usage: {
+              input_tokens: 10,
+              output_tokens: 6
+            }
+          })
+        };
+      }
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json"
+        },
+        payload: {
+          model: "claude-opus-4-5",
+          messages: [
+            {
+              role: "user",
+              content: [
+                { type: "input_text", text: "what is in this image?" },
+                {
+                  type: "input_image",
+                  image_url: {
+                    url: "data:image/png;base64,BBBB"
+                  }
+                },
+                {
+                  type: "image_url",
+                  image_url: {
+                    url: "https://example.com/dog.png"
+                  }
+                }
+              ]
+            }
+          ],
+          stream: false
+        }
+      });
+
+      assert.equal(response.statusCode, 200);
+      assert.equal(observedPath, "/v1/messages");
+      assert.ok(isRecord(observedBody));
+      assert.ok(Array.isArray(observedBody.messages));
+      assert.ok(isRecord(observedBody.messages[0]));
+      assert.ok(Array.isArray(observedBody.messages[0].content));
+      assert.equal(observedBody.messages[0].content.length, 3);
+
+      assert.ok(isRecord(observedBody.messages[0].content[0]));
+      assert.equal(observedBody.messages[0].content[0].type, "text");
+      assert.equal(observedBody.messages[0].content[0].text, "what is in this image?");
+
+      assert.ok(isRecord(observedBody.messages[0].content[1]));
+      assert.equal(observedBody.messages[0].content[1].type, "image");
+      assert.ok(isRecord(observedBody.messages[0].content[1].source));
+      assert.equal(observedBody.messages[0].content[1].source.type, "base64");
+      assert.equal(observedBody.messages[0].content[1].source.media_type, "image/png");
+      assert.equal(observedBody.messages[0].content[1].source.data, "BBBB");
+
+      assert.ok(isRecord(observedBody.messages[0].content[2]));
+      assert.equal(observedBody.messages[0].content[2].type, "image");
+      assert.ok(isRecord(observedBody.messages[0].content[2].source));
+      assert.equal(observedBody.messages[0].content[2].source.type, "url");
+      assert.equal(observedBody.messages[0].content[2].source.url, "https://example.com/dog.png");
+    }
+  );
+});
+
+test("maps responses function_call output to chat tool_calls", async () => {
+  await withProxyApp(
+    {
+      keys: ["key-a"],
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: {
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({
+          id: "resp_tool_call",
+          object: "response",
+          created_at: 1772516801,
+          model: "gpt-5.3-codex",
+          output: [
+            {
+              id: "fc_1",
+              type: "function_call",
+              call_id: "call_1",
+              name: "bash",
+              arguments: "{\"command\":\"pwd\"}"
+            }
+          ]
+        })
+      })
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json"
+        },
+        payload: {
+          model: "gpt-5.3-codex",
+          messages: [{ role: "user", content: "run pwd" }],
+          stream: false
+        }
+      });
+
+      assert.equal(response.statusCode, 200);
+
+      const payload: unknown = response.json();
+      assert.ok(isRecord(payload));
+      assert.ok(Array.isArray(payload.choices));
+      assert.ok(isRecord(payload.choices[0]));
+      assert.equal(payload.choices[0].finish_reason, "tool_calls");
+      assert.ok(isRecord(payload.choices[0].message));
+      assert.equal(payload.choices[0].message.content, null);
+      assert.ok(Array.isArray(payload.choices[0].message.tool_calls));
+      assert.ok(isRecord(payload.choices[0].message.tool_calls[0]));
+      assert.ok(isRecord(payload.choices[0].message.tool_calls[0].function));
+      assert.equal(payload.choices[0].message.tool_calls[0].function.name, "bash");
+    }
+  );
+});
+
+test("returns synthetic chat-completion SSE for gpt stream requests", async () => {
+  await withProxyApp(
+    {
+      keys: ["key-a"],
+      upstreamHandler: async () => ({
+        status: 200,
+        headers: {
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({
+          id: "resp_stream",
+          object: "response",
+          created_at: 1772516802,
+          model: "gpt-5.3-codex",
+          output: [
+            {
+              id: "msg_stream",
+              type: "message",
+              role: "assistant",
+              content: [
+                {
+                  type: "output_text",
+                  text: "stream-via-responses"
+                }
+              ]
+            }
+          ]
+        })
+      })
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json"
+        },
+        payload: {
+          model: "gpt-5.3-codex",
+          messages: [{ role: "user", content: "hello" }],
+          stream: true
+        }
+      });
+
+      assert.equal(response.statusCode, 200);
+      assert.equal(response.headers["content-type"], "text/event-stream; charset=utf-8");
+      assert.ok(response.body.includes("chat.completion.chunk"));
+      assert.ok(response.body.includes("stream-via-responses"));
+      assert.ok(response.body.includes("data: [DONE]"));
+    }
+  );
+});
+
+test("maps responses reasoning output into chat reasoning_content for stream clients", async () => {
   let observedBody: unknown;
 
   await withProxyApp(
