@@ -12,6 +12,7 @@ import {
   type UsageOverview,
 } from "../lib/api";
 import { formatAuthType, formatRequestOrigin } from "../lib/format";
+import { formatServiceTier } from "../lib/format-service-tier";
 import { useStoredState } from "../lib/use-stored-state";
 
 const ALL_PROVIDERS_FILTER = "__all_providers__";
@@ -83,22 +84,6 @@ function formatMaybeTps(value: number | null): string {
 
 function formatMaybeScore(value: number | null): string {
   return typeof value === "number" && Number.isFinite(value) ? `${Math.round(value * 100)}%` : "-";
-}
-
-function formatServiceTier(entry: RequestLogEntry): string {
-  if (!entry.serviceTier) {
-    return "Standard";
-  }
-
-  if (entry.serviceTierSource === "fast_mode") {
-    return "Fast mode";
-  }
-
-  if (entry.serviceTier === "priority") {
-    return "Priority";
-  }
-
-  return entry.serviceTier.replace(/[_-]+/g, " ");
 }
 
 function formatRouteLabel(entry: RequestLogEntry): string {

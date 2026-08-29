@@ -1521,6 +1521,12 @@
       "removalCondition": "web UI builds from CLJS or is replaced by a CLJS UI surface"
     },
     {
+      "path": "web/src/lib/format-service-tier.ts",
+      "owner": "T3-web-ui-tsx-retirement",
+      "disposition": "port-to-cljs-or-replace",
+      "removalCondition": "web UI builds from CLJS or is replaced by a CLJS UI surface"
+    },
+    {
       "path": "web/src/lib/local-storage.ts",
       "owner": "T3-web-ui-tsx-retirement",
       "disposition": "port-to-cljs-or-replace",

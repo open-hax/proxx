@@ -33,6 +33,7 @@ import {
   startOpenAiDeviceOAuth,
 } from "../lib/api";
 import { formatAuthType, formatRequestOrigin } from "../lib/format";
+import { formatServiceTier } from "../lib/format-service-tier";
 import { useStoredState } from "../lib/use-stored-state";
 
 interface DeviceAuthState {
@@ -215,22 +216,6 @@ function isExplicitlyBlocked(account: CredentialQuotaAccountSummary): boolean {
 function isCriticallyLow(account: CredentialQuotaAccountSummary): boolean {
   const primaryRemaining = account.rateLimit?.primaryWindow?.remainingPercent ?? account.fiveHour?.remainingPercent ?? null;
   return typeof primaryRemaining === "number" && primaryRemaining > 0 && primaryRemaining <= 5 && !isExplicitlyBlocked(account);
-}
-
-function formatServiceTier(entry: RequestLogEntry): string {
-  if (!entry.serviceTier) {
-    return "standard";
-  }
-
-  if (entry.serviceTierSource === "fast_mode") {
-    return "fast mode";
-  }
-
-  if (entry.serviceTier === "priority") {
-    return "priority";
-  }
-
-  return entry.serviceTier.replace(/[_-]+/g, " ");
 }
 
 function formatRouteLabel(entry: RequestLogEntry): string {
