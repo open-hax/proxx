@@ -38,7 +38,7 @@ export async function handleRoutingOutcome(input: RoutingOutcomeInput): Promise<
     }
 
     if (!availability.sawConfiguredProvider) {
-      sendOpenAiError(reply, 500, "Proxy is missing upstream account configuration", "server_error", "keys_unavailable");
+      sendOpenAiError(reply, 503, "Proxy is missing upstream account configuration", "server_error", "keys_unavailable");
       return true;
     }
 
