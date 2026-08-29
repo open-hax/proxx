@@ -17,3 +17,13 @@
   spore: none
   receipt-refs: 2026-08-29T22:04:02.404Z
   note: Git history and check-run naming made the regression precise; copying the current pinned provider job restored the legacy identity without an alias or settings bypass.
+
+- ts: 2026-08-29T22:28:14.583Z
+  session: codex/proxx-pr-lane
+  task: Repair the post-merge actionlint SC2129 review-gate regression
+  p-efficiency: 0.92
+  p-friction: 0.19
+  p-skill-candidate: 0.12
+  spore: none
+  receipt-refs: 2026-08-29T22:28:14.583Z
+  note: Reproducing with both actionlint and ShellCheck made the one-block redirect repair exact; the substantive protected gate remained unchanged.
