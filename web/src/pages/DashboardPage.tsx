@@ -173,7 +173,7 @@ function serviceTierShareBars(summary: UsageOverview["summary"]): JSX.Element {
   return (
     <div className="dashboard-tier-summary">
       {tiers.map((tier) => {
-        const percent = total > 0 ? (tier.value / total) * 100 : 0;
+        const percent = (tier.value / total) * 100;
         return (
           <div key={tier.label} className="dashboard-tier-summary-row">
             <div className="dashboard-tier-summary-labels">
@@ -236,10 +236,11 @@ export function DashboardPage(): JSX.Element {
   const windowLabel = usageWindowLabel(usageWindow);
 
   useEffect(() => {
+    if (!overview) return;
     if (accountProviderFilter !== ALL_PROVIDERS_FILTER && !accountProviderOptions.includes(accountProviderFilter)) {
       setAccountProviderFilter(ALL_PROVIDERS_FILTER);
     }
-  }, [accountProviderFilter, accountProviderOptions, setAccountProviderFilter]);
+  }, [overview, accountProviderFilter, accountProviderOptions, setAccountProviderFilter]);
 
   useEffect(() => {
     let cancelled = false;

@@ -150,7 +150,7 @@ async function fetchVerificationCode(
 
   const lock = await client.getMailboxLock("INBOX");
   try {
-    const existingUids = (await client.search({ subject: "ChatGPT code" })) || [];
+    const existingUids = (await client.search({ subject: "ChatGPT" })) || [];
 
     // Set our UID baseline to the newest message that is strictly before sinceDate.
     // This avoids skipping a verification email that arrives during the initial snapshot.
@@ -183,7 +183,7 @@ async function fetchVerificationCode(
 
       const lock = await client.getMailboxLock("INBOX");
       try {
-        const uids = (await client.search({ subject: "ChatGPT code" })) || [];
+        const uids = (await client.search({ subject: "ChatGPT" })) || [];
 
         const candidateUids = uids.filter((uid) => !checkedUids.has(uid));
 
@@ -215,16 +215,28 @@ async function fetchVerificationCode(
             continue;
           }
 
-          // code is in the subject: "Your ChatGPT code is XXXXXX"
+          // New format (2026-06): "Enter this temporary verification code to continue: 269944."
+          const newMatch = body.match(/(?:enter this|temporary) (?:verification )?code(?: to continue)?[:\s]+(\d{6})/i);
+          if (newMatch?.[1]) {
+            return newMatch[1];
+          }
+
+          // Old format: "Your ChatGPT code is XXXXXX"
           const subjectMatch = body.match(/Your ChatGPT code is (\d{6})/i);
           if (subjectMatch?.[1]) {
             return subjectMatch[1];
           }
 
-          // fallback: find any 6-digit code in the body
-          const codeMatch = body.match(/(?:verification code|code is|your code)[:\s]*(\d{6})/i);
+          // fallback: find any 6-digit code near "code" in the body
+          const codeMatch = body.match(/(?:verification code|code is|your code|this code)[:\s]*(\d{6})/i);
           if (codeMatch?.[1]) {
             return codeMatch[1];
+          }
+
+          // Last resort: find "code to continue: XXXXXX" or standalone "code\nXXXXXX"
+          const lastResort = body.match(/code[^a-z]{1,20}(\d{6})/i);
+          if (lastResort?.[1]) {
+            return lastResort[1];
           }
         }
       } finally {
@@ -243,7 +255,7 @@ async function fetchVerificationCode(
 // ── Proxy API calls ──
 
 async function proxyStartBrowserOAuth(): Promise<{ authorizeUrl: string; state: string }> {
-  const res = await fetch(`${PROXY_BASE}/api/ui/credentials/openai/oauth/browser/start`, {
+  const res = await fetch(`${PROXY_BASE}/api/v1/credentials/openai/oauth/browser/start`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -256,7 +268,7 @@ async function proxyStartBrowserOAuth(): Promise<{ authorizeUrl: string; state: 
 }
 
 async function proxyCompleteCallback(code: string, state: string): Promise<void> {
-  const url = `${PROXY_BASE}/auth/callback?code=${encodeURIComponent(code)}&state=${encodeURIComponent(state)}`;
+  const url = `${PROXY_BASE}/api/v1/credentials/openai/oauth/browser/callback?code=${encodeURIComponent(code)}&state=${encodeURIComponent(state)}`;
   const res = await fetch(url);
   const body = await res.text();
   if (!body.includes("Successful")) {
@@ -445,6 +457,9 @@ async function automateOpenAiLogin(
   if (bodyText.includes("account has been locked") || bodyText.includes("Account locked")) {
     throw new Error("Account locked");
   }
+  if (bodyText.includes("Add your phone number") || bodyText.includes("phone number to continue")) {
+    throw new Error("Phone number required");
+  }
 
   // ── Step 4: Email verification (if required) ──
   if (curUrl.includes("email-verification") || bodyText.includes("Check your inbox")) {
@@ -518,6 +533,9 @@ async function automateOpenAiLogin(
     if (bText.includes("Authentication Error")) {
       const detail = bText.slice(0, 240).replace(/\s+/g, " ").trim();
       throw new Error(`OpenAI authentication error: ${detail}`);
+    }
+    if (bText.includes("Add your phone number") || bText.includes("phone number to continue") || page.url().includes("add-phone")) {
+      throw new Error("Phone number required");
     }
 
     if (getCapture?.().code) {
@@ -696,6 +714,7 @@ async function main(): Promise<void> {
         } else {
           console.error(`  FAILED: ${msg}\n`);
           results.push({ email: row.username, status: `error: ${msg.slice(0, 120)}` });
+          break;
         }
       } finally {
         await context.close();

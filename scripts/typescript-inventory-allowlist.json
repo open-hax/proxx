@@ -1407,6 +1407,18 @@
       "removalCondition": "test coverage runs from CLJS/node-test or an accepted non-TS harness"
     },
     {
+      "path": "src/tests/queue-error-429.test.ts",
+      "owner": "T4-test-harness-cljs-migration",
+      "disposition": "port-test-to-cljs",
+      "removalCondition": "test coverage runs from CLJS/node-test or an accepted non-TS harness"
+    },
+    {
+      "path": "src/tests/queue-signal.test.ts",
+      "owner": "T4-test-harness-cljs-migration",
+      "disposition": "port-test-to-cljs",
+      "removalCondition": "test coverage runs from CLJS/node-test or an accepted non-TS harness"
+    },
+    {
       "path": "src/tests/rate-limit-classify.test.ts",
       "owner": "T4-test-harness-cljs-migration",
       "disposition": "port-test-to-cljs",

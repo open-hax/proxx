@@ -111,6 +111,7 @@ Notes:
 - `OLLAMA_CHAT_PATH` (default: `/api/chat`)
 - `OLLAMA_MODEL_PREFIXES` (default: `ollama/,ollama:,ollama-lan/,ollama-lan:`; comma-separated prefixes)
 - `PROXY_KEYS_FILE` (optional seed file path; DB-backed runtimes do not need it)
+- `DATABASE_URL` (optional SQL DSN for DB-backed credentials and multi-tenant data; format: `postgres://user:pass@host:port/dbname`)
 - `PROXY_MODELS_FILE` (default: `./models.json`, fallback: `VIVGRID_MODELS_FILE`)
 - `PROXY_REQUEST_LOGS_FILE` (default: `./data/request-logs.jsonl`)
 - `PROXY_KEY_RELOAD_MS` (default: `5000`, fallback: `VIVGRID_KEY_RELOAD_MS`)

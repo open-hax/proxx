@@ -491,6 +491,12 @@ function sanitizePayload(payload: Record<string, unknown>): Record<string, unkno
   return stripInvalidJsonChars(payload) as Record<string, unknown>;
 }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (value === null || typeof value !== "object") return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
+
 function stripInvalidJsonChars(obj: unknown): unknown {
   if (obj === null || obj === undefined) return obj;
   if (typeof obj === "string") {
@@ -502,9 +508,9 @@ function stripInvalidJsonChars(obj: unknown): unknown {
   if (Array.isArray(obj)) {
     return obj.map(stripInvalidJsonChars);
   }
-  if (typeof obj === "object") {
+  if (isPlainObject(obj)) {
     const result: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
+    for (const [key, value] of Object.entries(obj)) {
       result[key] = stripInvalidJsonChars(value);
     }
     return result;
