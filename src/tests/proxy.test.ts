@@ -8124,12 +8124,14 @@ test("/api/tools/websearch falls back to Exa when OpenAI returns empty output", 
           payload: {
             query: "empty query",
             numResults: 5,
-            model: "gpt-5.2",
+            model: "gpt-5.4-mini",
           },
         });
 
         assert.equal(response.statusCode, 200);
-        assert.deepEqual(callOrder, ["openai", "openai", "openai", "openai", "exa"]);
+        // Requested and fallback models are both gpt-5.4-mini, so candidate
+        // deduplication keeps one model with the two domain-hint shapes.
+        assert.deepEqual(callOrder, ["openai", "openai", "exa"]);
 
         const payload: unknown = response.json();
         assert.ok(isRecord(payload));
