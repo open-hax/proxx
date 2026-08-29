@@ -1,27 +1,29 @@
-import { type RequestLogEntry } from "./api";
+import type { RequestLogEntry } from "./api";
 
-export type FormatServiceTierStyle = "title" | "lower";
+type ServiceTierFields = Pick<RequestLogEntry, "serviceTier" | "serviceTierSource">;
 
 /**
  * Format a request log entry's service tier for display.
  *
- * - `serviceTierSource === "fast_mode"` is shown as "Fast mode" / "fast mode".
- * - `serviceTier === "priority"` is shown as "Priority" / "priority".
- * - Missing tier is shown as "Standard" / "standard".
- * - Any other tier has underscores/dashes replaced with spaces.
+ * - `serviceTierSource === "fast_mode"` is shown as "Fast mode".
+ * - `serviceTier === "priority"` is shown as "Priority".
+ * - Missing tier is shown as "Standard".
+ * - Any other tier is normalized to sentence case with underscores/dashes
+ *   replaced by spaces.
  */
-export function formatServiceTier(entry: RequestLogEntry, style: FormatServiceTierStyle = "lower"): string {
-  if (!entry.serviceTier) {
-    return style === "title" ? "Standard" : "standard";
-  }
-
+export function formatServiceTier(entry: ServiceTierFields): string {
   if (entry.serviceTierSource === "fast_mode") {
-    return style === "title" ? "Fast mode" : "fast mode";
+    return "Fast mode";
   }
 
-  if (entry.serviceTier === "priority") {
-    return style === "title" ? "Priority" : "priority";
+  if (!entry.serviceTier) {
+    return "Standard";
   }
 
-  return entry.serviceTier.replace(/[_-]+/g, " ");
+  const normalized = entry.serviceTier.replace(/[_-]+/g, " ").trim().toLowerCase();
+  if (!normalized) {
+    return "Standard";
+  }
+
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
 }

@@ -4,6 +4,8 @@ import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 
 import { App } from "../App";
+import type { RequestLogEntry } from "../lib/api";
+import { formatServiceTier } from "../lib/format-service-tier";
 
 vi.mock("../lib/api", async (importOriginal) => {
   const original = await importOriginal<typeof import("../lib/api")>();
@@ -17,6 +19,20 @@ vi.mock("../lib/api", async (importOriginal) => {
       return { fastMode: false };
     }),
   };
+});
+
+describe("formatServiceTier", () => {
+  const entry = (
+    serviceTier: string | undefined,
+    serviceTierSource: RequestLogEntry["serviceTierSource"] = "explicit",
+  ): Pick<RequestLogEntry, "serviceTier" | "serviceTierSource"> => ({ serviceTier, serviceTierSource });
+
+  it("uses one canonical sentence-case label contract", () => {
+    expect(formatServiceTier(entry(undefined, "none"))).toBe("Standard");
+    expect(formatServiceTier(entry(undefined, "fast_mode"))).toBe("Fast mode");
+    expect(formatServiceTier(entry("priority"))).toBe("Priority");
+    expect(formatServiceTier(entry("BATCH_priority"))).toBe("Batch priority");
+  });
 });
 
 describe("App", () => {

@@ -516,7 +516,7 @@ export function DashboardPage(): JSX.Element {
                 <span>{formatProviderRouteCell(entry)}</span>
                 <span>{entry.model}</span>
                 <Badge variant={entry.serviceTierSource === "fast_mode" ? "info" : "default"}>
-                  {formatServiceTier(entry, "title")}
+                  {formatServiceTier(entry)}
                 </Badge>
                 <Badge variant={
                   entry.status === 0 || entry.status >= 400 ? "error"
