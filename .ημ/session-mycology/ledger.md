@@ -7,3 +7,13 @@
   spore: none
   receipt-refs: 2026-08-29T21:44:42.495Z, 2026-08-29T21:47:19.881Z
   note: Exact provider and event-head contracts made the reconstruction mechanical; the replaced scratch environment added external friction but did not reveal a reusable skill gap.
+
+- ts: 2026-08-29T22:04:02.404Z
+  session: codex/proxx307-repair
+  task: Restore the protected coderabbit-review-gate context with substantive strict enforcement
+  p-efficiency: 0.88
+  p-friction: 0.31
+  p-skill-candidate: 0.18
+  spore: none
+  receipt-refs: 2026-08-29T22:04:02.404Z
+  note: Git history and check-run naming made the regression precise; copying the current pinned provider job restored the legacy identity without an alias or settings bypass.
