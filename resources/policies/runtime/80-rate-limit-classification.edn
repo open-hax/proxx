@@ -1,0 +1,6 @@
+[{:contract/id :rate-limit-classification/xiaomi
+  :contract/kind :rate-limit-classification
+  :match/provider-id "xiaomi"
+  :classify/status 429
+  :classify/retry-after-ms {:max 30000}
+  :classify/result :rate-limit/volume}]

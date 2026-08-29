@@ -43,30 +43,10 @@ interface DeviceAuthState {
   readonly intervalMs: number;
 }
 
-const LS_CREDENTIALS_REVEAL_SECRETS = "open-hax-proxy.ui.credentials.revealSecrets";
 const LS_CREDENTIALS_GROUPING = "open-hax-proxy.ui.credentials.grouping";
 const LS_CREDENTIALS_ACCOUNT_SEARCH = "open-hax-proxy.ui.credentials.accountSearch";
 const LS_CREDENTIALS_LOG_PROVIDER = "open-hax-proxy.ui.credentials.logProvider";
 const LS_CREDENTIALS_LOG_ACCOUNT = "open-hax-proxy.ui.credentials.logAccount";
-
-function validateBoolean(value: unknown): boolean | undefined {
-  if (typeof value === "boolean") {
-    return value;
-  }
-
-  // Backwards compat: older versions might store as strings.
-  if (typeof value === "string") {
-    const normalized = value.trim().toLowerCase();
-    if (normalized === "true" || normalized === "1" || normalized === "yes" || normalized === "on") {
-      return true;
-    }
-    if (normalized === "false" || normalized === "0" || normalized === "no" || normalized === "off") {
-      return false;
-    }
-  }
-
-  return undefined;
-}
 
 function validateString(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
@@ -362,14 +342,12 @@ function humanIdentityLabel(entry: AccountEntry): string | null {
  *
  * The component includes credential listing and grouping, quota and prompt-cache audit views, OpenAI/Factory OAuth flows
  * (browser and device), API key creation shortcuts (including Xiaomi MiMo), account probe/disable/enable/remove actions,
- * and a request logs panel with filtering. State is persisted for selected filters and reveal-secrets preference.
+   * and a request logs panel with filtering. State is persisted for selected filters.
  *
  * @returns The rendered credentials management page as a JSX.Element
  */
 export function CredentialsPage(): JSX.Element {
-  // NOTE: Persisting revealSecrets can be risky on shared machines; you asked
-  // for persistence so we do it, but it will auto-load on refresh.
-  const [revealSecrets, setRevealSecrets] = useStoredState(LS_CREDENTIALS_REVEAL_SECRETS, false, validateBoolean);
+  const [revealSecrets, setRevealSecrets] = useState(false);
   const [providers, setProviders] = useState<CredentialProvider[]>([]);
   const [keyPoolStatuses, setKeyPoolStatuses] = useState<Record<string, KeyPoolStatus>>({});
   const [requestLogSummary, setRequestLogSummary] = useState<Record<string, ProviderRequestLogSummary>>({});

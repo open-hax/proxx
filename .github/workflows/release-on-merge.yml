@@ -1,0 +1,16 @@
+name: Release on Main Merge
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+jobs:
+  release:
+    if: ${{ github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'main' }}
+    uses: open-hax/eta-mu/.github/workflows/release-and-publish.yml@main
+    with:
+      pr: ${{ github.event.pull_request.number }}
+      create-release: true
+      publish-npm: false
+    secrets: inherit

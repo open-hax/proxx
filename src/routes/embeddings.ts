@@ -120,6 +120,13 @@ export function registerEmbeddingsRoutes(deps: AppDeps, app: FastifyInstance): v
       const candidateId = candidate.providerId;
       const candidateIsOllama = !isOpenAiCompatEmbedProvider(candidateId);
 
+      // Honor the per-provider base URL declared in policy (e.g. ollama-lan ->
+      // http://192.168.12.68:11434). The global deps.config.ollamaBaseUrl is only
+      // a fallback for the bare "ollama" provider; using it for every ollama-family
+      // candidate sent ollama-lan traffic to the down local ollama and exhausted
+      // the route ("embedding_upstream_unavailable").
+      const candidateOllamaBaseUrl = (candidate.baseUrl ?? "").trim() || deps.config.ollamaBaseUrl;
+
       const candidateModel = candidateIsOllama
         ? routingModelWithoutProviderPrefix
         : normalizeLlamacppModelName(routingModelWithoutProviderPrefix);
@@ -149,7 +156,7 @@ export function registerEmbeddingsRoutes(deps: AppDeps, app: FastifyInstance): v
             deps.config.cljsPolicyManifestPath,
             { "tenant-id": request.openHaxAuth?.tenantId ?? "default", "provider-id": candidateId, "request-kind": "embeddings" },
             async (controller) => await ensureNativeOllamaEmbedContextFits(
-              deps.config.ollamaBaseUrl,
+              candidateOllamaBaseUrl,
               { model: candidateModel, input: candidateEmbedBody.input },
               Math.min(deps.config.requestTimeoutMs, 30_000),
               controller.signal,
@@ -185,7 +192,7 @@ export function registerEmbeddingsRoutes(deps: AppDeps, app: FastifyInstance): v
             deps.config.cljsPolicyManifestPath,
             { "tenant-id": request.openHaxAuth?.tenantId ?? "default", "provider-id": candidateId, "request-kind": "embeddings" },
             async (controller) => await fetchWithResponseTimeout(
-              joinUrl(deps.config.ollamaBaseUrl, "/api/embed"),
+              joinUrl(candidateOllamaBaseUrl, "/api/embed"),
               { method: "POST", headers: buildForwardHeaders(request.headers), body: JSON.stringify(upstreamBody), signal: controller.signal },
               deps.config.requestTimeoutMs,
             ),

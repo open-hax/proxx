@@ -34,6 +34,7 @@ policy tree.
 
 - Both policy files referenced by the README exist in
   `resources/policies/runtime/` (60-tenant-enforcement, 65-federation-routing).
+- `pnpm run lint` (workspace, including `orgs/**`) passed.
 - Docs-only change; build/test gates deferred to PR CI (staging-typecheck,
   staging-unit-tests).
 
