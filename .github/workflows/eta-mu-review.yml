@@ -1,0 +1,27 @@
+name: eta-mu evidence review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+# Reusable workflow calls run with `none` unless the caller grants scopes;
+# the called jobs request contents:read and pull-requests:read.
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  review:
+    name: Evidence-first review (eta-mu)
+    uses: open-hax/eta-mu/.github/workflows/opencode-code-review.yml@d3937a2f2fa6ecf74cd525c6a0daceb5380a0e1d
+    with:
+      # Bind every checkout and evidence claim to this event's immutable head.
+      pr_head_sha: ${{ github.event.pull_request.head.sha }}
+      setup_eta_mu_toolchain: false
+      evidence_gates_script: |
+        run_gate diff_stat git diff --stat "${PR_BASE_SHA}...HEAD"
+    # Least privilege: forward only the secrets the review job consumes.
+    secrets:
+      ETA_MU_APP_ID: ${{ secrets.ETA_MU_APP_ID }}
+      ETA_MU_APP_PRIVATE_KEY: ${{ secrets.ETA_MU_APP_PRIVATE_KEY }}
+      DISCORD_REVIEW_WEBHOOK_URL: ${{ secrets.DISCORD_REVIEW_WEBHOOK_URL }}
