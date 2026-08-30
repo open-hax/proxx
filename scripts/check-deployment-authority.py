@@ -47,8 +47,7 @@ GLOBAL_RULES = (
     (
         "direct legacy error SSH identity",
         re.compile(
-            r"\b(?:ssh|scp|sftp|rsync)\b"
-            r"(?:(?:\\\r?\n)|[^\r\n]){0,320}"
+            r"\b(?:ssh|scp|sftp|rsync)\b[^\r\n]{0,320}"
             r"(?<![\w.-])error@[A-Z0-9._-]+\b",
             re.IGNORECASE,
         ),
@@ -89,6 +88,24 @@ def line_number(text: str, offset: int) -> int:
     return text.count("\n", 0, offset) + 1
 
 
+def normalize_shell_continuations(text: str) -> tuple[str, list[int]]:
+    """Apply shell backslash-newline splicing and retain source offsets."""
+    normalized: list[str] = []
+    source_offsets: list[int] = []
+    index = 0
+    while index < len(text):
+        if text.startswith("\\\r\n", index):
+            index += 3
+            continue
+        if text.startswith("\\\n", index):
+            index += 2
+            continue
+        normalized.append(text[index])
+        source_offsets.append(index)
+        index += 1
+    return "".join(normalized), source_offsets
+
+
 def scan_text(relative_path: str, text: str) -> list[Finding]:
     rules = list(GLOBAL_RULES)
     if relative_path.startswith(".github/workflows/"):
@@ -98,9 +115,11 @@ def scan_text(relative_path: str, text: str) -> list[Finding]:
 
     findings: list[Finding] = []
     source_lines = text.splitlines()
+    normalized_text, source_offsets = normalize_shell_continuations(text)
     for rule, pattern in rules:
-        for match in pattern.finditer(text):
-            line = line_number(text, match.start())
+        for match in pattern.finditer(normalized_text):
+            source_offset = source_offsets[match.start()]
+            line = line_number(text, source_offset)
             source_line = source_lines[line - 1].strip()
             findings.append(Finding(relative_path, line, rule, source_line))
     return findings
@@ -153,6 +172,16 @@ def run_self_test() -> None:
             "direct legacy error SSH identity",
         ),
         (
+            "scripts/split-identity-return.sh",
+            "ssh err\\\nor@ussy3.promethean.rest uname -a\n",
+            "direct legacy error SSH identity",
+        ),
+        (
+            "scripts/split-command-return.sh",
+            "ss\\\nh error@ussy3.promethean.rest uname -a\n",
+            "direct legacy error SSH identity",
+        ),
+        (
             ".github/workflows/deploy.yml",
             "STAGING_SSH_HOST: ussy3.promethean.rest\n",
             "legacy Promethean workflow host",
@@ -175,6 +204,23 @@ def run_self_test() -> None:
             raise AssertionError(
                 f"self-test did not reject {expected_rule!r} in {relative_path}"
             )
+
+    mapped = scan_text(
+        "scripts/mapped-continuation.sh",
+        "echo safe\nssh err\\\nor@ussy3.promethean.rest uname -a\n",
+    )
+    direct = next(
+        (
+            finding
+            for finding in mapped
+            if finding.rule == "direct legacy error SSH identity"
+        ),
+        None,
+    )
+    if direct is None or direct.line != 2:
+        raise AssertionError(
+            "self-test did not preserve the source line for a continued token"
+        )
 
     safe = {
         ".github/workflows/code-quality.yml": "run: python3 scripts/check.py\n",

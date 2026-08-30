@@ -2,7 +2,7 @@
 category: "deployment"
 labels: "deployment, security, cross-repo, maintenance"
 type: "task"
-write-id: "1788059787530-0.2skuuq55e2qa9w05jtb"
+write-id: "1788060208637-0.tngw1wjoz3i3ydspaz"
 points: "3"
 title: "Retire legacy Promethean deployment authority"
 priority: "P1"
@@ -57,4 +57,6 @@ Final promotion audit found one more active authority dependency in .github/work
 PR #433 was published from exact staging base 10a7d2303490127de38afa4d6a17ef8e2670874d. Exact-head Codex review on 4dcde813e67ba8e79a0098f687579b7ef5c715eb found two valid P2 gaps: direct error@host SSH-family invocations escaped the boundary, and README/CONTRIBUTING still advertised deleted deployment workflows. Successor 4f1b77a7cb25050f161ddab647ed385e44c46f19 (tree 28141994591a665933a86b516eded9473c60b88e) repairs both, locks the reported SSH form into the self-test, and records current CI ownership. GREEN: authority self-test 9/9, live scan, actionlint, diff check. Both finding threads have exact evidence replies and are resolved; fresh successor reviews and hosted gates remain required. The separate auto-merge method-policy drift is tracked by issue #434/card PR #435 and is not part of this deployment tree.
 
 Fresh exact-head Codex review on fae8b5b931005af4a77589ce78b5533cc720d457 found a further valid P2 bypass: the direct error@host matcher stopped at a shell line continuation. The boundary now permits only explicit backslash-newline continuations inside the bounded SSH-family command match and locks the reported multiline form into a tenth forbidden fixture. GREEN: self-test 10/10, live scan, actionlint, and diff check. A new immutable successor and fresh exact-head review are required; the rate-limited CodeRabbit request is preserved as evidence and will not be retried repeatedly.
+
+Fresh exact-head Codex review on b126bac7d5af219c4baadc1cefb25e4853d54709 exposed the complete shell-splicing class: a continuation can split the ssh command token or the error@host identity token itself. The guard now normalizes explicit LF/CRLF shell continuations before applying every authority rule while retaining a normalized-to-source offset map for accurate findings. Separate fixtures lock argument-line, identity-token, and command-token splits, plus a source-line assertion. GREEN: 12/12 forbidden patterns, live scan, actionlint, diff check. A fresh immutable successor and exact-head review remain mandatory.
 ---
