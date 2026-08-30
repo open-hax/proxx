@@ -141,7 +141,7 @@ const moduleFileName = "proxx-runtime.js";
  * @param value - Candidate module object to inspect
  * @returns `true` if `value` exposes the expected CLJS runtime functions; `false` otherwise.
  */
-function isProxxCljsRuntime(value: Record<string, unknown>): value is Record<string, unknown> & ProxxCljsRuntime {
+export function isProxxCljsRuntime(value: Record<string, unknown>): value is Record<string, unknown> & ProxxCljsRuntime {
   return (
     typeof value.normalizeKeys === "function" &&
     typeof value.validateEntity === "function" &&
@@ -160,7 +160,8 @@ function isProxxCljsRuntime(value: Record<string, unknown>): value is Record<str
     (value.executePolicyTree === undefined || typeof value.executePolicyTree === "function") &&
     (value.resolveQueuePolicy === undefined || typeof value.resolveQueuePolicy === "function") &&
     (value.getProviderRoutes === undefined || typeof value.getProviderRoutes === "function") &&
-    (value.runQueued === undefined || typeof value.runQueued === "function")
+    (value.runQueued === undefined || typeof value.runQueued === "function") &&
+    (value.classifyRateLimit === undefined || typeof value.classifyRateLimit === "function")
   );
 }
 

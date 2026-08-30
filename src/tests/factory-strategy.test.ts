@@ -410,6 +410,20 @@ test("inlineSystemPrompt handles array content on first user message", () => {
   assert.equal((firstContent as Record<string, unknown>[])[0]?.["text"], "Be helpful.");
 });
 
+test("inlineSystemPrompt creates a user message when messages is empty", () => {
+  const payload = {
+    model: "claude-opus-4-5",
+    system: "Be helpful.",
+    messages: [],
+  };
+
+  const result = inlineSystemPrompt(payload);
+  assert.equal(result["system"], undefined);
+  assert.deepEqual(result["messages"], [
+    { role: "user", content: "Be helpful." },
+  ]);
+});
+
 test("sanitizeFactorySystemPrompt replaces OpenCode system prompt", () => {
   const prompt = "You are OpenCode, the best coding agent on the planet.\n\nTool usage rules...";
   const sanitized = sanitizeFactorySystemPrompt(prompt);

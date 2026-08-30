@@ -7800,6 +7800,11 @@ test("openai passthrough strips codex-unsupported response parameters", async ()
 });
 
 test("openai responses passthrough closes stalled streaming bodies", async () => {
+  let markUpstreamClosed!: () => void;
+  const upstreamClosed = new Promise<void>((resolve) => {
+    markUpstreamClosed = resolve;
+  });
+
   await withProxyApp(
     {
       keys: [],
@@ -7824,10 +7829,12 @@ test("openai responses passthrough closes stalled streaming bodies", async () =>
         streamBody: async (response) => {
           response.write(`event: response.created\ndata: ${JSON.stringify({ type: "response.created", response: { id: "resp_stalled", status: "in_progress", model: "gpt-5.5", output: [] } })}\n\n`);
           await once(response, "close");
+          markUpstreamClosed();
         },
       })
     },
-    async ({ app }) => {
+    async ({ app, upstream }) => {
+      const startedAt = Date.now();
       const response = await app.inject({
         method: "POST",
         url: "/v1/responses",
@@ -7842,6 +7849,25 @@ test("openai responses passthrough closes stalled streaming bodies", async () =>
 
       assert.equal(response.statusCode, 200);
       assert.match(response.body, /response\.created/);
+
+      await new Promise<void>((resolve, reject) => {
+        const upstreamCloseTimeout = setTimeout(
+          () => reject(new Error("stalled upstream transport remained open after stream timeout")),
+          2_000,
+        );
+        upstreamClosed.then(
+          () => {
+            clearTimeout(upstreamCloseTimeout);
+            resolve();
+          },
+          reject,
+        );
+      });
+      assert.ok(
+        Date.now() - startedAt < 2_000,
+        "a stalled upstream transport must close promptly instead of waiting for reader cancellation",
+      );
+      upstream.closeIdleConnections();
     }
   );
 });

@@ -47,6 +47,13 @@ Inline PR review comments are mirrored to Discord by `.github/workflows/code-rev
 
 CodeRabbit may add inline review comments. Repositories with branch protection enabled require review-thread resolution before merge when GitHub permits `required_conversation_resolution`.
 
+The repository intentionally retains both `review-resolution-gate.yml` and
+`eta-mu-review-gate.yml` for check-context compatibility. The former delegates
+to eta-mu's reusable gate and preserves its historical workflow context; the
+latter inlines the same strict enforcement so GitHub emits the exact protected
+`coderabbit-review-gate` job context. Remove either workflow only after the
+corresponding protection rules have been inspected and migrated.
+
 Agent rules:
 
 1. Do not merge while actionable inline review threads remain unresolved.
