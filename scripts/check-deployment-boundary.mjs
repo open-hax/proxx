@@ -23,9 +23,12 @@ const currentContractFiles = [
   "DEVEL.md",
   "README.md",
   "docs/deployment-ownership.md",
+  ".ημ/Π_LAST.md",
+  ".ημ/Π_STATE.sexp",
 ];
 const rules = [
   ["retired Services workflow", /deploy-promethean\.ya?ml/],
+  ["retired testing workflow", /deploy-testing\.ya?ml/],
   ["legacy VPS address", /\b104\.130\.159\.19\b/],
   ["legacy SSH identity", /\berror@(?:[^\s]+\.promethean\.rest|104\.130\.159\.19)\b/],
   ["legacy runtime root", /\/home\/error(?:\/|\b)/],
@@ -75,6 +78,7 @@ function violations(relativePath, text) {
 function selfTest() {
   const bad = [
     "uses: open-hax/services/.github/workflows/deploy-promethean.yaml@main",
+    "follow .github/workflows/deploy-testing.yml",
     "ssh error@ussy3.promethean.rest",
     "ssh error@104.130.159.19",
     "DEPLOY_PATH=/home/error/devel/services/proxx",
