@@ -10,6 +10,7 @@ import { normalizeReasoningRequestWithCljs } from "../../cljs-runtime.js";
 import { BaseProviderStrategy } from "../base.js";
 import {
   buildPayloadResult,
+  registerQueueAbortHandler,
   type BuildPayloadResult,
   type ProviderAttemptContext,
   type ProviderAttemptOutcome,
@@ -82,20 +83,7 @@ export class OllamaCloudProviderStrategy extends BaseProviderStrategy {
         extendedSignal.extendTimeout();
       }
 
-      // Emit SSE error if the queue aborts us mid-stream
-      if (signal) {
-        const onAbort = () => {
-          if (!rawResponse.writableEnded) {
-            rawResponse.write(
-              `data: ${JSON.stringify({
-                error: { message: "Provider stream aborted by request queue timeout" },
-              })}\n\n`
-            );
-            rawResponse.end();
-          }
-        };
-        signal.addEventListener("abort", onAbort, { once: true });
-      }
+      const cleanupAbort = registerQueueAbortHandler(signal, rawResponse);
 
       try {
         await streamOllamaNdjsonToChatCompletionSse(upstreamResponse.body, context.routedModel, (data) => {
@@ -107,10 +95,14 @@ export class OllamaCloudProviderStrategy extends BaseProviderStrategy {
           rawResponse.write(`data: ${JSON.stringify({ error: { message: toErrorMessage(error) } })}
 \n`);
         }
-      }
-
-      if (!rawResponse.writableEnded) {
-        rawResponse.end();
+      } finally {
+        try {
+          if (!rawResponse.writableEnded) {
+            rawResponse.end();
+          }
+        } finally {
+          cleanupAbort();
+        }
       }
       return { kind: "handled" };
     }

@@ -5,7 +5,11 @@ import {
   responsesEventStreamToErrorPayload,
   streamResponsesSseToChatCompletionChunks,
 } from "../../responses-compat.js";
-import type { ProviderAttemptContext, ProviderAttemptOutcome } from "../shared.js";
+import {
+  registerQueueAbortHandler,
+  type ProviderAttemptContext,
+  type ProviderAttemptOutcome,
+} from "../shared.js";
 
 export async function handleResponsesEventStreamAsChatCompletion(
   reply: FastifyReply,
@@ -35,41 +39,32 @@ export async function handleResponsesEventStreamAsChatCompletion(
       extendedSignal.extendTimeout();
     }
 
-    // Emit SSE error if the queue aborts us mid-stream
-    if (signal) {
-      const onAbort = () => {
-        if (!rawResponse.writableEnded) {
-          rawResponse.write(
-            `data: ${JSON.stringify({
-              error: { message: "Provider stream aborted by request queue timeout" },
-            })}\n\n`
-          );
-          rawResponse.end();
-        }
-      };
-      signal.addEventListener("abort", onAbort, { once: true });
-    }
+    const cleanupAbort = registerQueueAbortHandler(signal, rawResponse);
 
     try {
-      const result = await streamResponsesSseToChatCompletionChunks(
-        upstreamResponse.body,
-        { fallbackModel: context.routedModel, writeFn: (data) => rawResponse.write(data) },
-      );
-      if (result.sawError) {
-        console.error("[responses-event-stream] upstream SSE error", { providerId: context.providerId, routedModel: context.routedModel });
-        if (!rawResponse.writableEnded) {
-          rawResponse.end();
+      try {
+        const result = await streamResponsesSseToChatCompletionChunks(
+          upstreamResponse.body,
+          { fallbackModel: context.routedModel, writeFn: (data) => rawResponse.write(data) },
+        );
+        if (result.sawError) {
+          console.error("[responses-event-stream] upstream SSE error", { providerId: context.providerId, routedModel: context.routedModel });
+          if (!rawResponse.writableEnded) {
+            rawResponse.end();
+          }
+          return { kind: "handled" };
         }
-        return { kind: "handled" };
+      } catch (err) {
+        console.error("[responses-event-stream] stream read error", { providerId: context.providerId, message: err instanceof Error ? err.message : String(err) });
+        void upstreamResponse.body?.cancel().catch(() => undefined);
       }
-    } catch (err) {
-      console.error("[responses-event-stream] stream read error", { providerId: context.providerId, message: err instanceof Error ? err.message : String(err) });
-      void upstreamResponse.body?.cancel().catch(() => undefined);
+      if (!rawResponse.writableEnded) {
+        rawResponse.end();
+      }
+      return { kind: "handled" };
+    } finally {
+      cleanupAbort();
     }
-    if (!rawResponse.writableEnded) {
-      rawResponse.end();
-    }
-    return { kind: "handled" };
   }
 
   const streamText = await upstreamResponse.text();

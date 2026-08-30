@@ -114,16 +114,18 @@
   "Classify a rate-limit response based on provider-specific EDN contracts.
    Returns :rate-limit/volume, :rate-limit/concurrency, or nil when no contract matches."
   [compiled provider-id status retry-after-ms]
-  (when-let [contract (first
-                        (filter
-                          (fn [c]
-                            (and
-                              (= provider-id (:match/provider-id c))
+  (let [normalized-provider-id (contracts/normalize-provider-id provider-id)]
+    (when-let [contract (first
+                          (filter
+                           (fn [c]
+                             (and
+                              (= normalized-provider-id
+                                 (contracts/normalize-provider-id (:match/provider-id c)))
                               (or (nil? (:classify/status c))
                                   (= status (:classify/status c)))
                               (let [max-ms (get-in c [:classify/retry-after-ms :max])]
                                 (or (nil? max-ms)
                                     (and (number? retry-after-ms)
                                          (<= retry-after-ms max-ms))))))
-                          (contracts/rate-limit-classifications (:index compiled))))]
-    (:classify/result contract)))
+                           (contracts/rate-limit-classifications (:index compiled))))]
+      (:classify/result contract))))

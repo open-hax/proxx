@@ -32,11 +32,14 @@
 ;; ─────────────────────────────────────────────────────────────────────────────
 ;; Tree compilation from compiled policy contracts
 
-(defn- provider-route-for-id
+(defn provider-route-for-id
   "Find the provider route map for a given provider id."
   [compiled provider-id]
-  (some #(when (= provider-id (or (:provider/id %) (:provider-id %))) %)
-        (:provider-routes compiled)))
+  (let [normalized-provider-id (contracts/normalize-provider-id provider-id)]
+    (some #(when (= normalized-provider-id
+                    (contracts/normalize-provider-id (or (:provider/id %) (:provider-id %))))
+             %)
+          (:provider-routes compiled))))
 
 (defn- strategies-for-provider-input
   "Return ordered strategy modes for a provider + request kind from input."

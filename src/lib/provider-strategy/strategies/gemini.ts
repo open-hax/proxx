@@ -11,6 +11,7 @@ import {
   buildRequestBodyForUpstream,
   isRecord,
   openAiContentToText,
+  registerQueueAbortHandler,
   type BuildPayloadResult,
   type DirectExecutionProviderStrategy,
   type ProviderAttemptContext,
@@ -690,14 +691,6 @@ export class GeminiChatProviderStrategy extends BaseProviderStrategy implements 
     });
     const model = alias ?? context.routedModel;
 
-    // Defensive: don't call the Gemini SDK with non-Gemini models.
-    // The policy engine should filter providers by model family, but
-    // when it doesn't (e.g. TS fallback path), this prevents poisoning
-    // the routing accumulator with upstreamInvalidRequest.
-    if (!model.startsWith("gemini-") && !model.startsWith("models/") && !model.includes("gemma")) {
-      return { kind: "continue", modelNotFound: true };
-    }
-
     try {
       const sdkRequest = geminiPayloadToSdkRequest(model, payload);
 
@@ -729,20 +722,7 @@ export class GeminiChatProviderStrategy extends BaseProviderStrategy implements 
           extendedSignal.extendTimeout();
         }
 
-        // Emit SSE error if the queue aborts us mid-stream
-        if (signal) {
-          const onAbort = () => {
-            if (!rawResponse.writableEnded) {
-              rawResponse.write(
-                `data: ${JSON.stringify({
-                  error: { message: "Provider stream aborted by request queue timeout" },
-                })}\n\n`
-              );
-              rawResponse.end();
-            }
-          };
-          signal.addEventListener("abort", onAbort, { once: true });
-        }
+        const cleanupAbort = registerQueueAbortHandler(signal, rawResponse);
 
         try {
           let accumulatedText = "";
@@ -804,10 +784,14 @@ export class GeminiChatProviderStrategy extends BaseProviderStrategy implements 
           if (!rawResponse.writableEnded) {
             rawResponse.write(`data: ${JSON.stringify({ error: { message: String(error) } })}\n\n`);
           }
-        }
-
-        if (!rawResponse.writableEnded) {
-          rawResponse.end();
+        } finally {
+          try {
+            if (!rawResponse.writableEnded) {
+              rawResponse.end();
+            }
+          } finally {
+            cleanupAbort();
+          }
         }
         
         return { kind: "handled" };

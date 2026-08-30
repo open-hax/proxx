@@ -82,6 +82,7 @@
                            :queue/max-queue-size 256
                            :queue/overflow-policy :reject
                            :queue/attempt-timeout-ms 1000
+                           :queue/stream-timeout-ms 2000
                            :queue/total-timeout-ms 5000
                            :queue/max-retries 1
                            :queue/retry-backoff :immediate})]
@@ -89,6 +90,7 @@
     (is (= :active (:queue/status coerced)))
     (is (= 0.2 (:queue/jitter-factor coerced)))
     (is (= false (:queue/fail-fast? coerced)))
+    (is (= 2000 (:queue/stream-timeout-ms coerced)))
     (is (= true (:queue/retry-after-respect? coerced)))))
 
 (deftest request-queue-instance-valid
@@ -96,6 +98,7 @@
                                 {:contract/id :queue/openai
                                  :contract/kind :request-queue-instance
                                  :queue/template-id :queue/default
+                                 :queue/stream-timeout-ms 2000
                                  :queue/provider-id "openai"})))))
 
 ;; ── Red: invalid records fail with humanized errors ──────────────────────────
@@ -170,6 +173,26 @@
                    :queue/provider-id "openai"
                    :queue/attempt-timeout-ms 1000
                    :queue/total-timeout-ms 500}))))
+
+(deftest request-queue-stream-timeout-has-a-100ms-minimum
+  (let [template {:contract/id :queue/too-short-stream
+                  :contract/kind :request-queue-template
+                  :queue/name "Too short stream timeout"
+                  :queue/concurrency-limit 1
+                  :queue/max-queue-size 1
+                  :queue/overflow-policy :reject
+                  :queue/attempt-timeout-ms 1000
+                  :queue/stream-timeout-ms 99
+                  :queue/total-timeout-ms 5000
+                  :queue/max-retries 0
+                  :queue/retry-backoff :immediate}
+        instance {:contract/id :queue/too-short-stream-instance
+                  :contract/kind :request-queue-instance
+                  :queue/template-id :queue/default
+                  :queue/provider-id "openai"
+                  :queue/stream-timeout-ms 99}]
+    (is (= :error (first (s/validate :proxx/policy-contract template))))
+    (is (= :error (first (s/validate :proxx/policy-contract instance))))))
 
 ;; ── assert! throws on failure ─────────────────────────────────────────────────
 
