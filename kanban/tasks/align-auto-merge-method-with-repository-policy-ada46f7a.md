@@ -2,7 +2,7 @@
 category: "tasks"
 labels: "ci, automation, governance"
 type: "task"
-write-id: "1788058904162-0.0faf115ojcwu5f1v9500"
+write-id: "1788059023517-0.6i8zt9ne3hdsmzd4q4"
 title: "Align auto-merge method with repository policy"
 priority: "P2"
 status: "breakdown"
@@ -43,4 +43,6 @@ Align Proxx's auto-merge caller with the repository's allowed merge-method polic
 
 ---
 Canonical GitHub projection created as issue #434 after exact UUID/title and method-error duplicate searches returned no match. The issue preserves failed run 33289033074 / job 99197267148, PR #433 exact head 4dcde813e67ba8e79a0098f687579b7ef5c715eb, authoritative merge-policy metadata, breakdown status, P2 priority, and the standalone scope boundary. No PR #433 or deployment-authority files were changed.
+
+Standalone card-projection PR #435 was published at exact head 3e04f84a474c2a6925be7139bfc56a613dfbfa27, base 10a7d2303490127de38afa4d6a17ef8e2670874d, tree 928dac0ecf0a1ba0ccd1c814cc75ea923c0fa292. It changes only this card and the append-only Rheos ledger; issue #434 remains open because no workflow implementation is included.
 ---
