@@ -310,20 +310,14 @@ See `specs/drafts/federation-bridge-ws-v0.md` for protocol details.
 curl http://127.0.0.1:8789/health | jq '.'
 ```
 
-### Testing
-```bash
-curl https://testing.proxx.ussy.promethean.rest/health | jq '.'
-```
-
-### Staging
-```bash
-curl https://staging.proxx.ussy.promethean.rest/health | jq '.'
-```
-
 ### Production
 ```bash
 curl https://proxx.promethean.rest/health | jq '.'
 ```
+
+Testing and staging are source-validation branches, not deployed environments.
+Use the local health check while developing; Services owns the sole production
+runtime and its live verification.
 
 ### Federation Status
 ```bash

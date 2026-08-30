@@ -129,9 +129,9 @@ Preview the built UI:
 pnpm web:preview
 ```
 
-## Host fleet dashboard
+## Host dashboard
 
-The console now includes a **Hosts** page for the ussy fleet.
+The console includes a **Hosts** page for explicitly configured runtime peers.
 
 What it shows:
 - per-host container inventory
@@ -146,10 +146,9 @@ How it works:
 Minimal env shape:
 
 ```bash
-HOST_DASHBOARD_SELF_ID=ussy
-HOST_DASHBOARD_TARGETS_JSON=[{"id":"ussy","label":"ussy.promethean.rest","baseUrl":"https://ussy.promethean.rest","authTokenEnv":"HOST_DASHBOARD_USSY_TOKEN"},{"id":"ussy3","label":"ussy3.promethean.rest","baseUrl":"https://ussy3.promethean.rest","authTokenEnv":"HOST_DASHBOARD_USSY3_TOKEN"}]
-HOST_DASHBOARD_USSY_TOKEN=...
-HOST_DASHBOARD_USSY3_TOKEN=...
+HOST_DASHBOARD_SELF_ID=local
+HOST_DASHBOARD_TARGETS_JSON=[{"id":"peer-a","label":"Peer A","baseUrl":"https://peer-a.example","authTokenEnv":"HOST_DASHBOARD_PEER_A_TOKEN"}]
+HOST_DASHBOARD_PEER_A_TOKEN=...
 ```
 
 Notes:
@@ -617,11 +616,13 @@ FEDERATION_WARM_IMPORT_REQUEST_THRESHOLD=3
 ```
 
 ```bash
-# Check each environment
-curl https://testing.proxx.ussy.promethean.rest/health | jq '.ok'
-curl https://staging.proxx.ussy.promethean.rest/health | jq '.ok'
+# Check the only declared deployed environment
 curl https://proxx.promethean.rest/health | jq '.ok'
 ```
+
+The `testing` and `staging` branches run application preflight checks; they do
+not name shared runtime slots. Production deployment and live verification are
+owned by `open-hax/services`.
 
 ## OpenAPI Contract
 

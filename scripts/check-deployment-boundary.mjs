@@ -17,6 +17,13 @@ const retiredEntryPoints = [
 ];
 
 const activeRoots = [".github/workflows", "scripts", "deploy/targets"];
+const currentContractFiles = [
+  "AGENTS.md",
+  "CONTRIBUTING.md",
+  "DEVEL.md",
+  "README.md",
+  "docs/deployment-ownership.md",
+];
 const rules = [
   ["retired Services workflow", /deploy-promethean\.ya?ml/],
   ["legacy VPS address", /\b104\.130\.159\.19\b/],
@@ -24,6 +31,7 @@ const rules = [
   ["legacy runtime root", /\/home\/error(?:\/|\b)/],
   ["unverified SSH policy", /StrictHostKeyChecking\s*(?:=|\s)\s*(?:accept-new|no)\b/i],
   ["unverified SSH host-key discovery", /\bssh-keyscan\b/],
+  ["retired shared environment endpoint", /\b(?:testing|staging)\.proxx\.ussy\.promethean\.rest\b/],
   [
     "Promethean SSH host default",
     /(?:DEPLOY_HOST|STAGING_HOST|TESTING_HOST|PRODUCTION_HOST|PROMETHEAN_SSH_HOST)[^\n]{0,160}(?:ussy|proxx)[^\n]{0,80}\.promethean\.rest/,
@@ -72,6 +80,7 @@ function selfTest() {
     "DEPLOY_PATH=/home/error/devel/services/proxx",
     "StrictHostKeyChecking=no",
     "ssh-keyscan -H host.example",
+    "curl https://testing.proxx.ussy.promethean.rest/health",
     "DEPLOY_HOST=${DEPLOY_HOST:-ussy.promethean.rest}",
     "STAGING_SSH_USER=${STAGING_SSH_USER:-error}",
   ];
@@ -108,6 +117,11 @@ async function scan() {
       const text = await readFile(path.join(repositoryRoot, relativePath), "utf8");
       found.push(...violations(relativePath, text));
     }
+  }
+  for (const relativePath of currentContractFiles) {
+    if (!(await exists(relativePath))) continue;
+    const text = await readFile(path.join(repositoryRoot, relativePath), "utf8");
+    found.push(...violations(relativePath, text));
   }
   if (found.length > 0) {
     for (const item of found) {
