@@ -1,6 +1,5 @@
 (ns proxx.strategies.anthropic
-  (:require [shadow.cljs.modern :refer (js-await)]
-            [clojure.string :as str]))
+  (:require [clojure.string :as str]))
 
 (def claude-code-beta-flags
   "claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14,prompt-caching-scope-2026-01-05")
@@ -32,9 +31,9 @@
                                 "user-agent" "claude-cli/2.1.80 (external, sdk-cli)"})
                         (merge base-headers
                                {"x-api-key" secret}))
-              resp (js-await (fetch-fn endpoint
-                                       (clj->js {:method "POST"
-                                                 :headers (clj->js headers)
-                                                 :body (js/JSON.stringify (clj->js body))})))]
+              resp (await (fetch-fn endpoint
+                                    (clj->js {:method "POST"
+                                              :headers (clj->js headers)
+                                              :body (js/JSON.stringify (clj->js body))})))]
           resp)))
     (catch :default _ nil)))
