@@ -19,8 +19,8 @@ on:
       - "device/**"
   workflow_run:
     workflows:
-      - OpenCode Kimi PR Review
-      - OpenCode Kimi Issue Agent
+      - OpenCode PR Review
+      - OpenCode Issue Agent
       - Code Review Comments to Discord
     types: [completed]
 

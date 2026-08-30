@@ -1,4 +1,4 @@
-name: OpenCode Kimi Issue Agent
+name: OpenCode Issue Agent
 
 on:
   issues:
@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: opencode-kimi-issues-${{ github.event.issue.number || github.run_id }}
+  group: opencode-issues-${{ github.event.issue.number || github.run_id }}
   cancel-in-progress: false
 
 jobs:
@@ -31,12 +31,11 @@ jobs:
         uses: anomalyco/opencode/github@385cb694419f98103af0e8fc6187ddcbcbb6eecb
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          KIMI_API_KEY: ${{ secrets.KIMI_FOR_CODING_API_KEY }}
         with:
-          model: kimi-for-coding/k2p5
+          model: opencode/big-pickle
           use_github_token: true
           prompt: |
-            You are the Kimi issue agent for this repository. Triage the triggering GitHub issue.
+            You are the OpenCode issue agent for this repository. Triage the triggering GitHub issue.
 
             Kanban context:
             - Check whether the issue body contains an `openhax-kanban-sync` marker.
@@ -76,9 +75,8 @@ jobs:
         uses: anomalyco/opencode/github@385cb694419f98103af0e8fc6187ddcbcbb6eecb
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          KIMI_API_KEY: ${{ secrets.KIMI_FOR_CODING_API_KEY }}
         with:
-          model: kimi-for-coding/k2p5
+          model: opencode/big-pickle
           use_github_token: true
           prompt: |
             Perform a daily maintenance sweep of this repository's open GitHub issues.

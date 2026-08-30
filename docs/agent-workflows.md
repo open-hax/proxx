@@ -1,4 +1,4 @@
-# Agent Workflows: Kanban → GitHub → Kimi → Review Gates
+# Agent Workflows: Kanban → GitHub → Review Gates
 
 This repository participates in the shared OpenHax / Octave Commons automation stack. Agents working here should understand the following workflow before opening or reviewing PRs.
 
@@ -13,28 +13,28 @@ Mirrored events include:
 - pull request reviews
 - releases
 - pushes to `main`, `master`, `dev`, and `device/**`
-- selected workflow completions for OpenCode/Kimi review workflows
+- selected workflow completions for OpenCode review workflows
 
-Do not print or copy webhook URLs, bot tokens, GitHub tokens, Kimi keys, or other secrets into logs, issues, PR comments, or commits.
+Do not print or copy webhook URLs, bot tokens, GitHub tokens, or other secrets into logs, issues, PR comments, or commits.
 
-## Kimi issue agent
+## OpenCode issue agent
 
-`.github/workflows/opencode-issue-agent.yml` runs OpenCode with Kimi For Coding on issue events and on a daily schedule.
+`.github/workflows/opencode-issue-agent.yml` runs OpenCode on issue events and on a daily schedule.
 
-Kimi may:
+The issue agent may:
 
 - triage new, reopened, or edited issues;
 - ask for clarification when an issue is underspecified;
 - close issues that are clearly irrelevant, spam, duplicates, or out of scope, with a concise reason;
 - open a linked PR for a small safe fix.
 
-Kimi must not close ambiguous issues or make broad/destructive changes.
+The issue agent must not close ambiguous issues or make broad/destructive changes.
 
-## Kimi PR code review
+## OpenCode PR code review
 
-`.github/workflows/opencode-code-review.yml` runs OpenCode with Kimi For Coding on pull requests.
+`.github/workflows/opencode-code-review.yml` runs OpenCode on pull requests.
 
-Kimi should:
+The reviewer should:
 
 - review correctness, security, maintainability, tests, and repository conventions;
 - submit concrete findings as GitHub PR inline review comments on exact changed lines whenever GitHub can attach them;
@@ -50,7 +50,7 @@ CodeRabbit may add inline review comments. Repositories with branch protection e
 Agent rules:
 
 1. Do not merge while actionable inline review threads remain unresolved.
-2. Resolve CodeRabbit/Kimi comments by patching the code or explicitly explaining why no change is needed.
+2. Resolve CodeRabbit/OpenCode comments by patching the code or explicitly explaining why no change is needed.
 3. Prefer small targeted commits over broad rewrites.
 4. Re-run or wait for required checks after pushing fixes.
 

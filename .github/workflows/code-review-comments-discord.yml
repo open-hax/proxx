@@ -37,7 +37,7 @@ jobs:
               method: 'POST',
               headers: { 'content-type': 'application/json' },
               body: JSON.stringify({
-                username: 'Kimi Code Review',
+                username: 'OpenCode Code Review',
                 content: `Inline review comment on ${owner}/${repo}#${pr.number}`,
                 embeds: [{
                   title: `${owner}/${repo}#${pr.number}: inline review comment`,
