@@ -2,7 +2,7 @@
 category: "deployment"
 labels: "deployment, security, cross-repo, maintenance"
 type: "task"
-write-id: "1788061074636-0.wzsxp1s9pppj42lxg1l"
+write-id: "1788061696466-0.nt1g2yqv0vcob4wuhq4"
 points: "3"
 title: "Retire legacy Promethean deployment authority"
 priority: "P1"
@@ -63,4 +63,6 @@ Fresh exact-head Codex review on b126bac7d5af219c4baadc1cefb25e4853d54709 expose
 The bounded CodeRabbit review completed on PR #433 head c82ce649e0bde6bb3f10d804e76cfaf477ef9314 and reported four valid Major gaps: mutable candidate policy execution (comment 3888351976), case-sensitive Services owner matching (3888351978), missing ssh -l error and ssh -o User=error forms (3888351982), and incomplete script/composite-action discovery (3888351986). The coherent repair moves enforcement to a pull_request_target workflow from the immutable base revision, treats the candidate checkout strictly as data, adds case-insensitive and option-form coverage, scans every script and composite action, and retains the prior continuation normalization. GREEN before publication: 15 retired-pattern self-tests, live candidate scan, Actionlint, PyYAML parse of all 19 workflows, and git diff check. One immutable successor plus fresh exact-head gates and reviews remain mandatory.
 
 Final local regression on the unpublished combined repair is GREEN with the pinned Java 21 toolchain: pnpm test built TypeScript and the CLJS runtime with zero warnings, then completed 668 tests across 11 suites with 666 pass, 0 fail, and 2 skip in 121.9 seconds. This supplements the 15/15 authority fixtures, live scan, Actionlint, 19/19 workflow parsing, and diff check; exact-head hosted review remains required after publication.
+
+Bootstrap activation audit: GitHub primary documentation confirms pull_request_target definitions execute from the repository default branch, so the new trusted candidate-isolation leg cannot run until the canonical staging-to-main promotion carries deployment-authority.yml onto main. The staging push leg activates immediately when #433 lands. Documentation now states this boundary explicitly: exact-head external review owns the #433 bootstrap, push scanning guards the reviewed staging merge, and default-branch pull-request isolation guards subsequent PRs after promotion. No candidate content is executed.
 ---

@@ -1,6 +1,9 @@
 name: Deployment Authority Boundary
 
 on:
+  # GitHub loads pull_request_target definitions from the default branch. This
+  # leg becomes active after the canonical staging -> main promotion; the push
+  # leg enforces the reviewed policy on staging as soon as this change lands.
   pull_request_target:
     types: [opened, synchronize, reopened, ready_for_review]
   push:

@@ -36,6 +36,13 @@ changes therefore cannot weaken the scanner that judges the same pull request.
 The policy fails CI if any retired authority form returns to workflows,
 composite actions, script entry points, or checked-in deployment targets.
 
+GitHub sources `pull_request_target` workflow definitions from the default
+branch. The push boundary therefore starts when this retirement lands on
+`staging`, while isolated pull-request enforcement starts when the canonical
+`staging -> main` promotion places the reviewed workflow on the default branch.
+Exact-head external review is the bootstrap boundary for this retirement PR;
+the new workflow never executes candidate content.
+
 ## Assets that remain
 
 Compose files, Caddy templates, runtime policy resources, and local federation
