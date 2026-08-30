@@ -428,7 +428,9 @@
         (boolean (and (seq candidates)
                       (some allowed candidates)))))))
 
-(defn- normalize-provider-id [provider-id]
+(defn normalize-provider-id
+  "Normalize provider ids before policy comparisons."
+  [provider-id]
   (str/lower-case (str/trim (str provider-id))))
 
 (defn- dedupe-provider-id-values [provider-ids]

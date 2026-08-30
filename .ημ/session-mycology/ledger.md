@@ -18,6 +18,25 @@
   receipt-refs: 2026-08-29T22:04:02.404Z
   note: Git history and check-run naming made the regression precise; copying the current pinned provider job restored the legacy identity without an alias or settings bypass.
 
+- ts: 2026-08-29T22:28:14.583Z
+  session: codex/proxx-pr-lane
+  task: Repair the post-merge actionlint SC2129 review-gate regression
+  p-efficiency: 0.92
+  p-friction: 0.19
+  p-skill-candidate: 0.12
+  spore: none
+  receipt-refs: 2026-08-29T22:28:14.583Z
+  note: Reproducing with both actionlint and ShellCheck made the one-block redirect repair exact; the substantive protected gate remained unchanged.
+
+- ts: 2026-08-30T01:07:24Z
+  session: codex/proxx-pr-lane
+  task: Repin PR #358 to eta-mu's landed bounded review-recovery contract
+  p-efficiency: 0.89
+  p-friction: 0.34
+  p-skill-candidate: 0.17
+  spore: none
+  receipt-refs: 2026-08-30T01:07:24Z
+  note: Separating the completed attempt-1 submission omission from the failed-job attempt-2 artifact lookup prevented an invalid retry; the upstream repair was independently lineage-checked before the caller pin changed.
 - ts: 2026-08-29T22:18:00.552Z
   session: codex/proxx-legacy-promethean-retirement
   task: Retire legacy Promethean deployment authority (9b050582-778a-499e-b90d-6af4473552d3)

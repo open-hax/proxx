@@ -1,3 +1,6 @@
+# Compatibility workflow: this inlined strict gate preserves the exact protected
+# coderabbit-review-gate job context. Keep it alongside review-resolution-gate.yml
+# until every historical branch-protection requirement has been migrated.
 name: eta-mu-review-gate
 
 on:
@@ -40,9 +43,11 @@ jobs:
             echo "::error title=Invalid repository::Expected owner/name, got '$TARGET_REPOSITORY'"
             exit 1
           fi
-          echo "full_name=$TARGET_REPOSITORY" >> "$GITHUB_OUTPUT"
-          echo "owner=${TARGET_REPOSITORY%%/*}" >> "$GITHUB_OUTPUT"
-          echo "repository=${TARGET_REPOSITORY#*/}" >> "$GITHUB_OUTPUT"
+          {
+            echo "full_name=$TARGET_REPOSITORY"
+            echo "owner=${TARGET_REPOSITORY%%/*}"
+            echo "repository=${TARGET_REPOSITORY#*/}"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Detect eta-mu app credentials
         id: eta_mu_app_credentials
