@@ -66,7 +66,9 @@ That means:
 - provider credentials, OAuth refresh tokens, API keys, and secret keys must stay local to the instance that owns them
 - cross-instance provider access should use federation peer projection or the WebSocket bridge instead of shared credential tables
 
-Promethean branch promotion + federated environment mapping is documented in [`docs/promethean-federated-deployments.md`](docs/promethean-federated-deployments.md).
+Production host placement and promotion are owned by `open-hax/services`; this
+repository owns portable application packaging and validation. See
+[`docs/deployment-ownership.md`](docs/deployment-ownership.md).
 
 Current boundary:
 - shared in v1: operator/admin state, tenant API keys and proxy settings, analytics, non-secret control-plane runtime state
@@ -470,7 +472,9 @@ Current stable: **v0.2.0** — Federation bridge, capacity-aware testing, single
 
 ## Usage Modes
 
-Proxx supports four deployment modes, from simple to fully federated:
+Proxx supports four runtime modes, from simple to fully federated. These modes
+describe application packaging; they do not authorize or select a production
+host.
 
 ### Mode A: Isolated Local Instance
 
@@ -514,11 +518,11 @@ Each tenant gets their own API key and can have separate provider allowlists.
 
 **Use when:** You want to share the proxy with family or a small team.
 
-### Mode C: Federated Cloud Deployment
+### Mode C: Federated Cloud Runtime
 
 Multiple cloud instances sharing operator/control-plane state via PostgreSQL.
 
-1. Deploy to multiple hosts (testing, staging, production)
+1. Ask the deployment owner to instantiate the package on its declared hosts
 2. Point instances at the same `DATABASE_URL` only when that database excludes credential-bearing tables and secrets
 3. Instances automatically share:
     - Operator/admin login state
