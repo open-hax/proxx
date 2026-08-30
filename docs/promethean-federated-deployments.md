@@ -29,9 +29,12 @@ points and their two checked-in `deploy/targets/` environment files were also
 removed. They carried legacy Promethean hosts, the `error` account,
 `/home/error` paths, and trust-on-first-use host-key handling.
 
-`scripts/check-deployment-authority.py` now fails CI if any of those authority
-forms return to active workflows, shell entry points, or checked-in deployment
-targets.
+`.github/workflows/deployment-authority.yml` runs the
+`scripts/check-deployment-authority.py` policy from the pull request's immutable
+base revision and scans the candidate checkout strictly as data. Candidate
+changes therefore cannot weaken the scanner that judges the same pull request.
+The policy fails CI if any retired authority form returns to workflows,
+composite actions, script entry points, or checked-in deployment targets.
 
 ## Assets that remain
 

@@ -2,7 +2,7 @@
 category: "deployment"
 labels: "deployment, security, cross-repo, maintenance"
 type: "task"
-write-id: "1788060208637-0.tngw1wjoz3i3ydspaz"
+write-id: "1788061074636-0.wzsxp1s9pppj42lxg1l"
 points: "3"
 title: "Retire legacy Promethean deployment authority"
 priority: "P1"
@@ -59,4 +59,8 @@ PR #433 was published from exact staging base 10a7d2303490127de38afa4d6a17ef8e26
 Fresh exact-head Codex review on fae8b5b931005af4a77589ce78b5533cc720d457 found a further valid P2 bypass: the direct error@host matcher stopped at a shell line continuation. The boundary now permits only explicit backslash-newline continuations inside the bounded SSH-family command match and locks the reported multiline form into a tenth forbidden fixture. GREEN: self-test 10/10, live scan, actionlint, and diff check. A new immutable successor and fresh exact-head review are required; the rate-limited CodeRabbit request is preserved as evidence and will not be retried repeatedly.
 
 Fresh exact-head Codex review on b126bac7d5af219c4baadc1cefb25e4853d54709 exposed the complete shell-splicing class: a continuation can split the ssh command token or the error@host identity token itself. The guard now normalizes explicit LF/CRLF shell continuations before applying every authority rule while retaining a normalized-to-source offset map for accurate findings. Separate fixtures lock argument-line, identity-token, and command-token splits, plus a source-line assertion. GREEN: 12/12 forbidden patterns, live scan, actionlint, diff check. A fresh immutable successor and exact-head review remain mandatory.
+
+The bounded CodeRabbit review completed on PR #433 head c82ce649e0bde6bb3f10d804e76cfaf477ef9314 and reported four valid Major gaps: mutable candidate policy execution (comment 3888351976), case-sensitive Services owner matching (3888351978), missing ssh -l error and ssh -o User=error forms (3888351982), and incomplete script/composite-action discovery (3888351986). The coherent repair moves enforcement to a pull_request_target workflow from the immutable base revision, treats the candidate checkout strictly as data, adds case-insensitive and option-form coverage, scans every script and composite action, and retains the prior continuation normalization. GREEN before publication: 15 retired-pattern self-tests, live candidate scan, Actionlint, PyYAML parse of all 19 workflows, and git diff check. One immutable successor plus fresh exact-head gates and reviews remain mandatory.
+
+Final local regression on the unpublished combined repair is GREEN with the pinned Java 21 toolchain: pnpm test built TypeScript and the CLJS runtime with zero warnings, then completed 668 tests across 11 suites with 666 pass, 0 fail, and 2 skip in 121.9 seconds. This supplements the 15/15 authority fixtures, live scan, Actionlint, 19/19 workflow parsing, and diff check; exact-head hosted review remains required after publication.
 ---

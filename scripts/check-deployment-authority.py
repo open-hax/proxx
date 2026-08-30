@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 import re
 import sys
+from tempfile import TemporaryDirectory
 from typing import Iterable
 
 
@@ -27,7 +28,8 @@ GLOBAL_RULES = (
         "services reusable deploy workflow",
         re.compile(
             r"open-hax/services/\.github/workflows/"
-            r"deploy-promethean\.yml@"
+            r"deploy-promethean\.yml@",
+            re.IGNORECASE,
         ),
     ),
     ("ssh-keyscan trust bootstrap", re.compile(r"\bssh-keyscan\b")),
@@ -49,6 +51,18 @@ GLOBAL_RULES = (
         re.compile(
             r"\b(?:ssh|scp|sftp|rsync)\b[^\r\n]{0,320}"
             r"(?<![\w.-])error@[A-Z0-9._-]+\b",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "SSH option legacy error identity",
+        re.compile(
+            r"\b(?:ssh|scp|sftp)\b[^\r\n]{0,320}"
+            r"(?:"
+            r"-l(?:\s+)?['\"]?error(?:['\"]|\s|\b)"
+            r"|"
+            r"-o(?:\s+)?User\s*=\s*['\"]?error(?:['\"]|\s|\b)"
+            r")",
             re.IGNORECASE,
         ),
     ),
@@ -75,9 +89,19 @@ def candidate_paths(root: Path) -> Iterable[Path]:
         yield from workflow_dir.rglob("*.yml")
         yield from workflow_dir.rglob("*.yaml")
 
+    actions_dir = root / ".github" / "actions"
+    if actions_dir.is_dir():
+        yield from (path for path in actions_dir.rglob("*") if path.is_file())
+
     scripts_dir = root / "scripts"
     if scripts_dir.is_dir():
-        yield from scripts_dir.rglob("*.sh")
+        yield from (
+            path
+            for path in scripts_dir.rglob("*")
+            if path.is_file()
+            and path.relative_to(root).as_posix()
+            != "scripts/check-deployment-authority.py"
+        )
 
     targets_dir = root / "deploy" / "targets"
     if targets_dir.is_dir():
@@ -142,6 +166,11 @@ def run_self_test() -> None:
             "services reusable deploy workflow",
         ),
         (
+            ".github/workflows/mixed-case-deploy.yml",
+            "uses: Open-Hax/Services/.github/workflows/deploy-promethean.yml@main\n",
+            "services reusable deploy workflow",
+        ),
+        (
             ".github/workflows/deploy.yml",
             "run: ssh-keyscan -H legacy.example >> ~/.ssh/known_hosts\n",
             "ssh-keyscan trust bootstrap",
@@ -180,6 +209,16 @@ def run_self_test() -> None:
             "scripts/split-command-return.sh",
             "ss\\\nh error@ussy3.promethean.rest uname -a\n",
             "direct legacy error SSH identity",
+        ),
+        (
+            "scripts/login-option-return.sh",
+            "ssh -l error ussy3.promethean.rest uname -a\n",
+            "SSH option legacy error identity",
+        ),
+        (
+            "scripts/user-option-return.sh",
+            "ssh -o User=error ussy3.promethean.rest uname -a\n",
+            "SSH option legacy error identity",
         ),
         (
             ".github/workflows/deploy.yml",
@@ -222,6 +261,44 @@ def run_self_test() -> None:
             "self-test did not preserve the source line for a continued token"
         )
 
+    with TemporaryDirectory() as directory:
+        root = Path(directory)
+        candidate_scanner = root / "scripts" / "check-deployment-authority.py"
+        script_path = root / "scripts" / "deploy.py"
+        action_path = root / ".github" / "actions" / "deploy" / "action.yml"
+        script_path.parent.mkdir(parents=True)
+        action_path.parent.mkdir(parents=True)
+        candidate_scanner.write_text(
+            "# An untrusted candidate cannot replace the policy executable.\n"
+            "raise SystemExit(0)\n",
+            encoding="utf-8",
+        )
+        script_path.write_text(
+            'run("ssh error@ussy3.promethean.rest uname -a")\n',
+            encoding="utf-8",
+        )
+        action_path.write_text(
+            "runs:\n  using: composite\n  steps:\n"
+            "    - shell: bash\n      run: ssh -l error legacy.example\n",
+            encoding="utf-8",
+        )
+        discovered = {
+            (finding.path, finding.rule) for finding in scan_repository(root)
+        }
+        expected_discovery = {
+            ("scripts/deploy.py", "direct legacy error SSH identity"),
+            (
+                ".github/actions/deploy/action.yml",
+                "SSH option legacy error identity",
+            ),
+        }
+        if not expected_discovery.issubset(discovered):
+            missing = sorted(expected_discovery - discovered)
+            raise AssertionError(
+                "self-test let a candidate policy replacement hide deployment "
+                f"entry points: {missing}"
+            )
+
     safe = {
         ".github/workflows/code-quality.yml": "run: python3 scripts/check.py\n",
         "scripts/deploy.sh": (
@@ -248,13 +325,19 @@ def main() -> int:
         action="store_true",
         help="exercise every retired pattern and a safe pinned-known-hosts fixture",
     )
+    parser.add_argument(
+        "--root",
+        type=Path,
+        default=REPOSITORY_ROOT,
+        help="candidate repository tree to scan (default: this checkout)",
+    )
     args = parser.parse_args()
 
     if args.self_test:
         run_self_test()
         return 0
 
-    findings = scan_repository(REPOSITORY_ROOT)
+    findings = scan_repository(args.root.resolve())
     if findings:
         print("Retired deployment authority detected:", file=sys.stderr)
         for finding in findings:

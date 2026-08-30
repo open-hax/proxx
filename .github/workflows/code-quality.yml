@@ -12,20 +12,6 @@ permissions:
   contents: read
 
 jobs:
-  deployment-authority:
-    name: Deployment authority boundary
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v5
-        with:
-          persist-credentials: false
-
-      - name: Reject retired deployment authority
-        run: |
-          python3 scripts/check-deployment-authority.py --self-test
-          python3 scripts/check-deployment-authority.py
-
   no-new-typescript:
     name: No new TypeScript
     runs-on: ubuntu-latest

@@ -1,0 +1,44 @@
+name: Deployment Authority Boundary
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    branches:
+      - main
+      - master
+      - staging
+
+permissions:
+  contents: read
+
+jobs:
+  deployment-authority:
+    name: Deployment authority boundary
+    runs-on: ubuntu-latest
+    steps:
+      # pull_request_target keeps this workflow definition on the trusted base.
+      # Candidate content is checked out separately and is only scanned as data.
+      - name: Check out trusted policy revision
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.base.sha || github.sha }}
+          path: .deployment-authority-policy
+          sparse-checkout: scripts/check-deployment-authority.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: Check out candidate tree as data
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.sha }}
+          path: .deployment-authority-candidate
+          persist-credentials: false
+
+      - name: Reject retired deployment authority
+        run: |
+          python3 .deployment-authority-policy/scripts/check-deployment-authority.py --self-test
+          python3 .deployment-authority-policy/scripts/check-deployment-authority.py \
+            --root .deployment-authority-candidate
