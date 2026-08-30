@@ -11,9 +11,12 @@ RUN pnpm add -g pm2
 
 WORKDIR /app
 
-COPY package.json tsconfig.json shadow-cljs.edn ./
+# Dependency resolution is a build-time operation. Copy the committed lock
+# contract before source files so the image is reproducible and later source
+# changes cannot make pnpm repair node_modules when the container starts.
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json shadow-cljs.edn ./
 
-RUN pnpm install --no-frozen-lockfile
+RUN pnpm install --frozen-lockfile
 
 COPY src ./src
 COPY web ./web
