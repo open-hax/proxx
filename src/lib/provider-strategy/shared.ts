@@ -53,6 +53,43 @@ function sleep(ms: number): Promise<void> {
   });
 }
 
+interface QueueAbortResponse {
+  readonly writableEnded: boolean;
+  write(data: string): unknown;
+  end(): unknown;
+}
+
+/**
+ * Attach the mechanical downstream SSE response for a request-queue abort.
+ * The caller must invoke the returned cleanup after every terminal stream path.
+ */
+export function registerQueueAbortHandler(
+  signal: AbortSignal | undefined,
+  rawResponse: QueueAbortResponse,
+): () => void {
+  if (!signal) {
+    return () => undefined;
+  }
+
+  const onAbort = () => {
+    if (!rawResponse.writableEnded) {
+      rawResponse.write(
+        `data: ${JSON.stringify({
+          error: { message: "Provider stream aborted by request queue timeout" },
+        })}\n\n`,
+      );
+      rawResponse.end();
+    }
+  };
+
+  signal.addEventListener("abort", onAbort, { once: true });
+  if (signal.aborted) {
+    onAbort();
+  }
+
+  return () => signal.removeEventListener("abort", onAbort);
+}
+
 function transientRetryDelayMs(context: StrategyRequestContext, retryIndex: number): number {
   return context.config.upstreamTransientRetryBackoffMs * (retryIndex + 1);
 }

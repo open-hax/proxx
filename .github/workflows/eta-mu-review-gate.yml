@@ -1,3 +1,6 @@
+# Compatibility workflow: this inlined strict gate preserves the exact protected
+# coderabbit-review-gate job context. Keep it alongside review-resolution-gate.yml
+# until every historical branch-protection requirement has been migrated.
 name: eta-mu-review-gate
 
 on:

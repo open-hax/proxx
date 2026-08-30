@@ -1,3 +1,6 @@
+# Compatibility workflow: this reusable-workflow caller preserves the historical
+# Review Resolution Gate context. The eta-mu-named workflow separately inlines the
+# strict job needed for the exact protected coderabbit-review-gate context.
 name: Review Resolution Gate
 
 on:

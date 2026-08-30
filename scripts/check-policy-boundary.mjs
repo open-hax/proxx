@@ -55,6 +55,10 @@ const forbiddenPatterns = [
     pattern: /\bexcludeDynamicOllama\b/,
     reason: "auto-model/provider exclusion rules belong in EDN policy, not TS options",
   },
+  {
+    pattern: /\bmodel\.startsWith\(["']gemini-/,
+    reason: "Gemini model-family eligibility belongs in EDN policy, not a TypeScript strategy gate",
+  },
 ];
 
 function isTsFile(fileName) {

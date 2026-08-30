@@ -130,9 +130,13 @@
         completed? (atom false)
         extend-timeout! (fn []
                           (when-not @completed?
-                            (let [stream-tms (:queue/stream-timeout-ms policy 120000)]
+                            (let [stream-tms (:queue/stream-timeout-ms policy 120000)
+                                  remaining  (if total-deadline
+                                               (- total-deadline (js/Date.now))
+                                               js/Infinity)
+                                  timeout-ms (max 0 (min stream-tms remaining))]
                               (js/clearTimeout @timer-ref)
-                              (reset! timer-ref (arm-abort-timer! controller stream-tms)))))
+                              (reset! timer-ref (arm-abort-timer! controller timeout-ms)))))
         abort-p    (make-abort-promise (.-signal controller) attempt)]
     ;; Attach extendTimeout as a JS property for TS interop
     (set! (.-extendTimeout controller) extend-timeout!)
