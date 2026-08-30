@@ -126,7 +126,7 @@ async function streamResponsesPassthroughToClient(
   const cleanupAbort = registerQueueAbortHandler(signal, rawResponse);
 
   try {
-    if (firstChunk.value && firstChunk.value.byteLength > 0) {
+    if (!rawResponse.writableEnded && firstChunk.value && firstChunk.value.byteLength > 0) {
       rawResponse.write(firstChunk.value);
     }
 

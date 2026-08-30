@@ -521,6 +521,14 @@ export class GeminiChatProviderStrategy extends BaseProviderStrategy implements 
 
   public readonly isLocal = false;
 
+  public constructor(
+    private readonly createGenAi: (
+      options: ConstructorParameters<typeof GoogleGenAI>[0],
+    ) => GoogleGenAI = (options) => new GoogleGenAI(options),
+  ) {
+    super();
+  }
+
   public matches(_context: StrategyRequestContext): boolean {
     return _context.routeProviderId === "gemini"
       && _context.responsesPassthrough !== true
@@ -680,7 +688,7 @@ export class GeminiChatProviderStrategy extends BaseProviderStrategy implements 
       return await this.handleProviderAttempt(reply, upstreamResponse, context);
     }
 
-    const genAI = new GoogleGenAI({ apiKey, ...(baseUrl ? { baseUrl } : {}) });
+    const genAI = this.createGenAi({ apiKey, ...(baseUrl ? { baseUrl } : {}) });
     
     const manifestPath = context.config.cljsPolicyManifestPath;
     const providerId = context.providerId ?? context.routeProviderId ?? "gemini";
@@ -693,6 +701,9 @@ export class GeminiChatProviderStrategy extends BaseProviderStrategy implements 
 
     try {
       const sdkRequest = geminiPayloadToSdkRequest(model, payload);
+      if (context.queueSignal) {
+        sdkRequest.config.abortSignal = context.queueSignal;
+      }
 
       if (context.clientWantsStream) {
         // Handle streaming
