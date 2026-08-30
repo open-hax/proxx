@@ -740,6 +740,13 @@ See [`docs/code-quality.md`](docs/code-quality.md) for scanner scope, thresholds
 
 See [`DEVEL.md`](DEVEL.md) for development workflow details.
 
-## Testing deploys
+## Deployment verification
 
-Adding the `testing` label to an eligible PR deploys the PR head to the shared staging slot via the open-hax/services Promethean deploy module (`.github/workflows/deploy-testing.yml`).
+Proxx no longer owns label-triggered or direct-host deployment workflows. Adding
+the `testing` label does not deploy a pull request, and the retired
+`deploy-testing.yml`, `deploy-staging.yml`, and `deploy-production.yml` callers
+must not be restored here. Deployment authority belongs to the external Services
+release path; repository pull requests provide build, test, review, and policy
+evidence only. Coordinate environment-sensitive deployment verification through
+that canonical owner and attach its evidence to the relevant issue or pull
+request.

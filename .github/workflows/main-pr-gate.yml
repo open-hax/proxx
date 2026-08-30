@@ -178,17 +178,7 @@ jobs:
       - run: git merge-base --is-ancestor "${PR_HEAD_SHA}" origin/staging
         env:
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-      - uses: actions/github-script@v8
-        with:
-          script: |
-            const requiredChecks = ["deploy-staging", "staging-live-e2e"];
-            const { owner, repo } = context.repo;
-            const ref = context.payload.pull_request.head.sha;
-            const checks = await github.rest.checks.listForRef({ owner, repo, ref, per_page: 100 });
-            // Reusable-workflow jobs surface as "<job> / <child job>", so match prefixes too.
-            const satisfied = (name) => checks.data.check_runs.some((run) =>
-              (run.name === name || run.name.startsWith(`${name} / `)) && run.conclusion === 'success');
-            const missing = requiredChecks.filter((name) => !satisfied(name));
-            if (missing.length > 0) {
-              core.setFailed(`Missing successful staging checks for ${ref}: ${missing.join(', ')}`);
-            }
+      - name: Confirm deployment authority is external
+        run: |
+          echo "Promotion requires the canonical staging ancestry and this workflow's application gates."
+          echo "Host placement and deployment evidence are owned by open-hax/services, not Proxx."

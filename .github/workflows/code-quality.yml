@@ -6,6 +6,7 @@ on:
     branches:
       - main
       - master
+      - staging
 
 permissions:
   contents: read
