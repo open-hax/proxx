@@ -1,0 +1,56 @@
+---
+category: "deployment"
+labels: "deployment, security, cross-repo, maintenance"
+type: "task"
+write-id: "1788055690542-0.w30e74csyh70k8921g"
+points: "3"
+title: "Retire legacy Promethean deployment authority"
+priority: "P1"
+status: "review"
+uuid: "9b050582-778a-499e-b90d-6af4473552d3"
+created_at: "2026-08-29T21:59:24.623Z"
+---
+
+## Objective
+
+Retire Proxx's active authority over the legacy Promethean deployment lane so Services remains the sole owner of host placement and deployment promotion.
+
+## Audited active callers
+
+- `.github/workflows/deploy-production.yml`
+- `.github/workflows/deploy-staging.yml`
+- `.github/workflows/deploy-testing.yml`
+
+The staging/testing lane also carries the legacy `error` SSH identity, Promethean host defaults, `/home/error` paths, and `ssh-keyscan`/accept-new trust-on-first-use behavior. The direct shell entry points and two checked-in `deploy/targets/` files preserve the same authority.
+
+## Scope
+
+- Remove the three active reusable-workflow callers.
+- Remove direct legacy remote-deploy scripts and checked-in Promethean target files.
+- Add a fail-closed repository check preventing those authorities from returning.
+- Document the remaining application packaging boundary and Services ownership.
+- Preserve historical receipts and compose/Caddy packaging; do not invent a replacement staging target.
+
+## Acceptance criteria
+
+- No active workflow calls `open-hax/services/.github/workflows/deploy-promethean.yml@main`.
+- No active Proxx deploy entry point uses the `error` identity, `/home/error`, Promethean host defaults, `ssh-keyscan`, or `StrictHostKeyChecking=accept-new`.
+- A self-tested CI guard rejects each retired authority pattern.
+- Remaining workflow YAML and shell scripts validate.
+- The migration targets `staging`, receives exact-head automated reviews, and leaves merge/protection decisions to the existing staging gate.
+- Services issue 22 receives evidence only after the Proxx PR has been reviewed; its state is not changed here.
+
+## Constraints
+
+- Do not add or infer a replacement host, identity, path, secret, or trust bootstrap.
+- Do not merge or bypass the staging protection tracked by Proxx issue 308.
+
+---
+Audit confirmed exactly three active reusable-workflow callers plus two direct SSH scripts and two checked-in target files on staging SHA 8f5deb39c613855f976c0fa01a827f662dbb5f30. Scope is retirement-only: no replacement deployment target is approved.
+
+Validation passed: deployment-authority self-test (7 fixtures) and live scan; Actionlint 1.7.12; ShellCheck 0.11.0; bash -n; 24 YAML files parsed; no-new-TypeScript and policy-boundary gates; frozen pnpm 9 install; TypeScript + CLJS runtime build (0 warnings); staging offline subset 203/203; CLJS 119 tests / 317 assertions; web production build. The monolithic test command was stopped by workspace policy when its later integration segment attempted an unverified private-network Ollama endpoint; no bypass was attempted.
+
+GitHub issue projection created with the canonical openhax-kanban-sync UUID marker: https://github.com/open-hax/proxx/issues/356. The local card remains the source of truth; the issue is labeled for review and P1/security tracking.
+
+Final promotion audit found one more active authority dependency in .github/workflows/main-pr-gate.yml: the protected staging-promotion-gate still queried for successful deploy-staging and staging-live-e2e checks. Those checks are emitted only by the callers being retired, so leaving the query would make every canonical staging-to-main promotion impossible. The migration now removes only that deployment-evidence query, preserves the staging ancestry assertion and every main application gate, and extends the self-tested authority guard so either retired check name is rejected if reintroduced into an active workflow. GREEN: authority self-test 8/8, live scan, actionlint, diff check, and 18/18 workflow YAML parse plus exact promotion assertions.
+---
