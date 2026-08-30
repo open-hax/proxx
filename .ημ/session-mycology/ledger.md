@@ -37,3 +37,13 @@
   spore: none
   receipt-refs: 2026-08-30T01:07:24Z
   note: Separating the completed attempt-1 submission omission from the failed-job attempt-2 artifact lookup prevented an invalid retry; the upstream repair was independently lineage-checked before the caller pin changed.
+
+- ts: 2026-08-30T09:13:15Z
+  session: codex/proxx372-rehydrate
+  task: Rehydrate PR #372 on exact current staging and lock the empty-message system-prompt behavior
+  p-efficiency: 0.90
+  p-friction: 0.27
+  p-skill-candidate: 0.12
+  spore: none
+  receipt-refs: 2026-08-30T09:13:15Z
+  note: Exact parent refs and the one-line source delta made the merge mechanical; the focused integration file requires the compiled CLJS runtime, so the build-then-compiled-test path distinguished a harness precondition from product behavior.
