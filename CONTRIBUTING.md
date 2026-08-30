@@ -87,11 +87,9 @@ Lightweight PR gate:
 - `staging-unit-tests`
 
 ### Pushes to `staging`
-Promotion-prep and live validation:
+Promotion-prep application validation:
 
 - `staging-preflight`
-- `deploy-staging`
-- `staging-live-e2e`
 
 ### PRs into `main`
 Only valid for canonical `staging -> main` promotion PRs. These run the heavier gate:
@@ -104,11 +102,12 @@ Only valid for canonical `staging -> main` promotion PRs. These run the heavier 
 - `staging-promotion-gate`
 
 ### Pushes to `main`
-Production deployment path:
+Production application validation:
 
 - `production-preflight`
-- `deploy-production`
-- `verify-production`
+
+Production deployment and live verification run from a reviewed
+`open-hax/services` pull request carrying `deploy` at merge time.
 
 ## Contributor checklist
 

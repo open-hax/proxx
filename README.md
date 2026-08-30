@@ -744,6 +744,9 @@ See [`docs/code-quality.md`](docs/code-quality.md) for scanner scope, thresholds
 
 See [`DEVEL.md`](DEVEL.md) for development workflow details.
 
-## Testing deploys
+## Deployment ownership
 
-Adding the `testing` label to an eligible PR deploys the PR head to the shared staging slot via the open-hax/services Promethean deploy module (`.github/workflows/deploy-testing.yml`).
+Proxx labels do not deploy a shared testing or staging slot. This repository
+owns validation and portable packaging; `open-hax/services` owns production
+image builds, host placement, deployment, and live verification. See
+[`docs/deployment-ownership.md`](docs/deployment-ownership.md).

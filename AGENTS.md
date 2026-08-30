@@ -274,7 +274,7 @@ curl -X POST http://127.0.0.1:8789/api/v1/tenants \
 3. Register peers via `/api/v1/federation/peers`
 4. Use routing prefixes: `/cluster/`, `/group-a/`, `/a1.node.host/`
 
-See `docs/promethean-federated-deployments.md` for the full promotion workflow.
+See `docs/deployment-ownership.md` for the packaging and deployment boundary.
 
 ### Mode D: WebSocket Bridge
 

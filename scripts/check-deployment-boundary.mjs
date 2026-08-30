@@ -13,14 +13,16 @@ const retiredEntryPoints = [
   "scripts/deploy-target.sh",
   "deploy/targets/big-ussy-hub-spokes.env",
   "deploy/targets/big-ussy-owned-relay.env",
+  "docs/promethean-federated-deployments.md",
 ];
 
 const activeRoots = [".github/workflows", "scripts", "deploy/targets"];
 const rules = [
-  ["retired Services workflow", /deploy-promethean\.yml/],
-  ["legacy SSH identity", /\berror@[^\s]+\.promethean\.rest\b/],
+  ["retired Services workflow", /deploy-promethean\.ya?ml/],
+  ["legacy VPS address", /\b104\.130\.159\.19\b/],
+  ["legacy SSH identity", /\berror@(?:[^\s]+\.promethean\.rest|104\.130\.159\.19)\b/],
   ["legacy runtime root", /\/home\/error(?:\/|\b)/],
-  ["trust-on-first-use SSH policy", /StrictHostKeyChecking\s*(?:=|\s)\s*accept-new/i],
+  ["unverified SSH policy", /StrictHostKeyChecking\s*(?:=|\s)\s*(?:accept-new|no)\b/i],
   ["unverified SSH host-key discovery", /\bssh-keyscan\b/],
   [
     "Promethean SSH host default",
@@ -28,7 +30,7 @@ const rules = [
   ],
   [
     "legacy SSH user default",
-    /(?:DEPLOY_USER|STAGING_SSH_USER|TESTING_SSH_USER|PRODUCTION_SSH_USER|PROMETHEAN_SSH_USER)[^\n]{0,160}(?:\|\||:-)[^\n]{0,80}\berror\b/,
+    /(?:DEPLOY_USER|STAGING_SSH_USER|TESTING_SSH_USER|PRODUCTION_SSH_USER|PROMETHEAN_SSH_USER)[^\n]{0,200}\berror\b/,
   ],
 ];
 
@@ -64,10 +66,11 @@ function violations(relativePath, text) {
 
 function selfTest() {
   const bad = [
-    "uses: open-hax/services/.github/workflows/deploy-promethean.yml@main",
+    "uses: open-hax/services/.github/workflows/deploy-promethean.yaml@main",
     "ssh error@ussy3.promethean.rest",
+    "ssh error@104.130.159.19",
     "DEPLOY_PATH=/home/error/devel/services/proxx",
-    "StrictHostKeyChecking=accept-new",
+    "StrictHostKeyChecking=no",
     "ssh-keyscan -H host.example",
     "DEPLOY_HOST=${DEPLOY_HOST:-ussy.promethean.rest}",
     "STAGING_SSH_USER=${STAGING_SSH_USER:-error}",
