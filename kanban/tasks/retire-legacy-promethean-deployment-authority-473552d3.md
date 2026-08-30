@@ -2,7 +2,7 @@
 category: "deployment"
 labels: "deployment, security, cross-repo, maintenance"
 type: "task"
-write-id: "1788055690542-0.w30e74csyh70k8921g"
+write-id: "1788059486098-0.hf0txgwh2ofmt0yx07"
 points: "3"
 title: "Retire legacy Promethean deployment authority"
 priority: "P1"
@@ -53,4 +53,6 @@ Validation passed: deployment-authority self-test (7 fixtures) and live scan; Ac
 GitHub issue projection created with the canonical openhax-kanban-sync UUID marker: https://github.com/open-hax/proxx/issues/356. The local card remains the source of truth; the issue is labeled for review and P1/security tracking.
 
 Final promotion audit found one more active authority dependency in .github/workflows/main-pr-gate.yml: the protected staging-promotion-gate still queried for successful deploy-staging and staging-live-e2e checks. Those checks are emitted only by the callers being retired, so leaving the query would make every canonical staging-to-main promotion impossible. The migration now removes only that deployment-evidence query, preserves the staging ancestry assertion and every main application gate, and extends the self-tested authority guard so either retired check name is rejected if reintroduced into an active workflow. GREEN: authority self-test 8/8, live scan, actionlint, diff check, and 18/18 workflow YAML parse plus exact promotion assertions.
+
+PR #433 was published from exact staging base 10a7d2303490127de38afa4d6a17ef8e2670874d. Exact-head Codex review on 4dcde813e67ba8e79a0098f687579b7ef5c715eb found two valid P2 gaps: direct error@host SSH-family invocations escaped the boundary, and README/CONTRIBUTING still advertised deleted deployment workflows. Successor 4f1b77a7cb25050f161ddab647ed385e44c46f19 (tree 28141994591a665933a86b516eded9473c60b88e) repairs both, locks the reported SSH form into the self-test, and records current CI ownership. GREEN: authority self-test 9/9, live scan, actionlint, diff check. Both finding threads have exact evidence replies and are resolved; fresh successor reviews and hosted gates remain required. The separate auto-merge method-policy drift is tracked by issue #434/card PR #435 and is not part of this deployment tree.
 ---
