@@ -20,8 +20,11 @@ module.exports = {
     },
     {
       name: "open-hax-openai-proxy-web",
-      script: "pnpm",
-      args: ["exec", "vite", "preview", "--config", "web/vite.config.ts", "--host", "0.0.0.0", "--port", "5174"],
+      // Invoke the already-installed Vite entrypoint directly. Running
+      // `pnpm exec` here makes pnpm reconcile dependencies in production,
+      // so a package policy or registry change can take down a built image.
+      script: "node",
+      args: ["node_modules/vite/bin/vite.js", "preview", "--config", "web/vite.config.ts", "--host", "0.0.0.0", "--port", "5174"],
       cwd: "/app",
       env: {
         NODE_ENV: "production",

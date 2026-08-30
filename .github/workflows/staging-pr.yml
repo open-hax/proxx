@@ -19,6 +19,8 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
+      - name: Verify immutable container runtime
+        run: node scripts/check-container-runtime.mjs
       - run: pnpm install --frozen-lockfile
       - name: eslint complexity check
         run: pnpm run lint:errors
