@@ -1,4 +1,9 @@
-name: deploy-staging
+name: Staging Release Preflight
+
+# The retired VPS lane had a shared staging slot. Keep the application gate,
+# but do not imply that a passing run deploys or probes a host. Production
+# deployment is centralized in open-hax/services on the declared DigitalOcean
+# host.
 
 on:
   push:
@@ -7,7 +12,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: proxx-staging
+  group: proxx-staging-preflight
   cancel-in-progress: true
 
 jobs:
@@ -45,104 +50,3 @@ jobs:
       - run: pnpm run build
       - run: node --test --test-concurrency=1 dist/tests/account-identity.test.js dist/tests/auto-model-selector.test.js dist/tests/config.test.js dist/tests/escape-html.test.js dist/tests/factory-config.test.js dist/tests/federation-owner-credential.test.js dist/tests/host-dashboard.test.js dist/tests/json-seeder.test.js dist/tests/key-pool.test.js dist/tests/messages-compat.test.js dist/tests/model-pricing.test.js dist/tests/openai-oauth.test.js dist/tests/policy.test.js dist/tests/prompt-affinity-store.test.js dist/tests/provider-policy.test.js dist/tests/provider-routing.test.js dist/tests/proxy-headers.test.js dist/tests/proxy-rate-limit.test.js dist/tests/proxy-settings-store.test.js dist/tests/quota-monitor.test.js dist/tests/request-auth.test.js dist/tests/request-log-store.test.js dist/tests/sql-credential-store.test.js dist/tests/sql-tenant-provider-policy-store.test.js dist/tests/sse-usage.test.js dist/tests/tenant-api-key.test.js dist/tests/tenant-provider-policy-routes.test.js dist/tests/tenant-provider-policy.test.js
       - run: pnpm run web:build
-
-  deploy-staging:
-    name: deploy-staging
-    needs:
-      - staging-preflight
-    uses: open-hax/services/.github/workflows/deploy-promethean.yml@main
-    with:
-      environment: staging
-      service: proxx
-      source_repository: ${{ github.repository }}
-      source_ref: ${{ github.sha }}
-    secrets: inherit
-
-  staging-live-e2e:
-    name: staging-live-e2e
-    runs-on: ubuntu-latest
-    timeout-minutes: 90
-    needs:
-      - deploy-staging
-    environment: staging
-    steps:
-      - uses: actions/checkout@v5
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 9
-      - uses: actions/setup-node@v5
-        with:
-          node-version: 22
-          cache: pnpm
-      - name: configure staging ssh
-        run: |
-          install -m 700 -d ~/.ssh
-          printf '%s\n' "${STAGING_SSH_PRIVATE_KEY}" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-          printf 'Host *\n  IdentityFile ~/.ssh/deploy_key\n  IdentitiesOnly yes\n' > ~/.ssh/config
-          chmod 600 ~/.ssh/config
-          touch ~/.ssh/known_hosts
-          ssh-keyscan -H "${STAGING_HOST}" >> ~/.ssh/known_hosts
-        env:
-          STAGING_HOST: ${{ vars.STAGING_SSH_HOST || 'ussy3.promethean.rest' }}
-          STAGING_SSH_PRIVATE_KEY: ${{ secrets.STAGING_SSH_PRIVATE_KEY }}
-      - run: chmod +x scripts/*.sh
-      - run: |
-          for attempt in $(seq 1 40); do
-            echo "health-check attempt ${attempt}" >/dev/null
-            if curl -fsS -H "Authorization: Bearer ${DEV_PROXY_AUTH_TOKEN}" "${DEV_PROXY_URL}/health" >/dev/null; then
-              exit 0
-            fi
-            sleep 10
-          done
-          exit 1
-        env:
-          DEV_PROXY_URL: ${{ vars.STAGING_BASE_URL || 'https://staging.proxx.ussy.promethean.rest' }}
-          DEV_PROXY_AUTH_TOKEN: ${{ secrets.STAGING_PROXY_AUTH_TOKEN }}
-      - run: pnpm install --frozen-lockfile
-      - id: live-e2e-core
-        continue-on-error: true
-        run: ./scripts/e2e-test.sh
-        env:
-          DEV_PROXY_URL: ${{ vars.STAGING_BASE_URL || 'https://staging.proxx.ussy.promethean.rest' }}
-          DEV_PROXY_AUTH_TOKEN: ${{ secrets.STAGING_PROXY_AUTH_TOKEN }}
-      - id: live-e2e-multitenancy
-        continue-on-error: true
-        run: ./scripts/e2e-multitenancy-smoke.sh
-        env:
-          DEV_PROXY_URL: ${{ vars.STAGING_BASE_URL || 'https://staging.proxx.ussy.promethean.rest' }}
-          DEV_PROXY_AUTH_TOKEN: ${{ secrets.STAGING_PROXY_AUTH_TOKEN }}
-      - id: live-e2e-federation
-        continue-on-error: true
-        run: ./scripts/e2e-federation-audit.sh
-        env:
-          FEDERATION_HOST_SUFFIX: ${{ vars.STAGING_PUBLIC_HOST || 'staging.proxx.ussy.promethean.rest' }}
-          FEDERATION_AUTH_TOKEN: ${{ secrets.STAGING_PROXY_AUTH_TOKEN }}
-          FEDERATION_SCHEME: ${{ vars.STAGING_ENABLE_TLS == 'false' && 'http' || 'https' }}
-          FEDERATION_RESOLVE_ADDRESS: ${{ vars.STAGING_VERIFY_RESOLVE_ADDRESS || vars.STAGING_SSH_HOST || '' }}
-      - name: assert staging live e2e suite
-        if: always()
-        run: |
-          core='${{ steps.live-e2e-core.outcome }}'
-          multitenancy='${{ steps.live-e2e-multitenancy.outcome }}'
-          federation='${{ steps.live-e2e-federation.outcome }}'
-
-          echo "core=${core}"
-          echo "multitenancy=${multitenancy}"
-          echo "federation=${federation}"
-
-          if [[ "$core" != "success" || "$multitenancy" != "success" || "$federation" != "success" ]]; then
-            exit 1
-          fi
-      - name: staging live e2e failure logs
-        if: failure()
-        run: |
-          compose_args=$(echo "${DEPLOY_COMPOSE_FILES}" | tr ',' '\n' | awk '{printf " -f %s", $0}')
-          # shellcheck disable=SC2029,SC2086
-          ssh ${STAGING_SSH_USER}@${STAGING_HOST} "cd ${STAGING_PATH} && docker compose --project-name '${STAGING_PROJECT}'${compose_args} ps && docker compose --project-name '${STAGING_PROJECT}'${compose_args} logs --tail=200"
-        env:
-          STAGING_HOST: ${{ vars.STAGING_SSH_HOST || 'ussy3.promethean.rest' }}
-          STAGING_SSH_USER: ${{ vars.STAGING_SSH_USER || 'error' }}
-          STAGING_PATH: ${{ vars.STAGING_DEPLOY_PATH || '~/devel/services/proxx-staging' }}
-          STAGING_PROJECT: ${{ vars.STAGING_COMPOSE_PROJECT_NAME || 'proxx-staging' }}
-          DEPLOY_COMPOSE_FILES: ${{ vars.STAGING_COMPOSE_FILES || 'docker-compose.federation-runtime.yml,deploy/docker-compose.federation.ssl.yml' }}
