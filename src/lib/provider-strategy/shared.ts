@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import type { IncomingHttpHeaders } from "node:http";
+import type { IncomingHttpHeaders, ServerResponse } from "node:http";
+import { Readable } from "node:stream";
 
 import type { FastifyReply } from "fastify";
 
@@ -88,6 +89,50 @@ export function registerQueueAbortHandler(
   }
 
   return () => signal.removeEventListener("abort", onAbort);
+}
+
+/**
+ * Pipe an upstream web stream into a hijacked SSE response and tie every
+ * terminal path to the queue-abort listener and upstream stream lifecycle.
+ */
+export function pipeUpstreamEventStream(
+  upstreamBody: ReadableStream<Uint8Array>,
+  rawResponse: ServerResponse,
+  signal: AbortSignal | undefined,
+): void {
+  const nodeStream = Readable.fromWeb(upstreamBody as never);
+  const cleanupAbort = registerQueueAbortHandler(signal, rawResponse);
+  let cleanedUp = false;
+
+  const cleanup = () => {
+    if (cleanedUp) {
+      return;
+    }
+    cleanedUp = true;
+    cleanupAbort();
+    nodeStream.off("error", onStreamError);
+    nodeStream.off("close", cleanup);
+    rawResponse.off("finish", onResponseDone);
+    rawResponse.off("close", onResponseDone);
+  };
+  const onStreamError = () => {
+    if (!rawResponse.writableEnded) {
+      rawResponse.end();
+    }
+    cleanup();
+  };
+  const onResponseDone = () => {
+    if (!nodeStream.destroyed) {
+      nodeStream.destroy();
+    }
+    cleanup();
+  };
+
+  nodeStream.once("error", onStreamError);
+  nodeStream.once("close", cleanup);
+  rawResponse.once("finish", onResponseDone);
+  rawResponse.once("close", onResponseDone);
+  nodeStream.pipe(rawResponse);
 }
 
 function transientRetryDelayMs(context: StrategyRequestContext, retryIndex: number): number {

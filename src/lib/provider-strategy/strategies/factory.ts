@@ -1,5 +1,3 @@
-import { Readable } from "node:stream";
-
 import type { FastifyReply } from "fastify";
 
 import { copyUpstreamHeaders } from "../../proxy.js";
@@ -29,6 +27,8 @@ import {
   applyRequestedServiceTier,
   buildPayloadResult,
   buildRequestBodyForUpstream,
+  pipeUpstreamEventStream,
+  registerQueueAbortHandler,
   stripTrailingAssistantPrefill,
   type BuildPayloadResult,
   type ProviderAttemptContext,
@@ -107,30 +107,7 @@ export class FactoryResponsesPassthroughStrategy extends BaseProviderStrategy {
         extendedSignal.extendTimeout();
       }
 
-      const nodeStream = Readable.fromWeb(upstreamResponse.body as never);
-      nodeStream.on("error", () => {
-        if (!rawResponse.writableEnded) {
-          rawResponse.end();
-        }
-      });
-
-      // Emit SSE error if the queue aborts us mid-stream
-      if (signal) {
-        const onAbort = () => {
-          if (!rawResponse.writableEnded) {
-            rawResponse.write(
-              `data: ${JSON.stringify({
-                error: { message: "Provider stream aborted by request queue timeout" },
-              })}\n\n`
-            );
-            rawResponse.end();
-          }
-        };
-        signal.addEventListener("abort", onAbort, { once: true });
-        nodeStream.on("end", () => signal.removeEventListener("abort", onAbort));
-      }
-
-      nodeStream.pipe(rawResponse);
+      pipeUpstreamEventStream(upstreamResponse.body, rawResponse, signal);
       return { kind: "handled" };
     }
 
@@ -316,20 +293,7 @@ export class FactoryResponsesProviderStrategy extends TransformedJsonProviderStr
         extendedSignal.extendTimeout();
       }
 
-      // Emit SSE error if the queue aborts us mid-stream
-      if (signal) {
-        const onAbort = () => {
-          if (!rawResponse.writableEnded) {
-            rawResponse.write(
-              `data: ${JSON.stringify({
-                error: { message: "Provider stream aborted by request queue timeout" },
-              })}\n\n`
-            );
-            rawResponse.end();
-          }
-        };
-        signal.addEventListener("abort", onAbort, { once: true });
-      }
+      const cleanupAbort = registerQueueAbortHandler(signal, rawResponse);
 
       try {
         const result = await streamResponsesSseToChatCompletionChunks(
@@ -342,6 +306,8 @@ export class FactoryResponsesProviderStrategy extends TransformedJsonProviderStr
         }
       } catch {
         // Stream read error — close gracefully
+      } finally {
+        cleanupAbort();
       }
       if (!rawResponse.writableEnded) {
         rawResponse.end();

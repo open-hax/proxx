@@ -1,5 +1,3 @@
-import { Readable } from "node:stream";
-
 import type { FastifyReply } from "fastify";
 
 import { copyUpstreamHeaders } from "../../proxy.js";
@@ -27,6 +25,7 @@ import {
   buildRequestBodyForUpstream,
   ensureChatCompletionsUsageInStream,
   isRecord,
+  pipeUpstreamEventStream,
   stripTrailingAssistantPrefill,
   type BuildPayloadResult,
   type ProviderAttemptContext,
@@ -338,30 +337,7 @@ export class ResponsesPassthroughStrategy extends BaseProviderStrategy {
         extendedSignal.extendTimeout();
       }
 
-      const nodeStream = Readable.fromWeb(upstreamResponse.body as never);
-      nodeStream.on("error", () => {
-        if (!rawResponse.writableEnded) {
-          rawResponse.end();
-        }
-      });
-
-      // Emit SSE error if the queue aborts us mid-stream
-      if (signal) {
-        const onAbort = () => {
-          if (!rawResponse.writableEnded) {
-            rawResponse.write(
-              `data: ${JSON.stringify({
-                error: { message: "Provider stream aborted by request queue timeout" },
-              })}\n\n`
-            );
-            rawResponse.end();
-          }
-        };
-        signal.addEventListener("abort", onAbort, { once: true });
-        nodeStream.on("end", () => signal.removeEventListener("abort", onAbort));
-      }
-
-      nodeStream.pipe(rawResponse);
+      pipeUpstreamEventStream(upstreamResponse.body, rawResponse, signal);
       return { kind: "handled" };
     }
 
