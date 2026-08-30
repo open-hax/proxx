@@ -47,7 +47,8 @@ GLOBAL_RULES = (
     (
         "direct legacy error SSH identity",
         re.compile(
-            r"\b(?:ssh|scp|sftp|rsync)\b[^\n]{0,320}"
+            r"\b(?:ssh|scp|sftp|rsync)\b"
+            r"(?:(?:\\\r?\n)|[^\r\n]){0,320}"
             r"(?<![\w.-])error@[A-Z0-9._-]+\b",
             re.IGNORECASE,
         ),
@@ -144,6 +145,11 @@ def run_self_test() -> None:
         (
             "scripts/legacy-return.sh",
             "ssh error@ussy3.promethean.rest uname -a\n",
+            "direct legacy error SSH identity",
+        ),
+        (
+            "scripts/continued-legacy-return.sh",
+            "ssh -o BatchMode=yes \\\n  error@ussy3.promethean.rest uname -a\n",
             "direct legacy error SSH identity",
         ),
         (

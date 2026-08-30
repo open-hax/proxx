@@ -2,7 +2,7 @@
 category: "deployment"
 labels: "deployment, security, cross-repo, maintenance"
 type: "task"
-write-id: "1788059486098-0.hf0txgwh2ofmt0yx07"
+write-id: "1788059787530-0.2skuuq55e2qa9w05jtb"
 points: "3"
 title: "Retire legacy Promethean deployment authority"
 priority: "P1"
@@ -55,4 +55,6 @@ GitHub issue projection created with the canonical openhax-kanban-sync UUID mark
 Final promotion audit found one more active authority dependency in .github/workflows/main-pr-gate.yml: the protected staging-promotion-gate still queried for successful deploy-staging and staging-live-e2e checks. Those checks are emitted only by the callers being retired, so leaving the query would make every canonical staging-to-main promotion impossible. The migration now removes only that deployment-evidence query, preserves the staging ancestry assertion and every main application gate, and extends the self-tested authority guard so either retired check name is rejected if reintroduced into an active workflow. GREEN: authority self-test 8/8, live scan, actionlint, diff check, and 18/18 workflow YAML parse plus exact promotion assertions.
 
 PR #433 was published from exact staging base 10a7d2303490127de38afa4d6a17ef8e2670874d. Exact-head Codex review on 4dcde813e67ba8e79a0098f687579b7ef5c715eb found two valid P2 gaps: direct error@host SSH-family invocations escaped the boundary, and README/CONTRIBUTING still advertised deleted deployment workflows. Successor 4f1b77a7cb25050f161ddab647ed385e44c46f19 (tree 28141994591a665933a86b516eded9473c60b88e) repairs both, locks the reported SSH form into the self-test, and records current CI ownership. GREEN: authority self-test 9/9, live scan, actionlint, diff check. Both finding threads have exact evidence replies and are resolved; fresh successor reviews and hosted gates remain required. The separate auto-merge method-policy drift is tracked by issue #434/card PR #435 and is not part of this deployment tree.
+
+Fresh exact-head Codex review on fae8b5b931005af4a77589ce78b5533cc720d457 found a further valid P2 bypass: the direct error@host matcher stopped at a shell line continuation. The boundary now permits only explicit backslash-newline continuations inside the bounded SSH-family command match and locks the reported multiline form into a tenth forbidden fixture. GREEN: self-test 10/10, live scan, actionlint, and diff check. A new immutable successor and fresh exact-head review are required; the rate-limited CodeRabbit request is preserved as evidence and will not be retried repeatedly.
 ---
