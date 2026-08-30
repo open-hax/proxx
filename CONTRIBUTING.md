@@ -81,17 +81,21 @@ These hit a real running proxy and are usually most relevant for deploy, auth, t
 ## What CI expects
 
 ### PRs into `staging`
-Lightweight PR gate:
+Repository validation and review gates:
 
+- `staging-lint`
 - `staging-typecheck`
 - `staging-unit-tests`
+- `staging-coverage`
+- `Deployment authority boundary`
+- `No new TypeScript`
+- required exact-head review and review-thread resolution gates
 
 ### Pushes to `staging`
-Promotion-prep and live validation:
 
-- `staging-preflight`
-- `deploy-staging`
-- `staging-live-e2e`
+Push workflows provide repository validation and event automation only. Proxx
+does not deploy from `staging`; deployment authority belongs to the external
+Services release path.
 
 ### PRs into `main`
 Only valid for canonical `staging -> main` promotion PRs. These run the heavier gate:
@@ -99,16 +103,16 @@ Only valid for canonical `staging -> main` promotion PRs. These run the heavier 
 - `main-lint`
 - `main-typecheck`
 - `main-unit-tests`
+- `main-coverage`
 - `main-build`
 - `main-web-build`
 - `staging-promotion-gate`
 
-### Pushes to `main`
-Production deployment path:
+### Merges to `main`
 
-- `production-preflight`
-- `deploy-production`
-- `verify-production`
+The repository may publish release metadata after a protected promotion merge.
+It does not run a direct production deployment; deployment and live-environment
+verification remain owned by the external Services release path.
 
 ## Contributor checklist
 

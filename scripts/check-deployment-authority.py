@@ -45,6 +45,14 @@ GLOBAL_RULES = (
         ),
     ),
     (
+        "direct legacy error SSH identity",
+        re.compile(
+            r"\b(?:ssh|scp|sftp|rsync)\b[^\n]{0,320}"
+            r"(?<![\w.-])error@[A-Z0-9._-]+\b",
+            re.IGNORECASE,
+        ),
+    ),
+    (
         "legacy deployment promotion check",
         re.compile(r"\b(?:deploy-staging|staging-live-e2e)\b"),
     ),
@@ -132,6 +140,11 @@ def run_self_test() -> None:
             "deploy/targets/legacy.env",
             "DEPLOY_USER=error\n",
             "legacy error SSH identity",
+        ),
+        (
+            "scripts/legacy-return.sh",
+            "ssh error@ussy3.promethean.rest uname -a\n",
+            "direct legacy error SSH identity",
         ),
         (
             ".github/workflows/deploy.yml",
