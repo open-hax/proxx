@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { UPSERT_PROVIDER } from "../lib/db/schema.js";
+import { ALL_MIGRATIONS, UPSERT_PROVIDER } from "../lib/db/schema.js";
 import { selectLegacyOpenAiDuplicateIds, SqlCredentialStore } from "../lib/db/sql-credential-store.js";
 
 test("selectLegacyOpenAiDuplicateIds removes only legacy openai ids with current siblings", () => {
@@ -38,6 +38,27 @@ test("selectLegacyOpenAiDuplicateIds removes only legacy openai ids with current
 
 test("UPSERT_PROVIDER preserves an existing base_url when no replacement is provided", () => {
   assert.match(UPSERT_PROVIDER, /base_url = COALESCE\(EXCLUDED\.base_url, providers\.base_url\)/);
+});
+
+test("SqlCredentialStore executes schema-changing SQL only through ALL_MIGRATIONS", async () => {
+  const executedSql: string[] = [];
+  const store = new SqlCredentialStore({
+    unsafe: async (query: string) => {
+      executedSql.push(query);
+      if (query.includes("SELECT 1 FROM schema_version")) {
+        return [{ "?column?": 1 }];
+      }
+      if (query.includes("SELECT COUNT(*)::BIGINT AS count")) {
+        return [{ count: "1" }];
+      }
+      return [];
+    },
+  } as never);
+
+  await store.init();
+
+  const schemaChanges = executedSql.filter((sql) => /\b(?:ALTER|CREATE)\s+(?:TABLE|INDEX)\b/i.test(sql));
+  assert.deepEqual(schemaChanges, ALL_MIGRATIONS.map((migration) => migration.sql));
 });
 
 test("SqlCredentialStore loadCooldowns normalizes bigint string cooldowns", async () => {

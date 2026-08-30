@@ -11,6 +11,7 @@ import {
   buildRequestBodyForUpstream,
   isRecord,
   openAiContentToText,
+  registerQueueAbortHandler,
   type BuildPayloadResult,
   type DirectExecutionProviderStrategy,
   type ProviderAttemptContext,
@@ -490,10 +491,43 @@ export function geminiPayloadToSdkRequest(model: string, payload: Record<string,
   return { model, contents: sdkContents, config };
 }
 
+export function classifyGeminiSdkError(errorMessage: string): ProviderAttemptOutcome {
+  if (
+    errorMessage.includes("rate limit")
+    || errorMessage.includes("RATE_LIMIT")
+    || errorMessage.includes("UNAVAILABLE")
+    || errorMessage.includes("503")
+  ) {
+    return { kind: "continue", rateLimit: true };
+  }
+
+  if (errorMessage.includes("model not found") || errorMessage.includes("MODEL_NOT_FOUND")) {
+    return { kind: "continue", modelNotFound: true };
+  }
+
+  if (errorMessage.includes("not supported") || errorMessage.includes("NOT_SUPPORTED")) {
+    return { kind: "continue", modelNotSupportedForAccount: true, requestError: true };
+  }
+
+  if (errorMessage.includes("invalid request") || errorMessage.includes("INVALID_ARGUMENT")) {
+    return { kind: "continue", requestError: true, upstreamInvalidRequest: true };
+  }
+
+  return { kind: "continue", requestError: true };
+}
+
 export class GeminiChatProviderStrategy extends BaseProviderStrategy implements DirectExecutionProviderStrategy {
   public readonly mode = "gemini_chat" as const;
 
   public readonly isLocal = false;
+
+  public constructor(
+    private readonly createGenAi: (
+      options: ConstructorParameters<typeof GoogleGenAI>[0],
+    ) => GoogleGenAI = (options) => new GoogleGenAI(options),
+  ) {
+    super();
+  }
 
   public matches(_context: StrategyRequestContext): boolean {
     return _context.routeProviderId === "gemini"
@@ -654,7 +688,7 @@ export class GeminiChatProviderStrategy extends BaseProviderStrategy implements 
       return await this.handleProviderAttempt(reply, upstreamResponse, context);
     }
 
-    const genAI = new GoogleGenAI({ apiKey, ...(baseUrl ? { baseUrl } : {}) });
+    const genAI = this.createGenAi({ apiKey, ...(baseUrl ? { baseUrl } : {}) });
     
     const manifestPath = context.config.cljsPolicyManifestPath;
     const providerId = context.providerId ?? context.routeProviderId ?? "gemini";
@@ -665,16 +699,11 @@ export class GeminiChatProviderStrategy extends BaseProviderStrategy implements 
     });
     const model = alias ?? context.routedModel;
 
-    // Defensive: don't call the Gemini SDK with non-Gemini models.
-    // The policy engine should filter providers by model family, but
-    // when it doesn't (e.g. TS fallback path), this prevents poisoning
-    // the routing accumulator with upstreamInvalidRequest.
-    if (!model.startsWith("gemini-") && !model.startsWith("models/") && !model.includes("gemma")) {
-      return { kind: "continue", modelNotFound: true };
-    }
-
     try {
       const sdkRequest = geminiPayloadToSdkRequest(model, payload);
+      if (context.queueSignal) {
+        sdkRequest.config.abortSignal = context.queueSignal;
+      }
 
       if (context.clientWantsStream) {
         // Handle streaming
@@ -696,6 +725,15 @@ export class GeminiChatProviderStrategy extends BaseProviderStrategy implements 
           }
         }
         rawResponse.flushHeaders();
+
+        // Extend queue timeout now that streaming has started successfully
+        const signal = context.queueSignal;
+        const extendedSignal = signal as AbortSignal & { extendTimeout?: () => void } | undefined;
+        if (extendedSignal && typeof extendedSignal.extendTimeout === "function") {
+          extendedSignal.extendTimeout();
+        }
+
+        const cleanupAbort = registerQueueAbortHandler(signal, rawResponse);
 
         try {
           let accumulatedText = "";
@@ -757,10 +795,14 @@ export class GeminiChatProviderStrategy extends BaseProviderStrategy implements 
           if (!rawResponse.writableEnded) {
             rawResponse.write(`data: ${JSON.stringify({ error: { message: String(error) } })}\n\n`);
           }
-        }
-
-        if (!rawResponse.writableEnded) {
-          rawResponse.end();
+        } finally {
+          try {
+            if (!rawResponse.writableEnded) {
+              rawResponse.end();
+            }
+          } finally {
+            cleanupAbort();
+          }
         }
         
         return { kind: "handled" };
@@ -783,26 +825,7 @@ export class GeminiChatProviderStrategy extends BaseProviderStrategy implements 
         return { kind: "handled" };
       }
     } catch (error) {
-      // Handle specific Gemini SDK errors
-      const errorMessage = String(error);
-      
-      if (errorMessage.includes("rate limit") || errorMessage.includes("RATE_LIMIT")) {
-        return { kind: "continue", rateLimit: true };
-      }
-      
-      if (errorMessage.includes("model not found") || errorMessage.includes("MODEL_NOT_FOUND")) {
-        return { kind: "continue", modelNotFound: true };
-      }
-      
-      if (errorMessage.includes("not supported") || errorMessage.includes("NOT_SUPPORTED")) {
-        return { kind: "continue", modelNotSupportedForAccount: true, requestError: true };
-      }
-      
-      if (errorMessage.includes("invalid request") || errorMessage.includes("INVALID_ARGUMENT")) {
-        return { kind: "continue", requestError: true, upstreamInvalidRequest: true };
-      }
-
-      return { kind: "continue", requestError: true };
+      return classifyGeminiSdkError(String(error));
     }
   }
 

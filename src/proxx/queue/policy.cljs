@@ -1,6 +1,7 @@
 (ns proxx.queue.policy
   "Pure request queue policy functions. No I/O, no mutable runtime state."
-  (:require [clojure.string :as str]))
+  (:require [clojure.string :as str]
+            [proxx.policy.contracts :as contracts]))
 
 (def queue-policy-keys
   [:queue/status
@@ -14,7 +15,8 @@
    :queue/fail-fast?
    :queue/jitter-factor
    :queue/base-interval-ms
-   :queue/retry-after-respect?])
+   :queue/retry-after-respect?
+   :queue/stream-timeout-ms])
 
 (defn- template-by-id [compiled template-id]
   (get-in compiled [:index :by-id template-id]))
@@ -107,3 +109,23 @@
                             (max 0 (- date-ms (js/Date.now)))))
                         (* 1000 seconds)))
     :else nil))
+
+(defn classify-rate-limit
+  "Classify a rate-limit response based on provider-specific EDN contracts.
+   Returns :rate-limit/volume, :rate-limit/concurrency, or nil when no contract matches."
+  [compiled provider-id status retry-after-ms]
+  (let [normalized-provider-id (contracts/normalize-provider-id provider-id)]
+    (when-let [contract (first
+                          (filter
+                           (fn [c]
+                             (and
+                              (= normalized-provider-id
+                                 (contracts/normalize-provider-id (:match/provider-id c)))
+                              (or (nil? (:classify/status c))
+                                  (= status (:classify/status c)))
+                              (let [max-ms (get-in c [:classify/retry-after-ms :max])]
+                                (or (nil? max-ms)
+                                    (and (number? retry-after-ms)
+                                         (<= retry-after-ms max-ms))))))
+                           (contracts/rate-limit-classifications (:index compiled))))]
+      (:classify/result contract))))

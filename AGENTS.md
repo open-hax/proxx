@@ -274,7 +274,7 @@ curl -X POST http://127.0.0.1:8789/api/v1/tenants \
 3. Register peers via `/api/v1/federation/peers`
 4. Use routing prefixes: `/cluster/`, `/group-a/`, `/a1.node.host/`
 
-See `docs/promethean-federated-deployments.md` for the full promotion workflow.
+See `docs/deployment-ownership.md` for the packaging and deployment boundary.
 
 ### Mode D: WebSocket Bridge
 
@@ -310,20 +310,14 @@ See `specs/drafts/federation-bridge-ws-v0.md` for protocol details.
 curl http://127.0.0.1:8789/health | jq '.'
 ```
 
-### Testing
-```bash
-curl https://testing.proxx.ussy.promethean.rest/health | jq '.'
-```
-
-### Staging
-```bash
-curl https://staging.proxx.ussy.promethean.rest/health | jq '.'
-```
-
 ### Production
 ```bash
 curl https://proxx.promethean.rest/health | jq '.'
 ```
+
+Testing and staging are source-validation branches, not deployed environments.
+Use the local health check while developing; Services owns the sole production
+runtime and its live verification.
 
 ### Federation Status
 ```bash

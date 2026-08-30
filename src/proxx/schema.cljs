@@ -386,6 +386,7 @@
     [:queue/max-queue-size [:int {:min 0 :max 10000}]]
     [:queue/overflow-policy [:enum :drop :reject]]
     [:queue/attempt-timeout-ms [:int {:min 100}]]
+    [:queue/stream-timeout-ms {:optional true} [:int {:min 100}]]
     [:queue/total-timeout-ms {:optional true} [:int {:min 100}]]
     [:queue/max-retries [:int {:min 0 :max 20}]]
     [:queue/retry-backoff RetryBackoff]
@@ -420,6 +421,7 @@
     [:queue/max-queue-size {:optional true} [:maybe [:int {:min 0 :max 10000}]]]
     [:queue/overflow-policy {:optional true} [:maybe [:enum :drop :reject]]]
     [:queue/attempt-timeout-ms {:optional true} [:maybe [:int {:min 100}]]]
+    [:queue/stream-timeout-ms {:optional true} [:maybe [:int {:min 100}]]]
     [:queue/total-timeout-ms {:optional true} [:maybe [:int {:min 100}]]]
     [:queue/max-retries {:optional true} [:maybe [:int {:min 0 :max 20}]]]
     [:queue/retry-backoff {:optional true} [:maybe RetryBackoff]]
@@ -438,10 +440,21 @@
                    (:match/family m)
                    (:match/request-kind m))))]
    [:fn {:error/message ":queue/total-timeout-ms must exceed :queue/attempt-timeout-ms"}
-    (fn [m]
-      (if (and (:queue/total-timeout-ms m) (:queue/attempt-timeout-ms m))
-        (> (:queue/total-timeout-ms m) (:queue/attempt-timeout-ms m))
-        true))]])
+     (fn [m]
+       (if (and (:queue/total-timeout-ms m) (:queue/attempt-timeout-ms m))
+         (> (:queue/total-timeout-ms m) (:queue/attempt-timeout-ms m))
+         true))]])
+
+(def RateLimitClassificationContract
+  [:and
+   ContractBase
+   [:map
+    [:contract/kind [:enum :rate-limit-classification]]
+    [:match/provider-id ProviderId]
+    [:classify/status {:optional true} [:int {:min 100 :max 599}]]
+    [:classify/retry-after-ms {:optional true}
+     [:map [:max [:int {:min 0}]]]]
+     [:classify/result [:enum :rate-limit/volume :rate-limit/concurrency]]]])
 
 (def PolicyProgramContract
   [:and
@@ -483,8 +496,9 @@
     [:model-alias ModelAliasContract]
     [:reasoning-normalization ReasoningNormalizationContract]
    [:request-queue-template RequestQueueTemplateContract]
-   [:request-queue-instance RequestQueueInstanceContract]
-   [:policy-program PolicyProgramContract]
+    [:request-queue-instance RequestQueueInstanceContract]
+    [:rate-limit-classification RateLimitClassificationContract]
+    [:policy-program PolicyProgramContract]
    [:strategy-binding StrategyBindingContract]
    [:policy Policy]
    [:strategy Policy]])

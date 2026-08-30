@@ -16,8 +16,9 @@ For features, fixes, refactors, docs, and workflow changes:
 1. Branch from `staging`
 2. Open your PR against `staging`
 3. Merge into `staging`
-4. Let the staging deploy + live validation run
+4. Let `staging-preflight` validate the exact staging revision
 5. Promote `staging` into `main` with a dedicated promotion PR
+6. Let `open-hax/services` deploy the reviewed main revision and run live production verification
 
 ### Promotion to main
 The only allowed PR shape into `main` is:
@@ -87,11 +88,9 @@ Lightweight PR gate:
 - `staging-unit-tests`
 
 ### Pushes to `staging`
-Promotion-prep and live validation:
+Promotion-prep application validation:
 
 - `staging-preflight`
-- `deploy-staging`
-- `staging-live-e2e`
 
 ### PRs into `main`
 Only valid for canonical `staging -> main` promotion PRs. These run the heavier gate:
@@ -104,11 +103,12 @@ Only valid for canonical `staging -> main` promotion PRs. These run the heavier 
 - `staging-promotion-gate`
 
 ### Pushes to `main`
-Production deployment path:
+Production application validation:
 
 - `production-preflight`
-- `deploy-production`
-- `verify-production`
+
+Production deployment and live verification run from a reviewed
+`open-hax/services` pull request carrying `deploy` at merge time.
 
 ## Contributor checklist
 

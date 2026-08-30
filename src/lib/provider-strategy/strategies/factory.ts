@@ -1,5 +1,3 @@
-import { Readable } from "node:stream";
-
 import type { FastifyReply } from "fastify";
 
 import { copyUpstreamHeaders } from "../../proxy.js";
@@ -29,6 +27,8 @@ import {
   applyRequestedServiceTier,
   buildPayloadResult,
   buildRequestBodyForUpstream,
+  pipeUpstreamEventStream,
+  registerQueueAbortHandler,
   stripTrailingAssistantPrefill,
   type BuildPayloadResult,
   type ProviderAttemptContext,
@@ -99,13 +99,15 @@ export class FactoryResponsesPassthroughStrategy extends BaseProviderStrategy {
         }
       }
       rawResponse.flushHeaders();
-      const nodeStream = Readable.fromWeb(upstreamResponse.body as never);
-      nodeStream.on("error", () => {
-        if (!rawResponse.writableEnded) {
-          rawResponse.end();
-        }
-      });
-      nodeStream.pipe(rawResponse);
+
+      // Extend queue timeout now that streaming has started successfully
+      const signal = context.queueSignal;
+      const extendedSignal = signal as AbortSignal & { extendTimeout?: () => void } | undefined;
+      if (extendedSignal && typeof extendedSignal.extendTimeout === "function") {
+        extendedSignal.extendTimeout();
+      }
+
+      pipeUpstreamEventStream(upstreamResponse.body, rawResponse, signal);
       return { kind: "handled" };
     }
 
@@ -284,6 +286,15 @@ export class FactoryResponsesProviderStrategy extends TransformedJsonProviderStr
       }
       rawResponse.flushHeaders();
 
+      // Extend queue timeout now that streaming has started successfully
+      const signal = context.queueSignal;
+      const extendedSignal = signal as AbortSignal & { extendTimeout?: () => void } | undefined;
+      if (extendedSignal && typeof extendedSignal.extendTimeout === "function") {
+        extendedSignal.extendTimeout();
+      }
+
+      const cleanupAbort = registerQueueAbortHandler(signal, rawResponse);
+
       try {
         const result = await streamResponsesSseToChatCompletionChunks(
           upstreamResponse.body,
@@ -295,6 +306,8 @@ export class FactoryResponsesProviderStrategy extends TransformedJsonProviderStr
         }
       } catch {
         // Stream read error — close gracefully
+      } finally {
+        cleanupAbort();
       }
       if (!rawResponse.writableEnded) {
         rawResponse.end();

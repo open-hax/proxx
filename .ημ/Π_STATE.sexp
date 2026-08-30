@@ -4,7 +4,7 @@
   (worktree "/home/err/devel/orgs/open-hax/proxx")
   (branch "devops/promethean-service-module-deploy")
   (base "origin/staging")
-  (intent "Absorb the defaults policy-tree README (three-policy-trees doctrine: defaults vs local peer vs Promethean relay) and promote the branch into staging via PR with a testing-label deploy.")
+  (intent "Absorb the defaults policy-tree README (three-policy-trees doctrine: defaults vs local peer vs Promethean relay) and promote the branch into staging via PR.")
   (owned-paths
     "resources/policies/README.md"
     ".ημ/Π_LAST.md"
@@ -18,9 +18,9 @@
     "README-referenced policy files exist: runtime/60-tenant-enforcement.edn, runtime/65-federation-routing.edn"
     "docs-only change; CI gates (staging-typecheck, staging-unit-tests) run on the PR")
   (deployment
-    "pending: PR devops/promethean-service-module-deploy -> staging"
-    "pending: testing label -> deploy-testing.yml label-gated test deploy"
-    "staging deploy routes through open-hax/services/.github/workflows/deploy-promethean.yml@main service=proxx")
+    "completed: PR devops/promethean-service-module-deploy -> staging"
+    "retired: shared testing and staging host mutation paths"
+    "production authority: open-hax/services declared DigitalOcean contract")
   (concurrent-dirt-left-untouched)
   (guardrails
     "Path-scoped staging; no repo-wide reset/restore/clean."

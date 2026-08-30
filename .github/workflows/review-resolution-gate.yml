@@ -1,0 +1,24 @@
+# Compatibility workflow: this reusable-workflow caller preserves the historical
+# Review Resolution Gate context. The eta-mu-named workflow separately inlines the
+# strict job needed for the exact protected coderabbit-review-gate context.
+name: Review Resolution Gate
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, edited, ready_for_review]
+  pull_request_review:
+    types: [submitted, dismissed]
+  pull_request_review_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  review-gate:
+    uses: open-hax/eta-mu/.github/workflows/review-resolution-gate.yml@main
+    with:
+      pr: ${{ github.event.pull_request.number }}
+      strict: true
+    secrets: inherit

@@ -111,6 +111,7 @@ Notes:
 - `OLLAMA_CHAT_PATH` (default: `/api/chat`)
 - `OLLAMA_MODEL_PREFIXES` (default: `ollama/,ollama:,ollama-lan/,ollama-lan:`; comma-separated prefixes)
 - `PROXY_KEYS_FILE` (optional seed file path; DB-backed runtimes do not need it)
+- `DATABASE_URL` (optional SQL DSN for DB-backed credentials and multi-tenant data; format: `postgres://user:pass@host:port/dbname`)
 - `PROXY_MODELS_FILE` (default: `./models.json`, fallback: `VIVGRID_MODELS_FILE`)
 - `PROXY_REQUEST_LOGS_FILE` (default: `./data/request-logs.jsonl`)
 - `PROXY_KEY_RELOAD_MS` (default: `5000`, fallback: `VIVGRID_KEY_RELOAD_MS`)
@@ -272,171 +273,27 @@ curl --request POST \
   }'
 ```
 
-## Peer Audit Curl Playbook
+## Runtime audit curl playbook
 
-These assume you have sourced the root workspace `.envrc`, which exports:
-
-```bash
-export BIG_USSY_PROXY_AUTH_TOKEN=...
-export BIG_USSY_FEDERATION_SPOKE_TOKEN=...
-export TESTING_PROXX_AUTH_TOKEN="$BIG_USSY_PROXY_AUTH_TOKEN"
-export STAGING_PROXX_AUTH_TOKEN=...
-export PROD_PROXX_AUTH_TOKEN="$BIG_USSY_PROXY_AUTH_TOKEN"
-export BIG_USSY_FEDERATION_BASE_URL="https://federation.big.ussy.promethean.rest"
-export TESTING_PROXX_BASE_URL="https://testing.proxx.ussy.promethean.rest"
-export STAGING_PROXX_BASE_URL="https://staging.proxx.ussy.promethean.rest"
-export PROD_PROXX_BASE_URL="https://prod.proxx.ussy.promethean.rest"
-export LOCAL_PROXX_BASE_URL="http://localhost:8789"
-```
-
-### Federation Hub
+Audit the local development instance or the sole Services-owned production
+deployment by setting an explicit target. No testing or staging runtime is
+declared by this repository.
 
 ```bash
-curl -s -H "Authorization: Bearer ${BIG_USSY_PROXY_AUTH_TOKEN}" \
-  "${BIG_USSY_FEDERATION_BASE_URL}/v1/models" | jq -r '.data[].id'
-```
+export PROXX_AUDIT_BASE_URL="http://localhost:8789" # or https://proxx.promethean.rest
+export PROXX_AUDIT_TOKEN=...
 
-```bash
-curl -s -H "Authorization: Bearer ${BIG_USSY_PROXY_AUTH_TOKEN}" \
-  "${BIG_USSY_FEDERATION_BASE_URL}/api/v1/federation/peers" | jq '.'
-```
+curl -s -H "Authorization: Bearer ${PROXX_AUDIT_TOKEN}" \
+  "${PROXX_AUDIT_BASE_URL}/api/v1/federation/peers" | jq '.'
 
-```bash
-curl -s -H "Authorization: Bearer ${BIG_USSY_PROXY_AUTH_TOKEN}" \
-  -H "Content-Type: application/json" \
-  -d '{"model":"ollama/qwen3-coder:480b","messages":[{"role":"user","content":"Say hello in one sentence."}],"max_tokens":100,"stream":false}' \
-  "${BIG_USSY_FEDERATION_BASE_URL}/v1/chat/completions" 2>&1
-```
-
-```bash
-curl -s -H "Authorization: Bearer ${BIG_USSY_PROXY_AUTH_TOKEN}" \
-  -H "Content-Type: application/json" \
-  -d '{"model":"auto:cephalon:fastest","messages":[{"role":"user","content":"Say hello in one sentence."}],"max_tokens":100,"stream":false}' \
-  "${BIG_USSY_FEDERATION_BASE_URL}/v1/chat/completions" 2>&1
-```
-
-```bash
-curl -s -H "Authorization: Bearer ${BIG_USSY_PROXY_AUTH_TOKEN}" \
-  -H "Content-Type: application/json" \
-  -d '{"model":"gemma3:27b","messages":[{"role":"user","content":"Say hello in one sentence."}],"max_tokens":100,"stream":false}' \
-  "${BIG_USSY_FEDERATION_BASE_URL}/v1/chat/completions" 2>&1
-```
-
-```bash
-curl -s -H "Authorization: Bearer ${BIG_USSY_PROXY_AUTH_TOKEN}" \
+curl -s -H "Authorization: Bearer ${PROXX_AUDIT_TOKEN}" \
   -H "Content-Type: application/json" \
   -d '{"model":"gpt-5.4","messages":[{"role":"user","content":"Say hello in one sentence."}],"max_tokens":100,"stream":false}' \
-  "${BIG_USSY_FEDERATION_BASE_URL}/v1/chat/completions" 2>&1
+  "${PROXX_AUDIT_BASE_URL}/v1/chat/completions"
 ```
 
-```bash
-curl -s -H "Authorization: Bearer ${BIG_USSY_PROXY_AUTH_TOKEN}" \
-  -H "Content-Type: application/json" \
-  -d '{"model":"glm-5","messages":[{"role":"user","content":"Say hello in one sentence."}],"max_tokens":100,"stream":false}' \
-  "${BIG_USSY_FEDERATION_BASE_URL}/v1/chat/completions" 2>&1
-```
-
-```bash
-curl -s -H "Authorization: Bearer ${BIG_USSY_PROXY_AUTH_TOKEN}" \
-  -H "Content-Type: application/json" \
-  -d '{"model":"ollama/gpt-oss:20b","messages":[{"role":"user","content":"Say hello in one sentence."}],"max_tokens":100,"stream":false}' \
-  "${BIG_USSY_FEDERATION_BASE_URL}/v1/chat/completions" 2>&1
-```
-
-```bash
-curl -s -H "Authorization: Bearer ${BIG_USSY_PROXY_AUTH_TOKEN}" \
-  -H "Content-Type: application/json" \
-  -d '{"model":"gemini-3-flash-preview","messages":[{"role":"user","content":"Say hello in one sentence."}],"max_tokens":100,"stream":false}' \
-  "${BIG_USSY_FEDERATION_BASE_URL}/v1/chat/completions" 2>&1
-```
-
-### Local
-
-```bash
-curl -s -H "Authorization: Bearer ${BIG_USSY_PROXY_AUTH_TOKEN}" \
-  -H "Content-Type: application/json" \
-  -d '{"model":"gpt-5.4","messages":[{"role":"user","content":"Say hello in one sentence."}],"max_tokens":100,"stream":false}' \
-  "${LOCAL_PROXX_BASE_URL}/v1/chat/completions" 2>&1
-```
-
-### Testing
-
-```bash
-curl -s -H "Authorization: Bearer ${TESTING_PROXX_AUTH_TOKEN}" \
-  "${TESTING_PROXX_BASE_URL}/api/v1/federation/peers" | jq '.'
-```
-
-```bash
-curl -s -H "Authorization: Bearer ${TESTING_PROXX_AUTH_TOKEN}" \
-  -H "Content-Type: application/json" \
-  -d '{"model":"gpt-oss:20b","messages":[{"role":"user","content":"Say hello in one sentence."}],"max_tokens":100,"stream":false}' \
-  "${TESTING_PROXX_BASE_URL}/v1/chat/completions" 2>&1
-```
-
-```bash
-curl -s -H "Authorization: Bearer ${TESTING_PROXX_AUTH_TOKEN}" \
-  -H "Content-Type: application/json" \
-  -d '{"model":"auto:cephalon:fastest","messages":[{"role":"user","content":"Say hello in one sentence."}],"max_tokens":100,"stream":false}' \
-  "${TESTING_PROXX_BASE_URL}/v1/chat/completions" 2>&1
-```
-
-### Staging
-
-```bash
-curl -s -H "Authorization: Bearer ${STAGING_PROXX_AUTH_TOKEN}" \
-  "${STAGING_PROXX_BASE_URL}/api/v1/federation/peers" | jq '.'
-```
-
-```bash
-curl -s -H "Authorization: Bearer ${STAGING_PROXX_AUTH_TOKEN}" \
-  -H "Content-Type: application/json" \
-  -d '{"model":"gpt-oss:20b","messages":[{"role":"user","content":"Say hello in one sentence."}],"max_tokens":100,"stream":false}' \
-  "${STAGING_PROXX_BASE_URL}/v1/chat/completions" 2>&1
-```
-
-```bash
-curl -s -H "Authorization: Bearer ${STAGING_PROXX_AUTH_TOKEN}" \
-  -H "Content-Type: application/json" \
-  -d '{"model":"auto:cephalon:fastest","messages":[{"role":"user","content":"Say hello in one sentence."}],"max_tokens":100,"stream":false}' \
-  "${STAGING_PROXX_BASE_URL}/v1/chat/completions" 2>&1
-```
-
-### Prod
-
-```bash
-curl -s -H "Authorization: Bearer ${PROD_PROXX_AUTH_TOKEN}" \
-  "${PROD_PROXX_BASE_URL}/api/v1/federation/peers" | jq '.'
-```
-
-```bash
-curl -s -H "Authorization: Bearer ${PROD_PROXX_AUTH_TOKEN}" \
-  -H "Content-Type: application/json" \
-  -d '{"model":"gpt-oss:20b","messages":[{"role":"user","content":"Say hello in one sentence."}],"max_tokens":100,"stream":false}' \
-  "${PROD_PROXX_BASE_URL}/v1/chat/completions" 2>&1
-```
-
-```bash
-curl -s -H "Authorization: Bearer ${PROD_PROXX_AUTH_TOKEN}" \
-  -H "Content-Type: application/json" \
-  -d '{"model":"auto:cephalon:fastest","messages":[{"role":"user","content":"Say hello in one sentence."}],"max_tokens":100,"stream":false}' \
-  "${PROD_PROXX_BASE_URL}/v1/chat/completions" 2>&1
-```
-
-```bash
-curl -s -H "Authorization: Bearer ${PROD_PROXX_AUTH_TOKEN}" \
-  -H "Content-Type: application/json" \
-  -d '{"model":"gpt-5.4","messages":[{"role":"user","content":"Say hello in one sentence."}],"max_tokens":100,"stream":false}' \
-  "${PROD_PROXX_BASE_URL}/v1/chat/completions" 2>&1
-```
-
-```bash
-
-curl -s -H "Authorization: Bearer ${PROD_PROXX_AUTH_TOKEN}" \
-  -H "Content-Type: application/json" \
-  -d '{"model":"ollama-cloud/gemma4:31b","messages":[{"role":"user","content":"Say hello in one sentence."}],"max_tokens":100,"stream":false}' \
-  "http://localhost:8789/v1/chat/completions" 2>&1
-```
-
+Production inventory, credentials, deployment, and live verification belong
+to `open-hax/services`; see `docs/deployment-ownership.md`.
 
 ## LAN ollama from local Proxx
 

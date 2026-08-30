@@ -1,5 +1,6 @@
 import type { FastifyReply } from "fastify";
 
+import { abortFetchResponse } from "../../http/index.js";
 import { copyUpstreamHeaders } from "../../proxy.js";
 import {
   chatRequestToResponsesRequest,
@@ -13,6 +14,7 @@ import {
   applyRequestedServiceTier,
   buildPayloadResult,
   buildRequestBodyForUpstream,
+  registerQueueAbortHandler,
   stripTrailingAssistantPrefill,
   type BuildPayloadResult,
   type ProviderAttemptContext,
@@ -63,6 +65,17 @@ async function readStreamChunkWithTimeout(
   }
 }
 
+function abortUpstreamStream(
+  upstreamResponse: Response,
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+): void {
+  abortFetchResponse(
+    upstreamResponse,
+    new DOMException("The response body stalled", "TimeoutError"),
+  );
+  void reader.cancel().catch(() => undefined);
+}
+
 async function streamResponsesPassthroughToClient(
   reply: FastifyReply,
   upstreamResponse: Response,
@@ -77,7 +90,7 @@ async function streamResponsesPassthroughToClient(
   try {
     firstChunk = await readStreamChunkWithTimeout(reader, context.config.streamBootstrapTimeoutMs);
   } catch {
-    await reader.cancel().catch(() => undefined);
+    abortUpstreamStream(upstreamResponse, reader);
     return { kind: "continue", requestError: true };
   }
 
@@ -104,8 +117,16 @@ async function streamResponsesPassthroughToClient(
   }
   rawResponse.flushHeaders();
 
+  // Extend queue timeout now that streaming has started successfully
+  const signal = context.queueSignal;
+  const extendedSignal = signal as AbortSignal & { extendTimeout?: () => void } | undefined;
+  if (extendedSignal && typeof extendedSignal.extendTimeout === "function") {
+    extendedSignal.extendTimeout();
+  }
+  const cleanupAbort = registerQueueAbortHandler(signal, rawResponse);
+
   try {
-    if (firstChunk.value && firstChunk.value.byteLength > 0) {
+    if (!rawResponse.writableEnded && firstChunk.value && firstChunk.value.byteLength > 0) {
       rawResponse.write(firstChunk.value);
     }
 
@@ -114,7 +135,7 @@ async function streamResponsesPassthroughToClient(
       try {
         nextChunk = await readStreamChunkWithTimeout(reader, context.config.requestTimeoutMs);
       } catch {
-        await reader.cancel().catch(() => undefined);
+        abortUpstreamStream(upstreamResponse, reader);
         break;
       }
 
@@ -133,8 +154,12 @@ async function streamResponsesPassthroughToClient(
     } catch {
       // Ignore reader release errors while closing the downstream stream.
     }
-    if (!rawResponse.writableEnded) {
-      rawResponse.end();
+    try {
+      if (!rawResponse.writableEnded) {
+        rawResponse.end();
+      }
+    } finally {
+      cleanupAbort();
     }
   }
 

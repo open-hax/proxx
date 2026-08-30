@@ -2,6 +2,16 @@
  * HTTP fetch utilities with timeout and abort signal support.
  */
 
+const responseAbortControllers = new WeakMap<Response, AbortController>();
+
+/** Abort the transport that produced a response after its headers were received. */
+export function abortFetchResponse(response: Response, reason?: unknown): void {
+  const controller = responseAbortControllers.get(response);
+  if (controller && !controller.signal.aborted) {
+    controller.abort(reason);
+  }
+}
+
 /**
  * Fetch with a response timeout.
  *
@@ -23,10 +33,12 @@ export async function fetchWithResponseTimeout(
     : controller.signal;
 
   try {
-    return await fetch(url, {
+    const response = await fetch(url, {
       ...init,
       signal: mergedSignal,
     });
+    responseAbortControllers.set(response, controller);
+    return response;
   } finally {
     clearTimeout(timeoutHandle);
   }

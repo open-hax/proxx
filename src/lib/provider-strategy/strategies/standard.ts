@@ -1,5 +1,3 @@
-import { Readable } from "node:stream";
-
 import type { FastifyReply } from "fastify";
 
 import { copyUpstreamHeaders } from "../../proxy.js";
@@ -27,6 +25,7 @@ import {
   buildRequestBodyForUpstream,
   ensureChatCompletionsUsageInStream,
   isRecord,
+  pipeUpstreamEventStream,
   stripTrailingAssistantPrefill,
   type BuildPayloadResult,
   type ProviderAttemptContext,
@@ -152,6 +151,14 @@ export class ResponsesProviderStrategy extends TransformedJsonProviderStrategy {
         }
       }
       rawResponse.flushHeaders();
+
+      // Extend queue timeout now that streaming has started successfully
+      const signal = context.queueSignal;
+      const extendedSignal = signal as AbortSignal & { extendTimeout?: () => void } | undefined;
+      if (extendedSignal && typeof extendedSignal.extendTimeout === "function") {
+        extendedSignal.extendTimeout();
+      }
+
       await writeInterleavedResponsesSse(upstreamJson, context.routedModel, (data) => rawResponse.write(data));
       rawResponse.end();
       return { kind: "handled" };
@@ -322,13 +329,15 @@ export class ResponsesPassthroughStrategy extends BaseProviderStrategy {
         }
       }
       rawResponse.flushHeaders();
-      const nodeStream = Readable.fromWeb(upstreamResponse.body as never);
-      nodeStream.on("error", () => {
-        if (!rawResponse.writableEnded) {
-          rawResponse.end();
-        }
-      });
-      nodeStream.pipe(rawResponse);
+
+      // Extend queue timeout now that streaming has started successfully
+      const signal = context.queueSignal;
+      const extendedSignal = signal as AbortSignal & { extendTimeout?: () => void } | undefined;
+      if (extendedSignal && typeof extendedSignal.extendTimeout === "function") {
+        extendedSignal.extendTimeout();
+      }
+
+      pipeUpstreamEventStream(upstreamResponse.body, rawResponse, signal);
       return { kind: "handled" };
     }
 

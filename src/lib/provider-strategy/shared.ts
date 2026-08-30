@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import type { IncomingHttpHeaders } from "node:http";
+import type { IncomingHttpHeaders, ServerResponse } from "node:http";
+import { Readable } from "node:stream";
 
 import type { FastifyReply } from "fastify";
 
@@ -51,6 +52,87 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
+}
+
+interface QueueAbortResponse {
+  readonly writableEnded: boolean;
+  write(data: string): unknown;
+  end(): unknown;
+}
+
+/**
+ * Attach the mechanical downstream SSE response for a request-queue abort.
+ * The caller must invoke the returned cleanup after every terminal stream path.
+ */
+export function registerQueueAbortHandler(
+  signal: AbortSignal | undefined,
+  rawResponse: QueueAbortResponse,
+): () => void {
+  if (!signal) {
+    return () => undefined;
+  }
+
+  const onAbort = () => {
+    if (!rawResponse.writableEnded) {
+      rawResponse.write(
+        `data: ${JSON.stringify({
+          error: { message: "Provider stream aborted by request queue timeout" },
+        })}\n\n`,
+      );
+      rawResponse.end();
+    }
+  };
+
+  signal.addEventListener("abort", onAbort, { once: true });
+  if (signal.aborted) {
+    onAbort();
+  }
+
+  return () => signal.removeEventListener("abort", onAbort);
+}
+
+/**
+ * Pipe an upstream web stream into a hijacked SSE response and tie every
+ * terminal path to the queue-abort listener and upstream stream lifecycle.
+ */
+export function pipeUpstreamEventStream(
+  upstreamBody: ReadableStream<Uint8Array>,
+  rawResponse: ServerResponse,
+  signal: AbortSignal | undefined,
+): void {
+  const nodeStream = Readable.fromWeb(upstreamBody as never);
+  const cleanupAbort = registerQueueAbortHandler(signal, rawResponse);
+  let cleanedUp = false;
+
+  const cleanup = () => {
+    if (cleanedUp) {
+      return;
+    }
+    cleanedUp = true;
+    cleanupAbort();
+    nodeStream.off("error", onStreamError);
+    nodeStream.off("close", cleanup);
+    rawResponse.off("finish", onResponseDone);
+    rawResponse.off("close", onResponseDone);
+  };
+  const onStreamError = () => {
+    if (!rawResponse.writableEnded) {
+      rawResponse.end();
+    }
+    cleanup();
+  };
+  const onResponseDone = () => {
+    if (!nodeStream.destroyed) {
+      nodeStream.destroy();
+    }
+    cleanup();
+  };
+
+  nodeStream.once("error", onStreamError);
+  nodeStream.once("close", cleanup);
+  rawResponse.once("finish", onResponseDone);
+  rawResponse.once("close", onResponseDone);
+  nodeStream.pipe(rawResponse);
 }
 
 function transientRetryDelayMs(context: StrategyRequestContext, retryIndex: number): number {
@@ -195,10 +277,12 @@ interface ProviderAttemptContext extends StrategyRequestContext {
   readonly account: ProviderCredential;
   readonly hasMoreCandidates: boolean;
   readonly attempt: number;
+  readonly queueSignal?: AbortSignal;
 }
 
 interface LocalAttemptContext extends StrategyRequestContext {
   readonly baseUrl: string;
+  readonly queueSignal?: AbortSignal;
 }
 
 interface ProviderAttemptOutcomeHandled {
