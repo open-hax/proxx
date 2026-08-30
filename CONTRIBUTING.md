@@ -16,8 +16,9 @@ For features, fixes, refactors, docs, and workflow changes:
 1. Branch from `staging`
 2. Open your PR against `staging`
 3. Merge into `staging`
-4. Let the staging deploy + live validation run
+4. Let `staging-preflight` validate the exact staging revision
 5. Promote `staging` into `main` with a dedicated promotion PR
+6. Let `open-hax/services` deploy the reviewed main revision and run live production verification
 
 ### Promotion to main
 The only allowed PR shape into `main` is:
