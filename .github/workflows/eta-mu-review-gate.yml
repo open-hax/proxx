@@ -40,9 +40,11 @@ jobs:
             echo "::error title=Invalid repository::Expected owner/name, got '$TARGET_REPOSITORY'"
             exit 1
           fi
-          echo "full_name=$TARGET_REPOSITORY" >> "$GITHUB_OUTPUT"
-          echo "owner=${TARGET_REPOSITORY%%/*}" >> "$GITHUB_OUTPUT"
-          echo "repository=${TARGET_REPOSITORY#*/}" >> "$GITHUB_OUTPUT"
+          {
+            echo "full_name=$TARGET_REPOSITORY"
+            echo "owner=${TARGET_REPOSITORY%%/*}"
+            echo "repository=${TARGET_REPOSITORY#*/}"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Detect eta-mu app credentials
         id: eta_mu_app_credentials
