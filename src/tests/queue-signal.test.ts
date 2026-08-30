@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { getEventListeners, once } from "node:events";
+import type { ServerResponse } from "node:http";
+import { PassThrough } from "node:stream";
 import test from "node:test";
 
 import type { GoogleGenAI } from "@google/genai";
@@ -7,7 +10,7 @@ import type { FastifyReply } from "fastify";
 import { isProxxCljsRuntime, loadCljsRuntime } from "../lib/cljs-runtime.js";
 import { GeminiChatProviderStrategy } from "../lib/provider-strategy/strategies/gemini.js";
 import { OpenAiResponsesPassthroughStrategy } from "../lib/provider-strategy/strategies/openai.js";
-import { registerQueueAbortHandler } from "../lib/provider-strategy/shared.js";
+import { pipeUpstreamEventStream, registerQueueAbortHandler } from "../lib/provider-strategy/shared.js";
 import type { ProviderAttemptContext } from "../lib/provider-strategy/shared.js";
 
 const requiredRuntimeShape: Record<string, unknown> = {
@@ -82,6 +85,47 @@ test("queue abort handler ends SSE immediately and cleanup detaches it", () => {
 
   assert.equal(detachedEnded, false);
   assert.deepEqual(detachedWrites, []);
+});
+
+test("upstream event stream piping detaches queue abort listeners on end and error", async () => {
+  const completedController = new AbortController();
+  const completedResponse = new PassThrough();
+  completedResponse.resume();
+  const completed = once(completedResponse, "finish");
+  const completedBody = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode("data: complete\n\n"));
+      controller.close();
+    },
+  });
+
+  pipeUpstreamEventStream(
+    completedBody,
+    completedResponse as unknown as ServerResponse,
+    completedController.signal,
+  );
+  assert.equal(getEventListeners(completedController.signal, "abort").length, 1);
+  await completed;
+  assert.equal(getEventListeners(completedController.signal, "abort").length, 0);
+
+  const failedController = new AbortController();
+  const failedResponse = new PassThrough();
+  failedResponse.resume();
+  const failed = once(failedResponse, "finish");
+  const failedBody = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.error(new Error("upstream read failed"));
+    },
+  });
+
+  pipeUpstreamEventStream(
+    failedBody,
+    failedResponse as unknown as ServerResponse,
+    failedController.signal,
+  );
+  assert.equal(getEventListeners(failedController.signal, "abort").length, 1);
+  await failed;
+  assert.equal(getEventListeners(failedController.signal, "abort").length, 0);
 });
 
 test("runQueued attaches extendTimeout to AbortController signal", async (t) => {

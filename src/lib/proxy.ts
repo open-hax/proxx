@@ -210,6 +210,7 @@ const CONCURRENCY_INDICATORS: readonly string[] = [
  * 4. Everything else → quota_exhausted (safe default: fall over to another account)
  */
 export function classifyRateLimitKind(
+  status: number,
   errorBody: unknown,
   retryAfterMs: number | undefined,
   concurrencyThresholdMs: number = 30_000,
@@ -224,7 +225,7 @@ export function classifyRateLimitKind(
         const cljsResult = runtime.classifyRateLimit(
           manifestPath ?? "resources/policies/runtime/00-manifest.edn",
           providerId,
-          429,
+          status,
           retryAfterMs,
         );
         if (cljsResult.status === "ok" && cljsResult.result) {

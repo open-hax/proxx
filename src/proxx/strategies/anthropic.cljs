@@ -8,7 +8,11 @@
 (defn oauth-token? [secret]
   (and secret (str/starts-with? secret "sk-ant-oat01-")))
 
-(defn ^:async messages-passthrough [ctx]
+(defn ^:async messages-passthrough
+  "Return the upstream Response for every completed HTTP exchange, including
+  non-2xx responses, so the policy caller can preserve status and error body.
+  Return nil only when no request can be made or fetch itself fails."
+  [ctx]
   (try
     (let [fetch-fn (:fetch ctx js/fetch)
           endpoint (:endpoint ctx)
