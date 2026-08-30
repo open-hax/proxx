@@ -27,3 +27,13 @@
   spore: none
   receipt-refs: 2026-08-29T22:28:14.583Z
   note: Reproducing with both actionlint and ShellCheck made the one-block redirect repair exact; the substantive protected gate remained unchanged.
+
+- ts: 2026-08-30T01:07:24Z
+  session: codex/proxx-pr-lane
+  task: Repin PR #358 to eta-mu's landed bounded review-recovery contract
+  p-efficiency: 0.89
+  p-friction: 0.34
+  p-skill-candidate: 0.17
+  spore: none
+  receipt-refs: 2026-08-30T01:07:24Z
+  note: Separating the completed attempt-1 submission omission from the failed-job attempt-2 artifact lookup prevented an invalid retry; the upstream repair was independently lineage-checked before the caller pin changed.
