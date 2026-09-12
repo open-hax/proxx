@@ -23,6 +23,8 @@ export default tseslint.config(
       // Build output
       "dist/**",
       "web/dist/**",
+      ".shadow-cljs/**",
+      "target/**",
       // Dependencies
       "node_modules/**",
       // Config files using CommonJS

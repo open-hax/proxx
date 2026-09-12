@@ -21,7 +21,7 @@ export interface SessionUiRouteContext {
 export function createSessionUiRouteContext(
   options: CreateSessionUiRouteContextOptions,
 ): SessionUiRouteContext {
-  const sessionStore = new SessionStore(options.sessionsFilePath ?? resolve(process.cwd(), "data/sessions.json"));
+  const sessionStore = new SessionStore(options.sessionsFilePath ?? process.env.PROXY_SESSIONS_FILE ?? resolve(process.cwd(), "data/sessions.json"));
   const sessionIndex = new ChromaSessionIndex({
     url: options.chromaUrl ?? process.env.CHROMA_URL ?? "http://127.0.0.1:8000",
     collectionName: options.chromaCollectionName ?? process.env.CHROMA_COLLECTION ?? "open_hax_proxy_sessions",
