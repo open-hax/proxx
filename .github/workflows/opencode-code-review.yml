@@ -29,7 +29,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       # This reviewed immutable ancestor supplies all secret-bearing execution.
-      KIMI_RUNTIME_SHA: 817115cc4d915389166ddade02b58d487efa099d
+      KIMI_RUNTIME_SHA: 378c422784dee70c7fce2d48b9be12738a216999
     permissions:
       contents: read
       pull-requests: write
