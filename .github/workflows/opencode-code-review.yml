@@ -9,12 +9,28 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  runner-tests:
+    name: Review runner regression tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - run: node --test .github/scripts/kimi-review.test.cjs
+
   review:
+    needs: runner-tests
+    timeout-minutes: 30
     name: Review pull request with OpenCode
     if: ${{ github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-latest
+    env:
+      # This reviewed immutable ancestor supplies all secret-bearing execution.
+      KIMI_RUNTIME_SHA: 817115cc4d915389166ddade02b58d487efa099d
     permissions:
-      id-token: write
       contents: read
       pull-requests: write
       issues: write
@@ -47,11 +63,13 @@ jobs:
           echo "$RUNNER_TEMP/opencode-bin" >> "$GITHUB_PATH"
           test "$("$RUNNER_TEMP/opencode-bin/opencode" --version)" = "$OPENCODE_VERSION"
 
-      - name: Test review admission and notification bounds
-        run: node --test .github/scripts/kimi-review.test.cjs
+      - name: Prepare immutable review runtime
+        run: |
+          git show "${KIMI_RUNTIME_SHA}:.github/scripts/kimi-review.cjs" > "$RUNNER_TEMP/kimi-review.cjs"
+          node --check "$RUNNER_TEMP/kimi-review.cjs"
 
       - name: Run exact-head Kimi review without publication credentials
-        run: node .github/scripts/kimi-review.cjs
+        run: node "$RUNNER_TEMP/kimi-review.cjs"
         env:
           KIMI_API_KEY: ${{ secrets.KIMI_FOR_CODING_API_KEY }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
@@ -66,6 +84,6 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const { publish } = require('./.github/scripts/kimi-review.cjs');
+            const { publish } = require(`${process.env.RUNNER_TEMP}/kimi-review.cjs`);
             await publish({ github, context, file: process.env.KIMI_REVIEW_FILE,
               webhookUrl: process.env.DISCORD_REVIEW_WEBHOOK_URL });
