@@ -47,3 +47,12 @@
   spore: none
   receipt-refs: 2026-08-30T09:13:15Z
   note: Exact parent refs and the one-line source delta made the merge mechanical; the focused integration file requires the compiled CLJS runtime, so the build-then-compiled-test path distinguished a harness precondition from product behavior.
+- ts: 2026-10-02T22:10:39.141620299Z
+  session: /home/err/spaces/review-repair/proxx
+  task: Restore Kimi review provider and trigger
+  p-efficiency: 0.8
+  p-friction: 0.3
+  p-skill-candidate: 0.1
+  spore: none
+  receipt-refs: none
+  note: Manual trigger with PR-only condition silently skipped review.

@@ -36,7 +36,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           KIMI_API_KEY: ${{ secrets.KIMI_FOR_CODING_API_KEY }}
         with:
-          model: kimi-for-coding/k2p5
+          model: kimi-code-plan-global/kimi-for-coding
           use_github_token: true
           prompt: |
             Review this pull request as a senior maintainer.
