@@ -29,16 +29,30 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
+      - name: Install verified OpenCode CLI
+        env:
+          OPENCODE_VERSION: 1.18.34
+          OPENCODE_SHA256: 0f22479647226d1d2dd99595d20082ee7bda3870b62dc6a90b41efc1a71d7e9a
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/opencode.tar.gz"
+          curl --fail --silent --show-error --location \
+            "https://github.com/anomalyco/opencode/releases/download/v${OPENCODE_VERSION}/opencode-linux-x64.tar.gz" \
+            --output "$archive"
+          echo "${OPENCODE_SHA256}  $archive" | sha256sum --check --strict
+          mkdir -p "$RUNNER_TEMP/opencode-bin"
+          tar -xzf "$archive" -C "$RUNNER_TEMP/opencode-bin"
+          echo "$RUNNER_TEMP/opencode-bin" >> "$GITHUB_PATH"
+          test "$("$RUNNER_TEMP/opencode-bin/opencode" --version)" = "$OPENCODE_VERSION"
+
       - name: Run OpenCode review
-        # v1.15.13 pinned by commit SHA for reproducible review behavior.
-        uses: anomalyco/opencode/github@385cb694419f98103af0e8fc6187ddcbcbb6eecb
+        run: opencode github run
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           KIMI_API_KEY: ${{ secrets.KIMI_FOR_CODING_API_KEY }}
-        with:
-          model: kimi-code-plan-global/kimi-for-coding
-          use_github_token: true
-          prompt: |
+          MODEL: kimi-code-plan-global/kimi-for-coding
+          USE_GITHUB_TOKEN: 'true'
+          PROMPT: |
             Review this pull request as a senior maintainer.
             Focus on correctness, security, maintainability, tests, and repo-specific conventions.
             Check linked GitHub issues and any synced Kanban markers (`openhax-kanban-sync`) to understand the task intent.
