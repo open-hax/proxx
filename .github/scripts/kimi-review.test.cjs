@@ -41,7 +41,7 @@ test('publication rejects a stale PR without creating a review', async () => {
   const file = path.join(dir, 'review.json');
   fs.writeFileSync(file, JSON.stringify({ head, summary: 'ok', comments: [] }));
   let calls = 0;
-  const github = { rest: { pulls: { get: async () => ({ data: { head: { sha: b } } }), createReview: async () => { calls++; } } } };
+  const github = { rest: { pulls: { get: async () => ({ data: { state: 'open', draft: false, head: { sha: b, repo: { full_name: 'o/r' } } } }), createReview: async () => { calls++; } } } };
   const context = { repo: { owner: 'o', repo: 'r' }, payload: { pull_request: { number: 1, head: { sha: head, repo: { full_name: 'o/r' } } } } };
   try { await assert.rejects(publish({ github, context, file })); assert.equal(calls, 0); }
   finally { fs.rmSync(dir, { recursive: true }); }
@@ -57,7 +57,7 @@ test('publisher binds commit and retrieves only its own submission comments', as
   const list = () => {};
   const listFiles = () => {};
   const github = { rest: { pulls: {
-    get: async () => ({ data: { head: { sha: head } } }),
+    get: async () => ({ data: { state: 'open', draft: false, head: { sha: head, repo: { full_name: 'o/r' } } } }),
     createReview: async args => { assert.equal(args.commit_id, head); return { data: { id: 42 } }; },
     listCommentsForReview: list, listFiles,
   } }, paginate: async (method, args) => { if (method === listFiles) return []; assert.equal(method, list); assert.equal(args.review_id, 42); return [{ body: 'Own finding', path: 'a', line: 1 }]; } };
@@ -89,4 +89,36 @@ test('phantom locations are preserved as unattached findings instead of invalid 
   assert.deepEqual(splitFindings([valid, phantom, absent], [{ filename: 'a', patch: '@@ -9,1 +9,2 @@\n context\n+addition' }, { filename: 'binary' }]), {
     attached: [valid], unattached: [phantom, absent],
   });
+});
+
+test('large model prompts travel through stdin, outside the PR checkout', () => {
+  const { modelInvocation } = require('./kimi-review.cjs');
+  const prompt = 'x'.repeat(200000);
+  const call = modelInvocation(prompt, {}, '/trusted/isolation');
+  assert.equal(call.options.input, prompt);
+  assert.equal(call.options.cwd, '/trusted/isolation');
+  assert.ok(call.args.every(arg => arg.length < 128000));
+});
+test('Discord 429 retry observes server delay and exhausted retries remain failures', async () => {
+  const { sendDiscord } = require('./kimi-review.cjs');
+  let calls = 0; const delays = [];
+  await sendDiscord('unused', {}, async () => ++calls === 1 ? { status: 429, ok: false, json: async () => ({ retry_after: 0.25 }) } : { ok: true }, async ms => delays.push(ms));
+  assert.equal(calls, 2); assert.deepEqual(delays, [250]);
+  calls = 0;
+  await assert.rejects(sendDiscord('unused', {}, async () => { calls++; return { status: 429, json: async () => ({ retry_after: 0 }) }; }, async () => {}));
+  assert.equal(calls, 5);
+});
+test('live draft or closed PR is rejected before publication', async () => {
+  const fs = require('node:fs'), os = require('node:os'), path = require('node:path');
+  const { execFileSync } = require('node:child_process'); const { publish } = require('./kimi-review.cjs');
+  const head = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kimi-test-')); const file = path.join(dir, 'review.json');
+  fs.writeFileSync(file, JSON.stringify({ head, summary: 'ok', comments: [] }));
+  const context = { repo: { owner: 'o', repo: 'r' }, payload: { pull_request: { number: 1, head: { sha: head, repo: { full_name: 'o/r' } } } } };
+  try {
+    for (const eligibility of [{ state: 'open', draft: true }, { state: 'closed', draft: false }]) {
+      const github = { rest: { pulls: { get: async () => ({ data: { ...eligibility, head: { sha: head, repo: { full_name: 'o/r' } } } }), createReview: async () => assert.fail('Must not publish') } } };
+      await assert.rejects(publish({ github, context, file }), /became draft, closed/);
+    }
+  } finally { fs.rmSync(dir, { recursive: true }); }
 });
