@@ -9,12 +9,16 @@ function assertHead(expected, executed, current = expected) {
 }
 
 function parseEvents(output) {
-  let text = '';
+  const messages = new Map();
   for (const line of output.split('\n').filter(Boolean)) {
     const event = JSON.parse(line);
     if (event.type === 'error') throw new Error('OpenCode emitted a review error');
-    if (event.type === 'text') text += event.part?.text || '';
+    if (event.type === 'text') {
+      const id = event.part?.messageID || 'reply';
+      messages.set(id, (messages.get(id) || '') + (event.part?.text || ''));
+    }
   }
+  const text = [...messages.values()].at(-1) || '';
   const match = text.trim().match(/^```(?:json)?\s*([\s\S]*?)\s*```$/);
   return validateReview(JSON.parse(match ? match[1] : text));
 }

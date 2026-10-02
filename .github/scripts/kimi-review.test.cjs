@@ -69,3 +69,13 @@ test('publisher binds commit and retrieves only its own submission comments', as
     assert.equal(sent, 1);
   } finally { fs.rmSync(dir, { recursive: true }); }
 });
+
+test('intermediate assistant narration is excluded from the final structured reply', () => {
+  const events = [
+    { type: 'text', part: { messageID: 'inspection', text: 'I will inspect the changed source.' } },
+    { type: 'tool_use', part: { messageID: 'inspection' } },
+    { type: 'text', part: { messageID: 'final', text: '{"summary":"No findings",' } },
+    { type: 'text', part: { messageID: 'final', text: '"comments":[]}' } },
+  ];
+  assert.deepEqual(parseEvents(events.map(JSON.stringify).join('\n')), { summary: 'No findings', comments: [] });
+});
