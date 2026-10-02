@@ -55,11 +55,12 @@ test('publisher binds commit and retrieves only its own submission comments', as
   const file = path.join(dir, 'review.json');
   fs.writeFileSync(file, JSON.stringify({ head, summary: 'ok', comments: [] }));
   const list = () => {};
+  const listFiles = () => {};
   const github = { rest: { pulls: {
     get: async () => ({ data: { head: { sha: head } } }),
     createReview: async args => { assert.equal(args.commit_id, head); return { data: { id: 42 } }; },
-    listCommentsForReview: list,
-  } }, paginate: async (method, args) => { assert.equal(method, list); assert.equal(args.review_id, 42); return [{ body: 'Own finding', path: 'a', line: 1 }]; } };
+    listCommentsForReview: list, listFiles,
+  } }, paginate: async (method, args) => { if (method === listFiles) return []; assert.equal(method, list); assert.equal(args.review_id, 42); return [{ body: 'Own finding', path: 'a', line: 1 }]; } };
   let sent = 0;
   const context = { repo: { owner: 'o', repo: 'r' }, payload: { pull_request: { number: 1, head: { sha: head, repo: { full_name: 'o/r' } } } } };
   try {
@@ -78,4 +79,14 @@ test('intermediate assistant narration is excluded from the final structured rep
     { type: 'text', part: { messageID: 'final', text: '"comments":[]}' } },
   ];
   assert.deepEqual(parseEvents(events.map(JSON.stringify).join('\n')), { summary: 'No findings', comments: [] });
+});
+
+test('phantom locations are preserved as unattached findings instead of invalid inline submissions', () => {
+  const { splitFindings } = require('./kimi-review.cjs');
+  const valid = { path: 'a', line: 10, body: 'real' };
+  const phantom = { path: 'a', line: 11, body: 'outside diff' };
+  const absent = { path: 'binary', line: 1, body: 'no patch' };
+  assert.deepEqual(splitFindings([valid, phantom, absent], [{ filename: 'a', patch: '@@ -9,1 +9,2 @@\n context\n+addition' }, { filename: 'binary' }]), {
+    attached: [valid], unattached: [phantom, absent],
+  });
 });
