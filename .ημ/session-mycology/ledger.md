@@ -56,3 +56,12 @@
   spore: none
   receipt-refs: none
   note: Manual trigger with PR-only condition silently skipped review.
+- ts: 2026-10-02T22:46:10.158302434Z
+  session: /home/err/spaces/review-repair/proxx
+  task: Exact-head Kimi runner and isolated bounded publication
+  p-efficiency: 0.75
+  p-friction: 0.65
+  p-skill-candidate: 0.4
+  spore: none
+  receipt-refs: open-hax/proxx#445
+  note: A PR-capable upstream runner can still follow a mutable branch; exact review evidence requires separate model execution and guarded publication. Existing pr-flow guidance applies; no new spore.
