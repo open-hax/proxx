@@ -1,6 +1,7 @@
 name: Kimi runner contract tests
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     paths: ['.github/scripts/kimi-review.cjs', '.github/scripts/kimi-review.test.cjs', '.github/scripts/kimi-api-canary.cjs', '.github/scripts/kimi-api-canary.test.cjs', '.github/workflows/kimi-runner-tests.yml']
   push:
     branches: [main, staging]
