@@ -315,3 +315,36 @@ test('secret-bearing workflow rejects a runtime present only on the PR branch', 
     assert.notEqual(run('main').status, 0);
   } finally { fs.rmSync(directory, { recursive: true, force: true }); }
 });
+
+
+test('publisher body stays bounded with large coverage while preserving full artifact', async () => {
+  const fs = require('node:fs'), os = require('node:os'), path = require('node:path');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'kimi-body-'));
+  try {
+    const sha = 'a'.repeat(40), digest = 'b'.repeat(64);
+    const provenance = { origin: 'github-actions-native-execution', repository: 'open-hax/test',
+      head: sha, base: sha, runtimeSha: sha, runtimeBlobSha256: digest,
+      runtimeBaseAncestorVerified: true,
+      requestedModel: { providerID: 'kimi-code-plan-global', modelID: 'kimi-for-coding' },
+      executedModel: { providerID: 'kimi-code-plan-global', modelID: 'kimi-for-coding' },
+      runID: '12345', runAttempt: 2, workflowSha: sha, opencodeVersion: '1.18.34',
+      archiveSha256: digest, diffSha256: digest,
+      coveredFiles: Array.from({ length: 10000 }, (_, i) => `long-path/${i}/file.cljc`) };
+    const original = JSON.stringify(provenance);
+    fs.writeFileSync(path.join(root, 'kimi-provenance.json'), original);
+    assert.ok(60000 + JSON.stringify(provenance, null, 2).length > 65536);
+    fs.writeFileSync(path.join(root, 'kimi-review.cjs'),
+      "exports.publish=async ({github})=>github.rest.pulls.createReview({body:'x'.repeat(60000)});");
+    const workflow = fs.readFileSync(path.join(__dirname, '../workflows/opencode-code-review.yml'), 'utf8');
+    const script = workflow.split('          script: |\n')[1].split('\n').map(line => line.slice(12)).join('\n');
+    let published;
+    const github = { rest: { pulls: { createReview: async parameters => { published = parameters; } } } };
+    const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+    await new AsyncFunction('require', 'github', 'context', 'process', script)(
+      require, github, {}, { env: { RUNNER_TEMP: root } });
+    assert.ok(published.body.length <= 65536);
+    assert.ok(published.body.includes('"coveredFileCount": 10000'));
+    assert.ok(published.body.includes('kimi-code-plan-global'));
+    assert.equal(fs.readFileSync(path.join(root, 'kimi-provenance.json'), 'utf8'), original);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});

@@ -139,9 +139,23 @@ jobs:
           script: |
             const fs = require('node:fs');
             const provenance = JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/kimi-provenance.json`, 'utf8'));
+            // Keep complete coverage in the artifact; body metadata has a fixed field set.
+            const bodyProvenance = {
+              origin: provenance.origin, repository: provenance.repository,
+              head: provenance.head, base: provenance.base, runtimeSha: provenance.runtimeSha,
+              runtimeBlobSha256: provenance.runtimeBlobSha256,
+              runtimeBaseAncestorVerified: provenance.runtimeBaseAncestorVerified,
+              requestedModel: provenance.requestedModel, executedModel: provenance.executedModel,
+              runID: provenance.runID, runAttempt: provenance.runAttempt,
+              workflowSha: provenance.workflowSha, opencodeVersion: provenance.opencodeVersion,
+              archiveSha256: provenance.archiveSha256, diffSha256: provenance.diffSha256,
+              coveredFileCount: provenance.coveredFiles.length,
+            };
+            const bodyMetadata = JSON.stringify(bodyProvenance, null, 2);
+            if (bodyMetadata.length > 4096) throw new Error('Execution metadata exceeds fixed body budget');
             const createReview = github.rest.pulls.createReview.bind(github.rest.pulls);
             github.rest.pulls.createReview = parameters => {
-              const body = `${parameters.body}\n\nNative execution provenance (execution evidence, not reviewer quorum):\n\`\`\`json\n${JSON.stringify(provenance, null, 2)}\n\`\`\``;
+              const body = `${parameters.body}\n\nNative execution provenance (execution evidence, not reviewer quorum):\n\`\`\`json\n${bodyMetadata}\n\`\`\``;
               if (body.length > 65536) throw new Error('Publication body exceeds GitHub bounds');
               return createReview({ ...parameters, body });
             };
