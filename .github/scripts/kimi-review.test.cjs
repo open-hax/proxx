@@ -247,7 +247,7 @@ test('publication rejects stale base and reuses completed review after notificat
 
 test('sensitive changed filenames fail before model input and snapshot roots normalize', () => {
   const { assertReviewablePaths, sourceSnapshot } = require('./kimi-review.cjs');
-  for (const name of ['.env', 'nested/.env.production', 'auth.json', 'nested/auth.json', 'cert.pem', 'private.key']) {
+  for (const name of ['.env', 'nested/.env.production', 'auth.json', 'nested/auth.json', 'cert.pem', 'private.key', 'reagent/.lsp/.cache/db.transit.json', 'helix/.clj-kondo/.cache/db.json']) {
     assert.throws(() => assertReviewablePaths([name]), /sensitive/);
   }
   assert.doesNotThrow(() => assertReviewablePaths(['source.cljc', 'AGENTS.md']));
