@@ -25,7 +25,7 @@ test('bounded structured execution authenticates local API, rejects prose and cl
       assert.equal(options.headers.authorization, 'Basic ' + Buffer.from('opencode:private-local-auth').toString('base64'));
       assert.ok(url.endsWith('?directory=%2Fisolated%2Fworkspace'));
       if (++calls === 1) return { ok: true, json: async () => ({ id: 'ses_test123' }) };
-      if (url.includes('/event?')) return { ok: true, headers: new Headers({ 'content-type': 'text/event-stream' }), body: stream };
+      if (url.includes('/event?')) return { ok: true, headers: { get: name => name === 'content-type' ? 'text/event-stream' : null }, body: stream };
       if (options.method === 'POST') {
         assert.ok(url.includes('/prompt_async?'), 'Model submission must not wait on synchronous response headers');
         const request = JSON.parse(options.body);
@@ -293,4 +293,94 @@ test('diff path enumeration shares the bounded ten MiB buffer', () => {
   } : require(id) };
   vm.runInNewContext(source, sandbox);
   sandbox.module.exports.diffCoverage(a, b); assert.equal(names, true);
+});
+
+test('secret-bearing workflow rejects a runtime present only on the PR branch', () => {
+  const fs = require('node:fs'), path = require('node:path'), os = require('node:os');
+  const { execFileSync, spawnSync } = require('node:child_process');
+  const workflow = fs.readFileSync(path.join(__dirname, '../workflows/opencode-code-review.yml'), 'utf8');
+  const prepare = workflow.split('      - name: Prepare immutable review runtime\n')[1].split('      - name: Run exact-head')[0];
+  const guard = prepare.split('        run: |\n')[1].split('          git show ')[0].split('\n').map(line => line.replace(/^          /, '')).join('\n');
+  assert.match(guard, /git merge-base --is-ancestor/);
+  assert.match(prepare, /PR_BASE_SHA: \$\{\{ github.event.pull_request.base.sha \}\}/);
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'kimi-trust-test-'));
+  try {
+    const git = args => execFileSync('git', args, { cwd: directory, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+    git(['init']); git(['config', 'user.name', 'test']); git(['config', 'user.email', 'test@example.invalid']);
+    git(['commit', '--allow-empty', '-m', 'trusted base']); const base = git(['rev-parse', 'HEAD']);
+    git(['commit', '--allow-empty', '-m', 'unreviewed PR runtime']); const prOnly = git(['rev-parse', 'HEAD']);
+    const run = runtime => spawnSync('bash', ['-c', guard], { cwd: directory, env: { ...process.env, KIMI_RUNTIME_SHA: runtime, PR_BASE_SHA: base }, encoding: 'utf8' });
+    assert.equal(run(base).status, 0);
+    assert.notEqual(run(prOnly).status, 0);
+    assert.notEqual(run('main').status, 0);
+  } finally { fs.rmSync(directory, { recursive: true, force: true }); }
+});
+
+
+test('publisher body stays bounded with large coverage while preserving full artifact', async () => {
+  const fs = require('node:fs'), os = require('node:os'), path = require('node:path');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'kimi-body-'));
+  try {
+    const sha = 'a'.repeat(40), digest = 'b'.repeat(64);
+    const provenance = { origin: 'github-actions-native-execution', repository: 'open-hax/test',
+      head: sha, base: sha, runtimeSha: sha, runtimeBlobSha256: digest,
+      runtimeBaseAncestorVerified: true,
+      requestedModel: { providerID: 'kimi-code-plan-global', modelID: 'kimi-for-coding' },
+      executedModel: { providerID: 'kimi-code-plan-global', modelID: 'kimi-for-coding' },
+      runID: '12345', runAttempt: 2, workflowSha: sha, opencodeVersion: '1.18.34',
+      archiveSha256: digest, diffSha256: digest,
+      coveredFiles: Array.from({ length: 10000 }, (_, i) => `long-path/${i}/file.cljc`) };
+    const original = JSON.stringify(provenance);
+    fs.writeFileSync(path.join(root, 'kimi-provenance.json'), original);
+    assert.ok(60000 + JSON.stringify(provenance, null, 2).length > 65536);
+    fs.writeFileSync(path.join(root, 'kimi-review.cjs'),
+      "exports.publish=async ({github})=>github.rest.pulls.createReview({body:'x'.repeat(60000)});");
+    const workflow = fs.readFileSync(path.join(__dirname, '../workflows/opencode-code-review.yml'), 'utf8');
+    const script = workflow.split('          script: |\n')[1].split('\n').map(line => line.slice(12)).join('\n');
+    let published;
+    const github = { rest: { pulls: { createReview: async parameters => { published = parameters; } } } };
+    const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+    await new AsyncFunction('require', 'github', 'context', 'process', script)(
+      require, github, {}, { env: { RUNNER_TEMP: root } });
+    assert.ok(published.body.length <= 65536);
+    assert.ok(published.body.includes('"coveredFileCount": 10000'));
+    assert.ok(published.body.includes('kimi-code-plan-global'));
+    assert.equal(fs.readFileSync(path.join(root, 'kimi-provenance.json'), 'utf8'), original);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+
+function opencodeCommentWorkflow() {
+  const fs = require('node:fs'), path = require('node:path');
+  const source = fs.readFileSync(path.join(__dirname, '../workflows/opencode.yml'), 'utf8');
+  const condition = source.match(/    if: \|\n([\s\S]*?)    runs-on:/)[1].trim();
+  const group = source.match(/  group: (.*)/)[1];
+  const evaluate = (expression, github) => Function('github', 'contains', `return (${expression});`)(
+    github, (value, needle) => value.includes(needle));
+  const event = (id, type, body) => ({ repository: 'open-hax/proxx', run_id: id,
+    event: { comment: { id, user: { type }, body }, issue: { number: 445 }, pull_request: { number: 445 } } });
+  return { event, admits: github => evaluate(condition, github),
+    group: github => group.replace(/\$\{\{(.*?)\}\}/g, (_, expression) => evaluate(expression, github)) };
+}
+
+test('OpenCode comment handler excludes native bot replies while admitting real commands', () => {
+  const workflow = opencodeCommentWorkflow();
+  assert.equal(workflow.admits(workflow.event(5968763916, 'User', '/opencode independently assess this finding')), true);
+  assert.equal(workflow.admits(workflow.event(12345, 'User', '/oc assess the current change')), true);
+  assert.equal(workflow.admits(workflow.event(5968785159, 'Bot',
+    'Rejection agreement; .github/workflows/opencode-code-review.yml verified')), false);
+  assert.equal(workflow.admits(workflow.event(12346, 'Bot', '/opencode recursive command')), false);
+  assert.equal(workflow.admits(workflow.event(12347, 'User', 'Handled: regression evidence preserved')), false);
+});
+
+test('OpenCode comment concurrency isolates replies and separate commands from the originating request', () => {
+  const workflow = opencodeCommentWorkflow();
+  const request = workflow.event(5968763916, 'User', '/opencode independently assess this finding');
+  const reply = workflow.event(5968785159, 'Bot', 'Agreement; .github/workflows/opencode-code-review.yml verified');
+  const otherCommand = workflow.event(12345, 'User', '/oc assess another finding');
+  const unrelated = workflow.event(12347, 'User', 'Handled: regression evidence preserved');
+  assert.notEqual(workflow.group(request), workflow.group(reply));
+  assert.notEqual(workflow.group(request), workflow.group(otherCommand));
+  assert.notEqual(workflow.group(request), workflow.group(unrelated));
+  assert.equal(workflow.group(request), workflow.group(request));
 });

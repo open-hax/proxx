@@ -47,3 +47,30 @@
   spore: none
   receipt-refs: 2026-08-30T09:13:15Z
   note: Exact parent refs and the one-line source delta made the merge mechanical; the focused integration file requires the compiled CLJS runtime, so the build-then-compiled-test path distinguished a harness precondition from product behavior.
+- ts: 2026-10-02T22:10:39.141620299Z
+  session: /home/err/spaces/review-repair/proxx
+  task: Restore Kimi review provider and trigger
+  p-efficiency: 0.8
+  p-friction: 0.3
+  p-skill-candidate: 0.1
+  spore: none
+  receipt-refs: none
+  note: Manual trigger with PR-only condition silently skipped review.
+- ts: 2026-10-02T22:46:10.158302434Z
+  session: /home/err/spaces/review-repair/proxx
+  task: Exact-head Kimi runner and isolated bounded publication
+  p-efficiency: 0.75
+  p-friction: 0.65
+  p-skill-candidate: 0.4
+  spore: none
+  receipt-refs: open-hax/proxx#445
+  note: A PR-capable upstream runner can still follow a mutable branch; exact review evidence requires separate model execution and guarded publication. Existing pr-flow guidance applies; no new spore.
+- ts: 2026-10-03T08:25:26.894688795Z
+  session: /home/err/spaces/review-repair/proxx
+  task: Structured Kimi qualification and trusted-base bootstrap
+  p-efficiency: 0.6
+  p-friction: 0.65
+  p-skill-candidate: 0.3
+  spore: none
+  receipt-refs: Proxx446,Uxx15
+  note: Native schema model tests remain mandatory after mocked transport tests. Propagate test exit codes; exercise real tracked inventory without admitting operational cache state. Preserve trusted-base guards while reviewer work runs.
