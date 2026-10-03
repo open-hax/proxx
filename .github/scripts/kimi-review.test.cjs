@@ -348,3 +348,39 @@ test('publisher body stays bounded with large coverage while preserving full art
     assert.equal(fs.readFileSync(path.join(root, 'kimi-provenance.json'), 'utf8'), original);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
+
+
+function opencodeCommentWorkflow() {
+  const fs = require('node:fs'), path = require('node:path');
+  const source = fs.readFileSync(path.join(__dirname, '../workflows/opencode.yml'), 'utf8');
+  const condition = source.match(/    if: \|\n([\s\S]*?)    runs-on:/)[1].trim();
+  const group = source.match(/  group: (.*)/)[1];
+  const evaluate = (expression, github) => Function('github', 'contains', `return (${expression});`)(
+    github, (value, needle) => value.includes(needle));
+  const event = (id, type, body) => ({ repository: 'open-hax/proxx', run_id: id,
+    event: { comment: { id, user: { type }, body }, issue: { number: 445 }, pull_request: { number: 445 } } });
+  return { event, admits: github => evaluate(condition, github),
+    group: github => group.replace(/\$\{\{(.*?)\}\}/g, (_, expression) => evaluate(expression, github)) };
+}
+
+test('OpenCode comment handler excludes native bot replies while admitting real commands', () => {
+  const workflow = opencodeCommentWorkflow();
+  assert.equal(workflow.admits(workflow.event(5968763916, 'User', '/opencode independently assess this finding')), true);
+  assert.equal(workflow.admits(workflow.event(12345, 'User', '/oc assess the current change')), true);
+  assert.equal(workflow.admits(workflow.event(5968785159, 'Bot',
+    'Rejection agreement; .github/workflows/opencode-code-review.yml verified')), false);
+  assert.equal(workflow.admits(workflow.event(12346, 'Bot', '/opencode recursive command')), false);
+  assert.equal(workflow.admits(workflow.event(12347, 'User', 'Handled: regression evidence preserved')), false);
+});
+
+test('OpenCode comment concurrency isolates replies and separate commands from the originating request', () => {
+  const workflow = opencodeCommentWorkflow();
+  const request = workflow.event(5968763916, 'User', '/opencode independently assess this finding');
+  const reply = workflow.event(5968785159, 'Bot', 'Agreement; .github/workflows/opencode-code-review.yml verified');
+  const otherCommand = workflow.event(12345, 'User', '/oc assess another finding');
+  const unrelated = workflow.event(12347, 'User', 'Handled: regression evidence preserved');
+  assert.notEqual(workflow.group(request), workflow.group(reply));
+  assert.notEqual(workflow.group(request), workflow.group(otherCommand));
+  assert.notEqual(workflow.group(request), workflow.group(unrelated));
+  assert.equal(workflow.group(request), workflow.group(request));
+});

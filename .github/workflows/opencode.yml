@@ -13,14 +13,15 @@ permissions:
   issues: write
 
 concurrency:
-  group: opencode-${{ github.repository }}-${{ github.event.issue.number || github.event.pull_request.number || github.run_id }}
+  group: opencode-${{ github.repository }}-${{ github.event.comment.id }}
   cancel-in-progress: true
 
 jobs:
   opencode:
     if: |
-      contains(github.event.comment.body, '/oc') ||
-      contains(github.event.comment.body, '/opencode')
+      github.event.comment.user.type != 'Bot' &&
+      (contains(github.event.comment.body, '/oc') ||
+       contains(github.event.comment.body, '/opencode'))
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
