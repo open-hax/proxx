@@ -17,9 +17,9 @@ test('bounded structured execution authenticates local API, rejects prose and cl
     queueMicrotask(() => child.stdout.write('opencode server listening on http://127.0.0.1:12345\n'));
     return child;
   }
-  for (const mode of ['valid', 'prose', 'terminal-error', 'wrong-session', 'timeout']) {
+  for (const mode of ['valid', 'prose', 'terminal-error', 'wrong-session', 'timeout', 'invalid-status', 'unknown-status', 'wrong-identity', 'incomplete']) {
     const child = processStub();
-    let calls = 0, eventStream;
+    let calls = 0, messageReads = 0, eventStream;
     const stream = new ReadableStream({ start(controller) { eventStream = controller; } });
     const api = async (url, options) => {
       assert.equal(options.headers.authorization, 'Basic ' + Buffer.from('opencode:private-local-auth').toString('base64'));
@@ -37,16 +37,21 @@ test('bounded structured execution authenticates local API, rejects prose and cl
       }
       if (url.includes('/session/status?')) {
         if (mode === 'timeout') return new Promise((_, reject) => options.signal.addEventListener('abort', () => reject(new Error('secret-provider-diagnostic')), { once: true }));
+        if (mode === 'invalid-status') return { ok: true, json: async () => [] };
+        if (mode === 'unknown-status') return { ok: true, json: async () => ({ ses_test123: { type: 'unrecognized' } }) };
         return { ok: true, json: async () => calls === 4 ? { ses_test123: { type: 'busy' } } : {} };
       }
       assert.ok(url.includes('/message/msg_test123?'), 'Fetch native assistant separately; listing schema-bearing user messages fails on the pinned runtime');
+      messageReads++;
+      if (mode === 'wrong-identity') return { ok: true, json: async () => ({ info: { id: 'msg_other123', sessionID: 'ses_test123' } }) };
+      if (mode === 'incomplete' && messageReads === 1) return { ok: true, json: async () => ({ info: { id: 'msg_test123', sessionID: 'ses_test123', role: 'assistant', time: {} } }) };
       return { ok: true, json: async () => mode === 'prose' ? { info: { id: 'msg_test123', sessionID: 'ses_test123', role: 'assistant', providerID: 'kimi-code-plan-global', modelID: 'kimi-for-coding', time: { completed: 1 } }, parts: [{ type: 'text', text: 'Looks fine' }] } :
         { info: { id: 'msg_test123', sessionID: 'ses_test123', role: 'assistant', providerID: 'kimi-code-plan-global', modelID: 'kimi-for-coding', structured: value, time: { completed: 1 } }, parts: [{ type: 'tool', tool: 'StructuredOutput', state: { status: 'completed', input: value } }] } };
 
     };
     const result = executeStructured('review', { OPENCODE_SERVER_PASSWORD: 'private-local-auth' }, '/isolated/workspace', a, coverage,
       { spawnImpl: (_command, args, options) => { assert.ok(args.includes('--pure')); assert.equal(options.cwd, '/isolated/workspace'); return child; }, fetchImpl: api, timeout: ['timeout', 'wrong-session'].includes(mode) ? 30 : 100, pollInterval: 1 });
-    if (mode === 'valid') assert.deepEqual(await result, value);
+    if (['valid', 'incomplete'].includes(mode)) { assert.deepEqual(await result, value); if (mode === 'incomplete') assert.equal(messageReads, 2); }
     else await assert.rejects(result, error => !error.message.includes('secret') && (['timeout', 'wrong-session'].includes(mode) ? /bounded 20-minute/.test(error.message) : /no review was published/.test(error.message)));
     assert.deepEqual(child.kills, ['SIGTERM']);
   }
