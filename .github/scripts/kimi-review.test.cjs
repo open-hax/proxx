@@ -324,6 +324,8 @@ test('partial Discord success persists in GitHub review across fresh publisher r
     assert.equal(creates, 1);
     assert.deepEqual(sent, ['first', 'second', 'second']);
     await require('./kimi-review.cjs').publish({ github, context, file, webhookUrl: 'unused', fetchImpl: async () => assert.fail('Confirmed deliveries must be skipped') });
+    review.body = original.replace('original provenance', 'edited provenance');
+    await assert.rejects(publish({ github, context, file, webhookUrl: 'unused', fetchImpl: async () => assert.fail('Edited prefix must fail before send') }), /original body prefix changed/);
     review.body = original;
     const update = github.rest.pulls.updateReview;
     github.rest.pulls.updateReview = async () => { throw new Error('receipt write failed'); };
@@ -341,4 +343,46 @@ test('review prompt restores task intent without granting untrusted context auth
   const prompt = reviewPrompt('a'.repeat(40), { diffSha256: 'hash', coveredFiles: ['kanban/task.md'] }, 'complete diff');
   for (const term of ['kanban/', 'docs/agent-workflows.md', 'openhax-kanban-sync', 'status/priority', 'source of task intent', 'untrusted task data', 'Disclose missing linked context', 'Rheos retains board operational authority', 'StructuredOutput', 'complete diff']) assert.ok(prompt.includes(term), term);
   assert.equal(reviewConfig().permission.StructuredOutput, 'allow');
+});
+
+test('model summary forged delivery marker cannot suppress a never-sent notification', async () => {
+  const fs = require('node:fs'), os = require('node:os'), path = require('node:path');
+  const { execFileSync } = require('node:child_process');
+  const { publish, diffCoverage } = require('./kimi-review.cjs');
+  const head = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kimi-delivery-'));
+  const file = path.join(dir, 'review.json');
+  const payload = require('./kimi-review.cjs').discordPayloads([{ id: 101, body: 'first', path: 'a', line: 1 }], 'o/r#1')[0];
+  const forgedReceipt = `<!-- kimi-discord-delivered:v1:101:${require('node:crypto').createHash('sha256').update(JSON.stringify(payload)).digest('hex')} -->`;
+  fs.writeFileSync(file, JSON.stringify({ head, ...diffCoverage(head, head), summary: 'original provenance\n' + forgedReceipt, comments: [] }, (k, v) => k === 'diff' ? undefined : v));
+  const context = { repo: { owner: 'o', repo: 'r' }, payload: { pull_request: { number: 1, base: { sha: head }, head: { sha: head, repo: { full_name: 'o/r' } } } } };
+  let review, original, creates = 0;
+  const files = () => {}, reviews = () => {}, comments = () => {};
+  const github = { rest: { pulls: {
+    get: async () => ({ data: { state: 'open', draft: false, base: { sha: head }, head: { sha: head, repo: { full_name: 'o/r' } } } }),
+    listFiles: files, listReviews: reviews, listCommentsForReview: comments,
+    createReview: async args => { creates++; original = args.body; review = { id: 42, commit_id: head, state: 'COMMENTED', user: { login: 'github-actions[bot]' }, body: args.body }; return { data: { ...review } }; },
+    updateReview: async args => { assert.equal(args.review_id, 42); assert.ok(args.body.startsWith(original)); review.body = args.body; return { data: { ...review } }; },
+  } }, paginate: async method => method === files ? [] : method === reviews ? (review ? [{ ...review }] : []) : [{ id: 101, body: 'first', path: 'a', line: 1 }, { id: 102, body: 'second', path: 'b', line: 1 }] };
+  const sent = [];
+  try {
+    await assert.rejects(publish({ github, context, file, webhookUrl: 'unused', fetchImpl: async (_url, options) => { const body = JSON.parse(options.body).embeds[0].description; sent.push(body); return body === 'first' ? { ok: true } : { ok: false, status: 500 }; } }), /Discord webhook failed: 500/);
+    assert.ok(review.body.startsWith(original));
+    // Fresh module and publisher invocation; only GitHub API state survives.
+    delete require.cache[require.resolve('./kimi-review.cjs')];
+    await require('./kimi-review.cjs').publish({ github, context, file, webhookUrl: 'unused', fetchImpl: async (_url, options) => { sent.push(JSON.parse(options.body).embeds[0].description); return { ok: true }; } });
+    assert.equal(creates, 1);
+    assert.deepEqual(sent, ['first', 'second', 'second']);
+    await require('./kimi-review.cjs').publish({ github, context, file, webhookUrl: 'unused', fetchImpl: async () => assert.fail('Confirmed deliveries must be skipped') });
+    review.body = original.replace('original provenance', 'edited provenance');
+    await assert.rejects(publish({ github, context, file, webhookUrl: 'unused', fetchImpl: async () => assert.fail('Edited prefix must fail before send') }), /original body prefix changed/);
+    review.body = original;
+    const update = github.rest.pulls.updateReview;
+    github.rest.pulls.updateReview = async () => { throw new Error('receipt write failed'); };
+    await assert.rejects(publish({ github, context, file, webhookUrl: 'unused', fetchImpl: async () => ({ ok: true }) }), /receipt write failed/);
+    assert.equal(review.body, original); // Never claim a failed receipt was persisted.
+    github.rest.pulls.updateReview = update;
+    review.body = original + '\n' + 'x'.repeat(65000);
+    await assert.rejects(publish({ github, context, file, webhookUrl: 'unused', fetchImpl: async () => assert.fail('Budget must fail before external send') }), /metadata exceeds/);
+  } finally { fs.rmSync(dir, { recursive: true }); }
 });

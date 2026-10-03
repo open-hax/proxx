@@ -98,14 +98,18 @@ async function publish({ github, context, file, webhookUrl, fetchImpl = fetch })
   const { attached, unattached } = splitFindings(data.comments, files);
   const fallback = unattached.map(c => `\n\nUnattached finding at ${c.path}:${c.line} (not an added diff line):\n${c.body}`).join('');
   const marker = `<!-- kimi-submission:${require('node:crypto').createHash('sha256').update(JSON.stringify({ base: pr.base.sha, review })).digest('hex')} -->`;
+  const originalBody = `Kimi review of exact head ${review.head}\nBase ${pr.base.sha}\n${marker}\n\n${data.summary}${fallback}`;
   const prior = await github.paginate(github.rest.pulls.listReviews, { owner, repo, pull_number: pr.number, per_page: 100 });
   const existing = prior.find(r => r.commit_id === review.head && r.state === 'COMMENTED' &&
     r.user?.login === 'github-actions[bot]' && r.body?.includes(marker));
   // Rerunning a failed notification job must not create another GitHub review.
   const submitted = existing ? { data: existing } : await github.rest.pulls.createReview({
     owner, repo, pull_number: pr.number, commit_id: review.head, event: 'COMMENT',
-    body: `Kimi review of exact head ${review.head}\nBase ${pr.base.sha}\n${marker}\n\n${data.summary}${fallback}`, comments: attached,
+    body: originalBody, comments: attached,
   });
+  if (typeof submitted.data.body !== 'string' || !submitted.data.body.startsWith(originalBody)) {
+    throw new Error('Native review original body prefix changed; delivery receipts denied');
+  }
   if (!webhookUrl) return;
   // Query only this submission, never all timestamp-adjacent MiMo/human comments.
   const comments = await github.paginate(github.rest.pulls.listCommentsForReview, {
@@ -120,7 +124,9 @@ async function publish({ github, context, file, webhookUrl, fetchImpl = fetch })
     if (!Number.isSafeInteger(id) || id <= 0) throw new Error('Invalid submission comment identity');
     const digest = require('node:crypto').createHash('sha256').update(JSON.stringify(payload)).digest('hex');
     const receipt = `<!-- kimi-discord-delivered:v1:${id}:${digest} -->`;
-    if (body.split('\n').includes(receipt)) continue;
+    // Model summary/unattached findings belong to the exact immutable prefix;
+    // only the publisher-appended operational suffix can prove delivery.
+    if (body.slice(originalBody.length).split('\n').includes(receipt)) continue;
     const next = `${body}\n${receipt}`;
     if (Buffer.byteLength(next, 'utf8') > 65000) throw new Error('Discord delivery metadata exceeds review body budget');
     await sendDiscord(webhookUrl, payload, fetchImpl);
