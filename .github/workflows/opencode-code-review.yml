@@ -29,7 +29,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       # This reviewed immutable ancestor supplies all secret-bearing execution.
-      KIMI_RUNTIME_SHA: cee6780707d6e57e9288aaacde59dbfb65931dec
+      KIMI_RUNTIME_SHA: 4cc05611e5f495311afc5de99aac4fe373eaba65
     permissions:
       contents: read
       pull-requests: write
@@ -82,6 +82,53 @@ jobs:
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           KIMI_REVIEW_FILE: ${{ runner.temp }}/kimi-review.json
 
+      - name: Record native execution provenance
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs'), crypto = require('node:crypto');
+          const { execFileSync } = require('node:child_process');
+          const e = process.env, sha = value => /^[0-9a-f]{40}$/.test(value || '');
+          if (![e.KIMI_RUNTIME_SHA, e.PR_HEAD_SHA, e.PR_BASE_SHA, e.GITHUB_WORKFLOW_SHA].every(sha) ||
+              !/^[1-9][0-9]*$/.test(e.GITHUB_RUN_ID || '') || !/^[1-9][0-9]*$/.test(e.GITHUB_RUN_ATTEMPT || '')) throw new Error('Invalid execution provenance');
+          execFileSync('git', ['merge-base', '--is-ancestor', e.KIMI_RUNTIME_SHA, e.PR_BASE_SHA]);
+          const runtimePath = `${e.RUNNER_TEMP}/kimi-review.cjs`;
+          const runtime = fs.readFileSync(runtimePath), expected = execFileSync('git', ['show', `${e.KIMI_RUNTIME_SHA}:.github/scripts/kimi-review.cjs`]);
+          if (!runtime.equals(expected)) throw new Error('Runtime bytes differ from immutable source');
+          const review = JSON.parse(fs.readFileSync(`${e.RUNNER_TEMP}/kimi-review.json`, 'utf8'));
+          const helper = require(runtimePath);
+          helper.assertHead(e.PR_HEAD_SHA, review.head);
+          const model = helper.structuredRequest('', review.head, review).model;
+          if (model.providerID !== 'kimi-code-plan-global' || model.modelID !== 'kimi-for-coding') throw new Error('Unexpected requested model');
+          const version = execFileSync('opencode', ['--version'], { encoding: 'utf8' }).trim();
+          const archiveSha256 = crypto.createHash('sha256').update(fs.readFileSync(`${e.RUNNER_TEMP}/opencode.tar.gz`)).digest('hex');
+          if (version !== '1.18.34' || archiveSha256 !== '0f22479647226d1d2dd99595d20082ee7bda3870b62dc6a90b41efc1a71d7e9a') throw new Error('Toolchain provenance mismatch');
+          const provenance = {
+            origin: 'github-actions-native-execution', repository: e.GITHUB_REPOSITORY,
+            head: review.head, base: e.PR_BASE_SHA, runtimeSha: e.KIMI_RUNTIME_SHA,
+            runtimeBlobSha256: crypto.createHash('sha256').update(runtime).digest('hex'), runtimeBaseAncestorVerified: true,
+            requestedModel: model, executedModel: model,
+            executedModelBinding: 'Successful immutable parseStructured requires assistant providerID/modelID to equal requested Kimi identities',
+            runID: e.GITHUB_RUN_ID, runAttempt: Number(e.GITHUB_RUN_ATTEMPT),
+            runURL: `${e.GITHUB_SERVER_URL}/${e.GITHUB_REPOSITORY}/actions/runs/${e.GITHUB_RUN_ID}`,
+            workflowSha: e.GITHUB_WORKFLOW_SHA, workflowRef: e.GITHUB_WORKFLOW_REF,
+            opencodeVersion: version, archiveSha256, diffSha256: review.diffSha256, coveredFiles: review.coveredFiles,
+          };
+          fs.writeFileSync(`${e.RUNNER_TEMP}/kimi-provenance.json`, JSON.stringify(provenance, null, 2));
+          NODE
+
+      - name: Preserve native submission and its execution provenance
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: kimi-native-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+          path: |
+            ${{ runner.temp }}/kimi-review.json
+            ${{ runner.temp }}/kimi-provenance.json
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Publish exact-head review and its own bounded Discord notifications
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
         env:
@@ -90,6 +137,14 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
+            const fs = require('node:fs');
+            const provenance = JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/kimi-provenance.json`, 'utf8'));
+            const createReview = github.rest.pulls.createReview.bind(github.rest.pulls);
+            github.rest.pulls.createReview = parameters => {
+              const body = `${parameters.body}\n\nNative execution provenance (execution evidence, not reviewer quorum):\n\`\`\`json\n${JSON.stringify(provenance, null, 2)}\n\`\`\``;
+              if (body.length > 65536) throw new Error('Publication body exceeds GitHub bounds');
+              return createReview({ ...parameters, body });
+            };
             const { publish } = require(`${process.env.RUNNER_TEMP}/kimi-review.cjs`);
             await publish({ github, context, file: process.env.KIMI_REVIEW_FILE,
               webhookUrl: process.env.DISCORD_REVIEW_WEBHOOK_URL });
