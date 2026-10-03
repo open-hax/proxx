@@ -1,10 +1,10 @@
 name: Kimi runner contract tests
 on:
   pull_request:
-    paths: ['.github/scripts/kimi-review.cjs', '.github/scripts/kimi-review.test.cjs', '.github/workflows/kimi-runner-tests.yml']
+    paths: ['.github/scripts/kimi-review.cjs', '.github/scripts/kimi-review.test.cjs', '.github/scripts/kimi-api-canary.cjs', '.github/scripts/kimi-api-canary.test.cjs', '.github/workflows/kimi-runner-tests.yml']
   push:
     branches: [main, staging]
-    paths: ['.github/scripts/kimi-review.cjs', '.github/scripts/kimi-review.test.cjs', '.github/workflows/kimi-runner-tests.yml']
+    paths: ['.github/scripts/kimi-review.cjs', '.github/scripts/kimi-review.test.cjs', '.github/scripts/kimi-api-canary.cjs', '.github/scripts/kimi-api-canary.test.cjs', '.github/workflows/kimi-runner-tests.yml']
 permissions:
   contents: read
 jobs:
@@ -18,4 +18,44 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '22'
-      - run: node --test .github/scripts/kimi-review.test.cjs
+      - run: node --test .github/scripts/kimi-review.test.cjs .github/scripts/kimi-api-canary.test.cjs
+
+  native-api-canary:
+    name: Native review API diagnostic
+    needs: test
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    concurrency:
+      group: kimi-api-canary-${{ github.repository }}-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - name: Create or verify same-bot diagnostic review
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const fs = require('node:fs');
+            const { probe } = require(`${process.env.GITHUB_WORKSPACE}/.github/scripts/kimi-api-canary.cjs`);
+            await probe({ github, context, write: receipt => fs.writeFileSync(
+              `${process.env.RUNNER_TEMP}/kimi-api-canary.json`,
+              JSON.stringify({ ...receipt, runID: process.env.GITHUB_RUN_ID,
+                runAttempt: process.env.GITHUB_RUN_ATTEMPT }, null, 2), { mode: 0o600 }) });
+      - name: Preserve diagnostic metadata including partial creation
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: kimi-api-canary-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/kimi-api-canary.json
+          if-no-files-found: warn
+          retention-days: 14
