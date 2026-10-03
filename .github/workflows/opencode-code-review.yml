@@ -28,7 +28,8 @@ jobs:
     if: ${{ github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-latest
     env:
-      # This reviewed immutable ancestor supplies all secret-bearing execution.
+      # This reviewed base ancestor supplies the helper only.
+      # Workflow YAML remains within the existing same-repo contributor trust boundary.
       KIMI_RUNTIME_SHA: 4cc05611e5f495311afc5de99aac4fe373eaba65
     permissions:
       contents: read
