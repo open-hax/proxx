@@ -30,7 +30,7 @@ jobs:
     env:
       # This reviewed base ancestor supplies the helper only.
       # Workflow YAML remains within the existing same-repo contributor trust boundary.
-      KIMI_RUNTIME_SHA: 4cc05611e5f495311afc5de99aac4fe373eaba65
+      KIMI_RUNTIME_SHA: afc34e93a1d751c852a0791659390e9bcecea40f
     permissions:
       contents: read
       pull-requests: write
