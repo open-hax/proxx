@@ -164,9 +164,9 @@ test('publisher binds commit and retrieves only its own submission comments', as
   const listReviews = () => {};
   const github = { rest: { pulls: {
     get: async () => ({ data: { state: 'open', draft: false, base: { sha: head }, head: { sha: head, repo: { full_name: 'o/r' } } } }),
-    createReview: async args => { assert.equal(args.commit_id, head); return { data: { id: 42 } }; },
-    listCommentsForReview: list, listFiles, listReviews,
-  } }, paginate: async (method, args) => { if (method === listFiles || method === listReviews) return []; assert.equal(method, list); assert.equal(args.review_id, 42); return [{ body: 'Own finding', path: 'a', line: 1 }]; } };
+    createReview: async args => { assert.equal(args.commit_id, head); return { data: { id: 42, body: args.body } }; },
+    updateReview: async () => ({}), listCommentsForReview: list, listFiles, listReviews,
+  } }, paginate: async (method, args) => { if (method === listFiles || method === listReviews) return []; assert.equal(method, list); assert.equal(args.review_id, 42); return [{ id: 101, body: 'Own finding', path: 'a', line: 1 }]; } };
   let sent = 0;
   const context = { repo: { owner: 'o', repo: 'r' }, payload: { pull_request: { number: 1, base: { sha: head }, head: { sha: head, repo: { full_name: 'o/r' } } } } };
   try {
@@ -255,8 +255,9 @@ test('publication rejects stale base and reuses completed review after notificat
   const github = { rest: { pulls: {
     get: async () => ({ data: { state: 'open', draft: false, base: { sha: currentBase }, head: context.payload.pull_request.head } }),
     createReview: async args => { created++; const value = { id: 42, commit_id: head, state: 'COMMENTED', user: { login: 'github-actions[bot]' }, body: args.body }; reviews.push(value); return { data: value }; },
+    updateReview: async args => { reviews[0].body = args.body; return { data: reviews[0] }; },
     listFiles, listReviews, listCommentsForReview,
-  } }, paginate: async method => method === listReviews ? reviews : method === listFiles ? [] : [{ body: 'Own finding', path: 'a', line: 1 }] };
+  } }, paginate: async method => method === listReviews ? reviews : method === listFiles ? [] : [{ id: 101, body: 'Own finding', path: 'a', line: 1 }] };
   try {
     await assert.rejects(publish({ github, context, file }), /base/); assert.equal(created, 0);
     currentBase = head;
@@ -293,4 +294,51 @@ test('diff path enumeration shares the bounded ten MiB buffer', () => {
   } : require(id) };
   vm.runInNewContext(source, sandbox);
   sandbox.module.exports.diffCoverage(a, b); assert.equal(names, true);
+});
+
+
+test('partial Discord success persists in GitHub review across fresh publisher rerun', async () => {
+  const fs = require('node:fs'), os = require('node:os'), path = require('node:path');
+  const { execFileSync } = require('node:child_process');
+  const { publish, diffCoverage } = require('./kimi-review.cjs');
+  const head = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kimi-delivery-'));
+  const file = path.join(dir, 'review.json');
+  fs.writeFileSync(file, JSON.stringify({ head, ...diffCoverage(head, head), summary: 'original provenance', comments: [] }, (k, v) => k === 'diff' ? undefined : v));
+  const context = { repo: { owner: 'o', repo: 'r' }, payload: { pull_request: { number: 1, base: { sha: head }, head: { sha: head, repo: { full_name: 'o/r' } } } } };
+  let review, original, creates = 0;
+  const files = () => {}, reviews = () => {}, comments = () => {};
+  const github = { rest: { pulls: {
+    get: async () => ({ data: { state: 'open', draft: false, base: { sha: head }, head: { sha: head, repo: { full_name: 'o/r' } } } }),
+    listFiles: files, listReviews: reviews, listCommentsForReview: comments,
+    createReview: async args => { creates++; original = args.body; review = { id: 42, commit_id: head, state: 'COMMENTED', user: { login: 'github-actions[bot]' }, body: args.body }; return { data: { ...review } }; },
+    updateReview: async args => { assert.equal(args.review_id, 42); assert.ok(args.body.startsWith(original)); review.body = args.body; return { data: { ...review } }; },
+  } }, paginate: async method => method === files ? [] : method === reviews ? (review ? [{ ...review }] : []) : [{ id: 101, body: 'first', path: 'a', line: 1 }, { id: 102, body: 'second', path: 'b', line: 1 }] };
+  const sent = [];
+  try {
+    await assert.rejects(publish({ github, context, file, webhookUrl: 'unused', fetchImpl: async (_url, options) => { const body = JSON.parse(options.body).embeds[0].description; sent.push(body); return body === 'first' ? { ok: true } : { ok: false, status: 500 }; } }), /Discord webhook failed: 500/);
+    assert.ok(review.body.startsWith(original));
+    // Fresh module and publisher invocation; only GitHub API state survives.
+    delete require.cache[require.resolve('./kimi-review.cjs')];
+    await require('./kimi-review.cjs').publish({ github, context, file, webhookUrl: 'unused', fetchImpl: async (_url, options) => { sent.push(JSON.parse(options.body).embeds[0].description); return { ok: true }; } });
+    assert.equal(creates, 1);
+    assert.deepEqual(sent, ['first', 'second', 'second']);
+    await require('./kimi-review.cjs').publish({ github, context, file, webhookUrl: 'unused', fetchImpl: async () => assert.fail('Confirmed deliveries must be skipped') });
+    review.body = original;
+    const update = github.rest.pulls.updateReview;
+    github.rest.pulls.updateReview = async () => { throw new Error('receipt write failed'); };
+    await assert.rejects(publish({ github, context, file, webhookUrl: 'unused', fetchImpl: async () => ({ ok: true }) }), /receipt write failed/);
+    assert.equal(review.body, original); // Never claim a failed receipt was persisted.
+    github.rest.pulls.updateReview = update;
+    review.body = original + '\n' + 'x'.repeat(65000);
+    await assert.rejects(publish({ github, context, file, webhookUrl: 'unused', fetchImpl: async () => assert.fail('Budget must fail before external send') }), /metadata exceeds/);
+  } finally { fs.rmSync(dir, { recursive: true }); }
+});
+
+
+test('review prompt restores task intent without granting untrusted context authority', () => {
+  const { reviewPrompt, reviewConfig } = require('./kimi-review.cjs');
+  const prompt = reviewPrompt('a'.repeat(40), { diffSha256: 'hash', coveredFiles: ['kanban/task.md'] }, 'complete diff');
+  for (const term of ['kanban/', 'docs/agent-workflows.md', 'openhax-kanban-sync', 'status/priority', 'source of task intent', 'untrusted task data', 'Disclose missing linked context', 'Rheos retains board operational authority', 'StructuredOutput', 'complete diff']) assert.ok(prompt.includes(term), term);
+  assert.equal(reviewConfig().permission.StructuredOutput, 'allow');
 });
