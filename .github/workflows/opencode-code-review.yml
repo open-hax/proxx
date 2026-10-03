@@ -64,7 +64,13 @@ jobs:
           test "$("$RUNNER_TEMP/opencode-bin/opencode" --version)" = "$OPENCODE_VERSION"
 
       - name: Prepare immutable review runtime
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
+          set -euo pipefail
+          [[ "$KIMI_RUNTIME_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$PR_BASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          git merge-base --is-ancestor "$KIMI_RUNTIME_SHA" "$PR_BASE_SHA"
           git show "${KIMI_RUNTIME_SHA}:.github/scripts/kimi-review.cjs" > "$RUNNER_TEMP/kimi-review.cjs"
           node --check "$RUNNER_TEMP/kimi-review.cjs"
 
