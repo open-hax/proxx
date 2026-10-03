@@ -65,3 +65,12 @@
   spore: none
   receipt-refs: open-hax/proxx#445
   note: A PR-capable upstream runner can still follow a mutable branch; exact review evidence requires separate model execution and guarded publication. Existing pr-flow guidance applies; no new spore.
+- ts: 2026-10-03T08:25:26.894688795Z
+  session: /home/err/spaces/review-repair/proxx
+  task: Structured Kimi qualification and trusted-base bootstrap
+  p-efficiency: 0.6
+  p-friction: 0.65
+  p-skill-candidate: 0.3
+  spore: none
+  receipt-refs: Proxx446,Uxx15
+  note: Native schema model tests remain mandatory after mocked transport tests. Propagate test exit codes; exercise real tracked inventory without admitting operational cache state. Preserve trusted-base guards while reviewer work runs.
