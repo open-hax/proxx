@@ -2,10 +2,10 @@ name: Kimi runner contract tests
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
-    paths: ['.github/scripts/kimi-review.cjs', '.github/scripts/kimi-review.test.cjs', '.github/scripts/kimi-api-canary.cjs', '.github/scripts/kimi-api-canary.test.cjs', '.github/workflows/kimi-runner-tests.yml']
+    paths: ['.github/scripts/kimi-review.cjs', '.github/scripts/kimi-review.test.cjs', '.github/scripts/kimi-api-canary.cjs', '.github/scripts/kimi-api-canary.test.cjs', '.github/workflows/kimi-runner-tests.yml', '.clj-kondo/config.edn', 'src/proxx/policy/catalog_watch.cljs', 'src/proxx/policy/model_availability.cljc', 'test/proxx/policy/model_availability_test.cljc', 'scripts/watch_model_catalogs.cljs', 'scripts/tests/catalog_watch.cljs', 'resources/model-catalog-watch.example.edn']
   push:
     branches: [main, staging]
-    paths: ['.github/scripts/kimi-review.cjs', '.github/scripts/kimi-review.test.cjs', '.github/scripts/kimi-api-canary.cjs', '.github/scripts/kimi-api-canary.test.cjs', '.github/workflows/kimi-runner-tests.yml']
+    paths: ['.github/scripts/kimi-review.cjs', '.github/scripts/kimi-review.test.cjs', '.github/scripts/kimi-api-canary.cjs', '.github/scripts/kimi-api-canary.test.cjs', '.github/workflows/kimi-runner-tests.yml', '.clj-kondo/config.edn', 'src/proxx/policy/catalog_watch.cljs', 'src/proxx/policy/model_availability.cljc', 'test/proxx/policy/model_availability_test.cljc', 'scripts/watch_model_catalogs.cljs', 'scripts/tests/catalog_watch.cljs', 'resources/model-catalog-watch.example.edn']
 permissions:
   contents: read
 jobs:
@@ -20,6 +20,22 @@ jobs:
         with:
           node-version: '22'
       - run: node --test .github/scripts/kimi-review.test.cjs .github/scripts/kimi-api-canary.test.cjs
+
+  catalog-watch:
+    name: Model catalog watcher contract tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - name: Verify pure catalog decisions and actual local watcher transport
+        run: |
+          npm exec --yes --package=nbb@1.3.204 -- nbb -cp src:test -e '(require (quote [cljs.test :as t]) (quote proxx.policy.model-availability-test)) (defmethod t/report [:cljs.test/default :end-run-tests] [m] (set! (.-exitCode js/process) (if (t/successful? m) 0 1))) (t/run-tests (quote proxx.policy.model-availability-test))'
+          npm exec --yes --package=nbb@1.3.204 -- nbb -cp src scripts/tests/catalog_watch.cljs
 
   native-api-canary:
     name: Native review API diagnostic
