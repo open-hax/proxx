@@ -122,7 +122,7 @@ jobs:
       - name: Preserve native submission and its execution provenance
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: kimi-native-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+          name: kimi-native-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}-${{ github.run_attempt }}
           path: |
             ${{ runner.temp }}/kimi-review.json
             ${{ runner.temp }}/kimi-provenance.json
