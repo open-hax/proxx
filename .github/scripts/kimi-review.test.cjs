@@ -24,14 +24,23 @@ test('bounded structured execution authenticates local API, rejects prose and cl
       assert.equal(options.headers.authorization, 'Basic ' + Buffer.from('opencode:private-local-auth').toString('base64'));
       assert.ok(url.endsWith('?directory=%2Fisolated%2Fworkspace'));
       if (++calls === 1) return { ok: true, json: async () => ({ id: 'ses_test123' }) };
-      const request = JSON.parse(options.body);
-      assert.equal(request.format.type, 'json_schema');
-      if (mode === 'timeout') return new Promise((_, reject) => options.signal.addEventListener('abort', () => reject(new Error('secret-provider-diagnostic')), { once: true }));
-      return { ok: true, json: async () => mode === 'prose' ? { info: { role: 'assistant', providerID: 'kimi-code-plan-global', modelID: 'kimi-for-coding' }, parts: [{ type: 'text', text: 'Looks fine' }] } :
-        { info: { role: 'assistant', providerID: 'kimi-code-plan-global', modelID: 'kimi-for-coding', structured: value }, parts: [{ type: 'tool', tool: 'StructuredOutput', state: { status: 'completed', input: value } }] } };
+      if (options.method === 'POST') {
+        assert.ok(url.includes('/prompt_async?'), 'Model submission must not wait on synchronous response headers');
+        const request = JSON.parse(options.body);
+        assert.equal(request.format.type, 'json_schema');
+        return { ok: true, status: 204 };
+      }
+      if (url.includes('/session/status?')) {
+        if (mode === 'timeout') return new Promise((_, reject) => options.signal.addEventListener('abort', () => reject(new Error('secret-provider-diagnostic')), { once: true }));
+        return { ok: true, json: async () => calls === 3 ? { ses_test123: { type: 'busy' } } : {} };
+      }
+      assert.ok(url.includes('/message?'));
+      return { ok: true, json: async () => [mode === 'prose' ? { info: { role: 'assistant', providerID: 'kimi-code-plan-global', modelID: 'kimi-for-coding', time: { completed: 1 } }, parts: [{ type: 'text', text: 'Looks fine' }] } :
+        { info: { role: 'assistant', providerID: 'kimi-code-plan-global', modelID: 'kimi-for-coding', structured: value, time: { completed: 1 } }, parts: [{ type: 'tool', tool: 'StructuredOutput', state: { status: 'completed', input: value } }] }] };
+
     };
     const result = executeStructured('review', { OPENCODE_SERVER_PASSWORD: 'private-local-auth' }, '/isolated/workspace', a, coverage,
-      { spawnImpl: (_command, args, options) => { assert.ok(args.includes('--pure')); assert.equal(options.cwd, '/isolated/workspace'); return child; }, fetchImpl: api, timeout: 30 });
+      { spawnImpl: (_command, args, options) => { assert.ok(args.includes('--pure')); assert.equal(options.cwd, '/isolated/workspace'); return child; }, fetchImpl: api, timeout: mode === 'timeout' ? 30 : 100, pollInterval: 1 });
     if (mode === 'valid') assert.deepEqual(await result, value);
     else await assert.rejects(result, error => !error.message.includes('secret') && (mode === 'timeout' ? /bounded 20-minute/.test(error.message) : /no review was published/.test(error.message)));
     assert.deepEqual(child.kills, ['SIGTERM']);

@@ -187,13 +187,14 @@ function reviewConfig() {
 }
 
 async function executeStructured(prompt, env, cwd, expected, coverage, {
-  spawnImpl = require('node:child_process').spawn, fetchImpl = fetch, timeout = REVIEW_TIMEOUT_MS,
+  spawnImpl = require('node:child_process').spawn, fetchImpl = fetch, timeout = REVIEW_TIMEOUT_MS, pollInterval = 1000,
 } = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeout);
   const child = spawnImpl('opencode', ['serve', '--pure', '--hostname', '127.0.0.1', '--port', '0'], {
     cwd, env, stdio: ['ignore', 'pipe', 'pipe'],
   });
+  let phase = 'startup';
   child.stderr.on('data', () => {}); // Provider diagnostics may contain secrets; never print them.
   try {
     const url = await new Promise((resolve, reject) => {
@@ -211,18 +212,41 @@ async function executeStructured(prompt, env, cwd, expected, coverage, {
     const headers = { 'content-type': 'application/json', authorization: `Basic ${Buffer.from(`opencode:${env.OPENCODE_SERVER_PASSWORD}`).toString('base64')}` };
     async function request(path, body) {
       const response = await fetchImpl(`${url}${path}?directory=${encodeURIComponent(cwd)}`, {
-        method: 'POST', headers, body: JSON.stringify(body), signal: controller.signal,
+        method: body === undefined ? 'GET' : 'POST', headers, body: body === undefined ? undefined : JSON.stringify(body), signal: controller.signal,
       });
       if (!response.ok) throw new Error('Kimi structured API request failed');
-      return response.json();
+      return response.status === 204 ? null : response.json();
     }
+    phase = 'session';
     const session = await request('/session', { title: `Exact-head review ${expected}` });
     if (!/^ses_[a-zA-Z0-9]+$/.test(session.id || '')) throw new Error('Invalid Kimi session identity');
-    const response = await request(`/session/${session.id}/message`, structuredRequest(prompt, expected, coverage));
-    return parseStructured(response, expected, coverage);
+    phase = 'submit';
+    // Native async admission avoids a synchronous HTTP header deadline shorter than the review budget.
+    await request(`/session/${session.id}/prompt_async`, structuredRequest(prompt, expected, coverage));
+    while (!controller.signal.aborted) {
+      phase = 'status';
+      const statuses = await request('/session/status');
+      if (!statuses || typeof statuses !== 'object' || Array.isArray(statuses)) throw new Error('Invalid native session status');
+      const status = statuses[session.id]?.type;
+      if (status !== undefined && !['idle', 'busy', 'retry'].includes(status)) throw new Error('Unknown native session status');
+      if (status !== 'busy' && status !== 'retry') {
+        phase = 'messages';
+        const messages = await request(`/session/${session.id}/message`);
+        if (!Array.isArray(messages)) throw new Error('Invalid native message list');
+        const latest = messages.findLast(message => message.info?.role === 'assistant');
+        if (latest?.info?.error || latest?.info?.time?.completed) {
+          phase = 'validation';
+          return parseStructured(latest, expected, coverage);
+        }
+      }
+      await require('node:timers/promises').setTimeout(pollInterval, undefined, { signal: controller.signal });
+    }
+    throw new Error('Kimi review deadline expired');
   } catch {
     // No provider response, model prose, API credentials, or subprocess stderr enters CI errors.
-    throw new Error(controller.signal.aborted ? 'Kimi model execution exceeded the bounded 20-minute budget' : 'Kimi structured review failed; no review was published');
+    const failure = new Error(controller.signal.aborted ? 'Kimi model execution exceeded the bounded 20-minute budget' : 'Kimi structured review failed; no review was published');
+    failure.phase = phase;
+    throw failure;
   } finally {
     clearTimeout(timer);
     child.kill('SIGTERM');
@@ -291,4 +315,4 @@ async function run() {
 }
 
 module.exports = { assertHead, validateReview, discordPayloads, splitFindings, sendDiscord, publish, structuredRequest, parseStructured, executeStructured, reviewConfig, sourceSnapshot, diffCoverage, assertReviewablePaths, REVIEW_TIMEOUT_MS };
-if (require.main === module) run().catch(error => { console.error(error.message === 'Kimi model execution exceeded the bounded 20-minute budget' ? error.message : 'Kimi review failed closed; no submission artifact produced'); process.exitCode = 1; });
+if (require.main === module) run().catch(error => { console.error(error.message === 'Kimi model execution exceeded the bounded 20-minute budget' ? error.message : ['startup', 'session', 'submit', 'status', 'messages', 'validation'].includes(error.phase) ? `Kimi review failed closed at ${error.phase}; no submission artifact produced` : 'Kimi review failed closed; no submission artifact produced'); process.exitCode = 1; });
