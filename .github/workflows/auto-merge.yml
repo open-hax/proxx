@@ -16,5 +16,5 @@ jobs:
     uses: open-hax/eta-mu/.github/workflows/auto-merge.yml@main
     with:
       pr: ${{ github.event.pull_request.number }}
-      merge-method: SQUASH
+      merge-method: MERGE
     secrets: inherit

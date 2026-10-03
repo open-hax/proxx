@@ -466,6 +466,7 @@ Current stable: **v0.2.0** — Federation bridge, capacity-aware testing, single
 
 | Version | Date | Summary |
 |---------|------|---------|
+| 0.3.1 | Unreleased | Isolated local provider fixtures, deterministic teardown, and verified cloud reasoning normalization |
 | 0.2.0 | 2025-04-07 | Federation bridge protocol, capacity-aware live e2e, production single-witness routing |
 | 0.1.0 | 2025-03-15 | Initial release: OpenAI-compatible proxy with account rotation |
 
