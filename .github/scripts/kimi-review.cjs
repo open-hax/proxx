@@ -99,6 +99,15 @@ async function publish({ github, context, file, webhookUrl, fetchImpl = fetch })
   const fallback = unattached.map(c => `\n\nUnattached finding at ${c.path}:${c.line} (not an added diff line):\n${c.body}`).join('');
   const marker = `<!-- kimi-submission:${require('node:crypto').createHash('sha256').update(JSON.stringify({ base: pr.base.sha, review })).digest('hex')} -->`;
   const originalBody = `Kimi review of exact head ${review.head}\nBase ${pr.base.sha}\n${marker}\n\n${data.summary}${fallback}`;
+  // IDs are accepted only as positive safe integers below. Reserve their largest
+  // decimal representation, not today's observed GitHub IDs, for every receipt.
+  const receiptBytes = Buffer.byteLength(`\n<!-- kimi-discord-delivered:v1:${Number.MAX_SAFE_INTEGER}:${'0'.repeat(64)} -->`, 'utf8');
+  const reserveReceipts = (body, count) => {
+    if (Buffer.byteLength(body, 'utf8') + count * receiptBytes > 65000) {
+      throw new Error('Discord delivery metadata exceeds review body budget');
+    }
+  };
+  if (webhookUrl) reserveReceipts(originalBody, attached.length);
   const prior = await github.paginate(github.rest.pulls.listReviews, { owner, repo, pull_number: pr.number, per_page: 100 });
   const existing = prior.find(r => r.commit_id === review.head && r.state === 'COMMENTED' &&
     r.user?.login === 'github-actions[bot]' && r.body?.includes(marker));
@@ -119,14 +128,21 @@ async function publish({ github, context, file, webhookUrl, fetchImpl = fetch })
   // Preserve the original review/provenance bytes and append bounded receipt lines.
   let body = submitted.data.body || '';
   if (comments.length > 100) throw new Error('Discord delivery receipt budget exceeded');
-  for (const [index, payload] of discordPayloads(comments, `${owner}/${repo}#${pr.number}`).entries()) {
+  const deliveries = discordPayloads(comments, `${owner}/${repo}#${pr.number}`).map((payload, index) => {
     const id = comments[index].id;
     if (!Number.isSafeInteger(id) || id <= 0) throw new Error('Invalid submission comment identity');
     const digest = require('node:crypto').createHash('sha256').update(JSON.stringify(payload)).digest('hex');
     const receipt = `<!-- kimi-discord-delivered:v1:${id}:${digest} -->`;
-    // Model summary/unattached findings belong to the exact immutable prefix;
-    // only the publisher-appended operational suffix can prove delivery.
-    if (body.slice(originalBody.length).split('\n').includes(receipt)) continue;
+    return { payload, receipt };
+  });
+  // Model summary/unattached findings belong to the exact immutable prefix;
+  // only the publisher-appended operational suffix can prove delivery.
+  const suffixLines = body.slice(originalBody.length).split('\n');
+  const pending = deliveries.filter(({ receipt }) => !suffixLines.includes(receipt));
+  // Existing native provenance/receipts also consume space; reserve only missing
+  // receipts so a legitimate partial-success rerun does not double-count them.
+  reserveReceipts(body, pending.length);
+  for (const { payload, receipt } of pending) {
     const next = `${body}\n${receipt}`;
     if (Buffer.byteLength(next, 'utf8') > 65000) throw new Error('Discord delivery metadata exceeds review body budget');
     await sendDiscord(webhookUrl, payload, fetchImpl);

@@ -386,3 +386,31 @@ test('model summary forged delivery marker cannot suppress a never-sent notifica
     await assert.rejects(publish({ github, context, file, webhookUrl: 'unused', fetchImpl: async () => assert.fail('Budget must fail before external send') }), /metadata exceeds/);
   } finally { fs.rmSync(dir, { recursive: true }); }
 });
+
+test('Discord reserves all UTF-8 receipt capacity before native publication', async () => {
+  const fs = require('node:fs'), os = require('node:os'), path = require('node:path');
+  const { execFileSync } = require('node:child_process');
+  const { publish, diffCoverage } = require('./kimi-review.cjs');
+  const head = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'kimi-budget-'));
+  const file = path.join(directory, 'review.json');
+  const comments = Array.from({ length: 100 }, () => ({ path: 'a', line: 1, body: 'x' }));
+  // Valid under both code-unit and total UTF-8 input caps, but not with all receipts.
+  fs.writeFileSync(file, JSON.stringify({ head, ...diffCoverage(head, head), summary: 'a'.repeat(44000) + 'é'.repeat(5400), comments }, (k, v) => k === 'diff' ? undefined : v));
+  const context = { repo: { owner: 'o', repo: 'r' }, payload: { pull_request: { number: 1, base: { sha: head }, head: { sha: head, repo: { full_name: 'o/r' } } } } };
+  const files = () => {}, reviews = () => {}, nativeComments = () => {};
+  let creates = 0, sends = 0, review;
+  const github = { rest: { pulls: {
+    get: async () => ({ data: { state: 'open', draft: false, base: { sha: head }, head: context.payload.pull_request.head } }),
+    listFiles: files, listReviews: reviews, listCommentsForReview: nativeComments,
+    createReview: async args => { creates++; review = { id: 42, body: args.body }; return { data: review }; },
+    updateReview: async args => { review.body = args.body; return { data: review }; },
+  } }, paginate: async method => method === files ? [{ filename: 'a', patch: '@@ -0,0 +1,1 @@\n+x' }] : method === reviews ? [] : comments.map((c, i) => ({ ...c, id: Number.MAX_SAFE_INTEGER - i })) };
+  try {
+    await assert.rejects(publish({ github, context, file, webhookUrl: 'unused', fetchImpl: async () => { sends++; return { ok: true }; } }), /metadata exceeds/);
+    assert.equal(creates, 0, `Must preflight before create; already sent ${sends} notifications`);
+    assert.equal(sends, 0);
+    await publish({ github, context, file }); // No Discord means no receipt reservation.
+    assert.equal(creates, 1);
+  } finally { fs.rmSync(directory, { recursive: true, force: true }); }
+});
