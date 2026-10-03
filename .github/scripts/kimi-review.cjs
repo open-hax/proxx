@@ -102,15 +102,16 @@ async function publish({ github, context, file, webhookUrl, fetchImpl = fetch })
   // IDs are accepted only as positive safe integers below. Reserve their largest
   // decimal representation, not today's observed GitHub IDs, for every receipt.
   const receiptBytes = Buffer.byteLength(`\n<!-- kimi-discord-delivered:v1:${Number.MAX_SAFE_INTEGER}:${'0'.repeat(64)} -->`, 'utf8');
-  const reserveReceipts = (body, count) => {
-    if (Buffer.byteLength(body, 'utf8') + count * receiptBytes > 65000) {
+  const reserveReceipts = (body, additionalBytes) => {
+    if (Buffer.byteLength(body, 'utf8') + additionalBytes > 65000) {
       throw new Error('Discord delivery metadata exceeds review body budget');
     }
   };
-  if (webhookUrl) reserveReceipts(originalBody, attached.length);
   const prior = await github.paginate(github.rest.pulls.listReviews, { owner, repo, pull_number: pr.number, per_page: 100 });
   const existing = prior.find(r => r.commit_id === review.head && r.state === 'COMMENTED' &&
     r.user?.login === 'github-actions[bot]' && r.body?.includes(marker));
+  // Unknown IDs require maximum reservation only for a new publication.
+  if (webhookUrl && !existing) reserveReceipts(originalBody, attached.length * receiptBytes);
   // Rerunning a failed notification job must not create another GitHub review.
   const submitted = existing ? { data: existing } : await github.rest.pulls.createReview({
     owner, repo, pull_number: pr.number, commit_id: review.head, event: 'COMMENT',
@@ -141,7 +142,7 @@ async function publish({ github, context, file, webhookUrl, fetchImpl = fetch })
   const pending = deliveries.filter(({ receipt }) => !suffixLines.includes(receipt));
   // Existing native provenance/receipts also consume space; reserve only missing
   // receipts so a legitimate partial-success rerun does not double-count them.
-  reserveReceipts(body, pending.length);
+  reserveReceipts(body, pending.reduce((bytes, { receipt }) => bytes + Buffer.byteLength(`\n${receipt}`, 'utf8'), 0));
   for (const { payload, receipt } of pending) {
     const next = `${body}\n${receipt}`;
     if (Buffer.byteLength(next, 'utf8') > 65000) throw new Error('Discord delivery metadata exceeds review body budget');

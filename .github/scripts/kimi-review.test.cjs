@@ -414,3 +414,41 @@ test('Discord reserves all UTF-8 receipt capacity before native publication', as
     assert.equal(creates, 1);
   } finally { fs.rmSync(directory, { recursive: true, force: true }); }
 });
+
+
+test('near-cap existing review reserves only actual missing receipt bytes', async () => {
+  const fs = require('node:fs'), os = require('node:os'), path = require('node:path');
+  const crypto = require('node:crypto'), { execFileSync } = require('node:child_process');
+  const { publish, diffCoverage, discordPayloads } = require('./kimi-review.cjs');
+  const head = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'kimi-existing-budget-')), file = path.join(directory, 'review.json');
+  const comments = Array.from({ length: 100 }, (_, i) => ({ id: 1000000000 + i, path: 'a', line: 1, body: 'x' }));
+  fs.writeFileSync(file, JSON.stringify({ head, ...diffCoverage(head, head), summary: 'a'.repeat(44000) + 'é'.repeat(4800), comments: comments.map(({ id, ...c }) => c) }, (k, v) => k === 'diff' ? undefined : v));
+  const context = { repo: { owner: 'o', repo: 'r' }, payload: { pull_request: { number: 1, base: { sha: head }, head: { sha: head, repo: { full_name: 'o/r' } } } } };
+  const files = () => {}, reviews = () => {}, nativeComments = () => {};
+  let review, creates = 0, sends = 0;
+  const github = { rest: { pulls: {
+    get: async () => ({ data: { state: 'open', draft: false, base: { sha: head }, head: context.payload.pull_request.head } }),
+    listFiles: files, listReviews: reviews, listCommentsForReview: nativeComments,
+    createReview: async args => { creates++; review = { id: 42, body: args.body, commit_id: head, state: 'COMMENTED', user: { login: 'github-actions[bot]' } }; return { data: { ...review } }; },
+    updateReview: async args => { review.body = args.body; },
+  } }, paginate: async method => method === files ? [{ filename: 'a', patch: '@@ -0,0 +1,1 @@\n+x' }] : method === reviews ? (review ? [{ ...review }] : []) : comments };
+  try {
+    await publish({ github, context, file }); // Construct the exact valid original prefix.
+    const original = review.body;
+    const receipts = discordPayloads(comments, 'o/r#1').map((payload, i) => `\n<!-- kimi-discord-delivered:v1:${comments[i].id}:${crypto.createHash('sha256').update(JSON.stringify(payload)).digest('hex')} -->`);
+    const complete = original + receipts.join('');
+    assert.ok(Buffer.byteLength(complete) < 65000);
+    const provenance = '\n' + 'p'.repeat(64998 - Buffer.byteLength(complete) - 1);
+    review.body = original + provenance + receipts.join('');
+    assert.equal(Buffer.byteLength(review.body), 64998);
+    const send = async () => { sends++; return { ok: true }; };
+    await publish({ github, context, file, webhookUrl: 'unused', fetchImpl: send });
+    assert.equal(sends, 0); assert.equal(creates, 1);
+    review.body = original + provenance + receipts.slice(0, -1).join('');
+    await publish({ github, context, file, webhookUrl: 'unused', fetchImpl: send });
+    assert.equal(sends, 1); assert.equal(creates, 1);
+    assert.equal(Buffer.byteLength(review.body), 64998);
+    assert.ok(review.body.startsWith(original));
+  } finally { fs.rmSync(directory, { recursive: true, force: true }); }
+});
