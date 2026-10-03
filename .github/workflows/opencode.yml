@@ -20,8 +20,16 @@ jobs:
   opencode:
     if: |
       github.event.comment.user.type != 'Bot' &&
-      (contains(github.event.comment.body, '/oc') ||
-       contains(github.event.comment.body, '/opencode'))
+      (github.event.comment.body == '/oc' ||
+       startsWith(github.event.comment.body, '/oc ') ||
+       startsWith(github.event.comment.body, fromJSON('"/oc\t"')) ||
+       startsWith(github.event.comment.body, fromJSON('"/oc\n"')) ||
+       startsWith(github.event.comment.body, fromJSON('"/oc\r"')) ||
+       github.event.comment.body == '/opencode' ||
+       startsWith(github.event.comment.body, '/opencode ') ||
+       startsWith(github.event.comment.body, fromJSON('"/opencode\t"')) ||
+       startsWith(github.event.comment.body, fromJSON('"/opencode\n"')) ||
+       startsWith(github.event.comment.body, fromJSON('"/opencode\r"')))
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository

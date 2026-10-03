@@ -355,8 +355,9 @@ function opencodeCommentWorkflow() {
   const source = fs.readFileSync(path.join(__dirname, '../workflows/opencode.yml'), 'utf8');
   const condition = source.match(/    if: \|\n([\s\S]*?)    runs-on:/)[1].trim();
   const group = source.match(/  group: (.*)/)[1];
-  const evaluate = (expression, github) => Function('github', 'contains', `return (${expression});`)(
-    github, (value, needle) => value.includes(needle));
+  const evaluate = (expression, github) => Function('github', 'contains', 'startsWith', 'fromJSON', `return (${expression.replaceAll("\\", "\\\\")});`)(
+    github, (value, needle) => value.toLowerCase().includes(needle.toLowerCase()),
+    (value, prefix) => value.toLowerCase().startsWith(prefix.toLowerCase()), JSON.parse);
   const event = (id, type, body) => ({ repository: 'open-hax/proxx', run_id: id,
     event: { comment: { id, user: { type }, body }, issue: { number: 445 }, pull_request: { number: 445 } } });
   return { event, admits: github => evaluate(condition, github),
@@ -383,4 +384,18 @@ test('OpenCode comment concurrency isolates replies and separate commands from t
   assert.notEqual(workflow.group(request), workflow.group(otherCommand));
   assert.notEqual(workflow.group(request), workflow.group(unrelated));
   assert.equal(workflow.group(request), workflow.group(request));
+});
+
+
+test('OpenCode handler requires a command prefix with whitespace or end boundary', () => {
+  const workflow = opencodeCommentWorkflow();
+  for (const body of ['.github/workflows/opencode-code-review.yml', 'Reason: /opencode independently assessed', '/octopus', '/oc-extra', '/opencode-extra', '/opencode/path', ' `/oc`', '> /opencode quoted']) {
+    assert.equal(workflow.admits(workflow.event(123, 'User', body)), false, body);
+  }
+  for (const command of ['/oc', '/opencode']) {
+    for (const suffix of ['', ' assess', '\tassess', '\nassess', '\r\nassess']) {
+      assert.equal(workflow.admits(workflow.event(123, 'User', command + suffix)), true, command + suffix);
+      assert.equal(workflow.admits(workflow.event(124, 'Bot', command + suffix)), false);
+    }
+  }
 });
