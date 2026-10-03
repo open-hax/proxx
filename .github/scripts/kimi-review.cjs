@@ -227,36 +227,38 @@ async function executeStructured(prompt, env, cwd, expected, coverage, {
     });
     if (!events.ok || !events.headers?.get('content-type')?.includes('text/event-stream') || !events.body) throw new Error('Invalid native event stream');
     eventReader = events.body.getReader();
-    let assistantID, eventFailure;
+    let assistantID, eventFailure, streamEnded;
     const decoder = new TextDecoder();
     // Subscribe before admission: async terminal errors may have no assistant record.
     void (async () => {
       let buffer = '';
       while (true) {
         const { done, value } = await eventReader.read();
-        if (done) throw new Error('Native event stream ended');
+        if (done) { streamEnded = true; return; }
         buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n');
-        if (buffer.length > 12 * 1024 * 1024) throw new Error('Native event frame exceeds bounded input');
+        if (buffer.length > 12 * 1024 * 1024) { eventFailure = true; throw new Error('Native event frame exceeds bounded input'); }
         let boundary;
         while ((boundary = buffer.indexOf('\n\n')) !== -1) {
           const frame = buffer.slice(0, boundary); buffer = buffer.slice(boundary + 2);
           const data = frame.split('\n').filter(line => line.startsWith('data:')).map(line => line.slice(5).trimStart()).join('\n');
           if (!data) continue;
-          const event = JSON.parse(data);
-          if (event.type === 'session.error' && (event.properties?.sessionID === session.id || !event.properties?.sessionID)) throw new Error('Native prompt failed');
+          let event;
+          try { event = JSON.parse(data); } catch { eventFailure = true; throw new Error('Malformed native event'); }
+          if (event.type === 'session.error' && (event.properties?.sessionID === session.id || !event.properties?.sessionID)) { eventFailure = true; return; }
           const info = event.type === 'message.updated' ? event.properties?.info : undefined;
           if (info?.role === 'assistant' && info.sessionID === session.id) {
-            if (!/^msg_[a-zA-Z0-9]+$/.test(info.id || '')) throw new Error('Invalid native assistant identity');
+            if (!/^msg_[a-zA-Z0-9]+$/.test(info.id || '')) { eventFailure = true; throw new Error('Invalid native assistant identity'); }
             assistantID = info.id;
           }
         }
       }
-    })().catch(() => { eventFailure = true; });
+    })().catch(() => { streamEnded = true; });
     phase = 'submit';
     // Native async admission avoids a synchronous HTTP header deadline shorter than the review budget.
     await request(`/session/${session.id}/prompt_async`, structuredRequest(prompt, expected, coverage));
     while (!controller.signal.aborted) {
       if (eventFailure) { phase = 'events'; throw new Error('Native prompt or event stream failed'); }
+      if (streamEnded && !assistantID) { phase = 'events'; throw new Error('Native stream ended without assistant identity'); }
       phase = 'status';
       const statuses = await request('/session/status');
       if (!statuses || typeof statuses !== 'object' || Array.isArray(statuses)) throw new Error('Invalid native session status');
@@ -273,6 +275,7 @@ async function executeStructured(prompt, env, cwd, expected, coverage, {
             phase = 'validation';
             return parseStructured(response, expected, coverage);
           }
+          if (streamEnded) { phase = 'events'; throw new Error('Native stream ended without completed assistant proof'); }
         }
       }
       await require('node:timers/promises').setTimeout(pollInterval, undefined, { signal: controller.signal });

@@ -17,7 +17,7 @@ test('bounded structured execution authenticates local API, rejects prose and cl
     queueMicrotask(() => child.stdout.write('opencode server listening on http://127.0.0.1:12345\n'));
     return child;
   }
-  for (const mode of ['valid', 'prose', 'terminal-error', 'wrong-session', 'timeout', 'invalid-status', 'unknown-status', 'wrong-identity', 'incomplete']) {
+  for (const mode of ['valid', 'prose', 'terminal-error', 'wrong-session', 'timeout', 'invalid-status', 'unknown-status', 'wrong-identity', 'incomplete', 'stream-ended-complete', 'stream-ended-unknown', 'stream-ended-incomplete', 'malformed-event']) {
     const child = processStub();
     let calls = 0, messageReads = 0, eventStream;
     const stream = new ReadableStream({ start(controller) { eventStream = controller; } });
@@ -31,8 +31,11 @@ test('bounded structured execution authenticates local API, rejects prose and cl
         const request = JSON.parse(options.body);
         assert.equal(request.format.type, 'json_schema');
         const event = mode === 'terminal-error' ? { type: 'session.error', properties: { sessionID: 'ses_test123', error: { data: { message: 'secret-provider-diagnostic' } } } } : { type: 'message.updated', properties: { info: { role: 'assistant', id: 'msg_test123', sessionID: 'ses_test123' } } };
+        if (mode === 'stream-ended-unknown') event.properties.info.role = 'user';
+        if (mode === 'malformed-event') eventStream.enqueue(new TextEncoder().encode('data: {invalid-json}\n\n'));
         if (mode === 'wrong-session') event.properties.info.sessionID = 'ses_other123';
         eventStream.enqueue(new TextEncoder().encode('data: ' + JSON.stringify(event) + '\n\n'));
+        if (mode.startsWith('stream-ended-')) eventStream.close();
         return { ok: true, status: 204 };
       }
       if (url.includes('/session/status?')) {
@@ -44,14 +47,14 @@ test('bounded structured execution authenticates local API, rejects prose and cl
       assert.ok(url.includes('/message/msg_test123?'), 'Fetch native assistant separately; listing schema-bearing user messages fails on the pinned runtime');
       messageReads++;
       if (mode === 'wrong-identity') return { ok: true, json: async () => ({ info: { id: 'msg_other123', sessionID: 'ses_test123' } }) };
-      if (mode === 'incomplete' && messageReads === 1) return { ok: true, json: async () => ({ info: { id: 'msg_test123', sessionID: 'ses_test123', role: 'assistant', time: {} } }) };
+      if (mode === 'stream-ended-incomplete' || (mode === 'incomplete' && messageReads === 1)) return { ok: true, json: async () => ({ info: { id: 'msg_test123', sessionID: 'ses_test123', role: 'assistant', time: {} } }) };
       return { ok: true, json: async () => mode === 'prose' ? { info: { id: 'msg_test123', sessionID: 'ses_test123', role: 'assistant', providerID: 'kimi-code-plan-global', modelID: 'kimi-for-coding', time: { completed: 1 } }, parts: [{ type: 'text', text: 'Looks fine' }] } :
         { info: { id: 'msg_test123', sessionID: 'ses_test123', role: 'assistant', providerID: 'kimi-code-plan-global', modelID: 'kimi-for-coding', structured: value, time: { completed: 1 } }, parts: [{ type: 'tool', tool: 'StructuredOutput', state: { status: 'completed', input: value } }] } };
 
     };
     const result = executeStructured('review', { OPENCODE_SERVER_PASSWORD: 'private-local-auth' }, '/isolated/workspace', a, coverage,
       { spawnImpl: (_command, args, options) => { assert.ok(args.includes('--pure')); assert.equal(options.cwd, '/isolated/workspace'); return child; }, fetchImpl: api, timeout: ['timeout', 'wrong-session'].includes(mode) ? 30 : 100, pollInterval: 1 });
-    if (['valid', 'incomplete'].includes(mode)) { assert.deepEqual(await result, value); if (mode === 'incomplete') assert.equal(messageReads, 2); }
+    if (['valid', 'incomplete', 'stream-ended-complete'].includes(mode)) { assert.deepEqual(await result, value); if (mode === 'incomplete') assert.equal(messageReads, 2); }
     else await assert.rejects(result, error => !error.message.includes('secret') && (['timeout', 'wrong-session'].includes(mode) ? /bounded 20-minute/.test(error.message) : /no review was published/.test(error.message)));
     assert.deepEqual(child.kills, ['SIGTERM']);
   }
