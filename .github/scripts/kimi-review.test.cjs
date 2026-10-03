@@ -25,7 +25,7 @@ test('bounded structured execution authenticates local API, rejects prose and cl
       assert.equal(options.headers.authorization, 'Basic ' + Buffer.from('opencode:private-local-auth').toString('base64'));
       assert.ok(url.endsWith('?directory=%2Fisolated%2Fworkspace'));
       if (++calls === 1) return { ok: true, json: async () => ({ id: 'ses_test123' }) };
-      if (url.includes('/event?')) return { ok: true, headers: new Headers({ 'content-type': 'text/event-stream' }), body: stream };
+      if (url.includes('/event?')) return { ok: true, headers: { get: name => name === 'content-type' ? 'text/event-stream' : null }, body: stream };
       if (options.method === 'POST') {
         assert.ok(url.includes('/prompt_async?'), 'Model submission must not wait on synchronous response headers');
         const request = JSON.parse(options.body);
