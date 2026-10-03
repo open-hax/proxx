@@ -245,6 +245,34 @@ test('publication rejects stale base and reuses completed review after notificat
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
+test('sensitive changed filenames fail before model input and snapshot roots normalize', () => {
+  const { assertReviewablePaths, sourceSnapshot } = require('./kimi-review.cjs');
+  for (const name of ['.env', 'nested/.env.production', 'auth.json', 'nested/auth.json', 'cert.pem', 'private.key', 'reagent/.lsp/.cache/db.transit.json', 'helix/.clj-kondo/.cache/db.json']) {
+    assert.throws(() => assertReviewablePaths([name]), /sensitive/);
+  }
+  assert.doesNotThrow(() => assertReviewablePaths(['source.cljc', 'AGENTS.md']));
+  const fs = require('node:fs'), os = require('node:os'), path = require('node:path');
+  const { execFileSync } = require('node:child_process');
+  const head = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'kimi-root-law-'));
+  try { sourceSnapshot(head, root + '//', head); assert.ok(fs.existsSync(path.join(root, '.github/scripts/kimi-review.cjs'))); }
+  finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('diff path enumeration shares the bounded ten MiB buffer', () => {
+  const fs = require('node:fs'), vm = require('node:vm');
+  const source = fs.readFileSync(require.resolve('./kimi-review.cjs'), 'utf8');
+  let names = false;
+  const sandbox = { module: { exports: {} }, process: {}, require: id => id === 'node:child_process' ? {
+    execFileSync: (_cmd, args, options) => {
+      if (args.includes('--name-only')) { names = true; assert.equal(options.maxBuffer, 10 * 1024 * 1024); return 'source.cljc\0'; }
+      return 'diff';
+    },
+  } : require(id) };
+  vm.runInNewContext(source, sandbox);
+  sandbox.module.exports.diffCoverage(a, b); assert.equal(names, true);
+});
+
 test('secret-bearing workflow rejects a runtime present only on the PR branch', () => {
   const fs = require('node:fs'), path = require('node:path'), os = require('node:os');
   const { execFileSync, spawnSync } = require('node:child_process');
