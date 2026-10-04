@@ -865,6 +865,136 @@
         (is (not (fs/existsSync (get settings "ASSESSMENT_RESULT")))))
       (finally (fs/rmSync directory #js {:recursive true :force true})))))
 
+(deftest publication-checkpoint-survives-later-refusal-in-actual-entrypoint
+  ;; Only external native/API/Git reads are synthetic. Exercise main! and the
+  ;; actual artifact filesystem after its sole successful comment POST.
+  (doseq [failure [:readback-api :readback-identity :live-base :git-input :canonical-conflict :none]]
+    (let [directory (fs/mkdtempSync (path/join (os/tmpdir) "proxx-publication-checkpoint-"))
+          input-file (path/join directory "input.edn") result-file (path/join directory "result.edn")
+          readback-file (path/join directory "readback.edn") event-file (path/join directory "event.json")
+          source ["fixture-source" "fixture-ref" "123" "1"]
+          input (update snapshot :identity conj source)
+          review-value (review "informational")
+          value {:input-sha256 (r/sha (pr-str input)) :runner-sha256 r/runtime-hash :review review-value}
+          seam (native-seam "informational"
+                            (if (= failure :readback-identity) #(assoc-in % [:user :id] 1) identity)
+                            (if (= failure :canonical-conflict)
+                              #(conj % (fixture-comment 7006 (:summary (review "finding")) "2050-10-04T12:11:00Z" bot)) identity))
+          api! (fn [method endpoint payload]
+                 (cond
+                   (and (= failure :readback-api) (= method "GET") (str/includes? endpoint "/issues/comments/"))
+                   (throw (js/Error. "Synthetic response must not be logged"))
+                   (and (= failure :live-base) (= endpoint "repos/open-hax/proxx/branches/staging"))
+                   {:name "staging" :commit {:sha (apply str (repeat 40 "0"))}}
+                   :else ((:api! seam) method endpoint payload)))
+          settings {"ASSESSMENT_COMMAND" "publish" "ASSESSMENT_POLICY" "fixture-policy"
+                    "GITHUB_EVENT_PATH" event-file "ASSESSMENT_INPUT" input-file
+                    "ASSESSMENT_RESULT" result-file "ASSESSMENT_READBACK" readback-file}]
+      (try
+        (fs/writeFileSync event-file "{}")
+        (fs/writeFileSync input-file (pr-str input))
+        (fs/writeFileSync result-file (pr-str value))
+        (let [refused (with-real-env settings
+                        #(refuses? (fn []
+                                     (with-redefs [r/policy! (fn [_] policy) r/source! (fn [] source)
+                                                   r/live! (fn [& _] snapshot) r/gh-api! api!
+                                                   r/coverage! (fn [& _] (if (= failure :git-input)
+                                                                         (throw (js/Error. "Synthetic Git drift")) coverage))]
+                                       (r/main!)))))]
+          (is (= (not= failure :none) refused))
+          (is (= 1 (count (filter #(= ["POST" "repos/open-hax/proxx/issues/445/comments"] (subvec % 0 2)) @(:calls seam))))))
+        (is (fs/existsSync readback-file))
+        (when (fs/existsSync readback-file)
+          (let [record (edn/read-string (fs/readFileSync readback-file "utf8"))]
+            (is (= 7004 (:native-id record)))
+            (is (= "https://github.com/open-hax/proxx/pull/445#issuecomment-7004" (:native-url record)))
+            (is (= (:head t) (:head record)))
+            (is (= (r/sha (:summary review-value)) (:body-sha256 record)))
+            (is (= (:input-sha256 value) (:input-sha256 record)))
+            (is (not (contains? record :body)))
+            (if (= failure :none)
+              (do (is (= :complete (:publication-state record)))
+                  (is (= :verified-scoped-assessment (:qualification record)))
+                  (is (= :informational (get-in record [:disposition :kind])))
+                  (is (= (:executionControl review-value) (:execution-control record))))
+              (do (is (= :not-established (:qualification record)))
+                  (is (not= :complete (:publication-state record)))))))
+        (finally (fs/rmSync directory #js {:recursive true :force true}))))))
+
+(deftest unreadable-checkpoint-destination-refuses-before-native-post
+  (let [directory (fs/mkdtempSync (path/join (os/tmpdir) "proxx-checkpoint-before-post-"))
+        source ["fixture-source" "fixture-ref" "123" "1"] input (update snapshot :identity conj source)
+        value {:input-sha256 (r/sha (pr-str input)) :runner-sha256 r/runtime-hash :review (review "informational")}
+        input-file (path/join directory "input.edn") result-file (path/join directory "result.edn")
+        event-file (path/join directory "event.json") effects (atom 0)]
+    (try
+      (fs/writeFileSync event-file "{}") (fs/writeFileSync input-file (pr-str input))
+      (fs/writeFileSync result-file (pr-str value))
+      (with-real-env {"ASSESSMENT_COMMAND" "publish" "ASSESSMENT_POLICY" "fixture-policy"
+                      "GITHUB_EVENT_PATH" event-file "ASSESSMENT_INPUT" input-file "ASSESSMENT_RESULT" result-file
+                      "ASSESSMENT_READBACK" (path/join directory "absent-parent" "readback.edn")}
+        #(is (refuses? (fn [] (with-redefs [r/policy! (fn [_] policy) r/source! (fn [] source)
+                                          r/live! (fn [& _] snapshot)
+                                          r/gh-api! (fn [& _] (swap! effects inc) (throw (js/Error. "Native effect")))]
+                               (r/main!))))))
+      (is (zero? @effects))
+      (finally (fs/rmSync directory #js {:recursive true :force true})))))
+
+(deftest existing-publication-checkpoint-survives-retry-intake-refusal
+  (let [directory (fs/mkdtempSync (path/join (os/tmpdir) "proxx-reconcile-retry-"))
+        readback-file (path/join directory "readback.edn") input-file (path/join directory "input.edn")
+        event-file (path/join directory "event.json") source ["fixture-source" "fixture-ref" "123" "1"]
+        prior {:native-id 7004 :native-url "https://github.com/open-hax/proxx/pull/445#issuecomment-7004"
+               :head (:head t) :publication-state :published-unverified :qualification :not-established}
+        before (pr-str prior) calls (atom 0)]
+    (try
+      (fs/writeFileSync readback-file before) (fs/writeFileSync event-file "{}")
+      (fs/writeFileSync input-file (pr-str (update snapshot :identity conj source)))
+      (with-real-env {"ASSESSMENT_COMMAND" "publish" "ASSESSMENT_POLICY" "fixture-policy"
+                      "GITHUB_EVENT_PATH" event-file "ASSESSMENT_INPUT" input-file
+                      "ASSESSMENT_RESULT" (path/join directory "result.edn") "ASSESSMENT_READBACK" readback-file}
+        #(is (refuses? (fn [] (with-redefs [r/policy! (fn [_] policy) r/source! (fn [] source)
+                                          r/live! (fn [& _] (swap! calls inc)
+                                                    (throw (js/Error. "Existing native assessment requires reconciliation")))]
+                               ;; A result exists so current! reaches the actual
+                               ;; fresh collector before this synthetic refusal.
+                               (fs/writeFileSync (path/join directory "result.edn") (pr-str (result (review "informational"))))
+                               (r/main!))))))
+      (is (= 1 @calls))
+      (is (= before (fs/readFileSync readback-file "utf8")))
+      (is (= prior (edn/read-string (fs/readFileSync readback-file "utf8"))))
+      (finally (fs/rmSync directory #js {:recursive true :force true})))))
+
+(deftest ambiguous-post-response-keeps-publication-unconfirmed
+  (doseq [response [:throws :missing-id]]
+    (let [directory (fs/mkdtempSync (path/join (os/tmpdir) "proxx-ambiguous-post-"))
+          input-file (path/join directory "input.edn") result-file (path/join directory "result.edn")
+          readback-file (path/join directory "readback.edn") event-file (path/join directory "event.json")
+          source ["fixture-source" "fixture-ref" "123" "1"] input (update snapshot :identity conj source)
+          review-value (review "informational") effects (atom [])]
+      (try
+        (fs/writeFileSync event-file "{}") (fs/writeFileSync input-file (pr-str input))
+        (fs/writeFileSync result-file (pr-str {:input-sha256 (r/sha (pr-str input))
+                                              :runner-sha256 r/runtime-hash :review review-value}))
+        (with-real-env {"ASSESSMENT_COMMAND" "publish" "ASSESSMENT_POLICY" "fixture-policy"
+                        "GITHUB_EVENT_PATH" event-file "ASSESSMENT_INPUT" input-file
+                        "ASSESSMENT_RESULT" result-file "ASSESSMENT_READBACK" readback-file}
+          #(is (refuses? (fn [] (with-redefs [r/policy! (fn [_] policy) r/source! (fn [] source)
+                                            r/live! (fn [& _] snapshot)
+                                            r/gh-api! (fn [method endpoint _]
+                                                        (swap! effects conj [method endpoint])
+                                                        (if (= response :throws)
+                                                          (throw (js/Error. "Remote acceptance unknown; synthetic lost response")) {}))]
+                                 (r/main!))))))
+        (is (= [["POST" "repos/open-hax/proxx/issues/445/comments"]] @effects))
+        (is (fs/existsSync readback-file))
+        (when (fs/existsSync readback-file)
+          (let [record (edn/read-string (fs/readFileSync readback-file "utf8"))]
+            (is (= :publication-unconfirmed (:publication-state record)))
+            (is (= :not-established (:qualification record)))
+            (is (not (contains? record :native-id)))))
+        (finally (fs/rmSync directory #js {:recursive true :force true}))))))
+
 (defmethod test/report [:cljs.test/default :end-run-tests] [summary]
   (when (pos? (+ (:fail summary) (:error summary))) (set! (.-exitCode js/process) 1)))
 (run-tests)

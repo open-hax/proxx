@@ -143,3 +143,11 @@
   p-skill-candidate: 0.25
   spore: none
   note: Compact identity must not remove authoritative raw coverage comparison. Compare full freshly collected coverage before model and publication, and reproduce mutations with unchanged declared metadata and recomputed self-hash. Keep the serialized byte bound and record the correction without rewriting prior facts.
+
+- ts: "2026-10-04T21:39:29.008Z"
+  origin: proxx452/durable-publication-checkpoint
+  p-efficiency: 0.9
+  p-friction: 0.2
+  p-skill-candidate: 0.2
+  spore: none
+  note: A successful external POST precedes qualification. Persist its known native identity immediately, label partial evidence unqualified, and preserve it through later failures. Atomic artifact replacement avoids losing the previous checkpoint; this is operational reconciliation, not a second ledger or approval.
