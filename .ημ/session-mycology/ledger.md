@@ -135,3 +135,11 @@
   p-skill-candidate: 0.25
   spore: none
   note: Bound the complete serialized UTF8 handoff before writing, not just its full diff. Keep complete coverage once, digest/files identity, real filesystem boundary tests and all historical prefixes. Do not turn synthetic source tests into model or native evidence.
+
+- ts: "2026-10-04T20:41:17.653Z"
+  origin: proxx452/full-coverage-freshness
+  p-efficiency: 0.88
+  p-friction: 0.24
+  p-skill-candidate: 0.25
+  spore: none
+  note: Compact identity must not remove authoritative raw coverage comparison. Compare full freshly collected coverage before model and publication, and reproduce mutations with unchanged declared metadata and recomputed self-hash. Keep the serialized byte bound and record the correction without rewriting prior facts.

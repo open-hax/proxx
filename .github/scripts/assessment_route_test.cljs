@@ -825,6 +825,46 @@
             (do (is (= :refused output)) (is (not (fs/existsSync file)))))))
       (finally (fs/rmSync directory #js {:recursive true :force true})))))
 
+(deftest raw-coverage-mutation-cannot-keep-a-valid-freshness-identity
+  (let [fresh (r/validate-intake! intake)
+        changed (assoc-in fresh [:coverage :diff] "tampered raw diff, declared digest and files unchanged")
+        value {:input-sha256 (r/sha (pr-str changed)) :runner-sha256 r/runtime-hash
+               :review (review "informational")}
+        posts (atom 0)]
+    (is (= (:identity fresh) (:identity changed)))
+    (is (= (select-keys (:coverage fresh) [:diff-sha256 :files])
+           (select-keys (:coverage changed) [:diff-sha256 :files])))
+    ;; Recompute the mutated snapshot's self-hash: it cannot replace comparison
+    ;; with authoritative freshly collected Git bytes.
+    (is (refuses? #(r/final-check! changed fresh value)))
+    (is (refuses? #(r/publish! (fn [& _] (swap! posts inc) {}) changed value
+                             (fn [] fresh) (fn [] nil))))
+    (is (zero? @posts))))
+
+(deftest actual-model-entry-refuses-changed-raw-coverage-before-invocation
+  (let [directory (fs/mkdtempSync (path/join (os/tmpdir) "proxx-raw-coverage-"))
+        fresh (r/validate-intake! intake) source ["fixture-source" "fixture-ref" "123" "1"]
+        changed (assoc-in fresh [:coverage :diff] "altered raw coverage without declared digest update")
+        input (path/join directory "input.edn") event-file (path/join directory "event.json")
+        calls (atom 0)
+        settings {"ASSESSMENT_COMMAND" "model" "ASSESSMENT_POLICY" "fixture-policy"
+                  "GITHUB_EVENT_PATH" event-file "ASSESSMENT_INPUT" input
+                  "ASSESSMENT_RESULT" (path/join directory "result.edn")}]
+    (try
+      (fs/writeFileSync event-file "{}")
+      (fs/writeFileSync input (pr-str (update changed :identity conj source)))
+      (let [failure (with-real-env settings
+                      #(try (with-redefs [r/policy! (fn [_] policy) r/source! (fn [] source)
+                                          r/live! (fn [& _] fresh)
+                                          r/model! (fn [& _] (swap! calls inc)
+                                                     (throw (js/Error. "Fixture model was invoked")))]
+                              (r/main!))
+                            nil (catch :default error (ex-message error))))]
+        (is (= "Input changed before model" failure))
+        (is (zero? @calls))
+        (is (not (fs/existsSync (get settings "ASSESSMENT_RESULT")))))
+      (finally (fs/rmSync directory #js {:recursive true :force true})))))
+
 (defmethod test/report [:cljs.test/default :end-run-tests] [summary]
   (when (pos? (+ (:fail summary) (:error summary))) (set! (.-exitCode js/process) 1)))
 (run-tests)
