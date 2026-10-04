@@ -4,7 +4,8 @@
             [clojure.string :as str]
             [pr-flow.actionability :as a]
             [assessment-route :as r]
-            ["node:fs" :as fs] ["node:os" :as os] ["node:path" :as path]))
+            ["node:fs" :as fs] ["node:os" :as os] ["node:path" :as path]
+            ["node:child_process" :as cp]))
 
 (def context (js->clj (js/JSON.parse (fs/readFileSync ".github/scripts/fixtures/proxx445-native-context.json" "utf8")) :keywordize-keys true))
 (def user {:login "riatzukiza" :id 10676925 :node_id "MDQ6VXNlcjEwNjc2OTI1" :type "User"})
@@ -585,6 +586,108 @@
     (doseq [result ["failure" "cancelled" "skipped"]]
       (is (nil? (admitted-concurrency "scoped-assessment-publish" github {:scoped-assessment-read {:result result}}))))
     (is (nil? (admitted-concurrency "scoped-assessment-contract" {:event_name "pull_request" :event event} {})))))
+
+(deftest actual-coverage-matches-pinned-helper-for-renames-and-binary-text
+  ;; Only fetch/foreign-runtime ancestry are intercepted. Both diff commands
+  ;; execute against a disposable real Git repository through the actual helper.
+  (let [directory (fs/mkdtempSync (path/join (os/tmpdir) "proxx-coverage-git-"))
+        cwd (.cwd js/process) runner (r/runtime!)
+        execute (.-execFileSync cp)
+        git! (fn [args] (str/trim (execute "git" (clj->js args) #js {:cwd directory :encoding "utf8"})))
+        bin (path/join directory "bin")]
+    (try
+      (git! ["init" "--quiet"])
+      (git! ["config" "user.name" "Local transport fixture"])
+      (git! ["config" "user.email" "fixture@example.invalid"])
+      (fs/writeFileSync (path/join directory "old.txt") (apply str (repeat 100 "unchanged rename content\n")))
+      (fs/writeFileSync (path/join directory "blob.dat") (js/Buffer.from "old\u0000text\n" "utf8"))
+      (git! ["add" "--" "old.txt" "blob.dat"])
+      (git! ["commit" "--quiet" "-m" "fixture base"])
+      (let [base (git! ["rev-parse" "HEAD"])]
+        (fs/renameSync (path/join directory "old.txt") (path/join directory "new.txt"))
+        (fs/writeFileSync (path/join directory "blob.dat") (js/Buffer.from "new\u0000é\n" "utf8"))
+        (git! ["add" "-A"])
+        (git! ["commit" "--quiet" "-m" "fixture rename and binary text"])
+        (let [head (git! ["rev-parse" "HEAD"])]
+          ;; A local shim intercepts only fetch and the external-runtime
+          ;; ancestry check. The real Git binary performs every diff.
+          (fs/mkdirSync bin)
+          (fs/writeFileSync (path/join bin "git")
+                            "#!/bin/sh\ncase \"$1\" in\nfetch) exit 0 ;;\nmerge-base) if [ \"$2\" = '--is-ancestor' ]; then exit 0; fi ;;\nesac\nexec /usr/bin/git \"$@\"\n"
+                            #js {:mode 493})
+          (.chdir js/process directory)
+          (with-real-env {"PATH" (str bin ":" (aget js/process.env "PATH"))}
+           (fn []
+            (with-redefs [r/runtime! (fn [] runner)]
+            (let [expected (.diffCoverage runner base head)
+                  actual (try (r/coverage! base head) (catch :default e {:failure (ex-message e)}))]
+              (is (= (.-diff expected) (:diff actual)))
+              (is (= (.-diffSha256 expected) (:diff-sha256 actual)))
+              (is (= ["blob.dat" "new.txt" "old.txt"] (:files actual)))
+              (is (str/includes? (.-diff expected) "é"))))
+          ;; Fatal decoding stays enforced for invalid UTF8, even though the
+          ;; upstream helper decodes strings with replacement characters.
+          (fs/writeFileSync (path/join directory "blob.dat") (js/Buffer.from #js [255 0 10]))
+          (git! ["add" "--" "blob.dat"])
+          (git! ["commit" "--quiet" "-m" "fixture invalid UTF8"])
+          (let [invalid (git! ["rev-parse" "HEAD"])]
+            (with-redefs [r/runtime! (fn [] runner)]
+              (is (refuses? #(r/coverage! base invalid)))))))))
+      (finally
+        (.chdir js/process cwd)
+        (fs/rmSync directory #js {:recursive true :force true})))))
+
+(deftest publisher-download-retains-successful-producer-artifact-name
+  (let [workflow (fs/readFileSync ".github/workflows/proxx-scoped-assessment.yml" "utf8")
+        read (second (re-find #"(?s)\n  scoped-assessment-read:(.*?)\n  scoped-assessment-publish:" workflow))
+        publish (second (re-find #"(?s)\n  scoped-assessment-publish:(.*)" workflow))
+        output (second (re-find #"(?m)^      artifact-name: ([^\n]+)$" read))
+        upload (second (re-find #"(?m)^          name: (scoped-assessment-[^\n]+)$" read))
+        download (second (re-find #"(?s)actions/download-artifact@[^\n]+\n        with:\n          name: ([^\n]+)" publish))
+        render (fn [expression attempt producer]
+                 (-> (or expression "")
+                     (str/replace "${{ github.run_id }}" "123")
+                     (str/replace "${{ github.run_attempt }}" (str attempt))
+                     (str/replace "${{ needs.scoped-assessment-read.outputs.artifact-name }}" producer)))]
+    (doseq [[producer-attempt consumer-attempt] [[1 2] [2 2]]]
+      (let [producer (render output producer-attempt "")]
+        (is (= (str "scoped-assessment-123-" producer-attempt) producer))
+        (is (= producer (render upload producer-attempt "")))
+        (is (= producer (render download consumer-attempt producer)))))
+    (is (= "${{ needs.scoped-assessment-read.outputs.artifact-name }}" download))
+    (is (str/includes? publish "ASSESSMENT_ARTIFACT_NAME: ${{ needs.scoped-assessment-read.outputs.artifact-name }}"))
+    (is (str/includes? publish "test -n \"$ASSESSMENT_ARTIFACT_NAME\""))))
+
+(deftest actual-check-entrypoint-allows-earlier-producer-without-relabeling
+  (let [directory (fs/mkdtempSync (path/join (os/tmpdir) "proxx-publisher-retry-"))
+        source ["fixture-source" "fixture-ref" "123" "1"]
+        input (update snapshot :identity conj source)
+        value {:input-sha256 (r/sha (pr-str input)) :runner-sha256 r/runtime-hash :review (review "informational")}
+        settings {"ASSESSMENT_COMMAND" "check" "ASSESSMENT_POLICY" "fixture-policy"
+                  "GITHUB_EVENT_PATH" (path/join directory "event.json")
+                  "ASSESSMENT_INPUT" (path/join directory "input.edn")
+                  "ASSESSMENT_RESULT" (path/join directory "result.edn")}
+        check (fn [current original]
+                (fs/writeFileSync (get settings "ASSESSMENT_INPUT") (pr-str original))
+                (fs/writeFileSync (get settings "ASSESSMENT_RESULT")
+                                  (pr-str (assoc value :input-sha256 (r/sha (pr-str original)))))
+                (with-real-env settings
+                  #(with-redefs [r/policy! (fn [_] policy) r/source! (fn [] current)
+                                 r/live! (fn [& _] snapshot)] (r/main!))))]
+    (try
+      (fs/writeFileSync (get settings "GITHUB_EVENT_PATH") "{}")
+      (is (= (:summary (:review value))
+             (try (check (assoc source 3 "2") input) (catch :default _ :refused))))
+      (is (= (:summary (:review value)) (check source input)))
+      (doseq [current [(assoc source 0 "other-source") (assoc source 1 "other-ref")
+                       (assoc source 2 "other-run") (assoc source 3 "0")]]
+        (is (refuses? #(check current input))))
+      (doseq [original [(update input :identity #(conj (pop %) (assoc (peek %) 3 "3")))
+                        (update input :identity #(conj (pop %) (assoc (peek %) 3 "0")))
+                        (update input :identity #(conj (pop %) (assoc (peek %) 3 "malformed")))
+                        (update input :identity pop)]]
+        (is (refuses? #(check (assoc source 3 "2") original))))
+      (finally (fs/rmSync directory #js {:recursive true :force true})))))
 
 (defmethod test/report [:cljs.test/default :end-run-tests] [summary]
   (when (pos? (+ (:fail summary) (:error summary))) (set! (.-exitCode js/process) 1)))

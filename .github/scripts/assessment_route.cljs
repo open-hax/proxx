@@ -169,7 +169,8 @@
   (ensure! (zero? (.-status (cp/spawnSync "git" #js ["merge-base" "--is-ancestor" runtime-sha base] #js {:stdio "ignore" :timeout 5000})))
            "Reviewed runtime is not an ancestor of the live staging base")
   (let [runner (runtime!) result (.diffCoverage runner base head)
-        diff (utf8 (cp/execFileSync "git" (clj->js ["diff" (str base "..." head)]) #js {:maxBuffer (* 2 1024 1024)}))]
+        diff (utf8 (cp/execFileSync "git" (clj->js ["diff" "--no-ext-diff" "--no-textconv" "--text" "--no-renames"
+                                                 (str base "..." head)]) #js {:maxBuffer (* 2 1024 1024)}))]
     (.assertReviewablePaths runner (.-coveredFiles result))
     (ensure! (= diff (.-diff result)) "Lossy Git diff decoding")
     (ensure! (<= (.-length (js/Buffer.from diff "utf8")) (* 1024 1024)) "Full diff exceeds scoped prompt budget")
@@ -333,12 +334,29 @@
                    "GITHUB_RUN_ID" (aget js/process.env "GITHUB_RUN_ID")
                    "GITHUB_RUN_ATTEMPT" (aget js/process.env "GITHUB_RUN_ATTEMPT")}
                   #(utf8 (cp/execFileSync "git" (clj->js %) #js {:timeout 5000 :stdio #js ["ignore" "pipe" "pipe"]}))))
+(defn producer-source!
+  "Retain the successful producer's native attempt on a publisher-only retry.
+   Current source! still verifies the consumer's source/ref/run/attempt first."
+  [current input]
+  (let [producer (when (vector? (:identity input)) (peek (:identity input)))
+        attempt (fn [s] (when (and (string? s) (re-matches #"[1-9][0-9]*" s))
+                          (let [n (js/Number s)] (when (js/Number.isSafeInteger n) n))))]
+    (ensure! (and (vector? producer) (= 4 (count producer))
+                  (vector? current) (= 4 (count current))
+                  (= (subvec producer 0 3) (subvec current 0 3))
+                  (attempt (nth producer 3)) (attempt (nth current 3))
+                  (<= (attempt (nth producer 3)) (attempt (nth current 3))))
+             "Producer source/run/attempt changed; no retry relabeling")
+    producer))
 (defn main! []
   (let [mode (aget js/process.env "ASSESSMENT_COMMAND")
         policy (policy! (aget js/process.env "ASSESSMENT_POLICY"))
         event (js->clj (js/JSON.parse (read-bounded (aget js/process.env "GITHUB_EVENT_PATH"))) :keywordize-keys true)
         input-file (aget js/process.env "ASSESSMENT_INPUT") result-file (aget js/process.env "ASSESSMENT_RESULT")
-        current! #(let [source (source!) snapshot (live! gh-api! event policy coverage!)]
+        current! #(let [actual (source!)
+                        source (if (contains? #{"check" "publish"} mode)
+                                 (producer-source! actual (edn/read-string (read-bounded input-file))) actual)
+                        snapshot (live! gh-api! event policy coverage!)]
                     (update snapshot :identity conj source))
         post-check! #(let [input (edn/read-string (read-bounded input-file))]
                        (source!)

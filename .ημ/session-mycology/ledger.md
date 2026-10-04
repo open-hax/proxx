@@ -103,3 +103,11 @@
   p-skill-candidate: 0.30
   spore: none
   note: Bind concurrency only to admitted assessment jobs; test actual workflow guards. Validate each newly authored receipt through its upstream envelope before publication. Preserve and explicitly correct already published incompatible records without rewriting bytes.
+
+- ts: "2026-10-04T18:47:31.628Z"
+  origin: proxx452/native-diff-and-retry-findings
+  p-efficiency: 0.85
+  p-friction: 0.31
+  p-skill-candidate: 0.25
+  spore: none
+  note: Reproduce the upstream diff command exactly. Recover publication from the successful producer's artifact and provenance rather than relabeling it as the retry. Verify through real Git fixtures and the actual entrypoint; preserve failed audit diagnostics and all historical receipt bytes.

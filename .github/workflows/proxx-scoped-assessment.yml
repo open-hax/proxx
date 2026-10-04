@@ -65,6 +65,8 @@ jobs:
       cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    outputs:
+      artifact-name: scoped-assessment-${{ github.run_id }}-${{ github.run_attempt }}
     permissions:
       contents: read
       pull-requests: read
@@ -188,9 +190,13 @@ jobs:
             echo "ASSESSMENT_RESULT=$RUNNER_TEMP/assessment-result.edn"
             echo "ASSESSMENT_READBACK=$RUNNER_TEMP/assessment-readback.edn"
           } >> "$GITHUB_ENV"
+      - name: Require successful producer artifact binding
+        env:
+          ASSESSMENT_ARTIFACT_NAME: ${{ needs.scoped-assessment-read.outputs.artifact-name }}
+        run: test -n "$ASSESSMENT_ARTIFACT_NAME"
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
-          name: scoped-assessment-${{ github.run_id }}-${{ github.run_attempt }}
+          name: ${{ needs.scoped-assessment-read.outputs.artifact-name }}
           path: ${{ runner.temp }}
       - name: Reverify native context and submission before App mint
         env:
