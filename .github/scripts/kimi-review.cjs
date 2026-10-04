@@ -82,7 +82,11 @@ async function sendDiscord(url, payload, fetchImpl, sleep = ms => new Promise(re
   }
 }
 
-async function publish({ github, context, file, webhookUrl, fetchImpl = fetch }) {
+async function publish({ github, context, file, webhookUrl, fetchImpl = fetch, publicationFooter = '' }) {
+  // Caller-owned execution evidence is separate from untrusted model output.
+  // It cannot supply delivery receipts and consumes the same UTF-8 body budget.
+  if (typeof publicationFooter !== 'string' || Buffer.byteLength(publicationFooter, 'utf8') > 4096 ||
+      publicationFooter.includes('<!-- kimi-discord-delivered:')) throw new Error('Invalid trusted publication footer');
   const artifact = JSON.parse(fs.readFileSync(file, 'utf8'));
   // Helper-owned provenance has a separate strict contract. It is never part of
   // the model's StructuredOutput envelope or its unchanged coverage allowlist.
@@ -115,6 +119,7 @@ async function publish({ github, context, file, webhookUrl, fetchImpl = fetch })
   const controlSummary = executionControl ?
     `\n\nOpenCode control provenance (runtime observations, not provider attestation):\nRequested OpenCode variant=${executionControl.requested.variant}.\nAdvertised native low mapping (${executionControl.advertisedNativeControl.apiNpm}): reasoningEffort=${executionControl.advertisedNativeControl.reasoningEffort}.\nPinned OpenCode version=${executionControl.opencodeVersion}.\nObserved assistant variant=${executionControl.observedAssistantVariant} on ${executionControl.executedIdentity.providerID}/${executionControl.executedIdentity.modelID}.\nUnderlying provider model=UNKNOWN; actual reasoning budget=UNKNOWN.` : '';
   const originalBody = `Kimi review of exact head ${review.head}\nBase ${pr.base.sha}\n${marker}\n\n${data.summary}${fallback}${controlSummary}`;
+  const publicationBody = originalBody + publicationFooter;
   // IDs are accepted only as positive safe integers below. Reserve their largest
   // decimal representation, not today's observed GitHub IDs, for every receipt.
   const receiptBytes = Buffer.byteLength(`\n<!-- kimi-discord-delivered:v1:${Number.MAX_SAFE_INTEGER}:${'0'.repeat(64)} -->`, 'utf8');
@@ -127,11 +132,11 @@ async function publish({ github, context, file, webhookUrl, fetchImpl = fetch })
   const existing = prior.find(r => r.commit_id === review.head && r.state === 'COMMENTED' &&
     r.user?.login === 'github-actions[bot]' && r.body?.includes(marker));
   // Unknown IDs require maximum reservation only for a new publication.
-  if (webhookUrl && !existing) reserveReceipts(originalBody, attached.length * receiptBytes);
+  if (!existing) reserveReceipts(publicationBody, webhookUrl ? attached.length * receiptBytes : 0);
   // Rerunning a failed notification job must not create another GitHub review.
   const submitted = existing ? { data: existing } : await github.rest.pulls.createReview({
     owner, repo, pull_number: pr.number, commit_id: review.head, event: 'COMMENT',
-    body: originalBody, comments: attached,
+    body: publicationBody, comments: attached,
   });
   if (typeof submitted.data.body !== 'string' || !submitted.data.body.startsWith(originalBody)) {
     throw new Error('Native review original body prefix changed; delivery receipts denied');
@@ -143,6 +148,7 @@ async function publish({ github, context, file, webhookUrl, fetchImpl = fetch })
   });
   // GitHub owns durable operational receipts; no runner-local cache is authoritative.
   // Preserve the original review/provenance bytes and append bounded receipt lines.
+  // An existing review keeps its original footer even when retry run metadata changes.
   let body = submitted.data.body || '';
   if (comments.length > 100) throw new Error('Discord delivery receipt budget exceeded');
   const deliveries = discordPayloads(comments, `${owner}/${repo}#${pr.number}`).map((payload, index) => {

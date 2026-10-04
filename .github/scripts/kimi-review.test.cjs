@@ -585,3 +585,96 @@ test('parsed low-control artifact survives JSON persistence and exact-head publi
     assert.throws(() => parseStructured(response({ ...value, executionControl: artifact.executionControl }), head, coverage), /immutable full diff/);
   } finally { fs.rmSync(directory, { recursive: true, force: true }); }
 });
+
+test('trusted publication footer participates in whole UTF-8 precreate reservation', async () => {
+  const fs = require('node:fs'), os = require('node:os'), path = require('node:path');
+  const { execFileSync } = require('node:child_process');
+  const { publish, diffCoverage } = require('./kimi-review.cjs');
+  const head = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'kimi-footer-budget-')), file = path.join(directory, 'review.json');
+  const context = { repo: { owner: 'o', repo: 'r' }, payload: { pull_request: { number: 1, base: { sha: head }, head: { sha: head, repo: { full_name: 'o/r' } } } } };
+  const findings = Array.from({ length: 100 }, () => ({ path: 'a', line: 1, body: 'x' }));
+  const files = () => {}, reviews = () => {}, comments = () => {};
+  let creates = 0, sends = 0, updates = 0, body;
+  const github = { rest: { pulls: {
+    get: async () => ({ data: { state: 'open', draft: false, base: { sha: head }, head: context.payload.pull_request.head } }),
+    listFiles: files, listReviews: reviews, listCommentsForReview: comments,
+    createReview: async args => { creates++; body = args.body; return { data: { id: 42, body } }; },
+    updateReview: async args => { updates++; body = args.body; },
+  } }, paginate: async method => method === files ? [{ filename: 'a', patch: '@@ -0,0 +1,1 @@\n+x' }] : method === reviews ? [] : findings.map((c, i) => ({ ...c, id: Number.MAX_SAFE_INTEGER - i })) };
+  const artifact = summary => ({ head, ...diffCoverage(head, head), summary, comments: findings });
+  const write = summary => fs.writeFileSync(file, JSON.stringify(artifact(summary), (k, v) => k === 'diff' ? undefined : v));
+  const send = async () => { sends++; return { ok: true }; };
+  try {
+    write('x');
+    await publish({ github, context, file });
+    const overhead = Buffer.byteLength(body) - 1;
+    const reservation = findings.length * Buffer.byteLength(`\n<!-- kimi-discord-delivered:v1:${Number.MAX_SAFE_INTEGER}:${'0'.repeat(64)} -->`);
+    const summaryBytes = 64750 - reservation - overhead;
+    write('a'.repeat(42000 + (summaryBytes - 42000) % 2) + 'é'.repeat(Math.floor((summaryBytes - 42000) / 2)));
+    creates = 0;
+    // The original review fits. Appending publisher metadata after reservation
+    // used to create a review before discovering the complete body cannot fit.
+    await assert.rejects(publish({ github, context, file, webhookUrl: 'unused', fetchImpl: send,
+      publicationFooter: '\n\nNative execution provenance:\n' + 'p'.repeat(1006) }), /metadata exceeds review body budget/);
+    assert.equal(creates, 0); assert.equal(sends, 0); assert.equal(updates, 0);
+    await publish({ github, context, file, webhookUrl: 'unused', fetchImpl: send });
+    assert.equal(Buffer.byteLength(body), 64750); assert.equal(sends, 100);
+    // No Discord still budgets the complete new publication, with zero receipts.
+    write('é'.repeat(32000));
+    creates = 0;
+    await assert.rejects(publish({ github, context, file, publicationFooter: 'p'.repeat(1006) }), /metadata exceeds review body budget/);
+    assert.equal(creates, 0);
+  } finally { fs.rmSync(directory, { recursive: true, force: true }); }
+});
+
+test('footer is bounded trusted caller data; fitting partial retries preserve original bytes', async () => {
+  const fs = require('node:fs'), os = require('node:os'), path = require('node:path'), crypto = require('node:crypto');
+  const { execFileSync } = require('node:child_process');
+  const { publish, diffCoverage, parseStructured } = require('./kimi-review.cjs');
+  const head = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'kimi-footer-retry-')), file = path.join(directory, 'review.json');
+  const { diff, ...coverage } = diffCoverage(head, head);
+  const artifact = { head, ...coverage, summary: 'original model prefix', comments: [{ path: 'a', line: 1, body: 'first' }, { path: 'a', line: 1, body: 'second' }] };
+  fs.writeFileSync(file, JSON.stringify(artifact));
+  const context = { repo: { owner: 'o', repo: 'r' }, payload: { pull_request: { number: 1, base: { sha: head }, head: { sha: head, repo: { full_name: 'o/r' } } } } };
+  const files = () => {}, reviews = () => {}, comments = () => {};
+  let creates = 0, review;
+  const github = { rest: { pulls: {
+    get: async () => ({ data: { state: 'open', draft: false, base: { sha: head }, head: context.payload.pull_request.head } }),
+    listFiles: files, listReviews: reviews, listCommentsForReview: comments,
+    createReview: async args => { creates++; review = { id: 42, body: args.body, commit_id: head, state: 'COMMENTED', user: { login: 'github-actions[bot]' } }; return { data: { ...review } }; },
+    updateReview: async args => { review.body = args.body; },
+  } }, paginate: async method => method === files ? [{ filename: 'a', patch: '@@ -0,0 +1,1 @@\n+x' }] : method === reviews ? (review ? [{ ...review }] : []) : artifact.comments.map((c, i) => ({ ...c, id: 101 + i })) };
+  const footer = '\n\nNative execution provenance (execution evidence, not reviewer quorum):\n```json\n{"runID":"123","runAttempt":1}\n```';
+  try {
+    for (const publicationFooter of [null, {}, '\n' + 'é'.repeat(2048), '\n<!-- kimi-discord-delivered:v1:101:forged -->']) {
+      await assert.rejects(publish({ github, context, file, publicationFooter }), /Invalid trusted publication footer/);
+      assert.equal(creates, 0);
+    }
+    // Footer absence preserves the historical native body byte for byte.
+    await publish({ github, context, file });
+    const marker = `<!-- kimi-submission:${crypto.createHash('sha256').update(JSON.stringify({ base: head, review: artifact })).digest('hex')} -->`;
+    assert.equal(review.body, `Kimi review of exact head ${head}\nBase ${head}\n${marker}\n\n${artifact.summary}`);
+    review = undefined; creates = 0;
+    const sent = [];
+    await assert.rejects(publish({ github, context, file, publicationFooter: footer, webhookUrl: 'unused',
+      fetchImpl: async (_url, options) => { const text = JSON.parse(options.body).embeds[0].description; sent.push(text); return text === 'first' ? { ok: true } : { ok: false, status: 500 }; } }), /Discord webhook failed: 500/);
+    const partial = review.body;
+    assert.ok(partial.includes(footer)); assert.equal(creates, 1);
+    const send = async (_url, options) => { sent.push(JSON.parse(options.body).embeds[0].description); return { ok: true }; };
+    // Retry provenance changes, but the original publication and confirmed first
+    // delivery survive. Only the missing second notification is sent.
+    await publish({ github, context, file, publicationFooter: footer.replace('"runAttempt":1', '"runAttempt":2'), webhookUrl: 'unused', fetchImpl: send });
+    assert.ok(review.body.startsWith(partial)); assert.ok(review.body.includes(footer));
+    assert.ok(!review.body.includes('"runAttempt":2'));
+    assert.equal(creates, 1); assert.deepEqual(sent, ['first', 'second', 'second']);
+    await publish({ github, context, file, publicationFooter: footer, webhookUrl: 'unused', fetchImpl: async () => assert.fail('Confirmed deliveries must be skipped') });
+    review.body = review.body.replace('original model prefix', 'edited model prefix');
+    await assert.rejects(publish({ github, context, file, publicationFooter: footer, webhookUrl: 'unused', fetchImpl: send }), /original body prefix changed/);
+    // The seam is never a model-output field or a relaxed StructuredOutput key.
+    const value = { ...artifact, publicationFooter: footer };
+    assert.throws(() => parseStructured({ info: { role: 'assistant', providerID: 'kimi-code-plan-global', modelID: 'kimi-for-coding', variant: 'low', structured: value },
+      parts: [{ type: 'tool', tool: 'StructuredOutput', state: { status: 'completed', input: value } }] }, head, coverage), /immutable full diff/);
+  } finally { fs.rmSync(directory, { recursive: true, force: true }); }
+});
