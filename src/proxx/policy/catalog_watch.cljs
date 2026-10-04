@@ -131,6 +131,28 @@
                                     target (assoc :target-id target)
                                     (seq caps) (assoc :capabilities caps))])) ids items))}))
 
+(defn- ^:async read-bounded-body!
+  "Read at most two MiB of response bytes; reject and cancel before decoding the tail."
+  [response controller]
+  (if-let [body (.-body response)]
+    (let [reader (.getReader body)
+          decoder (js/TextDecoder.)]
+      (letfn [(read-next! [size parts]
+                (p/let [chunk (.read reader)]
+                  (if (.-done chunk)
+                    (str (str/join "" parts) (.decode decoder))
+                    (let [value (.-value chunk)
+                          next-size (+ size (.-byteLength value))]
+                      (if (> next-size 2097152)
+                        (do
+                          (.abort controller)
+                          (p/let [_ (p/catch (.cancel reader) (fn [_] nil))] nil))
+                        (read-next! next-size
+                                    (conj parts (.decode decoder value #js {:stream true}))))))))]
+        (-> (read-next! 0 [])
+            (p/finally #(.releaseLock reader)))))
+    (p/resolved nil)))
+
 (defn ^:async fetch-observation! [provider {:keys [now-ms timeout-ms]}]
   (let [key (aget (.-env js/process) (:credential-env provider))
         base (envelope provider now-ms)
@@ -145,8 +167,8 @@
                                                          "User-Agent" "proxx-catalog-watch/1.0"}})]
               (if-not (= 200 (.-status response))
                 (assoc (failed :http-error) :http-status (.-status response))
-                (p/let [body (.text response)]
-                  (if (or (> (count body) 2097152) (str/includes? body key))
+                (p/let [body (read-bounded-body! response controller)]
+                  (if (or (nil? body) (str/includes? body key))
                     (assoc (failed :invalid-response) :http-status 200)
                     (try
                       (merge base {:status :ok :http-status 200}

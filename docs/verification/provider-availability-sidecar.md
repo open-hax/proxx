@@ -154,6 +154,40 @@ pure `.cljc` has no runtime dependency. Scoped clj-kondo and the runtime build
 pass with zero warnings. No server/proxy data path or compiled export changes;
 no generation, deployment or production proxy checks are part of this watcher.
 
+## Bounded response reads and fixture cleanup — 2026-10-04
+
+The transport now counts encoded response bytes while reading the native stream.
+Exactly 2 MiB is accepted; a chunk that crosses the limit is not decoded or added
+to the accumulated body. Overflow aborts the request, cancels the reader and
+returns `invalid-response`, preserving the last-good authenticated baseline.
+UTF-8 decoding retains partial characters between chunks. Existing deadlines,
+credential-reflection checks, collection provenance and availability laws remain
+unchanged. This remains an NBB outer adapter, without a new runtime export.
+
+The integration runner now catches rejected setup/assertion flows, marks exit 1
+without printing exception details, and always closes its own fixture server,
+connections and temporary directory. It awaits cleanup instead of calling
+`process.exit` before cleanup can run. The delayed-response fixture clears its
+timer when the client disconnects.
+
+Against immutable `acac3f0dacc46e07cd6a5c76f92a6dbbc2014b07`, the new transport
+fixture produced **137 assertions / 5 semantic failures**: an actual 2,200,038-byte
+UTF-8 body passed the old character-count limit and advanced its baseline, while
+the old reader consumed the entire 16 MiB chunked body. Injecting a write rejection
+after the test server listened left its temporary directory behind under Node 22's
+default rejection policy; warning mode additionally hung until the bounded probe
+terminated that owned child. Neither timeout nor uncaught termination is credited
+as successful cleanup.
+
+The repaired fixture passes **157 integration assertions**, including exact-limit
+and one-byte-overflow cases, early connection cancellation, unchanged last-good
+bytes, and child-process cleanup under both rejection policies. Existing pure
+availability laws pass **8 tests / 39 assertions**; scoped clj-kondo reports zero
+errors and warnings. The required `pnpm build` completes TypeScript and the
+existing runtime target (**84 files, 0 compiled, 0 warnings**); the watcher itself
+is exercised by the actual NBB command, not a new compiled export. These are
+local tests, not native review approval.
+
 Catalog documentation: [OpenCode Zen](https://opencode.ai/docs/zen/),
 [OpenCode Go](https://opencode.ai/docs/go/),
 [Kimi models](https://www.kimi.com/code/docs/en/kimi-code/models.html).

@@ -47,3 +47,13 @@
   spore: none
   receipt-refs: 2026-08-30T09:13:15Z
   note: Exact parent refs and the one-line source delta made the merge mechanical; the focused integration file requires the compiled CLJS runtime, so the build-then-compiled-test path distinguished a harness precondition from product behavior.
+
+- ts: 2026-10-04T02:42:14.520988480Z
+  session: codex/proxx451-catalog-bounds-and-cleanup
+  task: Bound response bytes and settle integration fixture cleanup before exit
+  p-efficiency: 0.82
+  p-friction: 0.43
+  p-skill-candidate: 0.58
+  spore: none
+  receipt-refs: proxx451/catalog-bounds-and-test-cleanup; acac3f0; user-reported review5403894200
+  note: A character limit after Response.text is neither a byte limit nor bounded input consumption. Test actual UTF8 overflow and early connection cancellation; isolate rejected setup in children under both throw and warn policies, and await fixture cleanup before setting a nonzero exit. Preserve setup errors separately from semantic RED proof. Native inline IDs were unavailable locally, so provenance remains explicitly user-supplied; no GitHub or approval claim.

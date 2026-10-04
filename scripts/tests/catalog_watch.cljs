@@ -12,6 +12,7 @@
 
 (def failures (atom []))
 (def assertions (atom 0))
+(def temporary-directory (atom nil))
 (defn check [label pass?]
   (swap! assertions inc)
   (when-not pass? (swap! failures conj label)))
@@ -26,10 +27,29 @@
    (fn [request response]
      (swap! requests inc)
      (check "authenticated request" (= (str "Bearer " key-value) (aget (.-headers request) "authorization")))
-     (if (:hang? @state)
-       (js/setTimeout (fn [] (when-not (.-destroyed response)
-                              (.writeHead response 200 #js {"content-type" "application/json"})
-                              (.end response "{\"object\":\"list\",\"data\":[{\"id\":\"alias\"}]}"))) 2000)
+     (cond
+       (:stream? @state)
+       (let [{:keys [sent-bytes closed-early]} @state
+             chunk (js/Buffer.alloc 65536 120)
+             total-bytes 16777216
+             timer (js/setInterval
+                    (fn []
+                      (when-not (.-destroyed response)
+                        (.write response chunk)
+                        (swap! sent-bytes + (.-byteLength chunk))
+                        (when (>= @sent-bytes total-bytes)
+                          (.end response)))) 1)]
+         (.writeHead response 200 #js {"content-type" "application/json"})
+         (.once response "close"
+                (fn []
+                  (js/clearInterval timer)
+                  (reset! closed-early (< @sent-bytes total-bytes)))))
+       (:hang? @state)
+       (let [timer (js/setTimeout (fn [] (when-not (.-destroyed response)
+                                           (.writeHead response 200 #js {"content-type" "application/json"})
+                                           (.end response "{\"object\":\"list\",\"data\":[{\"id\":\"alias\"}]}"))) 2000)]
+         (.once response "close" #(js/clearTimeout timer)))
+       :else
        (do (.writeHead response (:status @state) #js {"content-type" "application/json"})
            (.end response (js/JSON.stringify (clj->js (:body @state)))))))))
 
@@ -55,6 +75,64 @@
 
 (defn assessment [r id] (first (filter #(= id (:model-id %)) (:assessments r))))
 
+(defn ^:async rejection-cleanup! [temporary mode]
+  (let [proof-file (path/join temporary (str "rejection-" mode ".json"))
+        preload-file (path/join temporary "reject-fixture.cjs")]
+    (fs/writeFileSync
+     preload-file
+     "const fs = require('node:fs');
+const path = require('node:path');
+const http = require('node:http');
+const originalWrite = fs.writeFileSync, originalTemp = fs.mkdtempSync;
+let temporary, closed = false;
+function record() { originalWrite(process.env.CATALOG_WATCH_TEST_PROOF, JSON.stringify({temporary, closed})); }
+fs.mkdtempSync = function(prefix, ...args) {
+  const result = originalTemp.call(fs, prefix, ...args);
+  if (String(prefix).includes('catalog-watch-test-')) { temporary = result; record(); }
+  return result;
+};
+const originalClose = http.Server.prototype.close;
+http.Server.prototype.close = function(...args) { closed = true; record(); return originalClose.apply(this, args); };
+fs.writeFileSync = function(filename, ...args) {
+  if (temporary && path.basename(String(filename)) === 'public.edn') throw new Error('Injected catalog watcher fixture rejection');
+  return originalWrite.call(fs, filename, ...args);
+};\n")
+    (p/let [result
+            (p/create
+             (fn [resolve reject]
+               (let [process (child/spawn "nbb" #js ["-cp" "src" "scripts/tests/catalog_watch.cljs"]
+                                          #js {:env #js {:PATH (aget (.-env js/process) "PATH")
+                                                       :NODE_OPTIONS (str "--require=" preload-file " --unhandled-rejections=" mode)
+                                                       :CATALOG_WATCH_TEST_PROOF proof-file}})
+                     output (atom "")
+                     timed-out (atom false)
+                     timer (js/setTimeout (fn [] (reset! timed-out true) (.kill process "SIGTERM")) 5000)]
+                 (.on (.-stdout process) "data" #(swap! output str %))
+                 (.on (.-stderr process) "data" #(swap! output str %))
+                 (.once process "error" (fn [error] (js/clearTimeout timer) (reject error)))
+                 (.once process "close" (fn [code]
+                                           (js/clearTimeout timer)
+                                           (resolve {:code code :timed-out? @timed-out :output @output}))))))]
+      (let [proof (js->clj (js/JSON.parse (fs/readFileSync proof-file "utf8")) :keywordize-keys true)]
+        (check (str mode " rejection exits nonzero without external termination")
+               (and (= 1 (:code result)) (not (:timed-out? result))))
+        (check (str mode " rejection closes the listening fixture server") (:closed proof))
+        (check (str mode " rejection removes the fixture directory")
+               (not (fs/existsSync (:temporary proof))))
+        (check (str mode " rejection does not expose exception details")
+               (not (.includes (:output result) "Injected catalog watcher fixture rejection")))
+        ;; A failing regression still owns and removes its child fixture directory.
+        (fs/rmSync (:temporary proof) #js {:recursive true :force true})))))
+
+(defn ^:async cleanup! []
+  (.closeAllConnections server)
+  (-> (p/create (fn [resolve _reject]
+                  (if (.-listening server)
+                    (.close server #(resolve nil))
+                    (resolve nil))))
+      (p/finally #(when-let [directory @temporary-directory]
+                    (fs/rmSync directory #js {:recursive true :force true})))))
+
 ;; Pure shape regression through the same projection the GET transport uses.
 (let [unknown (get-in (watch/shape-catalog {:data [{:id "alias" :context_length 128}]}) [:models "alias"])
       known (get-in (watch/shape-catalog {:data [{:id "alias" :target_id "version-1" :context_length 128}]}) [:models "alias"])
@@ -66,8 +144,11 @@
   (check "pure shape cannot infer alias change from absent target"
          (empty? (:drift (availability/assess-model before after "alias" {:now-ms 1100 :max-age-ms 1000})))))
 
-(p/let [_ (p/create (fn [resolve _reject] (.listen server 0 "127.0.0.1" resolve)))
+(-> (p/let [_ (p/create (fn [resolve reject]
+                         (.once server "error" reject)
+                         (.listen server 0 "127.0.0.1" resolve)))
         temporary (fs/mkdtempSync (path/join (os/tmpdir) "catalog-watch-test-"))
+        _ (reset! temporary-directory temporary)
         config-file (path/join temporary "public.edn")
         baseline-file (path/join temporary "baseline.edn")
         registration-file (path/join temporary "registration.edn")
@@ -78,6 +159,8 @@
                 :registration-file registration-file :report-dir (path/join temporary "reports")}
         _ (fs/writeFileSync config-file (pr-str config))
         _ (fs/writeFileSync registration-file (pr-str {:observed-at-ms 1000 :models {"fixture" #{"alias"}}}))
+        _ (rejection-cleanup! temporary "throw")
+        _ (rejection-cleanup! temporary "warn")
         first-run (run-cli! config-file ["--now-ms" "1000"])
         first-report (report first-run)
         _ (check "first listing" (= :listed (:availability (assessment first-report "alias"))))
@@ -116,6 +199,58 @@
         malformed-report (report malformed-run)
         _ (check "malformed response remains unknown" (= :unknown (:availability (assessment malformed-report "alias"))))
         _ (check "malformed response preserves baseline" (= good-baseline (fs/readFileSync baseline-file "utf8")))
+        large-config-file (path/join temporary "large-body.edn")
+        large-baseline-file (path/join temporary "large-baseline.edn")
+        large-body {:data [{:id "alias"}] :padding (.repeat "😀" 550000)}
+        large-json (js/JSON.stringify (clj->js large-body))
+        _ (check "large UTF8 fixture exceeds two MiB but not two million characters"
+                 (and (> (js/Buffer.byteLength large-json "utf8") 2097152)
+                      (< (count large-json) 2097152)))
+        _ (fs/writeFileSync large-config-file (pr-str (assoc config :baseline-path large-baseline-file)))
+        _ (fs/writeFileSync large-baseline-file good-baseline)
+        _ (reset! state {:status 200 :body large-body})
+        large-run (run-cli! large-config-file ["--now-ms" "1550"])
+        large-report (report large-run)
+        _ (check "actual oversized UTF8 response is invalid"
+                 (= :invalid-response (get-in large-report [:observations 0 :status])))
+        _ (check "oversized UTF8 response cannot establish availability"
+                 (every? #(= :unknown (:availability %)) (:assessments large-report)))
+        _ (check "oversized UTF8 response preserves last good baseline"
+                 (= good-baseline (fs/readFileSync large-baseline-file "utf8")))
+        boundary-body {:data [{:id "alias"}] :padding ""}
+        boundary-padding (.repeat "x" (- 2097152 (js/Buffer.byteLength (js/JSON.stringify (clj->js boundary-body)) "utf8")))
+        boundary-body (assoc boundary-body :padding boundary-padding)
+        _ (check "exact byte-limit fixture is two MiB"
+                 (= 2097152 (js/Buffer.byteLength (js/JSON.stringify (clj->js boundary-body)) "utf8")))
+        _ (reset! state {:status 200 :body boundary-body})
+        boundary-run (run-cli! large-config-file ["--now-ms" "1560"])
+        boundary-report (report boundary-run)
+        _ (check "exact byte-limit response remains accepted"
+                 (= :ok (get-in boundary-report [:observations 0 :status])))
+        boundary-baseline (fs/readFileSync large-baseline-file "utf8")
+        _ (reset! state {:status 200 :body (assoc boundary-body :padding (str boundary-padding "x"))})
+        overflow-run (run-cli! large-config-file ["--now-ms" "1565"])
+        overflow-report (report overflow-run)
+        _ (check "one byte above the limit is invalid"
+                 (= :invalid-response (get-in overflow-report [:observations 0 :status])))
+        _ (check "one-byte overflow preserves last good baseline"
+                 (= boundary-baseline (fs/readFileSync large-baseline-file "utf8")))
+        sent-bytes (atom 0)
+        closed-early (atom false)
+        _ (reset! state {:stream? true :sent-bytes sent-bytes :closed-early closed-early})
+        stream-run (run-cli! config-file ["--now-ms" "1575"])
+        stream-report (report stream-run)
+        _ (check "oversized chunked response is invalid"
+                 (= :invalid-response (get-in stream-report [:observations 0 :status])))
+        _ (check "oversized chunked response cancels before the tail" @closed-early)
+        _ (check "chunked transport stops before a quarter of the full body"
+                 (<= @sent-bytes 4194304))
+        _ (check "oversized chunked response preserves last good baseline"
+                 (= good-baseline (fs/readFileSync baseline-file "utf8")))
+        _ (println (pr-str {:fixture :bounded-http-read
+                            :utf8-bytes (js/Buffer.byteLength large-json "utf8")
+                            :utf16-units (count large-json)
+                            :chunked-bytes-sent @sent-bytes :cancelled-before-tail? @closed-early}))
         _ (reset! state {:status 200 :hang? true})
         timeout-run (run-cli! config-file ["--now-ms" "1600"])
         timeout-report (report timeout-run)
@@ -216,8 +351,10 @@
                  (= :unlisted (:availability (assessment legacy-report "alias"))))
         _ (check "fresh GET establishes tagged replacement, not legacy promotion"
                  (= :authenticated-get (get-in (reader/read-string (fs/readFileSync legacy-baseline "utf8")) [:snapshots 0 :collection-mode])))]
-  (.closeAllConnections server)
-  (.close server)
   (println (str "Catalog watcher: " @assertions " assertions; " (count @failures) " failures."))
   (doseq [label @failures] (println "FAIL:" label))
-  (when (seq @failures) (.exit js/process 1)))
+  (when (seq @failures) (set! (.-exitCode js/process) 1)))
+    (p/catch (fn [_error]
+               (println "Catalog watcher integration failed; no exception detail emitted.")
+               (set! (.-exitCode js/process) 1)))
+    (p/finally cleanup!))
