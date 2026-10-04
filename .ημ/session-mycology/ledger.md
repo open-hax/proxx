@@ -127,3 +127,11 @@
   p-skill-candidate: 0.25
   spore: none
   note: Hold the eligible whole workflow pair instead of competing reader and publisher jobs. Keep ordinary events in unique groups, preserve separate permissions and required linter checks, and state the pending-before-model limit. Preserve unsupported queue diagnostics without presenting them as success.
+
+- ts: "2026-10-04T20:19:08.821Z"
+  origin: proxx452/serialized-intake-byte-budget
+  p-efficiency: 0.88
+  p-friction: 0.24
+  p-skill-candidate: 0.25
+  spore: none
+  note: Bound the complete serialized UTF8 handoff before writing, not just its full diff. Keep complete coverage once, digest/files identity, real filesystem boundary tests and all historical prefixes. Do not turn synthetic source tests into model or native evidence.

@@ -19,10 +19,17 @@
 (defn sha [s] (.digest (.update (crypto/createHash "sha256") s) "hex"))
 (defn ensure! [ok message] (when-not ok (throw (ex-info message {}))))
 (defn utf8 [bytes] (.decode (js/TextDecoder. "utf-8" #js {:fatal true}) bytes))
+(def transport-byte-limit (* 2 1024 1024))
 (defn read-bounded [file]
   (let [bytes (fs/readFileSync file)]
-    (ensure! (<= (.-length bytes) (* 2 1024 1024)) "Input exceeds bounded transport")
+    (ensure! (<= (.-length bytes) transport-byte-limit) "Input exceeds bounded transport")
     (utf8 bytes)))
+(defn write-input! [file snapshot]
+  (let [bytes (js/Buffer.from (pr-str snapshot) "utf8")]
+    ;; Bound the complete serialized handoff, including EDN escapes and native
+    ;; context, before creating an artifact the next stage cannot consume.
+    (ensure! (<= (.-length bytes) transport-byte-limit) "Input exceeds bounded transport")
+    (fs/writeFileSync file bytes #js {:mode 384})))
 (defn policy! [directory]
   (ensure! (= law-hash (sha (fs/readFileSync (str directory "/scripts/pr_flow/actionability.cljc")))) "Canonical law bytes changed")
   (let [file (str directory "/flow.edn")]
@@ -162,7 +169,8 @@
     {:target t :proposal proposal :trigger trigger :base (get-in live-pr [:base :sha])
      :coverage coverage
      :identity [(:context-manifest t) (a/context-binding t) (comment-tuple proposal)
-                (comment-tuple trigger) (get-in live-pr [:base :sha]) coverage policy-sha runtime-sha runtime-hash]}))
+                (comment-tuple trigger) (get-in live-pr [:base :sha])
+                (select-keys coverage [:diff-sha256 :files]) policy-sha runtime-sha runtime-hash]}))
 (defn coverage! [base head]
   (cp/execFileSync "git" #js ["fetch" "--no-tags" "origin" base head]
                    #js {:stdio #js ["ignore" "pipe" "pipe"] :timeout 120000})
@@ -382,7 +390,7 @@
                        (ensure! (= (:coverage input) (coverage! (:base input) (get-in input [:target :head])))
                                 "Git input changed during native publication"))]
     (case mode
-      "intake" (fs/writeFileSync input-file (pr-str (current!)) #js {:mode 384})
+      "intake" (write-input! input-file (current!))
       "model" (let [input (edn/read-string (read-bounded input-file))]
                 (ensure! (= (:identity input) (:identity (current!))) "Input changed before model")
                 (-> (model! input)

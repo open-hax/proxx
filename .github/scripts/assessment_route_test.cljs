@@ -1,7 +1,7 @@
 ;; SPDX-License-Identifier: GPL-3.0-or-later
 (ns assessment-route-test
   (:require [cljs.test :as test :refer [deftest is run-tests]]
-            [clojure.string :as str]
+            [clojure.string :as str] [clojure.edn :as edn]
             [pr-flow.actionability :as a]
             [assessment-route :as r]
             ["node:fs" :as fs] ["node:os" :as os] ["node:path" :as path]
@@ -754,6 +754,76 @@
     (reset! after-post #(swap! state assoc-in [:branch :commit :sha] (apply str (repeat 40 "a"))))
     (is (refuses? publish))
     (is (= 1 @posts))))
+
+(deftest serialized-intake-is-readable-or-refused-before-writing
+  (let [directory (fs/mkdtempSync (path/join (os/tmpdir) "proxx-serialized-budget-"))
+        source ["fixture-source" "fixture-ref" "123" "1"]
+        large-diff (apply str (repeat (* 1024 1024) "a"))
+        escaped-diff (apply str (repeat (* 512 1024) "\\"))
+        fixture (fn [diff] (r/validate-intake!
+                             (assoc intake :coverage (assoc coverage :diff diff :diff-sha256 (r/sha diff)))))
+        near (fixture large-diff)
+        cases [[:near near true]
+               [:escaped (fixture escaped-diff) true]
+               [:multibyte-context (assoc near :synthetic-native-context (apply str (repeat (* 768 1024) "界"))) false]
+               [:escaped-context (assoc near :synthetic-native-context (apply str (repeat (* 600 1024) "\\"))) false]]
+        event-file (path/join directory "event.json")]
+    (try
+      (fs/writeFileSync event-file "{}")
+      ;; The full diff remains in input exactly once; identity binds its computed
+      ;; digest/files. This is a transport fixture, never native/model evidence.
+      (is (= large-diff (get-in near [:coverage :diff])))
+      (is (= (select-keys (:coverage near) [:diff-sha256 :files]) (get-in near [:identity 5])))
+      (doseq [[name value allowed?] cases]
+        (let [file (path/join directory (str (cljs.core/name name) ".edn"))
+              settings {"ASSESSMENT_COMMAND" "intake" "ASSESSMENT_POLICY" "fixture-policy"
+                        "GITHUB_EVENT_PATH" event-file "ASSESSMENT_INPUT" file}
+              observed (with-real-env settings
+                         (fn []
+                           (try (with-redefs [r/policy! (fn [_] policy) r/source! (fn [] source)
+                                              r/live! (fn [& _] value)] (r/main!))
+                                {:written true}
+                                (catch :default error {:failure (ex-message error)}))))]
+          (if allowed?
+            (do
+              (is (nil? (:failure observed)))
+              (is (fs/existsSync file))
+              (let [readback (try {:text (r/read-bounded file)}
+                                  (catch :default error {:failure (ex-message error)}))]
+                (is (nil? (:failure readback)))
+                (when-let [text (:text readback)]
+                  (is (= (update value :identity conj source) (edn/read-string text)))
+                  (is (<= (.-length (js/Buffer.from text "utf8")) (* 2 1024 1024)))
+                  (is (= 384 (bit-and 511 (.-mode (fs/statSync file))))))))
+            (do (is (some? (:failure observed)))
+                (is (not (fs/existsSync file)))))))
+      (finally (fs/rmSync directory #js {:recursive true :force true})))))
+
+(deftest serialized-intake-and-reader-share-inclusive-byte-boundary
+  (let [directory (fs/mkdtempSync (path/join (os/tmpdir) "proxx-exact-budget-"))
+        source ["fixture-source" "fixture-ref" "123" "1"]
+        value (assoc (r/validate-intake! intake) :synthetic-native-context "")
+        base-size (.-length (js/Buffer.from (pr-str (update value :identity conj source)) "utf8"))
+        limit (* 2 1024 1024)
+        event-file (path/join directory "event.json")]
+    (try
+      (fs/writeFileSync event-file "{}")
+      (doseq [extra [0 1]]
+        (let [file (path/join directory (str extra ".edn"))
+              padded (assoc value :synthetic-native-context (apply str (repeat (+ (- limit base-size) extra) "a")))
+              settings {"ASSESSMENT_COMMAND" "intake" "ASSESSMENT_POLICY" "fixture-policy"
+                        "GITHUB_EVENT_PATH" event-file "ASSESSMENT_INPUT" file}
+              output (with-real-env settings
+                       #(try (with-redefs [r/policy! (fn [_] policy) r/source! (fn [] source)
+                                           r/live! (fn [& _] padded)] (r/main!))
+                             :written (catch :default _ :refused)))]
+          (is (= (+ limit extra) (.-length (js/Buffer.from (pr-str (update padded :identity conj source)) "utf8"))))
+          (if (zero? extra)
+            (do (is (= :written output))
+                (is (= limit (.-size (fs/statSync file))))
+                (is (= (update padded :identity conj source) (edn/read-string (r/read-bounded file)))))
+            (do (is (= :refused output)) (is (not (fs/existsSync file)))))))
+      (finally (fs/rmSync directory #js {:recursive true :force true})))))
 
 (defmethod test/report [:cljs.test/default :end-run-tests] [summary]
   (when (pos? (+ (:fail summary) (:error summary))) (set! (.-exitCode js/process) 1)))
