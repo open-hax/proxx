@@ -1,11 +1,12 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import assert from "node:assert/strict";
 import { once } from "node:events";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { Agent, getGlobalDispatcher, setGlobalDispatcher } from "undici";
 
 import type { FastifyInstance } from "fastify";
 
@@ -115,6 +116,16 @@ async function withProxyApp(
 
   const upstream = createServer(async (request, response) => {
     const body = await readRequestBody(request);
+    if (request.url?.startsWith("/__test__/unavailable-lan/")) {
+      response.destroy();
+      return;
+    }
+    if (request.url?.startsWith("/api/v2/")) {
+      // These route tests exercise the documented search fallback without Chroma.
+      response.writeHead(503, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: "fixture semantic index unavailable" }));
+      return;
+    }
     const shouldBypassHandler =
       (request.method === "GET" && request.url === "/v1/models")
       || (request.method === "GET" && request.url === "/api/tags");
@@ -164,6 +175,7 @@ async function withProxyApp(
     upstreamProviderBaseUrls: {
       vivgrid: `http://127.0.0.1:${address.port}`,
       "ollama-cloud": `http://127.0.0.1:${address.port}`,
+      "ollama-lan": `http://127.0.0.1:${address.port}/__test__/unavailable-lan`,
       ob1: `http://127.0.0.1:${address.port}`,
       openai: `http://127.0.0.1:${address.port}`,
       openrouter: `http://127.0.0.1:${address.port}`,
@@ -251,25 +263,75 @@ async function withProxyApp(
     },
   };
 
-  await withClearedAmbientProviders(async () => {
+  await withEnv({
+    CHROMA_URL: `http://127.0.0.1:${address.port}`,
+    PROXY_SESSIONS_FILE: path.join(tempDir, "sessions.json"),
+  }, async () => withClearedAmbientProviders(async () => {
+    const previousDispatcher = getGlobalDispatcher();
+    const dispatcher = new Agent({ pipelining: 0 });
+    setGlobalDispatcher(dispatcher);
     const previousCljsRuntime = getActiveCljsRuntime();
-    setActiveCljsRuntime(await testCljsRuntimePromise);
-    const app = await createApp(config);
+    let app: FastifyInstance | undefined;
+    const errors: unknown[] = [];
     try {
+      setActiveCljsRuntime(await testCljsRuntimePromise);
+      app = await createApp(config);
       await fn({ app, upstream, tempDir });
+    } catch (error) {
+      errors.push(error);
     } finally {
-      await app.close();
-      setActiveCljsRuntime(previousCljsRuntime);
-      await new Promise<void>((resolve, reject) => {
-        upstream.close((error) => {
-          if (error) {
-            reject(error);
-            return;
-          }
-          resolve();
+      // Cancel pooled work while its fixture listeners still belong to this test.
+      // Each step runs even if another fails; retain the original test failure.
+      for (const cleanup of [
+        () => dispatcher.destroy(),
+        () => app?.close(),
+        () => { setGlobalDispatcher(previousDispatcher); setActiveCljsRuntime(previousCljsRuntime); },
+        () => new Promise<void>((resolve, reject) => {
+          upstream.close(error => error ? reject(error) : resolve());
+        }),
+        () => rm(tempDir, { recursive: true, force: true }),
+      ]) {
+        try { await cleanup(); }
+        catch (error) { errors.push(error); }
+      }
+    }
+    if (errors.length === 1) throw errors[0];
+    if (errors.length > 1) throw new AggregateError(errors, "Proxy fixture execution and cleanup failed");
+  }));
+}
+
+for (const fault of ["dispatcher", "app"] as const) {
+  test(`proxy fixture cleans listeners, files and globals after ${fault} teardown failure`, async () => {
+    const previousDispatcher = getGlobalDispatcher();
+    const previousRuntime = getActiveCljsRuntime();
+    const originalDestroy = Agent.prototype.destroy;
+    let fixture: TestContext | undefined;
+    if (fault === "dispatcher") {
+      Agent.prototype.destroy = (function (this: Agent, ...args: unknown[]) {
+        const result = Reflect.apply(originalDestroy, this, args);
+        // Undici's promise overload delegates to this.destroy(error, callback).
+        if (args.length) return result;
+        return Promise.resolve(result).then(() => {
+          throw new Error("injected dispatcher teardown failure");
         });
-      });
-      await rm(tempDir, { recursive: true, force: true });
+      }) as Agent["destroy"];
+    }
+    try {
+      await assert.rejects(withProxyApp({
+        keys: [], upstreamHandler: async () => ({ status: 503, body: "unused fixture" }),
+      }, async context => {
+        fixture = context;
+        if (fault === "app") context.app.addHook("onClose", async () => {
+          throw new Error("injected app teardown failure");
+        });
+      }), new RegExp(`injected ${fault} teardown failure`));
+      assert.ok(fixture);
+      assert.equal(fixture.upstream.listening, false);
+      await assert.rejects(access(fixture.tempDir), { code: "ENOENT" });
+      assert.equal(getGlobalDispatcher(), previousDispatcher);
+      assert.equal(getActiveCljsRuntime(), previousRuntime);
+    } finally {
+      Agent.prototype.destroy = originalDestroy;
     }
   });
 }
@@ -6240,16 +6302,26 @@ test("preserves xhigh reasoning effort for gpt chat requests routed to responses
   );
 });
 
-test.skip("CLJS policy normalizes xhigh reasoning effort to max for ollama-cloud provider", async () => {
+test("CLJS policy normalizes xhigh reasoning effort to max for ollama-cloud provider", async () => {
+  let observedEffort: unknown;
   await withProxyApp(
     {
       keys: [],
+      proxyAuthToken: "reasoning-test",
+      configOverrides: { upstreamProviderId: "ollama-cloud", localOllamaEnabled: false },
+      handleModelCatalog: true,
       keysPayload: {
         providers: {
           "ollama-cloud": ["ollama-cloud-key"]
         }
       },
-      upstreamHandler: async () => ({
+      upstreamHandler: async (request, body) => {
+        if (request.method === "GET") {
+          return { status: 200, headers: { "content-type": "application/json" },
+            body: JSON.stringify({ data: [{ id: "glm-4.7" }], models: [{ name: "glm-4.7" }] }) };
+        }
+        observedEffort = JSON.parse(body).reasoning_effort;
+        return ({
         status: 200,
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -6258,13 +6330,18 @@ test.skip("CLJS policy normalizes xhigh reasoning effort to max for ollama-cloud
           model: "glm-4.7",
           choices: [{ index: 0, message: { role: "assistant", content: "ok" }, finish_reason: "stop" }]
         })
-      })
+      });
+      }
     },
     async ({ app }) => {
+      const settings = await app.inject({ method: "POST", url: "/api/v1/settings",
+        headers: { authorization: "Bearer reasoning-test" },
+        payload: { disabledProviderIds: ["ollama", "ollama-lan"] } });
+      assert.equal(settings.statusCode, 200);
       const response = await app.inject({
         method: "POST",
         url: "/v1/chat/completions",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", authorization: "Bearer reasoning-test" },
         payload: {
           model: "glm-4.7",
           messages: [{ role: "user", content: "hello" }],
@@ -6275,6 +6352,7 @@ test.skip("CLJS policy normalizes xhigh reasoning effort to max for ollama-cloud
 
       assert.equal(response.statusCode, 200);
       assert.equal(response.headers["x-open-hax-upstream-provider"], "ollama-cloud");
+      assert.equal(observedEffort, "max");
     }
   );
 });
@@ -7805,7 +7883,13 @@ test("openai responses passthrough closes stalled streaming bodies", async () =>
     markUpstreamClosed = resolve;
   });
 
-  await withProxyApp(
+  await withPatchedFetch(async (input) => {
+    const url = input instanceof Request ? input.url : String(input);
+    if (url === "https://chatgpt.com/backend-api/wham/usage") {
+      return Response.json({ rate_limit: { allowed: true, limit_reached: false } });
+    }
+    return undefined;
+  }, async () => withProxyApp(
     {
       keys: [],
       keysPayload: {
@@ -7869,7 +7953,7 @@ test("openai responses passthrough closes stalled streaming bodies", async () =>
       );
       upstream.closeIdleConnections();
     }
-  );
+  ));
 });
 
 test("/api/tools/websearch proxies via Responses web_search and extracts url citations", async () => {
@@ -12246,7 +12330,7 @@ test("session UI routes support append, fork, and search after extraction from u
       assert.equal(searchResponse.statusCode, 200);
       const searchPayload: unknown = searchResponse.json();
       assert.ok(isRecord(searchPayload));
-      assert.ok(searchPayload.source === "fallback" || searchPayload.source === "chroma");
+      assert.equal(searchPayload.source, "fallback");
       assert.ok(Array.isArray(searchPayload.results));
       assert.ok(searchPayload.results.length >= 1);
       assert.ok(isRecord(searchPayload.results[0]));
@@ -12406,7 +12490,7 @@ test("/api/v1/sessions support append, fork, and search on canonical control-pla
       assert.equal(searchResponse.statusCode, 200);
       const searchPayload: unknown = searchResponse.json();
       assert.ok(isRecord(searchPayload));
-      assert.ok(searchPayload.source === "fallback" || searchPayload.source === "chroma");
+      assert.equal(searchPayload.source, "fallback");
       assert.ok(Array.isArray(searchPayload.results));
       assert.ok(searchPayload.results.length >= 1);
       assert.ok(isRecord(searchPayload.results[0]));

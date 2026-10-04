@@ -5,6 +5,7 @@ import { createServer } from "node:http";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { Agent, getGlobalDispatcher, setGlobalDispatcher } from "undici";
 
 import { ProviderCatalogStore } from "../lib/provider-catalog.js";
 import type { KeyPool, ProviderCredential } from "../lib/key-pool.js";
@@ -103,14 +104,23 @@ function buildTestAccount(providerId: string, token = "test-token"): ProviderCre
 
 async function withCatalogRouteTimeoutMs<T>(timeoutMs: number, fn: () => Promise<T>): Promise<T> {
   const previous = process.env.PROXY_PROVIDER_CATALOG_ROUTE_TIMEOUT_MS;
+  const previousDispatcher = getGlobalDispatcher();
+  const dispatcher = new Agent({ pipelining: 0 });
+  setGlobalDispatcher(dispatcher);
   process.env.PROXY_PROVIDER_CATALOG_ROUTE_TIMEOUT_MS = String(timeoutMs);
   try {
     return await fn();
   } finally {
-    if (previous === undefined) {
-      delete process.env.PROXY_PROVIDER_CATALOG_ROUTE_TIMEOUT_MS;
-    } else {
-      process.env.PROXY_PROVIDER_CATALOG_ROUTE_TIMEOUT_MS = previous;
+    // Stop the aborted request's pool before its owned listener is closed.
+    try {
+      await dispatcher.destroy();
+    } finally {
+      setGlobalDispatcher(previousDispatcher);
+      if (previous === undefined) {
+        delete process.env.PROXY_PROVIDER_CATALOG_ROUTE_TIMEOUT_MS;
+      } else {
+        process.env.PROXY_PROVIDER_CATALOG_ROUTE_TIMEOUT_MS = previous;
+      }
     }
   }
 }

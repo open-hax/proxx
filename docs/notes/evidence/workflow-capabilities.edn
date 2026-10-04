@@ -1,0 +1,12 @@
+{:observed-date "2026-09-12"
+ :repository {:full-name "open-hax/proxx"
+              :source "https://api.github.com/repos/open-hax/proxx"
+              :allow_auto_merge true
+              :allow_merge_commit true
+              :allow_squash_merge false
+              :allow_rebase_merge false}
+ :providers {"opencode"
+             {:catalog-source "https://opencode.ai/zen/v1/models"
+              :pricing-source "https://opencode.ai/docs/zen/"
+              :selection-scope "User-authorized free Zen models, each present in the observed live catalog"
+              :available-models #{"big-pickle" "mimo-v2.5-free"}}}}
