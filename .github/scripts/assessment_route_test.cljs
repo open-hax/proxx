@@ -569,23 +569,36 @@
              "GITHUB_RUN_ID" "123" "GITHUB_RUN_ATTEMPT" "1"}]
     (is (refuses? #(r/trusted-source! env (fn [_] head))))))
 
-(defn workflow-concurrency [github]
-  ;; Execute the actual trusted root expression. No queue simulator or provider effect.
-  (let [workflow (fs/readFileSync ".github/workflows/proxx-scoped-assessment.yml" "utf8")
-        expression (second (re-find #"(?m)^  group: \$\{\{ (.*?) \}\}$" workflow))
-        evaluate (js/Function. "github" "startsWith" "format" (str "return (" (or expression "null") ");"))]
-    (evaluate (clj->js github) (fn [value prefix] (str/starts-with? value prefix))
+(defn concurrency-expression [expression github needs]
+  ;; Execute the shipped expression, not a handwritten queue/admission rule.
+  (let [expression (str/replace (or expression "null") "needs.scoped-assessment-read" "needs['scoped-assessment-read']")
+        evaluate (js/Function. "github" "needs" "startsWith" "format" (str "return (" expression ");"))]
+    (evaluate (clj->js github) (clj->js needs) (fn [value prefix] (str/starts-with? value prefix))
               (fn [template value] (str/replace template "{0}" (str value))))))
 
-(deftest eligible-workflow-keeps-read-and-separate-publisher-together
+(defn workflow-concurrency [github]
+  (let [workflow (fs/readFileSync ".github/workflows/proxx-scoped-assessment.yml" "utf8")]
+    (concurrency-expression (second (re-find #"(?m)^  group: \$\{\{ (.*?) \}\}$" workflow)) github {})))
+
+(defn job-concurrency [job github needs]
+  (let [workflow (fs/readFileSync ".github/workflows/proxx-scoped-assessment.yml" "utf8")
+        block (second (re-find (re-pattern (str "(?s)\n  " job ":\n(.*?)(?=\n  [a-z][a-z0-9-]*:|$)")) workflow))]
+    (concurrency-expression (second (re-find #"(?m)^      group: \$\{\{ (.*?) \}\}$" (or block ""))) github needs)))
+
+(deftest successful-reader-keeps-its-pair-and-serializes-only-publication
   (let [workflow (fs/readFileSync ".github/workflows/proxx-scoped-assessment.yml" "utf8")
         github {:event_name "issue_comment" :run_id "101" :event event}
-        group "proxx-scoped-assessment-445"]
+        needs {:scoped-assessment-read {:result "success"}}
+        group "proxx-scoped-assessment-publish-445"]
     (is (boolean (re-find #"(?m)^concurrency:" workflow)))
-    (is (= group (workflow-concurrency github)))
-    (is (= group (workflow-concurrency (assoc github :run_id "102"))))
-    (is (nil? (re-find #"(?m)^    concurrency:" workflow)))
+    (is (= "proxx-scoped-assessment-run-101" (workflow-concurrency github)))
+    (is (= "proxx-scoped-assessment-run-102" (workflow-concurrency (assoc github :run_id "102"))))
+    (is (nil? (job-concurrency "scoped-assessment-read" github needs)))
+    (is (= group (job-concurrency "scoped-assessment-publish" github needs)))
+    (is (= group (job-concurrency "scoped-assessment-publish" (assoc github :run_id "102") needs)))
+    (is (= 1 (count (re-seq #"(?m)^    concurrency:" workflow))))
     (is (= 1 (count (re-seq #"(?m)^  cancel-in-progress: false$" workflow))))
+    (is (= 1 (count (re-seq #"(?m)^      cancel-in-progress: false$" workflow))))
     (is (not (str/includes? workflow "queue: max")))
     (doseq [other [(assoc github :event_name "pull_request")
                   (assoc-in github [:event :action] "edited")
@@ -595,12 +608,57 @@
                   (assoc-in github [:event :comment :body] "ordinary discussion")
                   (assoc-in github [:event :comment :body] (:body proposal))
                   (assoc-in github [:event :comment :body] (:summary (review "informational")))]]
-      (is (= "proxx-scoped-assessment-other-101" (workflow-concurrency other)))
-      (is (= "proxx-scoped-assessment-other-102" (workflow-concurrency (assoc other :run_id "102")))))
+      (is (= "proxx-scoped-assessment-run-101" (workflow-concurrency other)))
+      (is (= "proxx-scoped-assessment-run-102" (workflow-concurrency (assoc other :run_id "102")))))
     (is (true? (workflow-guard "scoped-assessment-read" github {})))
-    (is (true? (workflow-guard "scoped-assessment-publish" github {:scoped-assessment-read {:result "success"}})))
+    (is (true? (workflow-guard "scoped-assessment-publish" github needs)))
     (doseq [result ["failure" "cancelled" "skipped"]]
-      (is (false? (workflow-guard "scoped-assessment-publish" github {:scoped-assessment-read {:result result}}))))))
+      (let [failed {:scoped-assessment-read {:result result}}]
+        (is (false? (workflow-guard "scoped-assessment-publish" github failed)))
+        ;; Even if GitHub evaluates a skipped job's group, it is run-local.
+        (is (= "proxx-scoped-assessment-publish-other-101" (job-concurrency "scoped-assessment-publish" github failed)))))
+    (is (= "proxx-scoped-assessment-publish-other-101"
+           (job-concurrency "scoped-assessment-publish" (assoc github :event_name "pull_request") needs)))))
+
+(deftest unauthorized-native-intake-cannot-replace-an-authorized-publisher
+  ;; Real intake/permission/command guards, synthetic read-only API. Queue-key
+  ;; collisions come from actual YAML; no simulated native scheduler or model.
+  (let [visitor (assoc user :login "public-commenter" :id 7009 :node_id "U_fixture_7009")
+        read-result (fn [comment]
+                      (let [api! (fn [_ endpoint _]
+                                   (cond
+                                     (= endpoint "graphql") {:data {:repository (assoc (:repository context) :pullRequest
+                                                                      (assoc (:pr context) :reviewThreads {:nodes [(:thread context)] :pageInfo {:hasNextPage false}}))}}
+                                     (= endpoint "repos/open-hax/proxx/pulls/445") live-pr
+                                     (= endpoint "repos/open-hax/proxx/branches/staging") {:name "staging" :commit {:sha base}}
+                                     (= endpoint "repos/open-hax/proxx/issues/comments/7002") comment
+                                     (str/includes? endpoint "/comments?") [proposal comment]
+                                     (str/includes? endpoint "/public-commenter/permission") {:permission "read"}
+                                     (str/includes? endpoint "/permission") {:permission "write"}
+                                     :else (throw (js/Error. "Unexpected queue-admission fixture read"))))]
+                        (try (r/live! api! (assoc event :comment comment) policy (fn [& _] coverage))
+                             "success" (catch :default _ "failure"))))
+        github {:event_name "issue_comment" :run_id "201" :event event}
+        admitted (read-result trigger)
+        needs {:scoped-assessment-read {:result admitted}}
+        groups (fn [g n] (cond-> [(workflow-concurrency g)]
+                          (workflow-guard "scoped-assessment-publish" g n)
+                          (conj (job-concurrency "scoped-assessment-publish" g n))))
+        authorized (remove nil? (groups github needs))]
+    (is (= "success" admitted))
+    (doseq [comment [(assoc trigger :user visitor)
+                     (assoc trigger :body "/eta-mu assess-actionability malformed")]]
+      (let [other (-> github (assoc :run_id "202") (assoc-in [:event :comment] comment))
+            refused (read-result comment)
+            failed {:scoped-assessment-read {:result refused}}]
+        ;; Both public-prefix and malformed bodies reach the old coarse guard,
+        ;; then actual native intake refuses them before any model/publication.
+        (is (true? (workflow-guard "scoped-assessment-read" other {})))
+        (is (= "failure" refused))
+        (is (false? (workflow-guard "scoped-assessment-publish" other failed)))
+        (is (not-any? (set authorized) (remove nil? (groups other failed))))
+        (is (not (some #{(job-concurrency "scoped-assessment-publish" github needs)}
+                       [(job-concurrency "scoped-assessment-publish" other failed)])))))))
 
 (deftest actual-coverage-matches-pinned-helper-for-renames-and-binary-text
   ;; Only fetch/foreign-runtime ancestry are intercepted. Both diff commands

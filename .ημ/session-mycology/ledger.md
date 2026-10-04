@@ -151,3 +151,11 @@
   p-skill-candidate: 0.2
   spore: none
   note: A successful external POST precedes qualification. Persist its known native identity immediately, label partial evidence unqualified, and preserve it through later failures. Atomic artifact replacement avoids losing the previous checkpoint; this is operational reconciliation, not a second ledger or approval.
+
+- ts: "2026-10-04T22:41:02.343Z"
+  origin: proxx452/authorized-publisher-queue
+  p-efficiency: 0.86
+  p-friction: 0.24
+  p-skill-candidate: 0.32
+  spore: none
+  note: A coarse public event guard is not authorization. Keep shared publication serialization behind successful native intake; separate read/model jobs must not replace pending publishers. Preserve exact producer artifacts and running publication, and disclose the remaining authorized single-pending-slot limit.

@@ -146,28 +146,46 @@ They supply no native assessment, approval or round credit. The handler derives
 new authentic current bindings; it never reuses a synthetic record operationally.
 
 CodeRabbit4178717727 on predecessor9fe identified a real scheduling omission:
-The original unconditionally shared workflow lock admitted every PR445
-comment, including skipped bot/discussion runs. The subsequent shared eligible
-job group fixed that admission problem but could still replace a pending
-publisher with a later reader. The current conditional workflow group selects
-only the exact existing eligible command-event guard; every other event gets
-an independent run-ID group. It holds the whole eligible reader/publisher pair,
-with separate job permissions and fresh App minting preserved. There are no
-shared job locks that allow a later reader to replace a pending publisher.
+the original shared workflow lock admitted skipped bot/discussion runs. Shared
+reader/publisher job locks also allowed a later reader to replace a pending
+publisher. The subsequent prefix-conditional workflow lock still admitted an
+unauthorized public User before native writer/full-command intake. The current
+CodeRabbit architecture body5982817157 identifies that availability finding.
 
-The default pending slot can still replace an older whole workflow before
-its model starts; scheduling order and durable retention are not guaranteed.
+Every outer workflow now has an independent run-ID group. Only the publisher
+shares the PR445 publication group, conditional on its own reader succeeding.
+The reader must first pass native writer permission, complete command/context,
+source/Git/control checks, actual structured execution and artifact upload. A
+failed, canceled or skipped reader cannot enter the shared publication group;
+its group expression is also run-local if evaluated. Readers have no shared
+job lock. Publication has cancel-in-progress:false, so it cannot cancel an
+already running publisher. Separate credentials, the same-run producer artifact
+output and producer-attempt provenance, fresh pre-mint/pre-POST checks and
+post-POST qualification/checkpoint guards remain unchanged.
+
+Authorized readers can execute independently. Authorized pending publishers
+may still replace each other in GitHub's default single pending slot;
+scheduling order and durable retention are not guaranteed. This repair isolates
+that publication queue from unauthorized/failed intake, not from every later
+successful authorized producer. A reader never substitutes its artifact for
+another run's publisher, and running publication is never canceled.
 Canceled/skipped output is never qualified. GitHub supports queue:max (up to
 100 pending entries), but required actionlint currently rejects that key:
 actual localv1.7.11 and inspected officialHEAD011a6d15 parser accept only group
 and cancel-in-progress. No required check is suppressed or weakened. The
-supported whole-workflow pairing is the reviewer's alternative remedy. Tests
-execute the actual root eligibility expression for matching commands, ordinary
-comments, proposals, bot replies, other PRs and PR contract runs, and verify
-that separate reader/publisher guards and permissions remain intact. They do
-not simulate or claim observed GitHub backlog behavior.
+supported publisher-only lock avoids the reader/publisher pending-slot collision
+without weakening that required check. Tests execute the actual outer/publisher
+group and job-if expressions. Synthetic native API reads through actual live!
+prove unauthorized writer and malformed-command refusal, then expose their old
+shared group collision. Identical Node22/NBB tests against the published ff
+workflow are RED43tests487assertions28failures0errors, including both genuine
+unauthorized queue-admission failures; repaired source is GREEN43/487/zero.
+The other41 published tests remain byte-identical, preserving artifact pairing,
+freshness, credentials, source/control and partial-publication coverage. These
+are local source checks, not observed hosted scheduler or native review credit.
 
 Sources: [GitHub concurrency](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency),
+[GitHub dependent job conditions](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#jobsjob_idneeds),
 [open actionlint queue support issue](https://github.com/rhysd/actionlint/issues/657),
 and [inspected official parser](https://github.com/rhysd/actionlint/blob/011a6d15e749bb3f2d771eed9c7aa0e7e3e10ee7/parse.go).
 

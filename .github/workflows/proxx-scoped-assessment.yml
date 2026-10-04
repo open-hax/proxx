@@ -12,11 +12,10 @@ on:
       - '.github/scripts/fixtures/proxx445-native-*.json'
       - '.github/assessment-tools/package*.json'
 
-# Keep the eligible reader and its separate publisher in one running workflow.
-# Ineligible events have unique groups. The default queue may still replace a
-# pending whole workflow before its model starts; no durable backlog is implied.
+# Intake must authorize the native writer before a run can share a publication
+# queue. Public prefix-matching comments therefore keep independent run groups.
 concurrency:
-  group: ${{ (github.event_name == 'issue_comment' && github.event.action == 'created' && github.event.issue.number == 445 && github.event.issue.pull_request != null && github.event.comment.user.type == 'User' && startsWith(github.event.comment.body, '/eta-mu assess-actionability ')) && 'proxx-scoped-assessment-445' || format('proxx-scoped-assessment-other-{0}', github.run_id) }}
+  group: ${{ format('proxx-scoped-assessment-run-{0}', github.run_id) }}
   cancel-in-progress: false
 
 jobs:
@@ -148,6 +147,13 @@ jobs:
     name: Fresh OpenCode App scoped publisher
     needs: scoped-assessment-read
     if: ${{ github.event_name == 'issue_comment' && needs.scoped-assessment-read.result == 'success' }}
+    # Only successful, fully admitted readers share this queue. A failed/skipped
+    # reader cannot evict a pending publisher even if its group is evaluated.
+    # Running publication is never canceled; authorized pending publishers may
+    # still replace each other under GitHub's default single-pending policy.
+    concurrency:
+      group: ${{ github.event_name == 'issue_comment' && needs.scoped-assessment-read.result == 'success' && 'proxx-scoped-assessment-publish-445' || format('proxx-scoped-assessment-publish-other-{0}', github.run_id) }}
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
