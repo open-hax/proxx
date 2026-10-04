@@ -120,9 +120,26 @@ jobs:
               const canaryPath = `${e.RUNNER_TEMP}/kimi-api-canary.cjs`, authPath = `${e.RUNNER_TEMP}/opencode-app-auth.cjs`;
               const canary = fs.readFileSync(canaryPath), auth = fs.readFileSync(authPath);
               if (!canary.equals(git(['show', `${e.KIMI_RUNTIME_SHA}:.github/scripts/kimi-api-canary.cjs`])) ||
-                  !auth.equals(git(['show', `${e.KIMI_RUNTIME_SHA}:.github/scripts/opencode-app-auth.cjs`])) ||
-                  !fs.readFileSync(`${e.GITHUB_WORKSPACE}/.github/workflows/kimi-runner-tests.yml`).equals(
-                    git(['show', `${e.GITHUB_WORKFLOW_SHA}:.github/workflows/kimi-runner-tests.yml`]))) throw Error('Diagnostic source bytes mismatch');
+                  !auth.equals(git(['show', `${e.KIMI_RUNTIME_SHA}:.github/scripts/opencode-app-auth.cjs`]))) throw Error('Diagnostic source bytes mismatch');
+              // The PR-head checkout need not contain GitHub's synthetic workflow merge object.
+              // Read that exact immutable revision without changing checkout or trusting a mutable ref.
+              preflightCheckpoint = 'native-workflow-read';
+              const workflowPath = '.github/workflows/kimi-runner-tests.yml';
+              const nativeWorkflow = (await github.rest.repos.getContent({
+                ...context.repo, path: workflowPath, ref: e.GITHUB_WORKFLOW_SHA,
+              })).data;
+              preflightCheckpoint = 'native-workflow-bytes';
+              if (nativeWorkflow?.type !== 'file' || nativeWorkflow.encoding !== 'base64' ||
+                  nativeWorkflow.path !== workflowPath || !sha(nativeWorkflow.sha) ||
+                  !Number.isSafeInteger(nativeWorkflow.size) || nativeWorkflow.size < 1 || nativeWorkflow.size > 1048576 ||
+                  typeof nativeWorkflow.content !== 'string' || nativeWorkflow.content.length > 1500000) throw Error('Invalid native workflow metadata');
+              const encodedWorkflow = nativeWorkflow.content.replace(/[\r\n]/g, '');
+              if (!/^[A-Za-z0-9+/]+={0,2}$/.test(encodedWorkflow) || encodedWorkflow.length % 4 !== 0) throw Error('Invalid native workflow encoding');
+              const workflowBytes = Buffer.from(encodedWorkflow, 'base64');
+              const workflowBlob = crypto.createHash('sha1').update(`blob ${workflowBytes.length}\0`).update(workflowBytes).digest('hex');
+              if (workflowBytes.length !== nativeWorkflow.size || workflowBytes.toString('base64') !== encodedWorkflow ||
+                  workflowBlob !== nativeWorkflow.sha ||
+                  !fs.readFileSync(`${e.GITHUB_WORKSPACE}/${workflowPath}`).equals(workflowBytes)) throw Error('Diagnostic workflow bytes mismatch');
               preflightCheckpoint = 'live-pr-read';
               const current = (await github.rest.pulls.get({ ...context.repo, pull_number: pr.number })).data;
               preflightCheckpoint = 'live-pr-binding';
@@ -132,6 +149,7 @@ jobs:
               provenance = { repository, pullNumber: pr.number, head: e.PR_HEAD_SHA, base: e.PR_BASE_SHA,
                 runtimeSha: e.KIMI_RUNTIME_SHA, runtimeBaseAncestorVerified: true,
                 canarySha256: digest(canary), authSha256: digest(auth), workflowSha: e.GITHUB_WORKFLOW_SHA,
+                workflowBlobSha: workflowBlob, workflowSha256: digest(workflowBytes), workflowBytes: workflowBytes.length,
                 workflowRef: e.GITHUB_WORKFLOW_REF, runID: e.GITHUB_RUN_ID, runAttempt: e.GITHUB_RUN_ATTEMPT };
               write({ passed: false, revoked: false });
               preflightCheckpoint = 'app-operation';
@@ -150,9 +168,12 @@ jobs:
               const phases = (error.errors || [error]).map(item => item.phase).filter(value =>
                 ['oidc', 'exchange', 'publication', 'revocation'].includes(value));
               const failurePhase = phases.includes('revocation') ? 'revocation' : phases[0] || 'preflight';
-              const httpStatus = Number.isSafeInteger(error.status) && error.status >= 100 && error.status <= 599 ? error.status : null;
+              const httpRead = ['native-workflow-read', 'live-pr-read'].includes(preflightCheckpoint);
+              const gitRead = ['checkout-ancestry', 'immutable-source'].includes(preflightCheckpoint);
+              const httpStatus = httpRead && Number.isSafeInteger(error.status) && error.status >= 100 && error.status <= 599 ? error.status : null;
+              const processExitCode = gitRead && Number.isSafeInteger(error.status) && error.status >= 0 && error.status <= 255 ? error.status : null;
               write({ passed: false, revoked: callbackStarted && !phases.includes('revocation'), failurePhase,
-                preflightCheckpoint, httpStatus });
+                preflightCheckpoint, httpStatus, processExitCode });
               throw Error(`App diagnostic ${failurePhase} failed`);
             }
       - name: Preserve diagnostic metadata including partial creation

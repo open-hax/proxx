@@ -162,7 +162,21 @@ async function transportWorker(script, options) {
   class Github {
     constructor({ auth }) {
       if (auth !== 'read-only-fixture') { assert.equal(auth, 'installation-fixture-not-a-credential'); seen.appClients++; }
-      this.rest = { pulls }; this.paginate = async () => review ? [structuredClone(review)] : [];
+      this.rest = { pulls, repos: { getContent: async args => {
+        assert.equal(args.owner, 'o'); assert.equal(args.repo, 'r');
+        assert.equal(args.path, '.github/workflows/kimi-runner-tests.yml');
+        assert.equal(args.ref, e.GITHUB_WORKFLOW_SHA);
+        const bytes = options.remoteWorkflowContent === undefined
+          ? require('node:child_process').execFileSync('git', ['show', `${args.ref}:${args.path}`])
+          : Buffer.from(options.remoteWorkflowContent, 'base64');
+        const sha = require('node:crypto').createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex');
+        const data = { type: 'file', encoding: 'base64', path: args.path, sha, size: bytes.length, content: bytes.toString('base64') };
+        if (options.nativeWorkflowKind) data.type = 'dir';
+        if (options.nativeWorkflowHash) data.content = Buffer.from('substituted workflow').toString('base64');
+        if (options.nativeWorkflowSize) data.size++;
+        if (options.nativeWorkflowPath) data.path = '.github/workflows/other.yml';
+        return { data };
+      } } }; this.paginate = async () => review ? [structuredClone(review)] : [];
     }
   }
   const github = new Github({ auth: 'read-only-fixture' });
@@ -284,4 +298,51 @@ test('live PR read failure preserves only safe preflight diagnostics and never m
       assert.doesNotMatch(JSON.stringify(result), /fixture secret transport details|fixture-not-a-credential/);
     } finally { f.clean(); }
   }
+});
+
+test('native workflow revision absent from the PR-head checkout is verified through exact immutable API bytes', () => {
+  const f = gitFixture(); try {
+    const remote = path.join(f.dir, 'native-objects.git');
+    execFileSync('git', ['clone', '--bare', '--quiet', f.repo, remote]);
+    const sha = execFileSync('git', ['--git-dir', remote, 'commit-tree', `${f.head}^{tree}`, '-p', f.base, '-p', f.head], {
+      input: 'Native synthetic workflow merge\n', encoding: 'utf8',
+      env: { ...process.env, GIT_AUTHOR_NAME: 'fixture', GIT_AUTHOR_EMAIL: 'fixture@example.invalid',
+        GIT_COMMITTER_NAME: 'fixture', GIT_COMMITTER_EMAIL: 'fixture@example.invalid' },
+    }).trim();
+    assert.notEqual(spawnSync('git', ['cat-file', '-e', `${sha}^{commit}`], { cwd: f.repo }).status, 0);
+    const bytes = execFileSync('git', ['--git-dir', remote, 'show', `${sha}:.github/workflows/kimi-runner-tests.yml`]);
+    f.env.GITHUB_WORKFLOW_SHA = sha; f.env.GITHUB_SHA = sha;
+    assert.equal(prepare(f).status, 0);
+    const result = execute(f, { remoteWorkflowContent: bytes.toString('base64') });
+    assert.equal(result.error, undefined);
+    assert.equal(result.receipt.passed, true); assert.equal(result.receipt.workflowSha, sha);
+    assert.equal(result.receipt.revoked, true); assert.equal(result.tripwire, false);
+  } finally { f.clean(); }
+});
+
+test('malformed native workflow API metadata or bytes refuse before token exchange', () => {
+  for (const fault of ['nativeWorkflowKind', 'nativeWorkflowHash', 'nativeWorkflowSize', 'nativeWorkflowPath']) {
+    const f = gitFixture(); try {
+      assert.equal(prepare(f).status, 0);
+      const result = execute(f, { [fault]: true });
+      assert.ok(result.error, fault);
+      assert.equal(result.seen.oidc, 0, fault); assert.equal(result.seen.exchange, 0, fault);
+      assert.equal(result.seen.creates, 0, fault); assert.equal(result.tripwire, false, fault);
+      assert.equal(result.receipt.passed, false, fault);
+    } finally { f.clean(); }
+  }
+});
+
+test('Git source exit status is distinct from a native HTTP transport status', () => {
+  const f = gitFixture(); try {
+    assert.equal(prepare(f).status, 0);
+    f.env.KIMI_RUNTIME_SHA = 'e'.repeat(40);
+    const result = execute(f);
+    assert.match(result.error, /preflight failed/);
+    assert.equal(result.receipt.preflightCheckpoint, 'checkout-ancestry');
+    assert.equal(result.receipt.httpStatus, null);
+    assert.equal(result.receipt.processExitCode, 128);
+    assert.equal(result.seen.oidc, 0); assert.equal(result.seen.creates, 0);
+    assert.doesNotMatch(JSON.stringify(result), /fixture-not-a-credential|secret transport details/);
+  } finally { f.clean(); }
 });
