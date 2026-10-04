@@ -77,3 +77,13 @@
   spore: none
   receipt-refs: proxx451/qualified-eta-full-input-caller; 2026-10-04T08:17:11.615530Z
   note: Check the actual immutable workflow_call interface and execute its existing parameter/head guards before advancing a caller. Missing test-module resolution is a harness precondition; process-only reuse of an already installed dependency preserves repository bytes. Source compatibility and standard lint do not prove hosted App/OIDC/model publication or reviewer enrollment.
+
+- ts: "2026-10-04T09:25:55.007826354Z"
+  session: /home/err/spaces/review-repair/proxx-kimi-low-thinking
+  task: Proxx451 auth-suite CI selection and actual malformed-UTF8 transport admission
+  p-efficiency: 0.90
+  p-friction: 0.10
+  p-skill-candidate: 0.20
+  spore: none
+  receipt-refs: Proxx451 correction of prior native settlement UTF8 claims;Proxx451 auth-suite gate and malformed-UTF8 transport repair
+  note: A byte budget does not imply valid decoding. Real malformed HTTP bytes proved replacement decoding could admit a valid-looking catalog and overwrite the last-good baseline; fatal decoding now refuses it while retaining valid split Unicode. Preserve old evidence and append the attribution correction rather than rewriting history. Keep new async fixture bindings bounded to avoid SCI expansion limits. Local App/OIDC tests use mocks only; native COMMENTED and pending enrollment do not qualify approval. Parent owns publication and native correction.

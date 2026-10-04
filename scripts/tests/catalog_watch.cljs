@@ -28,6 +28,16 @@
      (swap! requests inc)
      (check "authenticated request" (= (str "Bearer " key-value) (aget (.-headers request) "authorization")))
      (cond
+       (:raw-chunks @state)
+       (let [chunks (atom (:raw-chunks @state))
+             timer (js/setInterval
+                    (fn []
+                      (when-not (.-destroyed response)
+                        (if-let [chunk (first @chunks)]
+                          (do (.write response chunk) (swap! chunks next))
+                          (.end response)))) 25)]
+         (.writeHead response 200 #js {"content-type" "application/json"})
+         (.once response "close" #(js/clearInterval timer)))
        (:stream? @state)
        (let [{:keys [sent-bytes closed-early]} @state
              chunk (js/Buffer.alloc 65536 120)
@@ -124,6 +134,64 @@ fs.writeFileSync = function(filename, ...args) {
         ;; A failing regression still owns and removes its child fixture directory.
         (fs/rmSync (:temporary proof) #js {:recursive true :force true})))))
 
+(defn ^:async utf8-fixtures! [temporary config good-baseline]
+  (p/let [utf8-config-file (path/join temporary "utf8.edn")
+        utf8-baseline-file (path/join temporary "utf8-baseline.edn")
+        _ (fs/writeFileSync utf8-config-file (pr-str (assoc config :baseline-path utf8-baseline-file)))
+        _ (fs/writeFileSync utf8-baseline-file good-baseline)
+        invalid-prefix (js/Buffer.from "{\"data\":[{\"id\":\"alias\",\"name\":\"" "utf8")
+        invalid-suffix (js/Buffer.from "\"}]}" "utf8")
+        invalid-body (js/Buffer.concat #js [invalid-prefix (js/Buffer.from #js [255]) invalid-suffix])
+        replacement-catalog (watch/shape-catalog
+                             (js->clj (js/JSON.parse (.decode (js/TextDecoder.) invalid-body))
+                                      :keywordize-keys true))
+        _ (check "replacement decoding can admit malformed catalog bytes"
+                 (contains? (:models replacement-catalog) "alias"))
+        _ (reset! state {:raw-chunks [invalid-body]})
+        invalid-utf8-run (run-cli! utf8-config-file ["--now-ms" "1160"])
+        invalid-utf8-report (report invalid-utf8-run)
+        _ (check "actual malformed UTF8 response is invalid"
+                 (= :invalid-response (get-in invalid-utf8-report [:observations 0 :status])))
+        _ (check "malformed UTF8 cannot establish availability"
+                 (every? #(= :unknown (:availability %)) (:assessments invalid-utf8-report)))
+        _ (check "malformed UTF8 preserves last good baseline"
+                 (= good-baseline (fs/readFileSync utf8-baseline-file "utf8")))
+        _ (println (pr-str {:fixture :malformed-utf8-http :case :invalid-byte-in-model-name
+                            :replacement-decodes-to-valid-catalog? true
+                            :status (get-in invalid-utf8-report [:observations 0 :status])
+                            :baseline-preserved? (= good-baseline (fs/readFileSync utf8-baseline-file "utf8"))}))
+        _ (fs/writeFileSync utf8-baseline-file good-baseline)
+        _ (reset! state {:raw-chunks [(js/Buffer.concat #js [invalid-prefix (js/Buffer.from #js [195])])
+                                     (js/Buffer.concat #js [(js/Buffer.from #js [40]) invalid-suffix])]})
+        split-invalid-run (run-cli! utf8-config-file ["--now-ms" "1170"])
+        split-invalid-report (report split-invalid-run)
+        _ (check "malformed split UTF8 response is invalid"
+                 (= :invalid-response (get-in split-invalid-report [:observations 0 :status])))
+        _ (check "malformed split UTF8 leaves availability unknown"
+                 (every? #(= :unknown (:availability %)) (:assessments split-invalid-report)))
+        _ (check "malformed split UTF8 preserves last good baseline"
+                 (= good-baseline (fs/readFileSync utf8-baseline-file "utf8")))
+        _ (fs/writeFileSync utf8-baseline-file good-baseline)
+        _ (reset! state {:raw-chunks [(js/Buffer.from "{\"data\":[{\"id\":\"alias\"}]}" "utf8")
+                                     (js/Buffer.from #js [195])]})
+        truncated-utf8-run (run-cli! utf8-config-file ["--now-ms" "1180"])
+        truncated-utf8-report (report truncated-utf8-run)
+        _ (check "unfinished UTF8 at EOF is invalid"
+                 (= :invalid-response (get-in truncated-utf8-report [:observations 0 :status])))
+        _ (check "unfinished UTF8 at EOF preserves last good baseline"
+                 (= good-baseline (fs/readFileSync utf8-baseline-file "utf8")))
+        _ (reset! state {:raw-chunks [(js/Buffer.concat #js [(js/Buffer.from "{\"data\":[{\"id\":\"alias\"}],\"padding\":\"" "utf8")
+                                                          (js/Buffer.from #js [240 159])])
+                                     (js/Buffer.concat #js [(js/Buffer.from #js [152 128])
+                                                          (js/Buffer.from "\"}" "utf8")])]})
+        valid-utf8-run (run-cli! utf8-config-file ["--now-ms" "1190"])
+        valid-utf8-report (report valid-utf8-run)
+        _ (check "valid multibyte UTF8 split across HTTP chunks is accepted"
+                 (= :ok (get-in valid-utf8-report [:observations 0 :status])))
+        _ (check "valid split UTF8 can establish availability"
+                 (= :listed (:availability (assessment valid-utf8-report "alias"))))]
+    nil))
+
 (defn ^:async cleanup! []
   (.closeAllConnections server)
   (-> (p/create (fn [resolve _reject]
@@ -179,6 +247,7 @@ fs.writeFileSync = function(filename, ...args) {
         steady-report (report steady-run)
         _ (check "listing timestamp alone is not capability drift" (empty? (:drift (assessment steady-report "alias"))))
         good-baseline (fs/readFileSync baseline-file "utf8")
+        _ (utf8-fixtures! temporary config good-baseline)
         _ (reset! state {:status 429 :body {:error {:message key-value}}})
         failure-run (run-cli! config-file ["--now-ms" "1200"])
         failure-report (report failure-run)

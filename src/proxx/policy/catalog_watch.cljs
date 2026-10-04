@@ -132,23 +132,30 @@
                                     (seq caps) (assoc :capabilities caps))])) ids items))}))
 
 (defn- ^:async read-bounded-body!
-  "Read at most two MiB of response bytes; reject and cancel before decoding the tail."
+  "Read at most two MiB of response bytes; reject and cancel overflow or malformed UTF8."
   [response controller]
   (if-let [body (.-body response)]
     (let [reader (.getReader body)
-          decoder (js/TextDecoder.)]
-      (letfn [(read-next! [size parts]
+          decoder (js/TextDecoder. "utf-8" #js {:fatal true})]
+      (letfn [(reject-body! []
+                (.abort controller)
+                (p/let [_ (p/catch (.cancel reader) (fn [_] nil))] nil))
+              (decode-chunk! [value stream?]
+                (try (.decode decoder value #js {:stream stream?})
+                     (catch :default _ nil)))
+              (read-next! [size parts]
                 (p/let [chunk (.read reader)]
                   (if (.-done chunk)
-                    (str (str/join "" parts) (.decode decoder))
+                    (if-let [tail (decode-chunk! (js/Uint8Array.) false)]
+                      (str (str/join "" parts) tail)
+                      (reject-body!))
                     (let [value (.-value chunk)
                           next-size (+ size (.-byteLength value))]
                       (if (> next-size 2097152)
-                        (do
-                          (.abort controller)
-                          (p/let [_ (p/catch (.cancel reader) (fn [_] nil))] nil))
-                        (read-next! next-size
-                                    (conj parts (.decode decoder value #js {:stream true}))))))))]
+                        (reject-body!)
+                        (if-let [part (decode-chunk! value true)]
+                          (read-next! next-size (conj parts part))
+                          (reject-body!)))))))]
         (-> (read-next! 0 [])
             (p/finally #(.releaseLock reader)))))
     (p/resolved nil)))
