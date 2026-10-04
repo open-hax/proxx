@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 const fs = require('node:fs');
 const { execFileSync } = require('node:child_process');
+const OPENCODE_VERSION = '1.18.34';
+
+function assertRuntimeVersion(version) {
+  if (version !== OPENCODE_VERSION) throw new Error('Kimi review requires pinned OpenCode 1.18.34');
+}
 
 function assertHead(expected, executed, current = expected) {
   if (!/^[0-9a-f]{40}$/.test(expected) || executed !== expected || current !== expected) {
@@ -77,8 +82,19 @@ async function sendDiscord(url, payload, fetchImpl, sleep = ms => new Promise(re
   }
 }
 
-async function publish({ github, context, file, webhookUrl, fetchImpl = fetch }) {
-  const review = JSON.parse(fs.readFileSync(file, 'utf8'));
+async function publish({ github, context, file, webhookUrl, fetchImpl = fetch, publicationFooter = '' }) {
+  // Caller-owned execution evidence is separate from untrusted model output.
+  // It cannot supply delivery receipts and consumes the same UTF-8 body budget.
+  if (typeof publicationFooter !== 'string' || Buffer.byteLength(publicationFooter, 'utf8') > 4096 ||
+      publicationFooter.includes('<!-- kimi-discord-delivered:')) throw new Error('Invalid trusted publication footer');
+  const artifact = JSON.parse(fs.readFileSync(file, 'utf8'));
+  // Helper-owned provenance has a separate strict contract. It is never part of
+  // the model's StructuredOutput envelope or its unchanged coverage allowlist.
+  const { executionControl, ...review } = artifact;
+  if (Object.hasOwn(artifact, 'executionControl') &&
+      !require('node:util').isDeepStrictEqual(executionControl, controlProvenance())) {
+    throw new Error('Invalid Kimi execution control provenance');
+  }
   const { owner, repo } = context.repo;
   const pr = context.payload.pull_request;
   if (!pr || pr.draft || pr.head.repo.full_name !== `${owner}/${repo}`) throw new Error('Ineligible PR review');
@@ -97,8 +113,13 @@ async function publish({ github, context, file, webhookUrl, fetchImpl = fetch })
   const files = await github.paginate(github.rest.pulls.listFiles, { owner, repo, pull_number: pr.number, per_page: 100 });
   const { attached, unattached } = splitFindings(data.comments, files);
   const fallback = unattached.map(c => `\n\nUnattached finding at ${c.path}:${c.line} (not an added diff line):\n${c.body}`).join('');
-  const marker = `<!-- kimi-submission:${require('node:crypto').createHash('sha256').update(JSON.stringify({ base: pr.base.sha, review })).digest('hex')} -->`;
-  const originalBody = `Kimi review of exact head ${review.head}\nBase ${pr.base.sha}\n${marker}\n\n${data.summary}${fallback}`;
+  const marker = `<!-- kimi-submission:${require('node:crypto').createHash('sha256').update(JSON.stringify({ base: pr.base.sha, review: artifact })).digest('hex')} -->`;
+  // Only the strictly validated helper provenance above supplies these claims.
+  // Legacy artifacts omit this section; their controls remain unspecified.
+  const controlSummary = executionControl ?
+    `\n\nOpenCode control provenance (runtime observations, not provider attestation):\nRequested OpenCode variant=${executionControl.requested.variant}.\nAdvertised native low mapping (${executionControl.advertisedNativeControl.apiNpm}): reasoningEffort=${executionControl.advertisedNativeControl.reasoningEffort}.\nPinned OpenCode version=${executionControl.opencodeVersion}.\nObserved assistant variant=${executionControl.observedAssistantVariant} on ${executionControl.executedIdentity.providerID}/${executionControl.executedIdentity.modelID}.\nUnderlying provider model=UNKNOWN; actual reasoning budget=UNKNOWN.` : '';
+  const originalBody = `Kimi review of exact head ${review.head}\nBase ${pr.base.sha}\n${marker}\n\n${data.summary}${fallback}${controlSummary}`;
+  const publicationBody = originalBody + publicationFooter;
   // IDs are accepted only as positive safe integers below. Reserve their largest
   // decimal representation, not today's observed GitHub IDs, for every receipt.
   const receiptBytes = Buffer.byteLength(`\n<!-- kimi-discord-delivered:v1:${Number.MAX_SAFE_INTEGER}:${'0'.repeat(64)} -->`, 'utf8');
@@ -111,11 +132,11 @@ async function publish({ github, context, file, webhookUrl, fetchImpl = fetch })
   const existing = prior.find(r => r.commit_id === review.head && r.state === 'COMMENTED' &&
     r.user?.login === 'github-actions[bot]' && r.body?.includes(marker));
   // Unknown IDs require maximum reservation only for a new publication.
-  if (webhookUrl && !existing) reserveReceipts(originalBody, attached.length * receiptBytes);
+  if (!existing) reserveReceipts(publicationBody, webhookUrl ? attached.length * receiptBytes : 0);
   // Rerunning a failed notification job must not create another GitHub review.
   const submitted = existing ? { data: existing } : await github.rest.pulls.createReview({
     owner, repo, pull_number: pr.number, commit_id: review.head, event: 'COMMENT',
-    body: originalBody, comments: attached,
+    body: publicationBody, comments: attached,
   });
   if (typeof submitted.data.body !== 'string' || !submitted.data.body.startsWith(originalBody)) {
     throw new Error('Native review original body prefix changed; delivery receipts denied');
@@ -127,6 +148,7 @@ async function publish({ github, context, file, webhookUrl, fetchImpl = fetch })
   });
   // GitHub owns durable operational receipts; no runner-local cache is authoritative.
   // Preserve the original review/provenance bytes and append bounded receipt lines.
+  // An existing review keeps its original footer even when retry run metadata changes.
   let body = submitted.data.body || '';
   if (comments.length > 100) throw new Error('Discord delivery receipt budget exceeded');
   const deliveries = discordPayloads(comments, `${owner}/${repo}#${pr.number}`).map((payload, index) => {
@@ -183,6 +205,7 @@ function structuredRequest(prompt, head, coverage) {
   assertHead(head, head);
   return {
     agent: 'kimi-reviewer',
+    variant: 'low',
     model: { providerID: 'kimi-code-plan-global', modelID: 'kimi-for-coding' },
     parts: [{ type: 'text', text: prompt }],
     format: { type: 'json_schema', retryCount: 1, schema: {
@@ -203,10 +226,22 @@ function structuredRequest(prompt, head, coverage) {
   };
 }
 
+function controlProvenance() {
+  return {
+    requested: { variant: 'low' },
+    advertisedNativeControl: { apiNpm: '@ai-sdk/openai-compatible', reasoningEffort: 'low' },
+    opencodeVersion: OPENCODE_VERSION,
+    observedAssistantVariant: 'low',
+    executedIdentity: { providerID: 'kimi-code-plan-global', modelID: 'kimi-for-coding' },
+    underlyingProviderModel: null,
+    binding: 'Pinned OpenCode catalog low mapping and assistant variant; not a provider reasoning-budget attestation',
+  };
+}
+
 function parseStructured(response, expected, coverage) {
   const info = response?.info;
   const value = info?.structured;
-  if (info?.role !== 'assistant' || info.providerID !== 'kimi-code-plan-global' || info.modelID !== 'kimi-for-coding' || info.error || !value) throw new Error('Missing validated structured Kimi submission');
+  if (info?.role !== 'assistant' || info.providerID !== 'kimi-code-plan-global' || info.modelID !== 'kimi-for-coding' || info.variant !== 'low' || info.error || !value) throw new Error('Missing validated structured Kimi submission');
   const submissions = (response.parts || []).filter(p => p.type === 'tool' && p.tool === 'StructuredOutput' && p.state?.status === 'completed');
   if (submissions.length !== 1 || JSON.stringify(submissions[0].state.input) !== JSON.stringify(value)) {
     throw new Error('Kimi submission lacks matching completed StructuredOutput tool evidence');
@@ -214,7 +249,18 @@ function parseStructured(response, expected, coverage) {
   assertHead(expected, value.head);
   assertCoverage(value, coverage);
   const review = validateReview(value);
-  return { head: expected, ...coverage, summary: review.summary, comments: value.comments };
+  return { head: expected, ...coverage, summary: review.summary, comments: value.comments,
+    executionControl: controlProvenance() };
+}
+
+function assertLowCapability(catalog) {
+  const provider = catalog?.all?.find(p => p.id === 'kimi-code-plan-global');
+  const model = provider?.models?.['kimi-for-coding'];
+  if (!catalog?.connected?.includes('kimi-code-plan-global') || model?.id !== 'kimi-for-coding' ||
+      model.capabilities?.reasoning !== true || model.api?.npm !== '@ai-sdk/openai-compatible' ||
+      !require('node:util').isDeepStrictEqual(model.variants?.low, { reasoningEffort: 'low' })) {
+    throw new Error('Connected Kimi route does not advertise the required low control');
+  }
 }
 
 function reviewConfig() {
@@ -256,6 +302,8 @@ async function executeStructured(prompt, env, cwd, expected, coverage, {
       if (!response.ok) throw new Error('Kimi structured API request failed');
       return response.status === 204 ? null : response.json();
     }
+    phase = 'capability';
+    assertLowCapability(await request('/provider'));
     phase = 'session';
     const session = await request('/session', { title: `Exact-head review ${expected}` });
     if (!/^ses_[a-zA-Z0-9]+$/.test(session.id || '')) throw new Error('Invalid Kimi session identity');
@@ -365,6 +413,9 @@ function reviewPrompt(expected, coverage, diff) {
 }
 
 async function run() {
+  assertRuntimeVersion(execFileSync('opencode', ['--version'], {
+    encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'],
+  }).trim());
   const expected = process.env.PR_HEAD_SHA;
   const head = () => execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
   const status = () => execFileSync('git', ['status', '--porcelain', '--untracked-files=all'], { encoding: 'utf8' }).trim();
@@ -396,5 +447,5 @@ async function run() {
   }
 }
 
-module.exports = { reviewPrompt, assertHead, validateReview, discordPayloads, splitFindings, sendDiscord, publish, structuredRequest, parseStructured, executeStructured, reviewConfig, sourceSnapshot, diffCoverage, assertReviewablePaths, REVIEW_TIMEOUT_MS };
-if (require.main === module) run().catch(error => { console.error(error.message === 'Kimi model execution exceeded the bounded 20-minute budget' ? error.message : ['startup', 'session', 'events', 'submit', 'status', 'messages', 'validation'].includes(error.phase) ? `Kimi review failed closed at ${error.phase}; no submission artifact produced` : 'Kimi review failed closed; no submission artifact produced'); process.exitCode = 1; });
+module.exports = { assertRuntimeVersion, assertLowCapability, reviewPrompt, assertHead, validateReview, discordPayloads, splitFindings, sendDiscord, publish, structuredRequest, parseStructured, executeStructured, reviewConfig, sourceSnapshot, diffCoverage, assertReviewablePaths, REVIEW_TIMEOUT_MS };
+if (require.main === module) run().catch(error => { console.error(error.message === 'Kimi model execution exceeded the bounded 20-minute budget' ? error.message : ['startup', 'capability', 'session', 'events', 'submit', 'status', 'messages', 'validation'].includes(error.phase) ? `Kimi review failed closed at ${error.phase}; no submission artifact produced` : 'Kimi review failed closed; no submission artifact produced'); process.exitCode = 1; });

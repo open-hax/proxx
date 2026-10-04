@@ -2,6 +2,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { assertHead, validateReview, discordPayloads } = require('./kimi-review.cjs');
+const nativeProviderFixture = require('./fixtures/kimi-provider-v1.18.34.json');
 const a = 'a'.repeat(40), b = 'b'.repeat(40);
 
 test('bounded structured execution authenticates local API, rejects prose and cleans up on timeout', async () => {
@@ -17,19 +18,26 @@ test('bounded structured execution authenticates local API, rejects prose and cl
     queueMicrotask(() => child.stdout.write('opencode server listening on http://127.0.0.1:12345\n'));
     return child;
   }
-  for (const mode of ['valid', 'prose', 'terminal-error', 'wrong-session', 'timeout', 'invalid-status', 'unknown-status', 'wrong-identity', 'incomplete', 'stream-ended-complete', 'stream-ended-unknown', 'stream-ended-incomplete', 'malformed-event']) {
+  for (const mode of ['valid', 'prose', 'terminal-error', 'wrong-session', 'timeout', 'invalid-status', 'unknown-status', 'wrong-identity', 'incomplete', 'stream-ended-complete', 'stream-ended-unknown', 'stream-ended-incomplete', 'malformed-event', 'unsupported-low', 'disconnected-provider']) {
     const child = processStub();
     let calls = 0, messageReads = 0, eventStream;
     const stream = new ReadableStream({ start(controller) { eventStream = controller; } });
     const api = async (url, options) => {
       assert.equal(options.headers.authorization, 'Basic ' + Buffer.from('opencode:private-local-auth').toString('base64'));
       assert.ok(url.endsWith('?directory=%2Fisolated%2Fworkspace'));
+      if (url.includes('/provider?')) {
+        const catalog = structuredClone(nativeProviderFixture.catalog);
+        if (mode === 'disconnected-provider') catalog.connected = [];
+        if (mode === 'unsupported-low') delete catalog.all[0].models['kimi-for-coding'].variants.low;
+        return { ok: true, json: async () => catalog };
+      }
       if (++calls === 1) return { ok: true, json: async () => ({ id: 'ses_test123' }) };
       if (url.includes('/event?')) return { ok: true, headers: new Headers({ 'content-type': 'text/event-stream' }), body: stream };
       if (options.method === 'POST') {
         assert.ok(url.includes('/prompt_async?'), 'Model submission must not wait on synchronous response headers');
         const request = JSON.parse(options.body);
         assert.equal(request.format.type, 'json_schema');
+        assert.equal(request.variant, 'low');
         const event = mode === 'terminal-error' ? { type: 'session.error', properties: { sessionID: 'ses_test123', error: { data: { message: 'secret-provider-diagnostic' } } } } : { type: 'message.updated', properties: { info: { role: 'assistant', id: 'msg_test123', sessionID: 'ses_test123' } } };
         if (mode === 'stream-ended-unknown') event.properties.info.role = 'user';
         if (mode === 'malformed-event') eventStream.enqueue(new TextEncoder().encode('data: {invalid-json}\n\n'));
@@ -49,13 +57,24 @@ test('bounded structured execution authenticates local API, rejects prose and cl
       if (mode === 'wrong-identity') return { ok: true, json: async () => ({ info: { id: 'msg_other123', sessionID: 'ses_test123' } }) };
       if (mode === 'stream-ended-incomplete' || (mode === 'incomplete' && messageReads === 1)) return { ok: true, json: async () => ({ info: { id: 'msg_test123', sessionID: 'ses_test123', role: 'assistant', time: {} } }) };
       return { ok: true, json: async () => mode === 'prose' ? { info: { id: 'msg_test123', sessionID: 'ses_test123', role: 'assistant', providerID: 'kimi-code-plan-global', modelID: 'kimi-for-coding', time: { completed: 1 } }, parts: [{ type: 'text', text: 'Looks fine' }] } :
-        { info: { id: 'msg_test123', sessionID: 'ses_test123', role: 'assistant', providerID: 'kimi-code-plan-global', modelID: 'kimi-for-coding', structured: value, time: { completed: 1 } }, parts: [{ type: 'tool', tool: 'StructuredOutput', state: { status: 'completed', input: value } }] } };
+        { info: { id: 'msg_test123', sessionID: 'ses_test123', role: 'assistant', providerID: 'kimi-code-plan-global', modelID: 'kimi-for-coding', variant: 'low', structured: value, time: { completed: 1 } }, parts: [{ type: 'tool', tool: 'StructuredOutput', state: { status: 'completed', input: value } }] } };
 
     };
     const result = executeStructured('review', { OPENCODE_SERVER_PASSWORD: 'private-local-auth' }, '/isolated/workspace', a, coverage,
       { spawnImpl: (_command, args, options) => { assert.ok(args.includes('--pure')); assert.equal(options.cwd, '/isolated/workspace'); return child; }, fetchImpl: api, timeout: ['timeout', 'wrong-session'].includes(mode) ? 30 : 100, pollInterval: 1 });
-    if (['valid', 'incomplete', 'stream-ended-complete'].includes(mode)) { assert.deepEqual(await result, value); if (mode === 'incomplete') assert.equal(messageReads, 2); }
+    if (['valid', 'incomplete', 'stream-ended-complete'].includes(mode)) {
+      const { executionControl, ...review } = await result;
+      assert.deepEqual(review, value);
+      assert.deepEqual(executionControl.requested, { variant: 'low' });
+      assert.deepEqual(executionControl.advertisedNativeControl, { apiNpm: '@ai-sdk/openai-compatible', reasoningEffort: 'low' });
+      assert.equal(executionControl.opencodeVersion, '1.18.34');
+      assert.deepEqual(executionControl.executedIdentity, { providerID: 'kimi-code-plan-global', modelID: 'kimi-for-coding' });
+      assert.equal(executionControl.observedAssistantVariant, 'low');
+      assert.equal(executionControl.underlyingProviderModel, null);
+      if (mode === 'incomplete') assert.equal(messageReads, 2);
+    }
     else await assert.rejects(result, error => !error.message.includes('secret') && (['timeout', 'wrong-session'].includes(mode) ? /bounded 20-minute/.test(error.message) : /no review was published/.test(error.message)));
+    if (['unsupported-low', 'disconnected-provider'].includes(mode)) assert.equal(calls, 0, 'No session or model submission allowed after unsupported catalog');
     assert.deepEqual(child.kills, ['SIGTERM']);
   }
 });
@@ -88,19 +107,21 @@ test('structured tool submission binds exact head and complete diff coverage, ne
   const { parseStructured } = require('./kimi-review.cjs');
   const coverage = { diffSha256: 'd'.repeat(64), coveredFiles: ['.github/workflows/review.yml'] };
   const value = { head: a, ...coverage, summary: 'No actionable findings', comments: [] };
-  const response = input => ({ info: { id: 'msg_test123', sessionID: 'ses_test123', role: 'assistant', providerID: 'kimi-code-plan-global', modelID: 'kimi-for-coding', structured: input }, parts: [
+  const response = input => ({ info: { id: 'msg_test123', sessionID: 'ses_test123', role: 'assistant', providerID: 'kimi-code-plan-global', modelID: 'kimi-for-coding', variant: 'low', structured: input }, parts: [
     { type: 'text', text: 'Narration is not submission.' },
     { type: 'tool', tool: 'StructuredOutput', state: { status: 'completed', input } },
   ] });
-  assert.deepEqual(parseStructured(response(value), a, coverage), value);
+  const { executionControl, ...review } = parseStructured(response(value), a, coverage);
+  assert.deepEqual(review, value);
+  assert.equal(executionControl.observedAssistantVariant, 'low');
   for (const bad of [
     { info: { id: 'msg_test123', sessionID: 'ses_test123', role: 'assistant', providerID: 'kimi-code-plan-global', modelID: 'kimi-for-coding' }, parts: [{ type: 'text', text: JSON.stringify(value) }] },
-    { info: { id: 'msg_test123', sessionID: 'ses_test123', role: 'assistant', providerID: 'kimi-code-plan-global', modelID: 'kimi-for-coding', structured: value }, parts: [] },
+    { info: { id: 'msg_test123', sessionID: 'ses_test123', role: 'assistant', providerID: 'kimi-code-plan-global', modelID: 'kimi-for-coding', variant: 'low', structured: value }, parts: [] },
     { ...response(value), info: { ...response(value).info, modelID: 'different-model' } },
     response({ ...value, head: b }),
     response({ ...value, coveredFiles: [] }),
     response({ ...value, diffSha256: 'e'.repeat(64) }),
-    { ...response(value), info: { id: 'msg_test123', sessionID: 'ses_test123', role: 'assistant', providerID: 'kimi-code-plan-global', modelID: 'kimi-for-coding', structured: value, error: { name: 'StructuredOutputError' } } },
+    { ...response(value), info: { id: 'msg_test123', sessionID: 'ses_test123', role: 'assistant', providerID: 'kimi-code-plan-global', modelID: 'kimi-for-coding', variant: 'low', structured: value, error: { name: 'StructuredOutputError' } } },
   ]) assert.throws(() => parseStructured(bad, a, coverage));
 });
 test('review API requests schema-enforced tool output within the unchanged timeout budget', () => {
@@ -450,5 +471,210 @@ test('near-cap existing review reserves only actual missing receipt bytes', asyn
     assert.equal(sends, 1); assert.equal(creates, 1);
     assert.equal(Buffer.byteLength(review.body), 64998);
     assert.ok(review.body.startsWith(original));
+  } finally { fs.rmSync(directory, { recursive: true, force: true }); }
+});
+
+
+test('Kimi request explicitly selects low instead of inheriting provider defaults', () => {
+  const { structuredRequest } = require('./kimi-review.cjs');
+  const request = structuredRequest('inspect', a, { diffSha256: 'd'.repeat(64), coveredFiles: [] });
+  assert.equal(request.variant, 'low');
+  assert.deepEqual(request.model, { providerID: 'kimi-code-plan-global', modelID: 'kimi-for-coding' });
+});
+test('native assistant must confirm requested low variant, not default/high/max', () => {
+  const { parseStructured } = require('./kimi-review.cjs');
+  const coverage = { diffSha256: 'd'.repeat(64), coveredFiles: [] };
+  const value = { head: a, ...coverage, summary: 'ok', comments: [] };
+  for (const variant of [undefined, 'default', 'high', 'max', 'none', 'minimal']) {
+    assert.throws(() => parseStructured({ info: { role: 'assistant', providerID: 'kimi-code-plan-global', modelID: 'kimi-for-coding', variant, structured: value },
+      parts: [{ type: 'tool', tool: 'StructuredOutput', state: { status: 'completed', input: value } }] }, a, coverage));
+  }
+});
+
+
+test('Kimi capability check refuses disconnected, missing or mismatched low controls', () => {
+  const { assertLowCapability } = require('./kimi-review.cjs');
+  const valid = () => structuredClone(nativeProviderFixture.catalog);
+  assert.equal(nativeProviderFixture.capture.runtimeVersion, '1.18.34');
+  assert.equal(nativeProviderFixture.capture.isolation.providerOverride, false);
+  assert.deepEqual(require('./kimi-review.cjs').reviewConfig(), nativeProviderFixture.capture.reviewConfig);
+  assertLowCapability(valid());
+  for (const change of [c => c.connected = [], c => c.all = [], c => c.all[0].models['kimi-for-coding'].id = 'other',
+    c => c.all[0].models['kimi-for-coding'].capabilities.reasoning = false,
+    c => delete c.all[0].models['kimi-for-coding'].variants.low,
+    c => c.all[0].models['kimi-for-coding'].variants.low.reasoningEffort = 'max',
+    c => c.all[0].models['kimi-for-coding'].api.npm = '@ai-sdk/anthropic',
+    c => c.all[0].models['kimi-for-coding'].variants.low.thinking = { type: 'enabled', budgetTokens: 32000 }]) {
+    const catalog = valid(); change(catalog); assert.throws(() => assertLowCapability(catalog), /required low control/);
+  }
+});
+
+test('helper requires the exact runtime whose native provider response was verified', () => {
+  const { assertRuntimeVersion } = require('./kimi-review.cjs');
+  assertRuntimeVersion(nativeProviderFixture.capture.runtimeVersion);
+  for (const version of ['1.15.13', '1.18.30', '1.18.35', 'latest', '', undefined]) {
+    assert.throws(() => assertRuntimeVersion(version), /requires pinned OpenCode 1.18.34/);
+  }
+  const source = require('node:fs').readFileSync(require.resolve('./kimi-review.cjs'), 'utf8');
+  assert.match(source, /assertRuntimeVersion\(execFileSync\('opencode', \['--version'\]/);
+  assert.ok(source.indexOf("assertRuntimeVersion(execFileSync('opencode'") < source.indexOf('const review = await executeStructured'));
+});
+
+
+test('parsed low-control artifact survives JSON persistence and exact-head publication', async () => {
+  const fs = require('node:fs'), os = require('node:os'), path = require('node:path');
+  const { execFileSync } = require('node:child_process');
+  const { parseStructured, diffCoverage, publish } = require('./kimi-review.cjs');
+  const head = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+  const { diff, ...coverage } = diffCoverage(head, head);
+  const value = { head, ...coverage, summary: 'No actionable findings', comments: [] };
+  const response = structured => ({ info: { role: 'assistant', providerID: 'kimi-code-plan-global', modelID: 'kimi-for-coding', variant: 'low', structured },
+    parts: [{ type: 'tool', tool: 'StructuredOutput', state: { status: 'completed', input: structured } }] });
+  const artifact = parseStructured(response(value), head, coverage);
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'kimi-control-seam-')), file = path.join(directory, 'review.json');
+  const context = { repo: { owner: 'o', repo: 'r' }, payload: { pull_request: { number: 1, base: { sha: head }, head: { sha: head, repo: { full_name: 'o/r' } } } } };
+  const listFiles = () => {}, listReviews = () => {}; let creates = 0, publishedBody;
+  const github = { rest: { pulls: {
+    get: async () => ({ data: { state: 'open', draft: false, base: { sha: head }, head: context.payload.pull_request.head } }),
+    listFiles, listReviews,
+    createReview: async args => { creates++; publishedBody = args.body; assert.equal(args.commit_id, head); assert.equal(args.event, 'COMMENT'); return { data: { id: 42, body: args.body } }; },
+  } }, paginate: async () => [] };
+  try {
+    fs.writeFileSync(file, JSON.stringify(artifact));
+    await publish({ github, context, file });
+    assert.equal(creates, 1);
+    assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')).executionControl, artifact.executionControl);
+    assert.equal(artifact.executionControl.underlyingProviderModel, null);
+    assert.match(publishedBody, /Requested OpenCode variant=low\./);
+    assert.match(publishedBody, /Advertised native low mapping \(@ai-sdk\/openai-compatible\): reasoningEffort=low/);
+    assert.match(publishedBody, /Pinned OpenCode version=1\.18\.34/);
+    assert.match(publishedBody, /Observed assistant variant=low on kimi-code-plan-global\/kimi-for-coding/);
+    assert.match(publishedBody, /Underlying provider model=UNKNOWN; actual reasoning budget=UNKNOWN/);
+    assert.match(publishedBody, /not provider attestation/);
+    for (const corrupt of [c => c.requested.variant = 'max', c => c.requested.reasoningEffort = 'low',
+      c => c.advertisedNativeControl.reasoningEffort = 'max', c => c.opencodeVersion = '1.15.13',
+      c => c.executedIdentity.modelID = 'other', c => c.underlyingProviderModel = 'guessed', c => c.extra = true]) {
+      const broken = structuredClone(artifact); corrupt(broken.executionControl);
+      fs.writeFileSync(file, JSON.stringify(broken));
+      await assert.rejects(publish({ github, context, file }), /execution control provenance/);
+      assert.equal(creates, 1);
+    }
+    const extra = { ...artifact, unrelated: true }; fs.writeFileSync(file, JSON.stringify(extra));
+    await assert.rejects(publish({ github, context, file }), /immutable full diff/);
+    // Construct a near-cap review which fits all maximum-ID receipts without
+    // controls, but cannot fit the additional native control summary.
+    const comments = Array.from({ length: 100 }, () => ({ path: 'a', line: 1, body: 'x' }));
+    github.paginate = async method => method === listFiles ? [{ filename: 'a', patch: '@@ -0,0 +1,1 @@\n+x' }] : [];
+    const probe = { ...value, summary: 'x', comments };
+    fs.writeFileSync(file, JSON.stringify(probe));
+    await publish({ github, context, file });
+    assert.ok(!publishedBody.includes('Requested OpenCode variant=')); // Legacy unspecified.
+    const overhead = Buffer.byteLength(publishedBody) - 1;
+    const receiptBytes = Buffer.byteLength(`\n<!-- kimi-discord-delivered:v1:${Number.MAX_SAFE_INTEGER}:${'0'.repeat(64)} -->`);
+    const summaryBytes = 64999 - overhead - 100 * receiptBytes;
+    const remaining = summaryBytes - 44000;
+    const summary = 'a'.repeat(44000) + 'é'.repeat(Math.floor(remaining / 2)) + (remaining % 2 ? 'x' : '');
+    const nearCap = parseStructured(response({ ...probe, summary }), head, coverage);
+    fs.writeFileSync(file, JSON.stringify(nearCap));
+    const before = creates;
+    await assert.rejects(publish({ github, context, file, webhookUrl: 'unused', fetchImpl: async () => assert.fail('No send before whole body budget fits') }), /metadata exceeds/);
+    assert.equal(creates, before, 'Control summary must be reserved before native creation');
+    await publish({ github, context, file }); // Discord-disabled behavior remains valid.
+    assert.equal(creates, before + 1);
+    // This metadata is helper-owned: the model's StructuredOutput allowlist stays strict.
+    assert.throws(() => parseStructured(response({ ...value, executionControl: artifact.executionControl }), head, coverage), /immutable full diff/);
+  } finally { fs.rmSync(directory, { recursive: true, force: true }); }
+});
+
+test('trusted publication footer participates in whole UTF-8 precreate reservation', async () => {
+  const fs = require('node:fs'), os = require('node:os'), path = require('node:path');
+  const { execFileSync } = require('node:child_process');
+  const { publish, diffCoverage } = require('./kimi-review.cjs');
+  const head = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'kimi-footer-budget-')), file = path.join(directory, 'review.json');
+  const context = { repo: { owner: 'o', repo: 'r' }, payload: { pull_request: { number: 1, base: { sha: head }, head: { sha: head, repo: { full_name: 'o/r' } } } } };
+  const findings = Array.from({ length: 100 }, () => ({ path: 'a', line: 1, body: 'x' }));
+  const files = () => {}, reviews = () => {}, comments = () => {};
+  let creates = 0, sends = 0, updates = 0, body;
+  const github = { rest: { pulls: {
+    get: async () => ({ data: { state: 'open', draft: false, base: { sha: head }, head: context.payload.pull_request.head } }),
+    listFiles: files, listReviews: reviews, listCommentsForReview: comments,
+    createReview: async args => { creates++; body = args.body; return { data: { id: 42, body } }; },
+    updateReview: async args => { updates++; body = args.body; },
+  } }, paginate: async method => method === files ? [{ filename: 'a', patch: '@@ -0,0 +1,1 @@\n+x' }] : method === reviews ? [] : findings.map((c, i) => ({ ...c, id: Number.MAX_SAFE_INTEGER - i })) };
+  const artifact = summary => ({ head, ...diffCoverage(head, head), summary, comments: findings });
+  const write = summary => fs.writeFileSync(file, JSON.stringify(artifact(summary), (k, v) => k === 'diff' ? undefined : v));
+  const send = async () => { sends++; return { ok: true }; };
+  try {
+    write('x');
+    await publish({ github, context, file });
+    const overhead = Buffer.byteLength(body) - 1;
+    const reservation = findings.length * Buffer.byteLength(`\n<!-- kimi-discord-delivered:v1:${Number.MAX_SAFE_INTEGER}:${'0'.repeat(64)} -->`);
+    const summaryBytes = 64750 - reservation - overhead;
+    write('a'.repeat(42000 + (summaryBytes - 42000) % 2) + 'é'.repeat(Math.floor((summaryBytes - 42000) / 2)));
+    creates = 0;
+    // The original review fits. Appending publisher metadata after reservation
+    // used to create a review before discovering the complete body cannot fit.
+    await assert.rejects(publish({ github, context, file, webhookUrl: 'unused', fetchImpl: send,
+      publicationFooter: '\n\nNative execution provenance:\n' + 'p'.repeat(1006) }), /metadata exceeds review body budget/);
+    assert.equal(creates, 0); assert.equal(sends, 0); assert.equal(updates, 0);
+    await publish({ github, context, file, webhookUrl: 'unused', fetchImpl: send });
+    assert.equal(Buffer.byteLength(body), 64750); assert.equal(sends, 100);
+    // No Discord still budgets the complete new publication, with zero receipts.
+    write('é'.repeat(32000));
+    creates = 0;
+    await assert.rejects(publish({ github, context, file, publicationFooter: 'p'.repeat(1006) }), /metadata exceeds review body budget/);
+    assert.equal(creates, 0);
+  } finally { fs.rmSync(directory, { recursive: true, force: true }); }
+});
+
+test('footer is bounded trusted caller data; fitting partial retries preserve original bytes', async () => {
+  const fs = require('node:fs'), os = require('node:os'), path = require('node:path'), crypto = require('node:crypto');
+  const { execFileSync } = require('node:child_process');
+  const { publish, diffCoverage, parseStructured } = require('./kimi-review.cjs');
+  const head = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'kimi-footer-retry-')), file = path.join(directory, 'review.json');
+  const { diff, ...coverage } = diffCoverage(head, head);
+  const artifact = { head, ...coverage, summary: 'original model prefix', comments: [{ path: 'a', line: 1, body: 'first' }, { path: 'a', line: 1, body: 'second' }] };
+  fs.writeFileSync(file, JSON.stringify(artifact));
+  const context = { repo: { owner: 'o', repo: 'r' }, payload: { pull_request: { number: 1, base: { sha: head }, head: { sha: head, repo: { full_name: 'o/r' } } } } };
+  const files = () => {}, reviews = () => {}, comments = () => {};
+  let creates = 0, review;
+  const github = { rest: { pulls: {
+    get: async () => ({ data: { state: 'open', draft: false, base: { sha: head }, head: context.payload.pull_request.head } }),
+    listFiles: files, listReviews: reviews, listCommentsForReview: comments,
+    createReview: async args => { creates++; review = { id: 42, body: args.body, commit_id: head, state: 'COMMENTED', user: { login: 'github-actions[bot]' } }; return { data: { ...review } }; },
+    updateReview: async args => { review.body = args.body; },
+  } }, paginate: async method => method === files ? [{ filename: 'a', patch: '@@ -0,0 +1,1 @@\n+x' }] : method === reviews ? (review ? [{ ...review }] : []) : artifact.comments.map((c, i) => ({ ...c, id: 101 + i })) };
+  const footer = '\n\nNative execution provenance (execution evidence, not reviewer quorum):\n```json\n{"runID":"123","runAttempt":1}\n```';
+  try {
+    for (const publicationFooter of [null, {}, '\n' + 'é'.repeat(2048), '\n<!-- kimi-discord-delivered:v1:101:forged -->']) {
+      await assert.rejects(publish({ github, context, file, publicationFooter }), /Invalid trusted publication footer/);
+      assert.equal(creates, 0);
+    }
+    // Footer absence preserves the historical native body byte for byte.
+    await publish({ github, context, file });
+    const marker = `<!-- kimi-submission:${crypto.createHash('sha256').update(JSON.stringify({ base: head, review: artifact })).digest('hex')} -->`;
+    assert.equal(review.body, `Kimi review of exact head ${head}\nBase ${head}\n${marker}\n\n${artifact.summary}`);
+    review = undefined; creates = 0;
+    const sent = [];
+    await assert.rejects(publish({ github, context, file, publicationFooter: footer, webhookUrl: 'unused',
+      fetchImpl: async (_url, options) => { const text = JSON.parse(options.body).embeds[0].description; sent.push(text); return text === 'first' ? { ok: true } : { ok: false, status: 500 }; } }), /Discord webhook failed: 500/);
+    const partial = review.body;
+    assert.ok(partial.includes(footer)); assert.equal(creates, 1);
+    const send = async (_url, options) => { sent.push(JSON.parse(options.body).embeds[0].description); return { ok: true }; };
+    // Retry provenance changes, but the original publication and confirmed first
+    // delivery survive. Only the missing second notification is sent.
+    await publish({ github, context, file, publicationFooter: footer.replace('"runAttempt":1', '"runAttempt":2'), webhookUrl: 'unused', fetchImpl: send });
+    assert.ok(review.body.startsWith(partial)); assert.ok(review.body.includes(footer));
+    assert.ok(!review.body.includes('"runAttempt":2'));
+    assert.equal(creates, 1); assert.deepEqual(sent, ['first', 'second', 'second']);
+    await publish({ github, context, file, publicationFooter: footer, webhookUrl: 'unused', fetchImpl: async () => assert.fail('Confirmed deliveries must be skipped') });
+    review.body = review.body.replace('original model prefix', 'edited model prefix');
+    await assert.rejects(publish({ github, context, file, publicationFooter: footer, webhookUrl: 'unused', fetchImpl: send }), /original body prefix changed/);
+    // The seam is never a model-output field or a relaxed StructuredOutput key.
+    const value = { ...artifact, publicationFooter: footer };
+    assert.throws(() => parseStructured({ info: { role: 'assistant', providerID: 'kimi-code-plan-global', modelID: 'kimi-for-coding', variant: 'low', structured: value },
+      parts: [{ type: 'tool', tool: 'StructuredOutput', state: { status: 'completed', input: value } }] }, head, coverage), /immutable full diff/);
   } finally { fs.rmSync(directory, { recursive: true, force: true }); }
 });
