@@ -2,6 +2,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { assertHead, validateReview, discordPayloads } = require('./kimi-review.cjs');
+const nativeProviderFixture = require('./fixtures/kimi-provider-v1.18.34.json');
 const a = 'a'.repeat(40), b = 'b'.repeat(40);
 
 test('bounded structured execution authenticates local API, rejects prose and cleans up on timeout', async () => {
@@ -24,9 +25,12 @@ test('bounded structured execution authenticates local API, rejects prose and cl
     const api = async (url, options) => {
       assert.equal(options.headers.authorization, 'Basic ' + Buffer.from('opencode:private-local-auth').toString('base64'));
       assert.ok(url.endsWith('?directory=%2Fisolated%2Fworkspace'));
-      if (url.includes('/provider?')) return { ok: true, json: async () => ({ connected: mode === 'disconnected-provider' ? [] : ['kimi-code-plan-global'],
-        all: [{ id: 'kimi-code-plan-global', models: { 'kimi-for-coding': { id: 'kimi-for-coding', capabilities: { reasoning: true },
-          variants: mode === 'unsupported-low' ? { max: { reasoningEffort: 'max' } } : { low: { reasoningEffort: 'low' } } } } }] }) };
+      if (url.includes('/provider?')) {
+        const catalog = structuredClone(nativeProviderFixture.catalog);
+        if (mode === 'disconnected-provider') catalog.connected = [];
+        if (mode === 'unsupported-low') delete catalog.all[0].models['kimi-for-coding'].variants.low;
+        return { ok: true, json: async () => catalog };
+      }
       if (++calls === 1) return { ok: true, json: async () => ({ id: 'ses_test123' }) };
       if (url.includes('/event?')) return { ok: true, headers: new Headers({ 'content-type': 'text/event-stream' }), body: stream };
       if (options.method === 'POST') {
@@ -61,7 +65,9 @@ test('bounded structured execution authenticates local API, rejects prose and cl
     if (['valid', 'incomplete', 'stream-ended-complete'].includes(mode)) {
       const { executionControl, ...review } = await result;
       assert.deepEqual(review, value);
-      assert.deepEqual(executionControl.requested, { variant: 'low', reasoningEffort: 'low' });
+      assert.deepEqual(executionControl.requested, { variant: 'low' });
+      assert.deepEqual(executionControl.advertisedNativeControl, { apiNpm: '@ai-sdk/openai-compatible', reasoningEffort: 'low' });
+      assert.equal(executionControl.opencodeVersion, '1.18.34');
       assert.deepEqual(executionControl.executedIdentity, { providerID: 'kimi-code-plan-global', modelID: 'kimi-for-coding' });
       assert.equal(executionControl.observedAssistantVariant, 'low');
       assert.equal(executionControl.underlyingProviderModel, null);
@@ -488,16 +494,30 @@ test('native assistant must confirm requested low variant, not default/high/max'
 
 test('Kimi capability check refuses disconnected, missing or mismatched low controls', () => {
   const { assertLowCapability } = require('./kimi-review.cjs');
-  const valid = () => ({ connected: ['kimi-code-plan-global'], all: [{ id: 'kimi-code-plan-global', models: { 'kimi-for-coding': {
-    id: 'kimi-for-coding', capabilities: { reasoning: true }, variants: { low: { reasoningEffort: 'low' }, max: { reasoningEffort: 'max' } },
-  } } }] });
+  const valid = () => structuredClone(nativeProviderFixture.catalog);
+  assert.equal(nativeProviderFixture.capture.runtimeVersion, '1.18.34');
+  assert.equal(nativeProviderFixture.capture.isolation.providerOverride, false);
+  assert.deepEqual(require('./kimi-review.cjs').reviewConfig(), nativeProviderFixture.capture.reviewConfig);
   assertLowCapability(valid());
   for (const change of [c => c.connected = [], c => c.all = [], c => c.all[0].models['kimi-for-coding'].id = 'other',
     c => c.all[0].models['kimi-for-coding'].capabilities.reasoning = false,
     c => delete c.all[0].models['kimi-for-coding'].variants.low,
-    c => c.all[0].models['kimi-for-coding'].variants.low.reasoningEffort = 'max']) {
+    c => c.all[0].models['kimi-for-coding'].variants.low.reasoningEffort = 'max',
+    c => c.all[0].models['kimi-for-coding'].api.npm = '@ai-sdk/anthropic',
+    c => c.all[0].models['kimi-for-coding'].variants.low.thinking = { type: 'enabled', budgetTokens: 32000 }]) {
     const catalog = valid(); change(catalog); assert.throws(() => assertLowCapability(catalog), /required low control/);
   }
+});
+
+test('helper requires the exact runtime whose native provider response was verified', () => {
+  const { assertRuntimeVersion } = require('./kimi-review.cjs');
+  assertRuntimeVersion(nativeProviderFixture.capture.runtimeVersion);
+  for (const version of ['1.15.13', '1.18.30', '1.18.35', 'latest', '', undefined]) {
+    assert.throws(() => assertRuntimeVersion(version), /requires pinned OpenCode 1.18.34/);
+  }
+  const source = require('node:fs').readFileSync(require.resolve('./kimi-review.cjs'), 'utf8');
+  assert.match(source, /assertRuntimeVersion\(execFileSync\('opencode', \['--version'\]/);
+  assert.ok(source.indexOf("assertRuntimeVersion(execFileSync('opencode'") < source.indexOf('const review = await executeStructured'));
 });
 
 
@@ -525,11 +545,15 @@ test('parsed low-control artifact survives JSON persistence and exact-head publi
     assert.equal(creates, 1);
     assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')).executionControl, artifact.executionControl);
     assert.equal(artifact.executionControl.underlyingProviderModel, null);
-    assert.match(publishedBody, /Requested OpenCode variant=low; reasoningEffort=low/);
+    assert.match(publishedBody, /Requested OpenCode variant=low\./);
+    assert.match(publishedBody, /Advertised native low mapping \(@ai-sdk\/openai-compatible\): reasoningEffort=low/);
+    assert.match(publishedBody, /Pinned OpenCode version=1\.18\.34/);
     assert.match(publishedBody, /Observed assistant variant=low on kimi-code-plan-global\/kimi-for-coding/);
     assert.match(publishedBody, /Underlying provider model=UNKNOWN; actual reasoning budget=UNKNOWN/);
     assert.match(publishedBody, /not provider attestation/);
-    for (const corrupt of [c => c.requested.variant = 'max', c => c.executedIdentity.modelID = 'other', c => c.underlyingProviderModel = 'guessed', c => c.extra = true]) {
+    for (const corrupt of [c => c.requested.variant = 'max', c => c.requested.reasoningEffort = 'low',
+      c => c.advertisedNativeControl.reasoningEffort = 'max', c => c.opencodeVersion = '1.15.13',
+      c => c.executedIdentity.modelID = 'other', c => c.underlyingProviderModel = 'guessed', c => c.extra = true]) {
       const broken = structuredClone(artifact); corrupt(broken.executionControl);
       fs.writeFileSync(file, JSON.stringify(broken));
       await assert.rejects(publish({ github, context, file }), /execution control provenance/);

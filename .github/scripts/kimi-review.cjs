@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 const fs = require('node:fs');
 const { execFileSync } = require('node:child_process');
+const OPENCODE_VERSION = '1.18.34';
+
+function assertRuntimeVersion(version) {
+  if (version !== OPENCODE_VERSION) throw new Error('Kimi review requires pinned OpenCode 1.18.34');
+}
 
 function assertHead(expected, executed, current = expected) {
   if (!/^[0-9a-f]{40}$/.test(expected) || executed !== expected || current !== expected) {
@@ -108,7 +113,7 @@ async function publish({ github, context, file, webhookUrl, fetchImpl = fetch })
   // Only the strictly validated helper provenance above supplies these claims.
   // Legacy artifacts omit this section; their controls remain unspecified.
   const controlSummary = executionControl ?
-    `\n\nOpenCode control provenance (runtime observations, not provider attestation):\nRequested OpenCode variant=${executionControl.requested.variant}; reasoningEffort=${executionControl.requested.reasoningEffort}.\nObserved assistant variant=${executionControl.observedAssistantVariant} on ${executionControl.executedIdentity.providerID}/${executionControl.executedIdentity.modelID}.\nUnderlying provider model=UNKNOWN; actual reasoning budget=UNKNOWN.` : '';
+    `\n\nOpenCode control provenance (runtime observations, not provider attestation):\nRequested OpenCode variant=${executionControl.requested.variant}.\nAdvertised native low mapping (${executionControl.advertisedNativeControl.apiNpm}): reasoningEffort=${executionControl.advertisedNativeControl.reasoningEffort}.\nPinned OpenCode version=${executionControl.opencodeVersion}.\nObserved assistant variant=${executionControl.observedAssistantVariant} on ${executionControl.executedIdentity.providerID}/${executionControl.executedIdentity.modelID}.\nUnderlying provider model=UNKNOWN; actual reasoning budget=UNKNOWN.` : '';
   const originalBody = `Kimi review of exact head ${review.head}\nBase ${pr.base.sha}\n${marker}\n\n${data.summary}${fallback}${controlSummary}`;
   // IDs are accepted only as positive safe integers below. Reserve their largest
   // decimal representation, not today's observed GitHub IDs, for every receipt.
@@ -217,11 +222,13 @@ function structuredRequest(prompt, head, coverage) {
 
 function controlProvenance() {
   return {
-    requested: { variant: 'low', reasoningEffort: 'low' },
+    requested: { variant: 'low' },
+    advertisedNativeControl: { apiNpm: '@ai-sdk/openai-compatible', reasoningEffort: 'low' },
+    opencodeVersion: OPENCODE_VERSION,
     observedAssistantVariant: 'low',
     executedIdentity: { providerID: 'kimi-code-plan-global', modelID: 'kimi-for-coding' },
     underlyingProviderModel: null,
-    binding: 'OpenCode catalog capability and assistant variant; not a provider reasoning-budget attestation',
+    binding: 'Pinned OpenCode catalog low mapping and assistant variant; not a provider reasoning-budget attestation',
   };
 }
 
@@ -244,7 +251,8 @@ function assertLowCapability(catalog) {
   const provider = catalog?.all?.find(p => p.id === 'kimi-code-plan-global');
   const model = provider?.models?.['kimi-for-coding'];
   if (!catalog?.connected?.includes('kimi-code-plan-global') || model?.id !== 'kimi-for-coding' ||
-      model.capabilities?.reasoning !== true || model.variants?.low?.reasoningEffort !== 'low') {
+      model.capabilities?.reasoning !== true || model.api?.npm !== '@ai-sdk/openai-compatible' ||
+      !require('node:util').isDeepStrictEqual(model.variants?.low, { reasoningEffort: 'low' })) {
     throw new Error('Connected Kimi route does not advertise the required low control');
   }
 }
@@ -399,6 +407,9 @@ function reviewPrompt(expected, coverage, diff) {
 }
 
 async function run() {
+  assertRuntimeVersion(execFileSync('opencode', ['--version'], {
+    encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'],
+  }).trim());
   const expected = process.env.PR_HEAD_SHA;
   const head = () => execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
   const status = () => execFileSync('git', ['status', '--porcelain', '--untracked-files=all'], { encoding: 'utf8' }).trim();
@@ -430,5 +441,5 @@ async function run() {
   }
 }
 
-module.exports = { assertLowCapability, reviewPrompt, assertHead, validateReview, discordPayloads, splitFindings, sendDiscord, publish, structuredRequest, parseStructured, executeStructured, reviewConfig, sourceSnapshot, diffCoverage, assertReviewablePaths, REVIEW_TIMEOUT_MS };
+module.exports = { assertRuntimeVersion, assertLowCapability, reviewPrompt, assertHead, validateReview, discordPayloads, splitFindings, sendDiscord, publish, structuredRequest, parseStructured, executeStructured, reviewConfig, sourceSnapshot, diffCoverage, assertReviewablePaths, REVIEW_TIMEOUT_MS };
 if (require.main === module) run().catch(error => { console.error(error.message === 'Kimi model execution exceeded the bounded 20-minute budget' ? error.message : ['startup', 'capability', 'session', 'events', 'submit', 'status', 'messages', 'validation'].includes(error.phase) ? `Kimi review failed closed at ${error.phase}; no submission artifact produced` : 'Kimi review failed closed; no submission artifact produced'); process.exitCode = 1; });
