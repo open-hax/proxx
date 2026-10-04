@@ -136,7 +136,15 @@ async function transportWorker(script, options) {
   if (options.liveBase) pr.base.sha = 'b'.repeat(40);
   let review;
   const pulls = {
-    get: async () => { seen.reads++; return { data: structuredClone(pr) }; }, listReviews: () => {},
+    get: async () => {
+      seen.reads++;
+      if (options.liveReadDenied) {
+        const error = Error('fixture secret transport details');
+        error.status = options.liveReadStatus;
+        throw error;
+      }
+      return { data: structuredClone(pr) };
+    }, listReviews: () => {},
     createReview: async args => {
       seen.creates++; assert.equal(args.event, 'COMMENT');
       review = { id: 912, body: args.body, commit_id: args.commit_id, state: 'COMMENTED',
@@ -187,9 +195,9 @@ function execute(f, options = {}) {
   assert.equal(result.status, 0, result.stderr || result.error?.message);
   return JSON.parse(result.stdout);
 }
-test('diagnostic job is fresh, read/OIDC only and shares the held immutable publisher selection', () => {
+test('diagnostic job is fresh, read/OIDC only and shares the immutable publisher selection', () => {
   const job = workflow.split('\n  native-api-canary:\n')[1]; assert.ok(job);
-  assert.match(job, /contents: read\n {6}id-token: write/);
+  assert.match(job, /contents: read\n {6}pull-requests: read\n {6}id-token: write/);
   assert.doesNotMatch(job, /pull-requests: write|issues: write|secrets\.|opencode\/github|npm |npx /);
   assert.doesNotMatch(job, /require\(.*GITHUB_WORKSPACE.*\.github\/scripts/);
   assert.match(job, /ref: \$\{\{ github.event.pull_request.head.sha \}\}\n {10}fetch-depth: 0\n {10}persist-credentials: false/);
@@ -257,6 +265,23 @@ test('publication or revocation failure stays failed, preserves native evidence 
         assert.equal(result.receipt.failurePhase, 'revocation');
       } else assert.equal(result.receipt.nativeProbePassed, false);
       if (fault === 'moveAfterExchange') assert.equal(result.seen.creates, 0);
+    } finally { f.clean(); }
+  }
+});
+
+test('live PR read failure preserves only safe preflight diagnostics and never mints an App token', () => {
+  for (const status of [403, 'fixture secret transport details']) {
+    const f = gitFixture(); try {
+      assert.equal(prepare(f).status, 0);
+      const result = execute(f, { liveReadDenied: true, liveReadStatus: status });
+      assert.match(result.error, /preflight failed/);
+      assert.equal(result.receipt.preflightCheckpoint, 'live-pr-read');
+      assert.equal(result.receipt.httpStatus, status === 403 ? 403 : null);
+      assert.equal(result.receipt.passed, false);
+      assert.equal(result.seen.oidc, 0); assert.equal(result.seen.exchange, 0);
+      assert.equal(result.seen.revoke, 0); assert.equal(result.seen.creates, 0);
+      assert.equal(result.tripwire, false);
+      assert.doesNotMatch(JSON.stringify(result), /fixture secret transport details|fixture-not-a-credential/);
     } finally { f.clean(); }
   }
 });

@@ -51,6 +51,7 @@ jobs:
     timeout-minutes: 5
     permissions:
       contents: read
+      pull-requests: read
       id-token: write
     concurrency:
       group: kimi-api-canary-${{ github.repository }}-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
@@ -94,13 +95,14 @@ jobs:
             const positive = value => /^[1-9][0-9]*$/.test(value || '') && Number.isSafeInteger(Number(value));
             const git = args => execFileSync('git', args, { cwd: e.GITHUB_WORKSPACE, stdio: ['ignore', 'pipe', 'pipe'] });
             const digest = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
-            let nativeReceipt, callbackStarted = false, provenance = {};
+            let nativeReceipt, callbackStarted = false, provenance = {}, preflightCheckpoint = 'context';
             const write = status => fs.writeFileSync(`${e.RUNNER_TEMP}/kimi-api-canary.json`,
               JSON.stringify({ ...nativeReceipt, ...provenance, diagnostic: true,
                 nativeProbePassed: nativeReceipt?.passed === true, ...status }, null, 2), { mode: 0o600 });
             try {
               if (![e.PR_HEAD_SHA, e.PR_BASE_SHA, e.KIMI_RUNTIME_SHA, e.GITHUB_WORKFLOW_SHA].every(sha) ||
                   ![e.PR_NUMBER, e.GITHUB_RUN_ID, e.GITHUB_RUN_ATTEMPT].every(positive)) throw Error('Invalid diagnostic context');
+              preflightCheckpoint = 'event-workflow';
               const repository = context.repo.owner + '/' + context.repo.repo, pr = context.payload.pull_request;
               if (context.eventName !== 'pull_request' || context.workflow !== 'Kimi runner contract tests' ||
                   repository !== e.GITHUB_REPOSITORY || context.payload.repository?.full_name !== repository ||
@@ -111,15 +113,19 @@ jobs:
                   pr.base?.sha !== e.PR_BASE_SHA || pr.head?.repo?.full_name !== repository || pr.base?.repo?.full_name !== repository) {
                 throw Error('Diagnostic event/workflow mismatch');
               }
+              preflightCheckpoint = 'checkout-ancestry';
               if (git(['rev-parse', 'HEAD']).toString().trim() !== e.PR_HEAD_SHA) throw Error('Diagnostic checkout moved');
               git(['merge-base', '--is-ancestor', e.KIMI_RUNTIME_SHA, e.PR_BASE_SHA]);
+              preflightCheckpoint = 'immutable-source';
               const canaryPath = `${e.RUNNER_TEMP}/kimi-api-canary.cjs`, authPath = `${e.RUNNER_TEMP}/opencode-app-auth.cjs`;
               const canary = fs.readFileSync(canaryPath), auth = fs.readFileSync(authPath);
               if (!canary.equals(git(['show', `${e.KIMI_RUNTIME_SHA}:.github/scripts/kimi-api-canary.cjs`])) ||
                   !auth.equals(git(['show', `${e.KIMI_RUNTIME_SHA}:.github/scripts/opencode-app-auth.cjs`])) ||
                   !fs.readFileSync(`${e.GITHUB_WORKSPACE}/.github/workflows/kimi-runner-tests.yml`).equals(
                     git(['show', `${e.GITHUB_WORKFLOW_SHA}:.github/workflows/kimi-runner-tests.yml`]))) throw Error('Diagnostic source bytes mismatch');
+              preflightCheckpoint = 'live-pr-read';
               const current = (await github.rest.pulls.get({ ...context.repo, pull_number: pr.number })).data;
+              preflightCheckpoint = 'live-pr-binding';
               if (current.number !== pr.number || current.state !== 'open' || current.draft ||
                   current.head?.sha !== e.PR_HEAD_SHA || current.base?.sha !== e.PR_BASE_SHA ||
                   current.head?.repo?.full_name !== repository || current.base?.repo?.full_name !== repository) throw Error('Diagnostic live PR moved');
@@ -128,6 +134,7 @@ jobs:
                 canarySha256: digest(canary), authSha256: digest(auth), workflowSha: e.GITHUB_WORKFLOW_SHA,
                 workflowRef: e.GITHUB_WORKFLOW_REF, runID: e.GITHUB_RUN_ID, runAttempt: e.GITHUB_RUN_ATTEMPT };
               write({ passed: false, revoked: false });
+              preflightCheckpoint = 'app-operation';
               // No candidate executable or model credential enters this fresh job.
               // Only the verified immutable helper owns native identity/body/dedup.
               const { probe } = require(canaryPath), { withOpenCodeAppToken } = require(authPath);
@@ -143,7 +150,9 @@ jobs:
               const phases = (error.errors || [error]).map(item => item.phase).filter(value =>
                 ['oidc', 'exchange', 'publication', 'revocation'].includes(value));
               const failurePhase = phases.includes('revocation') ? 'revocation' : phases[0] || 'preflight';
-              write({ passed: false, revoked: callbackStarted && !phases.includes('revocation'), failurePhase });
+              const httpStatus = Number.isSafeInteger(error.status) && error.status >= 100 && error.status <= 599 ? error.status : null;
+              write({ passed: false, revoked: callbackStarted && !phases.includes('revocation'), failurePhase,
+                preflightCheckpoint, httpStatus });
               throw Error(`App diagnostic ${failurePhase} failed`);
             }
       - name: Preserve diagnostic metadata including partial creation
