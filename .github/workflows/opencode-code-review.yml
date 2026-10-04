@@ -90,14 +90,17 @@ jobs:
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          REVIEW_WORKFLOW_SHA: ${{ github.workflow_sha }}
+          REVIEW_WORKFLOW_REF: ${{ github.workflow_ref }}
         run: |
           node <<'NODE'
           const fs = require('node:fs'), crypto = require('node:crypto');
           const { execFileSync } = require('node:child_process');
           const e = process.env, sha = value => /^[0-9a-f]{40}$/.test(value || '');
-          if (![e.KIMI_RUNTIME_SHA, e.PR_HEAD_SHA, e.PR_BASE_SHA, e.GITHUB_WORKFLOW_SHA].every(sha) ||
+          if (![e.KIMI_RUNTIME_SHA, e.PR_HEAD_SHA, e.PR_BASE_SHA, e.REVIEW_WORKFLOW_SHA].every(sha) ||
               !/^[1-9][0-9]*$/.test(e.GITHUB_RUN_ID || '') ||
-              ![e.PR_NUMBER, e.GITHUB_RUN_ATTEMPT].every(value => /^[1-9][0-9]*$/.test(value || '') && Number.isSafeInteger(Number(value)))) throw new Error('Invalid execution provenance');
+              ![e.PR_NUMBER, e.GITHUB_RUN_ATTEMPT].every(value => /^[1-9][0-9]*$/.test(value || '') && Number.isSafeInteger(Number(value))) ||
+              e.REVIEW_WORKFLOW_REF !== `${e.GITHUB_REPOSITORY}/.github/workflows/opencode-code-review.yml@refs/pull/${e.PR_NUMBER}/merge`) throw new Error('Invalid execution provenance');
           execFileSync('git', ['merge-base', '--is-ancestor', e.KIMI_RUNTIME_SHA, e.PR_BASE_SHA]);
           const runtimePath = `${e.RUNNER_TEMP}/kimi-review.cjs`;
           const runtime = fs.readFileSync(runtimePath), expected = execFileSync('git', ['show', `${e.KIMI_RUNTIME_SHA}:.github/scripts/kimi-review.cjs`]);
@@ -125,7 +128,7 @@ jobs:
             executedModelBinding: 'Successful immutable parseStructured requires assistant providerID/modelID to equal requested Kimi identities',
             runID: e.GITHUB_RUN_ID, runAttempt: Number(e.GITHUB_RUN_ATTEMPT),
             runURL: `${e.GITHUB_SERVER_URL}/${e.GITHUB_REPOSITORY}/actions/runs/${e.GITHUB_RUN_ID}`,
-            workflowSha: e.GITHUB_WORKFLOW_SHA, workflowRef: e.GITHUB_WORKFLOW_REF,
+            workflowSha: e.REVIEW_WORKFLOW_SHA, workflowRef: e.REVIEW_WORKFLOW_REF,
             opencodeVersion: version, archiveSha256, diffSha256: review.diffSha256, coveredFiles: review.coveredFiles,
           };
           fs.writeFileSync(`${e.RUNNER_TEMP}/kimi-provenance.json`, JSON.stringify(provenance, null, 2));
@@ -187,6 +190,8 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          REVIEW_WORKFLOW_SHA: ${{ github.workflow_sha }}
+          REVIEW_WORKFLOW_REF: ${{ github.workflow_ref }}
           DISCORD_REVIEW_WEBHOOK_URL: ${{ secrets.DISCORD_REVIEW_WEBHOOK_URL }}
         with:
           github-token: ${{ github.token }}
@@ -196,8 +201,9 @@ jobs:
             const e = process.env, sha = value => /^[0-9a-f]{40}$/.test(value || '');
             const positive = value => /^[1-9][0-9]*$/.test(value || '') && Number.isSafeInteger(Number(value));
             const digest = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
-            if (![e.PR_HEAD_SHA, e.PR_BASE_SHA, e.KIMI_RUNTIME_SHA, e.GITHUB_WORKFLOW_SHA].every(sha) ||
-                !positive(e.PR_NUMBER) || !positive(e.GITHUB_RUN_ATTEMPT) || !/^[1-9][0-9]*$/.test(e.GITHUB_RUN_ID || '')) throw Error('Invalid publication context');
+            if (![e.PR_HEAD_SHA, e.PR_BASE_SHA, e.KIMI_RUNTIME_SHA, e.REVIEW_WORKFLOW_SHA].every(sha) ||
+                !positive(e.PR_NUMBER) || !positive(e.GITHUB_RUN_ATTEMPT) || !/^[1-9][0-9]*$/.test(e.GITHUB_RUN_ID || '') ||
+                e.REVIEW_WORKFLOW_REF !== `${e.GITHUB_REPOSITORY}/.github/workflows/opencode-code-review.yml@refs/pull/${e.PR_NUMBER}/merge`) throw Error('Invalid publication context');
             if (context.repo.owner + '/' + context.repo.repo !== e.GITHUB_REPOSITORY ||
                 context.payload.pull_request?.number !== Number(e.PR_NUMBER) ||
                 context.payload.pull_request?.head.sha !== e.PR_HEAD_SHA || context.payload.pull_request?.base.sha !== e.PR_BASE_SHA) throw Error('Publication event mismatch');
@@ -223,7 +229,7 @@ jobs:
                 !Number.isSafeInteger(provenance.runAttempt) || provenance.runAttempt < 1 || provenance.runAttempt > Number(e.GITHUB_RUN_ATTEMPT) ||
                 provenance.artifactName !== artifactName || e.ARTIFACT_NAME !== artifactName ||
                 provenance.runURL !== `${e.GITHUB_SERVER_URL}/${e.GITHUB_REPOSITORY}/actions/runs/${e.GITHUB_RUN_ID}` ||
-                provenance.workflowSha !== e.GITHUB_WORKFLOW_SHA || provenance.workflowRef !== e.GITHUB_WORKFLOW_REF ||
+                provenance.workflowSha !== e.REVIEW_WORKFLOW_SHA || provenance.workflowRef !== e.REVIEW_WORKFLOW_REF ||
                 provenance.opencodeVersion !== '1.18.34' || provenance.archiveSha256 !== '0f22479647226d1d2dd99595d20082ee7bda3870b62dc6a90b41efc1a71d7e9a') throw Error('Native execution provenance mismatch');
             const helper = require(runtimePath);
             helper.assertHead(e.PR_HEAD_SHA, review.head, execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim());

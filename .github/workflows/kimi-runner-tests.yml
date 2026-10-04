@@ -137,6 +137,9 @@ jobs:
               if (!/^[A-Za-z0-9+/]+={0,2}$/.test(encodedWorkflow) || encodedWorkflow.length % 4 !== 0) throw Error('Invalid native workflow encoding');
               const workflowBytes = Buffer.from(encodedWorkflow, 'base64');
               const workflowBlob = crypto.createHash('sha1').update(`blob ${workflowBytes.length}\0`).update(workflowBytes).digest('hex');
+              // Native merge-tree bytes must equal the reviewed PR-head workflow bytes.
+              // A legitimate base co-change can refuse here: ordinarily integrate the base
+              // and obtain fresh exact-head CI/review before retrying; do not substitute head-tree bytes.
               if (workflowBytes.length !== nativeWorkflow.size || workflowBytes.toString('base64') !== encodedWorkflow ||
                   workflowBlob !== nativeWorkflow.sha ||
                   !fs.readFileSync(`${e.GITHUB_WORKSPACE}/${workflowPath}`).equals(workflowBytes)) throw Error('Diagnostic workflow bytes mismatch');

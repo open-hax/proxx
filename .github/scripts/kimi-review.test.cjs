@@ -690,7 +690,7 @@ module.exports.publish=async args=>{await args.github.capture(args);};
   const artifactName = `kimi-native-12345-445-${head}-1`;
   const env = { RUNNER_TEMP: temp, KIMI_RUNTIME_SHA: base, PR_HEAD_SHA: head, PR_BASE_SHA: base, PR_NUMBER: '445',
     GITHUB_REPOSITORY: 'open-hax/proxx', GITHUB_RUN_ID: '12345', GITHUB_RUN_ATTEMPT: '2', GITHUB_SERVER_URL: 'https://github.com',
-    GITHUB_WORKFLOW_SHA: 'a'.repeat(40), GITHUB_WORKFLOW_REF: 'open-hax/proxx/.github/workflows/opencode-code-review.yml@refs/pull/445/merge',
+    REVIEW_WORKFLOW_SHA: 'a'.repeat(40), REVIEW_WORKFLOW_REF: 'open-hax/proxx/.github/workflows/opencode-code-review.yml@refs/pull/445/merge',
     ARTIFACT_NAME: artifactName, KIMI_REVIEW_FILE: path.join(temp, 'kimi-native/kimi-review.json') };
   const provenance = { origin: 'github-actions-native-execution', repository: env.GITHUB_REPOSITORY,
     prNumber: 445, head, base, runtimeSha: base, runtimeBlobSha256: digest(helper), authBlobSha256: digest(auth), runtimeBaseAncestorVerified: true,
@@ -698,7 +698,7 @@ module.exports.publish=async args=>{await args.github.capture(args);};
     requestedModel: control.executedIdentity, executedModel: control.executedIdentity, executionControl: control,
     executedModelBinding: 'Successful immutable parseStructured requires assistant providerID/modelID to equal requested Kimi identities',
     runID: '12345', runAttempt: 1, runURL: 'https://github.com/open-hax/proxx/actions/runs/12345',
-    workflowSha: env.GITHUB_WORKFLOW_SHA, workflowRef: env.GITHUB_WORKFLOW_REF,
+    workflowSha: env.REVIEW_WORKFLOW_SHA, workflowRef: env.REVIEW_WORKFLOW_REF,
     opencodeVersion: '1.18.34', archiveSha256: '0f22479647226d1d2dd99595d20082ee7bda3870b62dc6a90b41efc1a71d7e9a',
     diffSha256: coverage.diffSha256, coveredFiles: coverage.coveredFiles };
   const context = { repo: { owner: 'open-hax', repo: 'proxx' }, payload: { pull_request: { number: 445, base: { sha: base }, head: { sha: head, repo: { full_name: 'open-hax/proxx' } }, draft: false } } };
@@ -768,12 +768,25 @@ test('producer output binds actual PR/run/attempt and hashes both immutable help
         return Buffer.isBuffer(this.bytes) && this.bytes.equals(archive) ? f.provenance.archiveSha256 : crypto.createHash(algorithm).update(this.bytes).digest(encoding);
       } }),
     } : require(name);
+    for (const [field, value] of [
+      ['REVIEW_WORKFLOW_SHA', undefined], ['REVIEW_WORKFLOW_SHA', 'malformed'],
+      ['REVIEW_WORKFLOW_REF', undefined], ['REVIEW_WORKFLOW_REF', 'malformed'],
+      ['REVIEW_WORKFLOW_REF', 'open-hax/proxx/.github/workflows/opencode-code-review.yml@refs/pull/446/merge'],
+    ]) {
+      const denied = { ...env };
+      if (value === undefined) delete denied[field]; else denied[field] = value;
+      assert.throws(() => new Function('require', 'process', script)(importFixture, { env: denied }), /Invalid execution provenance/);
+      assert.equal(fs.existsSync(path.join(f.temp, 'kimi-provenance.json')), false);
+      assert.equal(fs.existsSync(env.GITHUB_OUTPUT), false);
+    }
     new Function('require', 'process', script)(importFixture, { env });
     const actual = JSON.parse(fs.readFileSync(path.join(f.temp, 'kimi-provenance.json')));
     assert.equal(actual.artifactName, f.env.ARTIFACT_NAME);
     assert.equal(actual.prNumber, 445); assert.equal(actual.runID, '12345'); assert.equal(actual.runAttempt, 1);
     assert.equal(actual.authBlobSha256, f.provenance.authBlobSha256);
     assert.equal(actual.reviewBlobSha256, f.provenance.reviewBlobSha256);
+    assert.equal(actual.workflowSha, env.REVIEW_WORKFLOW_SHA);
+    assert.equal(actual.workflowRef, env.REVIEW_WORKFLOW_REF);
     assert.deepEqual(actual.executionControl, f.review.executionControl);
     assert.equal(fs.readFileSync(env.GITHUB_OUTPUT, 'utf8'), `artifact-name=${f.env.ARTIFACT_NAME}\n`);
     fs.appendFileSync(path.join(f.temp, 'opencode-app-auth.cjs'), '\n// mutation');
@@ -801,7 +814,7 @@ test('runtime preparation extracts both helpers from one base ancestor and refus
   } finally { f.cleanup(); }
 });
 
-for (const mode of ['wrong-run', 'wrong-pr', 'wrong-head', 'wrong-base', 'wrong-repository', 'wrong-workflow', 'future-attempt', 'wrong-artifact', 'wrong-runtime', 'wrong-auth', 'changed-review', 'changed-diff', 'partial-coverage', 'model-owner', 'changed-low']) {
+for (const mode of ['wrong-run', 'wrong-pr', 'wrong-head', 'wrong-base', 'wrong-repository', 'wrong-workflow', 'wrong-workflow-ref', 'missing-workflow-sha', 'malformed-workflow-sha', 'missing-workflow-ref', 'malformed-workflow-ref', 'mismatched-workflow-context', 'future-attempt', 'wrong-artifact', 'wrong-runtime', 'wrong-auth', 'changed-review', 'changed-diff', 'partial-coverage', 'model-owner', 'changed-low']) {
   test(`fresh publication denies ${mode} before OIDC or publication`, async () => {
     const f = kimiPublicationFixture();
     try {
@@ -812,6 +825,12 @@ for (const mode of ['wrong-run', 'wrong-pr', 'wrong-head', 'wrong-base', 'wrong-
       if (mode === 'wrong-base') f.provenance.base = 'b'.repeat(40);
       if (mode === 'wrong-repository') f.provenance.repository = 'other/proxx';
       if (mode === 'wrong-workflow') f.provenance.workflowSha = 'b'.repeat(40);
+      if (mode === 'wrong-workflow-ref') f.provenance.workflowRef = 'open-hax/proxx/.github/workflows/opencode-code-review.yml@refs/pull/446/merge';
+      if (mode === 'missing-workflow-sha') delete f.env.REVIEW_WORKFLOW_SHA;
+      if (mode === 'malformed-workflow-sha') f.env.REVIEW_WORKFLOW_SHA = 'malformed';
+      if (mode === 'missing-workflow-ref') delete f.env.REVIEW_WORKFLOW_REF;
+      if (mode === 'malformed-workflow-ref') f.env.REVIEW_WORKFLOW_REF = 'malformed';
+      if (mode === 'mismatched-workflow-context') f.env.REVIEW_WORKFLOW_SHA = 'b'.repeat(40);
       if (mode === 'future-attempt') f.provenance.runAttempt = 3;
       if (mode === 'wrong-artifact') f.env.ARTIFACT_NAME += '-other';
       if (mode === 'wrong-runtime') fs.appendFileSync(path.join(f.temp, 'kimi-review.cjs'), '\nthrow Error("Tampered runtime");');

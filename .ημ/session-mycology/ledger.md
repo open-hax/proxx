@@ -143,3 +143,13 @@
   spore: none
   receipt-refs: 3882800b-16a6-4703-94e3-550290d3700b
   note: Preserve RED history and rerun the affected suite after removing only stale pre-merge prose. Executable guards remain; native App/model identity and current-head reviews still require qualification.
+
+- ts: 2026-10-04T14:04:42.663651507Z
+  session: codex/proxx445-explicit-workflow-context
+  task: Preserve publication provenance while making context forwarding explicit
+  p-efficiency: 0.91
+  p-friction: 0.24
+  p-skill-candidate: 0.18
+  spore: none
+  receipt-refs: 9627e430-d90c-4d84-a5f5-46b82cece80a
+  note: A false absence claim need not be reclassified as a real bug to make a requested dependency change. Execute actual producer/publisher scripts with default names absent, keep the exact artifact tuple and refuse missing or mismatched context before authentication. Document intentional co-change refusal instead of substituting an easier source. Retain first-attempt failure cause as unknown even after a successful same-head retry; COMMENTED App publication and low client observations are not approval or provider attestation. Parent owns all native effects and successor qualification.
