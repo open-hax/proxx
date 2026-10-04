@@ -26,7 +26,7 @@
             :issue {:number 445 :pull_request {:url "native"}} :comment trigger})
 (def base "d4d52a39ff1db65ad36e9a429e03489c1208e32d")
 (def live-pr {:state "open" :draft false :head {:sha (:head t) :repo {:full_name "open-hax/proxx" :private false}}
-              :base {:sha base :repo {:full_name "open-hax/proxx" :private false}}})
+              :base {:ref "staging" :sha base :repo {:full_name "open-hax/proxx" :private false}}})
 (def coverage {:diff-sha256 (r/sha "fixture exact diff") :files [".github/workflows/opencode-code-review.yml"] :diff "fixture exact diff"})
 (def intake {:event event :live-pr live-pr :context context :comments [proposal (r/native-comment trigger true)]
              :trigger trigger :authorized? true :policy policy :coverage coverage})
@@ -262,6 +262,7 @@
                                               (assoc (:pr (:context @state)) :reviewThreads
                                                      {:nodes [(:thread (:context @state))] :pageInfo {:hasNextPage false}}))}}
                    (= endpoint "repos/open-hax/proxx/pulls/445") (:pr @state)
+                   (= endpoint "repos/open-hax/proxx/branches/staging") {:name "staging" :commit {:sha (get-in @state [:pr :base :sha])}}
                    (= endpoint "repos/open-hax/proxx/issues/comments/7002") trigger
                    (str/includes? endpoint "/comments?") (:rows @state)
                    (str/includes? endpoint "/permission") {:permission (:permission @state)}
@@ -298,8 +299,9 @@
                  (str/includes? endpoint "/comments?") (alter-rows [proposal trigger native])
                  (str/includes? endpoint "/permission") {:permission "write"}
                  (= endpoint "repos/open-hax/proxx/pulls/445") live-pr
+                 (= endpoint "repos/open-hax/proxx/branches/staging") {:name "staging" :commit {:sha base}}
                  :else (throw (js/Error. "Unexpected effect"))))]
-    {:calls calls :run #(r/publish! api! snapshot (result (review decision)) (fn [] snapshot) (fn [] nil))})))
+    {:calls calls :api! api! :run #(r/publish! api! snapshot (result (review decision)) (fn [] snapshot) (fn [] nil))})))
 
 (deftest actual-publisher-seam-native-readback-and-classification
   (doseq [decision ["informational" "finding" "uncertain"]]
@@ -386,6 +388,7 @@
                  (str/includes? endpoint "/comments?") [proposal trigger (fixture-comment 7004 (:summary (review "informational")) "2050-10-04T12:10:00Z" bot)]
                  (str/includes? endpoint "/permission") {:permission "write"}
                  (= endpoint "repos/open-hax/proxx/pulls/445") live-pr
+                 (= endpoint "repos/open-hax/proxx/branches/staging") {:name "staging" :commit {:sha base}}
                  :else (throw (js/Error. "Unexpected fixture effect"))))]
     (is (refuses? #(r/publish! api! snapshot (result (review "informational")) (fn [] snapshot)
                               (fn [] (throw (ex-info "Synthetic source/Git mutation after POST" {}))))))
@@ -688,6 +691,57 @@
                         (update input :identity pop)]]
         (is (refuses? #(check (assoc source 3 "2") original))))
       (finally (fs/rmSync directory #js {:recursive true :force true})))))
+
+(deftest cached-pr-base-is-observed-but-live-staging-controls-input-and-publication
+  (let [cached (apply str (repeat 40 "c"))
+        body (:summary (review "informational"))
+        native (fixture-comment 7004 body "2050-10-04T12:10:00Z" bot)
+        state (atom {:pr (assoc-in live-pr [:base :sha] cached)
+                     :branch {:name "staging" :commit {:sha base}}
+                     :rows [proposal trigger]})
+        posts (atom 0) coverage-calls (atom [])
+        after-post (atom (fn [] nil))
+        api! (fn [method endpoint _]
+               (cond
+                 (= endpoint "graphql") {:data {:repository (assoc (:repository context) :pullRequest
+                                      (assoc (:pr context) :reviewThreads {:nodes [(:thread context)] :pageInfo {:hasNextPage false}}))}}
+                 (= endpoint "repos/open-hax/proxx/pulls/445") (:pr @state)
+                 (= endpoint "repos/open-hax/proxx/branches/staging") (:branch @state)
+                 (= endpoint "repos/open-hax/proxx/issues/comments/7002") trigger
+                 (str/includes? endpoint "/permission") {:permission "write"}
+                 (str/includes? endpoint "/comments?") (:rows @state)
+                 (= [method endpoint] ["POST" "repos/open-hax/proxx/issues/445/comments"])
+                 (do (swap! posts inc) (swap! state update :rows conj native) (@after-post) native)
+                 (= endpoint "repos/open-hax/proxx/issues/comments/7004") native
+                 :else (throw (js/Error. "Unexpected live-base fixture effect"))))
+        current! #(r/live! api! event policy (fn [actual head] (swap! coverage-calls conj [actual head]) coverage))
+        original (current!)
+        result {:input-sha256 (r/sha (pr-str original)) :runner-sha256 r/runtime-hash :review (review "informational")}
+        publish #(r/publish! api! original result current! (fn [] nil))]
+    (is (= base (:base original)))
+    (is (= {:ref "staging" :pr-recorded-sha cached :live-sha base} (:native-base-observation original)))
+    (is (= [[base (:head t)]] @coverage-calls))
+    (is (= 7004 (:native-id (publish))))
+    (is (= 1 @posts))
+    ;; Reuse only local fixtures; every new guard collects the live branch.
+    (swap! state assoc :rows [proposal trigger])
+    (reset! posts 0)
+    (doseq [branch [{:name "main" :commit {:sha base}}
+                    {:name "staging" :commit {:sha "short"}}
+                    {:name "staging" :commit {}}]]
+      (swap! state assoc :branch branch)
+      (is (refuses? current!)))
+    (swap! state assoc :branch {:name "staging" :commit {:sha base}})
+    (swap! state assoc-in [:pr :base :ref] "main")
+    (is (refuses? current!))
+    (swap! state assoc-in [:pr :base :ref] "staging")
+    (swap! state assoc-in [:branch :commit :sha] (apply str (repeat 40 "a")))
+    (is (refuses? publish))
+    (is (zero? @posts))
+    (swap! state assoc-in [:branch :commit :sha] base)
+    (reset! after-post #(swap! state assoc-in [:branch :commit :sha] (apply str (repeat 40 "a"))))
+    (is (refuses? publish))
+    (is (= 1 @posts))))
 
 (defmethod test/report [:cljs.test/default :end-run-tests] [summary]
   (when (pos? (+ (:fail summary) (:error summary))) (set! (.-exitCode js/process) 1)))

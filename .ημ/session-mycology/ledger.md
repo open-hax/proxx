@@ -111,3 +111,11 @@
   p-skill-candidate: 0.25
   spore: none
   note: Reproduce the upstream diff command exactly. Recover publication from the successful producer's artifact and provenance rather than relabeling it as the retry. Verify through real Git fixtures and the actual entrypoint; preserve failed audit diagnostics and all historical receipt bytes.
+
+- ts: "2026-10-04T19:24:09.482Z"
+  origin: proxx452/live-base-authority
+  p-efficiency: 0.85
+  p-friction: 0.31
+  p-skill-candidate: 0.25
+  spore: none
+  note: Preserve cached PR base as an observation and resolve the actual named native branch for input authority. Refresh it on both sides of publication; keep synthetic transport regression separate from operational reviewer evidence.

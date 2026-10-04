@@ -175,16 +175,32 @@
     (ensure! (= diff (.-diff result)) "Lossy Git diff decoding")
     (ensure! (<= (.-length (js/Buffer.from diff "utf8")) (* 1024 1024)) "Full diff exceeds scoped prompt budget")
     {:diff-sha256 (.-diffSha256 result) :files (js->clj (.-coveredFiles result)) :diff diff}))
+(defn live-base!
+  "The PR record preserves its cached base observation. The native staging
+   branch supplies the current comparison/source authority on every guard."
+  [api! pr]
+  (ensure! (and (= "staging" (get-in pr [:base :ref]))
+                (boolean (re-matches #"[0-9a-f]{40}" (or (get-in pr [:base :sha]) ""))))
+           "Invalid scoped staging base observation")
+  (let [branch (api! "GET" "repos/open-hax/proxx/branches/staging" nil)
+        live (get-in branch [:commit :sha])]
+    (ensure! (and (= "staging" (:name branch))
+                  (boolean (re-matches #"[0-9a-f]{40}" (or live ""))))
+             "Live staging branch unavailable or malformed")
+    {:ref "staging" :pr-recorded-sha (get-in pr [:base :sha]) :live-sha live}))
 (defn live!
   [api! event policy coverage-fn]
   (let [pr (api! "GET" "repos/open-hax/proxx/pulls/445" nil)
+        base-observation (live-base! api! pr)
         context (context! api!)
         trigger (api! "GET" (str "repos/open-hax/proxx/issues/comments/" (get-in event [:comment :id])) nil)
         rows (collect-pages! #(api! "GET" (str "repos/open-hax/proxx/issues/445/comments?per_page=100&page=" %) nil))
         comments (authorize-comments! api! rows)]
-    (validate-intake! {:event event :live-pr pr :context context :comments comments :trigger trigger
-                      :authorized? (writer! api! trigger) :policy policy
-                      :coverage (coverage-fn (get-in pr [:base :sha]) (get-in pr [:head :sha]))})))
+    (assoc (validate-intake! {:event event :live-pr (assoc-in pr [:base :sha] (:live-sha base-observation))
+                             :context context :comments comments :trigger trigger
+                             :authorized? (writer! api! trigger) :policy policy
+                             :coverage (coverage-fn (:live-sha base-observation) (get-in pr [:head :sha]))})
+           :native-base-observation base-observation)))
 (defn execution-control!
   "Preserve the runner-owned observation across the artifact boundary. Derive
    requested controls/identity from its public request; no provider law copy."
@@ -229,6 +245,7 @@
          "Only informational permits the scope assertion complete-context/no-defect/no-request/no-question. Do not prefill a favorable verdict. "
          "No markdown fences/footer or other summary prose. Native qualification remains separate from this output.\n"
          "Head: " (:head t) "\nBinding: " (pr-str (a/context-binding t))
+         "\nNative base observations: " (pr-str (:native-base-observation snapshot))
          "\nProposal ID: " (:id p) "\nProposal SHA256: " (:body-sha256 p)
          "\nComplete native context: " (pr-str (:native-context t)) "\nWriter proposal: " (:body p)
          "\nDiff SHA256: " (get-in snapshot [:coverage :diff-sha256])
@@ -286,9 +303,10 @@
           comments (authorize-comments! api! rows)
           fresh (target fresh-context comments (:actionability-policy t))
           pr (api! "GET" "repos/open-hax/proxx/pulls/445" nil)
+          base-observation (live-base! api! pr)
           disposition (a/disposition fresh) decision (get-in (a/protocol observed) [:payload 9])]
       (ensure! (and (= (:context-digest t) (:context-digest fresh)) (= "open" (:state pr)) (false? (:draft pr))
-                    (= (:head t) (get-in pr [:head :sha])) (= (:base current) (get-in pr [:base :sha]))
+                    (= (:head t) (get-in pr [:head :sha])) (= (:base current) (:live-sha base-observation))
                     (= (:repo selection) (get-in pr [:head :repo :full_name]))
                     (= (:repo selection) (get-in pr [:base :repo :full_name]))
                     (false? (get-in pr [:head :repo :private])) (false? (get-in pr [:base :repo :private])))
@@ -304,6 +322,7 @@
                  "Canonical law refused informational evidence; no qualification claimed"))
       {:native-id (:id observed) :native-url (:html_url observed)
        :decision decision :disposition disposition
+       :native-base-observation base-observation
        :execution-control (:executionControl (:review result))})))
 
 (defn trusted-source!
