@@ -73,3 +73,276 @@ test('failed update and altered readback remain failed diagnostic artifacts', as
     await assert.rejects(probe(f)); assert.equal(f.receipts.length, 1); assert.equal(f.receipts[0].passed, false);
   }
 });
+
+// Execute the workflow adapters, not a second publisher. Until the held runtime
+// is merged, local fixtures read its actual immutable Git blobs; hosted use is
+// separately refused by the base-ancestry gate. Missing blobs are a test failure.
+const fs = require('node:fs'), os = require('node:os'), path = require('node:path');
+const { execFileSync, spawnSync } = require('node:child_process');
+const root = path.resolve(__dirname, '../..');
+const runtimeSHA = '2810f4515424a146fe37390fb0baf532cca31236';
+const workflow = fs.readFileSync(path.join(root, '.github/workflows/kimi-runner-tests.yml'), 'utf8');
+function block(name, kind) {
+  const step = workflow.split(`      - name: ${name}\n`)[1]?.split('\n      - ')[0];
+  const value = step?.split(`          ${kind}: |\n`)[1] || step?.split(`        ${kind}: |\n`)[1];
+  assert.ok(value, `Missing executable workflow step: ${name}`);
+  const indent = kind === 'script' ? 12 : 10;
+  return value.split('\n').map(line => line.slice(indent)).join('\n');
+}
+function gitFixture() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kimi-app-canary-'));
+  const repo = path.join(dir, 'repo'), temp = path.join(dir, 'temp');
+  fs.mkdirSync(repo); fs.mkdirSync(temp);
+  const git = (...args) => execFileSync('git', args, { cwd: repo, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  git('init', '-q'); git('config', 'user.name', 'Canary fixture'); git('config', 'user.email', 'fixture@example.invalid');
+  const scripts = path.join(repo, '.github/scripts'); fs.mkdirSync(scripts, { recursive: true });
+  for (const name of ['kimi-api-canary.cjs', 'opencode-app-auth.cjs']) {
+    fs.writeFileSync(path.join(scripts, name), execFileSync('git', ['show', `${runtimeSHA}:.github/scripts/${name}`], { cwd: root }));
+  }
+  fs.mkdirSync(path.join(repo, '.github/workflows'));
+  fs.writeFileSync(path.join(repo, '.github/workflows/kimi-runner-tests.yml'), workflow);
+  git('add', '.'); git('commit', '-qm', 'Actual immutable helper blobs as qualified fixture base');
+  const base = git('rev-parse', 'HEAD');
+  // Both candidates trip if loaded. The job may inspect their Git data only.
+  for (const name of ['kimi-api-canary.cjs', 'opencode-app-auth.cjs']) {
+    fs.writeFileSync(path.join(scripts, name), "require('node:fs').writeFileSync(process.env.RUNNER_TEMP + '/candidate-executed', 'bad'); throw Error('candidate executed');\n");
+  }
+  git('add', '.'); git('commit', '-qm', 'Untrusted PR candidate tripwires');
+  const head = git('rev-parse', 'HEAD');
+  const env = { ...process.env, GITHUB_WORKSPACE: repo, RUNNER_TEMP: temp, KIMI_RUNTIME_SHA: base,
+    PR_HEAD_SHA: head, PR_BASE_SHA: base, PR_NUMBER: '445', GITHUB_REPOSITORY: 'o/r',
+    GITHUB_RUN_ID: '700', GITHUB_RUN_ATTEMPT: '2', GITHUB_REF: 'refs/pull/445/merge',
+    GITHUB_SHA: head, GITHUB_WORKFLOW_SHA: head, GITHUB_WORKFLOW_REF: 'o/r/.github/workflows/kimi-runner-tests.yml@refs/pull/445/merge' };
+  return { dir, repo, temp, head, base, git, env, clean: () => fs.rmSync(dir, { recursive: true, force: true }) };
+}
+function prepare(f) {
+  // The predecessor has no immutable preparation step; execute that absence
+  // as-is so RED witnesses its actual candidate loader, not a missing-step error.
+  if (!workflow.includes('      - name: Prepare immutable App diagnostic runtime\n')) return { status: 0, stderr: '' };
+  return spawnSync('bash', ['-c', block('Prepare immutable App diagnostic runtime', 'run')], { cwd: f.repo, env: f.env, encoding: 'utf8' });
+}
+// Only external transports are mocked; both trusted modules and the entire
+// extracted workflow script execute unchanged in a fresh process.
+async function transportWorker(script, options) {
+  const assert = require('node:assert/strict'), fs = require('node:fs');
+  const e = process.env, seen = { oidc: 0, exchange: 0, revoke: 0, creates: 0, updates: 0, appClients: 0, masks: 0, reads: 0 };
+  const pr = { number: 445, state: 'open', draft: false, head: { sha: e.PR_HEAD_SHA, repo: { full_name: 'o/r' } }, base: { sha: e.PR_BASE_SHA, repo: { full_name: 'o/r' } } };
+  const context = { eventName: 'pull_request', repo: { owner: 'o', repo: 'r' }, runId: 700,
+    sha: e.GITHUB_SHA, ref: 'refs/pull/445/merge', workflow: 'Kimi runner contract tests',
+    payload: { repository: { full_name: 'o/r' }, pull_request: structuredClone(pr) } };
+  if (options.contextRun) context.runId++;
+  if (options.contextHead) context.payload.pull_request.head.sha = 'b'.repeat(40);
+  if (options.liveHead) pr.head.sha = 'b'.repeat(40);
+  if (options.liveBase) pr.base.sha = 'b'.repeat(40);
+  let review;
+  const pulls = {
+    get: async () => {
+      seen.reads++;
+      if (options.liveReadDenied) {
+        const error = Error('fixture secret transport details');
+        error.status = options.liveReadStatus;
+        throw error;
+      }
+      return { data: structuredClone(pr) };
+    }, listReviews: () => {},
+    createReview: async args => {
+      seen.creates++; assert.equal(args.event, 'COMMENT');
+      review = { id: 912, body: args.body, commit_id: args.commit_id, state: 'COMMENTED',
+        user: { login: 'opencode-agent[bot]', id: 219766164, type: 'Bot' } };
+      if (options.wrongActor) review.user.id++;
+      return { data: structuredClone(review) };
+    },
+    updateReview: async args => {
+      seen.updates++; assert.equal(args.review_id, review.id);
+      if (options.updateFailure) throw Error('fixture secret transport details');
+      review.body = args.body;
+    },
+    getReview: async args => { assert.equal(args.review_id, review.id); return { data: structuredClone(review) }; },
+  };
+  class Github {
+    constructor({ auth }) {
+      if (auth !== 'read-only-fixture') { assert.equal(auth, 'installation-fixture-not-a-credential'); seen.appClients++; }
+      this.rest = { pulls, repos: { getContent: async args => {
+        assert.equal(args.owner, 'o'); assert.equal(args.repo, 'r');
+        assert.equal(args.path, '.github/workflows/kimi-runner-tests.yml');
+        assert.equal(args.ref, e.GITHUB_WORKFLOW_SHA);
+        const bytes = options.remoteWorkflowContent === undefined
+          ? require('node:child_process').execFileSync('git', ['show', `${args.ref}:${args.path}`])
+          : Buffer.from(options.remoteWorkflowContent, 'base64');
+        const sha = require('node:crypto').createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex');
+        const data = { type: 'file', encoding: 'base64', path: args.path, sha, size: bytes.length, content: bytes.toString('base64') };
+        if (options.nativeWorkflowKind) data.type = 'dir';
+        if (options.nativeWorkflowHash) data.content = Buffer.from('substituted workflow').toString('base64');
+        if (options.nativeWorkflowSize) data.size++;
+        if (options.nativeWorkflowPath) data.path = '.github/workflows/other.yml';
+        return { data };
+      } } }; this.paginate = async () => review ? [structuredClone(review)] : [];
+    }
+  }
+  const github = new Github({ auth: 'read-only-fixture' });
+  const core = { getIDToken: async audience => { assert.equal(audience, 'opencode-github-action'); seen.oidc++; return 'oidc-fixture-not-a-credential'; },
+    setSecret: value => { assert.ok(['oidc-fixture-not-a-credential', 'installation-fixture-not-a-credential'].includes(value)); seen.masks++; } };
+  global.fetch = async (url, init) => {
+    if (url === 'https://api.opencode.ai/exchange_github_app_token') {
+      seen.exchange++; assert.equal(init.method, 'POST'); assert.equal(init.headers.Authorization, 'Bearer oidc-fixture-not-a-credential');
+      assert.equal(Object.hasOwn(init, 'body'), false); assert.equal(init.redirect, 'error');
+      if (options.moveAfterExchange) pr.head.sha = 'b'.repeat(40);
+      return { ok: true, json: async () => ({ token: 'installation-fixture-not-a-credential' }) };
+    }
+    assert.equal(url, 'https://api.github.com/installation/token'); seen.revoke++;
+    assert.equal(init.method, 'DELETE'); assert.equal(init.headers.Authorization, 'Bearer installation-fixture-not-a-credential');
+    return { status: options.revokeFailure ? 500 : 204 };
+  };
+  const execute = () => new (Object.getPrototypeOf(async function () {}).constructor)('require', 'github', 'context', 'core', script)(require, github, context, core);
+  let error;
+  try { await execute(); if (options.rerun) await execute(); } catch (caught) { error = caught.message; }
+  const file = `${e.RUNNER_TEMP}/kimi-api-canary.json`;
+  const receipt = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : null;
+  process.stdout.write(JSON.stringify({ seen, receipt, error, tripwire: fs.existsSync(`${e.RUNNER_TEMP}/candidate-executed`) }));
+}
+function execute(f, options = {}) {
+  const name = workflow.includes('      - name: Create or verify exact App diagnostic review\n')
+    ? 'Create or verify exact App diagnostic review' : 'Create or verify same-bot diagnostic review';
+  const script = block(name, 'script');
+  const worker = `(${transportWorker.toString()})(${JSON.stringify(script)}, ${JSON.stringify(options)}).catch(() => process.exit(92))`;
+  const result = spawnSync(process.execPath, ['-e', worker], { cwd: f.repo, env: f.env, encoding: 'utf8', timeout: 10000 });
+  assert.equal(result.status, 0, result.stderr || result.error?.message);
+  return JSON.parse(result.stdout);
+}
+test('diagnostic job is fresh, read/OIDC only and shares the immutable publisher selection', () => {
+  const job = workflow.split('\n  native-api-canary:\n')[1]; assert.ok(job);
+  assert.match(job, /contents: read\n {6}pull-requests: read\n {6}id-token: write/);
+  assert.doesNotMatch(job, /pull-requests: write|issues: write|secrets\.|opencode\/github|npm |npx /);
+  assert.doesNotMatch(job, /require\(.*GITHUB_WORKSPACE.*\.github\/scripts/);
+  assert.match(job, /ref: \$\{\{ github.event.pull_request.head.sha \}\}\n {10}fetch-depth: 0\n {10}persist-credentials: false/);
+  assert.match(workflow, new RegExp(`KIMI_RUNTIME_SHA: ${runtimeSHA}`));
+  assert.match(fs.readFileSync(path.join(root, '.github/workflows/opencode-code-review.yml'), 'utf8'), new RegExp(`KIMI_RUNTIME_SHA: ${runtimeSHA}`));
+  assert.match(job, /publisher: 'opencode-agent'/);
+  assert.match(job, /new github.constructor\(\{ auth: token \}\)/);
+  assert.match(job, /withOpenCodeAppToken\(\{ core \}/);
+  assert.match(workflow.split('\n  native-api-canary:')[0], /fetch-depth: 0/);
+});
+test('actual shell and immutable App modules refuse candidate execution, create/readback and dedupe', () => {
+  const f = gitFixture(); try {
+    const ready = prepare(f); assert.equal(ready.status, 0, ready.stderr);
+    const result = execute(f, { rerun: true }); assert.equal(result.error, undefined); assert.equal(result.tripwire, false);
+    assert.deepEqual(result.seen, { oidc: 2, exchange: 2, revoke: 2, creates: 1, updates: 1, appClients: 2, masks: 4, reads: 4 });
+    const r = result.receipt;
+    assert.equal(r.passed, true); assert.equal(r.nativeProbePassed, true); assert.equal(r.revoked, true); assert.equal(r.reused, true);
+    assert.equal(r.author, 'opencode-agent[bot]'); assert.equal(r.authorID, 219766164); assert.equal(r.authorType, 'Bot');
+    assert.equal(r.reviewID, 912); assert.equal(r.state, 'COMMENTED'); assert.equal(r.commit, f.head); assert.equal(r.head, f.head);
+    assert.equal(r.base, f.base); assert.equal(r.runtimeSha, f.base); assert.equal(r.runID, '700'); assert.equal(r.runAttempt, '2');
+    assert.equal(r.workflowSha, f.head); assert.equal(r.exactUtf8Readback, true);
+    assert.match(r.body, /API DIAGNOSTIC ONLY — NOT A CODE REVIEW OR APPROVAL/);
+    assert.match(r.body, /No model judgment, review-round credit/);
+    assert.doesNotMatch(JSON.stringify(r), /fixture-not-a-credential|APPROVED/);
+  } finally { f.clean(); }
+});
+test('base ancestry and checked-out head refuse before loading runtime or OIDC', () => {
+  for (const fault of ['unqualified', 'checkout']) {
+    const f = gitFixture(); try {
+      if (fault === 'unqualified') f.env.KIMI_RUNTIME_SHA = f.head;
+      else f.git('checkout', '-q', f.base);
+      assert.notEqual(prepare(f).status, 0);
+      assert.equal(fs.existsSync(path.join(f.temp, 'kimi-api-canary.cjs')), false);
+      assert.equal(fs.existsSync(path.join(f.temp, 'candidate-executed')), false);
+    } finally { f.clean(); }
+  }
+});
+test('tampering, context drift and live head/base movement all refuse before OIDC', () => {
+  for (const fault of ['canary', 'auth', 'workflow', 'contextRun', 'contextHead', 'liveHead', 'liveBase', 'runAttempt', 'workflowRef', 'workflowSHA', 'checkout']) {
+    const f = gitFixture(); try {
+      assert.equal(prepare(f).status, 0);
+      if (['canary', 'auth'].includes(fault)) fs.appendFileSync(path.join(f.temp, fault === 'canary' ? 'kimi-api-canary.cjs' : 'opencode-app-auth.cjs'), '\n// substituted\n');
+      if (fault === 'workflow') fs.appendFileSync(path.join(f.repo, '.github/workflows/kimi-runner-tests.yml'), '\n# substituted\n');
+      if (fault === 'runAttempt') f.env.GITHUB_RUN_ATTEMPT = '0';
+      if (fault === 'workflowRef') f.env.GITHUB_WORKFLOW_REF = 'o/r/.github/workflows/other.yml@refs/pull/445/merge';
+      if (fault === 'workflowSHA') f.env.GITHUB_WORKFLOW_SHA = f.base;
+      if (fault === 'checkout') f.git('checkout', '-q', f.base);
+      const result = execute(f, { [fault]: true }); assert.ok(result.error, fault);
+      assert.equal(result.tripwire, false, fault); assert.equal(result.seen.oidc, 0, fault); assert.equal(result.seen.exchange, 0, fault);
+      assert.equal(result.seen.creates, 0, fault); assert.equal(result.receipt?.passed, false, fault);
+    } finally { f.clean(); }
+  }
+});
+test('publication or revocation failure stays failed, preserves native evidence and sanitizes output', () => {
+  for (const fault of ['moveAfterExchange', 'wrongActor', 'updateFailure', 'revokeFailure']) {
+    const f = gitFixture(); try {
+      assert.equal(prepare(f).status, 0);
+      const result = execute(f, { [fault]: true }); assert.ok(result.error, fault);
+      assert.equal(result.seen.oidc, 1); assert.equal(result.seen.revoke, 1); assert.equal(result.tripwire, false);
+      assert.equal(result.receipt.passed, false); assert.equal(result.receipt.revoked, fault !== 'revokeFailure');
+      assert.doesNotMatch(JSON.stringify(result), /fixture-not-a-credential|secret transport details/);
+      if (fault === 'revokeFailure') {
+        assert.equal(result.receipt.nativeProbePassed, true); assert.equal(result.receipt.exactUtf8Readback, true);
+        assert.equal(result.receipt.reviewID, 912); assert.equal(result.receipt.authorID, 219766164);
+        assert.equal(result.receipt.failurePhase, 'revocation');
+      } else assert.equal(result.receipt.nativeProbePassed, false);
+      if (fault === 'moveAfterExchange') assert.equal(result.seen.creates, 0);
+    } finally { f.clean(); }
+  }
+});
+
+test('live PR read failure preserves only safe preflight diagnostics and never mints an App token', () => {
+  for (const status of [403, 'fixture secret transport details']) {
+    const f = gitFixture(); try {
+      assert.equal(prepare(f).status, 0);
+      const result = execute(f, { liveReadDenied: true, liveReadStatus: status });
+      assert.match(result.error, /preflight failed/);
+      assert.equal(result.receipt.preflightCheckpoint, 'live-pr-read');
+      assert.equal(result.receipt.httpStatus, status === 403 ? 403 : null);
+      assert.equal(result.receipt.passed, false);
+      assert.equal(result.seen.oidc, 0); assert.equal(result.seen.exchange, 0);
+      assert.equal(result.seen.revoke, 0); assert.equal(result.seen.creates, 0);
+      assert.equal(result.tripwire, false);
+      assert.doesNotMatch(JSON.stringify(result), /fixture secret transport details|fixture-not-a-credential/);
+    } finally { f.clean(); }
+  }
+});
+
+test('native workflow revision absent from the PR-head checkout is verified through exact immutable API bytes', () => {
+  const f = gitFixture(); try {
+    const remote = path.join(f.dir, 'native-objects.git');
+    execFileSync('git', ['clone', '--bare', '--quiet', f.repo, remote]);
+    const sha = execFileSync('git', ['--git-dir', remote, 'commit-tree', `${f.head}^{tree}`, '-p', f.base, '-p', f.head], {
+      input: 'Native synthetic workflow merge\n', encoding: 'utf8',
+      env: { ...process.env, GIT_AUTHOR_NAME: 'fixture', GIT_AUTHOR_EMAIL: 'fixture@example.invalid',
+        GIT_COMMITTER_NAME: 'fixture', GIT_COMMITTER_EMAIL: 'fixture@example.invalid' },
+    }).trim();
+    assert.notEqual(spawnSync('git', ['cat-file', '-e', `${sha}^{commit}`], { cwd: f.repo }).status, 0);
+    const bytes = execFileSync('git', ['--git-dir', remote, 'show', `${sha}:.github/workflows/kimi-runner-tests.yml`]);
+    f.env.GITHUB_WORKFLOW_SHA = sha; f.env.GITHUB_SHA = sha;
+    assert.equal(prepare(f).status, 0);
+    const result = execute(f, { remoteWorkflowContent: bytes.toString('base64') });
+    assert.equal(result.error, undefined);
+    assert.equal(result.receipt.passed, true); assert.equal(result.receipt.workflowSha, sha);
+    assert.equal(result.receipt.revoked, true); assert.equal(result.tripwire, false);
+  } finally { f.clean(); }
+});
+
+test('malformed native workflow API metadata or bytes refuse before token exchange', () => {
+  for (const fault of ['nativeWorkflowKind', 'nativeWorkflowHash', 'nativeWorkflowSize', 'nativeWorkflowPath']) {
+    const f = gitFixture(); try {
+      assert.equal(prepare(f).status, 0);
+      const result = execute(f, { [fault]: true });
+      assert.ok(result.error, fault);
+      assert.equal(result.seen.oidc, 0, fault); assert.equal(result.seen.exchange, 0, fault);
+      assert.equal(result.seen.creates, 0, fault); assert.equal(result.tripwire, false, fault);
+      assert.equal(result.receipt.passed, false, fault);
+    } finally { f.clean(); }
+  }
+});
+
+test('Git source exit status is distinct from a native HTTP transport status', () => {
+  const f = gitFixture(); try {
+    assert.equal(prepare(f).status, 0);
+    f.env.KIMI_RUNTIME_SHA = 'e'.repeat(40);
+    const result = execute(f);
+    assert.match(result.error, /preflight failed/);
+    assert.equal(result.receipt.preflightCheckpoint, 'checkout-ancestry');
+    assert.equal(result.receipt.httpStatus, null);
+    assert.equal(result.receipt.processExitCode, 128);
+    assert.equal(result.seen.oidc, 0); assert.equal(result.seen.creates, 0);
+    assert.doesNotMatch(JSON.stringify(result), /fixture-not-a-credential|secret transport details/);
+  } finally { f.clean(); }
+});

@@ -87,3 +87,69 @@
   spore: none
   receipt-refs: Proxx451 correction of prior native settlement UTF8 claims;Proxx451 auth-suite gate and malformed-UTF8 transport repair
   note: A byte budget does not imply valid decoding. Real malformed HTTP bytes proved replacement decoding could admit a valid-looking catalog and overwrite the last-good baseline; fatal decoding now refuses it while retaining valid split Unicode. Preserve old evidence and append the attribution correction rather than rewriting history. Keep new async fixture bindings bounded to avoid SCI expansion limits. Local App/OIDC tests use mocks only; native COMMENTED and pending enrollment do not qualify approval. Parent owns publication and native correction.
+- ts: 2026-10-02T22:10:39.141620299Z
+  session: /home/err/spaces/review-repair/proxx
+  task: Restore Kimi review provider and trigger
+  p-efficiency: 0.8
+  p-friction: 0.3
+  p-skill-candidate: 0.1
+  spore: none
+  receipt-refs: none
+  note: Manual trigger with PR-only condition silently skipped review.
+- ts: 2026-10-02T22:46:10.158302434Z
+  session: /home/err/spaces/review-repair/proxx
+  task: Exact-head Kimi runner and isolated bounded publication
+  p-efficiency: 0.75
+  p-friction: 0.65
+  p-skill-candidate: 0.4
+  spore: none
+  receipt-refs: open-hax/proxx#445
+  note: A PR-capable upstream runner can still follow a mutable branch; exact review evidence requires separate model execution and guarded publication. Existing pr-flow guidance applies; no new spore.
+- ts: 2026-10-03T08:25:26.894688795Z
+  session: /home/err/spaces/review-repair/proxx
+  task: Structured Kimi qualification and trusted-base bootstrap
+  p-efficiency: 0.6
+  p-friction: 0.65
+  p-skill-candidate: 0.3
+  spore: none
+  receipt-refs: Proxx446,Uxx15
+  note: Native schema model tests remain mandatory after mocked transport tests. Propagate test exit codes; exercise real tracked inventory without admitting operational cache state. Preserve trusted-base guards while reviewer work runs.
+
+- ts: 2026-10-04T08:17:11.615530Z
+  session: codex/proxx445-qualified-eta-caller
+  task: Consume qualified full-input review evidence without changing independent publisher authority
+  p-efficiency: 0.89
+  p-friction: 0.21
+  p-skill-candidate: 0.18
+  spore: none
+  receipt-refs: proxx445/qualified-eta-full-input-caller; 2026-10-04T08:17:11.615530Z
+  note: Check the actual immutable workflow_call interface and execute its existing parameter/head guards before advancing a caller. Missing test-module resolution is a harness precondition; process-only reuse of an already installed dependency preserves repository bytes. Source compatibility and standard lint do not prove hosted App/OIDC/model publication or reviewer enrollment.
+
+- ts: 2026-10-04T11:10:35.048216648Z
+  session: /home/err/spaces/review-repair/proxx
+  task: Proxx445 actual staged integration and qualified Eta341 caller propagation
+  p-efficiency: 0.90
+  p-friction: 0.25
+  p-skill-candidate: 0.15
+  spore: none
+  receipt-refs: 6f6f7b8d-b49c-4474-a9e4-a4a01dbb289f; 3ed23250-dfb1-4eb0-bf67-19ceb7d3e78f
+  note: Preserve the actual parent staged merge, raw index and complete histories while advancing a single compatible caller pin. The one combined run found a stale activation-hold comment assertion after qualified source integration; record104/105 and keep qualification blocked rather than weakening an out-of-scope test. Local fixture HTTP/API success is not App/OIDC/provider execution or reviewer admission. Parent owns the bounded integration-test repair, ordinary merge commit and fresh native qualification.
+
+- ts: 2026-10-04T11:19:03.761393977Z
+  task: Proxx445 integration-test repair
+  p-efficiency: 0.94
+  p-friction: 0.12
+  p-skill-candidate: 0.15
+  spore: none
+  receipt-refs: 3882800b-16a6-4703-94e3-550290d3700b
+  note: Preserve RED history and rerun the affected suite after removing only stale pre-merge prose. Executable guards remain; native App/model identity and current-head reviews still require qualification.
+
+- ts: 2026-10-04T14:04:42.663651507Z
+  session: codex/proxx445-explicit-workflow-context
+  task: Preserve publication provenance while making context forwarding explicit
+  p-efficiency: 0.91
+  p-friction: 0.24
+  p-skill-candidate: 0.18
+  spore: none
+  receipt-refs: 9627e430-d90c-4d84-a5f5-46b82cece80a
+  note: A false absence claim need not be reclassified as a real bug to make a requested dependency change. Execute actual producer/publisher scripts with default names absent, keep the exact artifact tuple and refuse missing or mismatched context before authentication. Document intentional co-change refusal instead of substituting an easier source. Retain first-attempt failure cause as unknown even after a successful same-head retry; COMMENTED App publication and low client observations are not approval or provider attestation. Parent owns all native effects and successor qualification.

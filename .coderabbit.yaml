@@ -68,12 +68,12 @@ reviews:
         CI/CD: Focus on security (secrets handling) and correctness.
         Skip style/formatting suggestions.
 
-# Keep essential linting, disable noisy tools
-tools:
-  eslint:
-    enabled: true
-  biome:
-    enabled: false
+  # Keep essential linting, disable noisy tools
+  tools:
+    eslint:
+      enabled: true
+    biome:
+      enabled: false
 
 # Auto-reply for questions only
 chat:

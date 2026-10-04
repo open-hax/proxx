@@ -13,7 +13,10 @@ permissions:
 jobs:
   review:
     name: Evidence-first review (eta-mu)
-    uses: open-hax/eta-mu/.github/workflows/opencode-code-review.yml@694a2602709d130b2a60045a25537f1b4476ec1f
+    # Consumes the qualified merged Eta/Muse pair with bounded Discord batches.
+    # Fresh exact-head caller CI/review remains required; global skills,
+    # Node policy and independent Kimi publisher helpers stay pinned.
+    uses: open-hax/eta-mu/.github/workflows/opencode-code-review.yml@45ec644c2d15ed511e9bc1e797d1b4073b63dbfc
     with:
       muse_revision: 0b9a91492c8355e6933dc2164d35668cb76d9e60
       agents_revision: 7fd3252e7663ad5e68be5e90429d126aa66c38c8
