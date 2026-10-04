@@ -2,10 +2,10 @@ name: Kimi runner contract tests
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
-    paths: ['.github/scripts/kimi-review.cjs', '.github/scripts/kimi-review.test.cjs', '.github/scripts/fixtures/**', '.github/scripts/kimi-api-canary.cjs', '.github/scripts/kimi-api-canary.test.cjs', '.github/workflows/kimi-runner-tests.yml', '.clj-kondo/config.edn', 'src/proxx/policy/catalog_watch.cljs', 'src/proxx/policy/model_availability.cljc', 'test/proxx/policy/model_availability_test.cljc', 'scripts/watch_model_catalogs.cljs', 'scripts/tests/catalog_watch.cljs', 'resources/model-catalog-watch.example.edn']
+    paths: ['.github/scripts/kimi-review.cjs', '.github/scripts/kimi-review.test.cjs', '.github/scripts/fixtures/**', '.github/scripts/kimi-api-canary.cjs', '.github/scripts/kimi-api-canary.test.cjs', '.github/workflows/kimi-runner-tests.yml', '.clj-kondo/config.edn', 'src/proxx/policy/catalog_watch.cljs', 'src/proxx/policy/evidence.cljs', 'src/proxx/policy/model_availability.cljc', 'test/proxx/policy/model_availability_test.cljc', 'scripts/watch_model_catalogs.cljs', 'scripts/tests/catalog_watch.cljs', 'resources/model-catalog-watch.example.edn']
   push:
     branches: [main, staging]
-    paths: ['.github/scripts/kimi-review.cjs', '.github/scripts/kimi-review.test.cjs', '.github/scripts/fixtures/**', '.github/scripts/kimi-api-canary.cjs', '.github/scripts/kimi-api-canary.test.cjs', '.github/workflows/kimi-runner-tests.yml', '.clj-kondo/config.edn', 'src/proxx/policy/catalog_watch.cljs', 'src/proxx/policy/model_availability.cljc', 'test/proxx/policy/model_availability_test.cljc', 'scripts/watch_model_catalogs.cljs', 'scripts/tests/catalog_watch.cljs', 'resources/model-catalog-watch.example.edn']
+    paths: ['.github/scripts/kimi-review.cjs', '.github/scripts/kimi-review.test.cjs', '.github/scripts/fixtures/**', '.github/scripts/kimi-api-canary.cjs', '.github/scripts/kimi-api-canary.test.cjs', '.github/workflows/kimi-runner-tests.yml', '.clj-kondo/config.edn', 'src/proxx/policy/catalog_watch.cljs', 'src/proxx/policy/evidence.cljs', 'src/proxx/policy/model_availability.cljc', 'test/proxx/policy/model_availability_test.cljc', 'scripts/watch_model_catalogs.cljs', 'scripts/tests/catalog_watch.cljs', 'resources/model-catalog-watch.example.edn']
 permissions:
   contents: read
 jobs:
