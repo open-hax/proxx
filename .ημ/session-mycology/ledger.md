@@ -95,3 +95,11 @@
 - Verification: exact Node22.20.0 locked NBB; old intake/provenance/model caller RED3/8/4, fixed29tests285assertions GREEN, actual caller full-env mutantRED4, real cleanup asserted.
 - Friction:0.45; lesson: fresh published-base ownership avoids incompatible unpublished ledger prefixes, and caller tests must capture the real credential boundary.
 - Scope: source preparation only; native reviews/CI/permission lookup/MAIN registration/Kimi/App/settlement remain parent-owned and unperformed. No new spore or policy adoption.
+
+- ts: "2026-10-04T18:14:15.994Z"
+  origin: proxx452/native-concurrency-finding-and-event-envelope-correction
+  p-efficiency: 0.85
+  p-friction: 0.36
+  p-skill-candidate: 0.30
+  spore: none
+  note: Bind concurrency only to admitted assessment jobs; test actual workflow guards. Validate each newly authored receipt through its upstream envelope before publication. Preserve and explicitly correct already published incompatible records without rewriting bytes.

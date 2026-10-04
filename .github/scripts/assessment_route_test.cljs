@@ -565,6 +565,27 @@
              "GITHUB_RUN_ID" "123" "GITHUB_RUN_ATTEMPT" "1"}]
     (is (refuses? #(r/trusted-source! env (fn [_] head))))))
 
+(defn admitted-concurrency [job github needs]
+  ;; Read the actual YAML job block; skipped jobs have no admitted group.
+  (when (workflow-guard job github needs)
+    (let [workflow (fs/readFileSync ".github/workflows/proxx-scoped-assessment.yml" "utf8")
+          block (second (re-find (re-pattern (str "(?ms)^  " job ":\\n(.*?)(?=^  [a-z][a-z0-9-]*:|\\z)")) workflow))]
+      (second (re-find #"(?m)^      group: (.+)$" (or block ""))))))
+
+(deftest only-admitted-assessment-jobs-share-the-concurrency-group
+  (let [workflow (fs/readFileSync ".github/workflows/proxx-scoped-assessment.yml" "utf8")
+        github {:event_name "issue_comment" :event event}
+        group "proxx-scoped-assessment-445"]
+    (is (nil? (re-find #"(?m)^concurrency:" workflow)))
+    (is (= group (admitted-concurrency "scoped-assessment-read" github {})))
+    (is (= group (admitted-concurrency "scoped-assessment-publish" github {:scoped-assessment-read {:result "success"}})))
+    (is (= 2 (count (re-seq #"(?m)^      cancel-in-progress: false$" workflow))))
+    (doseq [body ["ordinary discussion" (:body proposal) (:summary (review "informational"))]]
+      (is (nil? (admitted-concurrency "scoped-assessment-read" (assoc-in github [:event :comment :body] body) {}))))
+    (doseq [result ["failure" "cancelled" "skipped"]]
+      (is (nil? (admitted-concurrency "scoped-assessment-publish" github {:scoped-assessment-read {:result result}}))))
+    (is (nil? (admitted-concurrency "scoped-assessment-contract" {:event_name "pull_request" :event event} {})))))
+
 (defmethod test/report [:cljs.test/default :end-run-tests] [summary]
   (when (pos? (+ (:fail summary) (:error summary))) (set! (.-exitCode js/process) 1)))
 (run-tests)

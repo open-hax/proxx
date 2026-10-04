@@ -146,6 +146,24 @@ synthetic proposals/triggers and provider records are explicitly test fixtures.
 They supply no native assessment, approval or round credit. The handler derives
 new authentic current bindings; it never reuses a synthetic record operationally.
 
+CodeRabbit4178717727 on predecessor9fe identified a real scheduling omission:
+workflow-level concurrency let every PR445 comment, including skipped bot or
+discussion runs, replace a pending assessment run. The corrected workflow
+assigns the same `proxx-scoped-assessment-445` group only to the admitted read
+and publish jobs, retaining `cancel-in-progress: false`. Contract jobs and
+skipped non-trigger jobs do not enter it. The new actual YAML/guard regression
+is RED30tests296assertions/4failures on the preceding workflow and
+GREEN30/296/0failures after the job-level move. This proves the declared
+admission boundary, not live queue ordering or unlimited pending capacity.
+GitHub documents the default single pending entry and replacement behavior in
+its [concurrency reference](https://docs.github.com/en/actions/concepts/workflows-and-actions/concurrency).
+
+The preceding source-preparation record was appended as a flat map rather than
+a typed Receipt River event. Its already-published bytes remain intact as
+historical source evidence; they do not supply typed-envelope qualification.
+The successor appends a separately validated upstream-built correction event
+and test event. New receipt validation never rewrites a historical line.
+
 ## Full Kimi caller bootstrap and protected promotion
 
 The exact reviewed445ABA full caller opencode-code-review.yml is adopted byte

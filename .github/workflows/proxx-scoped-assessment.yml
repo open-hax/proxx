@@ -12,10 +12,6 @@ on:
       - '.github/scripts/fixtures/proxx445-native-*.json'
       - '.github/assessment-tools/package*.json'
 
-concurrency:
-  group: proxx-scoped-assessment-${{ github.event.issue.number || github.run_id }}
-  cancel-in-progress: false
-
 jobs:
   scoped-assessment-contract:
     name: Scoped assessment transport contract
@@ -64,6 +60,9 @@ jobs:
   scoped-assessment-read:
     name: Independent bounded Proxx445 assessment
     if: ${{ github.event_name == 'issue_comment' && github.event.action == 'created' && github.event.issue.number == 445 && github.event.issue.pull_request != null && github.event.comment.user.type == 'User' && startsWith(github.event.comment.body, '/eta-mu assess-actionability ') }}
+    concurrency:
+      group: proxx-scoped-assessment-445
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -143,6 +142,9 @@ jobs:
     name: Fresh OpenCode App scoped publisher
     needs: scoped-assessment-read
     if: ${{ github.event_name == 'issue_comment' && needs.scoped-assessment-read.result == 'success' }}
+    concurrency:
+      group: proxx-scoped-assessment-445
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
