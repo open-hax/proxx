@@ -57,3 +57,13 @@
   spore: none
   receipt-refs: proxx451/catalog-bounds-and-test-cleanup; acac3f0; user-reported review5403894200
   note: A character limit after Response.text is neither a byte limit nor bounded input consumption. Test actual UTF8 overflow and early connection cancellation; isolate rejected setup in children under both throw and warn policies, and await fixture cleanup before setting a nonzero exit. Preserve setup errors separately from semantic RED proof. Native inline IDs were unavailable locally, so provenance remains explicitly user-supplied; no GitHub or approval claim.
+
+- ts: 2026-10-04T03:28:51.334378237Z
+  session: codex/proxx451-publisher-ownership-oidc
+  task: Prepare deterministic actor ownership and standalone post-inference App authentication
+  p-efficiency: 0.87
+  p-friction: 0.34
+  p-skill-candidate: 0.55
+  spore: none
+  receipt-refs: proxx451/publisher-ownership-and-opencode-oidc; 3565585; /tmp/proxx451-publisher-3565585-fyhsvqkw
+  note: An exchange endpoint is reusable independently of an inference runner, but its JWT checks do not attest publication stage or exact PR head. Bind actor login plus numeric ID plus Bot type at every native mutation/readback; retain original provenance and reject mixed comments before delivery. Revocation failure must remain visible without raw credential-bearing diagnostics. Synthetic local transport and native-record tests do not activate reviewer quorum or establish installation access.

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 const fs = require('node:fs');
 const { execFileSync } = require('node:child_process');
+const { publisherPrincipal, matchesPublisher, assertNativeReview, assertNativeComment } = require('./opencode-app-auth.cjs');
 const OPENCODE_VERSION = '1.18.34';
 
 function assertRuntimeVersion(version) {
@@ -82,7 +83,8 @@ async function sendDiscord(url, payload, fetchImpl, sleep = ms => new Promise(re
   }
 }
 
-async function publish({ github, context, file, webhookUrl, fetchImpl = fetch, publicationFooter = '' }) {
+async function publish({ github, context, file, webhookUrl, fetchImpl = fetch, publicationFooter = '', publisher }) {
+  const principal = publisherPrincipal(publisher);
   // Caller-owned execution evidence is separate from untrusted model output.
   // It cannot supply delivery receipts and consumes the same UTF-8 body budget.
   if (typeof publicationFooter !== 'string' || Buffer.byteLength(publicationFooter, 'utf8') > 4096 ||
@@ -130,7 +132,7 @@ async function publish({ github, context, file, webhookUrl, fetchImpl = fetch, p
   };
   const prior = await github.paginate(github.rest.pulls.listReviews, { owner, repo, pull_number: pr.number, per_page: 100 });
   const existing = prior.find(r => r.commit_id === review.head && r.state === 'COMMENTED' &&
-    r.user?.login === 'github-actions[bot]' && r.body?.includes(marker));
+    matchesPublisher(r.user, principal) && r.body?.includes(marker));
   // Unknown IDs require maximum reservation only for a new publication.
   if (!existing) reserveReceipts(publicationBody, webhookUrl ? attached.length * receiptBytes : 0);
   // Rerunning a failed notification job must not create another GitHub review.
@@ -138,9 +140,17 @@ async function publish({ github, context, file, webhookUrl, fetchImpl = fetch, p
     owner, repo, pull_number: pr.number, commit_id: review.head, event: 'COMMENT',
     body: publicationBody, comments: attached,
   });
-  if (typeof submitted.data.body !== 'string' || !submitted.data.body.startsWith(originalBody)) {
+  assertNativeReview(submitted.data, principal, review.head);
+  if (!existing) assertNativeReview(submitted.data, principal, review.head, submitted.data.id, publicationBody);
+  if (!submitted.data.body.startsWith(originalBody)) {
     throw new Error('Native review original body prefix changed; delivery receipts denied');
   }
+  const readback = async body => {
+    const native = (await github.rest.pulls.getReview({ owner, repo, pull_number: pr.number, review_id: submitted.data.id })).data;
+    assertNativeReview(native, principal, review.head, submitted.data.id, body);
+    return native;
+  };
+  await readback(submitted.data.body);
   if (!webhookUrl) return;
   // Query only this submission, never all timestamp-adjacent MiMo/human comments.
   const comments = await github.paginate(github.rest.pulls.listCommentsForReview, {
@@ -151,6 +161,9 @@ async function publish({ github, context, file, webhookUrl, fetchImpl = fetch, p
   // An existing review keeps its original footer even when retry run metadata changes.
   let body = submitted.data.body || '';
   if (comments.length > 100) throw new Error('Discord delivery receipt budget exceeded');
+  // Refuse the entire mixed result before sending any notification. The API
+  // route alone is insufficient proof of each returned comment's ownership.
+  for (const comment of comments) assertNativeComment(comment, principal, review.head, submitted.data.id);
   const deliveries = discordPayloads(comments, `${owner}/${repo}#${pr.number}`).map((payload, index) => {
     const id = comments[index].id;
     if (!Number.isSafeInteger(id) || id <= 0) throw new Error('Invalid submission comment identity');
@@ -168,10 +181,13 @@ async function publish({ github, context, file, webhookUrl, fetchImpl = fetch, p
   for (const { payload, receipt } of pending) {
     const next = `${body}\n${receipt}`;
     if (Buffer.byteLength(next, 'utf8') > 65000) throw new Error('Discord delivery metadata exceeds review body budget');
+    await readback(body);
     await sendDiscord(webhookUrl, payload, fetchImpl);
     // Failure here stays visible. A crash after send but before this write can
     // redeliver: this is honest at-least-once delivery, never exactly once.
+    await readback(body);
     await github.rest.pulls.updateReview({ owner, repo, pull_number: pr.number, review_id: submitted.data.id, body: next });
+    await readback(next);
     body = next;
   }
 }

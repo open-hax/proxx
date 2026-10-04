@@ -4,6 +4,118 @@ const assert = require('node:assert/strict');
 const { assertHead, validateReview, discordPayloads } = require('./kimi-review.cjs');
 const nativeProviderFixture = require('./fixtures/kimi-provider-v1.18.34.json');
 const a = 'a'.repeat(40), b = 'b'.repeat(40);
+const ghaUser = { login: 'github-actions[bot]', id: 41898282, type: 'Bot' };
+const ghaReview = (head, body) => ({ id: 42, body, commit_id: head, state: 'COMMENTED', user: { ...ghaUser } });
+const ghaComment = (head, value) => ({ ...value, user: { ...ghaUser }, pull_request_review_id: 42, commit_id: head });
+
+// API fixtures model independent GitHub records, including mixed-owner records.
+function publicationFixture(publisher) {
+  const fs = require('node:fs'), os = require('node:os'), path = require('node:path');
+  const { execFileSync } = require('node:child_process');
+  const { diffCoverage } = require('./kimi-review.cjs');
+  const head = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'kimi-owner-')), file = path.join(directory, 'review.json');
+  fs.writeFileSync(file, JSON.stringify({ head, ...diffCoverage(head, head), summary: 'immutable original', comments: [] }, (k, v) => k === 'diff' ? undefined : v));
+  const user = publisher === 'opencode-agent' ? { login: 'opencode-agent[bot]', id: 219766164, type: 'Bot' } : { login: 'github-actions[bot]', id: 41898282, type: 'Bot' };
+  const context = { repo: { owner: 'o', repo: 'r' }, payload: { pull_request: { number: 1, base: { sha: head }, head: { sha: head, repo: { full_name: 'o/r' } } } } };
+  const native = { reviews: [], comments: [], creates: 0, updates: 0, sends: 0 };
+  const files = () => {}, reviews = () => {}, comments = () => {};
+  const pulls = {
+    get: async () => ({ data: { state: 'open', draft: false, base: { sha: head }, head: context.payload.pull_request.head } }),
+    listFiles: files, listReviews: reviews, listCommentsForReview: comments,
+    createReview: async args => { native.creates++; const review = { id: 42, commit_id: head, state: 'COMMENTED', user: { ...user }, body: args.body };
+      native.reviews.push(review); return { data: structuredClone(review) }; },
+    getReview: async args => ({ data: structuredClone(native.reviews.find(r => r.id === args.review_id)) }),
+    updateReview: async args => { native.updates++; const review = native.reviews.find(r => r.id === args.review_id); review.body = args.body; return { data: structuredClone(review) }; },
+  };
+  const github = { rest: { pulls }, paginate: async (method, args) => method === files ? [] : method === reviews ? structuredClone(native.reviews) :
+    (assert.equal(args.review_id, 42), structuredClone(native.comments)) };
+  const ownedComment = { id: 101, user: { ...user }, pull_request_review_id: 42, commit_id: head, path: 'a', line: 1, body: 'Owned finding' };
+  return { publisher, file, context, head, native, pulls, github, ownedComment,
+    webhookUrl: 'unused', fetchImpl: async () => { native.sends++; return { ok: true }; },
+    cleanup: () => fs.rmSync(directory, { recursive: true, force: true }) };
+}
+for (const publisher of [undefined, 'opencode-agent']) test(`strict publisher ${publisher || 'github-actions'} retains native provenance and rerun receipts`, async () => {
+  const f = publicationFixture(publisher), { publish } = require('./kimi-review.cjs');
+  try {
+    f.native.comments.push(f.ownedComment); await publish({ ...f, publicationFooter: '\nOriginal trusted footer' });
+    const body = f.native.reviews[0].body;
+    await publish({ ...f, publicationFooter: '\nNew retry footer' });
+    assert.equal(f.native.creates, 1); assert.equal(f.native.sends, 1);
+    assert.equal(f.native.reviews[0].body, body); assert.match(body, /Original trusted footer/);
+    assert.ok(!body.includes('New retry footer'));
+  } finally { f.cleanup(); }
+});
+for (const [name, change] of [
+  ['numeric owner', r => r.user.id = 219766164], ['owner type', r => r.user.type = 'User'],
+  ['missing owner', r => delete r.user.id], ['head', r => r.commit_id = b],
+  ['state', r => r.state = 'APPROVED'], ['native ID', r => r.id = '42'],
+  ['body bytes', r => r.body += 'changed'],
+]) test(`publisher refuses mismatched created ${name} even without Discord`, async () => {
+  const f = publicationFixture(), { publish } = require('./kimi-review.cjs'), create = f.pulls.createReview;
+  f.pulls.createReview = async args => { const result = await create(args); change(result.data); return result; };
+  try { await assert.rejects(publish({ ...f, webhookUrl: undefined }), /mismatch|prefix/); assert.equal(f.native.updates, 0); }
+  finally { f.cleanup(); }
+});
+test('publisher dedupe ignores matching login with foreign numeric owner', async () => {
+  const f = publicationFixture(), { publish } = require('./kimi-review.cjs');
+  try {
+    await publish({ ...f, webhookUrl: undefined });
+    const foreign = f.native.reviews[0]; foreign.id = 13; foreign.user.id = 219766164;
+    await publish({ ...f, webhookUrl: undefined });
+    assert.equal(f.native.creates, 2); assert.equal(f.native.updates, 0);
+  } finally { f.cleanup(); }
+});
+for (const [name, change] of [
+  ['owner', c => c.user.id = 219766164], ['type', c => c.user.type = 'User'],
+  ['submission', c => c.pull_request_review_id = 13], ['head', c => c.commit_id = b],
+]) test(`publisher refuses foreign comment ${name} before any notification`, async () => {
+  const f = publicationFixture(), { publish } = require('./kimi-review.cjs');
+  const bad = { ...structuredClone(f.ownedComment), id: 102 }; change(bad);
+  f.native.comments.push(f.ownedComment, bad);
+  try { await assert.rejects(publish(f), /comment.*mismatch/); assert.equal(f.native.sends, 0); assert.equal(f.native.updates, 0); }
+  finally { f.cleanup(); }
+});
+test('publisher verifies exact owner/body readback before notification and receipt update', async () => {
+  for (const phase of ['initial', 'after-send', 'update-readback']) {
+    const f = publicationFixture(), { publish } = require('./kimi-review.cjs'), read = f.pulls.getReview;
+    f.native.comments.push(f.ownedComment);
+    f.pulls.getReview = async args => { const result = await read(args);
+      if (phase === 'initial' || (phase === 'after-send' && f.native.sends) || (phase === 'update-readback' && f.native.updates)) result.data.user.id = 219766164;
+      return result; };
+    try { await assert.rejects(publish(f), /mismatch/); assert.equal(f.native.updates, phase === 'update-readback' ? 1 : 0); }
+    finally { f.cleanup(); }
+  }
+});
+test('changed review bytes during delivery cannot overwrite native provenance or claim a receipt', async () => {
+  const f = publicationFixture('opencode-agent'), { publish } = require('./kimi-review.cjs');
+  f.native.comments.push(f.ownedComment);
+  f.fetchImpl = async () => { f.native.sends++; f.native.reviews[0].body += '\nConcurrent native edit'; return { ok: true }; };
+  try {
+    await assert.rejects(publish(f), /body mismatch/);
+    assert.equal(f.native.sends, 1); assert.equal(f.native.updates, 0);
+    assert.ok(!f.native.reviews[0].body.includes('kimi-discord-delivered'));
+    assert.match(f.native.reviews[0].body, /Concurrent native edit/);
+  } finally { f.cleanup(); }
+});
+test('receipt readback failure cannot continue to the next notification', async () => {
+  const f = publicationFixture('opencode-agent'), { publish } = require('./kimi-review.cjs'), update = f.pulls.updateReview;
+  f.native.comments.push(f.ownedComment, { ...structuredClone(f.ownedComment), id: 102, body: 'Second finding' });
+  f.pulls.updateReview = async args => { await update(args); f.native.reviews[0].body += '\nAltered response'; };
+  try { await assert.rejects(publish(f), /body mismatch/); assert.equal(f.native.sends, 1); assert.equal(f.native.updates, 1); }
+  finally { f.cleanup(); }
+});
+test('publisher rejects arbitrary selection and model-supplied ownership before native mutation', async () => {
+  for (const publisher of ['eta-mu-ai', 'any-bot', { login: 'opencode-agent[bot]', id: 219766164, type: 'Bot' }]) {
+    const f = publicationFixture(publisher), { publish } = require('./kimi-review.cjs');
+    try { await assert.rejects(publish(f), /publisher/); assert.equal(f.native.creates, 0); }
+    finally { f.cleanup(); }
+  }
+  const f = publicationFixture(), { publish } = require('./kimi-review.cjs'), fs = require('node:fs');
+  const value = JSON.parse(fs.readFileSync(f.file)); value.publisher = 'opencode-agent'; fs.writeFileSync(f.file, JSON.stringify(value));
+  try { await assert.rejects(publish(f), /immutable full diff/); assert.equal(f.native.creates, 0); }
+  finally { f.cleanup(); }
+});
 
 test('bounded structured execution authenticates local API, rejects prose and cleans up on timeout', async () => {
   const { EventEmitter } = require('node:events');
@@ -183,11 +295,13 @@ test('publisher binds commit and retrieves only its own submission comments', as
   const list = () => {};
   const listFiles = () => {};
   const listReviews = () => {};
+  let native;
   const github = { rest: { pulls: {
     get: async () => ({ data: { state: 'open', draft: false, base: { sha: head }, head: { sha: head, repo: { full_name: 'o/r' } } } }),
-    createReview: async args => { assert.equal(args.commit_id, head); return { data: { id: 42, body: args.body } }; },
-    updateReview: async () => ({}), listCommentsForReview: list, listFiles, listReviews,
-  } }, paginate: async (method, args) => { if (method === listFiles || method === listReviews) return []; assert.equal(method, list); assert.equal(args.review_id, 42); return [{ id: 101, body: 'Own finding', path: 'a', line: 1 }]; } };
+    createReview: async args => { assert.equal(args.commit_id, head); native = ghaReview(head, args.body); return { data: structuredClone(native) }; },
+    getReview: async () => ({ data: structuredClone(native) }),
+    updateReview: async args => { native.body = args.body; }, listCommentsForReview: list, listFiles, listReviews,
+  } }, paginate: async (method, args) => { if (method === listFiles || method === listReviews) return []; assert.equal(method, list); assert.equal(args.review_id, 42); return [ghaComment(head, { id: 101, body: 'Own finding', path: 'a', line: 1 })]; } };
   let sent = 0;
   const context = { repo: { owner: 'o', repo: 'r' }, payload: { pull_request: { number: 1, base: { sha: head }, head: { sha: head, repo: { full_name: 'o/r' } } } } };
   try {
@@ -268,17 +382,18 @@ test('publication rejects stale base and reuses completed review after notificat
   const { execFileSync } = require('node:child_process'); const { publish, diffCoverage } = require('./kimi-review.cjs');
   const head = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kimi-publish-law-')), file = path.join(dir, 'review.json');
-  const { diff, ...coverage } = diffCoverage(head, head);
+  const coverage = diffCoverage(head, head); delete coverage.diff;
   fs.writeFileSync(file, JSON.stringify({ head, ...coverage, summary: 'ok', comments: [] }));
   const context = { repo: { owner: 'o', repo: 'r' }, payload: { pull_request: { number: 1, base: { sha: head }, head: { sha: head, repo: { full_name: 'o/r' } } } } };
   const reviews = []; let created = 0, currentBase = b;
   const listFiles = () => {}, listReviews = () => {}, listCommentsForReview = () => {};
   const github = { rest: { pulls: {
     get: async () => ({ data: { state: 'open', draft: false, base: { sha: currentBase }, head: context.payload.pull_request.head } }),
-    createReview: async args => { created++; const value = { id: 42, commit_id: head, state: 'COMMENTED', user: { login: 'github-actions[bot]' }, body: args.body }; reviews.push(value); return { data: value }; },
+    createReview: async args => { created++; const value = { id: 42, commit_id: head, state: 'COMMENTED', user: { ...ghaUser }, body: args.body }; reviews.push(value); return { data: value }; },
+    getReview: async () => ({ data: structuredClone(reviews[0]) }),
     updateReview: async args => { reviews[0].body = args.body; return { data: reviews[0] }; },
     listFiles, listReviews, listCommentsForReview,
-  } }, paginate: async method => method === listReviews ? reviews : method === listFiles ? [] : [{ id: 101, body: 'Own finding', path: 'a', line: 1 }] };
+  } }, paginate: async method => method === listReviews ? reviews : method === listFiles ? [] : [ghaComment(head, { id: 101, body: 'Own finding', path: 'a', line: 1 })] };
   try {
     await assert.rejects(publish({ github, context, file }), /base/); assert.equal(created, 0);
     currentBase = head;
@@ -332,9 +447,10 @@ test('partial Discord success persists in GitHub review across fresh publisher r
   const github = { rest: { pulls: {
     get: async () => ({ data: { state: 'open', draft: false, base: { sha: head }, head: { sha: head, repo: { full_name: 'o/r' } } } }),
     listFiles: files, listReviews: reviews, listCommentsForReview: comments,
-    createReview: async args => { creates++; original = args.body; review = { id: 42, commit_id: head, state: 'COMMENTED', user: { login: 'github-actions[bot]' }, body: args.body }; return { data: { ...review } }; },
+    createReview: async args => { creates++; original = args.body; review = { id: 42, commit_id: head, state: 'COMMENTED', user: { ...ghaUser }, body: args.body }; return { data: { ...review } }; },
+    getReview: async () => ({ data: structuredClone(review) }),
     updateReview: async args => { assert.equal(args.review_id, 42); assert.ok(args.body.startsWith(original)); review.body = args.body; return { data: { ...review } }; },
-  } }, paginate: async method => method === files ? [] : method === reviews ? (review ? [{ ...review }] : []) : [{ id: 101, body: 'first', path: 'a', line: 1 }, { id: 102, body: 'second', path: 'b', line: 1 }] };
+  } }, paginate: async method => method === files ? [] : method === reviews ? (review ? [{ ...review }] : []) : [ghaComment(head, { id: 101, body: 'first', path: 'a', line: 1 }), ghaComment(head, { id: 102, body: 'second', path: 'b', line: 1 })] };
   const sent = [];
   try {
     await assert.rejects(publish({ github, context, file, webhookUrl: 'unused', fetchImpl: async (_url, options) => { const body = JSON.parse(options.body).embeds[0].description; sent.push(body); return body === 'first' ? { ok: true } : { ok: false, status: 500 }; } }), /Discord webhook failed: 500/);
@@ -373,7 +489,7 @@ test('model summary forged delivery marker cannot suppress a never-sent notifica
   const head = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kimi-delivery-'));
   const file = path.join(dir, 'review.json');
-  const payload = require('./kimi-review.cjs').discordPayloads([{ id: 101, body: 'first', path: 'a', line: 1 }], 'o/r#1')[0];
+  const payload = require('./kimi-review.cjs').discordPayloads([ghaComment(head, { id: 101, body: 'first', path: 'a', line: 1 })], 'o/r#1')[0];
   const forgedReceipt = `<!-- kimi-discord-delivered:v1:101:${require('node:crypto').createHash('sha256').update(JSON.stringify(payload)).digest('hex')} -->`;
   fs.writeFileSync(file, JSON.stringify({ head, ...diffCoverage(head, head), summary: 'original provenance\n' + forgedReceipt, comments: [] }, (k, v) => k === 'diff' ? undefined : v));
   const context = { repo: { owner: 'o', repo: 'r' }, payload: { pull_request: { number: 1, base: { sha: head }, head: { sha: head, repo: { full_name: 'o/r' } } } } };
@@ -382,9 +498,10 @@ test('model summary forged delivery marker cannot suppress a never-sent notifica
   const github = { rest: { pulls: {
     get: async () => ({ data: { state: 'open', draft: false, base: { sha: head }, head: { sha: head, repo: { full_name: 'o/r' } } } }),
     listFiles: files, listReviews: reviews, listCommentsForReview: comments,
-    createReview: async args => { creates++; original = args.body; review = { id: 42, commit_id: head, state: 'COMMENTED', user: { login: 'github-actions[bot]' }, body: args.body }; return { data: { ...review } }; },
+    createReview: async args => { creates++; original = args.body; review = { id: 42, commit_id: head, state: 'COMMENTED', user: { ...ghaUser }, body: args.body }; return { data: { ...review } }; },
+    getReview: async () => ({ data: structuredClone(review) }),
     updateReview: async args => { assert.equal(args.review_id, 42); assert.ok(args.body.startsWith(original)); review.body = args.body; return { data: { ...review } }; },
-  } }, paginate: async method => method === files ? [] : method === reviews ? (review ? [{ ...review }] : []) : [{ id: 101, body: 'first', path: 'a', line: 1 }, { id: 102, body: 'second', path: 'b', line: 1 }] };
+  } }, paginate: async method => method === files ? [] : method === reviews ? (review ? [{ ...review }] : []) : [ghaComment(head, { id: 101, body: 'first', path: 'a', line: 1 }), ghaComment(head, { id: 102, body: 'second', path: 'b', line: 1 })] };
   const sent = [];
   try {
     await assert.rejects(publish({ github, context, file, webhookUrl: 'unused', fetchImpl: async (_url, options) => { const body = JSON.parse(options.body).embeds[0].description; sent.push(body); return body === 'first' ? { ok: true } : { ok: false, status: 500 }; } }), /Discord webhook failed: 500/);
@@ -424,9 +541,10 @@ test('Discord reserves all UTF-8 receipt capacity before native publication', as
   const github = { rest: { pulls: {
     get: async () => ({ data: { state: 'open', draft: false, base: { sha: head }, head: context.payload.pull_request.head } }),
     listFiles: files, listReviews: reviews, listCommentsForReview: nativeComments,
-    createReview: async args => { creates++; review = { id: 42, body: args.body }; return { data: review }; },
+    createReview: async args => { creates++; review = ghaReview(head, args.body); return { data: review }; },
+    getReview: async () => ({ data: structuredClone(review) }),
     updateReview: async args => { review.body = args.body; return { data: review }; },
-  } }, paginate: async method => method === files ? [{ filename: 'a', patch: '@@ -0,0 +1,1 @@\n+x' }] : method === reviews ? [] : comments.map((c, i) => ({ ...c, id: Number.MAX_SAFE_INTEGER - i })) };
+  } }, paginate: async method => method === files ? [{ filename: 'a', patch: '@@ -0,0 +1,1 @@\n+x' }] : method === reviews ? [] : comments.map((c, i) => ghaComment(head, { ...c, id: Number.MAX_SAFE_INTEGER - i })) };
   try {
     await assert.rejects(publish({ github, context, file, webhookUrl: 'unused', fetchImpl: async () => { sends++; return { ok: true }; } }), /metadata exceeds/);
     assert.equal(creates, 0, `Must preflight before create; already sent ${sends} notifications`);
@@ -443,15 +561,16 @@ test('near-cap existing review reserves only actual missing receipt bytes', asyn
   const { publish, diffCoverage, discordPayloads } = require('./kimi-review.cjs');
   const head = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'kimi-existing-budget-')), file = path.join(directory, 'review.json');
-  const comments = Array.from({ length: 100 }, (_, i) => ({ id: 1000000000 + i, path: 'a', line: 1, body: 'x' }));
-  fs.writeFileSync(file, JSON.stringify({ head, ...diffCoverage(head, head), summary: 'a'.repeat(44000) + 'é'.repeat(4800), comments: comments.map(({ id, ...c }) => c) }, (k, v) => k === 'diff' ? undefined : v));
+  const comments = Array.from({ length: 100 }, (_, i) => ghaComment(head, { id: 1000000000 + i, path: 'a', line: 1, body: 'x' }));
+  fs.writeFileSync(file, JSON.stringify({ head, ...diffCoverage(head, head), summary: 'a'.repeat(44000) + 'é'.repeat(4800), comments: comments.map(({ path, line, body }) => ({ path, line, body })) }, (k, v) => k === 'diff' ? undefined : v));
   const context = { repo: { owner: 'o', repo: 'r' }, payload: { pull_request: { number: 1, base: { sha: head }, head: { sha: head, repo: { full_name: 'o/r' } } } } };
   const files = () => {}, reviews = () => {}, nativeComments = () => {};
   let review, creates = 0, sends = 0;
   const github = { rest: { pulls: {
     get: async () => ({ data: { state: 'open', draft: false, base: { sha: head }, head: context.payload.pull_request.head } }),
     listFiles: files, listReviews: reviews, listCommentsForReview: nativeComments,
-    createReview: async args => { creates++; review = { id: 42, body: args.body, commit_id: head, state: 'COMMENTED', user: { login: 'github-actions[bot]' } }; return { data: { ...review } }; },
+    createReview: async args => { creates++; review = { id: 42, body: args.body, commit_id: head, state: 'COMMENTED', user: { ...ghaUser } }; return { data: { ...review } }; },
+    getReview: async () => ({ data: structuredClone(review) }),
     updateReview: async args => { review.body = args.body; },
   } }, paginate: async method => method === files ? [{ filename: 'a', patch: '@@ -0,0 +1,1 @@\n+x' }] : method === reviews ? (review ? [{ ...review }] : []) : comments };
   try {
@@ -526,7 +645,7 @@ test('parsed low-control artifact survives JSON persistence and exact-head publi
   const { execFileSync } = require('node:child_process');
   const { parseStructured, diffCoverage, publish } = require('./kimi-review.cjs');
   const head = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
-  const { diff, ...coverage } = diffCoverage(head, head);
+  const coverage = diffCoverage(head, head); delete coverage.diff;
   const value = { head, ...coverage, summary: 'No actionable findings', comments: [] };
   const response = structured => ({ info: { role: 'assistant', providerID: 'kimi-code-plan-global', modelID: 'kimi-for-coding', variant: 'low', structured },
     parts: [{ type: 'tool', tool: 'StructuredOutput', state: { status: 'completed', input: structured } }] });
@@ -537,7 +656,8 @@ test('parsed low-control artifact survives JSON persistence and exact-head publi
   const github = { rest: { pulls: {
     get: async () => ({ data: { state: 'open', draft: false, base: { sha: head }, head: context.payload.pull_request.head } }),
     listFiles, listReviews,
-    createReview: async args => { creates++; publishedBody = args.body; assert.equal(args.commit_id, head); assert.equal(args.event, 'COMMENT'); return { data: { id: 42, body: args.body } }; },
+    createReview: async args => { creates++; publishedBody = args.body; assert.equal(args.commit_id, head); assert.equal(args.event, 'COMMENT'); return { data: ghaReview(head, args.body) }; },
+    getReview: async () => ({ data: ghaReview(head, publishedBody) }),
   } }, paginate: async () => [] };
   try {
     fs.writeFileSync(file, JSON.stringify(artifact));
@@ -599,9 +719,10 @@ test('trusted publication footer participates in whole UTF-8 precreate reservati
   const github = { rest: { pulls: {
     get: async () => ({ data: { state: 'open', draft: false, base: { sha: head }, head: context.payload.pull_request.head } }),
     listFiles: files, listReviews: reviews, listCommentsForReview: comments,
-    createReview: async args => { creates++; body = args.body; return { data: { id: 42, body } }; },
+    createReview: async args => { creates++; body = args.body; return { data: ghaReview(head, body) }; },
+    getReview: async () => ({ data: ghaReview(head, body) }),
     updateReview: async args => { updates++; body = args.body; },
-  } }, paginate: async method => method === files ? [{ filename: 'a', patch: '@@ -0,0 +1,1 @@\n+x' }] : method === reviews ? [] : findings.map((c, i) => ({ ...c, id: Number.MAX_SAFE_INTEGER - i })) };
+  } }, paginate: async method => method === files ? [{ filename: 'a', patch: '@@ -0,0 +1,1 @@\n+x' }] : method === reviews ? [] : findings.map((c, i) => ghaComment(head, { ...c, id: Number.MAX_SAFE_INTEGER - i })) };
   const artifact = summary => ({ head, ...diffCoverage(head, head), summary, comments: findings });
   const write = summary => fs.writeFileSync(file, JSON.stringify(artifact(summary), (k, v) => k === 'diff' ? undefined : v));
   const send = async () => { sends++; return { ok: true }; };
@@ -634,7 +755,7 @@ test('footer is bounded trusted caller data; fitting partial retries preserve or
   const { publish, diffCoverage, parseStructured } = require('./kimi-review.cjs');
   const head = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'kimi-footer-retry-')), file = path.join(directory, 'review.json');
-  const { diff, ...coverage } = diffCoverage(head, head);
+  const coverage = diffCoverage(head, head); delete coverage.diff;
   const artifact = { head, ...coverage, summary: 'original model prefix', comments: [{ path: 'a', line: 1, body: 'first' }, { path: 'a', line: 1, body: 'second' }] };
   fs.writeFileSync(file, JSON.stringify(artifact));
   const context = { repo: { owner: 'o', repo: 'r' }, payload: { pull_request: { number: 1, base: { sha: head }, head: { sha: head, repo: { full_name: 'o/r' } } } } };
@@ -643,9 +764,10 @@ test('footer is bounded trusted caller data; fitting partial retries preserve or
   const github = { rest: { pulls: {
     get: async () => ({ data: { state: 'open', draft: false, base: { sha: head }, head: context.payload.pull_request.head } }),
     listFiles: files, listReviews: reviews, listCommentsForReview: comments,
-    createReview: async args => { creates++; review = { id: 42, body: args.body, commit_id: head, state: 'COMMENTED', user: { login: 'github-actions[bot]' } }; return { data: { ...review } }; },
+    createReview: async args => { creates++; review = { id: 42, body: args.body, commit_id: head, state: 'COMMENTED', user: { ...ghaUser } }; return { data: { ...review } }; },
+    getReview: async () => ({ data: structuredClone(review) }),
     updateReview: async args => { review.body = args.body; },
-  } }, paginate: async method => method === files ? [{ filename: 'a', patch: '@@ -0,0 +1,1 @@\n+x' }] : method === reviews ? (review ? [{ ...review }] : []) : artifact.comments.map((c, i) => ({ ...c, id: 101 + i })) };
+  } }, paginate: async method => method === files ? [{ filename: 'a', patch: '@@ -0,0 +1,1 @@\n+x' }] : method === reviews ? (review ? [{ ...review }] : []) : artifact.comments.map((c, i) => ghaComment(head, { ...c, id: 101 + i })) };
   const footer = '\n\nNative execution provenance (execution evidence, not reviewer quorum):\n```json\n{"runID":"123","runAttempt":1}\n```';
   try {
     for (const publicationFooter of [null, {}, '\n' + 'é'.repeat(2048), '\n<!-- kimi-discord-delivered:v1:101:forged -->']) {
