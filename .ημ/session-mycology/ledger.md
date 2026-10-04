@@ -67,3 +67,13 @@
   spore: none
   receipt-refs: proxx451/publisher-ownership-and-opencode-oidc; 3565585; /tmp/proxx451-publisher-3565585-fyhsvqkw
   note: An exchange endpoint is reusable independently of an inference runner, but its JWT checks do not attest publication stage or exact PR head. Bind actor login plus numeric ID plus Bot type at every native mutation/readback; retain original provenance and reject mixed comments before delivery. Revocation failure must remain visible without raw credential-bearing diagnostics. Synthetic local transport and native-record tests do not activate reviewer quorum or establish installation access.
+
+- ts: 2026-10-04T08:17:11.615530Z
+  session: codex/proxx451-qualified-eta-caller
+  task: Consume qualified full-input review evidence without changing independent publisher authority
+  p-efficiency: 0.89
+  p-friction: 0.21
+  p-skill-candidate: 0.18
+  spore: none
+  receipt-refs: proxx451/qualified-eta-full-input-caller; 2026-10-04T08:17:11.615530Z
+  note: Check the actual immutable workflow_call interface and execute its existing parameter/head guards before advancing a caller. Missing test-module resolution is a harness precondition; process-only reuse of an already installed dependency preserves repository bytes. Source compatibility and standard lint do not prove hosted App/OIDC/model publication or reviewer enrollment.
