@@ -1,0 +1,9 @@
+{
+  "name": "proxx-scoped-assessment-tools",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Locked portable runtime for scoped assessment effects only",
+  "dependencies": {
+    "nbb": "1.3.204"
+  }
+}

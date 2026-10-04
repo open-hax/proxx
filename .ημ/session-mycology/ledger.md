@@ -87,3 +87,11 @@
   spore: none
   receipt-refs: Proxx451 correction of prior native settlement UTF8 claims;Proxx451 auth-suite gate and malformed-UTF8 transport repair
   note: A byte budget does not imply valid decoding. Real malformed HTTP bytes proved replacement decoding could admit a valid-looking catalog and overwrite the last-good baseline; fatal decoding now refuses it while retaining valid split Unicode. Preserve old evidence and append the attribution correction rather than rewriting history. Keep new async fixture bindings bounded to avoid SCI expansion limits. Local App/OIDC tests use mocks only; native COMMENTED and pending enrollment do not qualify approval. Parent owns publication and native correction.
+
+## 2026-10-04T17:06:01.107711+00:00 — isolated STAGING scoped prerequisite
+
+- Origin: frozen MAIN11 tree `5f04f0ac9d9dadbab53c90d1d1decb2c2d724ae8`; original source/receipt bytes retained there unchanged.
+- Base: published STAGING `d4d52a39ff1db65ad36e9a429e03489c1208e32d`; this ledger and canonical receipts extend its exact complete prefixes.
+- Verification: exact Node22.20.0 locked NBB; old intake/provenance/model caller RED3/8/4, fixed29tests285assertions GREEN, actual caller full-env mutantRED4, real cleanup asserted.
+- Friction:0.45; lesson: fresh published-base ownership avoids incompatible unpublished ledger prefixes, and caller tests must capture the real credential boundary.
+- Scope: source preparation only; native reviews/CI/permission lookup/MAIN registration/Kimi/App/settlement remain parent-owned and unperformed. No new spore or policy adoption.
