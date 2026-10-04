@@ -2,12 +2,17 @@ name: Kimi runner contract tests
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
-    paths: ['.github/scripts/kimi-review.cjs', '.github/scripts/kimi-review.test.cjs', '.github/scripts/kimi-api-canary.cjs', '.github/scripts/kimi-api-canary.test.cjs', '.github/workflows/kimi-runner-tests.yml']
+    paths: ['.github/scripts/kimi-review.cjs', '.github/scripts/kimi-review.test.cjs', '.github/scripts/kimi-api-canary.cjs', '.github/scripts/kimi-api-canary.test.cjs', '.github/scripts/opencode-app-auth.cjs', '.github/scripts/opencode-app-auth.test.cjs', '.github/workflows/kimi-runner-tests.yml']
   push:
     branches: [main, staging]
-    paths: ['.github/scripts/kimi-review.cjs', '.github/scripts/kimi-review.test.cjs', '.github/scripts/kimi-api-canary.cjs', '.github/scripts/kimi-api-canary.test.cjs', '.github/workflows/kimi-runner-tests.yml']
+    paths: ['.github/scripts/kimi-review.cjs', '.github/scripts/kimi-review.test.cjs', '.github/scripts/kimi-api-canary.cjs', '.github/scripts/kimi-api-canary.test.cjs', '.github/scripts/opencode-app-auth.cjs', '.github/scripts/opencode-app-auth.test.cjs', '.github/workflows/kimi-runner-tests.yml']
 permissions:
   contents: read
+env:
+  # HELD candidate, matching the review publisher. Native use is refused until
+  # PR451 is qualified/merged and this exact helper commit is a PR base ancestor.
+  # COMMENTED diagnostics never enroll Kimi or grant review/approval/round credit.
+  KIMI_RUNTIME_SHA: 2810f4515424a146fe37390fb0baf532cca31236
 jobs:
   test:
     name: Kimi structured runner regression tests
@@ -15,6 +20,7 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
+          fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
@@ -29,7 +35,7 @@ jobs:
     timeout-minutes: 5
     permissions:
       contents: read
-      pull-requests: write
+      id-token: write
     concurrency:
       group: kimi-api-canary-${{ github.repository }}-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
       cancel-in-progress: false
@@ -37,21 +43,93 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '22'
-      - name: Create or verify same-bot diagnostic review
+      - name: Prepare immutable App diagnostic runtime
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$KIMI_RUNTIME_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$PR_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$PR_BASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$(git rev-parse HEAD)" == "$PR_HEAD_SHA" ]]
+          git merge-base --is-ancestor "$KIMI_RUNTIME_SHA" "$PR_BASE_SHA"
+          git show "${KIMI_RUNTIME_SHA}:.github/scripts/kimi-api-canary.cjs" > "$RUNNER_TEMP/kimi-api-canary.cjs"
+          git show "${KIMI_RUNTIME_SHA}:.github/scripts/opencode-app-auth.cjs" > "$RUNNER_TEMP/opencode-app-auth.cjs"
+          node --check "$RUNNER_TEMP/kimi-api-canary.cjs"
+          node --check "$RUNNER_TEMP/opencode-app-auth.cjs"
+      - name: Create or verify exact App diagnostic review
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         with:
           github-token: ${{ github.token }}
           script: |
-            const fs = require('node:fs');
-            const { probe } = require(`${process.env.GITHUB_WORKSPACE}/.github/scripts/kimi-api-canary.cjs`);
-            await probe({ github, context, write: receipt => fs.writeFileSync(
-              `${process.env.RUNNER_TEMP}/kimi-api-canary.json`,
-              JSON.stringify({ ...receipt, runID: process.env.GITHUB_RUN_ID,
-                runAttempt: process.env.GITHUB_RUN_ATTEMPT }, null, 2), { mode: 0o600 }) });
+            const fs = require('node:fs'), crypto = require('node:crypto');
+            const { execFileSync } = require('node:child_process');
+            const e = process.env, sha = value => /^[0-9a-f]{40}$/.test(value || '');
+            const positive = value => /^[1-9][0-9]*$/.test(value || '') && Number.isSafeInteger(Number(value));
+            const git = args => execFileSync('git', args, { cwd: e.GITHUB_WORKSPACE, stdio: ['ignore', 'pipe', 'pipe'] });
+            const digest = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
+            let nativeReceipt, callbackStarted = false, provenance = {};
+            const write = status => fs.writeFileSync(`${e.RUNNER_TEMP}/kimi-api-canary.json`,
+              JSON.stringify({ ...nativeReceipt, ...provenance, diagnostic: true,
+                nativeProbePassed: nativeReceipt?.passed === true, ...status }, null, 2), { mode: 0o600 });
+            try {
+              if (![e.PR_HEAD_SHA, e.PR_BASE_SHA, e.KIMI_RUNTIME_SHA, e.GITHUB_WORKFLOW_SHA].every(sha) ||
+                  ![e.PR_NUMBER, e.GITHUB_RUN_ID, e.GITHUB_RUN_ATTEMPT].every(positive)) throw Error('Invalid diagnostic context');
+              const repository = context.repo.owner + '/' + context.repo.repo, pr = context.payload.pull_request;
+              if (context.eventName !== 'pull_request' || context.workflow !== 'Kimi runner contract tests' ||
+                  repository !== e.GITHUB_REPOSITORY || context.payload.repository?.full_name !== repository ||
+                  context.runId !== Number(e.GITHUB_RUN_ID) || context.sha !== e.GITHUB_WORKFLOW_SHA || context.sha !== e.GITHUB_SHA ||
+                  context.ref !== `refs/pull/${e.PR_NUMBER}/merge` || context.ref !== e.GITHUB_REF ||
+                  e.GITHUB_WORKFLOW_REF !== `${repository}/.github/workflows/kimi-runner-tests.yml@${context.ref}` ||
+                  pr?.number !== Number(e.PR_NUMBER) || pr.draft || pr.head?.sha !== e.PR_HEAD_SHA ||
+                  pr.base?.sha !== e.PR_BASE_SHA || pr.head?.repo?.full_name !== repository || pr.base?.repo?.full_name !== repository) {
+                throw Error('Diagnostic event/workflow mismatch');
+              }
+              if (git(['rev-parse', 'HEAD']).toString().trim() !== e.PR_HEAD_SHA) throw Error('Diagnostic checkout moved');
+              git(['merge-base', '--is-ancestor', e.KIMI_RUNTIME_SHA, e.PR_BASE_SHA]);
+              const canaryPath = `${e.RUNNER_TEMP}/kimi-api-canary.cjs`, authPath = `${e.RUNNER_TEMP}/opencode-app-auth.cjs`;
+              const canary = fs.readFileSync(canaryPath), auth = fs.readFileSync(authPath);
+              if (!canary.equals(git(['show', `${e.KIMI_RUNTIME_SHA}:.github/scripts/kimi-api-canary.cjs`])) ||
+                  !auth.equals(git(['show', `${e.KIMI_RUNTIME_SHA}:.github/scripts/opencode-app-auth.cjs`])) ||
+                  !fs.readFileSync(`${e.GITHUB_WORKSPACE}/.github/workflows/kimi-runner-tests.yml`).equals(
+                    git(['show', `${e.GITHUB_WORKFLOW_SHA}:.github/workflows/kimi-runner-tests.yml`]))) throw Error('Diagnostic source bytes mismatch');
+              const current = (await github.rest.pulls.get({ ...context.repo, pull_number: pr.number })).data;
+              if (current.number !== pr.number || current.state !== 'open' || current.draft ||
+                  current.head?.sha !== e.PR_HEAD_SHA || current.base?.sha !== e.PR_BASE_SHA ||
+                  current.head?.repo?.full_name !== repository || current.base?.repo?.full_name !== repository) throw Error('Diagnostic live PR moved');
+              provenance = { repository, pullNumber: pr.number, head: e.PR_HEAD_SHA, base: e.PR_BASE_SHA,
+                runtimeSha: e.KIMI_RUNTIME_SHA, runtimeBaseAncestorVerified: true,
+                canarySha256: digest(canary), authSha256: digest(auth), workflowSha: e.GITHUB_WORKFLOW_SHA,
+                workflowRef: e.GITHUB_WORKFLOW_REF, runID: e.GITHUB_RUN_ID, runAttempt: e.GITHUB_RUN_ATTEMPT };
+              write({ passed: false, revoked: false });
+              // No candidate executable or model credential enters this fresh job.
+              // Only the verified immutable helper owns native identity/body/dedup.
+              const { probe } = require(canaryPath), { withOpenCodeAppToken } = require(authPath);
+              await withOpenCodeAppToken({ core }, async token => {
+                callbackStarted = true;
+                const appGithub = new github.constructor({ auth: token });
+                await probe({ github: appGithub, context, publisher: 'opencode-agent',
+                  write: receipt => { nativeReceipt = receipt; write({ passed: false, revoked: false }); } });
+              });
+              // Success includes finally revocation, not just successful readback.
+              write({ passed: true, revoked: true });
+            } catch (error) {
+              const phases = (error.errors || [error]).map(item => item.phase).filter(value =>
+                ['oidc', 'exchange', 'publication', 'revocation'].includes(value));
+              const failurePhase = phases.includes('revocation') ? 'revocation' : phases[0] || 'preflight';
+              write({ passed: false, revoked: callbackStarted && !phases.includes('revocation'), failurePhase });
+              throw Error(`App diagnostic ${failurePhase} failed`);
+            }
       - name: Preserve diagnostic metadata including partial creation
         if: ${{ always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
