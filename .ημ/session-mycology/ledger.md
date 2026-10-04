@@ -74,3 +74,13 @@
   spore: none
   receipt-refs: Proxx446,Uxx15
   note: Native schema model tests remain mandatory after mocked transport tests. Propagate test exit codes; exercise real tracked inventory without admitting operational cache state. Preserve trusted-base guards while reviewer work runs.
+
+- ts: 2026-10-04T08:17:11.615530Z
+  session: codex/proxx445-qualified-eta-caller
+  task: Consume qualified full-input review evidence without changing independent publisher authority
+  p-efficiency: 0.89
+  p-friction: 0.21
+  p-skill-candidate: 0.18
+  spore: none
+  receipt-refs: proxx445/qualified-eta-full-input-caller; 2026-10-04T08:17:11.615530Z
+  note: Check the actual immutable workflow_call interface and execute its existing parameter/head guards before advancing a caller. Missing test-module resolution is a harness precondition; process-only reuse of an already installed dependency preserves repository bytes. Source compatibility and standard lint do not prove hosted App/OIDC/model publication or reviewer enrollment.
