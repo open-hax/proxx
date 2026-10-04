@@ -569,26 +569,38 @@
              "GITHUB_RUN_ID" "123" "GITHUB_RUN_ATTEMPT" "1"}]
     (is (refuses? #(r/trusted-source! env (fn [_] head))))))
 
-(defn admitted-concurrency [job github needs]
-  ;; Read the actual YAML job block; skipped jobs have no admitted group.
-  (when (workflow-guard job github needs)
-    (let [workflow (fs/readFileSync ".github/workflows/proxx-scoped-assessment.yml" "utf8")
-          block (second (re-find (re-pattern (str "(?ms)^  " job ":\\n(.*?)(?=^  [a-z][a-z0-9-]*:|\\z)")) workflow))]
-      (second (re-find #"(?m)^      group: (.+)$" (or block ""))))))
-
-(deftest only-admitted-assessment-jobs-share-the-concurrency-group
+(defn workflow-concurrency [github]
+  ;; Execute the actual trusted root expression. No queue simulator or provider effect.
   (let [workflow (fs/readFileSync ".github/workflows/proxx-scoped-assessment.yml" "utf8")
-        github {:event_name "issue_comment" :event event}
+        expression (second (re-find #"(?m)^  group: \$\{\{ (.*?) \}\}$" workflow))
+        evaluate (js/Function. "github" "startsWith" "format" (str "return (" (or expression "null") ");"))]
+    (evaluate (clj->js github) (fn [value prefix] (str/starts-with? value prefix))
+              (fn [template value] (str/replace template "{0}" (str value))))))
+
+(deftest eligible-workflow-keeps-read-and-separate-publisher-together
+  (let [workflow (fs/readFileSync ".github/workflows/proxx-scoped-assessment.yml" "utf8")
+        github {:event_name "issue_comment" :run_id "101" :event event}
         group "proxx-scoped-assessment-445"]
-    (is (nil? (re-find #"(?m)^concurrency:" workflow)))
-    (is (= group (admitted-concurrency "scoped-assessment-read" github {})))
-    (is (= group (admitted-concurrency "scoped-assessment-publish" github {:scoped-assessment-read {:result "success"}})))
-    (is (= 2 (count (re-seq #"(?m)^      cancel-in-progress: false$" workflow))))
-    (doseq [body ["ordinary discussion" (:body proposal) (:summary (review "informational"))]]
-      (is (nil? (admitted-concurrency "scoped-assessment-read" (assoc-in github [:event :comment :body] body) {}))))
+    (is (boolean (re-find #"(?m)^concurrency:" workflow)))
+    (is (= group (workflow-concurrency github)))
+    (is (= group (workflow-concurrency (assoc github :run_id "102"))))
+    (is (nil? (re-find #"(?m)^    concurrency:" workflow)))
+    (is (= 1 (count (re-seq #"(?m)^  cancel-in-progress: false$" workflow))))
+    (is (not (str/includes? workflow "queue: max")))
+    (doseq [other [(assoc github :event_name "pull_request")
+                  (assoc-in github [:event :action] "edited")
+                  (assoc-in github [:event :issue :number] 446)
+                  (assoc-in github [:event :issue :pull_request] nil)
+                  (assoc-in github [:event :comment :user :type] "Bot")
+                  (assoc-in github [:event :comment :body] "ordinary discussion")
+                  (assoc-in github [:event :comment :body] (:body proposal))
+                  (assoc-in github [:event :comment :body] (:summary (review "informational")))]]
+      (is (= "proxx-scoped-assessment-other-101" (workflow-concurrency other)))
+      (is (= "proxx-scoped-assessment-other-102" (workflow-concurrency (assoc other :run_id "102")))))
+    (is (true? (workflow-guard "scoped-assessment-read" github {})))
+    (is (true? (workflow-guard "scoped-assessment-publish" github {:scoped-assessment-read {:result "success"}})))
     (doseq [result ["failure" "cancelled" "skipped"]]
-      (is (nil? (admitted-concurrency "scoped-assessment-publish" github {:scoped-assessment-read {:result result}}))))
-    (is (nil? (admitted-concurrency "scoped-assessment-contract" {:event_name "pull_request" :event event} {})))))
+      (is (false? (workflow-guard "scoped-assessment-publish" github {:scoped-assessment-read {:result result}}))))))
 
 (deftest actual-coverage-matches-pinned-helper-for-renames-and-binary-text
   ;; Only fetch/foreign-runtime ancestry are intercepted. Both diff commands

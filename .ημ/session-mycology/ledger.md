@@ -119,3 +119,11 @@
   p-skill-candidate: 0.25
   spore: none
   note: Preserve cached PR base as an observation and resolve the actual named native branch for input authority. Refresh it on both sides of publication; keep synthetic transport regression separate from operational reviewer evidence.
+
+- ts: "2026-10-04T19:52:00.144Z"
+  origin: proxx452/whole-eligible-workflow-pair
+  p-efficiency: 0.85
+  p-friction: 0.31
+  p-skill-candidate: 0.25
+  spore: none
+  note: Hold the eligible whole workflow pair instead of competing reader and publisher jobs. Keep ordinary events in unique groups, preserve separate permissions and required linter checks, and state the pending-before-model limit. Preserve unsupported queue diagnostics without presenting them as success.

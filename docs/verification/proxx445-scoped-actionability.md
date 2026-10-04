@@ -19,16 +19,15 @@ are not spliced into a claimed pair of incompatible contiguous prefixes.
 
 Transport architecture is referenced to the actual qualified Uxx16 merge
 acd90aff81cd7a5a37de774895448e4aad3232ba (reviewed6593cb8).
-Uxx17e02edfd1e15a71a2dba2a26861f2808ff760171c is an open published source
-follow-up with intake/model environment fixes. It is not treated as merged or
-qualified. Its later actual-model-caller test finding is valid: a helper test
-cannot establish what model! forwards. This Proxx preparation independently
-covers intake, model caller and the additional Proxx source-provenance seam.
-No Uxx approval or operational success transfers to this source.
-The analogous caller-wiring obligation is recorded in Uxx17 CodeRabbit
-review5407234082, item cr-comment:v1:6a552dc97d8a575a7f338f88. The e02 reference
-precedes the parent caller fix; this independent Proxx regression captures
-actual executeStructured input and rejects before any verdict.
+Uxx17's corrected environment source fdfc966cc3be088612529d70ef6b40fa78def703
+is now qualified and protected-merged as53966d08c022f17b288e724c0492d09cd7e39641.
+Its earlier e02 preparation preceded the actual-model-caller correction;
+helper-only tests did not establish what model! forwarded. This Proxx source
+independently covers intake, actual model caller and the additional Proxx
+source/run/attempt provenance seam. The analogous Uxx17 caller obligation was
+recorded in CodeRabbit review5407234082, item
+cr-comment:v1:6a552dc97d8a575a7f338f88. No Uxx approval or operational success
+transfers to this source; its own complete native qualification is required.
 
 Canonical actionability law/policy remains consumed from reviewed Agents7102
 7102a55535ca38a6c737fe5b9268776982bd364c. Law SHA256 is
@@ -147,16 +146,30 @@ They supply no native assessment, approval or round credit. The handler derives
 new authentic current bindings; it never reuses a synthetic record operationally.
 
 CodeRabbit4178717727 on predecessor9fe identified a real scheduling omission:
-workflow-level concurrency let every PR445 comment, including skipped bot or
-discussion runs, replace a pending assessment run. The corrected workflow
-assigns the same `proxx-scoped-assessment-445` group only to the admitted read
-and publish jobs, retaining `cancel-in-progress: false`. Contract jobs and
-skipped non-trigger jobs do not enter it. The new actual YAML/guard regression
-is RED30tests296assertions/4failures on the preceding workflow and
-GREEN30/296/0failures after the job-level move. This proves the declared
-admission boundary, not live queue ordering or unlimited pending capacity.
-GitHub documents the default single pending entry and replacement behavior in
-its [concurrency reference](https://docs.github.com/en/actions/concepts/workflows-and-actions/concurrency).
+The original unconditionally shared workflow lock admitted every PR445
+comment, including skipped bot/discussion runs. The subsequent shared eligible
+job group fixed that admission problem but could still replace a pending
+publisher with a later reader. The current conditional workflow group selects
+only the exact existing eligible command-event guard; every other event gets
+an independent run-ID group. It holds the whole eligible reader/publisher pair,
+with separate job permissions and fresh App minting preserved. There are no
+shared job locks that allow a later reader to replace a pending publisher.
+
+The default pending slot can still replace an older whole workflow before
+its model starts; scheduling order and durable retention are not guaranteed.
+Canceled/skipped output is never qualified. GitHub supports queue:max (up to
+100 pending entries), but required actionlint currently rejects that key:
+actual localv1.7.11 and inspected officialHEAD011a6d15 parser accept only group
+and cancel-in-progress. No required check is suppressed or weakened. The
+supported whole-workflow pairing is the reviewer's alternative remedy. Tests
+execute the actual root eligibility expression for matching commands, ordinary
+comments, proposals, bot replies, other PRs and PR contract runs, and verify
+that separate reader/publisher guards and permissions remain intact. They do
+not simulate or claim observed GitHub backlog behavior.
+
+Sources: [GitHub concurrency](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency),
+[open actionlint queue support issue](https://github.com/rhysd/actionlint/issues/657),
+and [inspected official parser](https://github.com/rhysd/actionlint/blob/011a6d15e749bb3f2d771eed9c7aa0e7e3e10ee7/parse.go).
 
 The preceding source-preparation record was appended as a flat map rather than
 a typed Receipt River event. Its already-published bytes remain intact as
