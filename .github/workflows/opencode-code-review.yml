@@ -9,8 +9,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # Unqualified candidate, not activation evidence.
-  # Activation hold: PR451 must qualify and merge before this selection is consumed.
+  # PR451 merged as d4d52a39ff1db65ad36e9a429e03489c1208e32d; selected helper bytes match that reviewed tree.
+  # This integration is not native App canary, Kimi enrollment or accepted low-review execution evidence.
   # Each executable job independently requires this commit in the immutable PR base ancestry.
   # Workflow YAML retains the existing same-repo contributor trust boundary.
   KIMI_RUNTIME_SHA: 2810f4515424a146fe37390fb0baf532cca31236
