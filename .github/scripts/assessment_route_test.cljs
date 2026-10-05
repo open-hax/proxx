@@ -1179,6 +1179,137 @@
         (is (some? (:failure observed))) (is (false? (:artifact observed)))
         (is (zero? (:models observed))) (is (zero? (:publishers observed))) (is (zero? (:posts observed)))))))
 
+;; Distinct-id incomplete actors are untrusted inventory, not the selected
+;; native record. Synthetic445 envelopes remain separate from captured452 data.
+(def unrelated-null-author
+  (fixture-comment 9001001 "Unrelated ordinary comment; no protocol header."
+                   "2050-10-04T12:02:00Z" nil))
+
+(defn inventory-publication-observation [alter-rows]
+  ;; Actual main!/publish!/checkpoint filesystem with synthetic API reads/POST.
+  ;; The runner parses a local finding fixture; no model or App is invoked.
+  (let [fixture (captured-native-actor-fixture)
+        directory (fs/mkdtempSync (path/join (os/tmpdir) "proxx-inventory-publish-"))
+        input-file (path/join directory "input.edn") result-file (path/join directory "result.edn")
+        readback-file (path/join directory "readback.edn") event-file (path/join directory "event.json")
+        source ["44c9fbea8586d6e2b85ad7ff667d1a041cc54032"
+                "open-hax/proxx/.github/workflows/proxx-scoped-assessment.yml@refs/heads/main" "123" "1"]
+        parsed (review "finding")
+        native (fixture-comment 7004 (:summary parsed) "2050-10-04T12:10:00Z" bot)
+        calls (atom []) posts (atom 0) models (atom 0) fresh-rows (atom nil)
+        reads (captured-native-actor-api fixture calls posts)
+        api! (fn [method endpoint payload]
+               (cond
+                 (= [method endpoint] ["POST" "repos/open-hax/proxx/issues/445/comments"])
+                 (do (swap! calls conj [method endpoint]) (swap! posts inc)
+                     (r/ensure! (= (:summary parsed) (:body payload)) "Changed synthetic publication") native)
+                 (= endpoint "repos/open-hax/proxx/issues/comments/7004")
+                 (do (swap! calls conj [method endpoint]) native)
+                 (and (pos? @posts) (str/includes? endpoint "/comments?"))
+                 (let [rows (alter-rows (conj (:comments fixture) native))]
+                   (swap! calls conj [method endpoint]) (reset! fresh-rows rows) rows)
+                 :else (reads method endpoint payload)))]
+    (try
+      (let [original (update (r/live! api! (:event fixture) (:policy fixture) (fn [& _] coverage)) :identity conj source)
+            value {:input-sha256 (r/sha (pr-str original)) :runner-sha256 r/runtime-hash :review parsed}]
+        (fs/writeFileSync event-file (js/JSON.stringify (clj->js (:event fixture))))
+        (r/write-input! input-file original)
+        (fs/writeFileSync result-file (pr-str value))
+        (with-real-env {"ASSESSMENT_COMMAND" "publish" "ASSESSMENT_POLICY" (:policy-directory fixture)
+                        "GITHUB_EVENT_PATH" event-file "ASSESSMENT_INPUT" input-file
+                        "ASSESSMENT_RESULT" result-file "ASSESSMENT_READBACK" readback-file}
+          (fn []
+            (let [failure (try
+                            (with-redefs [r/source! (fn [] source) r/gh-api! api!
+                                          r/coverage! (fn [& _] coverage)
+                                          r/model! (fn [& _] (swap! models inc) (throw (js/Error. "No fixture model")))]
+                              (r/main!))
+                            nil (catch :default e (ex-message e)))
+                  checkpoint (edn/read-string (r/read-bounded readback-file))
+                  fresh-target (when (and (nil? failure) @fresh-rows)
+                                 (r/target (:context fixture)
+                                           (r/authorize-comments! api! @fresh-rows) (:policy fixture)))
+                  observed {:failure failure :checkpoint checkpoint :posts @posts :models @models
+                            :target fresh-target :raw-rows @fresh-rows :calls @calls}]
+              (println "[inventory-publication]" (pr-str (select-keys observed [:failure :posts :models]))
+                       (pr-str (select-keys checkpoint [:publication-state :qualification])))
+              observed))))
+      (finally (fs/rmSync directory #js {:recursive true :force true})))))
+
+(deftest unrelated-null-author-intake-keeps-selected-native-binding
+  (let [fixture (captured-native-actor-fixture)]
+    (doseq [rows [(vec (cons unrelated-null-author (:comments fixture)))
+                 (conj (:comments fixture) unrelated-null-author)]]
+      (let [observed (captured-native-actor-intake-observation (assoc fixture :comments rows))
+            frozen (:frozen observed)]
+        (is (nil? (:failure observed)) (:failure observed)) (is (:artifact observed))
+        (is (zero? (:models observed))) (is (zero? (:publishers observed))) (is (zero? (:posts observed)))
+        (when frozen
+          (let [retained (first (filter #(= 9001001 (:id %)) (get-in frozen [:target :issue-comments])))]
+            (is (= unrelated-null-author (select-keys retained (keys unrelated-null-author))))
+            (is (= (count rows) (count (get-in frozen [:target :issue-comments]))))
+            (is (= (r/comment-tuple (:trigger fixture)) (r/comment-tuple (:trigger frozen))))
+            (is (= (r/comment-tuple (first (:comments fixture))) (r/comment-tuple (:proposal frozen))))
+            (is (true? (#'a/context-valid? (:target frozen))))
+            (is (= :ineligible (:status (a/disposition (:target frozen)))))))))))
+
+(deftest unrelated-null-author-publication-keeps-all-three-selected-records
+  (doseq [placement [:before-all :after-all :before-readback :before-trigger :before-proposal]]
+    (let [alter (fn [[proposed triggered published :as rows]]
+                  (case placement
+                    :before-all (vec (cons unrelated-null-author rows))
+                    :after-all (conj rows unrelated-null-author)
+                    :before-readback [proposed triggered unrelated-null-author published]
+                    :before-trigger [published unrelated-null-author triggered proposed]
+                    :before-proposal [published triggered unrelated-null-author proposed]))
+          observed (inventory-publication-observation alter)
+          checkpoint (:checkpoint observed)]
+      (is (nil? (:failure observed)) (str placement ": " (:failure observed)))
+      (is (= :complete (:publication-state checkpoint)))
+      (is (= :verified-scoped-assessment (:qualification checkpoint)))
+      (is (= 7004 (:native-id checkpoint))) (is (= "finding" (:decision checkpoint)))
+      (is (= 1 (:posts observed))) (is (zero? (:models observed)))
+      (is (true? (#'a/context-valid? (:target observed))))
+      (is (= :finding (get-in checkpoint [:disposition :kind])))
+      (is (= unrelated-null-author
+             (select-keys (first (filter #(= 9001001 (:id %)) (get-in observed [:target :issue-comments])))
+                          (keys unrelated-null-author)))))))
+
+(deftest selected-publication-tuples-including-proposal-stay-strict
+  (doseq [id [7001 7002 7004]
+          mutate [#(assoc % :user nil)
+                  #(update % :user dissoc :id)
+                  #(assoc-in % [:user :id] (+ js/Number.MAX_SAFE_INTEGER 1))
+                  #(update-in % [:user :id] inc)
+                  #(assoc-in % [:user :node_id] "ACTOR_changed")
+                  #(assoc-in % [:user :login] "other-writer")
+                  #(update-in % [:user :type] {"User" "Bot" "Bot" "User"})
+                  #(update % :id inc) #(assoc % :node_id "IC_changed")
+                  #(update % :body str " changed")
+                  #(assoc % :created_at "2050-10-04T12:20:00Z")
+                  #(assoc % :updated_at "2050-10-04T12:20:00Z")
+                  #(assoc % :html_url "https://github.com/other/repo/issues/445#issuecomment-7004")]]
+    (let [observed (inventory-publication-observation
+                    #(mapv (fn [row] (if (= id (:id row)) (mutate row) row)) %))]
+      (is (some? (:failure observed)) (str "Selected native ID " id " must refuse"))
+      (is (= :readback-verified (get-in observed [:checkpoint :publication-state])))
+      (is (= :not-established (get-in observed [:checkpoint :qualification])))
+      (is (= 7004 (get-in observed [:checkpoint :native-id])))
+      (is (= 1 (:posts observed))) (is (zero? (:models observed))))))
+
+(deftest selected-incomplete-intake-actors-still-refuse-among-unrelated-records
+  (let [fixture (captured-native-actor-fixture)]
+    (doseq [index [0 1]
+            mutate [#(assoc % :user nil)
+                    #(assoc-in % [:user :id] (+ js/Number.MAX_SAFE_INTEGER 1))
+                    #(update % :user dissoc :node_id)
+                    #(update % :user dissoc :login)
+                    #(update % :user dissoc :type)]]
+      (let [rows (conj (update (:comments fixture) index mutate) unrelated-null-author)
+            observed (captured-native-actor-intake-observation (assoc fixture :comments rows))]
+        (is (some? (:failure observed))) (is (false? (:artifact observed)))
+        (is (zero? (:models observed))) (is (zero? (:publishers observed))) (is (zero? (:posts observed)))))))
+
 (defmethod test/report [:cljs.test/default :end-run-tests] [summary]
   (when (pos? (+ (:fail summary) (:error summary))) (set! (.-exitCode js/process) 1)))
 (run-tests)
