@@ -126,8 +126,16 @@
   (when-let [[_ head thread root proposal]
              (re-matches #"/eta-mu assess-actionability ([0-9a-f]{40}) (PRRT_[a-zA-Z0-9_-]+) comment([1-9][0-9]*) proposal([1-9][0-9]*)" (or body ""))]
     {:head head :thread thread :root (js/Number root) :proposal (js/Number proposal)}))
+(defn native-actor-tuple [actor]
+  (let [{:keys [id node_id login type]} actor]
+    (ensure! (and (map? actor) (js/Number.isSafeInteger id) (pos? id)
+                  (string? node_id) (not (str/blank? node_id))
+                  (string? login) (not (str/blank? login))
+                  (contains? #{"User" "Bot"} type)) "Incomplete native actor identity")
+    [id node_id login type]))
 (defn comment-tuple [c]
-  (mapv c [:id :node_id :body :created_at :updated_at :html_url :user]))
+  (conj (mapv c [:id :node_id :body :created_at :updated_at :html_url])
+        (native-actor-tuple (:user c))))
 (defn validate-intake!
   "Operational scope is a single already-verified native manifest, not another
    actionability classifier. Canonical disposition selects the latest proposal."
@@ -158,7 +166,7 @@
                   (= (:proposal cmd) proposal-id) (= :proposal (:kind p))
                   (= (:head t) (:head p)) (= (a/context-binding t) (:payload p))
                   (:authorized? proposal) (= (:created_at proposal) (:updated_at proposal))
-                  (= (:user proposal) (:user trigger))
+                  (= (native-actor-tuple (:user proposal)) (native-actor-tuple (:user trigger)))
                   (pos? (compare (:created_at trigger) (:updated_at proposal)))
                   (every? #(pos? (compare (:created_at proposal) %))
                           (mapcat (fn [c] [(:updatedAt c) (get-in c [:pullRequestReview :updatedAt])])

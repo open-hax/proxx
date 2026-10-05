@@ -1053,6 +1053,132 @@
             (is (not (contains? record :native-id)))))
         (finally (fs/rmSync directory #js {:recursive true :force true}))))))
 
+;; Authentic PR452 endpoint captures are data, not a PR445 invocation. Only the
+;; captured actor maps enter the reconstructed selected445 proposal/trigger.
+(def captured452-native-comments {:direct {:html_url "https://github.com/open-hax/proxx/pull/452#issuecomment-5986213579", :performed_via_github_app nil, :author_association "MEMBER", :node_id "IC_kwDORjtCas8AAAABZM5eyw", :minimized nil, :pin nil, :issue_url "https://api.github.com/repos/open-hax/proxx/issues/452", :updated_at "2026-10-05T00:46:44Z", :id 5986213579, :url "https://api.github.com/repos/open-hax/proxx/issues/comments/5986213579", :body "Published current 024c16641f86812af166588bb9c9590d726f34fa/tree6ef24470054be399d43a0ad0ca20aaf89aaad79a by ordinary commit/push from49. The verified seven-line deletion removes only CodeRabbit’s already-ignored root tools block: official-schema one error ->zero, recognized settings/defaults unchanged. No tool override is activated, no required check is changed. Parent reverified all17 source-packet files and all602 unowned blobs/modes/root148625; entire105203receipt10260reflection prefixes preserved ->108801/10705; neweventa666294d valid upstream45ec. Row40 remains byte-identical pending the user’s preservation clarification. No historical ledger rewrite occurred.\n\nComplete49 MiMo5408693759 and fullCR5985781461/completion5985782381 remain preserved historical evidence, with no current approval transfer. One completed stage cohort is retained; fresh current full reviews/CI/convergence and every finding remain required. Security hardening limits were answered truthfully in5986016508, with token reach/permissions/expiry/forced-termination properties unverified. No paid credits, deployment, source-law mutation or merge bypass.\n", :user {:html_url "https://github.com/riatzukiza", :gravatar_id "", :followers_url "https://api.github.com/users/riatzukiza/followers", :subscriptions_url "https://api.github.com/users/riatzukiza/subscriptions", :site_admin false, :user_view_type "public", :following_url "https://api.github.com/users/riatzukiza/following{/other_user}", :node_id "MDQ6VXNlcjEwNjc2OTI1", :type "User", :received_events_url "https://api.github.com/users/riatzukiza/received_events", :login "riatzukiza", :organizations_url "https://api.github.com/users/riatzukiza/orgs", :id 10676925, :events_url "https://api.github.com/users/riatzukiza/events{/privacy}", :url "https://api.github.com/users/riatzukiza", :repos_url "https://api.github.com/users/riatzukiza/repos", :starred_url "https://api.github.com/users/riatzukiza/starred{/owner}{/repo}", :gists_url "https://api.github.com/users/riatzukiza/gists{/gist_id}", :avatar_url "https://avatars.githubusercontent.com/u/10676925?u=00f2b2349e4bbf3e4d96a98ef5e5668e82bf7f77&v=4"}, :reactions {:heart 0, :eyes 0, :total_count 0, :-1 0, :hooray 0, :confused 0, :+1 0, :laugh 0, :url "https://api.github.com/repos/open-hax/proxx/issues/comments/5986213579/reactions", :rocket 0}, :created_at "2026-10-05T00:46:44Z"}, :inventory {:html_url "https://github.com/open-hax/proxx/pull/452#issuecomment-5986213579", :performed_via_github_app nil, :author_association "MEMBER", :node_id "IC_kwDORjtCas8AAAABZM5eyw", :minimized nil, :issue_url "https://api.github.com/repos/open-hax/proxx/issues/452", :updated_at "2026-10-05T00:46:44Z", :id 5986213579, :url "https://api.github.com/repos/open-hax/proxx/issues/comments/5986213579", :body "Published current 024c16641f86812af166588bb9c9590d726f34fa/tree6ef24470054be399d43a0ad0ca20aaf89aaad79a by ordinary commit/push from49. The verified seven-line deletion removes only CodeRabbit’s already-ignored root tools block: official-schema one error ->zero, recognized settings/defaults unchanged. No tool override is activated, no required check is changed. Parent reverified all17 source-packet files and all602 unowned blobs/modes/root148625; entire105203receipt10260reflection prefixes preserved ->108801/10705; neweventa666294d valid upstream45ec. Row40 remains byte-identical pending the user’s preservation clarification. No historical ledger rewrite occurred.\n\nComplete49 MiMo5408693759 and fullCR5985781461/completion5985782381 remain preserved historical evidence, with no current approval transfer. One completed stage cohort is retained; fresh current full reviews/CI/convergence and every finding remain required. Security hardening limits were answered truthfully in5986016508, with token reach/permissions/expiry/forced-termination properties unverified. No paid credits, deployment, source-law mutation or merge bypass.\n", :user {:html_url "https://github.com/riatzukiza", :gravatar_id "", :followers_url "https://api.github.com/users/riatzukiza/followers", :subscriptions_url "https://api.github.com/users/riatzukiza/subscriptions", :site_admin false, :user_view_type "public", :following_url "https://api.github.com/users/riatzukiza/following{/other_user}", :node_id "MDQ6VXNlcjEwNjc2OTI1", :type "User", :received_events_url "https://api.github.com/users/riatzukiza/received_events", :login "riatzukiza", :organizations_url "https://api.github.com/users/riatzukiza/orgs", :id 10676925, :events_url "https://api.github.com/users/riatzukiza/events{/privacy}", :url "https://api.github.com/users/riatzukiza", :repos_url "https://api.github.com/users/riatzukiza/repos", :starred_url "https://api.github.com/users/riatzukiza/starred{/owner}{/repo}", :gists_url "https://api.github.com/users/riatzukiza/gists{/gist_id}", :avatar_url "https://avatars.githubusercontent.com/u/10676925?v=4"}, :reactions {:heart 0, :eyes 0, :total_count 0, :-1 0, :hooray 0, :confused 0, :+1 0, :laugh 0, :url "https://api.github.com/repos/open-hax/proxx/issues/comments/5986213579/reactions", :rocket 0}, :created_at "2026-10-05T00:46:44Z"}})
+
+(defn captured-native-actor-fixture []
+  (let [captured captured452-native-comments
+        policy-directory (or (aget js/process.env "ASSESSMENT_POLICY") ".assessment-policy/skills/pr-flow")
+        actual-policy (r/policy! policy-directory)
+        direct (assoc trigger :user (get-in captured [:direct :user]))
+        listed (assoc direct :user (get-in captured [:inventory :user]))
+        proposed (assoc proposal :user (get-in captured [:inventory :user]))]
+    {:event (assoc event :comment direct) :live-pr live-pr :context context
+     :trigger direct :comments [proposed (r/native-comment listed true)]
+     :policy actual-policy :policy-directory policy-directory :coverage coverage :permission "admin"}))
+
+(defn captured-native-actor-api [fixture calls posts]
+  (fn [method endpoint _]
+    (swap! calls conj [method endpoint])
+    (cond
+      (= endpoint "graphql")
+      {:data {:repository (assoc (:repository (:context fixture)) :pullRequest
+                                  (assoc (:pr (:context fixture)) :reviewThreads
+                                         {:nodes [(:thread (:context fixture))]
+                                          :pageInfo {:hasNextPage false}}))}}
+      (= endpoint "repos/open-hax/proxx/pulls/445") (:live-pr fixture)
+      (= endpoint "repos/open-hax/proxx/branches/staging")
+      {:name "staging" :commit {:sha (get-in fixture [:live-pr :base :sha])}}
+      (= endpoint "repos/open-hax/proxx/issues/comments/7002") (:trigger fixture)
+      (str/includes? endpoint "/comments?") (:comments fixture)
+      (str/includes? endpoint "/permission") {:permission (:permission fixture)}
+      :else (do (when (= method "POST") (swap! posts inc))
+                (throw (js/Error. "Unexpected local captured-actor API call"))))))
+
+(defn captured-native-actor-intake-observation [fixture]
+  ;; Actual main!/live collector/serializer/filesystem; only native reads, source
+  ;; workflow context and Git coverage are fixtures. No provider or App may run.
+  (let [directory (fs/mkdtempSync (path/join (os/tmpdir) "proxx-native-actor-"))
+        event-file (path/join directory "event.json") input-file (path/join directory "input.edn")
+        settings {"ASSESSMENT_COMMAND" "intake" "ASSESSMENT_POLICY" (:policy-directory fixture) "GITHUB_EVENT_PATH" event-file
+                  "ASSESSMENT_INPUT" input-file "ASSESSMENT_RESULT" (path/join directory "result.edn")}
+        source ["024c16641f86812af166588bb9c9590d726f34fa"
+                "open-hax/proxx/.github/workflows/proxx-scoped-assessment.yml@refs/heads/main" "123" "1"]
+        calls (atom []) posts (atom 0) models (atom 0) publishers (atom 0) coverage-calls (atom [])]
+    (try
+      (fs/writeFileSync event-file (js/JSON.stringify (clj->js (:event fixture))))
+      (with-real-env settings
+        (fn []
+          (let [failure (try
+                          (with-redefs [r/source! (fn [] source)
+                                        r/gh-api! (captured-native-actor-api fixture calls posts)
+                                        r/coverage! (fn [actual head] (swap! coverage-calls conj [actual head]) (:coverage fixture))
+                                        r/model! (fn [& _] (swap! models inc) (throw (js/Error. "No fixture model")))
+                                        r/publish! (fn [& _] (swap! publishers inc) (throw (js/Error. "No fixture App")))]
+                            (r/main!))
+                          nil (catch :default e (ex-message e)))
+                exists (fs/existsSync input-file)
+                frozen (when exists (edn/read-string (r/read-bounded input-file)))
+                observed {:failure failure :artifact exists :frozen frozen :source source
+                          :calls @calls :coverage-calls @coverage-calls
+                          :posts @posts :models @models :publishers @publishers}]
+            (println "[captured-native-actor-intake]" (pr-str (dissoc observed :frozen :calls :source)))
+            observed)))
+      (finally (fs/rmSync directory #js {:recursive true :force true})))))
+
+(deftest captured-native-actor-variation-admits-in-reconstructed445-entrypoint
+  (let [captured captured452-native-comments fixture (captured-native-actor-fixture)
+        raw-direct (:direct captured) raw-list (:inventory captured)]
+    (is (= (select-keys raw-direct [:id :node_id :body :created_at :updated_at :html_url])
+           (select-keys raw-list [:id :node_id :body :created_at :updated_at :html_url])))
+    (is (= (select-keys (:user raw-direct) [:id :node_id :login :type])
+           (select-keys (:user raw-list) [:id :node_id :login :type])))
+    (is (not= (get-in raw-direct [:user :avatar_url]) (get-in raw-list [:user :avatar_url])))
+    (is (= (r/comment-tuple raw-direct) (r/comment-tuple raw-list)))
+    (doseq [event-comment [(:trigger fixture) (second (:comments fixture))]]
+      (let [prior-policy-env (aget js/process.env "ASSESSMENT_POLICY")
+            observed (captured-native-actor-intake-observation (assoc-in fixture [:event :comment] event-comment))
+            frozen (:frozen observed)]
+        (is (nil? (:failure observed)) (:failure observed)) (is (:artifact observed))
+        (is (= prior-policy-env (aget js/process.env "ASSESSMENT_POLICY")))
+        (is (= [[base (:head t)]] (:coverage-calls observed)))
+        (is (zero? (:models observed))) (is (zero? (:publishers observed))) (is (zero? (:posts observed)))
+        (when frozen
+          (is (= (get-in raw-list [:user]) (get-in frozen [:proposal :user])))
+          (is (= (get-in raw-direct [:user]) (get-in frozen [:trigger :user])))
+          (is (= (:coverage fixture) (:coverage frozen)))
+          (is (= (:source observed) (peek (:identity frozen))))
+          (is (= :ineligible (:status (a/disposition (:target frozen))))))))))
+
+(deftest complete-safe-native-actor-identities-are-required
+  (let [comment (:trigger (captured-native-actor-fixture)) actor (:user comment)
+        malformed [(dissoc actor :id) (assoc actor :id nil) (assoc actor :id 0) (assoc actor :id -1)
+                   (assoc actor :id 1.5) (assoc actor :id "10676925")
+                   (assoc actor :id (+ js/Number.MAX_SAFE_INTEGER 1))
+                   (dissoc actor :node_id) (assoc actor :node_id nil) (assoc actor :node_id " ") (assoc actor :node_id 10676925)
+                   (dissoc actor :login) (assoc actor :login nil) (assoc actor :login " ") (assoc actor :login 10676925)
+                   (dissoc actor :type) (assoc actor :type nil) (assoc actor :type "Organization")]]
+    (doseq [bad malformed] (is (refuses? #(r/comment-tuple (assoc comment :user bad)))))
+    (is (not (refuses? #(r/comment-tuple (assoc comment :user bot)))))))
+
+(deftest native-actor-and-comment-mutations-refuse-reconstructed445-input
+  (let [fixture (captured-native-actor-fixture)
+        changed [(assoc-in fixture [:trigger :user :id] 10676926)
+                 (assoc-in fixture [:trigger :user :node_id] "MDQ6VXNlcjEwNjc2OTI2")
+                 (assoc-in fixture [:trigger :user :login] "other-writer")
+                 (assoc-in fixture [:trigger :user :type] "Bot")
+                 (assoc-in fixture [:comments 0 :user :id] 10676926)
+                 (assoc-in fixture [:comments 0 :user :node_id] "MDQ6VXNlcjEwNjc2OTI2")
+                 (assoc-in fixture [:comments 0 :user :login] "other-writer")
+                 (assoc-in fixture [:comments 0 :user :type] "Bot")
+                 (assoc-in fixture [:comments 1 :id] 7003)
+                 (assoc-in fixture [:comments 1 :node_id] "IC_other_trigger")
+                 (update-in fixture [:comments 1 :body] str "\n")
+                 (assoc-in fixture [:comments 1 :created_at] "2050-10-04T12:00:59Z")
+                 (assoc-in fixture [:comments 1 :updated_at] "2050-10-04T12:01:01Z")
+                 (assoc-in fixture [:comments 1 :html_url] "https://github.com/open-hax/proxx/pull/445#issuecomment-7003")
+                 (assoc-in fixture [:event :comment :id] 7003)
+                 (assoc-in fixture [:event :comment :node_id] "IC_other_trigger")
+                 (update-in fixture [:event :comment :body] str "\n")
+                 (assoc-in fixture [:event :comment :created_at] "2050-10-04T12:00:59Z")
+                 (assoc-in fixture [:event :comment :updated_at] "2050-10-04T12:01:01Z")
+                 (assoc-in fixture [:event :comment :html_url] "https://github.com/open-hax/proxx/pull/445#issuecomment-7003")]]
+    (doseq [bad changed]
+      (let [observed (captured-native-actor-intake-observation bad)]
+        (is (some? (:failure observed))) (is (false? (:artifact observed)))
+        (is (zero? (:models observed))) (is (zero? (:publishers observed))) (is (zero? (:posts observed)))))))
+
 (defmethod test/report [:cljs.test/default :end-run-tests] [summary]
   (when (pos? (+ (:fail summary) (:error summary))) (set! (.-exitCode js/process) 1)))
 (run-tests)
