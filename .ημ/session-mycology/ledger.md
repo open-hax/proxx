@@ -192,3 +192,10 @@ Authentic PR452 comment5986213579 direct/inventory user maps differ only in avat
 - The actual shipped705 guard now uses format and fromJSON. The old evaluator produces10 genuine errors; progressively supplying required functions exposed JavaScript consuming GitHub JSON escapes. Preserve those intermediate RED diagnostics. Encode GitHub literals before JavaScript evaluation, retain direct actual-expression evaluation, and align prose expectations with the reviewed command-only trigger.
 - Final50tests1006assertionsPASS. Production workflow/runtime/policy bytes and all other48 test definitions remain unchanged. The full125898receipt14425reflection prefixes, root and original rows40/53 remain immutable. Fresh successor hosted checks/fullreviews remain separate.
 - p-efficiency=0.82, p-friction=0.39, p-skill-candidate=0.48; no new spore/promotion.
+
+
+## 2026-10-05T06:25:23.522999+00:00 — Bare command equality follows GitHub
+
+- Official runner2.337.0 uses OrdinalIgnoreCase. Independent bounded probes disprove the proposed uppercase-FALSE remedy but reveal a separate bare-token equality gap in the CLJS harness. Correct contextual casefold, preserve the production trigger and existing50 test definitions. Identical51tests1018assertions: publishedc71 RED12 ->correctedGREEN0, no errors.
+- Genuine OIDC publisher trust concern remains open: candidate-controlled PR publication must move to reviewed default source, with receiving-broker authorization separately qualified. Neither a passing review nor a local callback guard closes that source authority boundary.
+- Full128631 receipt and15278 reflection prefixes preserved; actual45ec typed event2db15cdc validates, original row40/53 remain exact. Native rejection channel and row40 user decision still required. p-efficiency=0.86, p-friction=0.29, p-skill-candidate=0.32; no new spore/promotion.

@@ -543,7 +543,8 @@
                                 (fn [[_ value]] (js/JSON.stringify (str/replace value "''" "'"))))
         execute (js/Function. "github" "contains" "startsWith" "format" "fromJSON" (str "return (" expression ");"))
         lowered #(str/lower-case (or % ""))]
-    (execute (clj->js {:event_name event-name :event {:issue {:number pr} :comment {:body body}}})
+    ;; The emitted JS equality must also model GitHub string comparison.
+    (execute (clj->js {:event_name (lowered event-name) :event {:issue {:number pr} :comment {:body (lowered body)}}})
              (fn [value token] (str/includes? (lowered value) (lowered token)))
              (fn [value prefix] (str/starts-with? (lowered value) (lowered prefix)))
              (fn [template & args]
@@ -566,6 +567,14 @@
   (doseq [body ["/occasional" "/opencode-helper" " /oc inspect"
                 "evidence .github/workflows/opencode-code-review.yml"]]
     (is (false? (generic-opencode-guard "issue_comment" 446 body)))))
+
+(deftest bare-uppercase-command-equality-matches-github
+  ;; GitHub string equality and startsWith use case-insensitive comparison.
+  ;; Bare commands reach equality; commands with an argument reach startsWith.
+  (doseq [event-name ["issue_comment" "pull_request_review_comment"]
+          pr [445 446]
+          body ["/OC" "/OPENCODE" "/OpenCode"]]
+    (is (true? (generic-opencode-guard event-name pr body)))))
 
 (deftest dedicated-workflow-has-only-scoped-jobs
   (let [workflow (fs/readFileSync ".github/workflows/proxx-scoped-assessment.yml" "utf8")]
