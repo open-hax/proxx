@@ -159,3 +159,11 @@
   p-skill-candidate: 0.32
   spore: none
   note: A coarse public event guard is not authorization. Keep shared publication serialization behind successful native intake; separate read/model jobs must not replace pending publishers. Preserve exact producer artifacts and running publication, and disclose the remaining authorized single-pending-slot limit.
+
+- ts: "2026-10-05T00:37:35.919Z"
+  origin: review-restoration/coderabbit-schema-compatibility
+  p-efficiency: 0.94
+  p-friction: 0.12
+  p-skill-candidate: 0.26
+  spore: none
+  note: Removing an already-ignored configuration property preserves recognized settings and avoids activating an unintended default-tool override. Validate against the current official schema and keep inherited ledger errors and native review head boundaries explicit.
