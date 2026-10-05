@@ -185,3 +185,10 @@ Authentic PR452 comment5986213579 direct/inventory user maps differ only in avat
 - Same final50 tests reproduce three genuine workflow failures onac2 and pass after the two workflow repairs; all47 original tests byte-exact. Test real source condition/callback behavior with explicit negative cases; guard consistency does not establish secrets exposure.
 - Exercise an actual pending notification before claiming timeout coverage. Controlled abort shows publication error and retry preserves the native review. Initial no-notification/regex/start-of-job extraction diagnostics are retained separately from final causal RED.
 - Changed Kimi caller bytes require new canonical reviewed admission and fresh native successor proof, not historical approval transfer. Published prefixes and row40/53 stay immutable; user decision/native assessment remain pending. p-efficiency=0.86, p-friction=0.34, p-skill-candidate=0.42; no new spore or promotion.
+
+
+## 2026-10-05T05:30:24.900184+00:00 — Scoped expression evaluator restored
+
+- The actual shipped705 guard now uses format and fromJSON. The old evaluator produces10 genuine errors; progressively supplying required functions exposed JavaScript consuming GitHub JSON escapes. Preserve those intermediate RED diagnostics. Encode GitHub literals before JavaScript evaluation, retain direct actual-expression evaluation, and align prose expectations with the reviewed command-only trigger.
+- Final50tests1006assertionsPASS. Production workflow/runtime/policy bytes and all other48 test definitions remain unchanged. The full125898receipt14425reflection prefixes, root and original rows40/53 remain immutable. Fresh successor hosted checks/fullreviews remain separate.
+- p-efficiency=0.82, p-friction=0.39, p-skill-candidate=0.48; no new spore/promotion.

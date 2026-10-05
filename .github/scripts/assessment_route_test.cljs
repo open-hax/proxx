@@ -537,21 +537,35 @@
 (defn generic-opencode-guard [event-name pr body]
   (let [workflow (fs/readFileSync ".github/workflows/opencode.yml" "utf8")
         expression (second (re-find #"(?s)    if: \|\n(.*?)    runs-on:" workflow))
-        execute (js/Function. "github" "contains" "startsWith" (str "return (" expression ");"))
+        ;; GitHub single-quoted strings preserve JSON backslashes; JavaScript
+        ;; string literals would consume them before fromJSON sees the input.
+        expression (str/replace expression #"'((?:[^']|'')*)'"
+                                (fn [[_ value]] (js/JSON.stringify (str/replace value "''" "'"))))
+        execute (js/Function. "github" "contains" "startsWith" "format" "fromJSON" (str "return (" expression ");"))
         lowered #(str/lower-case (or % ""))]
     (execute (clj->js {:event_name event-name :event {:issue {:number pr} :comment {:body body}}})
              (fn [value token] (str/includes? (lowered value) (lowered token)))
-             (fn [value prefix] (str/starts-with? (lowered value) (lowered prefix))))))
+             (fn [value prefix] (str/starts-with? (lowered value) (lowered prefix)))
+             (fn [template & args]
+               (reduce-kv (fn [s i v] (str/replace s (str "{" i "}") (str v)))
+                          template (vec args)))
+             #(js/JSON.parse %))))
 
 (deftest canonical-output-does-not-enter-generic-opencode
   (is (false? (generic-opencode-guard "issue_comment" 445 (:body trigger))))
   (doseq [prefix ["Actionability proposal v1 for " "Actionability assessment v1 for " "Actionability withdrawal v1 for "]]
     (let [body (str prefix (:head t) ":\nfixture evidence .github/workflows/opencode-code-review.yml")]
       (is (false? (generic-opencode-guard "issue_comment" 445 body)))
-      (is (true? (generic-opencode-guard "issue_comment" 446 body)))
-      (is (true? (generic-opencode-guard "pull_request_review_comment" 445 body)))))
-  (doseq [body ["/oc inspect" "/opencode inspect"]]
-    (is (true? (generic-opencode-guard "issue_comment" 445 body)))))
+      ;; Ordinary evidence prose is not a command on any PR/event surface.
+      (is (false? (generic-opencode-guard "issue_comment" 446 body)))
+      (is (false? (generic-opencode-guard "pull_request_review_comment" 445 body)))))
+  (doseq [event-name ["issue_comment" "pull_request_review_comment"]
+          body ["/oc" "/opencode" "/oc inspect" "/opencode inspect"
+                "/oc\tinspect" "/opencode\ninspect" "/oc\rinspect"]]
+    (is (true? (generic-opencode-guard event-name 445 body))))
+  (doseq [body ["/occasional" "/opencode-helper" " /oc inspect"
+                "evidence .github/workflows/opencode-code-review.yml"]]
+    (is (false? (generic-opencode-guard "issue_comment" 446 body)))))
 
 (deftest dedicated-workflow-has-only-scoped-jobs
   (let [workflow (fs/readFileSync ".github/workflows/proxx-scoped-assessment.yml" "utf8")]
