@@ -178,3 +178,10 @@ Authentic PR452 comment5986213579 direct/inventory user maps differ only in avat
 - Four ID-first guards preserve strict selected identity and complete raw inventory. Same final50-test suite old44 RED30/GREEN0; parent pinned7102/281 independent50/990 PASS. All46 originals retained; build/kondo/actionlint pass. Local synthetic fixtures do not prove actual445 assessment or hosted failure cause.
 - Original row53 exact strings are clarified in a new typed vector event; original published row53/row40 and every receipt/reflection prefix remain immutable. Native convention finding remains open; row40 user choice remains pending. New record collections shaped after canonical normalization and validated by unchanged law.
 - Fresh successor reviews/CI and actual native scoped assessment remain required; no old approval transfer. p-efficiency=0.88, p-friction=0.41, p-skill-candidate=0.55; no spore/promotion.
+
+
+## 2026-10-05T04:40:04.488Z — Runner, command and Discord boundaries
+
+- Same final50 tests reproduce three genuine workflow failures onac2 and pass after the two workflow repairs; all47 original tests byte-exact. Test real source condition/callback behavior with explicit negative cases; guard consistency does not establish secrets exposure.
+- Exercise an actual pending notification before claiming timeout coverage. Controlled abort shows publication error and retry preserves the native review. Initial no-notification/regex/start-of-job extraction diagnostics are retained separately from final causal RED.
+- Changed Kimi caller bytes require new canonical reviewed admission and fresh native successor proof, not historical approval transfer. Published prefixes and row40/53 stay immutable; user decision/native assessment remain pending. p-efficiency=0.86, p-friction=0.34, p-skill-candidate=0.42; no new spore or promotion.

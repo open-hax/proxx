@@ -800,3 +800,81 @@ test('footer is bounded trusted caller data; fitting partial retries preserve or
       parts: [{ type: 'tool', tool: 'StructuredOutput', state: { status: 'completed', input: value } }] }, head, coverage), /immutable full diff/);
   } finally { fs.rmSync(directory, { recursive: true, force: true }); }
 });
+
+// These fixtures execute the actual workflow conditions and Discord callback.
+// They do not assert hosted fork permissions, token issuance, or provider behavior.
+function nativeWorkflowJob(file, job) {
+  const fs = require('node:fs'), path = require('node:path');
+  const text = fs.readFileSync(path.join(__dirname, '..', 'workflows', file), 'utf8');
+  const tail = text.split(`\n  ${job}:\n`)[1];
+  assert.ok(tail, `Actual workflow job ${job} must exist`);
+  return tail.split(/\n  [a-z][a-z-]*:\n/)[0];
+}
+function evaluateNativeWorkflowIf(section, github) {
+  const multiline = section.match(/(?:^|\n)    if: \|\n([\s\S]*?)(?=\n    \S)/);
+  const single = section.match(/(?:^|\n)    if: ([^\n]+)/);
+  let expression = multiline ? multiline[1].trim() : single ? single[1].trim() : 'true';
+  expression = expression.replace(/^\$\{\{\s*|\s*\}\}$/g, '');
+  // GitHub string literals retain backslashes; JS literals do not. Preserve them
+  // before evaluating this bounded trusted-source expression in local fixtures.
+  expression = expression.replace(/'(?:[^']|'')*'/g, value => JSON.stringify(value.slice(1, -1).replace(/''/g, "'")));
+  const fold = value => typeof value === 'string' ? value.toLowerCase() : Array.isArray(value) ? value.map(fold) :
+    value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).map(([key, v]) => [key, fold(v)])) : value;
+  const lower = value => String(value).toLowerCase();
+  const run = new Function('github', 'contains', 'startsWith', 'format', 'fromJSON', `return (${expression});`);
+  return run(fold(github), (text, part) => lower(text).includes(lower(part)),
+    (text, prefix) => lower(text).startsWith(lower(prefix)),
+    (template, ...values) => template.replace(/\{(\d+)\}/g, (_, i) => values[Number(i)]), JSON.parse);
+}
+test('actual runner job enforces the same repository and draft boundary as model and publisher', () => {
+  for (const job of ['runner-tests', 'review', 'publish']) {
+    const section = nativeWorkflowJob('opencode-code-review.yml', job);
+    for (const [draft, repository, expected] of [[false, 'open-hax/proxx', true], [true, 'open-hax/proxx', false],
+      [false, 'someone/proxx', false], [true, 'someone/proxx', false]]) {
+      assert.equal(evaluateNativeWorkflowIf(section, { repository: 'open-hax/proxx',
+        event: { pull_request: { draft, head: { repo: { full_name: repository } } } } }), expected, `${job}: ${repository} draft=${draft}`);
+    }
+  }
+});
+test('actual generic workflow accepts command tokens and rejects prose or evidence-path collisions', () => {
+  const section = nativeWorkflowJob('opencode.yml', 'opencode');
+  const context = (body, issue = 445, event_name = 'issue_comment') =>
+    ({ event_name, event: { comment: { body }, issue: { number: issue } } });
+  for (const body of ['/oc', '/opencode', '/OC fix it', '/OpenCode fix it', '/oc\tfix it', '/opencode\tfix it',
+    '/oc\nfix it', '/opencode\nfix it', '/oc\r\nfix it', '/opencode\r\nfix it', '/oc fix\nthis', '/opencode fix\nthis']) {
+    for (const event of ['issue_comment', 'pull_request_review_comment'])
+      assert.equal(evaluateNativeWorkflowIf(section, context(body, 445, event)), true, `${event}: ${JSON.stringify(body)}`);
+  }
+  for (const body of ['Evidence: .github/workflows/opencode.yml', '/opencode-code-review.yml', '/oc.md', '/octave',
+    'Please inspect /oc tomorrow', 'CodeRabbit mentioned /opencode in prose', ' /opencode fix', '\n/oc fix',
+    'Actionability proposal v1 for abc:\nEvidence: /opencode file',
+    'Actionability assessment v1 for abc:\nEvidence: /oc file',
+    'Actionability withdrawal v1 for abc:\nEvidence: /opencode file']) {
+    for (const issue of [445, 452]) assert.equal(evaluateNativeWorkflowIf(section, context(body, issue)), false, `${issue}: ${JSON.stringify(body)}`);
+  }
+});
+test('actual caller bounds stalled Discord delivery and retains the published review for retry', async () => {
+  const section = nativeWorkflowJob('opencode-code-review.yml', 'publish');
+  const callback = section.match(/fetchImpl:\s*(\([^)]*\)\s*=>\s*fetch\([^}\n]*\}\))/);
+  const f = publicationFixture('opencode-agent'), controller = new AbortController();
+  f.native.comments.push(f.ownedComment);
+  let requests = 0, timeout, signal;
+  const fetch = async (_url, options) => {
+    requests++; signal = options.signal;
+    if (!signal) throw Error('Discord request is missing a timeout signal');
+    return new Promise((_resolve, reject) => {
+      signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+      setImmediate(() => controller.abort(Error('Fixture bounded webhook abort')));
+    });
+  };
+  const fetchImpl = new Function('fetch', 'AbortSignal', `return (${callback ? callback[1] : 'fetch'});`)
+    (fetch, { timeout: ms => { timeout = ms; return controller.signal; } });
+  try {
+    await assert.rejects(require('./kimi-review.cjs').publish({ ...f, fetchImpl }), /Fixture bounded webhook abort/);
+    assert.equal(timeout, 20_000); assert.equal(signal, controller.signal); assert.equal(requests, 1);
+    assert.equal(f.native.creates, 1); assert.equal(f.native.updates, 0);
+    assert.ok(!f.native.reviews[0].body.includes('kimi-discord-delivered'));
+    await require('./kimi-review.cjs').publish(f);
+    assert.equal(f.native.creates, 1); assert.equal(f.native.sends, 1);
+  } finally { f.cleanup(); }
+});

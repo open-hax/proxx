@@ -18,6 +18,7 @@ env:
 jobs:
   runner-tests:
     name: Review runner regression tests
+    if: ${{ github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -275,5 +276,6 @@ jobs:
             await withOpenCodeAppToken({ core }, async token => {
               const appGithub = new github.constructor({ auth: token });
               await helper.publish({ github: appGithub, context, file: e.KIMI_REVIEW_FILE,
-                webhookUrl: e.DISCORD_REVIEW_WEBHOOK_URL, publicationFooter, publisher: 'opencode-agent' });
+                webhookUrl: e.DISCORD_REVIEW_WEBHOOK_URL, publicationFooter, publisher: 'opencode-agent',
+                fetchImpl: (url, options) => fetch(url, { ...options, signal: AbortSignal.timeout(20_000) }) });
             });
