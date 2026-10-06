@@ -95,6 +95,30 @@ async function collect({ api, input, workspace, archiveSha256, sourceHead }) {
       'credential-source-manifest': credentialManifest, 'publication-runtime-ancestor': runtimeAncestor,
       'archive-sha256': archiveSha256 || candidates[0].digest.slice(7) } };
 }
+// Refresh every mutable native authority through the same CLJC native law.
+// Only commit-addressed Git/source proofs are reused. Job records and artifact
+// inventory remain fresh (steps/status, expiry/deletion/ambiguity).
+async function collectWriteState({ api, input, workspace, admitted, archiveSha256, sourceHead }) {
+  const root = 'repos/open-hax/proxx';
+  const repo = await api(root);
+  const producer = await api(`${root}/actions/runs/${input['event-run'].id}`);
+  const consumer = await api(`${root}/actions/runs/${input['run-id']}`);
+  const pr = await api(`${root}/pulls/${admitted.pr.number}`);
+  const producerWorkflow = await api(`${root}/actions/workflows/285819940`);
+  const consumerWorkflow = await api(`${root}/actions/workflows/${encodeURIComponent(PUBLISHER)}`);
+  const defaultRef = await api(`${root}/git/ref/heads/${encodeURIComponent(repo.default_branch)}`);
+  const jobs = await pages(api, `${root}/actions/runs/${producer.id}/attempts/${producer.run_attempt}/jobs`, 'jobs');
+  const artifacts = await pages(api, `${root}/actions/runs/${producer.id}/artifacts`, 'artifacts');
+  return { ...admitted, repo, producer, consumer, pr, jobs, artifacts,
+    'producer-workflow': producerWorkflow, 'consumer-workflow': consumerWorkflow, 'default-ref': defaultRef,
+    sources: { ...admitted.sources, 'archive-sha256': archiveSha256,
+      'publisher-commit': sourceHead ? sourceHead() :
+        execFileSync('git', ['-C', workspace, 'rev-parse', 'HEAD'], { encoding: 'utf8', timeout: 5000 }).trim(),
+      'trusted-producer-digest': hash(fs.readFileSync(path.join(workspace, PRODUCER))),
+      'trusted-publisher-digest': hash(fs.readFileSync(path.join(workspace, PUBLISHER))),
+      'credential-source-manifest': admitted.sources['credential-source-manifest'].map(row => ({ ...row,
+        trusted: hash(fs.readFileSync(path.join(workspace, row.path))) })) } };
+}
 function unpack(bytes, directory) {
   if (!Buffer.isBuffer(bytes) || bytes.length < 1 || bytes.length > LIMIT) refuse();
   const file = path.join(directory, 'submission.zip'); fs.writeFileSync(file, bytes, { mode: 0o600 });
@@ -181,10 +205,12 @@ async function run({ github, core, context, env = process.env, effects = {} }) {
     process.chdir(runtime.directory);
     const file = path.join(root, 'kimi-review.json'); fs.writeFileSync(file, parsed.reviewBytes, { mode: 0o400 });
     const fullCoverage = runtime.helper.diffCoverage(binding.base, binding.head);
-    const validate = () => {
+    const validate = (recheckCoverage = true) => {
       runtime.helper.assertHead(binding.head, execFileSync('git', ['rev-parse', 'HEAD'],
         { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'pipe'] }).trim());
-      const fresh = runtime.helper.diffCoverage(binding.base, binding.head);
+      // Bare Git objects are content-addressed; unchanged HEAD/base and exact
+      // retained artifact/source bytes permit reuse between the two full guards.
+      const fresh = recheckCoverage ? runtime.helper.diffCoverage(binding.base, binding.head) : fullCoverage;
       if (!require('node:util').isDeepStrictEqual(fresh, fullCoverage)) refuse();
       for (const [name, digest] of [['kimi-review.cjs', 'reviewSHA256'], ['opencode-app-auth.cjs', 'authSHA256'],
         ['kimi-publication-authority.cjs', 'authoritySHA256']]) {
@@ -202,21 +228,28 @@ async function run({ github, core, context, env = process.env, effects = {} }) {
       const { executionControl, ...review } = parsed.review;
       runtime.helper.validateReview(review);
     };
-    const guard = async () => {
+    let admitted = first;
+    const fullGuard = async () => {
       validate();
-      const fresh = law.native(await collect({ api, input, workspace, archiveSha256: hash(archive), sourceHead: effects.sourceHead }));
+      const observation = await collect({ api, input, workspace, archiveSha256: hash(archive), sourceHead: effects.sourceHead });
+      const fresh = law.native(observation);
+      if (!require('node:util').isDeepStrictEqual(fresh, binding)) refuse();
+      admitted = observation;
+    };
+    const writeGuard = async () => {
+      validate(false);
+      const fresh = law.native(await collectWriteState({ api, input, workspace, admitted, archiveSha256: hash(archive), sourceHead: effects.sourceHead }));
       if (!require('node:util').isDeepStrictEqual(fresh, binding)) refuse();
     };
-    await guard(); // All authoritative native/source/Git/artifact guards precede mint.
+    await fullGuard(); // All authoritative native/source/Git/artifact guards precede mint.
     const footer = `\n\nNative execution provenance (runtime observations, not provider attestation or reviewer quorum):\n\`\`\`json\n${JSON.stringify(law.body(binding, parsed.provenance), null, 2)}\n\`\`\``;
     const mint = effects.withToken || withOwnedKimiToken;
-    await mint({ core, law, preMint: guard, readKey: () => env.PROXX_KIMI_APP_PRIVATE_KEY }, async token => {
-      await guard(); // A change during mint refuses before any publication POST.
+    await mint({ core, law, preMint: writeGuard, readKey: () => env.PROXX_KIMI_APP_PRIVATE_KEY }, async token => {
       const app = effects.appClient ? effects.appClient(token) : new github.constructor({ auth: token });
       const pulls = { ...app.rest.pulls };
-      for (const method of ['createReview', 'updateReview', 'getReview']) {
+      for (const method of ['createReview', 'updateReview']) {
         const original = pulls[method].bind(app.rest.pulls);
-        pulls[method] = async args => { await guard(); const result = await original(args);
+        pulls[method] = async args => { await writeGuard(); const result = await original(args);
           receipt.record(result.data); return result; };
       }
       const guarded = { rest: { ...app.rest, pulls }, paginate: app.paginate.bind(app) };
@@ -224,10 +257,9 @@ async function run({ github, core, context, env = process.env, effects = {} }) {
         context: { repo: { owner: 'open-hax', repo: 'proxx' }, payload: { pull_request: first.pr } }, file,
         publisher: 'proxx-owned-kimi', publicationFooter: footer, webhookUrl: env.DISCORD_REVIEW_WEBHOOK_URL,
         fetchImpl: (url, options) => fetch(url, { ...options, signal: AbortSignal.timeout(20_000) }) });
-      await guard();
     });
     // Completion follows the dedicated auth callback's awaited finally/revocation.
-    await guard();
+    await fullGuard();
     receipt.complete(binding);
     return binding;
   } catch { throw Error('Trusted Kimi publisher failed; retained native checkpoint may require reconciliation'); }

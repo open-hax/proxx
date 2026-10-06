@@ -239,3 +239,13 @@ Authentic PR452 comment5986213579 direct/inventory user maps differ only in avat
   spore: none
   receipt-refs: proxx-publisher-action-pin-correction-20261006T1757Z/new-source-receipt.edn
   note: Verify immutable upstream refs before committing, and distinguish transport completeness from faithful source assessment. Preserve failed executions and append corrections. No spore or promotion.
+
+
+- ts: "2026-10-06T19:52:04.242Z"
+  origin: verified publisher API-cost correction
+  p-efficiency: 0.83
+  p-friction: 0.29
+  p-skill-candidate: 0.51
+  spore: none
+  receipt-refs: proxx859f-publisher-cost-parent-verification-20261006T1935Z/new-source-receipt.edn
+  note: Refresh mutable authority before effects while retaining immutable source proofs. Measure cost with original regressions, preserve failed native qualification and append corrections. No spore or promotion.

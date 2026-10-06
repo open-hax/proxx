@@ -367,3 +367,138 @@ if(modern) for(const file of ['kimi-review.cjs','opencode-app-auth.cjs','kimi-pu
  test(`publication scratch mutation ${file} refuses before mint`,async()=>{const f=fixture();try{
   fs.appendFileSync(path.join(f.publication,file),'\nchanged');await assert.rejects(run(f));assert.equal(f.counts.mint,0);assert.equal(f.counts.post,0);
  }finally{f.cleanup();}});
+
+// Publisher cost/freshness regressions: synthetic local external effects only.
+function costFixture(count = 0) {
+  const f = fixture();
+  const file = f.review.coveredFiles[0];
+  f.review.comments = Array.from({ length: count }, (_, i) => ({ path: file, line: 1, body: `Synthetic local finding ${i}; no native assessment.` }));
+  f.provenance.reviewBlobSha256 = sha(Buffer.from(JSON.stringify(f.review))); f.refresh();
+  f.env.DISCORD_REVIEW_WEBHOOK_URL = 'https://synthetic.invalid/owned-fixture';
+  f.cost = { appReads: 0, updates: 0, discord: 0, diff: 0, beforeUpdateReads: [] };
+  const diff = f.helper.diffCoverage; f.helper.diffCoverage = (...args) => { f.cost.diff++; return diff(...args); };
+  const get = f.app.rest.pulls.get; f.app.rest.pulls.get = async args => { f.cost.appReads++; return get(args); };
+  const readback = f.app.rest.pulls.getReview;
+  f.app.rest.pulls.getReview = async args => { f.cost.appReads++; f.nativeReads = (f.nativeReads || 0) + 1;
+    if (f.mutateOnRead && f.nativeReads === 1) f.mutateOnRead(); return readback(args); };
+  const update = f.app.rest.pulls.updateReview;
+  f.app.rest.pulls.updateReview = async args => { f.cost.updates++; f.cost.beforeUpdateReads.push(f.apiTrace.length); return update(args); };
+  const listFiles = f.app.rest.pulls.listFiles, listReviews = f.app.rest.pulls.listReviews, listComments = f.app.rest.pulls.listCommentsForReview;
+  f.app.paginate = async method => {
+    f.cost.appReads++;
+    if (method === listFiles) return [{ filename: file, patch: '@@ -0,0 +1 @@\n+synthetic' }];
+    if (method === listReviews) return clone(f.native);
+    if (method === listComments) return Array.from({ length: count }, (_, i) => ({ id: 8000 + i, pull_request_review_id: 7004,
+      commit_id: head, path: file, line: 1, body: f.review.comments[i].body,
+      html_url: `https://github.com/open-hax/proxx/pull/452#discussion_r${8000+i}`, user: clone(fixtureAuthority.principal) }));
+    throw Error('Unexpected synthetic App read');
+  };
+  const options = f.options;
+  f.options = () => { const o = options(); const lifetime = o.effects.withToken;
+    // Exercise the authentic auth callback's preMint position without any key/sign/HTTP effects.
+    o.effects.withToken = async (opts, use) => { await opts.preMint(); return lifetime(opts, use); };
+    return o; };
+  return f;
+}
+async function runCost(f) {
+  const prior = globalThis.fetch;
+  globalThis.fetch = async (url, options) => {
+    assert.equal(url, 'https://synthetic.invalid/owned-fixture'); assert.equal(options.method, 'POST');
+    f.cost.discord++; return { ok: true, status: 204 };
+  };
+  try { return await run(f); } finally { globalThis.fetch = prior; }
+}
+for (const n of [0, 1, 10, 100]) test(`fresh write cost bounded with ${n} inline comments`, async () => {
+  const f = costFixture(n); try {
+    await runCost(f);
+    assert.equal(f.counts.mint, 1); assert.equal(f.counts.revoke, 1); assert.equal(f.counts.post, 1);
+    assert.equal(f.cost.updates, n); assert.equal(f.cost.discord, n);
+    assert.equal(f.cost.appReads, 5 + 3*n, 'Native App readbacks and pagination are preserved');
+    if (globalThis.ownedCostMetrics) globalThis.ownedCostMetrics.push({ n, githubReads: f.apiTrace.length, archiveReads: f.counts.downloads,
+      appReads: f.cost.appReads, createWrites: f.counts.post, updateWrites: f.cost.updates, discord: f.cost.discord, adapterDiffCalls: f.cost.diff });
+    assert.equal(f.apiTrace.filter(x=>x.includes('/contents/')).length, 42, 'Exactly three full14-source collections');
+    assert.equal(f.apiTrace.filter(x=>x.includes('/jobs?')).length, n+5, 'Terminal job records stay fresh at every admission boundary');
+    assert.equal(f.apiTrace.length, 75 + 9*(n+2), 'Three25-read full collections plus9-read preMint/actual-write checks');
+    assert.ok(f.apiTrace.length + f.counts.downloads < 1000, 'One-page authority inventories fit the stated per-run regression budget');
+    assert.equal(f.cost.diff, 3, 'Initial/full pre-mint/post-revocation diff computation only');
+    const body = f.native[0].body;
+    assert.equal((body.match(/\n<!-- kimi-discord-delivered:v1:/g)||[]).length, n);
+
+  } finally { f.cleanup(); }
+});
+for (const [name, change] of [
+ ['head', f=>f.pr.head.sha='a'.repeat(40)], ['base', f=>f.pr.base.sha='a'.repeat(40)],
+ ['closed', f=>f.pr.state='closed'], ['draft', f=>f.pr.draft=true], ['PR association', f=>f.producer.pull_requests[0].number=453],
+ ['foreign PR repo', f=>f.pr.head.repo.id=1], ['producer attempt', f=>f.producer.run_attempt++],
+ ['producer conclusion', f=>f.producer.conclusion='failure'], ['producer state', f=>f.producer.status='in_progress'],
+ ['producer head', f=>f.producer.head_sha='a'.repeat(40)], ['producer repo', f=>f.producer.repository.id=1],
+ ['producer workflow', f=>f.workflow.state='disabled_manually'], ['producer workflow ID', f=>f.producer.workflow_id=1],
+ ['consumer attempt', f=>f.consumer.run_attempt++], ['consumer cancellation', f=>f.consumer.status='completed'],
+ ['consumer source', f=>f.consumer.head_sha='a'.repeat(40)], ['consumer repo', f=>f.consumer.head_repository.id=1],
+ ['consumer workflow', f=>f.consumerWorkflow.state='disabled_manually'], ['consumer workflow ID', f=>f.consumer.workflow_id=1],
+ ['default ref', f=>f.defaultRef='a'.repeat(40)], ['default branch', f=>f.repo.default_branch='staging'],
+ ['repository identity', f=>f.repo.id=1], ['source HEAD', f=>f.checkedOutSha='a'.repeat(40)],
+ ['merge ref', f=>f.pr.merge_commit_sha='a'.repeat(40)], ['artifact expiry', f=>f.artifacts[0].expired=true],
+ ['artifact deletion', f=>f.artifacts=[]], ['artifact ambiguity', f=>f.artifacts.push({...f.artifacts[0],id:402})],
+ ['archive digest', f=>f.artifacts[0].digest='sha256:'+'0'.repeat(64)],
+ ['retained archive bytes', f=>f.zip[0]^=1],
+ ['producer job status', f=>f.jobs[0].conclusion='failure'],
+ ['producer job step', f=>f.jobs[0].steps[2].conclusion='skipped'],
+]) test(`fresh authority mutation before receipt write refuses ${name}`, async () => {
+ const f=costFixture(1);try {f.mutateOnRead=()=>change(f);await assert.rejects(runCost(f));
+  assert.equal(f.counts.post,1);assert.equal(f.cost.updates,0);assert.equal(f.counts.revoke,1);
+  const c=JSON.parse(fs.readFileSync(f.env.KIMI_PUBLICATION_READBACK));assert.equal(c.id,7004);assert.equal(c.stage,'published-not-reconciled');
+ }finally{f.cleanup();}
+});
+
+for (const file of ['kimi-review.cjs', 'opencode-app-auth.cjs', 'kimi-publication-authority.cjs'])
+test(`publication scratch mutation before receipt write refuses ${file}`, async () => {
+ const f=costFixture(1);try {
+  f.mutateOnRead=()=>fs.appendFileSync(path.join(f.publication,file),'\nchanged');
+  await assert.rejects(runCost(f));assert.equal(f.counts.post,1);assert.equal(f.cost.updates,0);assert.equal(f.counts.revoke,1);
+ }finally{f.cleanup();}
+});
+for (const file of ['kimi-review.cjs', 'opencode-app-auth.cjs'])
+test(`pinned281 scratch mutation before receipt write refuses ${file}`, async () => {
+ const f=costFixture(1);try {
+  f.mutateOnRead=()=>fs.appendFileSync(path.join(f.trusted,file),'\nchanged');
+  await assert.rejects(runCost(f));assert.equal(f.counts.post,1);assert.equal(f.cost.updates,0);assert.equal(f.counts.revoke,1);
+ }finally{f.cleanup();}
+});
+test('full admission after revocation rechecks terminal job evidence', async () => {
+ const f=costFixture(0);try {
+  const options=f.options;
+  f.options=()=>{const o=options(), lifetime=o.effects.withToken;
+   o.effects.withToken=async(...args)=>{const result=await lifetime(...args);f.jobs[0].conclusion='failure';return result;};return o;};
+  await assert.rejects(runCost(f));assert.equal(f.counts.post,1);assert.equal(f.counts.revoke,1);
+  assert.equal(JSON.parse(fs.readFileSync(f.env.KIMI_PUBLICATION_READBACK)).stage,'published-not-reconciled');
+ }finally{f.cleanup();}
+});
+test('fresh receipt authority collection rejects a failed authoritative GET', async () => {
+ const f=costFixture(1);try {
+  f.mutateOnRead=()=>{f.failAPI=true;};await assert.rejects(runCost(f));
+  assert.equal(f.counts.post,1);assert.equal(f.cost.updates,0);assert.equal(f.counts.revoke,1);
+ }finally{f.cleanup();}
+});
+
+for (const file of [
+ '.github/workflows/opencode-code-review.yml','.github/workflows/opencode-kimi-publish.yml',
+ '.github/scripts/kimi-publisher.cjs','.github/scripts/kimi_publisher_law.cljc',
+ '.github/scripts/kimi_publisher_bridge.cljs','.github/scripts/proxx-kimi-app-auth.cjs',
+ '.github/scripts/opencode-app-auth.cjs','.github/scripts/kimi-review.cjs',
+ '.github/scripts/kimi-publication-authority.cjs','.github/scripts/kimi-publication-config.cjs',
+ '.github/assessment-tools/package.json','.github/assessment-tools/package-lock.json',
+]) test(`retained default source bytes before receipt write refuse ${file}`, async () => {
+ const f=costFixture(1), target=path.join(workspace,file), original=fs.readFileSync(target);
+ try {
+  f.mutateOnRead=()=>fs.appendFileSync(target,'\nchanged');await assert.rejects(runCost(f));
+  assert.equal(f.counts.post,1);assert.equal(f.cost.updates,0);assert.equal(f.counts.revoke,1);
+ }finally{fs.writeFileSync(target,original);f.cleanup();}
+});
+test('retained parsed submission bytes before receipt write refuse mutation', async () => {
+ const f=costFixture(1);try {
+  f.mutateOnRead=()=>{const root=fs.readdirSync(f.dir).find(x=>x.startsWith('kimi-trusted-publish-'));
+   const target=path.join(f.dir,root,'kimi-review.json');fs.chmodSync(target,0o600);fs.appendFileSync(target,'\nchanged');};
+  await assert.rejects(runCost(f));assert.equal(f.counts.post,1);assert.equal(f.cost.updates,0);assert.equal(f.counts.revoke,1);
+ }finally{f.cleanup();}
+});
