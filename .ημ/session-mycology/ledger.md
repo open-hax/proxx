@@ -209,3 +209,13 @@ Authentic PR452 comment5986213579 direct/inventory user maps differ only in avat
   spore: none
   receipt-refs: Proxx452/root4179206041
   note: Correct the record by appending an explicit new adjudication bound to exact original raw bytes; preserve the original invalid diagnostics. A valid new receipt is not retroactive whole-stream validity or native reviewer settlement. No spore or promotion.
+
+
+- ts: "2026-10-06T16:22:58.559Z"
+  origin: disabled owned Kimi source and safe failure diagnostics
+  p-efficiency: 0.83
+  p-friction: 0.29
+  p-skill-candidate: 0.51
+  spore: none
+  receipt-refs: proxx-owned-kimi-cumulative-source-20261006T1623Z/new-source-receipt.edn
+  note: Separate locally tested source readiness from actual signer custody, native runtime and independent review authority. Retain the failed five-suite assertion and require the sixth suite after integrating diagnostics. Source-selected token compatibility is not actual runtime or receiving closure. Preserve every historical receipt byte. No spore or promotion.

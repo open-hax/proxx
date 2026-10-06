@@ -8,6 +8,11 @@ const PRINCIPALS = Object.freeze({
   'opencode-agent': Object.freeze({ login: 'opencode-agent[bot]', id: 219766164, type: 'Bot' }),
 });
 function publisherPrincipal(publisher = 'github-actions') {
+  if (publisher === 'proxx-owned-kimi') {
+    const authority = require('./kimi-publication-authority.cjs');
+    if (authority.state !== 'configured' || !authority.principal) throw Error('Owned Kimi authority is unconfigured');
+    return authority.principal;
+  }
   if (typeof publisher !== 'string' || !Object.hasOwn(PRINCIPALS, publisher)) throw Error('Unsupported trusted publisher');
   return PRINCIPALS[publisher];
 }

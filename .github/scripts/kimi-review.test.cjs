@@ -803,6 +803,7 @@ test('footer is bounded trusted caller data; fitting partial retries preserve or
 
 // These fixtures execute the actual workflow conditions and Discord callback.
 // They do not assert hosted fork permissions, token issuance, or provider behavior.
+/** Read one named checked-in workflow job for the local condition fixtures. */
 function nativeWorkflowJob(file, job) {
   const fs = require('node:fs'), path = require('node:path');
   const text = fs.readFileSync(path.join(__dirname, '..', 'workflows', file), 'utf8');
@@ -810,6 +811,7 @@ function nativeWorkflowJob(file, job) {
   assert.ok(tail, `Actual workflow job ${job} must exist`);
   return tail.split(/\n  [a-z][a-z-]*:\n/)[0];
 }
+/** Evaluate the supported trusted workflow condition subset with GitHub-style case folding. */
 function evaluateNativeWorkflowIf(section, github) {
   const multiline = section.match(/(?:^|\n)    if: \|\n([\s\S]*?)(?=\n    \S)/);
   const single = section.match(/(?:^|\n)    if: ([^\n]+)/);
@@ -826,8 +828,8 @@ function evaluateNativeWorkflowIf(section, github) {
     (text, prefix) => lower(text).startsWith(lower(prefix)),
     (template, ...values) => template.replace(/\{(\d+)\}/g, (_, i) => values[Number(i)]), JSON.parse);
 }
-test('actual runner job enforces the same repository and draft boundary as model and publisher', () => {
-  for (const job of ['runner-tests', 'review', 'publish']) {
+test('actual producer runner and inference enforce the same repository and draft boundary', () => {
+  for (const job of ['runner-tests', 'review']) {
     const section = nativeWorkflowJob('opencode-code-review.yml', job);
     for (const [draft, repository, expected] of [[false, 'open-hax/proxx', true], [true, 'open-hax/proxx', false],
       [false, 'someone/proxx', false], [true, 'someone/proxx', false]]) {
@@ -854,7 +856,7 @@ test('actual generic workflow accepts command tokens and rejects prose or eviden
   }
 });
 test('actual caller bounds stalled Discord delivery and retains the published review for retry', async () => {
-  const section = nativeWorkflowJob('opencode-code-review.yml', 'publish');
+  const section = require('node:fs').readFileSync(require('node:path').join(__dirname, 'kimi-publisher.cjs'), 'utf8');
   const callback = section.match(/fetchImpl:\s*(\([^)]*\)\s*=>\s*fetch\([^}\n]*\}\))/);
   const f = publicationFixture('opencode-agent'), controller = new AbortController();
   f.native.comments.push(f.ownedComment);
