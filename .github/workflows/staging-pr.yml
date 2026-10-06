@@ -66,6 +66,8 @@ jobs:
           key: shadow-cljs-${{ runner.os }}-${{ hashFiles('shadow-cljs.edn') }}
           restore-keys: shadow-cljs-${{ runner.os }}-
       - run: pnpm install --frozen-lockfile
+      - name: Verify configuration environment isolation
+        run: pnpm exec tsx --test scripts/config-env-isolation.test.mjs
       - run: pnpm test
 
   staging-coverage:
