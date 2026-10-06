@@ -229,3 +229,13 @@ Authentic PR452 comment5986213579 direct/inventory user maps differ only in avat
   spore: none
   receipt-refs: proxx-ci-history-parent-source-20261006T1648Z/new-source-receipt.edn
   note: Reproduce the actual missing immutable Git-object failure with the same tests; correct checkout history, preserve every assertion and historical failure. A passing local fixture is separate from fresh hosted qualification. Append corrections instead of rewriting receipts. No spore or promotion.
+
+
+- ts: "2026-10-06T18:00:22.578Z"
+  origin: verified malformed workflow action-pin correction
+  p-efficiency: 0.83
+  p-friction: 0.29
+  p-skill-candidate: 0.51
+  spore: none
+  receipt-refs: proxx-publisher-action-pin-correction-20261006T1757Z/new-source-receipt.edn
+  note: Verify immutable upstream refs before committing, and distinguish transport completeness from faithful source assessment. Preserve failed executions and append corrections. No spore or promotion.

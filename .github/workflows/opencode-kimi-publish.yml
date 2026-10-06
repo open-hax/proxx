@@ -39,7 +39,7 @@ jobs:
       - name: Load locked default-source law interpreter
         run: npm ci --prefix .github/assessment-tools --ignore-scripts --no-audit --no-fund
       - name: Admit native source and publish with dedicated owned App
-        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea9
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea
         env:
           KIMI_PUBLISHER_WORKFLOW_SHA: ${{ github.workflow_sha }}
           KIMI_PUBLISHER_WORKFLOW_REF: ${{ github.workflow_ref }}
