@@ -87,3 +87,12 @@
   spore: none
   receipt-refs: Proxx451 correction of prior native settlement UTF8 claims;Proxx451 auth-suite gate and malformed-UTF8 transport repair
   note: A byte budget does not imply valid decoding. Real malformed HTTP bytes proved replacement decoding could admit a valid-looking catalog and overwrite the last-good baseline; fatal decoding now refuses it while retaining valid split Unicode. Preserve old evidence and append the attribution correction rather than rewriting history. Keep new async fixture bindings bounded to avoid SCI expansion limits. Local App/OIDC tests use mocks only; native COMMENTED and pending enrollment do not qualify approval. Parent owns publication and native correction.
+- ts: 2026-10-06T13:14:41.622685964Z
+  session: /tmp/foresight-proxx-issue31-xlinxkuv/worktree
+  task: Proxx31 concurrent environment fixture regression
+  p-efficiency: 0.85
+  p-friction: 0.3
+  p-skill-candidate: 0.5
+  spore: none
+  receipt-refs: open-hax/proxx#31
+  note: Per-test concurrency:false does not override a concurrent parent scheduling siblings; serialize the suite controlling shared environment and verify final state with a behavior probe. No global learning promotion or shared mutations.

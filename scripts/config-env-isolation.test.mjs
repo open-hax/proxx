@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Run through tsx: this probe imports the source fixture suite unchanged.
 import assert from 'node:assert/strict';
 import { after, describe } from 'node:test';
 

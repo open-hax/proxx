@@ -8,7 +8,8 @@ of incomplete coverage, not the new implementation baseline.
 
 ## Outcome and scope
 
-Explicitly serialize all seven tests that mutate `process.env`, retaining their
+Explicitly serialize the enclosing suite and all seven tests that mutate
+`process.env`, retaining their
 configuration assertions and their `finally` cleanup. Validate the suite under
 its normal runner and a concurrent parent suite, including environment
 restoration after the complete suite. No provider policy, runtime configuration,
@@ -16,12 +17,17 @@ shared service, package manifest, lockfile, or other test fixture changes.
 
 ## Acceptance and verification
 
-- Every existing `withEnv` test is explicitly non-concurrent.
+- The enclosing configuration suite and every existing `withEnv` test are
+  explicitly non-concurrent.
+- Setting options on individual tests alone is insufficient under a concurrent
+  parent: the parent controls scheduling of sibling tests.
 - All seven original configuration assertions pass.
 - A concurrent parent suite leaves the ambient environment unchanged after
   all children finish; no environment values are printed in diagnostics.
 - Verification executes source through pinned tsx 4.20.6 using an isolated
-  temporary npm cache. It does not reuse another checkout's node_modules,
+  temporary npm cache:
+  `npm exec --cache <isolated-cache> --yes --package=tsx@4.20.6 -- tsx --test scripts/config-env-isolation.test.mjs src/tests/config.test.ts`.
+  It does not reuse another checkout's node_modules,
   write the shared npm cache, or start a server.
 - Diff hygiene passes and receipts preserve their existing history.
 
