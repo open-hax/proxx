@@ -29,6 +29,8 @@ shared service, package manifest, lockfile, or other test fixture changes.
   `npm exec --cache <isolated-cache> --yes --package=tsx@4.20.6 -- tsx --test scripts/config-env-isolation.test.mjs src/tests/config.test.ts`.
   It does not reuse another checkout's node_modules,
   write the shared npm cache, or start a server.
+- The staging unit-test job runs the concurrent-parent probe before the
+  existing complete unit suite, so future regression cannot skip this boundary.
 - Diff hygiene passes and receipts preserve their existing history.
 
 ## Board and review boundary
