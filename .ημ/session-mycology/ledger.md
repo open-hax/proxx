@@ -219,3 +219,13 @@ Authentic PR452 comment5986213579 direct/inventory user maps differ only in avat
   spore: none
   receipt-refs: proxx-owned-kimi-cumulative-source-20261006T1623Z/new-source-receipt.edn
   note: Separate locally tested source readiness from actual signer custody, native runtime and independent review authority. Retain the failed five-suite assertion and require the sixth suite after integrating diagnostics. Source-selected token compatibility is not actual runtime or receiving closure. Preserve every historical receipt byte. No spore or promotion.
+
+
+- ts: "2026-10-06T16:48:02.759Z"
+  origin: actual hosted contract-test Git-history input correction
+  p-efficiency: 0.83
+  p-friction: 0.29
+  p-skill-candidate: 0.51
+  spore: none
+  receipt-refs: proxx-ci-history-parent-source-20261006T1648Z/new-source-receipt.edn
+  note: Reproduce the actual missing immutable Git-object failure with the same tests; correct checkout history, preserve every assertion and historical failure. A passing local fixture is separate from fresh hosted qualification. Append corrections instead of rewriting receipts. No spore or promotion.
