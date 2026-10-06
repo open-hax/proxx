@@ -199,3 +199,13 @@ Authentic PR452 comment5986213579 direct/inventory user maps differ only in avat
 - Official runner2.337.0 uses OrdinalIgnoreCase. Independent bounded probes disprove the proposed uppercase-FALSE remedy but reveal a separate bare-token equality gap in the CLJS harness. Correct contextual casefold, preserve the production trigger and existing50 test definitions. Identical51tests1018assertions: publishedc71 RED12 ->correctedGREEN0, no errors.
 - Genuine OIDC publisher trust concern remains open: candidate-controlled PR publication must move to reviewed default source, with receiving-broker authorization separately qualified. Neither a passing review nor a local callback guard closes that source authority boundary.
 - Full128631 receipt and15278 reflection prefixes preserved; actual45ec typed event2db15cdc validates, original row40/53 remain exact. Native rejection channel and row40 user decision still required. p-efficiency=0.86, p-friction=0.29, p-skill-candidate=0.32; no new spore/promotion.
+
+
+- ts: "2026-10-06T13:15:04.047Z"
+  origin: Proxx receipt append-only correction
+  p-efficiency: 0.88
+  p-friction: 0.2
+  p-skill-candidate: 0.45
+  spore: none
+  receipt-refs: Proxx452/root4179206041
+  note: Correct the record by appending an explicit new adjudication bound to exact original raw bytes; preserve the original invalid diagnostics. A valid new receipt is not retroactive whole-stream validity or native reviewer settlement. No spore or promotion.
