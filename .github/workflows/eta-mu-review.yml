@@ -13,9 +13,9 @@ permissions:
 jobs:
   review:
     name: Evidence-first review (eta-mu)
-    uses: open-hax/eta-mu/.github/workflows/opencode-code-review.yml@45ec644c2d15ed511e9bc1e797d1b4073b63dbfc
+    uses: open-hax/eta-mu/.github/workflows/opencode-code-review.yml@d98ab446d56ddfd24542df49b102b851f2a767fa
     with:
-      muse_revision: 0b9a91492c8355e6933dc2164d35668cb76d9e60
+      muse_revision: c1369c223cf3c57e3e31934a6d746bfcdfe73f5a
       agents_revision: 7fd3252e7663ad5e68be5e90429d126aa66c38c8
       # Bind every checkout and evidence claim to this event's immutable head.
       pr_head_sha: ${{ github.event.pull_request.head.sha }}
