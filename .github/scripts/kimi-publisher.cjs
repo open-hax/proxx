@@ -4,7 +4,13 @@
 const fs = require('node:fs'), path = require('node:path'), crypto = require('node:crypto');
 const { execFileSync } = require('node:child_process');
 const { pathToFileURL } = require('node:url');
+/**
+ * Hash exact source or archive bytes for the publication binding; do not normalize them.
+ */
 const hash = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
+/**
+ * Decode inert source or submission bytes as strict UTF-8, refusing malformed input.
+ */
 const decode = bytes => new TextDecoder('utf-8', { fatal: true }).decode(bytes);
 const LIMIT = 2 * 1024 * 1024;
 const RUNTIME = '2810f4515424a146fe37390fb0baf532cca31236';
@@ -20,7 +26,13 @@ const SOURCE_PATHS = [PUBLISHER, '.github/scripts/kimi-publisher.cjs',
   '.github/scripts/kimi-review.cjs', '.github/scripts/kimi-publication-authority.cjs',
   '.github/scripts/kimi-publication-config.cjs', '.github/assessment-tools/package.json',
   '.github/assessment-tools/package-lock.json'];
+/**
+ * Reject an unestablished native, source or artifact binding before credential use.
+ */
 function refuse() { throw Error('Trusted Kimi publication binding refused'); }
+/**
+ * Collect the native workflow event and consumer identity fields required by the pure trigger law.
+ */
 function nativeInput(context, env) {
   return { 'event-name': env.GITHUB_EVENT_NAME, action: context.payload.action,
     'event-repository': context.payload.repository, 'event-run': context.payload.workflow_run,
@@ -28,11 +40,17 @@ function nativeInput(context, env) {
     'source-sha': env.GITHUB_SHA, 'workflow-sha': env.KIMI_PUBLISHER_WORKFLOW_SHA,
     'workflow-ref': env.KIMI_PUBLISHER_WORKFLOW_REF, authorization: env.KIMI_PUBLISHER_AUTHORIZATION };
 }
+/**
+ * Load the publisher bridge from the trusted workspace and return its pure admission operations.
+ */
 async function loadLaw(workspace) {
   const nbb = await import(pathToFileURL(path.join(workspace, '.github/assessment-tools/node_modules/nbb/index.mjs')));
   nbb.addClassPath(path.join(workspace, '.github/scripts'));
   return nbb.loadFile(path.join(workspace, '.github/scripts/kimi_publisher_bridge.cljs'));
 }
+/**
+ * Verify a bounded native Git file response, canonical Base64, blob identity and strict UTF-8 before returning its bytes.
+ */
 function sourceBytes(value, file) {
   const encoded = String(value.content || '').replace(/\s/g, '');
   const bytes = Buffer.from(encoded, 'base64');
@@ -41,6 +59,9 @@ function sourceBytes(value, file) {
       bytes.length > 1024 * 1024 || bytes.toString('base64') !== encoded || blob !== value.sha) refuse();
   decode(bytes); return bytes;
 }
+/**
+ * Collect a bounded native jobs or artifacts inventory, rejecting duplicate IDs and incomplete total counts.
+ */
 async function pages(api, endpoint, key) {
   let all = [];
   for (let page = 1; page <= 100; page++) {
@@ -53,6 +74,9 @@ async function pages(api, endpoint, key) {
   }
   refuse();
 }
+/**
+ * Gather current producer, consumer, PR, repository, jobs, artifacts and immutable source evidence for native admission.
+ */
 async function collect({ api, input, workspace, archiveSha256, sourceHead }) {
   const root = 'repos/open-hax/proxx';
   const repo = await api(root);
@@ -98,6 +122,9 @@ async function collect({ api, input, workspace, archiveSha256, sourceHead }) {
 // Refresh every mutable native authority through the same CLJC native law.
 // Only commit-addressed Git/source proofs are reused. Job records and artifact
 // inventory remain fresh (steps/status, expiry/deletion/ambiguity).
+/**
+ * Refresh mutable native authority immediately before a write while retaining the admitted immutable source bindings.
+ */
 async function collectWriteState({ api, input, workspace, admitted, archiveSha256, sourceHead }) {
   const root = 'repos/open-hax/proxx';
   const repo = await api(root);
@@ -119,6 +146,9 @@ async function collectWriteState({ api, input, workspace, admitted, archiveSha25
       'credential-source-manifest': admitted.sources['credential-source-manifest'].map(row => ({ ...row,
         trusted: hash(fs.readFileSync(path.join(workspace, row.path))) })) } };
 }
+/**
+ * Read only the two bounded submission JSON members from an inert ZIP after standard-library path, type and CRC validation.
+ */
 function unpack(bytes, directory) {
   if (!Buffer.isBuffer(bytes) || bytes.length < 1 || bytes.length > LIMIT) refuse();
   const file = path.join(directory, 'submission.zip'); fs.writeFileSync(file, bytes, { mode: 0o600 });
@@ -131,6 +161,9 @@ function unpack(bytes, directory) {
   const review = JSON.parse(decode(reviewBytes)), provenance = JSON.parse(decode(provenanceBytes));
   return { review, provenance, reviewBytes, provenanceBytes };
 }
+/**
+ * Prepare bare candidate Git data and hash-verified trusted helpers without checking out or executing candidate source.
+ */
 function prepare(binding, _workspace, root, gitEffect) {
   const directory = path.join(root, 'git-data'), trusted = path.join(root, 'trusted-runtime');
   fs.mkdirSync(directory); fs.mkdirSync(trusted);
@@ -159,6 +192,9 @@ function prepare(binding, _workspace, root, gitEffect) {
   return { directory, trusted, publication, helper: require(path.join(trusted, 'kimi-review.cjs')),
     publicationHelper: require(path.join(publication, 'kimi-review.cjs')), ancestor: true };
 }
+/**
+ * Persist native review readback atomically, retaining its ID if later publication or reconciliation fails.
+ */
 function checkpoint(file) {
   if (!file || !path.isAbsolute(file)) refuse();
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -183,6 +219,9 @@ function checkpoint(file) {
     operationProducerRunID: binding['producer-id'], operationProducerAttempt: binding['producer-attempt'],
     operationConsumerRunID: binding['consumer-id'], operationConsumerAttempt: binding['consumer-attempt'] }; save(state); } };
 }
+/**
+ * Admit exact native source and full-diff evidence before minting, guard each write, await token cleanup, and reconcile publication.
+ */
 async function run({ github, core, context, env = process.env, effects = {} }) {
   const workspace = env.GITHUB_WORKSPACE;
   const law = await (effects.loadLaw || loadLaw)(workspace);

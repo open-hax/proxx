@@ -4,13 +4,25 @@
 const crypto = require('node:crypto');
 const config = require('./kimi-publication-config.cjs');
 const { publisherPrincipal } = require('./opencode-app-auth.cjs');
+/**
+ * Create a phase-only owned-App failure without exposing credentials or remote error content.
+ */
 function failure(phase) { const e = Error(`Owned Kimi App ${phase} failed`); e.phase = phase; return e; }
+/**
+ * Accept only a bounded printable credential string for private token handling and cleanup.
+ */
 const usable = x => typeof x === 'string' && x.length > 0 && x.length <= 16384 && !/[^\x21-\x7e]/.test(x);
+/**
+ * Sign a short-lived RS256 App JWT with the selected issuer and clock; callers retain authority and secret-lifetime checks.
+ */
 function signJWT(appID, key, now) {
   const encode = x => Buffer.from(JSON.stringify(x)).toString('base64url');
   const body = `${encode({ alg: 'RS256', typ: 'JWT' })}.${encode({ iat: now - 60, exp: now + 540, iss: appID })}`;
   return `${body}.${crypto.sign('RSA-SHA256', Buffer.from(body), key).toString('base64url')}`;
 }
+/**
+ * Authorize and scope a dedicated Proxx token before publication, then await revocation of any usable minted token on every exit.
+ */
 async function withOwnedKimiToken({ core, law, preMint, readKey, fetchImpl = fetch,
   sign = signJWT, now = () => Math.floor(Date.now() / 1000) }, use) {
   let token, result, error, phase = 'authority';
