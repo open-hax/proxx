@@ -259,3 +259,12 @@ Authentic PR452 comment5986213579 direct/inventory user maps differ only in avat
   spore: none
   receipt-refs: proxx-qualified-eta345-caller-parent-source-20261007T2130Z/new-source-receipt.edn
   note: Consume the reviewed recovery wrapper and its required Muse exports together. Preserve repository-specific inputs and failed prior review evidence. Append corrections and keep receiving configuration held until authorized. No spore or promotion.
+
+- ts: "2026-10-07T22:14:18.874Z"
+  origin: Current paired caller verification sentence correction
+  p-efficiency: 0.83
+  p-friction: 0.29
+  p-skill-candidate: 0.51
+  spore: none
+  receipt-refs: proxx86cf-current-pin-doc-correction-source-20261007T2215Z/new-source-receipt.edn
+  note: Reconcile verification prose when consuming a qualified runtime pair. Failed host calls stay failed even when a model subsequently submits. Append corrections, preserve full history, and require fresh current-head qualification. No spore or promotion.

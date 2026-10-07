@@ -202,9 +202,10 @@ for byte, SHA25690117459b8c0a6883b27df816127fdd3bcb4799e5e25e52f356d04ac134f68bb
 Its dependencies already exist on STAGING. This necessary source bootstrap
 retains supported281 runtime, isolated structured producer and separate fresh
 publisher; source adoption does not prove a native Kimi run or approval.
-The complete-input eta-mu caller advances only its qualified workflow pin to
-45ec644c2d15ed511e9bc1e797d1b4073b63dbfc, preserving actual STAGING permissions,
-trigger, named secrets, head binding and existing Muse/Agents revisions.
+The complete-input eta-mu caller consumes the qualified reusable workflow at
+d98ab446d56ddfd24542df49b102b851f2a767fa, paired with Muse revision
+c1369c223cf3c57e3e31934a6d746bfcdfe73f5a. Actual STAGING permissions, trigger,
+named secrets, head binding and the existing Agents revision remain unchanged.
 
 The separate prerequisite must receive complete-input exact-head review,
 canonical convergence/settlement, hosted contract/startup/read-token proof and
