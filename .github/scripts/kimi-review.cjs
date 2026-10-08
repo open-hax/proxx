@@ -391,6 +391,9 @@ async function executeStructured(prompt, env, cwd, expected, coverage, {
   try {
     const url = await new Promise((resolve, reject) => {
       let startup = '';
+      /**
+       * Record the bounded startup-failure reason and reject server readiness on process error, exit or the shared abort signal.
+       */
       const fail = () => { reason = 'SERVER_STARTUP_FAILED'; reject(new Error('Kimi server startup failed')); };
       child.once('error', fail);
       child.once('exit', fail);
@@ -403,6 +406,9 @@ async function executeStructured(prompt, env, cwd, expected, coverage, {
     });
     boundaries.startupReady = true;
     const headers = { 'content-type': 'application/json', authorization: `Basic ${Buffer.from(`opencode:${env.OPENCODE_SERVER_PASSWORD}`).toString('base64')}` };
+    /**
+     * Call the authenticated local session API under the shared abort signal, return JSON or null for HTTP 204, and classify transport, HTTP and JSON failures.
+     */
     async function request(path, body) {
       localStatus = null;
       let response;

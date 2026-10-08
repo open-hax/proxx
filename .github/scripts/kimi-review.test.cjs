@@ -820,8 +820,14 @@ function evaluateNativeWorkflowIf(section, github) {
   // GitHub string literals retain backslashes; JS literals do not. Preserve them
   // before evaluating this bounded trusted-source expression in local fixtures.
   expression = expression.replace(/'(?:[^']|'')*'/g, value => JSON.stringify(value.slice(1, -1).replace(/''/g, "'")));
+  /**
+   * Recursively lowercase string values in fixture arrays and objects for GitHub-style case-insensitive condition evaluation.
+   */
   const fold = value => typeof value === 'string' ? value.toLowerCase() : Array.isArray(value) ? value.map(fold) :
     value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).map(([key, v]) => [key, fold(v)])) : value;
+  /**
+   * Coerce a fixture operand to a lowercase string for case-insensitive contains and startsWith checks.
+   */
   const lower = value => String(value).toLowerCase();
   const run = new Function('github', 'contains', 'startsWith', 'format', 'fromJSON', `return (${expression});`);
   return run(fold(github), (text, part) => lower(text).includes(lower(part)),
@@ -840,6 +846,9 @@ test('actual producer runner and inference enforce the same repository and draft
 });
 test('actual generic workflow accepts command tokens and rejects prose or evidence-path collisions', () => {
   const section = nativeWorkflowJob('opencode.yml', 'opencode');
+  /**
+   * Build a synthetic comment-event context with the supplied body, issue number and event name for workflow-condition tests.
+   */
   const context = (body, issue = 445, event_name = 'issue_comment') =>
     ({ event_name, event: { comment: { body }, issue: { number: issue } } });
   for (const body of ['/oc', '/opencode', '/OC fix it', '/OpenCode fix it', '/oc\tfix it', '/opencode\tfix it',
@@ -861,6 +870,9 @@ test('actual caller bounds stalled Discord delivery and retains the published re
   const f = publicationFixture('opencode-agent'), controller = new AbortController();
   f.native.comments.push(f.ownedComment);
   let requests = 0, timeout, signal;
+  /**
+   * Simulate a stalled webhook request that rejects on the supplied timeout signal, recording calls and scheduling a fixture abort.
+   */
   const fetch = async (_url, options) => {
     requests++; signal = options.signal;
     if (!signal) throw Error('Discord request is missing a timeout signal');

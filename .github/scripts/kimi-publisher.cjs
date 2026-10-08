@@ -93,6 +93,9 @@ async function collect({ api, input, workspace, archiveSha256, sourceHead }) {
   const jobs = await pages(api, `${root}/actions/runs/${producer.id}/attempts/${producer.run_attempt}/jobs`, 'jobs');
   const artifacts = await pages(api, `${root}/actions/runs/${producer.id}/artifacts`, 'artifacts');
   const commit = await api(`${root}/commits/${pr.merge_commit_sha}`);
+  /**
+   * Fetch one commit-addressed file through the supplied native API and return bytes admitted by sourceBytes.
+   */
   const getSource = async (ref, file) => sourceBytes(await api(`${root}/contents/${file}?ref=${ref}`), file);
   const mergeSource = await getSource(pr.merge_commit_sha, PRODUCER);
   const headSource = await getSource(pr.head.sha, PRODUCER);
@@ -198,6 +201,9 @@ function prepare(binding, _workspace, root, gitEffect) {
 function checkpoint(file) {
   if (!file || !path.isAbsolute(file)) refuse();
   fs.mkdirSync(path.dirname(file), { recursive: true });
+  /**
+   * Write checkpoint state to an exclusive private temporary file, rename it into place, and remove any remaining temporary file.
+   */
   const save = value => {
     const tmp = `${file}.${crypto.randomBytes(8).toString('hex')}.partial`;
     try { fs.writeFileSync(tmp, JSON.stringify(value), { mode: 0o600, flag: 'wx' }); fs.renameSync(tmp, file); }
@@ -244,6 +250,9 @@ async function run({ github, core, context, env = process.env, effects = {} }) {
     process.chdir(runtime.directory);
     const file = path.join(root, 'kimi-review.json'); fs.writeFileSync(file, parsed.reviewBytes, { mode: 0o400 });
     const fullCoverage = runtime.helper.diffCoverage(binding.base, binding.head);
+    /**
+     * Check retained head, full-diff coverage, helper hashes, submission bytes and pure artifact admission; reuse coverage only when explicitly requested.
+     */
     const validate = (recheckCoverage = true) => {
       runtime.helper.assertHead(binding.head, execFileSync('git', ['rev-parse', 'HEAD'],
         { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'pipe'] }).trim());
@@ -268,6 +277,9 @@ async function run({ github, core, context, env = process.env, effects = {} }) {
       runtime.helper.validateReview(review);
     };
     let admitted = first;
+    /**
+     * Revalidate the full artifact and source evidence, refresh native observations, and retain them only if the admitted binding is unchanged.
+     */
     const fullGuard = async () => {
       validate();
       const observation = await collect({ api, input, workspace, archiveSha256: hash(archive), sourceHead: effects.sourceHead });
@@ -275,6 +287,9 @@ async function run({ github, core, context, env = process.env, effects = {} }) {
       if (!require('node:util').isDeepStrictEqual(fresh, binding)) refuse();
       admitted = observation;
     };
+    /**
+     * Revalidate retained artifact bytes with cached coverage and refresh mutable native authority before permitting a token mint or review write.
+     */
     const writeGuard = async () => {
       validate(false);
       const fresh = law.native(await collectWriteState({ api, input, workspace, admitted, archiveSha256: hash(archive), sourceHead: effects.sourceHead }));

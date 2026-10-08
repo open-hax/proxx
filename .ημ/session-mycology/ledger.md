@@ -277,3 +277,12 @@ Authentic PR452 comment5986213579 direct/inventory user maps differ only in avat
   spore: none
   receipt-refs: proxx9c4-docstring-correction-source-20261007T2252Z/new-source-receipt.edn
   note: Explicit no-actionable verdicts do not erase separate docstring obligations. Preserve executable bytes and full historical prefixes, then collect a fresh native metric and current-head qualification. No spore or promotion.
+
+- ts: "2026-10-08T00:03:43.067Z"
+  origin: Current Proxx publisher and token boundary docstrings
+  p-efficiency: 0.83
+  p-friction: 0.29
+  p-skill-candidate: 0.51
+  spore: none
+  receipt-refs: proxx-afaff-remaining-docstring-parent-source-20261007T2358Z/new-source-receipt.edn
+  note: Explicit no-actionable verdicts do not erase separate docstring obligations. Preserve executable bytes and full historical prefixes, then collect a fresh native metric and current-head qualification. No spore or promotion.

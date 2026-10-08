@@ -16,6 +16,9 @@ const usable = x => typeof x === 'string' && x.length > 0 && x.length <= 16384 &
  * Sign a short-lived RS256 App JWT with the selected issuer and clock; callers retain authority and secret-lifetime checks.
  */
 function signJWT(appID, key, now) {
+  /**
+   * Serialize a JWT header or claims object as JSON and encode its bytes as Base64url.
+   */
   const encode = x => Buffer.from(JSON.stringify(x)).toString('base64url');
   const body = `${encode({ alg: 'RS256', typ: 'JWT' })}.${encode({ iat: now - 60, exp: now + 540, iss: appID })}`;
   return `${body}.${crypto.sign('RSA-SHA256', Buffer.from(body), key).toString('base64url')}`;

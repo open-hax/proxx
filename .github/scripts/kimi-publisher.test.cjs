@@ -10,33 +10,60 @@ const fixtureAuthority = { state: 'configured', appID: 700001, installationID: 7
   principal: { login: 'synthetic-kimi-fixture[bot]', id: 700003, type: 'Bot' }, repositoryID: 1178288746 };
 const fixtureConfig = { authority: fixtureAuthority, publicationRuntime: { sha: 'd'.repeat(40),
   reviewSHA256: shaFile('kimi-review.cjs'), authSHA256: shaFile('opencode-app-auth.cjs'), authoritySHA256: shaFile('kimi-publication-authority.cjs') } };
+/**
+ * Hash a sibling fixture source file as SHA256, returning a zero digest when it is absent for baseline compatibility.
+ */
 function shaFile(name) { const file = path.join(__dirname, name); return fs.existsSync(file) ? crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex') : '0'.repeat(64); }
+/**
+ * Compile a local test module with selected require substitutions and return its exports; this is fixture execution, not native qualification.
+ */
 function loadFixtureModule(file, substitutes) {
   const Module = require('node:module'); const m = new Module(file, module); m.filename = file; m.paths = Module._nodeModulePaths(path.dirname(file));
   const original = m.require.bind(m); m.require = name => Object.hasOwn(substitutes, name) ? substitutes[name] : original(name);
   m._compile(fs.readFileSync(file, 'utf8'), file); return m.exports;
 }
 const modern = fs.existsSync(adapterFile) ? loadFixtureModule(adapterFile, { './kimi-publication-config.cjs': fixtureConfig }) : null;
+/**
+ * Load the local publication helper with a synthetic configured actor registry for isolated publisher tests.
+ */
 function publicationHelper() {
   const registry = loadFixtureModule(path.join(__dirname, 'opencode-app-auth.cjs'), { './kimi-publication-authority.cjs': fixtureAuthority });
   return loadFixtureModule(path.join(__dirname, 'kimi-review.cjs'), { './opencode-app-auth.cjs': registry });
 }
 const head = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
 const base = 'd4d52a39ff1db65ad36e9a429e03489c1208e32d', runtime = '2810f4515424a146fe37390fb0baf532cca31236';
+/**
+ * Hash exact fixture bytes as a hexadecimal SHA256 digest for synthetic source and artifact bindings.
+ */
 const sha = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
+/**
+ * Return a structured clone so synthetic API responses do not share mutable fixture objects.
+ */
 const clone = x => structuredClone(x);
+/**
+ * Build the synthetic Proxx repository tuple used by publisher admission fixtures; it supplies no native repository evidence.
+ */
 const repo = () => ({ id: 1178288746, full_name: 'open-hax/proxx', owner: { login: 'open-hax' }, default_branch: 'main' });
 const control = { requested: { variant: 'low' }, advertisedNativeControl: { apiNpm: '@ai-sdk/openai-compatible', reasoningEffort: 'low' },
   opencodeVersion: '1.18.34', observedAssistantVariant: 'low', executedIdentity: { providerID: 'kimi-code-plan-global', modelID: 'kimi-for-coding' },
   underlyingProviderModel: null, binding: 'Pinned OpenCode catalog low mapping and assistant variant; not a provider reasoning-budget attestation' };
+/**
+ * Wrap fixture bytes in a Base64 file response with their Git blob SHA1 for source-admission tests.
+ */
 function source(bytes, file) { return { type: 'file', path: file, encoding: 'base64', content: bytes.toString('base64'),
   sha: crypto.createHash('sha1').update(Buffer.concat([Buffer.from(`blob ${bytes.length}\0`), bytes])).digest('hex') }; }
+/**
+ * Package the supplied review and provenance bytes under the two expected JSON member names and return the fixture ZIP bytes.
+ */
 function zip(directory, reviewBytes, provenanceBytes) {
   const a = path.join(directory, 'zip-review'), b = path.join(directory, 'zip-provenance'), z = path.join(directory, 'fixture.zip');
   fs.writeFileSync(a, reviewBytes); fs.writeFileSync(b, provenanceBytes);
   execFileSync('python3', ['-c', "import zipfile,sys\nwith zipfile.ZipFile(sys.argv[3],'w',zipfile.ZIP_DEFLATED) as z:\n z.write(sys.argv[1],'kimi-review.json'); z.write(sys.argv[2],'kimi-provenance.json')", a, b, z]);
   return fs.readFileSync(z);
 }
+/**
+ * Build disposable trusted-helper and publication fixtures with synthetic producer, consumer, artifact, API and token effects, plus an explicit cleanup callback.
+ */
 function fixture(pa = 1, ca = 1) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kimi-two-run-test-')), trusted = path.join(dir, 'trusted');fs.mkdirSync(trusted);
   for (const file of ['kimi-review.cjs', 'opencode-app-auth.cjs']) fs.writeFileSync(path.join(trusted, file),
@@ -80,7 +107,7 @@ function fixture(pa = 1, ca = 1) {
   f.refresh = () => { f.zip = zip(dir, Buffer.from(JSON.stringify(f.review)), Buffer.from(JSON.stringify(f.provenance)));
     f.artifacts = [{ id: 401, name, size_in_bytes: f.zip.length, expired: false, digest: `sha256:${sha(f.zip)}`, workflow_run: { id: 101, head_sha: head } }]; };
   f.refresh();
-  const files = () => {}, reviews = () => {}, comments = () => {};
+  const files = /** Identify the synthetic list-files pagination route; the fixture paginate callback supplies its result. */ () => {}, reviews = /** Identify the synthetic list-reviews pagination route; the fixture paginate callback supplies its result. */ () => {}, comments = /** Identify the synthetic inline-comment pagination route; the fixture paginate callback supplies its result. */ () => {};
   f.app = { rest: { pulls: { get: async () => ({ data: clone(f.pr) }), listFiles: files, listReviews: reviews, listCommentsForReview: comments,
     createReview: async x => { f.counts.post++; if (f.postFailure) throw Error('Synthetic POST failure');
       const r = { id: f.missingNativeID ? undefined : 7004, html_url: 'https://github.com/open-hax/proxx/pull/452#pullrequestreview-7004',
@@ -123,6 +150,9 @@ function fixture(pa = 1, ca = 1) {
 }
 // On immutable a443, run the actual inline caller under synthetic external effects.
 // This exposes pre-mint missing native consumer admission, not a missing import.
+/**
+ * Extract and execute the checked-in legacy inline publisher with synthetic external effects to exercise its historical admission boundary.
+ */
 async function legacyRun(f) {
   const yaml = fs.readFileSync(path.join(workspace, '.github/workflows/opencode-code-review.yml'), 'utf8');
   const script = yaml.split('          script: |\n')[1]; assert.ok(script, 'Actual a443 inline publisher must be present');
@@ -136,14 +166,23 @@ async function legacyRun(f) {
     PR_NUMBER: '452', GITHUB_REPOSITORY: 'open-hax/proxx', GITHUB_RUN_ID: '101', GITHUB_RUN_ATTEMPT: String(f.producer.run_attempt),
     GITHUB_SERVER_URL: 'https://github.com', REVIEW_WORKFLOW_SHA: f.modelSha,
     REVIEW_WORKFLOW_REF: f.provenance.workflowRef, ARTIFACT_NAME: f.name, KIMI_REVIEW_FILE: file };
+  /**
+   * Substitute fixture token and review helpers for the legacy caller while delegating other module loads to require.
+   */
   const req = name => name.endsWith('/opencode-app-auth.cjs') ? { withOpenCodeAppToken: f.options().effects.withToken } :
     name.endsWith('/kimi-review.cjs') ? f.helper : require(name);
+  /**
+   * Return the synthetic App client when the legacy caller constructs its publication client.
+   */
   const Constructor = function () { return f.app; };
   const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
   return new AsyncFunction('require', 'process', 'context', 'github', 'core', 'fetch', 'AbortSignal', code)
     (req, { env: e }, { repo: { owner: 'open-hax', repo: 'proxx' }, payload: { pull_request: clone(f.pr) } },
       { constructor: Constructor }, {}, async () => { throw Error('No live fetch'); }, AbortSignal);
 }
+/**
+ * Run the current publisher adapter when present, otherwise exercise the legacy inline workflow through the same fixture.
+ */
 const run = f => modern ? modern.run(f.options()) : legacyRun(f);
 test('actual PR producer contains no App/OIDC publication; consumer uses reviewed default source', () => {
   const reader = fs.readFileSync(path.join(workspace, '.github/workflows/opencode-code-review.yml'), 'utf8');
@@ -369,6 +408,9 @@ if(modern) for(const file of ['kimi-review.cjs','opencode-app-auth.cjs','kimi-pu
  }finally{f.cleanup();}});
 
 // Publisher cost/freshness regressions: synthetic local external effects only.
+/**
+ * Add synthetic findings and read, write, webhook and diff counters to the publisher fixture for cost and freshness regressions.
+ */
 function costFixture(count = 0) {
   const f = fixture();
   const file = f.review.coveredFiles[0];
@@ -400,6 +442,9 @@ function costFixture(count = 0) {
     return o; };
   return f;
 }
+/**
+ * Run a publisher fixture with a synthetic webhook fetch and restore the previous global fetch in finally.
+ */
 async function runCost(f) {
   const prior = globalThis.fetch;
   globalThis.fetch = async (url, options) => {

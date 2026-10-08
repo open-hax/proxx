@@ -8,17 +8,26 @@ const authority = { state: 'configured', appID: 700001, installationID: 700002,
   principal: { login: 'synthetic-kimi-fixture[bot]', id: 700003, type: 'Bot' }, repositoryID: 1178288746 };
 const config = { authority, publicationRuntime: { sha: 'd'.repeat(40), reviewSHA256: 'a'.repeat(64),
   authSHA256: 'b'.repeat(64), authoritySHA256: 'c'.repeat(64) } };
+/**
+ * Compile a local auth test module with selected require substitutions and return its exports.
+ */
 function load(file, substitutes) {
   const m = new Module(file, module);m.filename=file;m.paths=Module._nodeModulePaths(path.dirname(file));
   const req=m.require.bind(m);m.require=n=>Object.hasOwn(substitutes,n)?substitutes[n]:req(n);
   m._compile(fs.readFileSync(file,'utf8'),file);return m.exports;
 }
+/**
+ * Load the owned-token adapter with a synthetic authority registry, selected configuration and optional crypto substitution.
+ */
 function adapter(c = config, crypto) {
   const registry=load(path.join(__dirname,'opencode-app-auth.cjs'),{'./kimi-publication-authority.cjs':c.authority});
   return load(path.join(__dirname,'proxx-kimi-app-auth.cjs'),{'./kimi-publication-config.cjs':c,
     './opencode-app-auth.cjs':registry,...(crypto?{'node:crypto':crypto}:{})});
 }
 const lawPromise = require('./kimi-publisher.cjs').loadLaw(workspace);
+/**
+ * Build synthetic token-mint and revocation effects that record guard, key, signing, masking and request order without using live credentials.
+ */
 function fixture() {
   const f={calls:[],order:[],keyReads:0,signs:0,masked:[],now:2000000000};
   f.value={token:'synthetic-noncredential',expires_at:new Date((f.now+3600)*1000).toISOString(),
