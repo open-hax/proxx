@@ -64,10 +64,13 @@ function zip(directory, reviewBytes, provenanceBytes) {
 /**
  * Build disposable trusted-helper and publication fixtures with synthetic producer, consumer, artifact, API and token effects, plus an explicit cleanup callback.
  */
-function fixture(pa = 1, ca = 1) {
+function fixture(pa = 1, ca = 1, isolateSource = false) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kimi-two-run-test-')), trusted = path.join(dir, 'trusted');fs.mkdirSync(trusted);
   for (const file of ['kimi-review.cjs', 'opencode-app-auth.cjs']) fs.writeFileSync(path.join(trusted, file),
     execFileSync('git', ['show', `${runtime}:.github/scripts/${file}`]));
+  // Isolate mutable checkout bytes; synthetic native source responses still read the original workspace.
+  const sourceWorkspace = isolateSource ? path.join(dir, 'source') : workspace;
+  if (isolateSource) fs.cpSync(path.join(workspace, '.github'), path.join(sourceWorkspace, '.github'), { recursive: true });
   const publication = path.join(dir, 'publication');fs.mkdirSync(publication);
   if(modern) for(const file of ['kimi-review.cjs','opencode-app-auth.cjs','kimi-publication-authority.cjs'])
     fs.copyFileSync(path.join(__dirname,file),path.join(publication,file));
@@ -100,7 +103,7 @@ function fixture(pa = 1, ca = 1) {
     workflow: { id: 285819940, path: '.github/workflows/opencode-code-review.yml', name: 'OpenCode Kimi PR Review', state: 'active' },
     consumerWorkflow: { id: 999, path: '.github/workflows/opencode-kimi-publish.yml', name: 'Trusted OpenCode Kimi PR Publication', state: 'active' },
     context: { payload: { action: 'completed', repository: repo(), workflow_run: clone(producer) } },
-    env: { GITHUB_WORKSPACE: workspace, RUNNER_TEMP: dir, GITHUB_EVENT_NAME: 'workflow_run', GITHUB_RUN_ID: '201', GITHUB_RUN_ATTEMPT: String(ca),
+    env: { GITHUB_WORKSPACE: sourceWorkspace, RUNNER_TEMP: dir, GITHUB_EVENT_NAME: 'workflow_run', GITHUB_RUN_ID: '201', GITHUB_RUN_ATTEMPT: String(ca),
       GITHUB_SHA: defaultSha, KIMI_PUBLISHER_WORKFLOW_SHA: defaultSha,
       KIMI_PUBLISHER_WORKFLOW_REF: 'open-hax/proxx/.github/workflows/opencode-kimi-publish.yml@refs/heads/main',
       KIMI_PUBLISHER_AUTHORIZATION: 'owned-kimi-v1-qualified', KIMI_PUBLICATION_READBACK: path.join(dir, 'checkpoint.json') } };
@@ -411,8 +414,8 @@ if(modern) for(const file of ['kimi-review.cjs','opencode-app-auth.cjs','kimi-pu
 /**
  * Add synthetic findings and read, write, webhook and diff counters to the publisher fixture for cost and freshness regressions.
  */
-function costFixture(count = 0) {
-  const f = fixture();
+function costFixture(count = 0, isolateSource = false) {
+  const f = fixture(1, 1, isolateSource);
   const file = f.review.coveredFiles[0];
   f.review.comments = Array.from({ length: count }, (_, i) => ({ path: file, line: 1, body: `Synthetic local finding ${i}; no native assessment.` }));
   f.provenance.reviewBlobSha256 = sha(Buffer.from(JSON.stringify(f.review))); f.refresh();
@@ -534,11 +537,11 @@ for (const file of [
  '.github/scripts/kimi-publication-authority.cjs','.github/scripts/kimi-publication-config.cjs',
  '.github/assessment-tools/package.json','.github/assessment-tools/package-lock.json',
 ]) test(`retained default source bytes before receipt write refuse ${file}`, async () => {
- const f=costFixture(1), target=path.join(workspace,file), original=fs.readFileSync(target);
+ const f=costFixture(1, true), target=path.join(f.env.GITHUB_WORKSPACE,file);
  try {
   f.mutateOnRead=()=>fs.appendFileSync(target,'\nchanged');await assert.rejects(runCost(f));
   assert.equal(f.counts.post,1);assert.equal(f.cost.updates,0);assert.equal(f.counts.revoke,1);
- }finally{fs.writeFileSync(target,original);f.cleanup();}
+ }finally{f.cleanup();}
 });
 test('retained parsed submission bytes before receipt write refuse mutation', async () => {
  const f=costFixture(1);try {
