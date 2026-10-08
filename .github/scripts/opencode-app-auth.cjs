@@ -7,7 +7,15 @@ const PRINCIPALS = Object.freeze({
   'github-actions': Object.freeze({ login: 'github-actions[bot]', id: 41898282, type: 'Bot' }),
   'opencode-agent': Object.freeze({ login: 'opencode-agent[bot]', id: 219766164, type: 'Bot' }),
 });
+/**
+ * Resolve an explicit publication actor; the dedicated Kimi actor requires a configured authority and supplies no reviewer enrollment.
+ */
 function publisherPrincipal(publisher = 'github-actions') {
+  if (publisher === 'proxx-owned-kimi') {
+    const authority = require('./kimi-publication-authority.cjs');
+    if (authority.state !== 'configured' || !authority.principal) throw Error('Owned Kimi authority is unconfigured');
+    return authority.principal;
+  }
   if (typeof publisher !== 'string' || !Object.hasOwn(PRINCIPALS, publisher)) throw Error('Unsupported trusted publisher');
   return PRINCIPALS[publisher];
 }

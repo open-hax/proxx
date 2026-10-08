@@ -1,0 +1,236 @@
+name: Proxx scoped assessment
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - '.github/workflows/proxx-scoped-assessment.yml'
+      - '.github/workflows/opencode.yml'
+      - '.github/scripts/assessment*'
+      - '.github/scripts/fixtures/proxx445-native-*.json'
+      - '.github/assessment-tools/package*.json'
+
+# Intake must authorize the native writer before a run can share a publication
+# queue. Public prefix-matching comments therefore keep independent run groups.
+concurrency:
+  group: ${{ format('proxx-scoped-assessment-run-{0}', github.run_id) }}
+  cancel-in-progress: false
+
+jobs:
+  scoped-assessment-contract:
+    name: Scoped assessment transport contract
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          repository: riatzukiza/.agents
+          ref: 7102a55535ca38a6c737fe5b9268776982bd364c
+          path: .assessment-policy
+          persist-credentials: false
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          repository: open-hax/proxx
+          ref: 2810f4515424a146fe37390fb0baf532cca31236
+          path: .assessment-runtime
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.20.0'
+      - name: Restore locked portable test runtime
+        run: npm ci --ignore-scripts --no-audit --no-fund --prefix .github/assessment-tools
+      - name: Test actual adapter and guarded workflow
+        run: '"$GITHUB_WORKSPACE/.github/assessment-tools/node_modules/.bin/nbb" -cp .github/scripts:.assessment-policy/skills/pr-flow/scripts .github/scripts/assessment_route_test.cljs'
+
+      - name: Verify scoped read-token permission lookup without inference
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+        with:
+          script: |
+            if (context.repo.owner !== 'open-hax' || context.repo.repo !== 'proxx') throw new Error('Wrong native permission diagnostic scope');
+            const { data: pr } = await github.rest.pulls.get({ ...context.repo, pull_number: 445 });
+            if (pr.user?.type !== 'User' || !/^[A-Za-z0-9-]+$/.test(pr.user.login)) throw new Error('Invalid native writer');
+            const { data } = await github.rest.repos.getCollaboratorPermissionLevel({ ...context.repo, username: pr.user.login });
+            if (!['admin', 'maintain', 'write'].includes(data.permission)) throw new Error('Native scoped writer permission not confirmed');
+            core.info(`Read-only permission lookup succeeded for PR445 writer (${data.permission}); no model, App mint or assessment admission`);
+
+  scoped-assessment-read:
+    name: Independent bounded Proxx445 assessment
+    if: ${{ github.event_name == 'issue_comment' && github.event.action == 'created' && github.event.issue.number == 445 && github.event.issue.pull_request != null && github.event.comment.user.type == 'User' && startsWith(github.event.comment.body, '/eta-mu assess-actionability ') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      artifact-name: scoped-assessment-${{ github.run_id }}-${{ github.run_attempt }}
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+    env:
+      ASSESSMENT_POLICY: .assessment-policy/skills/pr-flow
+      ASSESSMENT_WORKFLOW_SHA: ${{ github.workflow_sha }}
+      ASSESSMENT_WORKFLOW_REF: ${{ github.workflow_ref }}
+    steps:
+      # issue_comment executes the default-branch workflow, never PR code.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          repository: riatzukiza/.agents
+          ref: 7102a55535ca38a6c737fe5b9268776982bd364c
+          path: .assessment-policy
+          persist-credentials: false
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          repository: open-hax/proxx
+          ref: 2810f4515424a146fe37390fb0baf532cca31236
+          path: .assessment-runtime
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.20.0'
+      - name: Restore locked portable runtime
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund --prefix .github/assessment-tools
+          echo "$GITHUB_WORKSPACE/.github/assessment-tools/node_modules/.bin" >> "$GITHUB_PATH"
+          {
+            echo "ASSESSMENT_INPUT=$RUNNER_TEMP/assessment-input.edn"
+            echo "ASSESSMENT_RESULT=$RUNNER_TEMP/assessment-result.edn"
+          } >> "$GITHUB_ENV"
+      - name: Verify transport contract before intake
+        run: nbb -cp .github/scripts:.assessment-policy/skills/pr-flow/scripts .github/scripts/assessment_route_test.cljs
+      - name: Capture complete current native and Git context
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ASSESSMENT_COMMAND: intake
+        run: nbb -cp .github/scripts:.assessment-policy/skills/pr-flow/scripts .github/scripts/assessment_route.cljs
+      - name: Install immutable OpenCode runtime after admission
+        env:
+          OPENCODE_URL: https://github.com/anomalyco/opencode/releases/download/v1.18.34/opencode-linux-x64.tar.gz
+        run: |
+          curl --fail --silent --show-error --location "$OPENCODE_URL" -o "$RUNNER_TEMP/opencode.tar.gz"
+          echo "0f22479647226d1d2dd99595d20082ee7bda3870b62dc6a90b41efc1a71d7e9a  $RUNNER_TEMP/opencode.tar.gz" | sha256sum --check --strict
+          mkdir "$RUNNER_TEMP/assessment-opencode"
+          tar -xzf "$RUNNER_TEMP/opencode.tar.gz" -C "$RUNNER_TEMP/assessment-opencode"
+          test "$("$RUNNER_TEMP/assessment-opencode/opencode" --version)" = '1.18.34'
+          echo "$RUNNER_TEMP/assessment-opencode" >> "$GITHUB_PATH"
+      - name: Produce independent structured assessment with read-only tools
+        env:
+          GH_TOKEN: ${{ github.token }}
+          KIMI_API_KEY: ${{ secrets.KIMI_FOR_CODING_API_KEY }}
+          ASSESSMENT_COMMAND: model
+        run: nbb -cp .github/scripts:.assessment-policy/skills/pr-flow/scripts .github/scripts/assessment_route.cljs
+      - name: Preserve immutable input and actual structured result
+        if: ${{ success() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: scoped-assessment-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/assessment-input.edn
+            ${{ runner.temp }}/assessment-result.edn
+          if-no-files-found: error
+          retention-days: 14
+
+  scoped-assessment-publish:
+    name: Fresh OpenCode App scoped publisher
+    needs: scoped-assessment-read
+    if: ${{ github.event_name == 'issue_comment' && needs.scoped-assessment-read.result == 'success' }}
+    # Only successful, fully admitted readers share this queue. A failed/skipped
+    # reader cannot evict a pending publisher even if its group is evaluated.
+    # Running publication is never canceled; authorized pending publishers may
+    # still replace each other under GitHub's default single-pending policy.
+    concurrency:
+      group: ${{ github.event_name == 'issue_comment' && needs.scoped-assessment-read.result == 'success' && 'proxx-scoped-assessment-publish-445' || format('proxx-scoped-assessment-publish-other-{0}', github.run_id) }}
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: read
+      issues: read
+    env:
+      ASSESSMENT_POLICY: .assessment-policy/skills/pr-flow
+      ASSESSMENT_WORKFLOW_SHA: ${{ github.workflow_sha }}
+      ASSESSMENT_WORKFLOW_REF: ${{ github.workflow_ref }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          repository: riatzukiza/.agents
+          ref: 7102a55535ca38a6c737fe5b9268776982bd364c
+          path: .assessment-policy
+          persist-credentials: false
+      # Same reviewed runtime/auth bytes as the read job; no local broker.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          repository: open-hax/proxx
+          ref: 2810f4515424a146fe37390fb0baf532cca31236
+          path: .assessment-runtime
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.20.0'
+      - name: Restore locked portable runtime
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund --prefix .github/assessment-tools
+          echo "$GITHUB_WORKSPACE/.github/assessment-tools/node_modules/.bin" >> "$GITHUB_PATH"
+          {
+            echo "ASSESSMENT_INPUT=$RUNNER_TEMP/assessment-input.edn"
+            echo "ASSESSMENT_RESULT=$RUNNER_TEMP/assessment-result.edn"
+            echo "ASSESSMENT_READBACK=$RUNNER_TEMP/assessment-readback.edn"
+          } >> "$GITHUB_ENV"
+      - name: Require successful producer artifact binding
+        env:
+          ASSESSMENT_ARTIFACT_NAME: ${{ needs.scoped-assessment-read.outputs.artifact-name }}
+        run: test -n "$ASSESSMENT_ARTIFACT_NAME"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ needs.scoped-assessment-read.outputs.artifact-name }}
+          path: ${{ runner.temp }}
+      - name: Reverify native context and submission before App mint
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ASSESSMENT_COMMAND: check
+        run: nbb -cp .github/scripts:.assessment-policy/skills/pr-flow/scripts .github/scripts/assessment_route.cljs
+      - name: Publish and read back with the existing OpenCode App
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+        with:
+          script: |
+            const fs = require('node:fs');
+            const crypto = require('node:crypto');
+            const cp = require('node:child_process');
+            const file = `${process.env.GITHUB_WORKSPACE}/.assessment-runtime/.github/scripts/opencode-app-auth.cjs`;
+            if (crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex') !== 'fd4d5630c462f0f202ac20e39ec1433fba4dfa13e12a6f6ffd5c0ec035d2a7e1') throw new Error('Reviewed App helper bytes changed');
+            const { withOpenCodeAppToken } = require(file);
+            await withOpenCodeAppToken({ core }, async token => {
+              cp.execFileSync('nbb', ['-cp', '.github/scripts:.assessment-policy/skills/pr-flow/scripts', '.github/scripts/assessment_route.cljs'], {
+                env: { ...process.env, GH_TOKEN: token, GITHUB_TOKEN: '', ASSESSMENT_COMMAND: 'publish' },
+                stdio: ['ignore', 'pipe', 'pipe'], timeout: 360000,
+              });
+            });
+      - name: Preserve actual native readback and classification
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: scoped-assessment-readback-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/assessment-readback.edn
+          if-no-files-found: error
+          retention-days: 14

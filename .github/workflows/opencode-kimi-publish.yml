@@ -1,0 +1,62 @@
+name: Trusted OpenCode Kimi PR Publication
+
+on:
+  workflow_run:
+    workflows: [OpenCode Kimi PR Review]
+    types: [completed]
+
+# This workflow is intentionally inert until real static authority, reviewed
+# helper pins, receiving exclusion and fresh qualification have been approved.
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
+
+concurrency:
+  group: kimi-owned-publish-${{ github.event.workflow_run.id }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: >-
+      github.repository == 'open-hax/proxx' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      vars.PROXX_KIMI_PUBLICATION_ACTIVATION == 'owned-kimi-v1-qualified'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: proxx-kimi-publish
+    steps:
+      - name: Check out default publication source only
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - name: Load locked default-source law interpreter
+        run: npm ci --prefix .github/assessment-tools --ignore-scripts --no-audit --no-fund
+      - name: Admit native source and publish with dedicated owned App
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea
+        env:
+          KIMI_PUBLISHER_WORKFLOW_SHA: ${{ github.workflow_sha }}
+          KIMI_PUBLISHER_WORKFLOW_REF: ${{ github.workflow_ref }}
+          KIMI_PUBLISHER_AUTHORIZATION: ${{ vars.PROXX_KIMI_PUBLICATION_ACTIVATION }}
+          PROXX_KIMI_APP_PRIVATE_KEY: ${{ secrets.PROXX_KIMI_APP_PRIVATE_KEY }}
+          DISCORD_REVIEW_WEBHOOK_URL: ${{ secrets.DISCORD_REVIEW_WEBHOOK_URL }}
+          KIMI_PUBLICATION_READBACK: ${{ runner.temp }}/kimi-owned-publication-readback.json
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            await require(process.env.GITHUB_WORKSPACE + '/.github/scripts/kimi-publisher.cjs')
+              .run({ github, core, context });
+      - name: Preserve exact native publication checkpoint
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: kimi-owned-readback-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/kimi-owned-publication-readback.json
+          if-no-files-found: error
+          retention-days: 7

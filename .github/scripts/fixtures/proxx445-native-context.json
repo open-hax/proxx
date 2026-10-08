@@ -1,0 +1,109 @@
+{
+  "repository": {
+    "id": "R_kgDORjtCag",
+    "databaseId": 1178288746,
+    "nameWithOwner": "open-hax/proxx"
+  },
+  "pr": {
+    "id": "PR_kwDORjtCas8AAAABGXQMvA",
+    "number": 445,
+    "state": "OPEN",
+    "isDraft": false,
+    "headRefOid": "aba0697a4d08a87bf59a33cc03e171b95eef2016",
+    "author": {
+      "login": "riatzukiza",
+      "__typename": "User",
+      "id": "MDQ6VXNlcjEwNjc2OTI1",
+      "databaseId": 10676925
+    }
+  },
+  "thread": {
+    "id": "PRRT_kwDORjtCas6omZxM",
+    "isResolved": true,
+    "isOutdated": false,
+    "path": ".github/workflows/opencode-code-review.yml",
+    "line": 106,
+    "comments": {
+      "totalCount": 2,
+      "pageInfo": {
+        "hasNextPage": false
+      },
+      "nodes": [
+        {
+          "id": "PRRC_kwDORjtCas74toZW",
+          "databaseId": 4172711510,
+          "author": {
+            "login": "riatzukiza",
+            "__typename": "User",
+            "id": "MDQ6VXNlcjEwNjc2OTI1",
+            "databaseId": 10676925
+          },
+          "body": "Author walkthrough: immutable helper source and native provenance at exacta126. The helper SHA must be ancestral to the actual PR base, its extracted bytes are checked against git show, and successful native StructuredOutput validation binds the executed provider/model. Run37115116136 preserved the full5file diff digest, toolchain checksum, source/base and workflow/run metadata before publication. The PR-controlled workflow itself remains the existing contributor trust boundary (issue449); generic bot publication is explicitly not reviewer quorum. Mock Headers.get avoids cold Web API initialization without changing the100ms fixture or20minute model deadline.",
+          "diffHunk": "@@ -9,40 +9,142 @@ concurrency:\n   cancel-in-progress: true\n \n jobs:\n+  runner-tests:\n+    name: Review runner regression tests\n+    runs-on: ubuntu-latest\n+    permissions:\n+      contents: read\n+    steps:\n+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd\n+        with:\n+          ref: ${{ github.event.pull_request.head.sha }}\n+          persist-credentials: false\n+      - run: node --test .github/scripts/kimi-review.test.cjs\n+\n   review:\n+    needs: runner-tests\n+    timeout-minutes: 30\n     name: Review pull request with OpenCode\n     if: ${{ github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository }}\n     runs-on: ubuntu-latest\n+    env:\n+      # This reviewed immutable ancestor supplies all secret-bearing execution.\n+      KIMI_RUNTIME_SHA: 4cc05611e5f495311afc5de99aac4fe373eaba65\n     permissions:\n-      id-token: write\n       contents: read\n       pull-requests: write\n       issues: write\n     steps:\n       - name: Checkout repository\n         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd\n         with:\n-          token: ${{ secrets.GITHUB_TOKEN }}\n+          ref: ${{ github.event.pull_request.head.sha }}\n+          fetch-depth: 0\n+          persist-credentials: false\n \n       - name: Configure review git identity\n         run: |\n           git config user.name \"github-actions[bot]\"\n           git config user.email \"41898282+github-actions[bot]@users.noreply.github.com\"\n \n-      - name: Run OpenCode review\n-        # v1.15.13 pinned by commit SHA for reproducible review behavior.\n-        uses: anomalyco/opencode/github@385cb694419f98103af0e8fc6187ddcbcbb6eecb\n+      - name: Install verified OpenCode CLI\n+        env:\n+          OPENCODE_VERSION: 1.18.34\n+          OPENCODE_SHA256: 0f22479647226d1d2dd99595d20082ee7bda3870b62dc6a90b41efc1a71d7e9a\n+        run: |\n+          set -euo pipefail\n+          archive=\"$RUNNER_TEMP/opencode.tar.gz\"\n+          curl --fail --silent --show-error --location \\\n+            \"https://github.com/anomalyco/opencode/releases/download/v${OPENCODE_VERSION}/opencode-linux-x64.tar.gz\" \\\n+            --output \"$archive\"\n+          echo \"${OPENCODE_SHA256}  $archive\" | sha256sum --check --strict\n+          mkdir -p \"$RUNNER_TEMP/opencode-bin\"\n+          tar -xzf \"$archive\" -C \"$RUNNER_TEMP/opencode-bin\"\n+          echo \"$RUNNER_TEMP/opencode-bin\" >> \"$GITHUB_PATH\"\n+          test \"$(\"$RUNNER_TEMP/opencode-bin/opencode\" --version)\" = \"$OPENCODE_VERSION\"\n+\n+      - name: Prepare immutable review runtime\n+        env:\n+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}\n+        run: |\n+          set -euo pipefail\n+          [[ \"$KIMI_RUNTIME_SHA\" =~ ^[0-9a-f]{40}$ ]]\n+          [[ \"$PR_BASE_SHA\" =~ ^[0-9a-f]{40}$ ]]\n+          git merge-base --is-ancestor \"$KIMI_RUNTIME_SHA\" \"$PR_BASE_SHA\"\n+          git show \"${KIMI_RUNTIME_SHA}:.github/scripts/kimi-review.cjs\" > \"$RUNNER_TEMP/kimi-review.cjs\"\n+          node --check \"$RUNNER_TEMP/kimi-review.cjs\"\n+\n+      - name: Run exact-head Kimi review without publication credentials\n+        run: node \"$RUNNER_TEMP/kimi-review.cjs\"\n         env:\n-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n           KIMI_API_KEY: ${{ secrets.KIMI_FOR_CODING_API_KEY }}\n+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}\n+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}\n+          KIMI_REVIEW_FILE: ${{ runner.temp }}/kimi-review.json\n+\n+      - name: Record native execution provenance\n+        env:\n+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}\n+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}\n+        run: |\n+          node <<'NODE'\n+          const fs = require('node:fs'), crypto = require('node:crypto');\n+          const { execFileSync } = require('node:child_process');\n+          const e = process.env, sha = value => /^[0-9a-f]{40}$/.test(value || '');\n+          if (![e.KIMI_RUNTIME_SHA, e.PR_HEAD_SHA, e.PR_BASE_SHA, e.GITHUB_WORKFLOW_SHA].every(sha) ||\n+              !/^[1-9][0-9]*$/.test(e.GITHUB_RUN_ID || '') || !/^[1-9][0-9]*$/.test(e.GITHUB_RUN_ATTEMPT || '')) throw new Error('Invalid execution provenance');\n+          execFileSync('git', ['merge-base', '--is-ancestor', e.KIMI_RUNTIME_SHA, e.PR_BASE_SHA]);\n+          const runtimePath = `${e.RUNNER_TEMP}/kimi-review.cjs`;\n+          const runtime = fs.readFileSync(runtimePath), expected = execFileSync('git', ['show', `${e.KIMI_RUNTIME_SHA}:.github/scripts/kimi-review.cjs`]);",
+          "url": "https://github.com/open-hax/proxx/pull/445#discussion_r4172711510",
+          "createdAt": "2026-10-03T10:13:03Z",
+          "updatedAt": "2026-10-03T10:13:03Z",
+          "commit": {
+            "oid": "aba0697a4d08a87bf59a33cc03e171b95eef2016"
+          },
+          "originalCommit": {
+            "oid": "a1268d16cd4b8ea83f7433680c7a9b86cc59d23d"
+          },
+          "pullRequestReview": {
+            "id": "PRR_kwDORjtCas8AAAABQeDDZg",
+            "databaseId": 5400216422,
+            "state": "COMMENTED",
+            "body": "",
+            "updatedAt": "2026-10-03T10:13:03Z",
+            "commit": {
+              "oid": "a1268d16cd4b8ea83f7433680c7a9b86cc59d23d"
+            },
+            "author": {
+              "login": "riatzukiza",
+              "__typename": "User",
+              "id": "MDQ6VXNlcjEwNjc2OTI1",
+              "databaseId": 10676925
+            }
+          }
+        },
+        {
+          "id": "PRRC_kwDORjtCas74tqzy",
+          "databaseId": 4172721394,
+          "author": {
+            "login": "riatzukiza",
+            "__typename": "User",
+            "id": "MDQ6VXNlcjEwNjc2OTI1",
+            "databaseId": 10676925
+          },
+          "body": "Handled: author walkthrough is explanatory evidence, not reviewer approval. Verified actual native37115116136 at a126, uploaded source/model/run sidecar, unchanged deadlines and eighteen passing regression blocks. The contributor orchestration boundary is explicitly deferred in issue449 and generic bot identity is not admitted as quorum. Eligible external review remains pending.",
+          "diffHunk": "@@ -9,40 +9,142 @@ concurrency:\n   cancel-in-progress: true\n \n jobs:\n+  runner-tests:\n+    name: Review runner regression tests\n+    runs-on: ubuntu-latest\n+    permissions:\n+      contents: read\n+    steps:\n+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd\n+        with:\n+          ref: ${{ github.event.pull_request.head.sha }}\n+          persist-credentials: false\n+      - run: node --test .github/scripts/kimi-review.test.cjs\n+\n   review:\n+    needs: runner-tests\n+    timeout-minutes: 30\n     name: Review pull request with OpenCode\n     if: ${{ github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository }}\n     runs-on: ubuntu-latest\n+    env:\n+      # This reviewed immutable ancestor supplies all secret-bearing execution.\n+      KIMI_RUNTIME_SHA: 4cc05611e5f495311afc5de99aac4fe373eaba65\n     permissions:\n-      id-token: write\n       contents: read\n       pull-requests: write\n       issues: write\n     steps:\n       - name: Checkout repository\n         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd\n         with:\n-          token: ${{ secrets.GITHUB_TOKEN }}\n+          ref: ${{ github.event.pull_request.head.sha }}\n+          fetch-depth: 0\n+          persist-credentials: false\n \n       - name: Configure review git identity\n         run: |\n           git config user.name \"github-actions[bot]\"\n           git config user.email \"41898282+github-actions[bot]@users.noreply.github.com\"\n \n-      - name: Run OpenCode review\n-        # v1.15.13 pinned by commit SHA for reproducible review behavior.\n-        uses: anomalyco/opencode/github@385cb694419f98103af0e8fc6187ddcbcbb6eecb\n+      - name: Install verified OpenCode CLI\n+        env:\n+          OPENCODE_VERSION: 1.18.34\n+          OPENCODE_SHA256: 0f22479647226d1d2dd99595d20082ee7bda3870b62dc6a90b41efc1a71d7e9a\n+        run: |\n+          set -euo pipefail\n+          archive=\"$RUNNER_TEMP/opencode.tar.gz\"\n+          curl --fail --silent --show-error --location \\\n+            \"https://github.com/anomalyco/opencode/releases/download/v${OPENCODE_VERSION}/opencode-linux-x64.tar.gz\" \\\n+            --output \"$archive\"\n+          echo \"${OPENCODE_SHA256}  $archive\" | sha256sum --check --strict\n+          mkdir -p \"$RUNNER_TEMP/opencode-bin\"\n+          tar -xzf \"$archive\" -C \"$RUNNER_TEMP/opencode-bin\"\n+          echo \"$RUNNER_TEMP/opencode-bin\" >> \"$GITHUB_PATH\"\n+          test \"$(\"$RUNNER_TEMP/opencode-bin/opencode\" --version)\" = \"$OPENCODE_VERSION\"\n+\n+      - name: Prepare immutable review runtime\n+        env:\n+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}\n+        run: |\n+          set -euo pipefail\n+          [[ \"$KIMI_RUNTIME_SHA\" =~ ^[0-9a-f]{40}$ ]]\n+          [[ \"$PR_BASE_SHA\" =~ ^[0-9a-f]{40}$ ]]\n+          git merge-base --is-ancestor \"$KIMI_RUNTIME_SHA\" \"$PR_BASE_SHA\"\n+          git show \"${KIMI_RUNTIME_SHA}:.github/scripts/kimi-review.cjs\" > \"$RUNNER_TEMP/kimi-review.cjs\"\n+          node --check \"$RUNNER_TEMP/kimi-review.cjs\"\n+\n+      - name: Run exact-head Kimi review without publication credentials\n+        run: node \"$RUNNER_TEMP/kimi-review.cjs\"\n         env:\n-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n           KIMI_API_KEY: ${{ secrets.KIMI_FOR_CODING_API_KEY }}\n+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}\n+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}\n+          KIMI_REVIEW_FILE: ${{ runner.temp }}/kimi-review.json\n+\n+      - name: Record native execution provenance\n+        env:\n+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}\n+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}\n+        run: |\n+          node <<'NODE'\n+          const fs = require('node:fs'), crypto = require('node:crypto');\n+          const { execFileSync } = require('node:child_process');\n+          const e = process.env, sha = value => /^[0-9a-f]{40}$/.test(value || '');\n+          if (![e.KIMI_RUNTIME_SHA, e.PR_HEAD_SHA, e.PR_BASE_SHA, e.GITHUB_WORKFLOW_SHA].every(sha) ||\n+              !/^[1-9][0-9]*$/.test(e.GITHUB_RUN_ID || '') || !/^[1-9][0-9]*$/.test(e.GITHUB_RUN_ATTEMPT || '')) throw new Error('Invalid execution provenance');\n+          execFileSync('git', ['merge-base', '--is-ancestor', e.KIMI_RUNTIME_SHA, e.PR_BASE_SHA]);\n+          const runtimePath = `${e.RUNNER_TEMP}/kimi-review.cjs`;\n+          const runtime = fs.readFileSync(runtimePath), expected = execFileSync('git', ['show', `${e.KIMI_RUNTIME_SHA}:.github/scripts/kimi-review.cjs`]);",
+          "url": "https://github.com/open-hax/proxx/pull/445#discussion_r4172721394",
+          "createdAt": "2026-10-03T10:15:01Z",
+          "updatedAt": "2026-10-03T10:15:01Z",
+          "commit": {
+            "oid": "aba0697a4d08a87bf59a33cc03e171b95eef2016"
+          },
+          "originalCommit": {
+            "oid": "a1268d16cd4b8ea83f7433680c7a9b86cc59d23d"
+          },
+          "pullRequestReview": {
+            "id": "PRR_kwDORjtCas8AAAABQeDvdg",
+            "databaseId": 5400227702,
+            "state": "COMMENTED",
+            "body": "",
+            "updatedAt": "2026-10-03T10:15:01Z",
+            "commit": {
+              "oid": "a1268d16cd4b8ea83f7433680c7a9b86cc59d23d"
+            },
+            "author": {
+              "login": "riatzukiza",
+              "__typename": "User",
+              "id": "MDQ6VXNlcjEwNjc2OTI1",
+              "databaseId": 10676925
+            }
+          }
+        }
+      ]
+    }
+  }
+}
