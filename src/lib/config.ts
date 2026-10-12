@@ -477,7 +477,7 @@ export function loadConfig(cwd: string = process.cwd()): ProxyConfig {
   const oauthRefreshProactiveWindowMs = numberFromEnvAliases(["OAUTH_REFRESH_PROACTIVE_WINDOW_MS"], 30 * 60_000);
 
   return {
-    host: process.env.PROXY_HOST ?? process.env.HOST ?? "127.0.0.1",
+    host: process.env.PROXY_HOST ?? "127.0.0.1",
     port: numberFromEnvAliases(["PROXY_PORT", "PORT"], 8789),
     upstreamProviderId,
     disabledProviderIds,
