@@ -4050,6 +4050,96 @@ test("permanently disables api_key accounts on 403 (forbidden/suspended)", async
   );
 });
 
+test("policy-classified openrouter key-limit 403 cools the key down and fails over instead of disabling it", async () => {
+  const chatAuth: string[] = [];
+
+  await withProxyApp(
+    {
+      keys: [],
+      keysPayload: {
+        providers: {
+          openrouter: [{ id: "openrouter-main", api_key: "openrouter-limited-key" }],
+          requesty: ["requesty-working-key"],
+        },
+      },
+      configOverrides: {
+        upstreamProviderId: "openrouter",
+      },
+      upstreamHandler: async (request) => {
+        const auth = typeof request.headers.authorization === "string" ? request.headers.authorization : "";
+        if (request.method === "POST" && (request.url ?? "").includes("chat/completions")) {
+          chatAuth.push(auth.replace(/^Bearer\s+/i, ""));
+        }
+
+        if (auth === "Bearer openrouter-limited-key") {
+          return {
+            status: 403,
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ error: { code: 403, message: "Key limit exceeded (total limit). Manage it in your OpenRouter settings." } }),
+          };
+        }
+
+        return {
+          status: 200,
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            id: "chatcmpl-credential-policy",
+            object: "chat.completion",
+            model: "acme-coder-1",
+            choices: [
+              {
+                index: 0,
+                message: { role: "assistant", content: "credential-policy-ok" },
+                finish_reason: "stop",
+              },
+            ],
+          }),
+        };
+      },
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: { "content-type": "application/json" },
+        payload: {
+          model: "acme-coder-1",
+          messages: [{ role: "user", content: "hello" }],
+          stream: false,
+        },
+      });
+
+      assert.equal(response.statusCode, 200);
+      assert.match(response.body, /credential-policy-ok/);
+      assert.deepEqual(chatAuth, ["openrouter-limited-key", "requesty-working-key"]);
+
+      const credentials = await app.inject({ method: "GET", url: "/api/v1/credentials" });
+      assert.equal(credentials.statusCode, 200);
+      const payload: unknown = credentials.json();
+      assert.ok(isRecord(payload) && isRecord(payload.keyPoolStatuses));
+      const openrouter = payload.keyPoolStatuses.openrouter;
+      assert.ok(isRecord(openrouter));
+      assert.equal(openrouter.disabledAccounts, 0, "a spend limit must not disable the key");
+      assert.equal(openrouter.cooldownAccounts, 1, "the limited key cools down until the limit resets");
+
+      const enable = await app.inject({
+        method: "POST",
+        url: "/api/v1/credentials/account/enable",
+        headers: { "content-type": "application/json" },
+        payload: { providerId: "openrouter", accountId: "openrouter-main" },
+      });
+      assert.equal(enable.statusCode, 200);
+
+      const afterEnable: unknown = (await app.inject({ method: "GET", url: "/api/v1/credentials" })).json();
+      assert.ok(isRecord(afterEnable) && isRecord(afterEnable.keyPoolStatuses));
+      const reenabled = afterEnable.keyPoolStatuses.openrouter;
+      assert.ok(isRecord(reenabled));
+      assert.equal(reenabled.cooldownAccounts, 0, "an explicit re-enable clears the cooldown");
+      assert.equal(reenabled.availableAccounts, 1);
+    },
+  );
+});
+
 test("model-gated glm-5 accounts stay usable for gemma4", async () => {
   const requestsByModel = new Map<string, number>();
 

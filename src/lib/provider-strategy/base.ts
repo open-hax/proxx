@@ -273,7 +273,7 @@ export abstract class BaseProviderStrategy implements ProviderStrategy {
           const looksLikeImagesPayload = context.imagesPassthrough === true
             && isRecord(parsed)
             && Array.isArray(parsed["data"]);
-          const looksLikeNativeOllamaPayload = context.providerId === "ollama"
+          const looksLikeNativeOllamaPayload = (context.providerId === "ollama" || context.providerId.startsWith("ollama"))
             && isRecord(parsed)
             && (isRecord(parsed["message"]) || typeof parsed["response"] === "string");
           if (

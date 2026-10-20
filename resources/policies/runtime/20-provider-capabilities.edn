@@ -162,7 +162,7 @@
 
  {:contract/id :provider-capability/ollama-lan-chat
   :contract/kind :provider-capability
-  :match/provider-pattern "^ollama-lan$"
+  :match/provider-pattern "^(ollama-lan|ollama-host)$"
   :match/request-kind :chat
   :prefer/strategies [:chat-completions]
   :exclude/strategies [:ollama-chat :messages :responses :openai-responses]}

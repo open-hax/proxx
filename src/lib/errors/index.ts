@@ -7,6 +7,7 @@ export {
   responseIsEventStream,
   streamPayloadIndicatesQuotaError,
   responseIndicatesQuotaError,
+  readUpstreamErrorMessage,
   responseIndicatesMissingModel,
   responseIndicatesModelNotSupportedForAccount,
   summarizeUpstreamError,
