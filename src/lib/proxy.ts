@@ -163,6 +163,58 @@ export function isRateLimitResponse(response: Response): boolean {
  */
 export type RateLimitKind = "quota_exhausted" | "concurrency_throttle";
 
+export interface PolicyCredentialFailure {
+  readonly kind: "quota_exhausted" | "model_unavailable";
+  readonly cooldownMs?: number;
+  readonly disable: boolean;
+  readonly contractId?: string;
+}
+
+/**
+ * Classify an upstream failure with :credential-failure-classification policy
+ * contracts. Returns undefined when no contract matches or the CLJS runtime is
+ * unavailable, so callers keep their generic handling.
+ */
+export function classifyCredentialFailureByPolicy(
+  providerId: string,
+  status: number,
+  message: string | undefined,
+  manifestPath?: string,
+): PolicyCredentialFailure | undefined {
+  const runtime = getActiveCljsRuntime();
+  if (!runtime?.classifyCredentialFailure) {
+    return undefined;
+  }
+
+  try {
+    const result = runtime.classifyCredentialFailure(
+      manifestPath ?? "resources/policies/runtime/00-manifest.edn",
+      providerId,
+      status,
+      message ?? "",
+    );
+    if (result.status !== "ok") {
+      return undefined;
+    }
+    const kind = result.result === "quota-exhausted"
+      ? "quota_exhausted"
+      : result.result === "model-unavailable"
+        ? "model_unavailable"
+        : undefined;
+    if (!kind) {
+      return undefined;
+    }
+    return {
+      kind,
+      ...(typeof result.cooldownMs === "number" ? { cooldownMs: result.cooldownMs } : {}),
+      disable: result.disable === true,
+      ...(typeof result.contractId === "string" ? { contractId: result.contractId } : {}),
+    };
+  } catch {
+    return undefined;
+  }
+}
+
 export type OllamaLimitKind = "session" | "weekly" | "unknown";
 
 export function detectOllamaLimitKind(errorBody: unknown): OllamaLimitKind {

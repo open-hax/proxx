@@ -167,6 +167,30 @@ export function responseIsEventStream(response: Response): boolean {
 }
 
 /**
+ * Read an upstream error's message without consuming the original body.
+ * Event streams and bodies without a content type are skipped, matching
+ * responseIndicatesQuotaError.
+ */
+export async function readUpstreamErrorMessage(response: Response): Promise<string | undefined> {
+  if (response.ok || responseIsEventStream(response) || (response.headers.get("content-type") ?? "").length === 0) {
+    return undefined;
+  }
+
+  let payload: unknown;
+  try {
+    payload = await response.clone().json();
+  } catch {
+    try {
+      payload = await response.clone().text();
+    } catch {
+      return undefined;
+    }
+  }
+
+  return extractErrorMessage(payload) ?? (typeof payload === "string" ? payload : undefined);
+}
+
+/**
  * Extract SSE data lines from a payload.
  */
 function extractSseDataLines(payload: string): string[] {
