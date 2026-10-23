@@ -36,8 +36,21 @@ function navClass(isActive: boolean): string {
   return isActive ? "nav-link nav-link-active" : "nav-link";
 }
 
+function AxxiumDeviceLogin(): JSX.Element {
+  const container = React.useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    let dispose: (() => void) | undefined;
+    let mounted = true;
+    void import("../compiled/oidc/device.js").then(({ mountDeviceLogin }) => {
+      if (mounted && container.current) dispose = mountDeviceLogin(container.current, () => window.location.reload());
+    });
+    return () => { mounted = false; dispose?.(); };
+  }, []);
+  return <div ref={container} />;
+}
+
 function AxxiumLogin({ onStatus }: { onStatus: (authenticated: boolean) => void }): JSX.Element | null {
-  const [status, setStatus] = useState<{ authenticated: boolean } | null>(null);
+  const [status, setStatus] = useState<{ authenticated: boolean; deviceEnabled?: boolean } | null>(null);
   const [message, setMessage] = useState("");
   useEffect(() => {
     let mounted = true;
@@ -47,7 +60,7 @@ function AxxiumLogin({ onStatus }: { onStatus: (authenticated: boolean) => void 
         const body = await response.json();
         if (!mounted || body.enabled === false) return;
         const authenticated = response.ok && body.authenticated === true;
-        setStatus({ authenticated });
+        setStatus({ authenticated, deviceEnabled: body.deviceEnabled === true });
         onStatus(authenticated);
         if (!response.ok) setMessage(body.message ?? "Shared login could not be verified.");
       })
@@ -74,6 +87,7 @@ function AxxiumLogin({ onStatus }: { onStatus: (authenticated: boolean) => void 
     {status?.authenticated
       ? <button type="button" onClick={() => { void logout().catch(() => setMessage("Logout could not be confirmed. Retry.")); }}>Sign out of Proxx</button>
       : <a href="/api/auth/axxium/start">Sign in with Axxium</a>}
+    {!status?.authenticated && status?.deviceEnabled && <AxxiumDeviceLogin />}
     {message && <small role="status">{message}</small>}
   </div>;
 }

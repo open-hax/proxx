@@ -6,7 +6,7 @@
 
 (defn current-time [adapters] ((or (:now adapters) io/now)))
 
-(defn create-state [] {:transactions (atom {}) :sessions (atom {}) :discovery (atom nil)})
+(defn create-state [] {:transactions (atom {}) :sessions (atom {}) :discovery (atom nil) :renewing (atom {}) :devices (atom {})})
 
 (defn ^:async relying-party! [state config]
   (or @(:discovery state)
@@ -47,22 +47,71 @@
     (law/local-context (js->clj user :keywordize-keys true)
                        (js->clj memberships :keywordize-keys true) session)))
 
-(defn ^:async verify! [state config adapters session now]
-  (when-not (law/current-session? session now)
-    (throw (ex-info "unauthorized" {:status 401 :error "unauthorized"})))
+(defn- ^:async renew! [state config adapters previous]
   (let [rp (await (relying-party! state config))
-        evidence (await (io/introspect! rp (:access-token session)))]
-    (when-not (law/grant-admitted? config session evidence (max now (current-time adapters)))
-      (throw (ex-info "unauthorized" {:status 401 :error "unauthorized"})))
-    (or (await (local-auth! adapters session))
-        (throw (ex-info "account_link_required" {:status 403 :error "account_link_required"})))))
+        renewed (await (io/refresh! rp config previous))]
+    (try
+      (when-not (law/renewal-admitted? previous renewed)
+        (throw (ex-info "unauthorized" {:status 401 :error "unauthorized"})))
+      (let [current (merge previous (select-keys renewed [:access-token :refresh-token :expires-at]))
+            evidence (await (io/introspect! rp (:access-token current)))
+            now (current-time adapters)
+            bound (min (:session-expires-at previous) (law/session-bound current evidence now))]
+        (when-not (and (law/grant-admitted? config current evidence now)
+                       (= previous (get @(:sessions state) (:key previous))))
+          (throw (ex-info "unauthorized" {:status 401 :error "unauthorized"})))
+        (let [current (assoc current :session-expires-at bound)]
+          (swap! (:sessions state) assoc (:key previous) current)
+          current))
+      (catch :default error
+        (try (await (io/revoke-session! rp renewed)) (catch :default _ nil))
+        (throw error)))))
 
-(defn ^:async complete! [state config adapters query transaction now]
+(defn- ^:async current-session! [state config adapters session]
+  (if (and (:key session) (:refresh-token session)
+           (<= (- (:expires-at session) (current-time adapters)) law/refresh-window-ms))
+    (if-let [pending (get @(:renewing state) (:key session))]
+      (await pending)
+      (let [pending (renew! state config adapters session)]
+        (swap! (:renewing state) assoc (:key session) pending)
+        (try (await pending)
+             (finally (swap! (:renewing state) dissoc (:key session))))))
+    session))
+
+(defn ^:async verify! [state config adapters session now]
+  (try
+    (when-not (law/current-session? session now)
+      (throw (ex-info "unauthorized" {:status 401 :error "unauthorized"})))
+    (let [session (await (current-session! state config adapters session))
+          rp (await (relying-party! state config))
+          evidence (await (io/introspect! rp (:access-token session)))
+          auth (await (local-auth! adapters session))
+          current (max now (current-time adapters))]
+      (when-not (and (law/grant-admitted? config session evidence current)
+                     (< (- current now) 5000)
+                     (or (nil? (:key session)) (= session (get @(:sessions state) (:key session)))))
+        (throw (ex-info "unauthorized" {:status 401 :error "unauthorized"})))
+      (when (:refresh-token session) (law/session-bound session evidence current))
+      (if auth
+        (assoc auth :sessionExpiresAt (min (or (:session-expires-at session) (:expires-at session))
+                                            (law/session-bound session evidence current))
+                    :expiresAt (min (:expires-at session) (law/session-bound session evidence current)))
+        (throw (ex-info "account_link_required" {:status 403 :error "account_link_required"}))))
+    (catch :default error
+      (when (:key session)
+        (let [[before _] (swap-vals! (:sessions state) dissoc (:key session))]
+          (when-let [current (get before (:key session))]
+            (try (await (io/revoke-session! (await (relying-party! state config)) current))
+                 (catch :default _ nil)))))
+      (throw error))))
+
+(defn ^:async establish! [state config adapters tokens current? now]
   (let [rp (await (relying-party! state config))
-        {:keys [claims access-token]} (await (io/exchange! rp config query transaction))
+        {:keys [claims access-token refresh-token expires-at]} tokens
         user-id (law/linked-user-id (:links config) (:iss claims) (:sub claims))
         session {:issuer (:iss claims) :subject (:sub claims) :user-id user-id
-                 :access-token access-token :expires-at (* 1000 (:exp claims))}]
+                 :access-token access-token :refresh-token refresh-token :nonce (:nonce claims)
+                 :expires-at (or expires-at (* 1000 (:exp claims)))}]
     (try
       (when-not user-id
         (throw (ex-info "account_link_required" {:status 403 :error "account_link_required"})))
@@ -70,13 +119,25 @@
       (prune! state now)
       (when (>= (count @(:sessions state)) law/max-sessions)
         (throw (ex-info "login_busy" {:status 503 :error "login_busy"})))
-      (let [handle (io/random-secret)]
-        (swap! (:sessions state) assoc (io/digest handle) session)
-        {:handle handle :expires-at (:expires-at session)})
+      (let [evidence (await (io/introspect! rp access-token))
+            bound (law/session-bound tokens evidence (current-time adapters))
+            handle (io/random-secret)]
+        (when-not (law/grant-admitted? config session evidence (current-time adapters))
+          (throw (ex-info "unauthorized" {:status 401 :error "unauthorized"})))
+        (when-not (current?)
+          (throw (ex-info "unauthorized" {:status 401 :error "unauthorized"})))
+        (swap! (:sessions state) assoc (io/digest handle)
+               (assoc session :key (io/digest handle) :session-expires-at bound))
+        {:handle handle :expires-at bound})
       (catch :default error
         ;; Orphaned grants are best-effort revoked; never retain an unlinked token.
-        (try (await (io/revoke! rp access-token)) (catch :default _ nil))
+        (try (await (io/revoke-session! rp session)) (catch :default _ nil))
         (throw error)))))
+
+(defn ^:async complete! [state config adapters query transaction now]
+  (let [rp (await (relying-party! state config))
+        tokens (await (io/exchange! rp config query transaction))]
+    (await (establish! state config adapters tokens (constantly true) now))))
 
 (defn session [state handle] (when handle (get @(:sessions state) (io/digest handle))))
 (defn remove-session! [state handle]

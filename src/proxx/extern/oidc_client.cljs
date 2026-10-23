@@ -59,6 +59,11 @@
         (when-not (= (.-origin (js/URL. (:issuer config)))
                      (.-origin (js/URL. endpoint)))
           (throw (ex-info "Axxium discovery endpoint origin mismatch" {})))))
+    (when (:deviceEnabled config)
+      (let [endpoint (:device_authorization_endpoint metadata)]
+        (require-url! endpoint (:allowLoopback config) false)
+        (when-not (= (.-origin (js/URL. (:issuer config))) (.-origin (js/URL. endpoint)))
+          (throw (ex-info "Device discovery endpoint origin mismatch" {})))))
     {:client client :rp rp}))
 
 (defn ^:async authorization! [{:keys [^js client ^js rp]} config]
@@ -82,10 +87,38 @@
                                     :expectedNonce (:nonce transaction)
                                     :idTokenExpected true}))
             claims (js->clj (.claims tokens) :keywordize-keys true)]
-        {:access-token (.-access_token tokens) :claims claims}))
+        {:access-token (.-access_token tokens) :refresh-token (.-refresh_token tokens)
+         :expires-at (min (* 1000 (:exp claims)) (+ (now) (* 1000 (.-expires_in tokens))))
+         :claims claims}))
     (catch :default error
       (throw (ex-info "Shared authorization response refused"
                       (law/callback-failure (.-code error)))))))
+
+(defn token-result!
+  "Shape a signature-validated maintained RP response, requiring fresh ID evidence."
+  [config ^js tokens]
+  (let [claims (some-> (.claims tokens) (js->clj :keywordize-keys true))
+        aud (:aud claims)
+        audiences (if (string? aud) [aud] aud)]
+    (when-not (and (= (:issuer config) (:iss claims))
+                   (some #{(:clientId config)} audiences)
+                   (law/nonblank? (:sub claims)) (number? (:exp claims))
+                   (law/nonblank? (.-access_token tokens)) (number? (.-expires_in tokens)))
+      (throw (ex-info "unauthorized" {:status 401 :error "unauthorized"})))
+    {:claims claims :access-token (.-access_token tokens) :refresh-token (.-refresh_token tokens)
+     :expires-at (min (* 1000 (:exp claims)) (+ (now) (* 1000 (.-expires_in tokens))))}))
+
+(defn ^:async refresh! [{:keys [^js client ^js rp]} config session]
+  (token-result! config (await (.refreshTokenGrant client rp (:refresh-token session)))))
+
+(defn ^:async revoke-session! [{:keys [^js client ^js rp]} session]
+  (let [results (await (js/Promise.allSettled
+                        (clj->js (mapv (fn [[hint token]]
+                                         (.tokenRevocation client rp token #js {:token_type_hint hint}))
+                                       (filter second [["refresh_token" (:refresh-token session)]
+                                                       ["access_token" (:access-token session)]])))))]
+    (when (some #(= "rejected" (.-status %)) (array-seq results))
+      (throw (ex-info "authority_unavailable" {:status 503 :error "authority_unavailable"})))))
 
 (defn ^:async introspect! [{:keys [^js client ^js rp]} token]
   (js->clj (await (.tokenIntrospection client rp token
@@ -106,3 +139,49 @@
 (defn cookie [config kind value seconds]
   (str (cookie-name config kind) "=" value "; Path=/; HttpOnly; SameSite=Lax; Max-Age="
        seconds (when (:secure? config) "; Secure")))
+
+(defn- trusted-device-uri! [config value]
+  (let [url (js/URL. value)]
+    (when-not (and (= (.-origin url) (.-origin (js/URL. (:issuer config))))
+                   (or (= "https:" (.-protocol url)) (:allowLoopback config))
+                   (= "" (.-username url)) (= "" (.-password url)) (= "" (.-hash url)))
+      (throw (ex-info "authority_unavailable" {:status 503 :error "authority_unavailable"}))))
+  value)
+
+(defn ^:async device-start! [{:keys [^js client ^js rp]} config]
+  (let [^js response (await (.initiateDeviceAuthorization client rp #js {:scope "openid profile"}))
+        seconds (.-expires_in response)
+        interval (or (.-interval response) 5)
+        controller (js/AbortController.)]
+    (when-not (and (integer? seconds) (<= 1 seconds 600)
+                   (integer? interval) (<= 5 interval 600) (law/nonblank? (.-user_code response)))
+      (throw (ex-info "authority_unavailable" {:status 503 :error "authority_unavailable"})))
+    (trusted-device-uri! config (.-verification_uri response))
+    (when (.-verification_uri_complete response)
+      (trusted-device-uri! config (.-verification_uri_complete response)))
+    {:handle #js {:response response :controller controller
+                  :timer (js/setTimeout (fn [] (.abort controller)) (* 1000 seconds))}
+     :expires-at (+ (now) (* 1000 seconds))
+     :public (cond-> {:user_code (.-user_code response) :verification_uri (.-verification_uri response)
+                      :expires_in seconds :interval interval}
+               (.-verification_uri_complete response)
+               (assoc :verification_uri_complete (.-verification_uri_complete response)))}))
+
+(defn cancel-device! [^js handle]
+  (.abort ^js (.-controller handle))
+  (js/clearTimeout (.-timer handle)))
+
+(defn ^:async device-grant! [{:keys [^js client ^js rp]} config ^js handle]
+  (try
+    (token-result! config
+      (await (.pollDeviceAuthorizationGrant client rp (.-response handle) nil
+               #js {:signal (.-signal ^js (.-controller handle))})))
+    (catch :default error (throw error))))
+
+(defn device-failure [error]
+  (case (.-error ^js error) "access_denied" "denied" "expired_token" "expired" "failed"))
+
+(defn on-device-expiry!
+  "Remove sensitive transaction state when the bounded controller aborts."
+  [^js handle expire!]
+  (.addEventListener (.-signal ^js (.-controller handle)) "abort" expire! #js {:once true}))

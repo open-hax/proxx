@@ -6,7 +6,12 @@
  :js-options {:js-provider :import}
 
  :builds
- {:runtime
+ {:oidc-browser
+  {:target :esm :output-dir "web/compiled/oidc"
+   :modules {:device {:exports {mountDeviceLogin proxx.browser.device/mount!}}}
+   :compiler-options {:output-feature-set :es-next}}
+
+  :runtime
   {:target    :esm
    :output-dir "dist/cljs"
    :modules   {:proxx-runtime {:exports {createAxxiumConsumer proxx.runtime/create-axxium-consumer-js
