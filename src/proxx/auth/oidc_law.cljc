@@ -81,7 +81,7 @@
 (defn node-enrollment-path?
   "Browser identity cannot enroll or operate a relay node."
   [path]
-  (boolean (or (re-find #"^/api/(ui|v1)/federation/bridge(?:/|$)" path)
+  (boolean (or (re-find #"^/api/(ui|v1)/federation/bridges?(?:/|$)" path)
                (re-find #"^/api/(ui|v1)/bridge(?:/|$)" path))))
 
 (defn transport-context-current? [admitted current]

@@ -7,7 +7,9 @@
             [proxx.auth.oidc-runtime :as runtime]
             [proxx.extern.oidc-client :as io]))
 
-(defn- path [request] (first (str/split (.-url request) #"\?" 2)))
+(defn- path [request]
+  (let [raw (first (str/split (.-url request) #"\?" 2))]
+    (try (js/decodeURI raw) (catch :default _ raw))))
 (defn- handle [config request]
   (io/read-cookie (.. request -headers -cookie) (io/cookie-name config :session)))
 (defn- status-error [status error] (ex-info error {:status status :error error}))

@@ -66,7 +66,8 @@
   (is (law/csrf-admitted? config "POST" "https://proxx.example"))
   (doseq [origin [nil "https://attacker.example" "https://proxx.example.attacker.example"]]
     (is (not (law/csrf-admitted? config "POST" origin))))
-  (doseq [path ["/api/ui/federation/bridge/ws" "/api/v1/federation/bridge/sse" "/api/ui/bridge/lease"]]
+  (doseq [path ["/api/ui/federation/bridge/ws" "/api/v1/federation/bridge/sse" "/api/ui/bridge/lease" "/api/ui/federation/bridges/lease/import"
+                "/api/v1/federation/bridges/lease/import"]]
     (is (law/node-enrollment-path? path)))
   (is (not (law/node-enrollment-path? "/api/v1/federation/observability/sse"))))
 
