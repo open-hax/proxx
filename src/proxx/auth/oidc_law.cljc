@@ -40,7 +40,7 @@
        (< now (+ (:created-at transaction) transaction-ttl-ms))))
 
 (defn current-session? [session now]
-  (and session (number? (:expires-at session)) (< now (:expires-at session))))
+  (and session (number? (:expires-at session)) (< now (or (:session-expires-at session) (:expires-at session)))))
 
 (defn grant-admitted?
   "Client-scoped RFC7662 evidence is mandatory. Some authorities omit aud/iss
@@ -50,6 +50,7 @@
   (let [{:keys [active client_id sub exp scope iss aud]} evidence
         audience (if (string? aud) [aud] aud)]
     (and (current-session? session now)
+         (< now (:expires-at session))
          (true? active) (= (:clientId config) client_id)
          (= (:subject session) sub) (= (:issuer config) (:issuer session))
          (or (nil? iss) (= (:issuer config) iss))
@@ -101,3 +102,34 @@
   (if (contains? invalid-authorization-codes code)
     {:status 400 :error "invalid_authorization_response"}
     {:status 503 :error "authority_unavailable"}))
+
+(def session-limit-ms 86400000)
+(def refresh-window-ms 30000)
+
+(defn session-bound [tokens evidence now]
+  (if (:refresh-token tokens)
+    (let [bound (:root_session_expires_at evidence)]
+      (when-not (and (number? bound) (< now (* bound 1000)))
+        (throw (ex-info "unauthorized" {:status 401 :error "unauthorized"})))
+      (min (+ now session-limit-ms) (* bound 1000)))
+    (:expires-at tokens)))
+
+(defn renewal-admitted? [session renewed]
+  (and (= (:issuer session) (get-in renewed [:claims :iss]))
+       (= (:subject session) (get-in renewed [:claims :sub]))
+       (nonblank? (:refresh-token renewed))
+       (not= (:refresh-token session) (:refresh-token renewed))
+       (or (nil? (get-in renewed [:claims :nonce]))
+           (= (:nonce session) (get-in renewed [:claims :nonce])))))
+
+(def device-start-path "/api/auth/axxium/device/start")
+(def device-poll-path "/api/auth/axxium/device/poll")
+(def device-cancel-path "/api/auth/axxium/device/cancel")
+(def device-paths #{device-start-path device-poll-path device-cancel-path})
+
+(defn device-poll-admission [tx now]
+  (cond (nil? tx) :refuse
+        (<= (:expires-at tx) now) :expired
+        (= "completing" (:status tx)) :refuse
+        (< now (:next-poll tx)) :slow
+        :else :continue))

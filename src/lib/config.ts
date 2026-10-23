@@ -105,6 +105,7 @@ export interface ProxyConfig {
     readonly clientId: string;
     readonly clientSecret: string;
     readonly linksJson: string;
+    readonly deviceEnabled?: boolean;
   };
   readonly githubOAuthClientId?: string;
   readonly githubOAuthClientSecret?: string;
@@ -377,6 +378,7 @@ function loadAxxiumOidcConfig(): ProxyConfig["axxiumOidc"] {
     clientId,
     clientSecret: process.env.AXXIUM_OIDC_CLIENT_SECRET ?? "",
     linksJson: process.env.AXXIUM_OIDC_ACCOUNT_LINKS ?? "[]",
+    deviceEnabled: process.env.AXXIUM_OIDC_DEVICE_ENABLED === "true",
   } : undefined;
 }
 

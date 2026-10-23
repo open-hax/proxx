@@ -2,6 +2,7 @@
 (ns proxx.extern.oidc-http
   "Fastify/cookie/transport adapter for the Axxium relying party."
   (:require [clojure.string :as str]
+            [proxx.auth.oidc-device :as device]
             [proxx.auth.oidc-law :as law]
             [proxx.auth.oidc-runtime :as runtime]
             [proxx.extern.oidc-client :as io]))
@@ -49,10 +50,11 @@
   (let [^js raw (.-raw reply)
         timer (atom nil)
         stopped? (atom false)
+        expiry (atom (:expiresAt admitted-auth))
         stop! (fn [] (reset! stopped? true) (js/clearTimeout @timer))]
     (letfn [(schedule! []
               (let [session (runtime/session state session-handle)
-                    delay (max 1 (min law/recheck-ms (- (or (:expires-at session) 0) (runtime/current-time adapters))))]
+                    delay (max 1 (min law/recheck-ms (- (min (or @expiry 0) (or (:expires-at session) 0)) (runtime/current-time adapters))))]
                 (reset! timer (js/setTimeout check! delay))))
             (check! []
               (when-not @stopped?
@@ -61,6 +63,7 @@
                     (.then (fn [auth]
                              (when-not (law/transport-context-current? admitted-auth auth)
                                (throw (status-error 403 "forbidden")))
+                             (reset! expiry (:expiresAt auth))
                              (when-not @stopped? (schedule!))))
                     (.catch (fn [error]
                               (stop!)
@@ -106,6 +109,8 @@
                                         (max 0 (long (/ (- (:expires-at result) (io/now)) 1000))))])
                (.redirect reply "/")))))))
 
+(declare device-id)
+
 (defn- register-logout! [^js app state config]
   (.post app law/logout-path
          (guarded
@@ -115,10 +120,11 @@
             (let [session-handle (handle config request)
                   session (runtime/session state session-handle)]
               (runtime/remove-session! state session-handle)
-              (.header reply "Set-Cookie" (io/cookie config :session "" 0))
+              (.header reply "Set-Cookie" #js [(io/cookie config :session "" 0) (io/cookie config :device "" 0)])
+              (when-let [id (device-id config request)]
+                (await (device/cancel! state config (io/digest id))))
               (when session
-                (await (io/revoke! (await (runtime/relying-party! state config))
-                                   (:access-token session))))
+                (await (io/revoke-session! (await (runtime/relying-party! state config)) session)))
               (.send reply #js {:ok true :rootSession "unchanged"}))))))
 
 (defn- register-status! [^js app state config adapters]
@@ -130,7 +136,37 @@
                (let [auth (await (runtime/verify! state config adapters
                                   (runtime/session state session-handle) (runtime/current-time adapters)))]
                  (.send reply (clj->js {:enabled true :authenticated true :auth auth})))
-               (.send reply #js {:enabled true :authenticated false})))))))
+               (.send reply #js {:enabled true :deviceEnabled (true? (:deviceEnabled config)) :authenticated false})))))))
+
+(defn- device-id [config request]
+  (io/read-cookie (.. request -headers -cookie) (io/cookie-name config :device)))
+
+(defn- register-device! [^js app state config adapters]
+  (.post app law/device-start-path
+    (guarded (fn ^:async start-device [request ^js reply]
+               (let [previous (device-id config request)
+                     result (await (device/begin! state config (.. request -headers -origin)
+                                     (when previous (io/digest previous))))]
+                 (.header reply "Set-Cookie" (io/cookie config :device (:handle result) (get-in result [:public :expires_in])))
+                 (.send reply (clj->js (:public result)))))))
+  (.post app law/device-poll-path
+    (guarded (fn ^:async poll-device [request ^js reply]
+               (let [result (await (device/poll! state config adapters (.. request -headers -origin) (device-id config request)))]
+                 (when (= "complete" (:status result))
+                   (runtime/remove-session! state (handle config request))
+                   (.header reply "Set-Cookie"
+                     #js [(io/cookie config :device "" 0)
+                          (io/cookie config :session (:handle result)
+                            (max 0 (long (/ (- (:expires-at result) (io/now)) 1000))))]))
+                 (.code reply (or (:http-status result) 200))
+                 (.send reply (clj->js (select-keys result [:status :interval])))))))
+  (.post app law/device-cancel-path
+    (guarded (fn ^:async cancel-device [request ^js reply]
+               (device/require-origin! config (.. request -headers -origin))
+               (when-let [id (device-id config request)]
+                 (await (device/cancel! state config (io/digest id))))
+               (.header reply "Set-Cookie" (io/cookie config :device "" 0))
+               (.send reply #js {:status "cancelled"})))))
 
 (defn create-consumer-js [raw-config ^js raw-adapters]
   (let [config (io/require-config! (js->clj raw-config :keywordize-keys true))
@@ -139,12 +175,13 @@
                   :now (or (.-now raw-adapters) io/now)}]
     (when-not (every? fn? (vals adapters))
       (throw (ex-info "Axxium requires local account and membership lookup" {})))
-    #js {:isPublicPath (fn [value] (contains? law/public-paths value))
+    #js {:isPublicPath (fn [value] (or (contains? law/public-paths value) (contains? law/device-paths value)))
          :register (fn [^js app]
                      (register-start! app state config)
                      (register-callback! app state config adapters)
                      (register-logout! app state config)
                      (register-status! app state config adapters)
+                     (register-device! app state config adapters)
                      ;; Browser identity is not a relay/node grant. This bounded
                      ;; consumer refuses upgrades until transport qualification.
                      (.prependListener (.-server app) "upgrade"
@@ -154,6 +191,7 @@
                            (.end socket "HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n")
                            (.destroySoon socket))))
                      (.addHook app "onClose" (fn ^:async close-consumer []
+                                               (doseq [id (keys @(:devices state))] (await (device/cancel! state config id)))
                                                (reset! (:sessions state) {})
                                                (reset! (:transactions state) {}))))
          :selectTenant
@@ -180,6 +218,8 @@
                         (throw (status-error 403 "node_grant_required")))
                       (let [auth (await (runtime/verify! state config adapters
                                          (runtime/session state session-handle) (runtime/current-time adapters)))]
+                        (.header reply "Set-Cookie" (io/cookie config :session session-handle
+                          (max 0 (long (/ (- (:sessionExpiresAt auth) (io/now)) 1000)))))
                         (watch-response! state config adapters request reply session-handle auth)
                         (clj->js auth))
                       (catch :default error
