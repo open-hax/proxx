@@ -1,5 +1,6 @@
 (ns proxx.runtime
   (:require [clojure.string]
+            [proxx.extern.oidc-http :as oidc-http]
             [proxx.policy :as policy]
             [proxx.policy.contracts :as policy-contracts]
             [proxx.policy.evidence :as policy-evidence]
@@ -353,3 +354,6 @@
        :resolveQueuePolicy resolve-queue-policy-js
        :runQueued run-queued-js
        :classifyRateLimit classify-rate-limit-js})
+
+(defn create-axxium-consumer-js [config adapters]
+  (oidc-http/create-consumer-js config adapters))

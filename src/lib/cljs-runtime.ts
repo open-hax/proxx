@@ -82,7 +82,18 @@ export interface CljsModelCandidatesRunResult {
   readonly [key: string]: unknown;
 }
 
+export interface AxxiumConsumer {
+  readonly selectTenant: (request: import("fastify").FastifyRequest, reply: import("fastify").FastifyReply, tenantId: string) => Promise<void>;
+  readonly isPublicPath: (path: string) => boolean;
+  readonly register: (app: import("fastify").FastifyInstance) => void;
+  readonly admit: (request: import("fastify").FastifyRequest, reply: import("fastify").FastifyReply) => Promise<import("./request-auth.js").ResolvedRequestAuth | undefined>;
+}
+
 export interface ProxxCljsRuntime {
+  readonly createAxxiumConsumer?: (config: NonNullable<import("./config.js").ProxyConfig["axxiumOidc"]> & { readonly allowUnauthenticated: boolean }, adapters: {
+    readonly getUser: (id: string) => Promise<unknown>;
+    readonly getMemberships: (id: string) => Promise<unknown>;
+  }) => AxxiumConsumer;
   readonly normalizeKeys: (value: unknown) => unknown;
   readonly validateEntity: (entityType: string, value: unknown) => CljsValidationResult;
   readonly projectPheromone: (events: readonly unknown[], opts?: unknown) => number;

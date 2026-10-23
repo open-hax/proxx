@@ -66,6 +66,7 @@ export async function registerWebSocketRoutes(
   };
 
   const upgradeHandler = (request: IncomingMessage, socket: Duplex, head: Buffer) => {
+    if (socket.destroyed || "axxiumUpgradeRefused" in request) return;
     const url = new URL(request.url ?? "/", "http://127.0.0.1");
     const pathname = url.pathname;
     const isBridgeWs = pathname === "/api/ui/federation/bridge/ws";

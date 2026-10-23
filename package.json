@@ -50,7 +50,10 @@
     "web:test:e2e": "tsx web/test/e2e/tools.smoke.ts",
     "validate:required": "pnpm build && pnpm web:build && pnpm web:test && pnpm web:test:e2e && sh -c ': \"${PROXY_AUTH_TOKEN:?PROXY_AUTH_TOKEN must be set}\"; npx tsx --test src/tests/proxy.test.ts'",
     "lint": "eslint .",
-    "lint:errors": "eslint . --quiet"
+    "lint:errors": "eslint . --quiet",
+    "test:oidc-laws": "shadow-cljs compile oidc-laws && node target/oidc-laws.cjs",
+    "test:oidc": "shadow-cljs compile oidc-test && node target/oidc-test.cjs",
+    "test:oidc-http": "shadow-cljs compile oidc-http && node target/oidc-http.cjs"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.2",
@@ -65,7 +68,8 @@
     "postgres": "^3.4.8",
     "shadow-cljs": "^3.4.10",
     "ws": "^8.20.0",
-    "zod": "^4.3.6"
+    "zod": "^4.3.6",
+    "openid-client": "6.8.8"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
@@ -93,5 +97,8 @@
     "typescript-eslint": "^8.57.1",
     "vite": "^5.4.10",
     "vitest": "^1.6.1"
+  },
+  "engines": {
+    "node": ">=22.12.0"
   }
 }
