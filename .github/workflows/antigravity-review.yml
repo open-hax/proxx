@@ -3,22 +3,22 @@ name: Antigravity evidence review
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened, ready_for_review, edited]
 
 permissions:
   contents: read
   pull-requests: read
 
 concurrency:
-  group: antigravity-review-${{ github.workflow }}-${{ github.event.pull_request.number }}
+  group: antigravity-review-${{ github.workflow }}-${{ github.event.pull_request.number }}-${{ (github.event.action != 'edited' || github.event.changes.base.ref.from != '') && 'review' || github.run_id }}
   cancel-in-progress: true
 
 jobs:
   review:
-    if: ${{ github.event.pull_request.draft == false }}
-    uses: open-hax/eta-mu/.github/workflows/antigravity-code-review.yml@6461caabbe4eefbd1615036936863d06ee69d68d
+    if: ${{ github.event.pull_request.draft == false && (github.event.action != 'edited' || github.event.changes.base.ref.from != '') }}
+    uses: open-hax/eta-mu/.github/workflows/antigravity-code-review.yml@2f49ccc2378ef2bbe873e79fb3cd52508ebe32f2
     with:
       pr_head_sha: ${{ github.event.pull_request.head.sha }}
       pr_base_sha: ${{ github.event.pull_request.base.sha }}
-      review_runtime_revision: 3bcf27bef296f9349fdf4997df256a617da5f120
+      review_runtime_revision: d79b80505e1fef9d3798175ce14261ebd0281b49
       model: gemini-3.8-flash-high
