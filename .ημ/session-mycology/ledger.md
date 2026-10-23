@@ -47,3 +47,13 @@
   spore: none
   receipt-refs: 2026-08-30T09:13:15Z
   note: Exact parent refs and the one-line source delta made the merge mechanical; the focused integration file requires the compiled CLJS runtime, so the build-then-compiled-test path distinguished a harness precondition from product behavior.
+
+- ts: "2026-10-23T06:58:32.752Z"
+  session: "/home/err/.local/share/foresight-worktrees/antigravity-members-20261023/proxx"
+  task: "Prepare incoming pinned Antigravity reviewer adoption provenance"
+  p-efficiency: 0.9
+  p-friction: 0.2
+  p-skill-candidate: 0
+  spore: none
+  receipt-refs: "receipts.edn#sha256:fac7d836e42c5cffef88fa25413f012b658233a24aecaa907e6e2e59c787de36"
+  note: "Use the child canonical card and receipt locations; preserve every old ledger byte and keep generated caller syntax distinct from hosted worker/model qualification. Runtime ownership stays in eta-mu; existing checks and approval policy remain authoritative. No new spore or promotion."
