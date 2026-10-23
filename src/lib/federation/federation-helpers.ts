@@ -1,3 +1,4 @@
+import { getActiveCljsRuntime } from "../cljs-runtime.js";
 import { fetchWithResponseTimeout } from "../http/index.js";
 import { readSingleHeader } from "../request-utils.js";
 
@@ -51,9 +52,11 @@ function resolveTenantApiKeyBoundOwnerSubject(
 
 export function resolveFederationOwnerSubject(input: {
   readonly headers: Record<string, unknown>;
-  readonly requestAuth?: { readonly kind?: string; readonly subject?: string; readonly tenantId?: string };
+  readonly requestAuth?: { readonly kind?: string; readonly subject?: string; readonly tenantId?: string; readonly oidc?: { readonly issuer: string; readonly subject: string } };
   readonly hopCount?: number;
 }): string | undefined {
+  const qualifiedOwner = getActiveCljsRuntime()?.qualifiedOwner?.(input.requestAuth);
+  if (qualifiedOwner) return qualifiedOwner;
   const explicitHeader = readSingleHeader(input.headers, FEDERATION_OWNER_SUBJECT_HEADER)?.trim();
   const tenantApiKeyOwnerSubject = resolveTenantApiKeyBoundOwnerSubject(input.requestAuth);
   if (explicitHeader && (

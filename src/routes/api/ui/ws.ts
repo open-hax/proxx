@@ -1,3 +1,5 @@
+import { getActiveCljsRuntime } from "../../../lib/cljs-runtime.js";
+
 import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
 
@@ -25,6 +27,13 @@ export async function registerWebSocketRoutes(
   deps: UiRouteDependencies,
 ): Promise<{ bridgeRelay: FederationBridgeRelay; requestLogWsHub: RequestLogWsHub }> {
   const bridgeRelay = createFederationBridgeRelay();
+  const createRelayBroker = getActiveCljsRuntime()?.createRelayBroker;
+  if (!createRelayBroker && [process.env.AXXIUM_RELAY_ISSUER, process.env.AXXIUM_RELAY_AUDIENCE, process.env.AXXIUM_RELAY_NODES].some((value) => value !== undefined)) {
+    throw new Error("Configured Axxium broker requires the CLJS relay boundary");
+  }
+  const relayBroker = createRelayBroker?.(
+    deps.sqlFederationStore ? (issuer, jti, exp) => deps.sqlFederationStore!.consumeRelayLease(issuer, jti, exp) : undefined,
+  );
   const requestLogWsHub = new RequestLogWsHub(deps.requestLogStore);
 
   const readHeaderValue = (value: string | readonly string[] | undefined): string | undefined => {
@@ -65,6 +74,13 @@ export async function registerWebSocketRoutes(
     });
   };
 
+  const tryScopedUpgrade = async (isBridge: boolean, request: IncomingMessage, socket: Duplex, head: Buffer): Promise<boolean> => {
+    if (!isBridge || !relayBroker) return false;
+    const identity = await relayBroker.admit(request.headers.authorization);
+    bridgeRelay.handleAuthorizedUpgrade(request, socket, head, identity);
+    return true;
+  };
+
   const upgradeHandler = (request: IncomingMessage, socket: Duplex, head: Buffer) => {
     if (socket.destroyed || "axxiumUpgradeRefused" in request) return;
     const url = new URL(request.url ?? "/", "http://127.0.0.1");
@@ -101,6 +117,7 @@ export async function registerWebSocketRoutes(
 
       const auth = await resolveBridgeUpgradeAuth(request);
       if (!auth) {
+        if (await tryScopedUpgrade(isBridgeWs, request, socket, head)) return;
         reject(401, { error: "unauthorized" });
         return;
       }
@@ -133,11 +150,8 @@ export async function registerWebSocketRoutes(
           routeKind: parseRequestLogRouteKind(routeKind),
         },
       );
-    })().catch((error) => {
-      app.log.warn(
-        { error: error instanceof Error ? error.message : String(error) },
-        "failed to authorize websocket upgrade",
-      );
+    })().catch(() => {
+      app.log.warn("failed to authorize websocket upgrade");
       reject(401, { error: "unauthorized" });
     });
   };

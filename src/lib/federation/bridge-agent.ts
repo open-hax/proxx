@@ -1,3 +1,5 @@
+import type { RelayCapability } from "../cljs-runtime.js";
+
 import { randomUUID } from "node:crypto";
 
 import { WebSocket } from "ws";
@@ -23,6 +25,7 @@ import {
 export interface FederationBridgeAgentOptions {
   readonly relayUrl: string;
   readonly authorization?: string;
+  readonly prepareConnection?: () => Promise<{ readonly authorization: string; readonly relay: RelayCapability }>;
   readonly ownerSubject: string;
   readonly peerDid: string;
   readonly clusterId: string;
@@ -35,7 +38,7 @@ export interface FederationBridgeAgentOptions {
   readonly capabilitiesHash?: string;
   readonly getCapabilities?: () => Promise<readonly BridgeCapabilityAdvertisement[]> | readonly BridgeCapabilityAdvertisement[];
   readonly getHealth?: () => Promise<BridgeHealthReportPayload> | BridgeHealthReportPayload;
-  readonly handleRequest?: (input: { readonly request: BridgeRequestOpenMessage; readonly bodyText: string }) => Promise<BridgeRequestHandlerResult>;
+  readonly handleRequest?: (input: { readonly request: BridgeRequestOpenMessage; readonly bodyText: string; readonly signal?: AbortSignal }) => Promise<BridgeRequestHandlerResult>;
   readonly handshakeDeadlineMs?: number;
   readonly reconnectMinMs?: number;
   readonly reconnectMaxMs?: number;
@@ -95,6 +98,7 @@ function isAsyncIterable(value: BridgeRequestHandlerResult): value is AsyncItera
 
 export class FederationBridgeAgent {
   private webSocket: WebSocket | undefined;
+  private readonly connectionGrants = new WeakMap<WebSocket, RelayCapability>();
   private state: FederationBridgeAgentSnapshot["state"] = "idle";
   private sessionId: string | undefined;
   private connectedAt: string | undefined;
@@ -175,13 +179,18 @@ export class FederationBridgeAgent {
   private async connect(isReconnect: boolean): Promise<void> {
     this.state = isReconnect ? "reconnecting" : "connecting";
 
+    const prepared = await this.options.prepareConnection?.();
+    if (this.stopped) return;
+    const authorization = prepared?.authorization ?? this.options.authorization;
     const headers: Record<string, string> = {};
-    if (typeof this.options.authorization === "string" && this.options.authorization.trim().length > 0) {
-      headers.authorization = this.options.authorization.trim();
+    if (typeof authorization === "string" && authorization.trim().length > 0) {
+      headers.authorization = authorization.trim();
     }
 
     const ws = new WebSocket(this.options.relayUrl, { headers });
     this.webSocket = ws;
+    if (prepared) this.connectionGrants.set(ws, prepared.relay);
+    const expiryTimer = prepared ? setTimeout(() => ws.terminate(), Math.max(0, prepared.relay.expiresAt - Date.now())) : undefined;
 
     await new Promise<void>((resolve, reject) => {
       let helloAckReceived = false;
@@ -281,8 +290,7 @@ export class FederationBridgeAgent {
 
       ws.on("close", () => {
         clearHandshakeTimer();
-        this.clearHeartbeatTimer();
-        this.webSocket = undefined;
+        this.clearConnection(expiryTimer);
         if (!this.stopped) {
           this.scheduleReconnect();
         }
@@ -291,6 +299,13 @@ export class FederationBridgeAgent {
         }
       });
     });
+  }
+
+  private clearConnection(expiryTimer: NodeJS.Timeout | undefined): void {
+    this.clearHeartbeatTimer();
+    clearTimeout(expiryTimer);
+    this.pendingInboundRequests.clear();
+    this.webSocket = undefined;
   }
 
   private async handleMessage(message: BridgeMessage, ws: WebSocket, onConnected: () => void): Promise<void> {
@@ -361,8 +376,15 @@ export class FederationBridgeAgent {
       return;
     }
 
+    const abortController = new AbortController();
+    const abort = () => abortController.abort();
+    ws.once("close", abort);
     try {
-      const result = await this.options.handleRequest({ request: message, bodyText });
+      const capability = this.connectionGrants.get(ws);
+      capability?.assertRequest(message, bodyText);
+      const result = capability
+        ? await capability.execute(message, bodyText, this.options.handleRequest, abortController.signal)
+        : await this.options.handleRequest({ request: message, bodyText, signal: abortController.signal });
       if (isAsyncIterable(result)) {
         let sawHead = false;
         let sawEnd = false;
@@ -423,6 +445,8 @@ export class FederationBridgeAgent {
         message: error instanceof Error ? error.message : String(error),
         retryable: true,
       });
+    } finally {
+      ws.off("close", abort);
     }
   }
 
@@ -572,7 +596,8 @@ export class FederationBridgeAgent {
       ownerSubject: this.options.ownerSubject,
       clusterId: this.options.clusterId,
       agentId: this.options.agentId,
-      capabilities: this.options.getCapabilities ? [...await this.options.getCapabilities()] : [],
+      capabilities: this.connectionGrants.get(ws)?.capabilities(this.options.getCapabilities ? [...await this.options.getCapabilities()] : [])
+        ?? (this.options.getCapabilities ? [...await this.options.getCapabilities()] : []),
     };
     this.lastSentAt = capabilities.sentAt;
     ws.send(JSON.stringify(capabilities));

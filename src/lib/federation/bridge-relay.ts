@@ -1,3 +1,5 @@
+import type { RelayCapability } from "../cljs-runtime.js";
+
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
@@ -23,7 +25,8 @@ import {
 import type { BridgeSendChannel } from "./bridge-send-channel.js";
 
 export interface FederationBridgeAuthorizedIdentity {
-  readonly authKind: "legacy_admin" | "ui_session";
+  readonly authKind: "legacy_admin" | "ui_session" | "axxium_node";
+  readonly relay?: RelayCapability;
   readonly subject?: string;
   readonly tenantId?: string;
 }
@@ -166,6 +169,7 @@ export class FederationBridgeRelay {
   private readonly wsServer = new WebSocketServer({ noServer: true });
   private readonly sessions = new Map<string, MutableFederationBridgeSessionRecord>();
   private readonly channels = new Map<string, BridgeSendChannel>();
+  private readonly relayCapabilities = new Map<string, RelayCapability>();
   private readonly pendingRequests = new Map<string, PendingBridgeRequest>();
 
   /** Remove disconnected sessions older than the retention window to prevent unbounded growth. */
@@ -241,6 +245,8 @@ export class FederationBridgeRelay {
       throw new Error(`bridge session ${sessionId} has no open channel`);
     }
 
+    const capability = this.relayCapabilities.get(sessionId);
+    capability?.assertRequest({ method: input.method ?? "GET", path: input.path }, input.body);
     const streamId = randomUUID();
     const request: BridgeRequestOpenMessage = {
       type: "request_open",
@@ -254,7 +260,7 @@ export class FederationBridgeRelay {
       agentId: session.agentId,
       method: input.method ?? "GET",
       path: input.path,
-      headers: input.headers ?? { accept: "application/json" },
+      headers: capability ? capability.headers(input.headers ?? {}) : input.headers ?? { accept: "application/json" },
       requestContext: input.requestContext,
       routingIntent: input.routingIntent,
       hopCount: 0,
@@ -398,6 +404,10 @@ export class FederationBridgeRelay {
         return;
       }
 
+      if (!this.channelStreamCurrent(sessionId, parsed.streamId)) {
+        channel.close(1008, "bridge_stream_mismatch");
+        return;
+      }
       session.lastSeenAt = parsed.sentAt;
       switch (parsed.type) {
         case "heartbeat":
@@ -406,7 +416,7 @@ export class FederationBridgeRelay {
           session.queuedRequests = parsed.queuedRequests;
           break;
         case "capabilities":
-          session.capabilities = cloneCapabilities(parsed);
+          session.capabilities = this.relayCapabilities.get(sessionId)?.capabilities(cloneCapabilities(parsed)) ?? cloneCapabilities(parsed);
           break;
         case "health_report":
           session.health = cloneHealth(parsed);
@@ -456,8 +466,20 @@ export class FederationBridgeRelay {
     }
   }
 
+  private channelStreamCurrent(sessionId: string, streamId: string | undefined): boolean {
+    const capability = this.relayCapabilities.get(sessionId);
+    capability?.assertActive();
+    return !capability || !streamId || this.pendingRequests.get(streamId)?.sessionId === sessionId;
+  }
+
   private handleConnection(channel: BridgeSendChannel, identity: FederationBridgeAuthorizedIdentity): void {
     let sessionId: string | undefined;
+    const expiryTimer = identity.relay ? setTimeout(() => {
+      // Fail pending delivery immediately; do not wait for the peer close handshake.
+      this.handleDisconnect(sessionId);
+      channel.close(1008, "relay_lease_expired");
+      if (channel instanceof WebSocketBridgeChannel) channel.ws.terminate();
+    }, Math.max(0, identity.relay.expiresAt - Date.now())) : undefined;
 
     const handleMessage = (messageText: string): void => {
       if (!sessionId) {
@@ -521,6 +543,7 @@ export class FederationBridgeRelay {
       });
 
       ws.on("close", () => {
+        clearTimeout(expiryTimer);
         this.handleDisconnect(sessionId);
       });
     }
@@ -535,6 +558,7 @@ export class FederationBridgeRelay {
       return;
     }
     this.channels.delete(sessionId);
+    this.relayCapabilities.delete(sessionId);
     session.state = "disconnected";
     session.disconnectedAt = new Date().toISOString();
     for (const pending of [...this.pendingRequests.values()].filter((candidate) => candidate.sessionId === sessionId)) {
@@ -546,6 +570,7 @@ export class FederationBridgeRelay {
 
   private createResponseStream(streamId: string, pending: PendingBridgeRequest): AsyncIterable<BridgeRelayResponseEvent> {
     const nextEvent = async (): Promise<IteratorResult<BridgeRelayResponseEvent>> => {
+      this.relayCapabilities.get(pending.sessionId)?.assertActive();
       if (pending.events.length > 0) {
         const event = pending.events.shift()!;
         return { value: event, done: false };
@@ -590,6 +615,7 @@ export class FederationBridgeRelay {
   }
 
   private failPendingRequest(pending: PendingBridgeRequest, error: Error): void {
+    pending.events.length = 0;
     pending.failure = error;
     while (pending.waiters.length > 0) {
       pending.waiters.shift()!.reject(error);
@@ -597,17 +623,20 @@ export class FederationBridgeRelay {
   }
 
   public acceptHello(hello: BridgeHelloMessage, identity: FederationBridgeAuthorizedIdentity): BridgeHelloAckMessage {
+    identity.relay?.assertHello(hello);
+    const ownerSubject = identity.relay?.ownerSubject ?? hello.ownerSubject;
     const connectedAt = hello.sentAt;
     const sessionId = randomUUID();
     // Prune old disconnected sessions before adding a new one to prevent unbounded growth
     this.pruneDisconnectedSessions();
+    if (identity.relay) this.relayCapabilities.set(sessionId, identity.relay);
     this.sessions.set(sessionId, {
       sessionId,
       state: "connected",
       connectedAt,
       lastSeenAt: connectedAt,
       peerDid: hello.peerDid,
-      ownerSubject: hello.ownerSubject,
+      ownerSubject,
       clusterId: hello.clusterId,
       agentId: hello.agentId,
       environment: hello.environment,
@@ -638,7 +667,7 @@ export class FederationBridgeRelay {
       sessionId,
       sentAt: new Date().toISOString(),
       traceId: randomUUID(),
-      ownerSubject: hello.ownerSubject,
+      ownerSubject,
       clusterId: hello.clusterId,
       agentId: hello.agentId,
       heartbeatIntervalMs: 15_000,

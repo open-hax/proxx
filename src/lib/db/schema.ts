@@ -19,7 +19,7 @@ CREATE INDEX IF NOT EXISTS idx_account_health_score ON account_health(
 );
 `;
 
-export const SCHEMA_VERSION = 8;
+export const SCHEMA_VERSION = 9;
 
 export const CREATE_TENANTS_TABLE = `
 CREATE TABLE IF NOT EXISTS tenants (
@@ -243,6 +243,16 @@ CREATE TABLE IF NOT EXISTS config (
 );
 `;
 
+export const CREATE_RELAY_LEASE_USES_TABLE = `
+CREATE TABLE IF NOT EXISTS federation_relay_lease_uses (
+  issuer TEXT NOT NULL,
+  jti TEXT NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL,
+  PRIMARY KEY (issuer, jti)
+);
+CREATE INDEX IF NOT EXISTS idx_relay_lease_uses_expiry ON federation_relay_lease_uses (expires_at);
+`;
+
 export const ALL_MIGRATIONS = [
   { version: 1, sql: CREATE_PROVIDERS_TABLE },
   { version: 1, sql: CREATE_ACCOUNTS_TABLE },
@@ -269,6 +279,7 @@ export const ALL_MIGRATIONS = [
   { version: 6, sql: "ALTER TABLE providers ADD COLUMN IF NOT EXISTS base_url TEXT;" },
   { version: 7, sql: "ALTER TABLE accounts ADD COLUMN IF NOT EXISTS disabled BOOLEAN NOT NULL DEFAULT FALSE;" },
   { version: 8, sql: CREATE_PROMPT_AFFINITY_TABLE },
+  { version: 9, sql: CREATE_RELAY_LEASE_USES_TABLE },
 ];
 
 export const UPSERT_TENANT = `

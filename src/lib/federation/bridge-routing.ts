@@ -82,7 +82,7 @@ export async function executeBridgeRequestRouting(
   input: {
     readonly requestHeaders: Record<string, unknown>;
     readonly requestBody: Record<string, unknown>;
-    readonly requestAuth?: { readonly kind: "legacy_admin" | "tenant_api_key" | "ui_session" | "unauthenticated"; readonly subject?: string; readonly tenantId?: string };
+    readonly requestAuth?: { readonly kind: "legacy_admin" | "tenant_api_key" | "ui_session" | "unauthenticated"; readonly subject?: string; readonly tenantId?: string; readonly oidc?: { readonly issuer: string; readonly subject: string } };
     readonly requestKind?: string;
     readonly allowedProviderIds?: readonly string[];
     readonly upstreamPath: string;
@@ -154,8 +154,8 @@ export async function executeBridgeRequestRouting(
   const allowedProviderIds = new Set((input.allowedProviderIds ?? []).map((providerId) => providerId.trim().toLowerCase()).filter((providerId) => providerId.length > 0));
   const connectedSessions = (await Promise.all(bridgeRelay.listSessions()
     .filter((session) => session.state === "connected")
-    .filter((session) => session.ownerSubject === ownerSubject)
-    .filter((session) => session.tenantId === tenantId)
+    .filter((session) => getActiveCljsRuntime()?.relaySessionRoutable?.(session, input.requestAuth, ownerSubject, tenantId)
+      ?? (session.ownerSubject === ownerSubject && session.tenantId === tenantId))
     .filter((session) => session.health === undefined
       || (session.health.upstreamHealthy === true && session.health.availableAccountCount > 0))
     .map(async (session) => {
@@ -300,6 +300,7 @@ export const handleBridgeRequest = async (
     readonly path: string;
     readonly headers: Readonly<Record<string, string>>;
     readonly bodyText: string;
+    readonly signal?: AbortSignal;
     readonly ownerSubject: string;
     readonly tenantId?: string;
   },
@@ -351,6 +352,7 @@ export const handleBridgeRequest = async (
   if (appAddress && typeof appAddress !== "string") {
     const response = await fetch(`http://127.0.0.1:${appAddress.port}${input.path}`, {
       method: input.method,
+      signal: input.signal,
       headers,
       body: input.bodyText.length > 0 ? input.bodyText : undefined,
     });

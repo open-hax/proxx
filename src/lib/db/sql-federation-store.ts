@@ -330,6 +330,21 @@ export function shouldWarmImportProjectedAccount(warmRequestCount: number, thres
 export class SqlFederationStore {
   public constructor(private readonly sql: Sql) {}
 
+  /** Durable atomic one-use gate. Keep expired tombstones past all clock skew. */
+  public async consumeRelayLease(issuer: string, jti: string, exp: number): Promise<boolean> {
+    await this.sql.unsafe(
+      "DELETE FROM federation_relay_lease_uses WHERE expires_at < clock_timestamp() - interval '60 seconds'",
+    );
+    const rows = await this.sql.unsafe(
+      `INSERT INTO federation_relay_lease_uses (issuer, jti, expires_at)
+       SELECT $1, $2, to_timestamp($3)
+       WHERE to_timestamp($3) > clock_timestamp()
+       ON CONFLICT (issuer, jti) DO NOTHING RETURNING jti`,
+      [issuer, jti, exp],
+    );
+    return rows.length === 1;
+  }
+
   public async init(): Promise<void> {
     await this.sql.unsafe(CREATE_FEDERATION_PEERS_TABLE);
     await this.sql.unsafe(CREATE_FEDERATION_PEERS_OWNER_INDEX);

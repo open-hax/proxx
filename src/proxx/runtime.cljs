@@ -1,6 +1,7 @@
 (ns proxx.runtime
   (:require [clojure.string]
             [proxx.extern.oidc-http :as oidc-http]
+            [proxx.extern.relay :as relay]
             [proxx.policy :as policy]
             [proxx.policy.contracts :as policy-contracts]
             [proxx.policy.evidence :as policy-evidence]
@@ -357,3 +358,9 @@
 
 (defn create-axxium-consumer-js [config adapters]
   (oidc-http/create-consumer-js config adapters))
+
+(defn create-relay-broker-js [consume!] (relay/env-broker-js consume!))
+(defn relay-node-options-js [options] (relay/env-node-options-js options))
+(defn qualified-owner-js [auth] (relay/qualified-owner-js auth))
+(defn relay-session-routable-js [session auth owner tenant]
+  (relay/session-routable-js session auth owner tenant))
