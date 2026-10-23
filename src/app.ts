@@ -490,6 +490,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     keyPool,
     credentialStore: runtimeCredentialStore,
     logger: app.log,
+    consumeRelayRpc: sqlFederationStore ? (issuer, nonce, exp) => sqlFederationStore.consumeRelayLease(issuer, nonce, exp) : undefined,
     getResolvedModelCatalog: () => getResolvedModelCatalog(false),
     handleBridgeRequest: (input) => handleBridgeRequest(getBridgeDeps(), input),
   });

@@ -1,3 +1,4 @@
+import { getActiveCljsRuntime } from "../cljs-runtime.js";
 import type { CredentialStoreLike } from "../credential-store.js";
 import type { ProxyConfig } from "../config.js";
 import type { KeyPool } from "../key-pool.js";
@@ -26,12 +27,14 @@ interface FederationBridgeAutostartDeps {
   readonly keyPool: KeyPool;
   readonly credentialStore: CredentialStoreLike;
   readonly logger: LoggerLike;
+  readonly consumeRelayRpc?: (issuer: string, nonce: string, exp: number) => Promise<boolean>;
   readonly getResolvedModelCatalog?: () => Promise<{ readonly modelIds: readonly string[] }>;
   readonly handleBridgeRequest?: (input: {
     readonly method: string;
     readonly path: string;
     readonly headers: Readonly<Record<string, string>>;
     readonly bodyText: string;
+    readonly signal?: AbortSignal;
     readonly ownerSubject: string;
     readonly tenantId?: string;
   }) => Promise<BridgeRequestHandlerResult>;
@@ -331,6 +334,11 @@ export function createEnvFederationBridgeAgent(deps: FederationBridgeAutostartDe
   const clusterId = process.env.FEDERATION_SELF_CLUSTER_ID?.trim();
   const agentId = process.env.FEDERATION_BRIDGE_AGENT_ID?.trim();
 
+  const relayNodeOptions = getActiveCljsRuntime()?.relayNodeOptions;
+  if (!relayNodeOptions && Object.keys(process.env).some((name) => name.startsWith("AXXIUM_RELAY_NODE_"))) {
+    throw new Error("Configured Axxium node requires the CLJS relay boundary");
+  }
+  const scopedOptions = relayNodeOptions?.({ relayUrl, clusterId } as import("./bridge-agent.js").FederationBridgeAgentOptions, deps.consumeRelayRpc);
   const missing = [
     ownerSubject ? undefined : "FEDERATION_BRIDGE_OWNER_SUBJECT or FEDERATION_DEFAULT_OWNER_SUBJECT",
     peerDid ? undefined : "FEDERATION_SELF_PEER_DID",
@@ -338,7 +346,7 @@ export function createEnvFederationBridgeAgent(deps: FederationBridgeAutostartDe
     agentId ? undefined : "FEDERATION_BRIDGE_AGENT_ID",
   ].filter((entry): entry is string => typeof entry === "string");
 
-  if (missing.length > 0) {
+  if (!scopedOptions?.prepareConnection && missing.length > 0) {
     deps.logger.warn({ relayUrl, missing }, "bridge relay autostart skipped because required federation bridge env is missing");
     return undefined;
   }
@@ -360,7 +368,7 @@ export function createEnvFederationBridgeAgent(deps: FederationBridgeAutostartDe
   const reconnectMinMs = Number.parseInt(process.env.FEDERATION_BRIDGE_RECONNECT_MIN_MS ?? "", 10);
   const reconnectMaxMs = Number.parseInt(process.env.FEDERATION_BRIDGE_RECONNECT_MAX_MS ?? "", 10);
 
-  return createFederationBridgeAgent({
+  const options = {
     relayUrl,
     authorization,
     ownerSubject: normalizedOwnerSubject,
@@ -376,13 +384,14 @@ export function createEnvFederationBridgeAgent(deps: FederationBridgeAutostartDe
     reconnectMaxMs: Number.isFinite(reconnectMaxMs) && reconnectMaxMs > 0 ? reconnectMaxMs : undefined,
     getCapabilities: () => buildCapabilities(deps.config, deps.keyPool, deps.credentialStore, deps.getResolvedModelCatalog),
     getHealth: () => buildHealth(deps.keyPool, deps.credentialStore),
-    handleRequest: async ({ request, bodyText }) => {
+    handleRequest: async ({ request, bodyText, signal }) => {
       if (deps.handleBridgeRequest) {
         return deps.handleBridgeRequest({
           method: request.method,
           path: request.path,
           headers: request.headers,
           bodyText,
+          signal,
           ownerSubject: request.ownerSubject,
           tenantId: request.requestContext?.tenantId,
         });
@@ -411,5 +420,6 @@ export function createEnvFederationBridgeAgent(deps: FederationBridgeAutostartDe
         body: JSON.stringify({ error: `bridge route not supported: ${request.method} ${request.path}` }),
       };
     },
-  });
+  } satisfies import("./bridge-agent.js").FederationBridgeAgentOptions;
+  return createFederationBridgeAgent({ ...options, ...scopedOptions, relayUrl });
 }

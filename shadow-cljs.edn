@@ -14,7 +14,12 @@
   :runtime
   {:target    :esm
    :output-dir "dist/cljs"
-   :modules   {:proxx-runtime {:exports {createAxxiumConsumer proxx.runtime/create-axxium-consumer-js
+   :modules   {:proxx-runtime {:exports {createRelayBroker proxx.runtime/create-relay-broker-js
+                                          relayNodeOptions proxx.runtime/relay-node-options-js
+                                          qualifiedOwner proxx.runtime/qualified-owner-js
+                                          relaySessionRoutable proxx.runtime/relay-session-routable-js
+                                          relayFailureTerminal proxx.runtime/relay-failure-terminal-js
+                                          createAxxiumConsumer proxx.runtime/create-axxium-consumer-js
                                           normalizeKeys proxx.runtime/normalize-keys-js
                                           validateEntity proxx.runtime/validate-entity-js
                                           projectPheromone proxx.runtime/project-pheromone-js

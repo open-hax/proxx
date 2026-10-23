@@ -35,6 +35,9 @@ importers:
       fastify:
         specifier: ^5.0.0
         version: 5.8.4
+      jose:
+        specifier: 6.2.13
+        version: 6.2.13
       openid-client:
         specifier: 6.8.8
         version: 6.8.8

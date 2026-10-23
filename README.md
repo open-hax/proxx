@@ -467,6 +467,7 @@ Current stable: **v0.2.0** — Federation bridge, capacity-aware testing, single
 | Version | Date | Summary |
 |---------|------|---------|
 | 0.4.0 (unreleased source) | 2026-10-22 | Optional Axxium OIDC consumer; protocol, migration and deployment qualification remain pending |
+| 0.4.0 | Unreleased | Optional operator-approved Axxium machine relay leases; source implementation pending runtime acceptance |
 | 0.2.0 | 2025-04-07 | Federation bridge protocol, capacity-aware live e2e, production single-witness routing |
 | 0.1.0 | 2025-03-15 | Initial release: OpenAI-compatible proxy with account rotation |
 

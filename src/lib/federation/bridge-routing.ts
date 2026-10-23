@@ -77,12 +77,25 @@ function authorizeTenantProviderPolicy(
   return result?.status === "ok" && result.allowed === true;
 }
 
+function finishFailedBridgeAttempt(
+  session: unknown,
+  dispatchAttempted: boolean,
+  responseStarted: boolean,
+  reply: FastifyReply,
+  rawResponse: FastifyReply["raw"] | undefined,
+): boolean {
+  if (rawResponse && !rawResponse.writableEnded) rawResponse.end();
+  const terminal = getActiveCljsRuntime()?.relayFailureTerminal?.(session, dispatchAttempted) ?? false;
+  if (terminal && !rawResponse) reply.code(502).send({ error: { message: "Scoped relay request failed; execution will not be replayed", type: "server_error" } });
+  return terminal || responseStarted;
+}
+
 export async function executeBridgeRequestRouting(
   deps: BridgeRoutingDeps,
   input: {
     readonly requestHeaders: Record<string, unknown>;
     readonly requestBody: Record<string, unknown>;
-    readonly requestAuth?: { readonly kind: "legacy_admin" | "tenant_api_key" | "ui_session" | "unauthenticated"; readonly subject?: string; readonly tenantId?: string };
+    readonly requestAuth?: import("../request-auth.js").ResolvedRequestAuth;
     readonly requestKind?: string;
     readonly allowedProviderIds?: readonly string[];
     readonly upstreamPath: string;
@@ -154,8 +167,8 @@ export async function executeBridgeRequestRouting(
   const allowedProviderIds = new Set((input.allowedProviderIds ?? []).map((providerId) => providerId.trim().toLowerCase()).filter((providerId) => providerId.length > 0));
   const connectedSessions = (await Promise.all(bridgeRelay.listSessions()
     .filter((session) => session.state === "connected")
-    .filter((session) => session.ownerSubject === ownerSubject)
-    .filter((session) => session.tenantId === tenantId)
+    .filter((session) => getActiveCljsRuntime()?.relaySessionRoutable?.(session, input.requestAuth, ownerSubject, tenantId, requestedModel, `POST ${input.upstreamPath}`)
+      ?? (session.ownerSubject === ownerSubject && session.tenantId === tenantId))
     .filter((session) => session.health === undefined
       || (session.health.upstreamHealthy === true && session.health.availableAccountCount > 0))
     .map(async (session) => {
@@ -187,8 +200,10 @@ export async function executeBridgeRequestRouting(
 
   for (const session of connectedSessions) {
     let responseStarted = false;
+    let dispatchAttempted = false;
     let rawResponse: typeof input.reply.raw | undefined;
     try {
+      dispatchAttempted = true;
       const responseEvents = bridgeRelay.requestStream(session.sessionId, {
         method: "POST",
         path: input.upstreamPath,
@@ -199,6 +214,7 @@ export async function executeBridgeRequestRouting(
         },
         body: bodyText,
         requestContext: { tenantId },
+        requestAuth: input.requestAuth,
         routingIntent: requestedModel ? { model: requestedModel } : undefined,
       });
 
@@ -280,13 +296,8 @@ export async function executeBridgeRequestRouting(
       }
       return true;
     } catch (error) {
-      if (rawResponse && !rawResponse.writableEnded) {
-        rawResponse.end();
-      }
       app.log.warn({ error: toErrorMessage(error), sessionId: session.sessionId, upstreamPath: input.upstreamPath }, "bridged request attempt failed");
-      if (responseStarted) {
-        return true;
-      }
+      if (finishFailedBridgeAttempt(session, dispatchAttempted, responseStarted, input.reply, rawResponse)) return true;
     }
   }
 
@@ -300,6 +311,7 @@ export const handleBridgeRequest = async (
     readonly path: string;
     readonly headers: Readonly<Record<string, string>>;
     readonly bodyText: string;
+    readonly signal?: AbortSignal;
     readonly ownerSubject: string;
     readonly tenantId?: string;
   },
@@ -351,6 +363,7 @@ export const handleBridgeRequest = async (
   if (appAddress && typeof appAddress !== "string") {
     const response = await fetch(`http://127.0.0.1:${appAddress.port}${input.path}`, {
       method: input.method,
+      signal: input.signal,
       headers,
       body: input.bodyText.length > 0 ? input.bodyText : undefined,
     });

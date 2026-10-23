@@ -1,6 +1,6 @@
 {
   "name": "@open-hax/proxx",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "type": "module",
   "description": "OpenAI-compatible proxy with provider account rotation, federation, and websocket bridge.",
   "license": "GPL-3.0-only",
@@ -70,7 +70,8 @@
     "shadow-cljs": "^3.4.10",
     "ws": "^8.20.0",
     "zod": "^4.3.6",
-    "openid-client": "6.8.8"
+    "openid-client": "6.8.8",
+    "jose": "6.2.13"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
