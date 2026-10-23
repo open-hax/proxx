@@ -359,8 +359,9 @@
 (defn create-axxium-consumer-js [config adapters]
   (oidc-http/create-consumer-js config adapters))
 
+(defn relay-failure-terminal-js "Expose the scoped no-replay contract to the transport boundary." [session dispatched?] (relay/failure-terminal-js session dispatched?))
 (defn create-relay-broker-js [consume!] (relay/env-broker-js consume!))
-(defn relay-node-options-js [options] (relay/env-node-options-js options))
+(defn relay-node-options-js [options consume!] (relay/env-node-options-js options consume!))
 (defn qualified-owner-js [auth] (relay/qualified-owner-js auth))
-(defn relay-session-routable-js [session auth owner tenant]
-  (relay/session-routable-js session auth owner tenant))
+(defn relay-session-routable-js [session auth owner tenant model operation]
+  (relay/session-routable-js session auth owner tenant model operation))

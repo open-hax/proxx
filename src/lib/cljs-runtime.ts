@@ -93,6 +93,12 @@ export interface RelayCapability {
   readonly ownerSubject: string;
   readonly nodeId: string;
   readonly expiresAt: number;
+  readonly leaseId: string;
+  readonly allowedTenants: readonly string[];
+  readonly close: () => void;
+  readonly renew: (authorization: string, predecessor: string) => Promise<void>;
+  readonly bindRequest: (request: unknown, body: string | undefined, tenant: string | undefined, auth: unknown) => Record<string, unknown>;
+  readonly assertDelivery: (request: unknown, body?: string) => void;
   readonly execute: (request: unknown, body: string, handler: NonNullable<import("./federation/bridge-agent.js").FederationBridgeAgentOptions["handleRequest"]>, signal: AbortSignal) => Promise<import("./federation/bridge-agent.js").BridgeRequestHandlerResult>;
   readonly assertActive: () => void;
   readonly assertHello: (hello: unknown) => void;
@@ -103,8 +109,9 @@ export interface RelayCapability {
 
 export interface ProxxCljsRuntime {
   readonly createRelayBroker?: (consume?: (issuer: string, jti: string, exp: number) => Promise<boolean>) => { admit: (authorization?: string) => Promise<import("./federation/bridge-relay.js").FederationBridgeAuthorizedIdentity> } | undefined;
-  readonly relayNodeOptions?: (options: import("./federation/bridge-agent.js").FederationBridgeAgentOptions) => import("./federation/bridge-agent.js").FederationBridgeAgentOptions;
-  readonly relaySessionRoutable?: (session: unknown, auth: unknown, owner: string, tenant: string) => boolean;
+  readonly relayNodeOptions?: (options: import("./federation/bridge-agent.js").FederationBridgeAgentOptions, consume?: (issuer: string, nonce: string, exp: number) => Promise<boolean>) => import("./federation/bridge-agent.js").FederationBridgeAgentOptions;
+  readonly relaySessionRoutable?: (session: unknown, auth: unknown, owner: string, tenant: string, model?: string, operation?: string) => boolean;
+  readonly relayFailureTerminal?: (session: unknown, dispatchAttempted: boolean) => boolean;
   readonly qualifiedOwner?: (auth: unknown) => string | undefined;
   readonly createAxxiumConsumer?: (config: NonNullable<import("./config.js").ProxyConfig["axxiumOidc"]> & { readonly allowUnauthenticated: boolean }, adapters: {
     readonly getUser: (id: string) => Promise<unknown>;

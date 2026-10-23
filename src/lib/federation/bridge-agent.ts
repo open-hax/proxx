@@ -25,6 +25,9 @@ import {
 export interface FederationBridgeAgentOptions {
   readonly relayUrl: string;
   readonly authorization?: string;
+  readonly renewConnection?: () => Promise<string>;
+  /** Explicit synthetic transport seam; never selected by environment configuration. */
+  readonly testTransport?: { readonly connect: (url: string, headers: Record<string, string>) => WebSocket; readonly renewalIntervalMs?: number };
   readonly prepareConnection?: () => Promise<{ readonly authorization: string; readonly relay: RelayCapability }>;
   readonly ownerSubject: string;
   readonly peerDid: string;
@@ -98,6 +101,7 @@ function isAsyncIterable(value: BridgeRequestHandlerResult): value is AsyncItera
 
 export class FederationBridgeAgent {
   private webSocket: WebSocket | undefined;
+  private readonly activeRequests = new Map<string, { readonly ws: WebSocket; readonly request: BridgeRequestOpenMessage; readonly body: string; readonly abort: AbortController }>();
   private readonly connectionGrants = new WeakMap<WebSocket, RelayCapability>();
   private state: FederationBridgeAgentSnapshot["state"] = "idle";
   private sessionId: string | undefined;
@@ -187,10 +191,10 @@ export class FederationBridgeAgent {
       headers.authorization = authorization.trim();
     }
 
-    const ws = new WebSocket(this.options.relayUrl, { headers });
+    const ws = this.options.testTransport?.connect(this.options.relayUrl, headers) ?? new WebSocket(this.options.relayUrl, { headers });
     this.webSocket = ws;
     if (prepared) this.connectionGrants.set(ws, prepared.relay);
-    const expiryTimer = prepared ? setTimeout(() => ws.terminate(), Math.max(0, prepared.relay.expiresAt - Date.now())) : undefined;
+    const lifecycle = this.createLeaseLifecycle(ws, prepared?.relay);
 
     await new Promise<void>((resolve, reject) => {
       let helloAckReceived = false;
@@ -220,24 +224,7 @@ export class FederationBridgeAgent {
       };
 
       ws.once("open", () => {
-        const hello: BridgeHelloMessage = {
-          type: "hello",
-          protocolVersion: BRIDGE_PROTOCOL_VERSION,
-          sentAt: new Date().toISOString(),
-          traceId: randomUUID(),
-          ownerSubject: this.options.ownerSubject,
-          clusterId: this.options.clusterId,
-          agentId: this.options.agentId,
-          peerDid: this.options.peerDid,
-          environment: this.options.environment,
-          bridgeAgentVersion: this.options.bridgeAgentVersion,
-          authMode: this.options.authMode,
-          capabilitiesHash: this.options.capabilitiesHash,
-          labels: [...(this.options.labels ?? [])],
-          topology: this.options.topology,
-        };
-        this.lastSentAt = hello.sentAt;
-        ws.send(JSON.stringify(hello));
+        this.sendHello(ws);
 
         const handshakeDeadlineMs = this.options.handshakeDeadlineMs ?? 10_000;
         handshakeTimer = setTimeout(() => {
@@ -263,8 +250,10 @@ export class FederationBridgeAgent {
         try {
           const parsed = parseBridgeMessageJson(normalizeWsText(data));
           this.lastReceivedAt = parsed.sentAt;
+          if (lifecycle.acknowledge(parsed)) return;
           await this.handleMessage(parsed, ws, () => {
             helloAckReceived = true;
+            lifecycle.connected();
             settleResolve();
           });
         } catch (error) {
@@ -290,7 +279,8 @@ export class FederationBridgeAgent {
 
       ws.on("close", () => {
         clearHandshakeTimer();
-        this.clearConnection(expiryTimer);
+        lifecycle.close();
+        if (this.webSocket === ws) this.clearConnection();
         if (!this.stopped) {
           this.scheduleReconnect();
         }
@@ -301,15 +291,121 @@ export class FederationBridgeAgent {
     });
   }
 
-  private clearConnection(expiryTimer: NodeJS.Timeout | undefined): void {
+  private sendHello(ws: WebSocket): void {
+    const hello: BridgeHelloMessage = {
+      type: "hello",
+      protocolVersion: BRIDGE_PROTOCOL_VERSION,
+      sentAt: new Date().toISOString(),
+      traceId: randomUUID(),
+      ownerSubject: this.options.ownerSubject,
+      clusterId: this.options.clusterId,
+      agentId: this.options.agentId,
+      peerDid: this.options.peerDid,
+      environment: this.options.environment,
+      bridgeAgentVersion: this.options.bridgeAgentVersion,
+      authMode: this.options.authMode,
+      capabilitiesHash: this.options.capabilitiesHash,
+      labels: [...(this.options.labels ?? [])],
+      topology: this.options.topology,
+    };
+    this.lastSentAt = hello.sentAt;
+    ws.send(JSON.stringify(hello));
+  }
+
+  private cancelActiveRequests(ws: WebSocket): void {
+    for (const [id, active] of this.activeRequests) {
+      if (active.ws === ws) { active.abort.abort(); this.activeRequests.delete(id); }
+    }
+  }
+
+  private cancelUnauthorizedRequests(ws: WebSocket): void {
+    for (const [id, active] of this.activeRequests) {
+      if (active.ws !== ws) continue;
+      try { this.connectionGrants.get(ws)?.assertDelivery(active.request, active.body); }
+      catch { active.abort.abort(); this.activeRequests.delete(id); }
+    }
+  }
+
+  private createLeaseLifecycle(ws: WebSocket, capability: RelayCapability | undefined) {
+    let expiryTimer: NodeJS.Timeout | undefined;
+    let renewalTimer: NodeJS.Timeout | undefined;
+    let renewing = false;
+    let awaitingLease: string | undefined;
+    const terminate = () => {
+      capability?.close();
+      this.cancelActiveRequests(ws);
+      ws.terminate();
+    };
+    const armExpiry = () => {
+      clearTimeout(expiryTimer);
+      if (capability) expiryTimer = setTimeout(terminate, Math.max(0, capability.expiresAt - Date.now()));
+    };
+    armExpiry();
+    const renew = async () => {
+      if (!capability || !this.options.renewConnection || renewing || awaitingLease || ws.readyState !== WebSocket.OPEN) return;
+      renewing = true;
+      try {
+        const predecessor = capability.leaseId;
+        const authorization = await this.options.renewConnection();
+        if (this.stopped || this.webSocket !== ws || ws.readyState !== WebSocket.OPEN) return;
+        await capability.renew(authorization, predecessor);
+        if (this.stopped || this.webSocket !== ws || ws.readyState !== WebSocket.OPEN) return;
+        this.cancelUnauthorizedRequests(ws);
+        awaitingLease = capability.leaseId;
+        // Do not rearm the local deadline until the broker acknowledges native admission.
+        ws.send(JSON.stringify({ type: "reauthorize", protocolVersion: BRIDGE_PROTOCOL_VERSION,
+          sessionId: this.sessionId, sentAt: new Date().toISOString(), traceId: randomUUID(),
+          ownerSubject: this.options.ownerSubject, clusterId: this.options.clusterId, agentId: this.options.agentId,
+          authorization, predecessor }));
+      } catch { terminate(); }
+      finally { renewing = false; }
+    };
+
+    return {
+      connected: () => {
+        if (capability && !renewalTimer) renewalTimer = setInterval(() => { void renew(); }, this.options.testTransport?.renewalIntervalMs ?? 10_000);
+      },
+      acknowledge: (message: BridgeMessage): boolean => {
+        if (message.type !== "reauthorize_ack" || !capability) return false;
+        capability.assertHello({ ...message, authMode: "axxium_node" });
+        if (message.sessionId !== this.sessionId || !awaitingLease || message.leaseId !== awaitingLease) throw new Error("relay renewal acknowledgement refused");
+        awaitingLease = undefined;
+        armExpiry();
+        return true;
+      },
+      close: () => {
+        clearTimeout(expiryTimer);
+        clearInterval(renewalTimer);
+        capability?.close();
+        this.cancelActiveRequests(ws);
+      },
+    };
+  }
+
+  private clearConnection(): void {
     this.clearHeartbeatTimer();
-    clearTimeout(expiryTimer);
     this.pendingInboundRequests.clear();
     this.webSocket = undefined;
   }
 
+  private assertSessionMessage(message: BridgeMessage, ws: WebSocket): RelayCapability | undefined {
+    const grant = this.connectionGrants.get(ws);
+    if (grant) {
+      grant.assertHello({ ...message, authMode: "axxium_node" });
+      if (message.type !== "hello_ack" && message.sessionId !== this.sessionId) throw new Error("relay session mismatch");
+    }
+    return grant;
+  }
+
   private async handleMessage(message: BridgeMessage, ws: WebSocket, onConnected: () => void): Promise<void> {
+    if (this.webSocket !== ws || this.stopped) return;
+    const grant = this.assertSessionMessage(message, ws);
     switch (message.type) {
+      case "request_cancel":
+        this.pendingInboundRequests.delete(message.streamId);
+        this.activeRequests.get(message.streamId)?.abort.abort();
+        this.activeRequests.delete(message.streamId);
+        return;
       case "hello_ack":
         this.sessionId = message.sessionId;
         this.connectedAt = message.sentAt;
@@ -318,6 +414,7 @@ export class FederationBridgeAgent {
         this.heartbeatSequence = 0;
         this.state = "connected";
         await this.publishSnapshot(ws);
+        if (this.webSocket !== ws || this.stopped || ws.readyState !== WebSocket.OPEN) return;
         this.startHeartbeatLoop(ws);
         onConnected();
         return;
@@ -329,6 +426,7 @@ export class FederationBridgeAgent {
         });
         return;
       case "request_open":
+        if (grant && (this.pendingInboundRequests.has(message.streamId) || this.activeRequests.has(message.streamId))) throw new Error("duplicate relay stream");
         if (message.method === "GET") {
           await this.handleRequestOpen(message, "", ws);
           return;
@@ -377,6 +475,12 @@ export class FederationBridgeAgent {
     }
 
     const abortController = new AbortController();
+    this.activeRequests.set(message.streamId, { ws, request: message, body: bodyText, abort: abortController });
+    const assertDelivery = () => {
+      if (abortController.signal.aborted || this.activeRequests.get(message.streamId)?.abort !== abortController
+        || this.webSocket !== ws || this.stopped || ws.readyState !== WebSocket.OPEN) throw new Error("relay request canceled");
+      this.connectionGrants.get(ws)?.assertDelivery(message, bodyText);
+    };
     const abort = () => abortController.abort();
     ws.once("close", abort);
     try {
@@ -385,49 +489,9 @@ export class FederationBridgeAgent {
       const result = capability
         ? await capability.execute(message, bodyText, this.options.handleRequest, abortController.signal)
         : await this.options.handleRequest({ request: message, bodyText, signal: abortController.signal });
+      assertDelivery();
       if (isAsyncIterable(result)) {
-        let sawHead = false;
-        let sawEnd = false;
-        let lastProvenance: BridgeResponseProvenance | undefined;
-
-        for await (const event of result) {
-          if (!this.sessionId || ws.readyState !== WebSocket.OPEN) {
-            return;
-          }
-
-          lastProvenance = this.mergeResponseProvenance(lastProvenance, event);
-
-          switch (event.type) {
-            case "response_head":
-              sawHead = true;
-              this.sendResponseHeadMessage(ws, message.streamId, event.status, event.headers ?? {}, event);
-              break;
-            case "response_chunk":
-              if (!sawHead) {
-                sawHead = true;
-                this.sendResponseHeadMessage(ws, message.streamId, 200, {}, event);
-              }
-              this.sendResponseChunkMessage(ws, message.streamId, event.chunk, event.encoding ?? "utf8", event.final ?? false, event);
-              break;
-            case "response_end":
-              if (!sawHead) {
-                sawHead = true;
-                this.sendResponseHeadMessage(ws, message.streamId, 200, {}, event);
-              }
-              sawEnd = true;
-              this.sendResponseEndMessage(ws, message.streamId, event.usage, event);
-              break;
-            default:
-              break;
-          }
-        }
-
-        if (!sawHead) {
-          this.sendResponseHeadMessage(ws, message.streamId, 200, {}, lastProvenance);
-        }
-        if (!sawEnd) {
-          this.sendResponseEndMessage(ws, message.streamId, undefined, lastProvenance);
-        }
+        await this.forwardStream(result, message.streamId, ws, assertDelivery);
         return;
       }
 
@@ -439,14 +503,63 @@ export class FederationBridgeAgent {
 
       this.sendResponseEndMessage(ws, message.streamId, result.usage, result);
     } catch (error) {
+      if (abortController.signal.aborted || this.webSocket !== ws || this.activeRequests.get(message.streamId)?.abort !== abortController) return;
       this.sendError(ws, {
         streamId: message.streamId,
         code: "bridge_request_failed",
-        message: error instanceof Error ? error.message : String(error),
-        retryable: true,
+        message: this.connectionGrants.has(ws) ? "Scoped relay request refused" : error instanceof Error ? error.message : String(error),
+        retryable: !this.connectionGrants.has(ws),
       });
     } finally {
       ws.off("close", abort);
+      if (this.activeRequests.get(message.streamId)?.abort === abortController) this.activeRequests.delete(message.streamId);
+    }
+  }
+
+  private async forwardStream(result: AsyncIterable<BridgeRequestHandlerStreamEvent>, streamId: string, ws: WebSocket, assertDelivery: () => void): Promise<void> {
+    let sawHead = false;
+    let sawEnd = false;
+    let lastProvenance: BridgeResponseProvenance | undefined;
+
+    for await (const event of result) {
+      assertDelivery();
+      if (!this.sessionId || ws.readyState !== WebSocket.OPEN) {
+        return;
+      }
+
+      lastProvenance = this.mergeResponseProvenance(lastProvenance, event);
+
+      switch (event.type) {
+        case "response_head":
+          sawHead = true;
+          this.sendResponseHeadMessage(ws, streamId, event.status, event.headers ?? {}, event);
+          break;
+        case "response_chunk":
+          if (!sawHead) {
+            sawHead = true;
+            this.sendResponseHeadMessage(ws, streamId, 200, {}, event);
+          }
+          this.sendResponseChunkMessage(ws, streamId, event.chunk, event.encoding ?? "utf8", event.final ?? false, event);
+          break;
+        case "response_end":
+          if (!sawHead) {
+            sawHead = true;
+            this.sendResponseHeadMessage(ws, streamId, 200, {}, event);
+          }
+          sawEnd = true;
+          this.sendResponseEndMessage(ws, streamId, event.usage, event);
+          break;
+        default:
+          break;
+      }
+    }
+
+    assertDelivery();
+    if (!sawHead) {
+      this.sendResponseHeadMessage(ws, streamId, 200, {}, lastProvenance);
+    }
+    if (!sawEnd) {
+      this.sendResponseEndMessage(ws, streamId, undefined, lastProvenance);
     }
   }
 
@@ -599,6 +712,7 @@ export class FederationBridgeAgent {
       capabilities: this.connectionGrants.get(ws)?.capabilities(this.options.getCapabilities ? [...await this.options.getCapabilities()] : [])
         ?? (this.options.getCapabilities ? [...await this.options.getCapabilities()] : []),
     };
+    if (this.webSocket !== ws || this.stopped || ws.readyState !== WebSocket.OPEN) return;
     this.lastSentAt = capabilities.sentAt;
     ws.send(JSON.stringify(capabilities));
 
@@ -621,6 +735,7 @@ export class FederationBridgeAgent {
             nodes: [],
           },
     };
+    if (this.webSocket !== ws || this.stopped || ws.readyState !== WebSocket.OPEN) return;
     this.lastSentAt = health.sentAt;
     ws.send(JSON.stringify(health));
   }

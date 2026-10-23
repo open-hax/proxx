@@ -27,6 +27,7 @@ interface FederationBridgeAutostartDeps {
   readonly keyPool: KeyPool;
   readonly credentialStore: CredentialStoreLike;
   readonly logger: LoggerLike;
+  readonly consumeRelayRpc?: (issuer: string, nonce: string, exp: number) => Promise<boolean>;
   readonly getResolvedModelCatalog?: () => Promise<{ readonly modelIds: readonly string[] }>;
   readonly handleBridgeRequest?: (input: {
     readonly method: string;
@@ -337,7 +338,7 @@ export function createEnvFederationBridgeAgent(deps: FederationBridgeAutostartDe
   if (!relayNodeOptions && Object.keys(process.env).some((name) => name.startsWith("AXXIUM_RELAY_NODE_"))) {
     throw new Error("Configured Axxium node requires the CLJS relay boundary");
   }
-  const scopedOptions = relayNodeOptions?.({ relayUrl, clusterId } as import("./bridge-agent.js").FederationBridgeAgentOptions);
+  const scopedOptions = relayNodeOptions?.({ relayUrl, clusterId } as import("./bridge-agent.js").FederationBridgeAgentOptions, deps.consumeRelayRpc);
   const missing = [
     ownerSubject ? undefined : "FEDERATION_BRIDGE_OWNER_SUBJECT or FEDERATION_DEFAULT_OWNER_SUBJECT",
     peerDid ? undefined : "FEDERATION_SELF_PEER_DID",

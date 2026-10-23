@@ -13,6 +13,7 @@
                                           relayNodeOptions proxx.runtime/relay-node-options-js
                                           qualifiedOwner proxx.runtime/qualified-owner-js
                                           relaySessionRoutable proxx.runtime/relay-session-routable-js
+                                          relayFailureTerminal proxx.runtime/relay-failure-terminal-js
                                           createAxxiumConsumer proxx.runtime/create-axxium-consumer-js
                                           normalizeKeys proxx.runtime/normalize-keys-js
                                           validateEntity proxx.runtime/validate-entity-js

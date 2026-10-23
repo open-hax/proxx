@@ -147,6 +147,7 @@ export interface BridgeRequestOpenMessage extends BridgeBaseEnvelope {
   readonly method: string;
   readonly path: string;
   readonly headers: Readonly<Record<string, string>>;
+  readonly relayBinding?: Record<string, unknown>;
   readonly requestContext?: BridgeRequestContext;
   readonly routingIntent?: BridgeRoutingIntent;
   readonly originClusterId?: string;
@@ -206,7 +207,24 @@ export interface BridgeErrorMessage extends BridgeBaseEnvelope {
   readonly retryable: boolean;
 }
 
+export interface BridgeReauthorizeMessage extends BridgeBaseEnvelope {
+  readonly type: "reauthorize";
+  readonly authorization: string;
+  readonly predecessor: string;
+}
+export interface BridgeReauthorizeAckMessage extends BridgeBaseEnvelope {
+  readonly type: "reauthorize_ack";
+  readonly leaseId: string;
+}
+export interface BridgeRequestCancelMessage extends BridgeBaseEnvelope {
+  readonly type: "request_cancel";
+  readonly streamId: string;
+}
+
 export type BridgeMessage =
+  | BridgeReauthorizeMessage
+  | BridgeReauthorizeAckMessage
+  | BridgeRequestCancelMessage
   | BridgeHelloMessage
   | BridgeHelloAckMessage
   | BridgeHeartbeatMessage
@@ -538,6 +556,12 @@ export function parseBridgeMessage(value: unknown): BridgeMessage {
 
   const base = parseBaseEnvelope(value);
   switch (base.type) {
+    case "reauthorize":
+      return { ...base, type: "reauthorize", authorization: requiredRawString(value, "authorization"), predecessor: requiredString(value, "predecessor") };
+    case "reauthorize_ack":
+      return { ...base, type: "reauthorize_ack", leaseId: requiredString(value, "leaseId") };
+    case "request_cancel":
+      return { ...base, type: "request_cancel", streamId: requiredString(value, "streamId") };
     case "hello":
       return {
         ...base,
@@ -593,6 +617,7 @@ export function parseBridgeMessage(value: unknown): BridgeMessage {
         method: requiredString(value, "method"),
         path: requiredString(value, "path"),
         headers: requiredStringRecord(value, "headers"),
+        relayBinding: isRecord(value.relayBinding) ? value.relayBinding : undefined,
         requestContext: parseRequestContext(value.requestContext),
         routingIntent: parseRoutingIntent(value.routingIntent),
         originClusterId: optionalString(value, "originClusterId"),
