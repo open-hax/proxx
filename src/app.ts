@@ -85,7 +85,9 @@ import { registerHealthRoutes } from "./routes/health.js";
 
 export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
   const app = Fastify({
-    logger: true,
+    // Authorization callbacks carry one-use codes in the URL. Keep those and
+    // credential headers out of both request logs and child logger bindings.
+    logger: { redact: ["req.url", "req.headers.authorization", "req.headers.cookie"] },
     bodyLimit: 300 * 1024 * 1024
   });
 
