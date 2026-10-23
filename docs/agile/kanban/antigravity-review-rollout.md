@@ -16,8 +16,9 @@ This is an incoming source proposal for `open-hax/proxx`, following
 [eta-mu provider planning](https://github.com/open-hax/eta-mu/pull/364). The root planning record is commit
 `1f3f7317012e23d7ec0f35a7e22b2b01cdff65b3`. Eta-mu owns reviewer semantics;
 Muse provides only organization-local compatibility bytes for Octave Commons.
-The checked-in caller is authoritative for its current full immutable workflow
-pin; the installed runtime is exactly `3bcf27bef296f9349fdf4997df256a617da5f120`.
+The checked-in caller records the exact immutable workflow and runtime pins.
+The deployed trusted runtime must match that runtime pin; deployment proof is
+recorded separately from this incoming planning card.
 
 ## Outcome
 
@@ -27,17 +28,19 @@ This repository consumes the shared advisory reviewer with the exact requested
 ## Scope
 
 - `.github/workflows/antigravity-review.yml` is the thin caller proposal.
-- This incoming planning document and append-only local provenance record scope.
+- This incoming planning document, `receipts.edn`, and
+  `.ημ/session-mycology/ledger.md` record local scope and append-only provenance.
 - The expected reusable workflow route is `open-hax/eta-mu/.github/workflows/antigravity-code-review.yml`.
 
 ## Acceptance criteria
 
 - [ ] Independently verify the caller's exact 40-character workflow pin and runtime
-  pin against the reviewed coordinator plan; runtime must be
-  `3bcf27bef296f9349fdf4997df256a617da5f120` and model must be exactly
+  pin against the reviewed coordinator plan and installed trusted source; the
+  runtime pin must be a full immutable commit and model must be exactly
   `gemini-3.8-flash-high`, with no fallback model or mutable reference.
 - [ ] Preserve contents/pull-request read-only permissions, exact PR base/head
-  binding, and absence of forwarded secrets or GitHub signing/write credentials.
+  binding, and absence of forwarded secrets. The Antigravity process and every
+  descendant must receive no GitHub credentials, including read-only tokens.
 - [ ] Verify the preinstalled trusted runtime, pinned CLI/Bubblewrap checksums,
   strict read/write/command/MCP-denial profile, finish-only terminal formatting,
   sanitized model environment, complete bounded input and cleanup on every exit.
@@ -63,7 +66,7 @@ Existing deterministic repository checks and required review remain necessary.
 ## Status and non-goals
 
 This document remains **incoming**. It is hand-authored planning input, with no
-Rheos admission, transition, write-id or engine event asserted. Hosted worker
-registration, exact-head review/CI, source adoption and end-to-end qualification
-remain pending. No merge, deployment, credential copying, branch-policy change,
+Rheos admission, transition, write-id or engine event asserted. Shared worker
+registration has been observed; this repository's final source adoption,
+exact-head review/CI and hosted qualification remain pending. No merge, deployment, credential copying, branch-policy change,
 new board engine, or application/runtime implementation is authorized here.

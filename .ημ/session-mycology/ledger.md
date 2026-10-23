@@ -57,3 +57,13 @@
   spore: none
   receipt-refs: "receipts.edn#sha256:fac7d836e42c5cffef88fa25413f012b658233a24aecaa907e6e2e59c787de36"
   note: "Use the child canonical card and receipt locations; preserve every old ledger byte and keep generated caller syntax distinct from hosted worker/model qualification. Runtime ownership stays in eta-mu; existing checks and approval policy remain authoritative. No new spore or promotion."
+
+- ts: 2026-10-23T08:40:10.488989Z
+  session: codex/foresight-antigravity-rollout
+  task: Publish proxx R4 caller and incoming planning clarification
+  p-efficiency: 0.95
+  p-friction: 0.05
+  p-skill-candidate: 0.0
+  spore: none
+  receipt-refs: c924b91fffcd9496cb8f77443fd6de9f482bb1b14fa048b70af3589f4555e23a
+  note: "Keep runtime pins in generated callers; preserve incoming frontmatter and append-only accountability. Shared service proof and member exact-head hosted proof remain distinct."

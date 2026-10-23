@@ -20,5 +20,5 @@ jobs:
     with:
       pr_head_sha: ${{ github.event.pull_request.head.sha }}
       pr_base_sha: ${{ github.event.pull_request.base.sha }}
-      review_runtime_revision: d79b80505e1fef9d3798175ce14261ebd0281b49
+      review_runtime_revision: 9955ba838ff187beced4beb26f4c271941a956ec
       model: gemini-3.8-flash-high
