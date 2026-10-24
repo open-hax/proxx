@@ -87,3 +87,9 @@
   spore: none
   receipt-refs: Proxx451 correction of prior native settlement UTF8 claims;Proxx451 auth-suite gate and malformed-UTF8 transport repair
   note: A byte budget does not imply valid decoding. Real malformed HTTP bytes proved replacement decoding could admit a valid-looking catalog and overwrite the last-good baseline; fatal decoding now refuses it while retaining valid split Unicode. Preserve old evidence and append the attribution correction rather than rewriting history. Keep new async fixture bindings bounded to avoid SCI expansion limits. Local App/OIDC tests use mocks only; native COMMENTED and pending enrollment do not qualify approval. Parent owns publication and native correction.
+
+- context: shared-login relay preparation retry review
+  p-friction: 0.2
+  p-skill-candidate: 0.1
+  spore: none
+  note: A preparation failure before socket construction cannot rely on a close callback to retry. Reproduced before repair and checked stop cancellation. Typecheck caught optional preparation result typing; corrected before commit. Receipt adapter selected .ημ ledger; initial explicit staging named root ledger, so preserve the append in a follow-up without amending history. No fleet activation or new spore.
