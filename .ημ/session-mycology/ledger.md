@@ -93,3 +93,9 @@
   p-skill-candidate: 0.1
   spore: none
   note: A preparation failure before socket construction cannot rely on a close callback to retry. Reproduced before repair and checked stop cancellation. Typecheck caught optional preparation result typing; corrected before commit. Receipt adapter selected .ημ ledger; initial explicit staging named root ledger, so preserve the append in a follow-up without amending history. No fleet activation or new spore.
+
+- context: concurrent tenant selection and OIDC renewal
+  p-friction: 0.15
+  p-skill-candidate: 0.1
+  spore: none
+  note: Separate mutable tenant selection from the exact grant-generation fence; merge renewal into the freshly stored session. Actual maintained-client refresh barrier reproduced forced revocation before the repair. Existing race-testing guidance covers this; no spore or promotion.

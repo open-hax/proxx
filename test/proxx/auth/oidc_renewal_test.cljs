@@ -83,6 +83,22 @@
 (deftest logout-wins-inflight-refresh-with-orphan-cleanup
   (async done (-> (logout*) (.catch (fn [e] (is false (str e)))) (.finally done))))
 
+(deftest ^:async tenant-selection-during-refresh-preserves-grant-and-selection
+  (let [{:keys [state fixture config adapters handle] :as f} (await (setup!))
+        release (atom nil) started (atom nil)
+        barrier (js/Promise. (fn [resolve _] (reset! release resolve)))
+        entered (js/Promise. (fn [resolve _] (reset! started resolve)))]
+    (near-expiry! f)
+    (swap! (:mode fixture) assoc :refresh-wait barrier :refresh-entered #(deref started))
+    (let [admission (runtime/verify! state config adapters (runtime/session state handle) (io/now))]
+      (await entered)
+      (swap! (:sessions state) update (io/digest handle) assoc :active-tenant-id "local-tenant")
+      (@release)
+      (is (:userId (await admission)))
+      (is (= "local-tenant" (:active-tenant-id (runtime/session state handle))))
+      (is (= 1 @(:rotations fixture)))
+      (is (empty? @(:revoked fixture))))))
+
 (defn- ^:async straddling* []
   (doseq [old-policy-missing? [false true]]
     (let [{:keys [state fixture config adapters handle]} (await (setup!))

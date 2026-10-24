@@ -141,6 +141,12 @@
        (= (select-keys attempted [:issuer :subject :user-id :nonce])
           (select-keys current [:issuer :subject :user-id :nonce]))))
 
+(defn renewal-current?
+  "Only tenant selection may change while a refresh is in flight."
+  [attempted current]
+  (and (some? current)
+       (= (dissoc attempted :active-tenant-id) (dissoc current :active-tenant-id))))
+
 (defn pending-evictions
   "Make one bounded pending slot by evicting oldest unadmitted transactions."
   [entries limit]

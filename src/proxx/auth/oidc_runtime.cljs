@@ -56,11 +56,13 @@
       (let [current (merge previous (select-keys renewed [:access-token :refresh-token :expires-at]))
             evidence (await (io/introspect! rp (:access-token current)))
             now (current-time adapters)
-            bound (min (:session-expires-at previous) (law/session-bound current evidence now))]
+            bound (min (:session-expires-at previous) (law/session-bound current evidence now))
+            stored (get @(:sessions state) (:key previous))]
         (when-not (and (law/grant-admitted? config current evidence now)
-                       (= previous (get @(:sessions state) (:key previous))))
+                       (law/renewal-current? previous stored))
           (throw (ex-info "unauthorized" {:status 401 :error "unauthorized"})))
-        (let [current (assoc current :session-expires-at bound)]
+        (let [current (assoc (merge stored (select-keys renewed [:access-token :refresh-token :expires-at]))
+                            :session-expires-at bound)]
           (swap! (:sessions state) assoc (:key previous) current)
           current))
       (catch :default error
