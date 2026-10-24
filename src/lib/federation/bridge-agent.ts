@@ -183,7 +183,16 @@ export class FederationBridgeAgent {
   private async connect(isReconnect: boolean): Promise<void> {
     this.state = isReconnect ? "reconnecting" : "connecting";
 
-    const prepared = await this.options.prepareConnection?.();
+    let prepared: Awaited<ReturnType<NonNullable<FederationBridgeAgentOptions["prepareConnection"]>>> | undefined;
+    try {
+      prepared = await this.options.prepareConnection?.();
+    } catch (error) {
+      this.recordError({ code: "bridge_prepare_failed", message: "Relay connection preparation failed", retryable: true });
+      // start() owns initial retry scheduling; reconnect attempts have no socket
+      // whose close handler could schedule their next attempt.
+      if (isReconnect && !this.stopped) this.scheduleReconnect();
+      throw error;
+    }
     if (this.stopped) return;
     const authorization = prepared?.authorization ?? this.options.authorization;
     const headers: Record<string, string> = {};
