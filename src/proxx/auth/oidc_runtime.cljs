@@ -22,14 +22,14 @@
 
 (defn ^:async begin! [state config now]
   (prune! state now)
-  (when (>= (count @(:transactions state)) law/max-transactions)
-    (throw (ex-info "login_busy" {:status 503 :error "login_busy"})))
+  (swap! (:transactions state)
+         #(apply dissoc % (law/pending-evictions % law/max-transactions)))
   (let [rp (await (relying-party! state config))
         authorization (await (io/authorization! rp config))
         binding (io/random-secret)]
     ;; Recheck after async discovery; reserve synchronously before returning.
-    (when (>= (count @(:transactions state)) law/max-transactions)
-      (throw (ex-info "login_busy" {:status 503 :error "login_busy"})))
+    (swap! (:transactions state)
+           #(apply dissoc % (law/pending-evictions % law/max-transactions)))
     (swap! (:transactions state) assoc (:state authorization)
            (assoc authorization :binding (io/digest binding) :created-at now))
     {:url (:url authorization) :binding binding}))
@@ -79,17 +79,20 @@
     session))
 
 (defn ^:async verify! [state config adapters session now]
-  (try
+  (let [attempted (atom session)]
+   (try
     (when-not (law/current-session? session now)
       (throw (ex-info "unauthorized" {:status 401 :error "unauthorized"})))
     (let [session (await (current-session! state config adapters session))
+          _ (reset! attempted session)
           rp (await (relying-party! state config))
           evidence (await (io/introspect! rp (:access-token session)))
           auth (await (local-auth! adapters session))
           current (max now (current-time adapters))]
       (when-not (and (law/grant-admitted? config session evidence current)
                      (< (- current now) 5000)
-                     (or (nil? (:key session)) (= session (get @(:sessions state) (:key session)))))
+                     (or (nil? (:key session))
+                         (law/session-continuity? session (get @(:sessions state) (:key session)) current)))
         (throw (ex-info "unauthorized" {:status 401 :error "unauthorized"})))
       (when (:refresh-token session) (law/session-bound session evidence current))
       (if auth
@@ -99,11 +102,13 @@
         (throw (ex-info "account_link_required" {:status 403 :error "account_link_required"}))))
     (catch :default error
       (when (:key session)
-        (let [[before _] (swap-vals! (:sessions state) dissoc (:key session))]
-          (when-let [current (get before (:key session))]
-            (try (await (io/revoke-session! (await (relying-party! state config)) current))
+        (let [key (:key session)
+              [before after] (swap-vals! (:sessions state)
+                               #(if (= @attempted (get % key)) (dissoc % key) %))]
+          (when (and (contains? before key) (not (contains? after key)))
+            (try (await (io/revoke-session! (await (relying-party! state config)) (get before key)))
                  (catch :default _ nil)))))
-      (throw error))))
+      (throw error)))))
 
 (defn ^:async establish! [state config adapters tokens current? now]
   (let [rp (await (relying-party! state config))

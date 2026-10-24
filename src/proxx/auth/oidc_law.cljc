@@ -133,3 +133,16 @@
         (= "completing" (:status tx)) :refuse
         (< now (:next-poll tx)) :slow
         :else :continue))
+
+(defn session-continuity?
+  "Token rotation and tenant selection preserve identity; logout and rebinding do not."
+  [attempted current now]
+  (and (current-session? current now)
+       (= (select-keys attempted [:issuer :subject :user-id :nonce])
+          (select-keys current [:issuer :subject :user-id :nonce]))))
+
+(defn pending-evictions
+  "Make one bounded pending slot by evicting oldest unadmitted transactions."
+  [entries limit]
+  (->> entries (sort-by (fn [[_ tx]] (or (:created-at tx) (:expires-at tx))))
+       (take (max 0 (inc (- (count entries) limit)))) (mapv key)))

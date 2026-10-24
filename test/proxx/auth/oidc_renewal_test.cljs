@@ -82,3 +82,55 @@
 
 (deftest logout-wins-inflight-refresh-with-orphan-cleanup
   (async done (-> (logout*) (.catch (fn [e] (is false (str e)))) (.finally done))))
+
+(defn- ^:async straddling* []
+  (doseq [old-policy-missing? [false true]]
+    (let [{:keys [state fixture config adapters handle]} (await (setup!))
+          clock (atom (io/now)) calls (atom 0) release (atom nil) entered (atom nil)
+          barrier (js/Promise. (fn [resolve _] (reset! release resolve)))
+          started (js/Promise. (fn [resolve _] (reset! entered resolve)))
+          blocked (assoc adapters :now #(deref clock)
+                    :get-user (fn ^:async get-user [id]
+                                (if (= 1 (swap! calls inc))
+                                  (do (@entered) (await barrier)
+                                      (when-not old-policy-missing? (await ((:get-user adapters) id))))
+                                  (await ((:get-user adapters) id)))))]
+      (swap! (:sessions state) update (io/digest handle) assoc :expires-at (+ @clock 31000))
+      (let [old (runtime/verify! state config blocked (runtime/session state handle) @clock)]
+        (await started)
+        (swap! clock + 2000)
+        (is (:userId (await (runtime/verify! state config blocked (runtime/session state handle) @clock))))
+        (@release)
+        (if old-policy-missing? (is (await (refused? old))) (is (:userId (await old))))
+        (is (some? (runtime/session state handle)))
+        (is (= 1 @(:rotations fixture)))
+        (is (empty? @(:revoked fixture)))))))
+
+(defn- ^:async run-straddling! [done]
+  (try (await (straddling*))
+       (catch :default error (is false (str error)))
+       (finally (done))))
+
+(deftest an-admission-before-the-renewal-window-cannot-destroy-its-successor
+  (async done (run-straddling! done)))
+
+(defn- ^:async bounded-start* []
+  (let [{:keys [state config adapters fixture]} (await (setup!)) now (io/now)]
+    (reset! (:transactions state)
+      (into {} (for [n (range 1000)] [(str "pending-" n) {:created-at (+ (- now 1000) n)}])))
+    (let [start (await (runtime/begin! state config now))
+          issued ((:issue-code fixture) (:url start))
+          tx (runtime/consume! state (:state issued) (:binding start) now)]
+      (is (not (contains? @(:transactions state) "pending-0")))
+      (is (= 999 (count @(:transactions state))))
+      (is (some? tx))
+      (is (:handle (await (runtime/complete! state config adapters
+                     (str "?code=" (:code issued) "&state=" (:state issued)) tx now)))))))
+
+(defn- ^:async run-bounded-start! [done]
+  (try (await (bounded-start*))
+       (catch :default error (is false (str error)))
+       (finally (done))))
+
+(deftest saturated-pending-transactions-still-permit-a-new-valid-login
+  (async done (run-bounded-start! done)))

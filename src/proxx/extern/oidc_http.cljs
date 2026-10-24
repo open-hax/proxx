@@ -225,6 +225,6 @@
                         (watch-response! state config adapters request reply session-handle auth)
                         (clj->js auth))
                       (catch :default error
-                        (when (contains? #{401 403} (:status (refusal error)))
-                          (runtime/remove-session! state session-handle))
+                        ;; Verification owns version-specific cleanup. Origin or
+                        ;; node-policy refusal must not destroy a valid session.
                         (send-refusal! reply error) nil))))}))

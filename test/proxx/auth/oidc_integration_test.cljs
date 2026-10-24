@@ -52,6 +52,9 @@
                       (if auth (aset request "oidcTestAuth" auth)
                           (do (.code reply 401) (.send reply #js {:error "unauthorized"}))))))))
     (.get app "/protected" (fn [request _reply] (aget request "oidcTestAuth")))
+    (.post app "/protected" (fn [request _reply] (aget request "oidcTestAuth")))
+    (.post app "/api/ui/federation/bridges/lease/import"
+           (fn [_request _reply] #js {:unexpected true}))
     app))
 
 (deftest ^:async browser-pkce-protected-context-and-revocation
@@ -141,4 +144,21 @@
         (is (nil? (aget (.-headers callback) "location")))
         (is (= 401 (.-statusCode (await (.inject server #js {:url "/protected"}))))))
       (catch :default error (is false (str "OIDC fixture failed: " (.-message error))))
+      (finally (await (.close server))))))
+
+(deftest ^:async admission-policy-refusal-preserves-a-valid-browser-session
+  (let [f (fixture/create) ^js server (app f)]
+    (try
+      (let [{:keys [response]} (await (browser-flow! server f))
+            browser-cookie (cookie response)]
+        (doseq [[path origin expected] [["/protected" "https://sibling.example" "invalid_origin"]
+                                        ["/api/ui/federation/bridges/lease/import" fixture/origin "node_grant_required"]]]
+          (let [^js refused (await (.inject server #js {:method "POST" :url path
+                                      :headers #js {:cookie browser-cookie :origin origin}}))
+                ^js still-live (await (.inject server #js {:url "/protected" :headers #js {:cookie browser-cookie}}))]
+            (is (= 403 (.-statusCode refused)))
+            (is (= expected (aget (.json refused) "error")))
+            (is (= 200 (.-statusCode still-live)))))
+        (is (empty? @(:revoked f))))
+      (catch :default error (is false (str error)))
       (finally (await (.close server))))))

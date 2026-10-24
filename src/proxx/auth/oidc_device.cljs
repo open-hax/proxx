@@ -40,20 +40,24 @@
         (when (and (= (:handle tx) (:handle current)) (= "pending" (:status current)))
           (swap! (:devices state) update id assoc :status (io/device-failure error)))))))
 
+(defn- ^:async make-room!
+  "Cancel oldest unadmitted transactions instead of globally disabling device login."
+  [state config]
+  (while (>= (count @(:devices state)) law/max-transactions)
+    (when-let [id (first (law/pending-evictions @(:devices state) law/max-transactions))]
+      (await (cancel! state config id)))))
+
 (defn ^:async begin! [state config origin previous]
   (require-origin! config origin)
   (await (cancel! state config previous))
   (doseq [[id tx] @(:devices state)]
     (when (<= (:expires-at tx) (io/now)) (await (cancel! state config id))))
-  (when (>= (count @(:devices state)) law/max-transactions)
-    (throw (ex-info "login_busy" {:status 503 :error "login_busy"})))
+  (await (make-room! state config))
   (let [rp (await (runtime/relying-party! state config))
         result (await (io/device-start! rp config))
         handle (io/random-secret) id (io/digest handle)
         tx (assoc result :status "pending" :next-poll 0)]
-    (when (>= (count @(:devices state)) law/max-transactions)
-      (when (:handle tx) (io/cancel-device! (:handle tx)))
-      (throw (ex-info "login_busy" {:status 503 :error "login_busy"})))
+    (await (make-room! state config))
     (swap! (:devices state) assoc id tx)
     (io/on-device-expiry! (:handle tx) #(expire! state config id))
     (work! state config rp id tx)

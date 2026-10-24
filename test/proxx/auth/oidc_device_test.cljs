@@ -102,3 +102,27 @@
 
 (deftest device-denial-expiry-and-unlinked-subject-refuse-product-admission
   (async done (-> (protocol-refusals*) (.catch (fn [e] (is false (str e)))) (.finally done))))
+
+(defn- ^:async capacity* []
+  (let [{:keys [state config]} (setup) now (io/now)
+        oldest #js {:controller (js/AbortController.)}]
+    (reset! (:devices state)
+      (into {} (for [n (range 1000)]
+                 [(str "old-" n) {:handle (if (zero? n) oldest #js {:controller (js/AbortController.)})
+                                  :status "pending" :expires-at (+ now 10000 n)}])))
+    (try
+      (let [created (await (device/begin! state config fixture/origin nil))]
+        (is (string? (:handle created)))
+        (is (= 1000 (count @(:devices state))))
+        (is (not (contains? @(:devices state) "old-0")))
+        (is (true? (.. oldest -controller -signal -aborted))))
+      (finally
+        (doseq [id (keys @(:devices state))] (await (device/cancel! state config id)))))))
+
+(defn- ^:async run-capacity! [done]
+  (try (await (capacity*))
+       (catch :default error (is false (str error)))
+       (finally (done))))
+
+(deftest device-capacity-cancels-oldest-and-still-starts-a-real-protocol-transaction
+  (async done (run-capacity! done)))
