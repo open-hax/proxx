@@ -99,3 +99,9 @@
   p-skill-candidate: 0.1
   spore: none
   note: Separate mutable tenant selection from the exact grant-generation fence; merge renewal into the freshly stored session. Actual maintained-client refresh barrier reproduced forced revocation before the repair. Existing race-testing guidance covers this; no spore or promotion.
+
+- context: scoped relay cancelled-frame custody
+  p-friction: 0.15
+  p-skill-candidate: 0.1
+  spore: none
+  note: Cancellation and transport delivery race; remember a bounded set of broker-cancelled IDs per session so expected late frames cannot close unrelated streams. Preserve capability checks and unknown-ID refusal. Reproduced transport failure before repair; reran actual composed PostgreSQL/long-stream fixture after build. Existing protocol-race guidance suffices; no spore or promotion.
