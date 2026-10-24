@@ -82,7 +82,41 @@ export interface CljsModelCandidatesRunResult {
   readonly [key: string]: unknown;
 }
 
+export interface AxxiumConsumer {
+  readonly selectTenant: (request: import("fastify").FastifyRequest, reply: import("fastify").FastifyReply, tenantId: string) => Promise<void>;
+  readonly isPublicPath: (path: string) => boolean;
+  readonly register: (app: import("fastify").FastifyInstance) => void;
+  readonly admit: (request: import("fastify").FastifyRequest, reply: import("fastify").FastifyReply) => Promise<import("./request-auth.js").ResolvedRequestAuth | undefined>;
+}
+
+export interface RelayCapability {
+  readonly ownerSubject: string;
+  readonly nodeId: string;
+  readonly expiresAt: number;
+  readonly leaseId: string;
+  readonly allowedTenants: readonly string[];
+  readonly close: () => void;
+  readonly renew: (authorization: string, predecessor: string) => Promise<void>;
+  readonly bindRequest: (request: unknown, body: string | undefined, tenant: string | undefined, auth: unknown) => Record<string, unknown>;
+  readonly assertDelivery: (request: unknown, body?: string) => void;
+  readonly execute: (request: unknown, body: string, handler: NonNullable<import("./federation/bridge-agent.js").FederationBridgeAgentOptions["handleRequest"]>, signal: AbortSignal) => Promise<import("./federation/bridge-agent.js").BridgeRequestHandlerResult>;
+  readonly assertActive: () => void;
+  readonly assertHello: (hello: unknown) => void;
+  readonly assertRequest: (request: unknown, body?: string) => void;
+  readonly headers: (headers: Readonly<Record<string, string>>) => Record<string, string>;
+  readonly capabilities: (capabilities: readonly import("./federation/bridge-protocol.js").BridgeCapabilityAdvertisement[]) => readonly import("./federation/bridge-protocol.js").BridgeCapabilityAdvertisement[];
+}
+
 export interface ProxxCljsRuntime {
+  readonly createRelayBroker?: (consume?: (issuer: string, jti: string, exp: number) => Promise<boolean>) => { admit: (authorization?: string) => Promise<import("./federation/bridge-relay.js").FederationBridgeAuthorizedIdentity> } | undefined;
+  readonly relayNodeOptions?: (options: import("./federation/bridge-agent.js").FederationBridgeAgentOptions, consume?: (issuer: string, nonce: string, exp: number) => Promise<boolean>) => import("./federation/bridge-agent.js").FederationBridgeAgentOptions;
+  readonly relaySessionRoutable?: (session: unknown, auth: unknown, owner: string, tenant: string, model?: string, operation?: string) => boolean;
+  readonly relayFailureTerminal?: (session: unknown, dispatchAttempted: boolean) => boolean;
+  readonly qualifiedOwner?: (auth: unknown) => string | undefined;
+  readonly createAxxiumConsumer?: (config: NonNullable<import("./config.js").ProxyConfig["axxiumOidc"]> & { readonly allowUnauthenticated: boolean }, adapters: {
+    readonly getUser: (id: string) => Promise<unknown>;
+    readonly getMemberships: (id: string) => Promise<unknown>;
+  }) => AxxiumConsumer;
   readonly normalizeKeys: (value: unknown) => unknown;
   readonly validateEntity: (entityType: string, value: unknown) => CljsValidationResult;
   readonly projectPheromone: (events: readonly unknown[], opts?: unknown) => number;

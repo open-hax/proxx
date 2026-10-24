@@ -19,6 +19,8 @@ import { KeyPool } from "../lib/key-pool.js";
 import { ProxySettingsStore } from "../lib/proxy-settings-store.js";
 import { RequestLogStore } from "../lib/request-log-store.js";
 import { BRIDGE_PROTOCOL_VERSION } from "../lib/federation/bridge-protocol.js";
+import { createFederationBridgeRelay } from "../lib/federation/bridge-relay.js";
+import type { RelayCapability } from "../lib/cljs-runtime.js";
 import { registerApiV1Routes } from "../routes/api/v1/index.js";
 import { registerWebSocketRoutes } from "../routes/api/ui/ws.js";
 
@@ -29,6 +31,44 @@ interface BridgeTestContext {
   readonly baseUrl: string;
   readonly wsUrl: string;
 }
+
+test("late cancelled scoped frames leave concurrent streams connected; unknown IDs refuse", async () => {
+  const relay = createFederationBridgeRelay();
+  const sent: Record<string, unknown>[] = [];
+  const closed: string[] = [];
+  const capability: RelayCapability = {
+    ownerSubject: "owner", nodeId: "node", expiresAt: Date.now() + 25_000,
+    leaseId: "lease", allowedTenants: ["tenant"], close() {}, async renew() {},
+    bindRequest: () => ({}), assertDelivery() {}, assertActive() {}, assertHello() {}, assertRequest() {},
+    headers: (headers) => ({ ...headers }), capabilities: (value) => value,
+    execute: async () => { throw new Error("not part of transport fixture"); },
+  };
+  const channel = { isOpen: true, send(data: string) { sent.push(JSON.parse(data)); },
+    close(_code?: number, reason?: string) { closed.push(reason ?? ""); } };
+  const hello = { type: "hello" as const, protocolVersion: BRIDGE_PROTOCOL_VERSION,
+    sentAt: new Date().toISOString(), traceId: "hello", ownerSubject: "owner", clusterId: "cluster",
+    agentId: "agent", peerDid: "did:web:test.invalid", environment: "test",
+    bridgeAgentVersion: "test", authMode: "axxium_node" as const, labels: [] };
+  const { sessionId } = relay.acceptHello(hello, { authKind: "axxium_node", relay: capability });
+  relay.registerSseChannel(sessionId, channel);
+  try {
+    const cancelled = relay.requestStream(sessionId, { path: "/v1/responses", timeoutMs: 5_000 })[Symbol.asyncIterator]();
+    const cancelledId = sent[0]!.streamId;
+    const allowed = relay.requestStream(sessionId, { path: "/v1/responses", timeoutMs: 5_000 })[Symbol.asyncIterator]();
+    const allowedId = sent[1]!.streamId;
+    await cancelled.return!();
+    const frame = { ...hello, type: "response_chunk", sessionId, chunk: "late", encoding: "utf8" };
+    relay.handleChannelMessage(sessionId, JSON.stringify({ ...frame, streamId: cancelledId }), channel);
+    assert.deepEqual(closed, []);
+    relay.handleChannelMessage(sessionId, JSON.stringify({ ...frame, streamId: allowedId }), channel);
+    const delivered = (await allowed.next()).value;
+    assert.ok(delivered.type === "response_chunk");
+    assert.equal(delivered.chunk, "late");
+    await allowed.return!();
+    relay.handleChannelMessage(sessionId, JSON.stringify({ ...frame, streamId: "never-opened" }), channel);
+    assert.deepEqual(closed, ["bridge_stream_mismatch"]);
+  } finally { await relay.close(); }
+});
 
 function buildConfig(input: {
   readonly upstreamPort: number;

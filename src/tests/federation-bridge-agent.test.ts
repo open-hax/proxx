@@ -21,6 +21,28 @@ interface BridgeTestContext {
   readonly wsUrl: string;
 }
 
+test("preparation outages keep retrying and stop cancels the retry loop", async () => {
+  let attempts = 0;
+  const agent = createFederationBridgeAgent({
+    relayUrl: "ws://127.0.0.1:1",
+    ownerSubject: "actor-test", peerDid: "did:web:test.invalid",
+    clusterId: "test", agentId: "preparation-outage", environment: "local",
+    bridgeAgentVersion: "0.1.0", authMode: "admin_key",
+    reconnectMinMs: 5, reconnectMaxMs: 10,
+    prepareConnection: async () => { attempts += 1; throw new Error("synthetic authority outage"); },
+  });
+  try {
+    await agent.start();
+    await waitFor(async () => attempts >= 4, 1_000);
+    assert.equal(agent.snapshot().lastError?.code, "bridge_prepare_failed");
+  } finally {
+    await agent.stop();
+  }
+  const stoppedAt = attempts;
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.equal(attempts, stoppedAt);
+});
+
 async function withBridgeApp(
   fn: (ctx: BridgeTestContext) => Promise<void>,
   options: { readonly proxyAuthToken?: string } = {},

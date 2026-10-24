@@ -374,6 +374,11 @@ export class SqlCredentialStore {
     return toUserView(row);
   }
 
+  public async getUserById(id: string): Promise<UserView | undefined> {
+    const rows = await this.sql.unsafe<UserRow[]>("SELECT * FROM users WHERE id = $1", [id]);
+    return rows[0] ? toUserView(rows[0]) : undefined;
+  }
+
   public async getUserBySubject(subject: string): Promise<UserView | undefined> {
     const normalizedSubject = subject.trim().toLowerCase();
     if (normalizedSubject.length === 0) {

@@ -9,6 +9,8 @@ on:
       - 'src/proxx/**'
       - 'test/proxx/**'
       - 'shadow-cljs.edn'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
       - '.github/workflows/cljs-test.yml'
   push:
     branches:
@@ -17,6 +19,8 @@ on:
       - 'src/proxx/**'
       - 'test/proxx/**'
       - 'shadow-cljs.edn'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
 
 permissions:
   contents: read
@@ -45,14 +49,18 @@ jobs:
           path: |
             .shadow-cljs
             ~/.m2/repository
-          key: shadow-cljs-${{ runner.os }}-${{ hashFiles('shadow-cljs.edn') }}
+          key: shadow-cljs-${{ runner.os }}-${{ hashFiles('shadow-cljs.edn', 'pnpm-lock.yaml') }}
           restore-keys: shadow-cljs-${{ runner.os }}-
 
-      - name: Install shadow-cljs
-        run: npm install -g shadow-cljs
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.15.0
+
+      - name: Install locked test dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
 
       - name: Compile CLJS tests
-        run: shadow-cljs compile node-test
+        run: pnpm exec shadow-cljs compile node-test
 
       - name: Run CLJS tests
         run: node target/node-test.cjs

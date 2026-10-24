@@ -33,7 +33,7 @@ export async function registerRequestLogSseRoutes(
   requestLogSseHub: RequestLogSseHub,
 ): Promise<void> {
   app.get("/api/v1/federation/observability/sse", async (request: FastifyRequest, reply: FastifyReply) => {
-    const auth = await resolveRequestAuth({
+    const auth = request.openHaxAuth ?? await resolveRequestAuth({
       allowUnauthenticated: false,
       proxyAuthToken: deps.config.proxyAuthToken,
       authorization: request.headers.authorization,
