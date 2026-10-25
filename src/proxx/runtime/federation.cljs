@@ -7,7 +7,9 @@
   tell `undefined` from a missing key. Domain failures are ex-info; this edge
   rethrows them as plain `js/Error` with the same message so HTTP layers and
   peers see exactly what they saw before."
-  (:require [proxx.federation.protocol :as protocol]))
+  (:require ["node:crypto" :as crypto]
+            [proxx.federation.owner :as owner]
+            [proxx.federation.protocol :as protocol]))
 
 (defn js->wire
   "JS value to wire data: plain objects to string-keyed maps (undefined props
@@ -41,3 +43,21 @@
 
 (defn parse-bridge-message-json-js [text]
   (guarded #(clj->js (protocol/parse-message-json text))))
+
+(defn- or-undefined [x] (if (nil? x) js/undefined x))
+
+;; ---------------------------------------------------------------------------
+;; owner-credential.ts
+;; ---------------------------------------------------------------------------
+
+(defn- sha256-hex [^string s]
+  (.digest (.update ^js (.createHash ^js crypto "sha256") s) "hex"))
+
+(defn is-at-did-js [value] (owner/at-did? value))
+
+(defn normalize-at-did-js [value] (guarded #(owner/normalize-at-did value)))
+
+(defn fingerprint-admin-key-js [value] (owner/fingerprint-admin-key sha256-hex value))
+
+(defn parse-federation-owner-credential-js [raw]
+  (or-undefined (some-> (owner/parse-owner-credential sha256-hex raw) clj->js)))

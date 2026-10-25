@@ -7,6 +7,7 @@
  */
 import { loadCljsRuntime } from "./cljs-runtime.js";
 import type { BridgeMessage } from "./federation/bridge-protocol.js";
+import type { FederationOwnerCredential } from "./federation/owner-credential.js";
 
 type JsRecord = Record<string, unknown>;
 
@@ -144,6 +145,10 @@ export interface CljsKernels {
   readonly bridgeProtocolVersion: string;
   readonly parseBridgeMessage: (value: unknown) => BridgeMessage;
   readonly parseBridgeMessageJson: (jsonText: string) => BridgeMessage;
+  readonly isAtDid: (value: string | undefined) => boolean;
+  readonly normalizeAtDid: (value: string) => string;
+  readonly fingerprintAdminKey: (value: string) => string;
+  readonly parseFederationOwnerCredential: (raw: string | undefined) => FederationOwnerCredential | undefined;
 }
 
 const loaded = await loadCljsRuntime({ required: true });

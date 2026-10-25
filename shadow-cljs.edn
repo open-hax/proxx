@@ -93,7 +93,11 @@
                                            requestyModelProvider proxx.runtime.requesty/requesty-model-provider-js
                                            bridgeProtocolVersion proxx.runtime.federation/bridge-protocol-version
                                            parseBridgeMessage proxx.runtime.federation/parse-bridge-message-js
-                                           parseBridgeMessageJson proxx.runtime.federation/parse-bridge-message-json-js}}}
+                                           parseBridgeMessageJson proxx.runtime.federation/parse-bridge-message-json-js
+                                           isAtDid proxx.runtime.federation/is-at-did-js
+                                           normalizeAtDid proxx.runtime.federation/normalize-at-did-js
+                                           fingerprintAdminKey proxx.runtime.federation/fingerprint-admin-key-js
+                                           parseFederationOwnerCredential proxx.runtime.federation/parse-federation-owner-credential-js}}}
    :js-options {:js-provider :import
                 :keep-as-import #{"node:fs" "node:path"}}
    :compiler-options {:output-feature-set :es-next
