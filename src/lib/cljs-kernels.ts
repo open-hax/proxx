@@ -156,6 +156,14 @@ export interface CljsKernels {
   readonly deriveOAuthMetadataFromToken: (token: string) => object;
   readonly accountDisplayName: (account: object) => string;
   readonly openAiReauthIdentityMatches: (target: object, resolved: object) => boolean;
+  readonly loadModels: (modelsFilePath: string, fallback: readonly string[]) => Promise<string[]>;
+  readonly loadDeclaredModels: (modelsFilePath: string) => Promise<string[]>;
+  readonly loadModelPreferences: (modelsFilePath: string, fallbackPreferred: readonly string[]) => Promise<{
+    readonly preferred: readonly string[];
+    readonly disabled: readonly string[];
+    readonly aliases: Readonly<Record<string, string>>;
+  }>;
+  readonly toOpenAiModel: (modelId: string) => { readonly id: string; readonly object: "model"; readonly created: number; readonly owned_by: string };
 }
 
 const loaded = await loadCljsRuntime({ required: true });

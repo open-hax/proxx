@@ -103,7 +103,11 @@
                                            extractMarkdownLinks proxx.runtime.response-citations/extract-markdown-links-js
                                            deriveOAuthMetadataFromToken proxx.runtime.account-identity/derive-oauth-metadata-from-token-js
                                            accountDisplayName proxx.runtime.account-identity/account-display-name-js
-                                           openAiReauthIdentityMatches proxx.runtime.account-identity/open-ai-reauth-identity-matches-js}}}
+                                           openAiReauthIdentityMatches proxx.runtime.account-identity/open-ai-reauth-identity-matches-js
+                                           loadModels proxx.runtime.models/load-models-js
+                                           loadDeclaredModels proxx.runtime.models/load-declared-models-js
+                                           loadModelPreferences proxx.runtime.models/load-model-preferences-js
+                                           toOpenAiModel proxx.runtime.models/to-open-ai-model-js}}}
    :js-options {:js-provider :import
                 :keep-as-import #{"node:fs" "node:path"}}
    :compiler-options {:output-feature-set :es-next
