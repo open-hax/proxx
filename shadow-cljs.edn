@@ -53,7 +53,15 @@
                                            isAutoModel proxx.runtime.auto-model/is-auto-model-js
                                            parseAutoModelType proxx.runtime.auto-model/parse-auto-model-type-js
                                            rankAutoModels proxx.runtime.auto-model/rank-auto-models-js
-                                           selectAutoModel proxx.runtime.auto-model/select-auto-model-js}}}
+                                           selectAutoModel proxx.runtime.auto-model/select-auto-model-js
+                                           readCookieToken proxx.runtime.http/read-cookie-token-js
+                                           parseJsonIfPossible proxx.runtime.http/parse-json-if-possible-js
+                                           readSingleHeader proxx.runtime.http/read-single-header-js
+                                           escapeHtml proxx.runtime.http/escape-html-js
+                                           normalizeRequestedModel proxx.runtime.http/normalize-requested-model-js
+                                           isTrustedLocalBridgeAddress proxx.runtime.http/is-trusted-local-bridge-address-js
+                                           hasBearerToken proxx.runtime.http/has-bearer-token-js
+                                           queueErrorResponse proxx.runtime.http/queue-error-response-js}}}
    :js-options {:js-provider :import
                 :keep-as-import #{"node:fs" "node:path"}}
    :compiler-options {:output-feature-set :es-next
