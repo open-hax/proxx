@@ -1,4 +1,5 @@
 import type { Sql } from "./index.js";
+import { kernels } from "../cljs-kernels.js";
 import {
   CREATE_TENANT_PROVIDER_POLICIES_OWNER_INDEX,
   CREATE_TENANT_PROVIDER_POLICIES_TABLE,
@@ -47,80 +48,20 @@ export interface TenantProviderPolicyUpsertInput {
   readonly notes?: string;
 }
 
-function normalizeEnum<T extends string>(value: string | undefined, allowed: readonly T[], fallback: T, label: string): T {
-  if (typeof value !== "string" || value.trim().length === 0) {
-    return fallback;
-  }
-
-  const normalized = value.trim().toLowerCase() as T;
-  if (!allowed.includes(normalized)) {
-    throw new Error(`invalid ${label}: ${value}`);
-  }
-
-  return normalized;
-}
-
 export function normalizeTenantProviderKind(value: string | undefined): TenantProviderKind {
-  return normalizeEnum(value, TENANT_PROVIDER_KINDS, "local_upstream", "tenant provider kind");
+  return kernels.tenantPolicyKind(value) as TenantProviderKind;
 }
 
 export function normalizeTenantProviderShareMode(value: string | undefined): TenantProviderShareMode {
-  return normalizeEnum(value, TENANT_PROVIDER_SHARE_MODES, "deny", "tenant provider share mode");
+  return kernels.tenantPolicyShareMode(value) as TenantProviderShareMode;
 }
 
 export function normalizeTenantProviderTrustTier(value: string | undefined): TenantProviderTrustTier {
-  return normalizeEnum(value, TENANT_PROVIDER_TRUST_TIERS, "less_trusted", "tenant provider trust tier");
-}
-
-function normalizeAllowedModels(value: readonly string[] | undefined): readonly string[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  return [...new Set(value.filter((entry): entry is string => typeof entry === "string").map((entry) => entry.trim()).filter((entry) => entry.length > 0))];
-}
-
-function normalizeOptionalPositiveInteger(value: number | undefined, label: string): number | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
-
-  if (!Number.isFinite(value)) {
-    throw new Error(`${label} must be a finite number when present`);
-  }
-
-  const normalized = Math.floor(value);
-  if (normalized <= 0) {
-    throw new Error(`${label} must be a positive integer when present`);
-  }
-
-  return normalized;
-}
-
-function normalizeRequiredString(value: string, label: string): string {
-  const normalized = value.trim();
-  if (normalized.length === 0) {
-    throw new Error(`${label} must not be empty`);
-  }
-  return normalized;
+  return kernels.tenantPolicyTrustTier(value) as TenantProviderTrustTier;
 }
 
 function normalizeTenantProviderPolicyInput(input: TenantProviderPolicyUpsertInput): Omit<TenantProviderPolicyRecord, "createdAt" | "updatedAt"> {
-  const shareMode = normalizeTenantProviderShareMode(input.shareMode);
-  return {
-    subjectDid: normalizeRequiredString(input.subjectDid, "tenant provider subject DID"),
-    providerId: normalizeRequiredString(input.providerId, "tenant provider providerId").toLowerCase(),
-    providerKind: normalizeTenantProviderKind(input.providerKind),
-    ownerSubject: normalizeRequiredString(input.ownerSubject, "tenant provider ownerSubject"),
-    shareMode,
-    trustTier: normalizeTenantProviderTrustTier(input.trustTier),
-    allowedModels: normalizeAllowedModels(input.allowedModels),
-    maxRequestsPerMinute: normalizeOptionalPositiveInteger(input.maxRequestsPerMinute, "maxRequestsPerMinute"),
-    maxConcurrentRequests: normalizeOptionalPositiveInteger(input.maxConcurrentRequests, "maxConcurrentRequests"),
-    encryptedChannelRequired: input.encryptedChannelRequired ?? shareMode === "project_credentials",
-    warmImportThreshold: normalizeOptionalPositiveInteger(input.warmImportThreshold, "warmImportThreshold"),
-    notes: typeof input.notes === "string" && input.notes.trim().length > 0 ? input.notes.trim() : undefined,
-  };
+  return kernels.tenantPolicyNormalizeInput(input) as unknown as Omit<TenantProviderPolicyRecord, "createdAt" | "updatedAt">;
 }
 
 interface TenantProviderPolicyRow {
@@ -140,40 +81,8 @@ interface TenantProviderPolicyRow {
   updated_at: string;
 }
 
-function parseAllowedModels(value: string[] | string | null): readonly string[] {
-  if (Array.isArray(value)) {
-    return value.filter((entry): entry is string => typeof entry === "string");
-  }
-
-  if (typeof value === "string") {
-    try {
-      const parsed: unknown = JSON.parse(value);
-      return Array.isArray(parsed) ? parsed.filter((entry): entry is string => typeof entry === "string") : [];
-    } catch {
-      return [];
-    }
-  }
-
-  return [];
-}
-
 function toPolicyRecord(row: TenantProviderPolicyRow): TenantProviderPolicyRecord {
-  return {
-    subjectDid: row.subject_did,
-    providerId: row.provider_id,
-    providerKind: row.provider_kind,
-    ownerSubject: row.owner_subject,
-    shareMode: row.share_mode,
-    trustTier: row.trust_tier,
-    allowedModels: parseAllowedModels(row.allowed_models),
-    maxRequestsPerMinute: row.max_requests_per_minute ?? undefined,
-    maxConcurrentRequests: row.max_concurrent_requests ?? undefined,
-    encryptedChannelRequired: row.encrypted_channel_required,
-    warmImportThreshold: row.warm_import_threshold ?? undefined,
-    notes: row.notes ?? undefined,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  };
+  return kernels.tenantPolicyRecord(row) as unknown as TenantProviderPolicyRecord;
 }
 
 export class SqlTenantProviderPolicyStore {
@@ -186,20 +95,9 @@ export class SqlTenantProviderPolicyStore {
 
   public async upsertPolicy(input: TenantProviderPolicyUpsertInput): Promise<TenantProviderPolicyRecord> {
     const normalized = normalizeTenantProviderPolicyInput(input);
-    const rows = await this.sql.unsafe<TenantProviderPolicyRow[]>(UPSERT_TENANT_PROVIDER_POLICY, [
-      normalized.subjectDid,
-      normalized.providerId,
-      normalized.providerKind,
-      normalized.ownerSubject,
-      normalized.shareMode,
-      normalized.trustTier,
-      JSON.stringify(normalized.allowedModels),
-      normalized.maxRequestsPerMinute ?? null,
-      normalized.maxConcurrentRequests ?? null,
-      normalized.encryptedChannelRequired,
-      normalized.warmImportThreshold ?? null,
-      normalized.notes ?? null,
-    ]);
+    const params = kernels.tenantPolicyUpsertParams(normalized);
+    params[6] = JSON.stringify(normalized.allowedModels);
+    const rows = await this.sql.unsafe<TenantProviderPolicyRow[]>(UPSERT_TENANT_PROVIDER_POLICY, params as never[]);
 
     const row = rows[0];
     if (!row) {
@@ -228,18 +126,7 @@ export class SqlTenantProviderPolicyStore {
     readonly subjectDid?: string;
     readonly ownerSubject?: string;
   } = {}): Promise<TenantProviderPolicyRecord[]> {
-    const clauses: string[] = [];
-    const values: string[] = [];
-
-    if (typeof filters.subjectDid === "string" && filters.subjectDid.trim().length > 0) {
-      values.push(filters.subjectDid.trim());
-      clauses.push(`subject_did = $${values.length}`);
-    }
-
-    if (typeof filters.ownerSubject === "string" && filters.ownerSubject.trim().length > 0) {
-      values.push(filters.ownerSubject.trim());
-      clauses.push(`owner_subject = $${values.length}`);
-    }
+    const { clauses, values } = kernels.tenantPolicyListFilters(filters);
 
     const query = clauses.length > 0
       ? `${SELECT_TENANT_PROVIDER_POLICIES.replace(/;$/, "")} WHERE ${clauses.join(" AND ")} ORDER BY owner_subject, subject_did, provider_id`

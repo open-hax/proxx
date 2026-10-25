@@ -159,6 +159,22 @@
                                            sqlCooldownEntries proxx.runtime.sql/cooldown-entries-js
                                            createAccountHealthStore proxx.runtime.account-health/create-account-health-store-js
                                            createPromptAffinityStore proxx.runtime.prompt-affinity/create-prompt-affinity-store-js
+                                           federationPeerRecord proxx.runtime.sql/federation-peer-record-js
+                                           federationDiffEventRecord proxx.runtime.sql/federation-diff-event-record-js
+                                           federationProjectedAccountRecord proxx.runtime.sql/federation-projected-account-record-js
+                                           federationSyncStateRecord proxx.runtime.sql/federation-sync-state-record-js
+                                           federationWarmImportThreshold proxx.runtime.sql/federation-warm-import-threshold-js
+                                           federationShouldWarmImport proxx.runtime.sql/federation-should-warm-import-js
+                                           federationSanitizeLimit proxx.runtime.sql/federation-sanitize-limit-js
+                                           federationPeerBaseUrlInput proxx.runtime.sql/federation-peer-base-url-input-js
+                                           federationBaseUrlConflict proxx.runtime.sql/federation-base-url-conflict-js
+                                           tenantPolicyKind proxx.runtime.sql/tenant-policy-kind-js
+                                           tenantPolicyShareMode proxx.runtime.sql/tenant-policy-share-mode-js
+                                           tenantPolicyTrustTier proxx.runtime.sql/tenant-policy-trust-tier-js
+                                           tenantPolicyNormalizeInput proxx.runtime.sql/tenant-policy-normalize-input-js
+                                           tenantPolicyUpsertParams proxx.runtime.sql/tenant-policy-upsert-params-js
+                                           tenantPolicyRecord proxx.runtime.sql/tenant-policy-record-js
+                                           tenantPolicyListFilters proxx.runtime.sql/tenant-policy-list-filters-js
                                            getModelPricing proxx.runtime.pricing/get-model-pricing-js
                                            estimateRequestCost proxx.runtime.pricing/estimate-request-cost-js
                                            setPolicyModelPricingOverrides proxx.runtime.pricing/set-policy-model-pricing-overrides-js

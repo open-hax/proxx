@@ -329,6 +329,24 @@ export interface CljsKernels {
   readonly sqlCooldownEntries: (rows: readonly unknown[]) => Array<[string, string, number]>;
   // w2 account health
   readonly createAccountHealthStore: (sql: unknown, flushIntervalMs: number, selectAllSql: string) => unknown;
+  // w2 sql federation store mapping
+  readonly federationPeerRecord: (row: unknown) => Record<string, unknown>;
+  readonly federationDiffEventRecord: (row: unknown) => Record<string, unknown>;
+  readonly federationProjectedAccountRecord: (row: unknown) => Record<string, unknown>;
+  readonly federationSyncStateRecord: (row: unknown) => Record<string, unknown>;
+  readonly federationWarmImportThreshold: (raw: string | undefined) => number;
+  readonly federationShouldWarmImport: (count: number, threshold: number) => boolean;
+  readonly federationSanitizeLimit: (limit: number | undefined, fallback: number) => number;
+  readonly federationPeerBaseUrlInput: (value: string) => string;
+  readonly federationBaseUrlConflict: (error: unknown) => boolean;
+  // w2 sql tenant provider policy store
+  readonly tenantPolicyKind: (value: string | undefined) => string;
+  readonly tenantPolicyShareMode: (value: string | undefined) => string;
+  readonly tenantPolicyTrustTier: (value: string | undefined) => string;
+  readonly tenantPolicyNormalizeInput: (input: unknown) => Record<string, unknown>;
+  readonly tenantPolicyUpsertParams: (normalized: unknown) => unknown[];
+  readonly tenantPolicyRecord: (row: unknown) => Record<string, unknown>;
+  readonly tenantPolicyListFilters: (filters: unknown) => { readonly clauses: string[]; readonly values: string[] };
   readonly createPromptAffinityStore: (sql: unknown, statements: unknown) => unknown;
   readonly createCredentialStore: (filePath: string, defaultProviderId: string, deps: unknown) => unknown;
   // pricing (model-pricing)

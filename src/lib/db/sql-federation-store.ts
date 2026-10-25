@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 
 import type { Sql } from "./index.js";
+import { kernels } from "../cljs-kernels.js";
 import { parseFederationOwnerCredential } from "../federation/owner-credential.js";
 
 type SqlExecutor = Pick<Sql, "unsafe">;
@@ -192,139 +193,41 @@ const CREATE_FEDERATION_PROJECTED_ACCOUNTS_OWNER_INDEX = `
 CREATE INDEX IF NOT EXISTS idx_federation_projected_accounts_owner ON federation_projected_accounts(owner_subject, provider_id, availability_state);
 `;
 
-const MAX_DIFF_PAGE_SIZE = 500;
-
-function resolveWarmImportRequestThreshold(): number {
-  const raw = process.env.FEDERATION_WARM_IMPORT_REQUEST_THRESHOLD?.trim();
-  if (!raw) {
-    return 3;
-  }
-  const parsed = Number.parseInt(raw, 10);
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 3;
-}
-
-export const WARM_IMPORT_REQUEST_THRESHOLD = resolveWarmImportRequestThreshold();
-
-function parseJsonObject(raw: string | Record<string, unknown> | null): Record<string, unknown> {
-  if (!raw) {
-    return {};
-  }
-
-  if (typeof raw === "string") {
-    try {
-      const parsed = JSON.parse(raw) as unknown;
-      return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
-        ? parsed as Record<string, unknown>
-        : {};
-    } catch {
-      return {};
-    }
-  }
-
-  return raw;
-}
+export const WARM_IMPORT_REQUEST_THRESHOLD = kernels.federationWarmImportThreshold(
+  process.env.FEDERATION_WARM_IMPORT_REQUEST_THRESHOLD,
+);
 
 function normalizeUrl(value: string): string {
-  const normalized = value.trim();
-  if (normalized.length === 0) {
-    throw new Error("federation peer baseUrl must not be empty");
-  }
-
-  const url = new URL(normalized);
+  const url = new URL(kernels.federationPeerBaseUrlInput(value));
   return url.toString().replace(/\/+$/, "");
 }
 
 function isFederationPeerBaseUrlConflict(error: unknown): boolean {
-  if (typeof error !== "object" || error === null) {
-    return false;
-  }
-
-  const maybeError = error as { readonly code?: unknown; readonly constraint?: unknown; readonly message?: unknown };
-  const code = typeof maybeError.code === "string" ? maybeError.code : "";
-  const constraint = typeof maybeError.constraint === "string" ? maybeError.constraint : "";
-  const message = typeof maybeError.message === "string" ? maybeError.message : "";
-  return code === "23505" && (
-    constraint === "federation_peers_base_url_key"
-    || message.includes("federation_peers_base_url_key")
-    || message.includes("base_url")
-  );
+  return kernels.federationBaseUrlConflict(error);
 }
 
 function toPeerRecord(row: FederationPeerRow): FederationPeerRecord {
-  return {
-    id: row.id,
-    ownerSubject: row.owner_subject,
-    peerDid: row.peer_did ?? undefined,
-    label: row.label,
-    baseUrl: row.base_url,
-    controlBaseUrl: row.control_base_url ?? undefined,
-    authMode: row.auth_mode,
-    auth: parseJsonObject(row.auth_json),
-    status: row.status,
-    capabilities: parseJsonObject(row.capabilities),
-    lastSeenAt: row.last_seen_at ?? undefined,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  };
+  return kernels.federationPeerRecord(row) as unknown as FederationPeerRecord;
 }
 
 function toDiffEventRecord(row: FederationDiffEventRow): FederationDiffEventRecord {
-  return {
-    seq: Number(row.seq),
-    ownerSubject: row.owner_subject,
-    entityType: row.entity_type,
-    entityKey: row.entity_key,
-    op: row.op,
-    payload: parseJsonObject(row.payload),
-    createdAt: row.created_at,
-  };
+  return kernels.federationDiffEventRecord(row) as unknown as FederationDiffEventRecord;
 }
 
 function toProjectedAccountRecord(row: FederationProjectedAccountRow): FederationProjectedAccountRecord {
-  return {
-    sourcePeerId: row.source_peer_id,
-    ownerSubject: row.owner_subject,
-    providerId: row.provider_id,
-    accountId: row.account_id,
-    accountSubject: row.account_subject ?? undefined,
-    chatgptAccountId: row.chatgpt_account_id ?? undefined,
-    email: row.email ?? undefined,
-    planType: row.plan_type ?? undefined,
-    availabilityState: row.availability_state,
-    warmRequestCount: Number(row.warm_request_count),
-    lastRoutedAt: row.last_routed_at ?? undefined,
-    importedAt: row.imported_at ?? undefined,
-    metadata: parseJsonObject(row.metadata),
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  };
+  return kernels.federationProjectedAccountRecord(row) as unknown as FederationProjectedAccountRecord;
 }
 
 function toPeerSyncStateRecord(row: FederationPeerSyncStateRow): FederationPeerSyncStateRecord {
-  return {
-    peerId: row.peer_id,
-    lastPulledSeq: Number(row.last_pulled_seq),
-    lastPushedSeq: Number(row.last_pushed_seq),
-    lastPullAt: row.last_pull_at ?? undefined,
-    lastPushAt: row.last_push_at ?? undefined,
-    lastError: row.last_error ?? undefined,
-    updatedAt: row.updated_at,
-  };
+  return kernels.federationSyncStateRecord(row) as unknown as FederationPeerSyncStateRecord;
 }
 
 function sanitizeLimit(limit: number | undefined, fallback: number): number {
-  if (typeof limit !== "number" || !Number.isFinite(limit)) {
-    return fallback;
-  }
-  const normalized = Math.floor(limit);
-  if (normalized <= 0) {
-    return fallback;
-  }
-  return Math.min(normalized, MAX_DIFF_PAGE_SIZE);
+  return kernels.federationSanitizeLimit(limit, fallback);
 }
 
 export function shouldWarmImportProjectedAccount(warmRequestCount: number, threshold = WARM_IMPORT_REQUEST_THRESHOLD): boolean {
-  return Number.isFinite(warmRequestCount) && warmRequestCount >= threshold;
+  return kernels.federationShouldWarmImport(warmRequestCount, threshold);
 }
 
 export class SqlFederationStore {
