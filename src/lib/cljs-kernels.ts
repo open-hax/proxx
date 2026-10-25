@@ -139,6 +139,31 @@ export interface CljsKernels {
     readonly keyEnvNames: readonly string[];
   }[];
   readonly createKeyPool: (config: unknown, deps: unknown) => unknown;
+  // provider-strategy (proxx.strategy.*)
+  readonly normalizeGeminiReasoningEffort: (value: unknown) => string | undefined;
+  readonly openAiMessagesToGeminiContents: (messages: unknown[]) => Array<{ role: string; parts: Array<Record<string, unknown>> }>;
+  readonly extractSystemInstructions: (messages: unknown[]) => string[];
+  readonly buildGeminiPayload: (upstreamBody: JsRecord, routedModel: string) => JsRecord;
+  readonly geminiResponseToChatCompletion: (response: unknown, routedModel: string) => JsRecord;
+  readonly geminiPayloadToSdkRequest: (
+    model: string,
+    payload: JsRecord,
+  ) => { model: string; contents: Array<{ role: string; parts: Array<Record<string, unknown>> }>; config: JsRecord };
+  readonly geminiUpstreamPath: (alias: string | undefined | null, routedModel: string) => string;
+  readonly isLocalGeminiBaseUrl: (baseUrl: string) => boolean;
+  readonly isGeminiSdkModel: (model: string) => boolean;
+  readonly classifyGeminiSdkError: (message: string) => {
+    readonly kind: "continue";
+    readonly rateLimit?: boolean;
+    readonly modelNotFound?: boolean;
+    readonly modelNotSupportedForAccount?: boolean;
+    readonly requestError?: boolean;
+    readonly upstreamInvalidRequest?: boolean;
+  };
+  readonly createGeminiStreamAccumulator: () => {
+    readonly push: (chunk: unknown) => void;
+    readonly completion: (routedModel: string) => JsRecord;
+  };
 }
 
 const loaded = await loadCljsRuntime({ required: true });

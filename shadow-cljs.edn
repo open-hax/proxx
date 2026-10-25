@@ -90,7 +90,18 @@
                                            requestWantsReasoningTrace proxx.runtime.ollama/request-wants-reasoning-trace-js
                                            ollamaContextLengthFromShow proxx.runtime.ollama-context/ollama-context-length-from-show-js
                                            ollamaContextBudget proxx.runtime.ollama-context/ollama-context-budget-js
-                                           requestyModelProvider proxx.runtime.requesty/requesty-model-provider-js}}}
+                                           requestyModelProvider proxx.runtime.requesty/requesty-model-provider-js
+                                           normalizeGeminiReasoningEffort proxx.runtime.strategy/normalize-gemini-reasoning-effort-js
+                                           openAiMessagesToGeminiContents proxx.runtime.strategy/open-ai-messages-to-gemini-contents-js
+                                           extractSystemInstructions proxx.runtime.strategy/extract-system-instructions-js
+                                           buildGeminiPayload proxx.runtime.strategy/build-gemini-payload-js
+                                           geminiResponseToChatCompletion proxx.runtime.strategy/gemini-response-to-chat-completion-js
+                                           geminiPayloadToSdkRequest proxx.runtime.strategy/gemini-payload-to-sdk-request-js
+                                           geminiUpstreamPath proxx.runtime.strategy/gemini-upstream-path-js
+                                           isLocalGeminiBaseUrl proxx.runtime.strategy/is-local-gemini-base-url-js
+                                           isGeminiSdkModel proxx.runtime.strategy/is-gemini-sdk-model-js
+                                           classifyGeminiSdkError proxx.runtime.strategy/classify-gemini-sdk-error-js
+                                           createGeminiStreamAccumulator proxx.runtime.strategy/create-gemini-stream-accumulator-js}}}
    :js-options {:js-provider :import
                 :keep-as-import #{"node:fs" "node:path"}}
    :compiler-options {:output-feature-set :es-next
