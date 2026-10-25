@@ -13506,7 +13506,7 @@ test("budget exhaustion stops the paid HTTP attempt before provider transport", 
     let reservations = 0;
     setActiveCljsRuntime({ ...runtime, reservePaidBudget: async () => { reservations += 1; return { status: "daily-limit" }; } });
     app.addHook("preHandler", async (request) => {
-      request.openHaxAuth = { kind: "tenant_api_key", keyId: "knoxx-social-proxx", tenantId: "default", source: "bearer" };
+      request.openHaxAuth = { kind: "tenant_api_key", keyId: "71a0813f-dbe3-45ad-a7ae-16555463e716", tenantId: "default", source: "bearer" };
     });
     try {
       const response = await app.inject({ method: "POST", url: "/v1/chat/completions", payload: {
@@ -13546,7 +13546,7 @@ test("budgeted HTTP request caps output and settles completed usage", async () =
       },
     });
     app.addHook("preHandler", async (request) => {
-      request.openHaxAuth = { kind: "tenant_api_key", keyId: "knoxx-social-proxx", tenantId: "default", source: "bearer" };
+      request.openHaxAuth = { kind: "tenant_api_key", keyId: "71a0813f-dbe3-45ad-a7ae-16555463e716", tenantId: "default", source: "bearer" };
     });
     try {
       const response = await app.inject({ method: "POST", url: "/v1/chat/completions", payload: {
@@ -13581,7 +13581,7 @@ test("free route does not reserve paid allowance and unfinished paid usage retai
         settlePaidBudget: async () => { settlements += 1; return { status: "settled" }; },
       });
       app.addHook("preHandler", async (request) => {
-        request.openHaxAuth = { kind: "tenant_api_key", keyId: "knoxx-social-proxx", tenantId: "default", source: "bearer" };
+        request.openHaxAuth = { kind: "tenant_api_key", keyId: "71a0813f-dbe3-45ad-a7ae-16555463e716", tenantId: "default", source: "bearer" };
       });
       try {
         const response = await app.inject({ method: "POST", url: "/v1/chat/completions", payload: {
@@ -13619,7 +13619,7 @@ test("canonical Gemma workload prefers free route even after paid sticky success
       settlePaidBudget: async () => ({ status: "settled" }),
     });
     app.addHook("preHandler", async (request) => {
-      request.openHaxAuth = { kind: "tenant_api_key", keyId: "knoxx-social-proxx", tenantId: "default", source: "bearer" };
+      request.openHaxAuth = { kind: "tenant_api_key", keyId: "71a0813f-dbe3-45ad-a7ae-16555463e716", tenantId: "default", source: "bearer" };
     });
     try {
       const payload = { model: "gemma4:31b", prompt_cache_key: "same-session", messages: [{ role: "user", content: "hello" }], stream: false };
@@ -13656,7 +13656,7 @@ test("free model quota leaves the paid route available on later requests", async
       settlePaidBudget: async () => ({ status: "settled" }),
     });
     app.addHook("preHandler", async (request) => {
-      request.openHaxAuth = { kind: "tenant_api_key", keyId: "knoxx-social-proxx", tenantId: "default", source: "bearer" };
+      request.openHaxAuth = { kind: "tenant_api_key", keyId: "71a0813f-dbe3-45ad-a7ae-16555463e716", tenantId: "default", source: "bearer" };
     });
     try {
       for (let n = 0; n < 2; n++) {
@@ -13700,7 +13700,7 @@ test("reasoning-only free stream falls back before any downstream output", async
       settlePaidBudget: async () => ({ status: "settled" }),
     });
     app.addHook("preHandler", async (request) => {
-      request.openHaxAuth = { kind: "tenant_api_key", keyId: "knoxx-social-proxx", tenantId: "default", source: "bearer" };
+      request.openHaxAuth = { kind: "tenant_api_key", keyId: "71a0813f-dbe3-45ad-a7ae-16555463e716", tenantId: "default", source: "bearer" };
     });
     try {
       const response = await app.inject({ method: "POST", url: "/v1/chat/completions", payload: {
@@ -13740,7 +13740,7 @@ test("both silent routes terminate at the total deadline without releasing paid 
       settlePaidBudget: async () => { settlements++; return { status: "settled" }; },
     });
     app.addHook("preHandler", async (request) => {
-      request.openHaxAuth = { kind: "tenant_api_key", keyId: "knoxx-social-proxx", tenantId: "default", source: "bearer" };
+      request.openHaxAuth = { kind: "tenant_api_key", keyId: "71a0813f-dbe3-45ad-a7ae-16555463e716", tenantId: "default", source: "bearer" };
     });
     try {
       const response = await app.inject({ method: "POST", url: "/v1/chat/completions", payload: {
@@ -13763,14 +13763,16 @@ test("time before routing counts against first usable deadline", async () => {
     upstreamHandler: async () => { calls++; return { status: 200, body: "{}" }; },
   }, async ({ app }) => {
     app.addHook("preHandler", async (request) => {
-      request.openHaxAuth = { kind: "tenant_api_key", keyId: "knoxx-social-proxx", tenantId: "default", source: "bearer" };
+      request.openHaxAuth = { kind: "tenant_api_key", keyId: "71a0813f-dbe3-45ad-a7ae-16555463e716", tenantId: "default", source: "bearer" };
       request._proxxAdmittedAt = Date.now() - 20001;
     });
+    for (const model of ["gemma4:31b", "gemma4:e4b", "gemma4:e4b-128k"]) {
     const response = await app.inject({ method: "POST", url: "/v1/chat/completions", payload: {
-      model: "gemma4:31b", messages: [{ role: "user", content: "hello" }], stream: false,
+      model, messages: [{ role: "user", content: "hello" }], stream: false,
     } });
     assert.equal(response.statusCode, 504, response.body);
     assert.equal(calls, 0);
+    }
   });
 });
 
@@ -13839,7 +13841,7 @@ test("budget-marked auth fails closed if the budget interpreter disappears", asy
   let calls=0;
   await withProxyApp({keys:["key-a"],upstreamHandler:async()=>{calls++;return {status:200,body:"{}"};}},async({app})=>{
     const runtime=getActiveCljsRuntime()!;setActiveCljsRuntime({...runtime,inspectBudgetAttempt:undefined,resolveBudgetRoutePlan:undefined});
-    app.addHook("preHandler",async request=>{request.openHaxAuth={kind:"tenant_api_key",keyId:"knoxx-social-proxx",tenantId:"default",source:"bearer",scopes:["proxy:use","budget:required"]};});
+    app.addHook("preHandler",async request=>{request.openHaxAuth={kind:"tenant_api_key",keyId:"71a0813f-dbe3-45ad-a7ae-16555463e716",tenantId:"default",source:"bearer",scopes:["proxy:use","budget:required"]};});
     try {const response=await app.inject({method:"POST",url:"/v1/chat/completions",payload:{model:"test-model",messages:[{role:"user",content:"hello"}],stream:false}});
       assert.equal(response.statusCode,503,response.body);assert.equal(calls,0);
     } finally {setActiveCljsRuntime(runtime);}
@@ -13853,7 +13855,7 @@ test("a definitive paid refusal settles its reservation to zero", async () => {
       return {status:free?429:402,headers:{"content-type":"application/json"},body:JSON.stringify({error:{message:free?"Rate limit exceeded":"Insufficient balance"}})};}},async({app})=>{
     const runtime=getActiveCljsRuntime()!;setActiveCljsRuntime({...runtime,reservePaidBudget:async()=>({status:"admitted",reservationId:"rejected-hold"}),
       settlePaidBudget:async(_sql,_queries,_scope,_id,amount)=>{settled.push(amount!);return {status:"settled"};}});
-    app.addHook("preHandler",async request=>{request.openHaxAuth={kind:"tenant_api_key",keyId:"knoxx-social-proxx",tenantId:"default",source:"bearer",scopes:["proxy:use","budget:required"]};});
+    app.addHook("preHandler",async request=>{request.openHaxAuth={kind:"tenant_api_key",keyId:"71a0813f-dbe3-45ad-a7ae-16555463e716",tenantId:"default",source:"bearer",scopes:["proxy:use","budget:required"]};});
     try {const response=await app.inject({method:"POST",url:"/v1/chat/completions",payload:{model:"gemma4:31b",messages:[{role:"user",content:"hello"}],stream:false}});
       assert.notEqual(response.statusCode,200);assert.equal(paid,1);assert.deepEqual(settled,[0]);
     } finally {setActiveCljsRuntime(runtime);}
@@ -13869,7 +13871,7 @@ test("model unavailability marks and skips the actual upstream alias identity", 
     const runtime=getActiveCljsRuntime()!;setActiveCljsRuntime({...runtime,
       classifyCredentialFailure:(manifest,provider,status,message)=>status===404?{status:"ok",result:"model-unavailable",cooldownMs:60000}:runtime.classifyCredentialFailure!(manifest,provider,status,message),
       reservePaidBudget:async()=>({status:"admitted",reservationId:crypto.randomUUID()}),settlePaidBudget:async()=>({status:"settled"})});
-    app.addHook("preHandler",async request=>{request.openHaxAuth={kind:"tenant_api_key",keyId:"knoxx-social-proxx",tenantId:"default",source:"bearer"};});
+    app.addHook("preHandler",async request=>{request.openHaxAuth={kind:"tenant_api_key",keyId:"71a0813f-dbe3-45ad-a7ae-16555463e716",tenantId:"default",source:"bearer"};});
     try {for(let n=0;n<2;n++){const response=await app.inject({method:"POST",url:"/v1/chat/completions",payload:{model:"gemma4:31b",messages:[{role:"user",content:"hello"}],stream:false}});assert.equal(response.statusCode,200,response.body);}
       assert.equal(marked.mock.calls[0]?.arguments[1],"google/gemma-4-31b-it");
       assert.deepEqual(observed,["google/gemma-4-31b-it","deepinfra/google/gemma-4-31B-it","deepinfra/google/gemma-4-31B-it"]);
@@ -13893,7 +13895,7 @@ for (const model of ["google/gemma-4-31b-it", "deepinfra/google/gemma-4-31B-it"]
 
 
 test("required budget identity cannot bypass admission via embeddings or missing binding", async () => {
-  let calls=0;let keyId="knoxx-social-proxx";
+  let calls=0;let keyId="71a0813f-dbe3-45ad-a7ae-16555463e716";
   await withProxyApp({keys:["key-a"],upstreamHandler:async()=>{calls++;return {status:200,body:"{}"};}},async({app})=>{
     app.addHook("onRequest",async request=>{request.openHaxAuth={kind:"tenant_api_key",keyId,tenantId:"default",source:"bearer",scopes:["proxy:use","budget:required"]};});
     const blocked=await app.inject({method:"POST",url:"/v1/embeddings",payload:{model:"gemma4:31b",input:"hello"}});

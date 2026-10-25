@@ -38,7 +38,12 @@
     (is (= ["vendor/free" "vendor/paid"] (mapv :upstreamModel (:orderedRoutes plan))))
     (is (= [12000 20000] (mapv :firstUsableOffsetMs (:orderedRoutes plan))))
     (is (= 20000 (:totalFirstUsableMs plan)))
-    (is (= {:managed true} (policy/route-plan [c] auth "local-e4b")))
+    (let [local (policy/route-plan [(update c :budget/routes conj
+                                               {:provider-id "local" :model-id "local-e4b" :billing :free :plan? false})]
+                                      auth "local-e4b")]
+      (is (= 20000 (:totalFirstUsableMs local)))
+      (is (= [{:providerId "local" :upstreamModel "local-e4b" :firstUsableOffsetMs 20000}]
+             (:orderedRoutes local))))
     (is (nil? (policy/route-plan [c] (assoc auth :keyId "other") "vendor/paid")))))
 
 (deftest multiple-completions-cannot-exceed-the-reserved-output-bound

@@ -94,7 +94,7 @@ try {
   assert.equal(duplicates.filter(x => x.status === 'unavailable').length, 3);
   assert.equal((await runtime.reservePaidBudget(null, queries, policy, randomUUID(), 1)).status, 'unavailable');
   const snapshot = await runtime.readPaidBudgets(reopened, queries,
-    'resources/policies/runtime/00-manifest.edn', {kind: 'tenant_api_key', keyId: 'knoxx-social-proxx'});
+    'resources/policies/runtime/00-manifest.edn', {kind: 'tenant_api_key', keyId: '71a0813f-dbe3-45ad-a7ae-16555463e716'});
   assert.equal(snapshot.status, 'ok');
   assert.equal(snapshot.budgets.length, 1);
   const budget = snapshot.budgets[0];
@@ -107,10 +107,10 @@ try {
     'resources/policies/runtime/00-manifest.edn', {kind: 'tenant_api_key', keyId: 'unrelated-key'});
   assert.equal(isolated.budgets.length, 0);
   const denied = await runtime.readPaidBudgets(reopened, queries,
-    'resources/policies/runtime/00-manifest.edn', {kind: 'tenant_api_key', keyId: 'unrelated-key'}, 'knoxx-social-proxx');
+    'resources/policies/runtime/00-manifest.edn', {kind: 'tenant_api_key', keyId: 'unrelated-key'}, '71a0813f-dbe3-45ad-a7ae-16555463e716');
   assert.equal(denied.status, 'forbidden');
   const unavailable = await runtime.readPaidBudgets(null, queries,
-    'resources/policies/runtime/00-manifest.edn', {kind: 'tenant_api_key', keyId: 'knoxx-social-proxx'});
+    'resources/policies/runtime/00-manifest.edn', {kind: 'tenant_api_key', keyId: '71a0813f-dbe3-45ad-a7ae-16555463e716'});
   assert.equal(unavailable.budgets[0].status, 'unavailable');
   assert.equal(unavailable.budgets[0].dailyRemainingMicrousd, undefined);
   console.log('paid-budget-postgres-ok: concurrent daily/monthly caps, restart durability, daily/monthly rollover, late/unknown settlement, duplicate-ID boundaries and SQL upstream model readback');

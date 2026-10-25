@@ -1,6 +1,6 @@
 [{:contract/id :paid-budget/knoxx-social
   :contract/kind :paid-budget
-  :match/key-id "knoxx-social-proxx"
+  :match/key-id "71a0813f-dbe3-45ad-a7ae-16555463e716"
   :budget/routing-model-pattern "(?i)^(gemma4:31b|(?:google/|deepinfra/google/)?gemma-4-31b-it)$"
   :budget/free-cutoff-ms 12000
   :budget/first-output-total-ms 20000

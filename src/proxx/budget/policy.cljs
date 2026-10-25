@@ -19,20 +19,23 @@
 
 (defn route-plan [contracts auth model-id]
   (when-let [budget (request-budget contracts auth)]
-    (if (contracts/pattern-matches? (:budget/routing-model-pattern budget) model-id)
+    (let [workload? (contracts/pattern-matches? (:budget/routing-model-pattern budget) model-id)
+          routes (if workload?
+                   (filter #(not= false (:plan? %)) (:budget/routes budget))
+                   (filter #(= (str/lower-case model-id) (str/lower-case (:model-id %)))
+                           (:budget/routes budget)))]
       {:managed true
        :totalFirstUsableMs (:budget/first-output-total-ms budget)
        :maxBootstrapBytes (:budget/max-bootstrap-bytes budget)
        :maxRetries (:budget/max-retries budget)
        :needsReasoningTrace false
        :orderedRoutes (mapv (fn [route]
-                              {:providerId (:provider-id route)
-                               :upstreamModel (:model-id route)
-                               :firstUsableOffsetMs (if (= :free (:billing route))
-                                                      (:budget/free-cutoff-ms budget)
-                                                      (:budget/first-output-total-ms budget))})
-                            (filter #(not= false (:plan? %)) (:budget/routes budget)))}
-      {:managed true})))
+                             {:providerId (:provider-id route)
+                              :upstreamModel (:model-id route)
+                              :firstUsableOffsetMs (if (and workload? (= :free (:billing route)))
+                                                     (:budget/free-cutoff-ms budget)
+                                                     (:budget/first-output-total-ms budget))})
+                           routes)})))
 
 (defn inspect-attempt
   "Identity comes from server-resolved auth, never request metadata. Matching
