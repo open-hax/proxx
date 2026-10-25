@@ -6,6 +6,29 @@
  * required: these functions are the implementation, not an optimization.
  */
 import { loadCljsRuntime } from "./cljs-runtime.js";
+import type { CredentialStoreLike } from "./credential-store.js";
+import type { AccountHealthStore } from "./db/account-health-store.js";
+import type {
+  QuotaCooldownController,
+  QuotaMonitorApi,
+  QuotaMonitorConfig,
+  QuotaMonitorLogger,
+} from "./quota-monitor.js";
+import type {
+  OpenAiAccountProbeResult,
+  OpenAiProbeOptions,
+  OpenAiQuotaFetchOptions,
+  OpenAiQuotaSnapshotResponse,
+} from "./openai-quota.js";
+import type {
+  ModelPricing,
+  ModelPricingIndexStatus,
+  ModelPricingRefreshHandle,
+  ModelPricingRefreshOptions,
+  ModelPricingRefreshSchedulerOptions,
+  ModelsDevPricingSnapshot,
+  RequestCostEstimate,
+} from "./model-pricing.js";
 
 type JsRecord = Record<string, unknown>;
 
@@ -246,6 +269,44 @@ export interface CljsKernels {
   // w2 account health
   readonly createAccountHealthStore: (sql: unknown, flushIntervalMs: number, selectAllSql: string) => unknown;
   readonly createCredentialStore: (filePath: string, defaultProviderId: string, deps: unknown) => unknown;
+  // pricing (model-pricing)
+  readonly getModelPricing: (manifestPath: string, providerId: string, model: string) => ModelPricing;
+  readonly estimateRequestCost: (
+    manifestPath: string,
+    providerId: string,
+    model: string,
+    promptTokens: number,
+    completionTokens: number,
+    waterMlPerKwh: number,
+  ) => RequestCostEstimate;
+  readonly setPolicyModelPricingOverrides: (overrides: unknown) => void;
+  readonly getModelPricingIndexStatus: (manifestPath: string) => ModelPricingIndexStatus;
+  readonly getModelsDevPricingSnapshot: (manifestPath: string) => ModelsDevPricingSnapshot;
+  readonly refreshModelsDevPricingIndex: (manifestPath: string, options: ModelPricingRefreshOptions) => Promise<ModelPricingIndexStatus>;
+  readonly startModelsDevPricingRefresh: (
+    manifestPath: string,
+    options: ModelPricingRefreshSchedulerOptions,
+  ) => ModelPricingRefreshHandle;
+  // quota (openai-quota)
+  readonly fetchOpenAiQuotaSnapshots: (
+    manifestPath: string,
+    credentialStore: CredentialStoreLike,
+    options: OpenAiQuotaFetchOptions,
+  ) => Promise<OpenAiQuotaSnapshotResponse>;
+  readonly probeOpenAiAccount: (
+    manifestPath: string,
+    credentialStore: CredentialStoreLike,
+    options: OpenAiProbeOptions,
+  ) => Promise<OpenAiAccountProbeResult>;
+  readonly createQuotaMonitor: (
+    manifestPath: string,
+    credentialStore: CredentialStoreLike,
+    logger: QuotaMonitorLogger,
+    config: Partial<QuotaMonitorConfig>,
+    healthStore: AccountHealthStore | undefined,
+    cooldownController: QuotaCooldownController | undefined,
+  ) => QuotaMonitorApi;
+  readonly quotaMonitorDefaultConfig: () => QuotaMonitorConfig;
 }
 
 export interface ChromaSearchRow {

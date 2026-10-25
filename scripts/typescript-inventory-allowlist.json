@@ -129,7 +129,7 @@
     {
       "path": "src/lib/data/models-dev-pricing-data.ts",
       "owner": "T1-core-proxx-cljs-runtime",
-      "disposition": "port-to-cljs",
+      "disposition": "removed",
       "removalCondition": "core Proxx runtime starts and serves from CLJS with TS shims removed"
     },
     {

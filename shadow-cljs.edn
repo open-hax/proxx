@@ -157,7 +157,18 @@
                                            sqlTenantApiKeyMatch proxx.runtime.sql/tenant-api-key-match-js
                                            sqlCredentialProviderViews proxx.runtime.sql/credential-provider-views-js
                                            sqlCooldownEntries proxx.runtime.sql/cooldown-entries-js
-                                           createAccountHealthStore proxx.runtime.account-health/create-account-health-store-js}}}
+                                           createAccountHealthStore proxx.runtime.account-health/create-account-health-store-js
+                                           getModelPricing proxx.runtime.pricing/get-model-pricing-js
+                                           estimateRequestCost proxx.runtime.pricing/estimate-request-cost-js
+                                           setPolicyModelPricingOverrides proxx.runtime.pricing/set-policy-model-pricing-overrides-js
+                                           getModelPricingIndexStatus proxx.runtime.pricing/get-model-pricing-index-status-js
+                                           getModelsDevPricingSnapshot proxx.runtime.pricing/get-models-dev-pricing-snapshot-js
+                                           refreshModelsDevPricingIndex proxx.runtime.pricing/refresh-models-dev-pricing-index-js
+                                           startModelsDevPricingRefresh proxx.runtime.pricing/start-models-dev-pricing-refresh-js
+                                           fetchOpenAiQuotaSnapshots proxx.runtime.quota/fetch-openai-quota-snapshots-js
+                                           probeOpenAiAccount proxx.runtime.quota/probe-openai-account-js
+                                           createQuotaMonitor proxx.runtime.quota-monitor/create-quota-monitor-js
+                                           quotaMonitorDefaultConfig proxx.runtime.quota-monitor/quota-monitor-default-config-js}}}
    :js-options {:js-provider :import
                 :keep-as-import #{"node:fs" "node:path"}}
    :compiler-options {:output-feature-set :es-next

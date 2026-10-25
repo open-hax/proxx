@@ -1,0 +1,12 @@
+;; Where and how provider account quota/liveness is read. Interpreted by
+;; proxx.quota.openai / proxx.runtime.quota (refresh buffer, timeouts, probe).
+[{:contract/id :provider-quota-profile/openai
+  :contract/kind :provider-quota-profile
+  :quota/token-url "https://auth.openai.com/oauth/token"
+  :quota/usage-url "https://chatgpt.com/backend-api/wham/usage"
+  :quota/client-id "app_EMoamEEZ73f0CkXaXp7hrann"
+  :quota/refresh-buffer-ms 60000
+  :quota/usage-timeout-ms 15000
+  :quota/probe-timeout-ms 30000
+  :quota/probe-model "gpt-5.4-mini"
+  :quota/probe-expected-text "hello"}]

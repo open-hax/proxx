@@ -1,0 +1,336 @@
+;; Facts behind model pricing resolution and energy estimates.
+;;
+;; * :model-pricing-snapshot       where the models.dev price table lives (EDN, relative to this file)
+;; * :model-pricing-provider-rule  provider ids that map onto a models.dev provider, or are local (free)
+;; * :model-pricing-vendor-fallback ordered model-prefix -> canonical vendor providers to try after the routed provider
+;; * :model-energy-profile         ordered model patterns -> joules per token; the pattern-less profile is the default
+;;
+;; Clause order is semantic: the first matching vendor fallback / energy profile wins.
+[{:contract/id :model-pricing-snapshot/models-dev
+  :contract/kind :model-pricing-snapshot
+  :snapshot/path "../../data/models-dev-pricing.edn"}
+
+ {:contract/id :model-pricing-provider-rule/gemini
+  :contract/kind :model-pricing-provider-rule
+  :match/provider-id "gemini"
+  :pricing/models-dev-provider "google"}
+
+ {:contract/id :model-pricing-provider-rule/local-ollama
+  :contract/kind :model-pricing-provider-rule
+  :match/provider-id "local-ollama"
+  :pricing/local true}
+
+ {:contract/id :model-pricing-provider-rule/ollama
+  :contract/kind :model-pricing-provider-rule
+  :match/provider-id "ollama"
+  :pricing/local true}
+
+ {:contract/id :model-pricing-provider-rule/local
+  :contract/kind :model-pricing-provider-rule
+  :match/provider-id "local"
+  :pricing/local true}
+
+ {:contract/id :model-pricing-vendor-fallback/gpt
+  :contract/kind :model-pricing-vendor-fallback
+  :match/model-prefixes ["gpt-"]
+  :pricing/vendor-providers ["openai"]}
+
+ {:contract/id :model-pricing-vendor-fallback/claude
+  :contract/kind :model-pricing-vendor-fallback
+  :match/model-prefixes ["claude-"]
+  :pricing/vendor-providers ["anthropic"]}
+
+ {:contract/id :model-pricing-vendor-fallback/gemini
+  :contract/kind :model-pricing-vendor-fallback
+  :match/model-prefixes ["gemini-"]
+  :pricing/vendor-providers ["google"]}
+
+ {:contract/id :model-pricing-vendor-fallback/glm
+  :contract/kind :model-pricing-vendor-fallback
+  :match/model-prefixes ["glm-"]
+  :pricing/vendor-providers ["zai"]}
+
+ {:contract/id :model-pricing-vendor-fallback/deepseek
+  :contract/kind :model-pricing-vendor-fallback
+  :match/model-prefixes ["deepseek"]
+  :pricing/vendor-providers ["deepseek"]}
+
+ {:contract/id :model-pricing-vendor-fallback/kimi
+  :contract/kind :model-pricing-vendor-fallback
+  :match/model-prefixes ["kimi-"]
+  :pricing/vendor-providers ["moonshotai"]}
+
+ {:contract/id :model-pricing-vendor-fallback/minimax
+  :contract/kind :model-pricing-vendor-fallback
+  :match/model-prefixes ["minimax"]
+  :pricing/vendor-providers ["minimax"]}
+
+ {:contract/id :model-pricing-vendor-fallback/qwen
+  :contract/kind :model-pricing-vendor-fallback
+  :match/model-prefixes ["qwen"]
+  :pricing/vendor-providers ["alibaba"]}
+
+ {:contract/id :model-pricing-vendor-fallback/mistral
+  :contract/kind :model-pricing-vendor-fallback
+  :match/model-prefixes ["mistral" "devstral" "ministral"]
+  :pricing/vendor-providers ["mistral"]}
+
+ {:contract/id :model-pricing-vendor-fallback/gemma
+  :contract/kind :model-pricing-vendor-fallback
+  :match/model-prefixes ["gemma"]
+  :pricing/vendor-providers ["google"]}
+
+ {:contract/id :model-pricing-vendor-fallback/nemotron
+  :contract/kind :model-pricing-vendor-fallback
+  :match/model-prefixes ["nemotron"]
+  :pricing/vendor-providers ["nvidia"]}
+
+ {:contract/id :model-pricing-vendor-fallback/llama
+  :contract/kind :model-pricing-vendor-fallback
+  :match/model-prefixes ["llama"]
+  :pricing/vendor-providers ["meta"]}
+
+ {:contract/id :model-energy-profile/gpt-5-4
+  :contract/kind :model-energy-profile
+  :match/model-pattern "^gpt-5\\.4$"
+  :energy/joules-per-input-token 1.0
+  :energy/joules-per-output-token 3.0}
+
+ {:contract/id :model-energy-profile/gpt-5-4-mini
+  :contract/kind :model-energy-profile
+  :match/model-pattern "^gpt-5\\.4-mini$"
+  :energy/joules-per-input-token 0.3
+  :energy/joules-per-output-token 1.0}
+
+ {:contract/id :model-energy-profile/gpt-5-4-nano
+  :contract/kind :model-energy-profile
+  :match/model-pattern "^gpt-5\\.4-nano$"
+  :energy/joules-per-input-token 0.1
+  :energy/joules-per-output-token 0.3}
+
+ {:contract/id :model-energy-profile/gpt-5-3-codex
+  :contract/kind :model-energy-profile
+  :match/model-pattern "^gpt-5\\.3-codex"
+  :energy/joules-per-input-token 0.8
+  :energy/joules-per-output-token 2.5}
+
+ {:contract/id :model-energy-profile/gpt-5-2-codex
+  :contract/kind :model-energy-profile
+  :match/model-pattern "^gpt-5\\.2-codex"
+  :energy/joules-per-input-token 0.8
+  :energy/joules-per-output-token 2.5}
+
+ {:contract/id :model-energy-profile/gpt-5-2
+  :contract/kind :model-energy-profile
+  :match/model-pattern "^gpt-5\\.2"
+  :energy/joules-per-input-token 0.8
+  :energy/joules-per-output-token 2.5}
+
+ {:contract/id :model-energy-profile/gpt-5-1-codex-max
+  :contract/kind :model-energy-profile
+  :match/model-pattern "^gpt-5\\.1-codex-max"
+  :energy/joules-per-input-token 1.0
+  :energy/joules-per-output-token 3.0}
+
+ {:contract/id :model-energy-profile/gpt-5-1-codex
+  :contract/kind :model-energy-profile
+  :match/model-pattern "^gpt-5\\.1-codex"
+  :energy/joules-per-input-token 0.8
+  :energy/joules-per-output-token 2.5}
+
+ {:contract/id :model-energy-profile/gpt-5-1
+  :contract/kind :model-energy-profile
+  :match/model-pattern "^gpt-5\\.1"
+  :energy/joules-per-input-token 0.8
+  :energy/joules-per-output-token 2.5}
+
+ {:contract/id :model-energy-profile/gpt-5-mini
+  :contract/kind :model-energy-profile
+  :match/model-pattern "^gpt-5-mini"
+  :energy/joules-per-input-token 0.3
+  :energy/joules-per-output-token 1.0}
+
+ {:contract/id :model-energy-profile/gpt-5
+  :contract/kind :model-energy-profile
+  :match/model-pattern "^gpt-5$"
+  :energy/joules-per-input-token 0.8
+  :energy/joules-per-output-token 2.5}
+
+ {:contract/id :model-energy-profile/claude-opus-4-6-fast
+  :contract/kind :model-energy-profile
+  :match/model-pattern "claude-opus-4-6-fast"
+  :energy/joules-per-input-token 1.5
+  :energy/joules-per-output-token 4.0}
+
+ {:contract/id :model-energy-profile/claude-opus-4-6
+  :contract/kind :model-energy-profile
+  :match/model-pattern "claude-opus-4-6"
+  :energy/joules-per-input-token 1.0
+  :energy/joules-per-output-token 3.0}
+
+ {:contract/id :model-energy-profile/claude-opus-4-5
+  :contract/kind :model-energy-profile
+  :match/model-pattern "claude-opus-4-5"
+  :energy/joules-per-input-token 1.0
+  :energy/joules-per-output-token 3.0}
+
+ {:contract/id :model-energy-profile/claude-opus-4-1
+  :contract/kind :model-energy-profile
+  :match/model-pattern "claude-opus-4-1"
+  :energy/joules-per-input-token 1.5
+  :energy/joules-per-output-token 4.0}
+
+ {:contract/id :model-energy-profile/claude-opus-4
+  :contract/kind :model-energy-profile
+  :match/model-pattern "claude-opus-4"
+  :energy/joules-per-input-token 1.5
+  :energy/joules-per-output-token 4.0}
+
+ {:contract/id :model-energy-profile/claude-sonnet-4-6
+  :contract/kind :model-energy-profile
+  :match/model-pattern "claude-sonnet-4-6"
+  :energy/joules-per-input-token 0.8
+  :energy/joules-per-output-token 2.5}
+
+ {:contract/id :model-energy-profile/claude-sonnet-4-5
+  :contract/kind :model-energy-profile
+  :match/model-pattern "claude-sonnet-4-5"
+  :energy/joules-per-input-token 0.8
+  :energy/joules-per-output-token 2.5}
+
+ {:contract/id :model-energy-profile/claude-sonnet
+  :contract/kind :model-energy-profile
+  :match/model-pattern "claude-sonnet"
+  :energy/joules-per-input-token 0.8
+  :energy/joules-per-output-token 2.5}
+
+ {:contract/id :model-energy-profile/claude-haiku-4-5
+  :contract/kind :model-energy-profile
+  :match/model-pattern "claude-haiku-4-5"
+  :energy/joules-per-input-token 0.3
+  :energy/joules-per-output-token 1.0}
+
+ {:contract/id :model-energy-profile/claude-haiku
+  :contract/kind :model-energy-profile
+  :match/model-pattern "claude-haiku"
+  :energy/joules-per-input-token 0.2
+  :energy/joules-per-output-token 0.5}
+
+ {:contract/id :model-energy-profile/gemini-3-1-pro
+  :contract/kind :model-energy-profile
+  :match/model-pattern "gemini-3\\.1-pro"
+  :energy/joules-per-input-token 0.8
+  :energy/joules-per-output-token 2.5}
+
+ {:contract/id :model-energy-profile/gemini-3-pro
+  :contract/kind :model-energy-profile
+  :match/model-pattern "gemini-3-pro"
+  :energy/joules-per-input-token 0.8
+  :energy/joules-per-output-token 2.5}
+
+ {:contract/id :model-energy-profile/gemini-3-flash
+  :contract/kind :model-energy-profile
+  :match/model-pattern "gemini-3-flash"
+  :energy/joules-per-input-token 0.3
+  :energy/joules-per-output-token 1.0}
+
+ {:contract/id :model-energy-profile/gemini-2-5-pro
+  :contract/kind :model-energy-profile
+  :match/model-pattern "gemini-2\\.5-pro"
+  :energy/joules-per-input-token 0.8
+  :energy/joules-per-output-token 2.5}
+
+ {:contract/id :model-energy-profile/gemini-2-5-flash
+  :contract/kind :model-energy-profile
+  :match/model-pattern "gemini-2\\.5-flash"
+  :energy/joules-per-input-token 0.2
+  :energy/joules-per-output-token 0.8}
+
+ {:contract/id :model-energy-profile/deepseek
+  :contract/kind :model-energy-profile
+  :match/model-pattern "deepseek"
+  :energy/joules-per-input-token 0.3
+  :energy/joules-per-output-token 1.0}
+
+ {:contract/id :model-energy-profile/glm
+  :contract/kind :model-energy-profile
+  :match/model-pattern "glm-"
+  :energy/joules-per-input-token 0.3
+  :energy/joules-per-output-token 1.0}
+
+ {:contract/id :model-energy-profile/kimi
+  :contract/kind :model-energy-profile
+  :match/model-pattern "kimi-"
+  :energy/joules-per-input-token 0.3
+  :energy/joules-per-output-token 1.0}
+
+ {:contract/id :model-energy-profile/minimax
+  :contract/kind :model-energy-profile
+  :match/model-pattern "minimax"
+  :energy/joules-per-input-token 0.3
+  :energy/joules-per-output-token 1.0}
+
+ {:contract/id :model-energy-profile/qwen
+  :contract/kind :model-energy-profile
+  :match/model-pattern "^qwen"
+  :energy/joules-per-input-token 0.05
+  :energy/joules-per-output-token 0.15}
+
+ {:contract/id :model-energy-profile/llama
+  :contract/kind :model-energy-profile
+  :match/model-pattern "^llama"
+  :energy/joules-per-input-token 0.05
+  :energy/joules-per-output-token 0.15}
+
+ {:contract/id :model-energy-profile/gemma
+  :contract/kind :model-energy-profile
+  :match/model-pattern "^gemma"
+  :energy/joules-per-input-token 0.05
+  :energy/joules-per-output-token 0.15}
+
+ {:contract/id :model-energy-profile/mistral
+  :contract/kind :model-energy-profile
+  :match/model-pattern "^mistral"
+  :energy/joules-per-input-token 0.05
+  :energy/joules-per-output-token 0.15}
+
+ {:contract/id :model-energy-profile/devstral
+  :contract/kind :model-energy-profile
+  :match/model-pattern "^devstral"
+  :energy/joules-per-input-token 0.05
+  :energy/joules-per-output-token 0.15}
+
+ {:contract/id :model-energy-profile/ministral
+  :contract/kind :model-energy-profile
+  :match/model-pattern "^ministral"
+  :energy/joules-per-input-token 0.05
+  :energy/joules-per-output-token 0.15}
+
+ {:contract/id :model-energy-profile/nemotron
+  :contract/kind :model-energy-profile
+  :match/model-pattern "^nemotron"
+  :energy/joules-per-input-token 0.05
+  :energy/joules-per-output-token 0.15}
+
+ {:contract/id :model-energy-profile/cogito
+  :contract/kind :model-energy-profile
+  :match/model-pattern "^cogito"
+  :energy/joules-per-input-token 0.05
+  :energy/joules-per-output-token 0.15}
+
+ {:contract/id :model-energy-profile/rnj
+  :contract/kind :model-energy-profile
+  :match/model-pattern "^rnj-"
+  :energy/joules-per-input-token 0.05
+  :energy/joules-per-output-token 0.15}
+
+ {:contract/id :model-energy-profile/gpt-oss
+  :contract/kind :model-energy-profile
+  :match/model-pattern "^gpt-oss"
+  :energy/joules-per-input-token 0.05
+  :energy/joules-per-output-token 0.15}
+
+ {:contract/id :model-energy-profile/default
+  :contract/kind :model-energy-profile
+  :energy/joules-per-input-token 0.5
+  :energy/joules-per-output-token 1.5}]
