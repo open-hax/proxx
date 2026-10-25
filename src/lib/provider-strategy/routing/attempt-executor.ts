@@ -230,6 +230,9 @@ export async function executeProviderRoutingPlan(
         }
         const reservation = await budgetRuntime.reservePaidBudget(context.budgetSql, PAID_BUDGET_QUERIES, inspection.policy, crypto.randomUUID(), amount);
         if (reservation.status !== "admitted" || !reservation.reservationId) {
+          if (reservation.status !== "daily-limit" && reservation.status !== "monthly-limit") {
+            throw new OpenAiHttpError({ statusCode: 503, message: "Paid budget storage unavailable.", type: "server_error", code: "budget_unavailable" });
+          }
           throw new OpenAiHttpError({ statusCode: 429, message: "Paid fallback allowance unavailable.", type: "insufficient_quota", code: "paid_budget_exhausted", meta: { reason: reservation.status } });
         }
         ticket = { id: reservation.reservationId, scopeId: inspection.policy.scopeId, inputPrice: pricing.inputPer1MTokens, outputPrice: pricing.outputPer1MTokens };

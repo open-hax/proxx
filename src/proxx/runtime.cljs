@@ -361,9 +361,10 @@
              (js->clj auth :keywordize-keys true) method path)))
 
 (defn resolve-budget-route-plan-js [manifest-path auth model-id]
-  (clj->js (budget-policy/route-plan
-            (get-in (compiled-policy-for-manifest manifest-path) [:index :contracts])
-            (js->clj auth :keywordize-keys true) model-id)))
+  (let [compiled (compiled-policy-for-manifest manifest-path)]
+    (clj->js (budget-policy/route-plan
+              (get-in compiled [:index :contracts])
+              (js->clj auth :keywordize-keys true) model-id compiled))))
 
 (defn probe-first-usable-js [text format tools]
   (clj->js (budget-stream/probe text format (js->clj tools :keywordize-keys true))))

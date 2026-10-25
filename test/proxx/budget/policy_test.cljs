@@ -100,3 +100,21 @@
   (let [required (assoc auth :scopes ["proxy:use" "budget:required"])]
     (is (= "unavailable" (:status (policy/authorize-http [] required "POST" "/v1/chat/completions"))))
     (is (= "denied" (:status (policy/inspect-attempt [] required attempt))))))
+
+
+(deftest paid-streams-request-usage-even-when-client-disables-it
+  (let [result (policy/inspect-attempt [contract] auth (assoc attempt :payload {:stream true :stream_options {:include_usage false}}))]
+    (is (true? (get-in result [:payload :stream_options :include_usage])))))
+
+(deftest refusal-matching-is-case-insensitive-like-admission
+  (let [c (assoc-in contract [:budget/routes 1 :billing/no-charge-statuses] #{402})]
+    (is (policy/zero-charge-refusal? [c] auth {:providerId "ROUTER" :model "VENDOR/PAID" :status 402 :body {:error "no balance"}}))))
+
+
+(deftest route-plan-resolves-the-selected-route-alias-not-the-original-workload
+  (let [c (assoc contract :budget/routing-model-pattern "^workload$"
+                 :budget/free-cutoff-ms 12 :budget/first-output-total-ms 20)
+        compiled {:model-aliases [{:match/model-pattern "^vendor/free$" :match/provider-pattern "^router$" :alias/model-id "vendor/free-long"}
+                                 {:match/model-pattern "^workload$" :match/provider-pattern "^router$" :alias/model-id "wrong-original-workload-alias"}]}
+        plan (policy/route-plan [c] auth "workload" compiled)]
+    (is (= ["vendor/free-long" "vendor/paid"] (mapv :upstreamModel (:orderedRoutes plan))))))

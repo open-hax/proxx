@@ -13494,7 +13494,12 @@ test("rewrites largest-model alias requests for ollama catalog models", async ()
   );
 });
 
-test("budget exhaustion stops the paid HTTP attempt before provider transport", async () => {
+for (const [reservationStatus, expectedStatus, expectedCode] of [
+  ["daily-limit",429,"paid_budget_exhausted"],
+  ["monthly-limit",429,"paid_budget_exhausted"],
+  ["unavailable",503,"budget_unavailable"],
+] as const) {
+test(`budget ${reservationStatus} stops the paid HTTP attempt before provider transport`, async () => {
   let calls = 0;
   await withProxyApp({
     keys: [],
@@ -13504,7 +13509,7 @@ test("budget exhaustion stops the paid HTTP attempt before provider transport", 
   }, async ({ app }) => {
     const runtime = getActiveCljsRuntime()!;
     let reservations = 0;
-    setActiveCljsRuntime({ ...runtime, reservePaidBudget: async () => { reservations += 1; return { status: "daily-limit" }; } });
+    setActiveCljsRuntime({ ...runtime, reservePaidBudget: async () => { reservations += 1; return { status: reservationStatus }; } });
     app.addHook("preHandler", async (request) => {
       request.openHaxAuth = { kind: "tenant_api_key", keyId: "71a0813f-dbe3-45ad-a7ae-16555463e716", tenantId: "default", source: "bearer" };
     });
@@ -13512,13 +13517,14 @@ test("budget exhaustion stops the paid HTTP attempt before provider transport", 
       const response = await app.inject({ method: "POST", url: "/v1/chat/completions", payload: {
         model: "deepinfra/google/gemma-4-31B-it", messages: [{ role: "user", content: "hello" }], stream: false,
       } });
-      assert.equal(response.statusCode, 429, response.body);
-      assert.equal(response.json().error.code, "paid_budget_exhausted");
+      assert.equal(response.statusCode, expectedStatus, response.body);
+      assert.equal(response.json().error.code, expectedCode);
       assert.equal(reservations, 1);
       assert.equal(calls, 1, "only the free route reaches transport");
     } finally { setActiveCljsRuntime(runtime); }
   });
 });
+}
 
 test("budgeted HTTP request caps output and settles completed usage", async () => {
   let observedMax: unknown;
@@ -13904,4 +13910,24 @@ test("required budget identity cannot bypass admission via embeddings or missing
     const unbound=await app.inject({method:"POST",url:"/v1/chat/completions",payload:{model:"gemma4:31b",messages:[{role:"user",content:"hello"}]}});
     assert.equal(unbound.statusCode,503,unbound.body);assert.equal(calls,0);
   });
+});
+
+test("paid streamed requests override disabled usage reporting before transport", async () => {
+  let paidCalls=0, settlements=0;
+  await withProxyApp({keys:[],keysPayload:{providers:{requesty:{auth:"api_key",accounts:["test-key"]}}},configOverrides:{upstreamProviderId:"requesty"},
+    upstreamHandler:async(_request,text)=>{
+      const body=JSON.parse(text);
+      if(body.model==="google/gemma-4-31b-it") return {status:503,body:"{}"};
+      paidCalls++;assert.equal(body.stream_options?.include_usage,true);
+      return {status:200,headers:{"content-type":"application/json"},body:JSON.stringify({id:"usage",object:"chat.completion",model:body.model,
+        choices:[{index:0,message:{role:"assistant",content:"OK"},finish_reason:"stop"}],usage:{prompt_tokens:10,completion_tokens:1,total_tokens:11}})};
+    }},async({app})=>{
+      const runtime=getActiveCljsRuntime()!;
+      setActiveCljsRuntime({...runtime,reservePaidBudget:async()=>({status:"admitted",reservationId:"usage-hold"}),settlePaidBudget:async()=>{settlements++;return {status:"settled"};}});
+      app.addHook("preHandler",async request=>{request.openHaxAuth={kind:"tenant_api_key",keyId:"71a0813f-dbe3-45ad-a7ae-16555463e716",tenantId:"default",source:"bearer"};});
+      try {
+        const response=await app.inject({method:"POST",url:"/v1/chat/completions",payload:{model:"gemma4:31b",stream:true,stream_options:{include_usage:false},messages:[{role:"user",content:"hello"}]}});
+        assert.equal(response.statusCode,200,response.body);assert.equal(paidCalls,1);assert.equal(settlements,1);
+      } finally {setActiveCljsRuntime(runtime);}
+    });
 });

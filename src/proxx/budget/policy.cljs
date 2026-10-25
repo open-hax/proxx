@@ -17,7 +17,9 @@
     {:status (if (contains? (:budget/allowed-http-routes budget) [method path]) "allowed" "denied")}
     {:status (if (budget-required? auth) "unavailable" "unmanaged")}))
 
-(defn route-plan [contracts auth model-id]
+(defn route-plan
+  ([contracts auth model-id] (route-plan contracts auth model-id nil))
+  ([contracts auth model-id compiled]
   (when-let [budget (request-budget contracts auth)]
     (let [workload? (contracts/pattern-matches? (:budget/routing-model-pattern budget) model-id)
           routes (if workload?
@@ -31,11 +33,13 @@
        :needsReasoningTrace false
        :orderedRoutes (mapv (fn [route]
                              {:providerId (:provider-id route)
-                              :upstreamModel (:model-id route)
+                              :upstreamModel (or (when compiled
+                                                   (contracts/resolve-model-alias compiled (:model-id route) (:provider-id route)))
+                                                 (:model-id route))
                               :firstUsableOffsetMs (if (and workload? (= :free (:billing route)))
                                                      (:budget/free-cutoff-ms budget)
                                                      (:budget/first-output-total-ms budget))})
-                           routes)})))
+                           routes)}))))
 
 (defn inspect-attempt
   "Identity comes from server-resolved auth, never request metadata. Matching
@@ -63,7 +67,9 @@
          :outputBound (min requested-output output-cap)
          :payload (-> payload
                       (dissoc :max_completion_tokens)
-                      (assoc :max_tokens (min requested-output output-cap)))}
+                      (assoc :max_tokens (min requested-output output-cap))
+                      (cond-> (and (= :paid (:billing route)) (= "chat_completions" mode) (true? (:stream payload)))
+                        (assoc-in [:stream_options :include_usage] true)))}
         {:status "denied"}))
     {:status (if (budget-required? auth) "denied" "unmanaged")}))
 
@@ -108,8 +114,8 @@
   (boolean
     (when-let [budget (request-budget contracts auth)]
       (let [route (some #(when (and (= :paid (:billing %))
-                                   (= (:provider-id %) providerId)
-                                   (= (:model-id %) model)) %) (:budget/routes budget))]
+                                   (= (str/lower-case (:provider-id %)) (str/lower-case providerId))
+                                   (= (str/lower-case (:model-id %)) (str/lower-case model))) %) (:budget/routes budget))]
         (and route (contains? (:billing/no-charge-statuses route) status)
              (map? body) (some? (:error body))
              (not-any? #(contains? body %) [:usage :usageMetadata :choices :output]))))))

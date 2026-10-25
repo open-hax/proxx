@@ -282,6 +282,13 @@ async function executeChatCandidate(input: ChatCandidateInput): Promise<CljsMode
   }
 
   if (request._budgetRoutePlan?.managed) {
+    const total = request._budgetRoutePlan.totalFirstUsableMs;
+    const admitted = request._proxxAdmittedAt;
+    // An upstream timer can win before the outer deadline callback executes.
+    // Preserve the declared request deadline's typed outcome in that ordering.
+    if (total !== undefined && admitted !== undefined && Date.now() >= admitted + total) {
+      throw openAiRouteError(504, "No usable output within the request deadline.", "server_error", "first_usable_timeout");
+    }
     throw openAiRouteError(503, "No allowed budget route produced usable output.", "server_error", "budget_routes_exhausted");
   }
 
