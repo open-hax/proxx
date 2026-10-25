@@ -167,6 +167,21 @@ export interface CljsKernels {
   // w2 credentials: file-backed credential store
   // w2 request auth
   readonly resolveRequestAuth: (input: unknown, defaultTenantId: string) => Promise<unknown>;
+  // w2 sql credential store mapping (rows in, views/params out; SQL text stays in db/schema.ts)
+  readonly normalizeAuthTypeSql: (raw: string) => "api_key" | "oauth_bearer";
+  readonly sqlProviderCredential: (row: unknown, authType: string) => Record<string, unknown>;
+  readonly legacyOpenAiDuplicateIds: (rows: readonly unknown[]) => string[];
+  readonly sqlUserView: (row: unknown) => Record<string, unknown>;
+  readonly sqlMembershipView: (row: unknown) => Record<string, unknown>;
+  readonly sqlUserUpsertParams: (newUuid: () => string, input: unknown) => unknown[];
+  readonly sqlResolveUiSession: (user: unknown, memberships: readonly unknown[], activeTenantId: string | undefined, defaultTenantId: string) => Record<string, unknown> | null;
+  readonly sqlBootstrapRole: (existing: readonly unknown[], defaultTenantId: string, countRow: unknown) => { readonly role: string; readonly create: boolean };
+  readonly sqlApiKeyScopes: (scopes: readonly unknown[]) => string[];
+  readonly sqlNormalizedApiKeyLabel: (label: string) => string;
+  readonly sqlTenantApiKeyView: (row: unknown) => Record<string, unknown>;
+  readonly sqlTenantApiKeyMatch: (row: unknown) => Record<string, unknown>;
+  readonly sqlCredentialProviderViews: (providerRows: readonly unknown[], accountRows: readonly unknown[], reveal: boolean, derive: (token: string) => unknown) => unknown[];
+  readonly sqlCooldownEntries: (rows: readonly unknown[]) => Array<[string, string, number]>;
   readonly createCredentialStore: (filePath: string, defaultProviderId: string, deps: unknown) => unknown;
 }
 

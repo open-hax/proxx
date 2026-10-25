@@ -104,7 +104,21 @@
                                            refreshFactoryOAuthToken proxx.runtime.factory-auth/refresh-factory-oauth-token-js
                                            factoryRefreshBufferMs proxx.oauth.factory/refresh-buffer-ms
                                            createCredentialStore proxx.runtime.credentials/create-credential-store-js
-                                           resolveRequestAuth proxx.runtime.auth/resolve-request-auth-js}}}
+                                           resolveRequestAuth proxx.runtime.auth/resolve-request-auth-js
+                                           normalizeAuthTypeSql proxx.runtime.sql/normalize-auth-type-js
+                                           sqlProviderCredential proxx.runtime.sql/provider-credential-js
+                                           legacyOpenAiDuplicateIds proxx.runtime.sql/legacy-openai-duplicate-ids-js
+                                           sqlUserView proxx.runtime.sql/user-view-js
+                                           sqlMembershipView proxx.runtime.sql/membership-view-js
+                                           sqlUserUpsertParams proxx.runtime.sql/user-upsert-params-js
+                                           sqlResolveUiSession proxx.runtime.sql/resolve-ui-session-js
+                                           sqlBootstrapRole proxx.runtime.sql/bootstrap-role-js
+                                           sqlApiKeyScopes proxx.runtime.sql/api-key-scopes-js
+                                           sqlNormalizedApiKeyLabel proxx.runtime.sql/normalized-api-key-label-js
+                                           sqlTenantApiKeyView proxx.runtime.sql/tenant-api-key-view-js
+                                           sqlTenantApiKeyMatch proxx.runtime.sql/tenant-api-key-match-js
+                                           sqlCredentialProviderViews proxx.runtime.sql/credential-provider-views-js
+                                           sqlCooldownEntries proxx.runtime.sql/cooldown-entries-js}}}
    :js-options {:js-provider :import
                 :keep-as-import #{"node:fs" "node:path"}}
    :compiler-options {:output-feature-set :es-next
