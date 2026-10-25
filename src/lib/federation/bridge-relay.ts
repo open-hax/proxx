@@ -241,6 +241,7 @@ export class FederationBridgeRelay {
     readonly requestAuth?: import("../request-auth.js").ResolvedRequestAuth;
     readonly requestContext?: BridgeRequestOpenMessage["requestContext"];
     readonly routingIntent?: BridgeRequestOpenMessage["routingIntent"];
+    readonly onDispatch?: () => void;
   }): AsyncIterable<BridgeRelayResponseEvent> {
     const session = this.sessions.get(sessionId);
     if (!session || session.state !== "connected") {
@@ -300,6 +301,7 @@ export class FederationBridgeRelay {
     };
 
     this.pendingRequests.set(streamId, pending);
+    input.onDispatch?.();
     channel.send(JSON.stringify(request));
     if (typeof input.body === "string" && input.body.length > 0) {
       channel.send(JSON.stringify({

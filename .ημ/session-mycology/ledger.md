@@ -123,3 +123,11 @@
   spore: none
   receipt-refs: shared-login-and-federation; native4369807477
   note: Separate retained session identity from fresh ID-token claims; require live introspection without destroying consumed-token successor custody on transient outages. No runtime activation claim.
+
+- ts: 2026-10-25T08:48:05.252897+00:00
+  origin: shared-login-transport-boundaries
+  p-efficiency: 0.8
+  p-friction: 0.3
+  p-skill-candidate: 0.4
+  receipt-refs: shared-login-and-federation; native4370097365; native4370097366
+  note: Track dispatch at the actual send boundary: pre-send refusal permits fallback, but uncertain sends stay terminal. A stale browser callback must not issue an unqualified cookie-scoped cancellation for a newer generation. Verify both with real compiled runtime/relay and mounted DOM tests.

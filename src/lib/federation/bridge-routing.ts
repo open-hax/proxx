@@ -203,7 +203,6 @@ export async function executeBridgeRequestRouting(
     let dispatchAttempted = false;
     let rawResponse: typeof input.reply.raw | undefined;
     try {
-      dispatchAttempted = true;
       const responseEvents = bridgeRelay.requestStream(session.sessionId, {
         method: "POST",
         path: input.upstreamPath,
@@ -216,6 +215,9 @@ export async function executeBridgeRequestRouting(
         requestContext: { tenantId },
         requestAuth: input.requestAuth,
         routingIntent: requestedModel ? { model: requestedModel } : undefined,
+        // Pure admission failures are replayable. Once transport send begins,
+        // preserve terminal handling even if that send throws uncertainly.
+        onDispatch: () => { dispatchAttempted = true; },
       });
 
       let sawHead = false;

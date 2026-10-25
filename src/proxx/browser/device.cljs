@@ -108,10 +108,9 @@
     (set! (.-textContent (:display state)) "Requesting a device code…")
     (try
       (let [result (await (request! "start"))]
-        (if (current? state generation)
-          (do (show-code! state result)
-              (schedule! state generation (or (:interval result) 5)))
-          (try (await (request! "cancel")) (catch :default _ nil))))
+        (when (current? state generation)
+          (show-code! state result)
+          (schedule! state generation (or (:interval result) 5))))
       (catch :default _ (fail! state generation "Device sign-in unavailable. Start again.")))))
 
 (defn mount!
