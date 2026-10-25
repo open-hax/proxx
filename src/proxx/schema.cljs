@@ -332,6 +332,32 @@
     [:require/plans {:optional true} [:or :keyword KeywordVector]]
     [:exclude/plans {:optional true} KeywordVector]]])
 
+(def ProviderWireProfileContract
+  "How a provider's non-standard upstream is addressed: which endpoint and
+  `x-api-provider` a model uses (first matching route wins; the last route is a
+  catch-all), the static headers it requires, and prompt rewrites it demands."
+  [:and
+   ContractBase
+   [:map
+    [:contract/kind [:enum :provider-wire-profile]]
+    [:wire/provider-id [:string {:min 1}]]
+    [:wire/model-routes
+     [:vector {:min 1}
+      [:map
+       [:match/model-pattern [:string {:min 1}]]
+       [:wire/model-type :keyword]
+       [:wire/api-provider [:string {:min 1}]]
+       [:wire/endpoint-path [:string {:min 1}]]]]]
+    [:wire/static-headers {:optional true} [:map-of :string :string]]
+    [:wire/anthropic-headers {:optional true} [:map-of :string :string]]
+    [:wire/thinking-beta-header {:optional true} [:string {:min 1}]]
+    [:wire/static-key-prefix {:optional true} [:string {:min 1}]]
+    [:wire/prompt-rewrites
+     {:optional true}
+     [:vector [:map
+               [:match/system-contains [:string {:min 1}]]
+               [:wire/replace-with [:string {:min 1}]]]]]]])
+
 (def FederationRoutingClauseContract
   [:and
    ContractBase
@@ -478,6 +504,7 @@
     [:account-ordering AccountOrderingContract]
     [:account-constraint AccountConstraintContract]
     [:federation-routing-clause FederationRoutingClauseContract]
+    [:provider-wire-profile ProviderWireProfileContract]
     [:authorization-clause AuthorizationClauseContract]
     [:model-pricing-override ModelPricingOverrideContract]
     [:model-alias ModelAliasContract]
@@ -526,6 +553,7 @@
     :proxx/contract-account-ordering AccountOrderingContract
     :proxx/contract-account-constraint AccountConstraintContract
     :proxx/contract-federation-routing-clause FederationRoutingClauseContract
+    :proxx/contract-provider-wire-profile ProviderWireProfileContract
    :proxx/contract-authorization-clause AuthorizationClauseContract
     :proxx/contract-model-pricing-override ModelPricingOverrideContract
     :proxx/contract-model-alias ModelAliasContract

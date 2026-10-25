@@ -14,6 +14,7 @@
    "60-tenant-enforcement.edn"
    "65-federation-routing.edn"
    "70-request-queue-templates.edn"
+   "75-provider-wire-profiles.edn"
   "90-router.edn"]
  :policy.loader/invariant
  "Files are append/override in order: facts first, then derived rules, then the root router. More-specific clauses must precede catch-all clauses."}

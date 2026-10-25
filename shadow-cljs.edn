@@ -41,7 +41,15 @@
                                            messagesToChatCompletion proxx.runtime/messages-to-chat-completion-js
                                            shouldUseMessagesUpstream proxx.runtime/should-use-messages-upstream-js
                                            isGlmModel proxx.runtime.glm/is-glm-model-js
-                                           applyGlmThinking proxx.runtime.glm/apply-glm-thinking-js}}}
+                                           applyGlmThinking proxx.runtime.glm/apply-glm-thinking-js
+                                           getFactoryModelType proxx.runtime.factory/get-factory-model-type-js
+                                           getFactoryApiProvider proxx.runtime.factory/get-factory-api-provider-js
+                                           getFactoryEndpointPath proxx.runtime.factory/get-factory-endpoint-path-js
+                                           buildFactoryCommonHeaders proxx.runtime.factory/build-factory-common-headers-js
+                                           buildFactoryAnthropicHeaders proxx.runtime.factory/build-factory-anthropic-headers-js
+                                           inlineSystemPrompt proxx.runtime.factory/inline-system-prompt-js
+                                           sanitizeFactorySystemPrompt proxx.runtime.factory/sanitize-factory-system-prompt-js
+                                           isFkKey proxx.runtime.factory/is-fk-key-js}}}
    :js-options {:js-provider :import
                 :keep-as-import #{"node:fs" "node:path"}}
    :compiler-options {:output-feature-set :es-next

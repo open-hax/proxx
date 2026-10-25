@@ -1,0 +1,53 @@
+;; Provider wire profiles: facts about how non-standard upstreams are addressed.
+;; Consumed by proxx.compat.factory; never restated in TypeScript.
+[{:contract/id :wire-profile/factory
+  :contract/kind :provider-wire-profile
+  :wire/provider-id "factory"
+
+  ;; First match wins; the final clause is the catch-all (glm-, kimi-, minimax-,
+  ;; deepseek- and unknown models all land on fireworks via chat completions).
+  :wire/model-routes
+  [{:match/model-pattern "(?i)^claude-"
+    :wire/model-type :anthropic
+    :wire/api-provider "anthropic"
+    :wire/endpoint-path "/api/llm/a/v1/messages"}
+   {:match/model-pattern "(?i)^gpt-"
+    :wire/model-type :openai
+    :wire/api-provider "openai"
+    :wire/endpoint-path "/api/llm/o/v1/responses"}
+   {:match/model-pattern "(?i)^gemini-"
+    :wire/model-type :common
+    :wire/api-provider "google"
+    :wire/endpoint-path "/api/llm/o/v1/chat/completions"}
+   {:match/model-pattern ".*"
+    :wire/model-type :common
+    :wire/api-provider "fireworks"
+    :wire/endpoint-path "/api/llm/o/v1/chat/completions"}]
+
+  ;; Static request headers (Factory CLI + Stainless SDK fingerprint). Per-request
+  ;; ids (x-session-id, x-assistant-message-id) are supplied by the caller.
+  :wire/static-headers
+  {"x-factory-client" "cli"
+   "user-agent" "factory-cli/0.74.0"
+   "connection" "keep-alive"
+   "x-stainless-arch" "x64"
+   "x-stainless-lang" "js"
+   "x-stainless-os" "Linux"
+   "x-stainless-runtime" "node"
+   "x-stainless-retry-count" "0"
+   "x-stainless-package-version" "0.70.1"
+   "x-stainless-runtime-version" "v24.3.0"}
+
+  :wire/anthropic-headers
+  {"anthropic-version" "2023-06-01"
+   "x-api-key" "placeholder"
+   "x-client-version" "0.74.0"
+   "x-stainless-timeout" "600"}
+
+  ;; Static `fk-` keys are rejected (403) when an Anthropic `system` is present.
+  :wire/static-key-prefix "fk-"
+
+  ;; Factory rejects the full OpenCode system prompt (403); substitute a safe one.
+  :wire/prompt-rewrites
+  [{:match/system-contains "you are opencode, the best coding agent on the planet"
+    :wire/replace-with "You are a software engineering assistant running inside a CLI tool.\nBe concise, correct, and action-oriented.\nOnly call tools when you need to inspect files, run commands, or fetch data. For simple replies, respond directly without tools.\nDo not run shell commands (e.g. `echo`) just to print the answer.\nUse the provided tools when needed; do not invent tools.\nAsk a clarifying question only when you cannot proceed safely.\nAvoid destructive actions and avoid exposing secrets."}]}]
