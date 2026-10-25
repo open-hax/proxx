@@ -14031,3 +14031,52 @@ test("budgeted free and paid wire bodies preserve slash-separated schema and met
       });
   }
 });
+
+
+test("managed non-streaming bodies must end before clearing first usable deadline", async () => {
+  for (const paidEnds of [true, false]) {
+    let reservations = 0, settlements = 0, freeClosed = false;
+    const observed: string[] = [];
+    await withProxyApp({
+      keys: [], keysPayload: { providers: { requesty: { auth: "api_key", accounts: ["test-requesty-key"] } } },
+      configOverrides: { upstreamProviderId: "requesty" },
+      upstreamHandler: async (_req, body) => {
+        const model = JSON.parse(body).model as string; observed.push(model);
+        const payload = JSON.stringify({id:"complete-json-without-eof",object:"chat.completion",model,
+          choices:[{index:0,message:{role:"assistant",content:"visible only after nonstream completion"},finish_reason:"stop"}],
+          usage:{prompt_tokens:100,completion_tokens:10,total_tokens:110}});
+        if (model === "google/gemma-4-31b-it" || !paidEnds) return {
+          status:200,headers:{"content-type":"application/json"},
+          streamBody:async res => {res.write(payload);await once(res,"close");if(model === "google/gemma-4-31b-it")freeClosed=true;},
+        };
+        return {status:200,headers:{"content-type":"application/json"},body:payload};
+      },
+    }, async ({app}) => {
+      const runtime=getActiveCljsRuntime()!;
+      setActiveCljsRuntime({...runtime,
+        resolveBudgetRoutePlan:(path,auth,model)=>{
+          const plan=runtime.resolveBudgetRoutePlan!(path,auth,model);
+          return plan?.orderedRoutes?{...plan,totalFirstUsableMs:2000,
+            orderedRoutes:plan.orderedRoutes.map(route=>({...route,firstUsableOffsetMs:route.firstUsableOffsetMs/10}))}:plan;
+        },
+        reservePaidBudget:async()=>{reservations++;return {status:"admitted",reservationId:"nonstream-hold"};},
+        settlePaidBudget:async()=>{settlements++;return {status:"settled"};},
+      });
+      app.addHook("preHandler",async request=>{request.openHaxAuth={kind:"tenant_api_key",keyId:"71a0813f-dbe3-45ad-a7ae-16555463e716",tenantId:"default",source:"bearer"};});
+      try {
+        const began=Date.now();
+        const response=await app.inject({method:"POST",url:"/v1/chat/completions",payload:{
+          model:"gemma4:31b",messages:[{role:"user",content:"hello"}],stream:false,
+        }});
+        assert.equal(response.statusCode,paidEnds?200:504,response.body);
+        assert.ok(Date.now()-began<3000,"scaled first-usable deadline must bound the client response");
+        assert.deepEqual(observed,["google/gemma-4-31b-it","deepinfra/google/gemma-4-31B-it"]);
+        assert.equal(reservations,1);
+        if(paidEnds)assert.equal(response.headers["x-open-hax-upstream-model"],"deepinfra/google/gemma-4-31B-it");
+        else {assert.equal(response.json().error.code,"first_usable_timeout");assert.equal(settlements,0,"unknown paid completion must retain its hold");}
+        await new Promise(resolve=>setImmediate(resolve));
+        assert.equal(freeClosed,true,"free response is aborted before fallback completes");
+      } finally {setActiveCljsRuntime(runtime);}
+    });
+  }
+});

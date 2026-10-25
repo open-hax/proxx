@@ -31,6 +31,12 @@ jobs:
        startsWith(github.event.comment.body, fromJSON('"/opencode\n"')) ||
        startsWith(github.event.comment.body, fromJSON('"/opencode\r"')))
     runs-on: ubuntu-latest
+    # Separate from comment deduplication: serialize mutations for one issue/PR.
+    # GitHub persists up to 100 pending jobs rather than replacing the pending job.
+    concurrency:
+      group: opencode-mutation-${{ github.repository }}-${{ github.event.issue.number || github.event.pull_request.number }}
+      cancel-in-progress: false
+      queue: max
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4

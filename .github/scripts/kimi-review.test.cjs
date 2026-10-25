@@ -1103,3 +1103,17 @@ test('footer is bounded trusted caller data; fitting partial retries preserve or
       parts: [{ type: 'tool', tool: 'StructuredOutput', state: { status: 'completed', input: value } }] }, head, coverage), /immutable full diff/);
   } finally { fs.rmSync(directory, { recursive: true, force: true }); }
 });
+
+
+test('OpenCode mutations queue by issue or PR without cancelling separate comment runs', () => {
+  const fs = require('node:fs'), path = require('node:path');
+  const source = fs.readFileSync(path.join(__dirname, '../workflows/opencode.yml'), 'utf8');
+  const job = source.match(/    concurrency:\n      group: (.*)\n      cancel-in-progress: false\n      queue: max/);
+  assert.ok(job, 'mutating job needs a bounded native queue without cancellation');
+  const expand = event => job[1].replace(/\$\{\{(.*?)\}\}/g, (_, expression) =>
+    Function('github', `return (${expression});`)({repository:'open-hax/proxx',event:{issue:{},pull_request:{},...event}}));
+  const a={issue:{number:464},comment:{id:1}},b={issue:{number:464},comment:{id:2}};
+  assert.equal(expand(a),expand(b));
+  assert.equal(expand(a),expand({pull_request:{number:464},comment:{id:3}}));
+  assert.notEqual(expand(a),expand({issue:{number:465},comment:{id:4}}));
+});
