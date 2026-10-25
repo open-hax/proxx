@@ -147,6 +147,12 @@ export interface CljsKernels {
   readonly generateTenantApiKey: () => string;
   readonly buildTenantApiKeyPrefix: (token: string) => string;
   readonly hashTenantApiKey: (token: string, pepper: string) => string;
+  readonly extractResponseTextAndUrlCitations: (payload: unknown) => {
+    readonly text: string;
+    readonly citations: Array<{ readonly url: string; readonly title?: string }>;
+    readonly responseId?: string;
+  };
+  readonly extractMarkdownLinks: (text: string) => Array<{ readonly url: string; readonly title?: string }>;
 }
 
 const loaded = await loadCljsRuntime({ required: true });

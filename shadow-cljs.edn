@@ -98,7 +98,9 @@
                                            normalizeTenantId proxx.runtime.tenant-key/normalize-tenant-id-js
                                            generateTenantApiKey proxx.runtime.tenant-key/generate-tenant-api-key-js
                                            buildTenantApiKeyPrefix proxx.runtime.tenant-key/build-tenant-api-key-prefix-js
-                                           hashTenantApiKey proxx.runtime.tenant-key/hash-tenant-api-key-js}}}
+                                           hashTenantApiKey proxx.runtime.tenant-key/hash-tenant-api-key-js
+                                           extractResponseTextAndUrlCitations proxx.runtime.response-citations/extract-response-text-and-url-citations-js
+                                           extractMarkdownLinks proxx.runtime.response-citations/extract-markdown-links-js}}}
    :js-options {:js-provider :import
                 :keep-as-import #{"node:fs" "node:path"}}
    :compiler-options {:output-feature-set :es-next
