@@ -144,7 +144,7 @@ test('bounded structured execution authenticates local API, rejects prose and cl
         return { ok: true, json: async () => catalog };
       }
       if (++calls === 1) return { ok: true, json: async () => ({ id: 'ses_test123' }) };
-      if (url.includes('/event?')) return { ok: true, headers: new Headers({ 'content-type': 'text/event-stream' }), body: stream };
+      if (url.includes('/event?')) return { ok: true, headers: { get: name => name === 'content-type' ? 'text/event-stream' : null }, body: stream };
       if (options.method === 'POST') {
         assert.ok(url.includes('/prompt_async?'), 'Model submission must not wait on synchronous response headers');
         const request = JSON.parse(options.body);
@@ -382,7 +382,8 @@ test('publication rejects stale base and reuses completed review after notificat
   const { execFileSync } = require('node:child_process'); const { publish, diffCoverage } = require('./kimi-review.cjs');
   const head = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kimi-publish-law-')), file = path.join(dir, 'review.json');
-  const coverage = diffCoverage(head, head); delete coverage.diff;
+  const { diffSha256, coveredFiles } = diffCoverage(head, head);
+  const coverage = { diffSha256, coveredFiles };
   fs.writeFileSync(file, JSON.stringify({ head, ...coverage, summary: 'ok', comments: [] }));
   const context = { repo: { owner: 'o', repo: 'r' }, payload: { pull_request: { number: 1, base: { sha: head }, head: { sha: head, repo: { full_name: 'o/r' } } } } };
   const reviews = []; let created = 0, currentBase = b;
@@ -593,6 +594,308 @@ test('near-cap existing review reserves only actual missing receipt bytes', asyn
   } finally { fs.rmSync(directory, { recursive: true, force: true }); }
 });
 
+test('secret-bearing workflow rejects a runtime present only on the PR branch', () => {
+  const fs = require('node:fs'), path = require('node:path'), os = require('node:os');
+  const { execFileSync, spawnSync } = require('node:child_process');
+  const workflow = fs.readFileSync(path.join(__dirname, '../workflows/opencode-code-review.yml'), 'utf8');
+  const prepare = workflow.split('      - name: Prepare immutable review runtime\n')[1].split('      - name: Run exact-head')[0];
+  const guard = prepare.split('        run: |\n')[1].split('          git show ')[0].split('\n').map(line => line.replace(/^ {10}/, '')).join('\n');
+  assert.match(guard, /git merge-base --is-ancestor/);
+  assert.match(prepare, /PR_BASE_SHA: \$\{\{ github.event.pull_request.base.sha \}\}/);
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'kimi-trust-test-'));
+  try {
+    const git = args => execFileSync('git', args, { cwd: directory, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+    git(['init']); git(['config', 'user.name', 'test']); git(['config', 'user.email', 'test@example.invalid']);
+    git(['commit', '--allow-empty', '-m', 'trusted base']); const base = git(['rev-parse', 'HEAD']);
+    git(['commit', '--allow-empty', '-m', 'unreviewed PR runtime']); const prOnly = git(['rev-parse', 'HEAD']);
+    const run = runtime => spawnSync('bash', ['-c', guard], { cwd: directory, env: { ...process.env, KIMI_RUNTIME_SHA: runtime, PR_BASE_SHA: base }, encoding: 'utf8' });
+    assert.equal(run(base).status, 0);
+    assert.notEqual(run(prOnly).status, 0);
+    assert.notEqual(run('main').status, 0);
+  } finally { fs.rmSync(directory, { recursive: true, force: true }); }
+});
+
+
+function kimiWorkflowJob(name, optional = false) {
+  const fs = require('node:fs'), path = require('node:path');
+  const source = fs.readFileSync(path.join(__dirname, '../workflows/opencode-code-review.yml'), 'utf8');
+  const match = source.match(new RegExp(`^  ${name}:\\n([\\s\\S]*?)(?=^  [a-z][a-z-]*:|$(?![\\s\\S]))`, 'm'));
+  if (optional && !match) return null;
+  assert.ok(match, `Missing workflow job ${name}`);
+  return match[1];
+}
+
+function kimiWorkflowScript() {
+  const source = kimiWorkflowJob('publish', true) || kimiWorkflowJob('review');
+  return source.split('          script: |\n')[1].split('\n').map(line => line.replace(/^ {12}/, '')).join('\n');
+}
+
+test('workflow keeps inference unprivileged and publishes in a fresh job with one immutable helper pin', () => {
+  const inference = kimiWorkflowJob('review'), publication = kimiWorkflowJob('publish');
+  assert.match(inference, /permissions:\n {6}contents: read\n {4}steps:/);
+  assert.doesNotMatch(inference, /id-token:|pull-requests:|issues:|github-script@|DISCORD_REVIEW_WEBHOOK_URL|GITHUB_TOKEN/);
+  assert.match(publication, /permissions:\n {6}contents: read\n {6}id-token: write\n {4}steps:/);
+  assert.doesNotMatch(publication, /KIMI_API_KEY|KIMI_FOR_CODING|opencode --|opencode\.tar|npm |pnpm |github\/action|GITHUB_WORKSPACE.*require/);
+  assert.match(publication, /needs: \[runner-tests, review\]/);
+  assert.match(publication, /name: Review pull request with OpenCode/);
+  assert.match(publication, /ARTIFACT_NAME: \$\{\{ needs.review.outputs.artifact-name \}\}/);
+  assert.match(publication, /actions\/download-artifact@[0-9a-f]{40}/);
+  assert.match(publication, /path: \$\{\{ runner.temp \}\}\/kimi-native/);
+  const fs = require('node:fs'), path = require('node:path');
+  const workflow = fs.readFileSync(path.join(__dirname, '../workflows/opencode-code-review.yml'), 'utf8');
+  assert.match(workflow, /KIMI_RUNTIME_SHA: 2810f4515424a146fe37390fb0baf532cca31236/);
+  assert.match(inference, /artifact-name: \$\{\{ steps.provenance.outputs.artifact-name \}\}/);
+  assert.match(inference, /name: \$\{\{ steps.provenance.outputs.artifact-name \}\}/);
+  assert.match(inference, /id: provenance/);
+});
+
+// Execute the workflow's own script against real Git snapshots. The trusted
+// transport fixtures record dispatch only; these are not native API/model tests.
+function kimiPublicationFixture({ largeCoverage = false } = {}) {
+  const fs = require('node:fs'), os = require('node:os'), path = require('node:path');
+  const { execFileSync } = require('node:child_process'), crypto = require('node:crypto');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'kimi-publication-job-'));
+  const prior = process.cwd(), repository = path.join(root, 'repository'), temp = path.join(root, 'runner');
+  fs.mkdirSync(repository); fs.mkdirSync(temp); fs.mkdirSync(path.join(temp, 'kimi-native'));
+  process.chdir(repository);
+  const git = args => execFileSync('git', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  git(['init', '-q']); git(['config', 'user.name', 'fixture']); git(['config', 'user.email', 'fixture@example.invalid']);
+  fs.mkdirSync('.github/scripts', { recursive: true });
+  const helper = fs.readFileSync(path.join(__dirname, 'kimi-review.cjs'), 'utf8') + `
+module.exports.structuredRequest=(...args)=>({...structuredRequest(...args),variant:'low'});
+module.exports.publish=async args=>{await args.github.capture(args);};
+`;
+  const auth = "exports.withOpenCodeAppToken=async ({core},use)=>{core.exchanges++;try{return await use('fixture-installation-token');}finally{core.revocations++;}};";
+  fs.writeFileSync('.github/scripts/kimi-review.cjs', helper);
+  fs.writeFileSync('.github/scripts/opencode-app-auth.cjs', auth);
+  fs.writeFileSync('source.cljc', '(def value 1)\n');
+  git(['add', '--', '.github/scripts', 'source.cljc']); git(['commit', '-qm', 'trusted helpers']);
+  const base = git(['rev-parse', 'HEAD']);
+  fs.writeFileSync('source.cljc', '(def value 2)\n');
+  fs.writeFileSync('.github/scripts/kimi-review.cjs', "throw Error('Candidate helper must never execute');");
+  fs.writeFileSync('.github/scripts/opencode-app-auth.cjs', "throw Error('Candidate auth must never execute');");
+  if (largeCoverage) {
+    fs.mkdirSync('long-path');
+    for (let i = 0; i < 10000; i++) fs.writeFileSync(`long-path/${i}-${'long-'.repeat(8)}file.cljc`, '(def changed true)\n');
+  }
+  git(['add', '--', '.github/scripts', 'source.cljc', ...(largeCoverage ? ['long-path'] : [])]); git(['commit', '-qm', 'candidate sources']);
+  const head = git(['rev-parse', 'HEAD']);
+  fs.writeFileSync(path.join(temp, 'kimi-review.cjs'), helper); fs.writeFileSync(path.join(temp, 'opencode-app-auth.cjs'), auth);
+  const coverage = require('./kimi-review.cjs').diffCoverage(base, head);
+  const control = { requested: { variant: 'low' }, advertisedNativeControl: { apiNpm: '@ai-sdk/openai-compatible', reasoningEffort: 'low' },
+    opencodeVersion: '1.18.34', observedAssistantVariant: 'low', executedIdentity: { providerID: 'kimi-code-plan-global', modelID: 'kimi-for-coding' },
+    underlyingProviderModel: null, binding: 'Pinned OpenCode catalog low mapping and assistant variant; not a provider reasoning-budget attestation' };
+  const review = { head, diffSha256: coverage.diffSha256, coveredFiles: coverage.coveredFiles, summary: 'No actionable findings', comments: [], executionControl: control };
+  const digest = value => crypto.createHash('sha256').update(value).digest('hex');
+  const artifactName = `kimi-native-12345-445-${head}-1`;
+  const env = { RUNNER_TEMP: temp, KIMI_RUNTIME_SHA: base, PR_HEAD_SHA: head, PR_BASE_SHA: base, PR_NUMBER: '445',
+    GITHUB_REPOSITORY: 'open-hax/proxx', GITHUB_RUN_ID: '12345', GITHUB_RUN_ATTEMPT: '2', GITHUB_SERVER_URL: 'https://github.com',
+    REVIEW_WORKFLOW_SHA: 'a'.repeat(40), REVIEW_WORKFLOW_REF: 'open-hax/proxx/.github/workflows/opencode-code-review.yml@refs/pull/445/merge',
+    ARTIFACT_NAME: artifactName, KIMI_REVIEW_FILE: path.join(temp, 'kimi-native/kimi-review.json') };
+  const provenance = { origin: 'github-actions-native-execution', repository: env.GITHUB_REPOSITORY,
+    prNumber: 445, head, base, runtimeSha: base, runtimeBlobSha256: digest(helper), authBlobSha256: digest(auth), runtimeBaseAncestorVerified: true,
+    reviewBlobSha256: digest(JSON.stringify(review)), artifactName,
+    requestedModel: control.executedIdentity, executedModel: control.executedIdentity, executionControl: control,
+    executedModelBinding: 'Successful immutable parseStructured requires assistant providerID/modelID to equal requested Kimi identities',
+    runID: '12345', runAttempt: 1, runURL: 'https://github.com/open-hax/proxx/actions/runs/12345',
+    workflowSha: env.REVIEW_WORKFLOW_SHA, workflowRef: env.REVIEW_WORKFLOW_REF,
+    opencodeVersion: '1.18.34', archiveSha256: '0f22479647226d1d2dd99595d20082ee7bda3870b62dc6a90b41efc1a71d7e9a',
+    diffSha256: coverage.diffSha256, coveredFiles: coverage.coveredFiles };
+  const context = { repo: { owner: 'open-hax', repo: 'proxx' }, payload: { pull_request: { number: 445, base: { sha: base }, head: { sha: head, repo: { full_name: 'open-hax/proxx' } }, draft: false } } };
+  const core = { exchanges: 0, revocations: 0 }, calls = [];
+  class AppClient { constructor(options) { assert.equal(options.auth, 'fixture-installation-token'); } async capture(args) { calls.push(args); } }
+  const github = { constructor: AppClient, capture: async args => { calls.push(args); } };
+  const save = () => {
+    fs.writeFileSync(env.KIMI_REVIEW_FILE, JSON.stringify(review));
+    fs.writeFileSync(path.join(temp, 'kimi-native/kimi-provenance.json'), JSON.stringify(provenance));
+    // Same protocol fixture also exercises the predecessor's actual publisher.
+    fs.writeFileSync(path.join(temp, 'kimi-provenance.json'), JSON.stringify(provenance));
+  };
+  const invoke = async () => {
+    save();
+    const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+    return new AsyncFunction('require', 'github', 'context', 'process', 'core', kimiWorkflowScript())(require, github, context, { env }, core);
+  };
+  return { root, repository, temp, git, env, context, review, provenance, core, calls, digest, invoke,
+    cleanup: () => { process.chdir(prior); fs.rmSync(root, { recursive: true, force: true }); } };
+}
+
+test('fresh publication verifies retained producer attempt before selecting the literal App owner', async () => {
+  const fixture = kimiPublicationFixture();
+  try {
+    await fixture.invoke();
+    assert.equal(fixture.core.exchanges, 1); assert.equal(fixture.core.revocations, 1);
+    assert.equal(fixture.calls.length, 1); assert.equal(fixture.calls[0].publisher, 'opencode-agent');
+    const footer = fixture.calls[0].publicationFooter;
+    assert.ok(Buffer.byteLength(footer) <= 4096); assert.match(footer, /"runAttempt": 1/);
+    assert.match(footer, /runtime observations/); assert.doesNotMatch(footer, /fixture-installation-token/);
+    assert.match(footer, /"authBlobSha256"/);
+    fixture.env.GITHUB_RUN_ATTEMPT = '1'; await fixture.invoke(); // Same producer/consumer attempt also works.
+    assert.equal(fixture.calls.length, 2);
+  } finally { fixture.cleanup(); }
+});
+
+test('fresh publication retains large full coverage without expanding the bounded footer', async () => {
+  const f = kimiPublicationFixture({ largeCoverage: true });
+  try {
+    f.review.summary = 'x'.repeat(50000); f.provenance.reviewBlobSha256 = f.digest(JSON.stringify(f.review));
+    assert.equal(f.review.coveredFiles.length, 10003);
+    assert.ok(Buffer.byteLength(JSON.stringify(f.provenance)) > 65000);
+    await f.invoke();
+    const footer = f.calls[0].publicationFooter;
+    assert.match(footer, /"coveredFileCount": 10003/);
+    assert.ok(Buffer.byteLength(footer) <= 4096);
+    assert.ok(Buffer.byteLength(f.review.summary + footer) < 65000);
+    const fs = require('node:fs'), path = require('node:path');
+    assert.equal(fs.readFileSync(path.join(f.temp, 'kimi-native/kimi-provenance.json'), 'utf8'), JSON.stringify(f.provenance));
+  } finally { f.cleanup(); }
+});
+
+test('producer output binds actual PR/run/attempt and hashes both immutable helpers plus full submission', () => {
+  const f = kimiPublicationFixture();
+  try {
+    const fs = require('node:fs'), path = require('node:path'), crypto = require('node:crypto');
+    const { execFileSync } = require('node:child_process');
+    const step = kimiWorkflowJob('review').split('      - name: Record native execution provenance\n')[1].split('      - name: Preserve native submission')[0];
+    const script = step.split("          node <<'NODE'\n")[1].split('          NODE')[0].split('\n').map(line => line.replace(/^ {10}/, '')).join('\n');
+    fs.writeFileSync(path.join(f.temp, 'kimi-review.json'), JSON.stringify(f.review));
+    const archive = Buffer.from('toolchain transport fixture, not an installed runtime');
+    fs.writeFileSync(path.join(f.temp, 'opencode.tar.gz'), archive);
+    const env = { ...f.env, GITHUB_RUN_ATTEMPT: '1', GITHUB_OUTPUT: path.join(f.temp, 'outputs') };
+    // Only toolchain transport is stubbed. Git source/JSON/byte hashes execute.
+    const importFixture = name => name === 'node:child_process' ? { execFileSync: (command, args, options) => command === 'opencode' ? '1.18.34\n' : execFileSync(command, args, options) } : name === 'node:crypto' ? {
+      createHash: algorithm => ({ update(bytes) { this.bytes = bytes; return this; }, digest(encoding) {
+        return Buffer.isBuffer(this.bytes) && this.bytes.equals(archive) ? f.provenance.archiveSha256 : crypto.createHash(algorithm).update(this.bytes).digest(encoding);
+      } }),
+    } : require(name);
+    for (const [field, value] of [
+      ['REVIEW_WORKFLOW_SHA', undefined], ['REVIEW_WORKFLOW_SHA', 'malformed'],
+      ['REVIEW_WORKFLOW_REF', undefined], ['REVIEW_WORKFLOW_REF', 'malformed'],
+      ['REVIEW_WORKFLOW_REF', 'open-hax/proxx/.github/workflows/opencode-code-review.yml@refs/pull/446/merge'],
+    ]) {
+      const denied = { ...env };
+      if (value === undefined) delete denied[field]; else denied[field] = value;
+      assert.throws(() => new Function('require', 'process', script)(importFixture, { env: denied }), /Invalid execution provenance/);
+      assert.equal(fs.existsSync(path.join(f.temp, 'kimi-provenance.json')), false);
+      assert.equal(fs.existsSync(env.GITHUB_OUTPUT), false);
+    }
+    new Function('require', 'process', script)(importFixture, { env });
+    const actual = JSON.parse(fs.readFileSync(path.join(f.temp, 'kimi-provenance.json')));
+    assert.equal(actual.artifactName, f.env.ARTIFACT_NAME);
+    assert.equal(actual.prNumber, 445); assert.equal(actual.runID, '12345'); assert.equal(actual.runAttempt, 1);
+    assert.equal(actual.authBlobSha256, f.provenance.authBlobSha256);
+    assert.equal(actual.reviewBlobSha256, f.provenance.reviewBlobSha256);
+    assert.equal(actual.workflowSha, env.REVIEW_WORKFLOW_SHA);
+    assert.equal(actual.workflowRef, env.REVIEW_WORKFLOW_REF);
+    assert.deepEqual(actual.executionControl, f.review.executionControl);
+    assert.equal(fs.readFileSync(env.GITHUB_OUTPUT, 'utf8'), `artifact-name=${f.env.ARTIFACT_NAME}\n`);
+    fs.appendFileSync(path.join(f.temp, 'opencode-app-auth.cjs'), '\n// mutation');
+    fs.unlinkSync(env.GITHUB_OUTPUT);
+    assert.throws(() => new Function('require', 'process', script)(importFixture, { env }), /Auth bytes/);
+    assert.equal(fs.existsSync(env.GITHUB_OUTPUT), false);
+  } finally { f.cleanup(); }
+});
+
+test('runtime preparation extracts both helpers from one base ancestor and refuses candidate source', () => {
+  const f = kimiPublicationFixture();
+  try {
+    const fs = require('node:fs'), path = require('node:path'), { spawnSync } = require('node:child_process');
+    const job = kimiWorkflowJob('review');
+    const step = job.split('      - name: Prepare immutable review runtime\n')[1].split('      - name: Run exact-head')[0];
+    const run = step.split('        run: |\n')[1].split('\n').map(line => line.replace(/^ {10}/, '')).join('\n');
+    fs.unlinkSync(path.join(f.temp, 'kimi-review.cjs')); fs.unlinkSync(path.join(f.temp, 'opencode-app-auth.cjs'));
+    const result = spawnSync('bash', ['-c', run], { env: { ...process.env, ...f.env }, encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    for (const name of ['kimi-review.cjs', 'opencode-app-auth.cjs']) {
+      assert.equal(fs.readFileSync(path.join(f.temp, name), 'utf8').trim(), f.git(['show', `${f.env.PR_BASE_SHA}:.github/scripts/${name}`]));
+    }
+    const denied = spawnSync('bash', ['-c', run], { env: { ...process.env, ...f.env, KIMI_RUNTIME_SHA: f.env.PR_HEAD_SHA }, encoding: 'utf8' });
+    assert.notEqual(denied.status, 0);
+  } finally { f.cleanup(); }
+});
+
+for (const mode of ['wrong-run', 'wrong-pr', 'wrong-head', 'wrong-base', 'wrong-repository', 'wrong-workflow', 'wrong-workflow-ref', 'missing-workflow-sha', 'malformed-workflow-sha', 'missing-workflow-ref', 'malformed-workflow-ref', 'mismatched-workflow-context', 'future-attempt', 'wrong-artifact', 'wrong-runtime', 'wrong-auth', 'changed-review', 'changed-diff', 'partial-coverage', 'model-owner', 'changed-low']) {
+  test(`fresh publication denies ${mode} before OIDC or publication`, async () => {
+    const f = kimiPublicationFixture();
+    try {
+      const fs = require('node:fs'), path = require('node:path');
+      if (mode === 'wrong-run') f.provenance.runID = '98765';
+      if (mode === 'wrong-pr') f.provenance.prNumber = 451;
+      if (mode === 'wrong-head') f.provenance.head = 'b'.repeat(40);
+      if (mode === 'wrong-base') f.provenance.base = 'b'.repeat(40);
+      if (mode === 'wrong-repository') f.provenance.repository = 'other/proxx';
+      if (mode === 'wrong-workflow') f.provenance.workflowSha = 'b'.repeat(40);
+      if (mode === 'wrong-workflow-ref') f.provenance.workflowRef = 'open-hax/proxx/.github/workflows/opencode-code-review.yml@refs/pull/446/merge';
+      if (mode === 'missing-workflow-sha') delete f.env.REVIEW_WORKFLOW_SHA;
+      if (mode === 'malformed-workflow-sha') f.env.REVIEW_WORKFLOW_SHA = 'malformed';
+      if (mode === 'missing-workflow-ref') delete f.env.REVIEW_WORKFLOW_REF;
+      if (mode === 'malformed-workflow-ref') f.env.REVIEW_WORKFLOW_REF = 'malformed';
+      if (mode === 'mismatched-workflow-context') f.env.REVIEW_WORKFLOW_SHA = 'b'.repeat(40);
+      if (mode === 'future-attempt') f.provenance.runAttempt = 3;
+      if (mode === 'wrong-artifact') f.env.ARTIFACT_NAME += '-other';
+      if (mode === 'wrong-runtime') fs.appendFileSync(path.join(f.temp, 'kimi-review.cjs'), '\nthrow Error("Tampered runtime");');
+      if (mode === 'wrong-auth') fs.appendFileSync(path.join(f.temp, 'opencode-app-auth.cjs'), '\nthrow Error("Tampered auth");');
+      if (mode === 'changed-review') f.review.summary = 'Changed after inference';
+      if (mode === 'changed-diff') { f.review.diffSha256 = f.provenance.diffSha256 = 'b'.repeat(64); f.provenance.reviewBlobSha256 = f.digest(JSON.stringify(f.review)); }
+      if (mode === 'partial-coverage') { f.review.coveredFiles = f.provenance.coveredFiles = ['source.cljc']; f.provenance.reviewBlobSha256 = f.digest(JSON.stringify(f.review)); }
+      if (mode === 'model-owner') { f.review.publisher = 'github-actions'; f.provenance.reviewBlobSha256 = f.digest(JSON.stringify(f.review)); }
+      if (mode === 'changed-low') { f.review.executionControl.observedAssistantVariant = 'high'; f.provenance.reviewBlobSha256 = f.digest(JSON.stringify(f.review)); }
+      await assert.rejects(f.invoke());
+      assert.equal(f.core.exchanges, 0); assert.equal(f.core.revocations, 0); assert.equal(f.calls.length, 0);
+    } finally { f.cleanup(); }
+  });
+}
+
+
+function opencodeCommentWorkflow() {
+  const fs = require('node:fs'), path = require('node:path');
+  const source = fs.readFileSync(path.join(__dirname, '../workflows/opencode.yml'), 'utf8');
+  const condition = source.match(/ {4}if: \|\n([\s\S]*?) {4}runs-on:/)[1].trim();
+  const group = source.match(/ {2}group: (.*)/)[1];
+  const evaluate = (expression, github) => Function('github', 'contains', 'startsWith', 'fromJSON', `return (${expression.replaceAll("\\", "\\\\")});`)(
+    github, (value, needle) => value.toLowerCase().includes(needle.toLowerCase()),
+    (value, prefix) => value.toLowerCase().startsWith(prefix.toLowerCase()), JSON.parse);
+  const event = (id, type, body) => ({ repository: 'open-hax/proxx', run_id: id,
+    event: { comment: { id, user: { type }, body }, issue: { number: 445 }, pull_request: { number: 445 } } });
+  return { event, admits: github => evaluate(condition, github),
+    group: github => group.replace(/\$\{\{(.*?)\}\}/g, (_, expression) => evaluate(expression, github)) };
+}
+
+test('OpenCode comment handler excludes native bot replies while admitting real commands', () => {
+  const workflow = opencodeCommentWorkflow();
+  assert.equal(workflow.admits(workflow.event(5968763916, 'User', '/opencode independently assess this finding')), true);
+  assert.equal(workflow.admits(workflow.event(12345, 'User', '/oc assess the current change')), true);
+  assert.equal(workflow.admits(workflow.event(5968785159, 'Bot',
+    'Rejection agreement; .github/workflows/opencode-code-review.yml verified')), false);
+  assert.equal(workflow.admits(workflow.event(12346, 'Bot', '/opencode recursive command')), false);
+  assert.equal(workflow.admits(workflow.event(12347, 'User', 'Handled: regression evidence preserved')), false);
+});
+
+test('OpenCode comment concurrency isolates replies and separate commands from the originating request', () => {
+  const workflow = opencodeCommentWorkflow();
+  const request = workflow.event(5968763916, 'User', '/opencode independently assess this finding');
+  const reply = workflow.event(5968785159, 'Bot', 'Agreement; .github/workflows/opencode-code-review.yml verified');
+  const otherCommand = workflow.event(12345, 'User', '/oc assess another finding');
+  const unrelated = workflow.event(12347, 'User', 'Handled: regression evidence preserved');
+  assert.notEqual(workflow.group(request), workflow.group(reply));
+  assert.notEqual(workflow.group(request), workflow.group(otherCommand));
+  assert.notEqual(workflow.group(request), workflow.group(unrelated));
+  assert.equal(workflow.group(request), workflow.group(request));
+});
+
+
+test('OpenCode handler requires a command prefix with whitespace or end boundary', () => {
+  const workflow = opencodeCommentWorkflow();
+  for (const body of ['.github/workflows/opencode-code-review.yml', 'Reason: /opencode independently assessed', '/octopus', '/oc-extra', '/opencode-extra', '/opencode/path', ' `/oc`', '> /opencode quoted']) {
+    assert.equal(workflow.admits(workflow.event(123, 'User', body)), false, body);
+  }
+  for (const command of ['/oc', '/opencode']) {
+    for (const suffix of ['', ' assess', '\tassess', '\nassess', '\r\nassess']) {
+      assert.equal(workflow.admits(workflow.event(123, 'User', command + suffix)), true, command + suffix);
+      assert.equal(workflow.admits(workflow.event(124, 'Bot', command + suffix)), false);
+    }
+  }
+});
 
 test('Kimi request explicitly selects low instead of inheriting provider defaults', () => {
   const { structuredRequest } = require('./kimi-review.cjs');

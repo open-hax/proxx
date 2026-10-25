@@ -1,0 +1,48 @@
+# Free Gemma with bounded paid fallback
+
+The local Knoxx social agent must prefer the free Requesty Google Gemma route while retaining a paid DeepInfra escape route. The October audit attributes $9.33 of $9.46 to the creative cron session. Paid route pricing was incorrectly inherited from the free canonical model. This work must make the routing, actual costs, and remaining allowance visible through the existing Orbit constellation dashboard.
+
+## Accepted limits
+
+The user selected **$0.50 per day and $5 per month**, both enforced for this bot's paid DeepInfra fallback. Free and local requests do not consume the allowance. Use UTC calendar boundaries and show those boundaries in Orbit. This is an internal routing allowance, not authorization for another provider top-up.
+
+The limit must include concurrent in-flight requests. Reserve a conservative upper bound before a paid request, settle with actual billed token usage after completion, and retain an unreconciled reservation if usage is missing or a process dies. Durable SQL transactions must prevent restart/concurrency overspend. Fail closed when the paid route cannot establish its cost bound. Do not refund an uncertain upstream charge merely because the downstream disconnected.
+
+## Identity and budget ownership
+
+Provision a dedicated tenant API key for the local Knoxx social contract collection, with a stable server-side key-to-policy binding to `paid-budget/knoxx-social`. All its sessions share `knoxx-social-deepinfra`; session metadata is attribution only and cannot grant or remove budget enforcement. Unrelated caller keys use their own policy. The paid route for this key is denied when binding/storage is missing; changing a model alias, headers, session ID, or retry path cannot bypass the gate. Replace this bot's shared legacy-admin credential during activation through production/local secrets, retaining no key material in Git or Orbit. Verify two sessions share one allowance, unrelated keys cannot consume it, and omitted/spoofed metadata cannot bypass it.
+
+## Calendar and reservation ownership
+
+A request's UTC admission day/month owns its final charge, including settlement after rollover. Outstanding reservations from any earlier period count conservatively against BOTH current caps until reconciled. Thus midnight/month reset never erases uncertain spend. After late settlement, actual cost belongs to the original admission buckets; its old reservation stops reducing current availability. Orbit shows current-period actual, current reservations, carried unresolved reservations, and next UTC reset separately. Tests cover midnight and month rollover, late settlement, restart across each boundary, and unresolved reservations larger than the newly available allowance. Never expire reservations automatically.
+
+## First usable output budget
+
+The total first-usable deadline is 20,000 ms from edge request admission, including queue/lookup time. The free attempt has an absolute cutoff at admission +12,000 ms, leaving at most 8,000 ms for paid fallback. Start paid fallback only if allowance and sufficient remaining deadline exist. Headers, heartbeats, reasoning text, and partial tool arguments do not satisfy the deadline. Usable means nonempty visible answer content or a complete valid tool call. Buffer upstream data until then; abort the silent free attempt before starting paid. If neither route qualifies, return a structured timeout by admission +20,000 ms and retain uncertain paid reservation. Once usable output is committed, never retry/replay transparently. Deterministic fake-clock tests cover silent, reasoning-only, partial tool, queue-delayed and both-silent cases. Report successful deadline coverage separately from fast terminal failures.
+
+## Bounded evaluation protocol
+
+Check in eight safe fixed fixtures: two grounded summaries, two replies with explicit abstention boundaries, two tool-selection tasks, one contradictory-context task, and one malformed/adversarial Lens-context task. No external posting tools are enabled. Freeze and hash task, system contract, input context, model route, output cap (256 tokens), thinking setting, evaluator version, and seed. Pair E4B and31B on each fixture under (a) direct clean context and (b) captured/redacted Lens-shaped context, three repetitions each: 96 total calls, concurrency one. Mark unsupported controls explicitly rather than assuming equivalence. Score each output 0/1/2 for grounding, instruction following and tool correctness using fixture-specific expected facts/actions; record hallucination and transport/model failures separately. Review every failure manually. A Lens-only regression is an observed within-model difference; a model limitation requires failure under matched clean context too. Use exact same tokenizer/usage basis for throughput comparisons, first-visible timing, and first-reasoning timing. Target median visible decode throughput at least90% of the matched paid baseline and report p10/p50/p95, counts and failures; this bounded initial experiment does not establish a daytime tail SLA. Add three repeat performance batches at differing load windows, retaining timestamps and observed concurrency. E4B contract adoption requires no fixture safety/tool-boundary violation and at least the31B grounded/instruction/tool aggregate on that contract's relevant fixtures; otherwise retain31B for that contract. Paid evaluation uses the same budget admission, never an unmetered exception.
+
+## Implementation stories and acceptance evidence
+
+1. Route-specific pricing: explicit EDN contract prices for free Google and paid DeepInfra; forced prices work without catalog coverage. Preserve requested model and actual upstream model separately, and compute cost from the latter. Prove the two routes cannot collapse to canonical free pricing.
+2. Economy routing: declare workload identification and ordered upstream models in EDN, interpret in CLJS, use TypeScript only for transport/storage. Free route first; affinity/performance sorting cannot silently promote paid routes. Paid attempt admission requires the durable reservation. No unlimited paid retry path.
+3. Latency: measure first visible content separately from reasoning and headers. A free attempt must yield usable output inside the accepted 20-second ceiling; fallback must occur before committing downstream stream headers/content. Keep adequate time for fallback rather than spending the entire user-facing budget on the first route. Capture p50/p95, sample counts, throughput and failures under comparable prompts/concurrency; three overnight samples do not establish a tail SLA.
+4. Knoxx evaluation: inspect loaded local contracts and generated overrides. Compare E4B and 31B on the same safe tasks/context; evaluate direct calls and Lens context separately. Score grounded answers, tool choice, instruction following, hallucination, first visible latency, throughput and terminal error handling. Do not post publicly as an evaluation side effect.
+5. Orbit: extend the existing authenticated constellation surface with active agent/loaded contract, selected upstream route, free/paid usage, actual/estimated/unpriced distinction, daily/monthly spent/reserved/remaining, reset times, latency distributions, and evaluation evidence. Never expose provider credentials or private prompt text.
+6. Release: settle current-head PR review, deploy through Services, verify image/source and compiled route/pricing/budget canaries, then observe a real bot request using the free route. Check paid fallback below and at both caps without charging real over-budget requests.
+
+## Review publication prerequisite and board format
+
+Consume the exact qualified Kimi workflow from restoration PR445@aba0697 on this release branch, with its regression tests and comment-command trigger isolation. Workflow SHA25690117459b8c0a6883b27df816127fdd3bcb4799e5e25e52f356d04ac134f68bb and the existing pinned runtime/auth hashes are already recognized by the canonical admission profile; neither the gate nor reviewer identities change. This does not merge or update the separate PR445. Its old publication refers to producer attempt1, but the retained artifact belongs to attempt2; a green historical run does not supply an admitted proof. Require a fresh native publication for this changed release head.
+
+The workspace contract requires comma-separated scalar labels. Read-only inspection of installed Rheos0.2.0 shows rheos.backend.domain.kanban_projection.normalize_labels in both CLI and GitHub-sync consumers explicitly supports comma-separated string labels, trims values and removes duplicates. Rheos content/find reads these cards successfully. Preserve this engine-supported form rather than inferring a sequence-only requirement from sibling formatting. No alternate parser or board-state mutation is introduced here.
+
+## Scope boundaries
+
+Do not replace the existing Orbit integration. Do not copy workstation Google credentials to production, enable consumer OAuth proxying, activate auto-refill, or treat HTTP health as proof of free inference. Preserve other agents' dirty Knoxx work and all live sessions.
+
+## Progress
+
+The forced-price regression was reproduced and repaired. EDN route prices and compiled-manifest integration coverage are prepared. Budget persistence/admission, routing, upstream attribution, Knoxx evaluation, Orbit integration, review and deployment remain pending. Nothing from this branch is deployed yet.

@@ -713,6 +713,9 @@ export async function executeProviderRoutingPlan(
           );
 
         if (policyFailure?.kind === "model_unavailable") {
+          if (candidateMatchesAffinity(candidate, preferredAffinity)) {
+            preferredReassignmentAllowed = true;
+          }
           accumulator.sawModelNotSupportedForAccount = true;
           keyPool.markModelUnsupported?.(
             candidate.account,
