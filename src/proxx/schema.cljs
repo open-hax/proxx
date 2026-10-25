@@ -332,6 +332,49 @@
     [:require/plans {:optional true} [:or :keyword KeywordVector]]
     [:exclude/plans {:optional true} KeywordVector]]])
 
+(def ProviderWireProfileContract
+  "How a provider's non-standard upstream is addressed: which endpoint and
+  `x-api-provider` a model uses (first matching route wins; the last route is a
+  catch-all), the static headers it requires, and prompt rewrites it demands."
+  [:and
+   ContractBase
+   [:map
+    [:contract/kind [:enum :provider-wire-profile]]
+    [:wire/provider-id [:string {:min 1}]]
+    [:wire/context-length-keys {:optional true} [:vector [:string {:min 1}]]]
+    [:wire/model-routes
+     {:optional true}
+     [:vector {:min 1}
+      [:map
+       [:match/model-pattern [:string {:min 1}]]
+       [:wire/api-provider [:string {:min 1}]]
+       [:wire/model-type {:optional true} :keyword]
+       [:wire/endpoint-path {:optional true} [:string {:min 1}]]]]]
+    [:wire/static-headers {:optional true} [:map-of :string :string]]
+    [:wire/anthropic-headers {:optional true} [:map-of :string :string]]
+    [:wire/thinking-beta-header {:optional true} [:string {:min 1}]]
+    [:wire/static-key-prefix {:optional true} [:string {:min 1}]]
+    [:wire/prompt-rewrites
+     {:optional true}
+     [:vector [:map
+               [:match/system-contains [:string {:min 1}]]
+               [:wire/replace-with [:string {:min 1}]]]]]]])
+
+(def AutoModelProfileContract
+  "Facts behind auto:* model selection: default candidate list, and per model an
+  intelligence rank and the optional capabilities it supports."
+  [:and
+   ContractBase
+   [:map
+    [:contract/kind [:enum :auto-model-profile]]
+    [:auto/default-intelligence [:int {:min 0}]]
+    [:auto/default-candidates [:vector [:string {:min 1}]]]
+    [:auto/models
+     [:map-of [:string {:min 1}]
+      [:map
+       [:intelligence {:optional true} [:int {:min 0}]]
+       [:capabilities {:optional true} [:set [:enum :vision :tools :thinking]]]]]]]])
+
 (def FederationRoutingClauseContract
   [:and
    ContractBase
@@ -478,6 +521,8 @@
     [:account-ordering AccountOrderingContract]
     [:account-constraint AccountConstraintContract]
     [:federation-routing-clause FederationRoutingClauseContract]
+    [:provider-wire-profile ProviderWireProfileContract]
+    [:auto-model-profile AutoModelProfileContract]
     [:authorization-clause AuthorizationClauseContract]
     [:model-pricing-override ModelPricingOverrideContract]
     [:model-alias ModelAliasContract]
@@ -526,6 +571,8 @@
     :proxx/contract-account-ordering AccountOrderingContract
     :proxx/contract-account-constraint AccountConstraintContract
     :proxx/contract-federation-routing-clause FederationRoutingClauseContract
+    :proxx/contract-provider-wire-profile ProviderWireProfileContract
+    :proxx/contract-auto-model-profile AutoModelProfileContract
    :proxx/contract-authorization-clause AuthorizationClauseContract
     :proxx/contract-model-pricing-override ModelPricingOverrideContract
     :proxx/contract-model-alias ModelAliasContract

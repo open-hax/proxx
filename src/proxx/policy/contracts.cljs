@@ -458,7 +458,9 @@
         (str/starts-with? lowered "o3-")
         (str/starts-with? lowered "o4-"))))
 
-(defn- glm-model? [model-id]
+(defn glm-model?
+  "True for model ids in the `:model-family/glm` family (`glm-` prefix, see 10-model-families.edn)."
+  [model-id]
   (str/starts-with? (str/lower-case (str/trim (str model-id))) "glm-"))
 
 (defn- provider-route-id-from-input [route]

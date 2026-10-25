@@ -1,0 +1,55 @@
+;; Auto-model (auto:cheapest|fastest|smartest|healthiest) selection facts.
+;; Consumed by proxx.routing.auto-model. Models absent from :auto/models score
+;; intelligence 50 and support no optional capability.
+[{:contract/id :auto-model/profile
+  :contract/kind :auto-model-profile
+  :auto/default-intelligence 50
+  :auto/default-candidates
+  ["gpt-5.4"
+   "gpt-5.4-mini"
+   "gpt-5.4-nano"
+   "gpt-5.3-codex"
+   "gpt-5.2-codex"
+   "gpt-5.2"
+   "gpt-5.1-codex-max"
+   "gpt-5.1-codex"
+   "gpt-5.1"
+   "gpt-5-mini"
+   "gpt-5"
+   "claude-opus-4-6"
+   "claude-opus-4-5"
+   "claude-sonnet-4-6"
+   "claude-sonnet-4-5"
+   "claude-haiku-4-5"
+   "gemini-2.5-pro"
+   "gemini-2.5-flash"
+   "glm-5"
+   "deepseek-v3.2"]
+  :auto/models
+  {
+   "gpt-5.4-pro" {:intelligence 100}
+   "gpt-5.4" {:intelligence 95 :capabilities #{:vision :tools :thinking}}
+   "gpt-5.3-codex" {:intelligence 90 :capabilities #{:vision :tools :thinking}}
+   "gpt-5.2-codex" {:intelligence 85 :capabilities #{:vision :tools :thinking}}
+   "gpt-5.2" {:intelligence 80 :capabilities #{:vision :tools}}
+   "gpt-5.1-codex-max" {:intelligence 88 :capabilities #{:vision :tools :thinking}}
+   "gpt-5.1-codex" {:intelligence 82 :capabilities #{:vision :tools}}
+   "gpt-5.1" {:intelligence 75 :capabilities #{:vision :tools}}
+   "gpt-5-pro" {:intelligence 70}
+   "gpt-5" {:intelligence 65 :capabilities #{:vision :tools}}
+   "gpt-5-mini" {:intelligence 50 :capabilities #{:vision :tools}}
+   "gpt-5.4-mini" {:intelligence 55 :capabilities #{:vision :tools :thinking}}
+   "gpt-5.4-nano" {:intelligence 30 :capabilities #{:vision :tools}}
+   "claude-opus-4-6" {:intelligence 92 :capabilities #{:vision :tools :thinking}}
+   "claude-opus-4-5" {:intelligence 90 :capabilities #{:vision :tools :thinking}}
+   "claude-sonnet-4-6" {:intelligence 75 :capabilities #{:vision :tools :thinking}}
+   "claude-sonnet-4-5" {:intelligence 72 :capabilities #{:vision :tools}}
+   "claude-haiku-4-5" {:intelligence 45 :capabilities #{:vision}}
+   "gemini-2.5-pro" {:intelligence 85 :capabilities #{:vision :tools}}
+   "gemini-2.5-flash" {:intelligence 50 :capabilities #{:vision :tools}}
+   "gemini-3-pro-preview" {:intelligence 88 :capabilities #{:vision}}
+   "gemini-3-flash-preview" {:intelligence 52 :capabilities #{:vision}}
+   "glm-5" {:intelligence 70 :capabilities #{:vision :tools}}
+   "deepseek-v3.2" {:intelligence 72 :capabilities #{:tools :thinking}}
+   "deepseek-chat" {:intelligence 65}
+   "deepseek-reasoner" {:capabilities #{:thinking}}}}]

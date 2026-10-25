@@ -59,7 +59,38 @@
                                            chatCompletionEventStreamToResponsesResponse proxx.runtime.responses/chat-completion-event-stream-to-responses-response-js
                                            chatCompletionToSse proxx.runtime.responses/chat-completion-to-sse-js
                                            writeInterleavedResponsesSse proxx.runtime.responses/write-interleaved-responses-sse-js
-                                           streamResponsesSseToChatCompletionChunks proxx.runtime.responses/stream-responses-sse-to-chat-completion-chunks-js}}}
+                                           streamResponsesSseToChatCompletionChunks proxx.runtime.responses/stream-responses-sse-to-chat-completion-chunks-js
+                                           isGlmModel proxx.runtime.glm/is-glm-model-js
+                                           applyGlmThinking proxx.runtime.glm/apply-glm-thinking-js
+                                           getFactoryModelType proxx.runtime.factory/get-factory-model-type-js
+                                           getFactoryApiProvider proxx.runtime.factory/get-factory-api-provider-js
+                                           getFactoryEndpointPath proxx.runtime.factory/get-factory-endpoint-path-js
+                                           buildFactoryCommonHeaders proxx.runtime.factory/build-factory-common-headers-js
+                                           buildFactoryAnthropicHeaders proxx.runtime.factory/build-factory-anthropic-headers-js
+                                           inlineSystemPrompt proxx.runtime.factory/inline-system-prompt-js
+                                           sanitizeFactorySystemPrompt proxx.runtime.factory/sanitize-factory-system-prompt-js
+                                           isFkKey proxx.runtime.factory/is-fk-key-js
+                                           isAutoModel proxx.runtime.auto-model/is-auto-model-js
+                                           parseAutoModelType proxx.runtime.auto-model/parse-auto-model-type-js
+                                           rankAutoModels proxx.runtime.auto-model/rank-auto-models-js
+                                           selectAutoModel proxx.runtime.auto-model/select-auto-model-js
+                                           readCookieToken proxx.runtime.http/read-cookie-token-js
+                                           parseJsonIfPossible proxx.runtime.http/parse-json-if-possible-js
+                                           readSingleHeader proxx.runtime.http/read-single-header-js
+                                           escapeHtml proxx.runtime.http/escape-html-js
+                                           normalizeRequestedModel proxx.runtime.http/normalize-requested-model-js
+                                           isTrustedLocalBridgeAddress proxx.runtime.http/is-trusted-local-bridge-address-js
+                                           hasBearerToken proxx.runtime.http/has-bearer-token-js
+                                           queueErrorResponse proxx.runtime.http/queue-error-response-js
+                                           shouldUseOllamaUpstream proxx.runtime.ollama/should-use-ollama-upstream-js
+                                           chatRequestToOllamaRequest proxx.runtime.ollama/chat-request-to-ollama-request-js
+                                           requestHasExplicitNumCtx proxx.runtime.ollama/request-has-explicit-num-ctx-js
+                                           ollamaToChatCompletion proxx.runtime.ollama/ollama-to-chat-completion-js
+                                           streamOllamaNdjsonToChatCompletionSse proxx.runtime.ollama/stream-ollama-ndjson-to-chat-completion-sse-js
+                                           requestWantsReasoningTrace proxx.runtime.ollama/request-wants-reasoning-trace-js
+                                           ollamaContextLengthFromShow proxx.runtime.ollama-context/ollama-context-length-from-show-js
+                                           ollamaContextBudget proxx.runtime.ollama-context/ollama-context-budget-js
+                                           requestyModelProvider proxx.runtime.requesty/requesty-model-provider-js}}}
    :js-options {:js-provider :import
                 :keep-as-import #{"node:fs" "node:path"}}
    :compiler-options {:output-feature-set :es-next
