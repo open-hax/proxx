@@ -39,7 +39,9 @@
                                            chatRequestToMessagesRequest proxx.runtime/chat-request-to-messages-request-js
                                            normalizeMessagesThinkingBudget proxx.runtime/normalize-messages-thinking-budget-js
                                            messagesToChatCompletion proxx.runtime/messages-to-chat-completion-js
-                                           shouldUseMessagesUpstream proxx.runtime/should-use-messages-upstream-js}}}
+                                           shouldUseMessagesUpstream proxx.runtime/should-use-messages-upstream-js
+                                           isGlmModel proxx.runtime.glm/is-glm-model-js
+                                           applyGlmThinking proxx.runtime.glm/apply-glm-thinking-js}}}
    :js-options {:js-provider :import
                 :keep-as-import #{"node:fs" "node:path"}}
    :compiler-options {:output-feature-set :es-next
