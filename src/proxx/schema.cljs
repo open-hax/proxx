@@ -1,5 +1,6 @@
 (ns proxx.schema
   (:require [malli.core :as m]
+            [proxx.budget.law :as budget-law]
             [malli.error :as me]
             [malli.registry :as mr]
             [malli.transform :as mt]))
@@ -514,7 +515,9 @@
     [:budget/scope-id [:string {:min 1}]]
     [:budget/daily-microusd [:int {:min 1 :max 9007199254740991}]]
     [:budget/monthly-microusd [:int {:min 1 :max 9007199254740991}]]
-    [:budget/calendar [:enum :utc]]]])
+    [:budget/calendar [:enum :utc]]]
+   [:fn {:error/message "Workload free routes must precede paid admission; explicit-only routes are separate."}
+    #(budget-law/workload-free-before-paid? (:budget/routes %))]])
 
 (def PolicyContract
   [:multi {:dispatch :contract/kind}

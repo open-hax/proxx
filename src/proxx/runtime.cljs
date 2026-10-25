@@ -171,7 +171,11 @@
           decision (policy-contracts/normalize-reasoning-request
                     compiled
                     (js->clj input :keywordize-keys true))]
-      (clj->js {:status "ok" :decision decision}))
+      (let [decision-js (clj->js (dissoc decision :request-body))]
+        ;; Reasoning controls may change; arbitrary client JSON keys must not.
+        (aset decision-js "request-body"
+              (clj->js (:request-body decision) :keyword-fn #(subs (str %) 1)))
+        #js {:status "ok" :decision decision-js}))
     (catch :default e
       (clj->js {:status "error"
                 :error (.-message e)
@@ -370,11 +374,14 @@
   (clj->js (budget-stream/probe text format (js->clj tools :keywordize-keys true))))
 
 (defn inspect-budget-attempt-js [manifest-path auth attempt]
-  (clj->js (budget-policy/inspect-attempt
-            (get-in (compiled-policy-for-manifest manifest-path) [:index :contracts])
-            (js->clj auth :keywordize-keys true)
-            (js->clj attempt :keywordize-keys true)
-            (compiled-policy-for-manifest manifest-path))))
+  (let [compiled (compiled-policy-for-manifest manifest-path)]
+    ;; This payload becomes wire JSON. Preserve the namespace of arbitrary
+    ;; client schema/metadata keys instead of clj->js's default `name`.
+    (clj->js (budget-policy/inspect-attempt
+              (get-in compiled [:index :contracts])
+              (js->clj auth :keywordize-keys true)
+              (js->clj attempt :keywordize-keys true) compiled)
+            :keyword-fn #(subs (str %) 1))))
 
 (defn zero-charge-budget-refusal-js [manifest-path auth response]
   (budget-policy/zero-charge-refusal?

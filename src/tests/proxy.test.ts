@@ -14006,3 +14006,28 @@ test("managed callers cannot escape through undeclared local model strategies", 
     }
   });
 });
+
+test("budgeted free and paid wire bodies preserve slash-separated schema and metadata keys", async () => {
+  const parameters={type:"object",properties:{"a/b":{type:"string"},"x/y/z":{type:"integer"}},required:["a/b"],patternProperties:{"^prefix/suffix$":{type:"string"}}};
+  const tools=[{type:"function",function:{name:"lookup",description:"fixture",parameters}}];
+  const metadata={"tenant/project":"fixture"};
+  for(const paid of [false,true]){
+    let completed=0;let observed: Record<string,unknown> | undefined;
+    await withProxyApp({keys:[],keysPayload:{providers:{requesty:{auth:"api_key",accounts:["test-key"]}}},configOverrides:{upstreamProviderId:"requesty"},
+      upstreamHandler:async(_request,text)=>{
+        const body=JSON.parse(text);
+        if(paid&&body.model==="google/gemma-4-31b-it")return {status:503,body:"{}"};
+        observed=body;completed++;
+        return {status:200,body:JSON.stringify({id:"wire",object:"chat.completion",model:body.model,choices:[{index:0,message:{role:"assistant",content:"ok"},finish_reason:"stop"}],usage:{prompt_tokens:1,completion_tokens:1,total_tokens:2}})};
+      }},async({app})=>{
+        const runtime=getActiveCljsRuntime()!;
+        setActiveCljsRuntime({...runtime,reservePaidBudget:async()=>({status:"admitted",reservationId:"wire"}),settlePaidBudget:async()=>({status:"settled"})});
+        app.addHook("preHandler",async request=>{request.openHaxAuth={kind:"tenant_api_key",keyId:"71a0813f-dbe3-45ad-a7ae-16555463e716",tenantId:"default",source:"bearer"};});
+        try{
+          const response=await app.inject({method:"POST",url:"/v1/chat/completions",payload:{model:"gemma4:31b",stream:false,messages:[{role:"user",content:"hello"}],tools,metadata}});
+          assert.equal(response.statusCode,200,response.body);assert.equal(completed,1);
+          assert.deepEqual(observed?.tools,tools);assert.deepEqual(observed?.metadata,metadata);
+        }finally{setActiveCljsRuntime(runtime);}
+      });
+  }
+});

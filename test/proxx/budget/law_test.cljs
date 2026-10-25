@@ -29,3 +29,9 @@
   (is (= 40 (law/settled-charge 100 40)))
   ;; Record an unexpected overrun truthfully; do not conceal it by clamping cost.
   (is (= 120 (law/settled-charge 100 120))))
+
+(deftest workload-order-cannot-hide-free-capacity-behind-a-paid-denial
+  (is (law/workload-free-before-paid? [{:billing :free} {:billing :paid}]))
+  (is (not (law/workload-free-before-paid? [{:billing :paid} {:billing :free}])))
+  (is (law/workload-free-before-paid? [{:billing :free} {:billing :paid} {:billing :free :plan? false}]))
+  (is (law/workload-free-before-paid? [{:billing :free} {:billing :free}])))

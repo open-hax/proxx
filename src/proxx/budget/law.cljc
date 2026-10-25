@@ -44,3 +44,11 @@
    Unexpected overruns remain visible and block subsequent admission."
   [reserved actual]
   (if (nonnegative-integer? actual) actual reserved))
+
+(defn workload-free-before-paid?
+  "Explicit-only routes are not workload candidates. For eligible workload
+   routes, a terminal paid admission denial must never mask a later free route."
+  [routes]
+  (let [planned (remove #(= false (:plan? %)) routes)]
+    (not-any? #(= :free (:billing %))
+              (drop-while #(not= :paid (:billing %)) planned))))

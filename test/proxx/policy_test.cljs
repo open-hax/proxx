@@ -1,6 +1,7 @@
 (ns proxx.policy-test
   (:require [cljs.test :refer [deftest is]]
             [proxx.policy :as policy]
+            [proxx.schema :as schema]
             [proxx.policy.contracts :as contracts]
             [proxx.policy.evidence :as evidence]
             [proxx.policy.loader :as loader]
@@ -1135,3 +1136,11 @@
         (is (= "low" (get-in normalized [:request-body :reasoning_effort])))
         (is (= :route/requesty-gemma4-31b (:route-id decision)))
         (is (= ["requesty"] (:providers decision)))))))
+
+(deftest workload-budget-contract-rejects-free-routes-after-paid-admission
+  (let [budget (some #(when (= :paid-budget/knoxx-social (:contract/id %)) %)
+                     (loader/load-policy-contracts! "resources/policies/runtime/00-manifest.edn"))
+        routes (:budget/routes budget)
+        invalid (assoc budget :budget/routes (into [(nth routes 1) (nth routes 0)] (drop 2 routes)))]
+    (is (= :ok (first (schema/validate :proxx/contract-paid-budget budget))))
+    (is (= :error (first (schema/validate :proxx/contract-paid-budget invalid))))))

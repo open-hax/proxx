@@ -19,6 +19,8 @@
   :budget/routes [{:provider-id "requesty" :model-id "google/gemma-4-31b-it" :billing :free :quota/scope :model :quota/disable? false}
                   {:provider-id "requesty" :model-id "deepinfra/google/gemma-4-31B-it" :billing :paid
                    :billing/no-charge-statuses #{401 402 403 404 412 429} :quota/scope :model :quota/disable? false}
+                  ;; Explicit-model plans only: :plan? false excludes these from
+                  ;; the 31B workload plan. They never follow paid admission there.
                   ;; Optional environment-owned route, not an env credential seed.
                   ;; Stealth injects :provider-route/ollama-host with auth/required? false
                   ;; via its mounted policy overlay. Absent routes produce no candidates.
