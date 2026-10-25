@@ -1,4 +1,5 @@
 import type { ProviderCredential } from "../../key-pool.js";
+import { kernels } from "../../cljs-kernels.js";
 import {
   shouldCooldownCredentialOnAuthFailure,
   shouldPermanentlyDisableCredential,
@@ -33,17 +34,11 @@ export function classifyAuthError(
   status: number,
   configCooldownMs: number,
 ): ErrorClassificationResult {
-  if (shouldPermanentlyDisableCredential(credential, status)) {
-    return { classification: "auth_permanent_disable", cooldownMs: PERMANENT_DISABLE_COOLDOWN_MS };
-  }
-  if (shouldCooldownCredentialOnAuthFailure(providerId, status)) {
-    return { classification: "auth_cooldown", cooldownMs: Math.min(configCooldownMs, 10_000) };
-  }
-  return { classification: "transient" };
+  return kernels.classifyAuthError(credential, providerId, status, configCooldownMs) as ErrorClassificationResult;
 }
 
 export function classifyModelNotSupported(
   configCooldownMs: number,
 ): ErrorClassificationResult {
-  return { classification: "model_not_supported", cooldownMs: Math.min(configCooldownMs, 60_000) };
+  return kernels.classifyModelNotSupported(configCooldownMs) as ErrorClassificationResult;
 }

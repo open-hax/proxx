@@ -28,7 +28,7 @@
 (defn- first-some
   "First non-nil value (JavaScript `??`: an empty string still wins)."
   [& xs]
-  (some #(when (some? %) %) xs))
+  (reduce (fn [_ v] (when (some? v) (reduced v))) nil xs))
 
 (defn- records [xs] (filter map? (when (sequential? xs) xs)))
 
