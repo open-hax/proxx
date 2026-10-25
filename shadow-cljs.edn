@@ -90,7 +90,19 @@
                                            requestWantsReasoningTrace proxx.runtime.ollama/request-wants-reasoning-trace-js
                                            ollamaContextLengthFromShow proxx.runtime.ollama-context/ollama-context-length-from-show-js
                                            ollamaContextBudget proxx.runtime.ollama-context/ollama-context-budget-js
-                                           requestyModelProvider proxx.runtime.requesty/requesty-model-provider-js}}}
+                                           requestyModelProvider proxx.runtime.requesty/requesty-model-provider-js
+                                           createOpenAiOAuthManager proxx.runtime.oauth/create-openai-oauth-manager-js
+                                           resolveOpenAiCallbackPort proxx.runtime.oauth/resolve-openai-callback-port-js
+                                           isTerminalOpenAiRefreshErrorFacts proxx.runtime.oauth/is-terminal-openai-refresh-error-facts-js
+                                           createFactoryOAuthManager proxx.runtime.oauth/create-factory-oauth-manager-js
+                                           decryptAuthV2 proxx.runtime.factory-auth/decrypt-auth-v2-js
+                                           encryptAuthV2 proxx.runtime.factory-auth/encrypt-auth-v2-js
+                                           loadFactoryAuthV2 proxx.runtime.factory-auth/load-factory-auth-v2-js
+                                           persistFactoryAuthV2 proxx.runtime.factory-auth/persist-factory-auth-v2-js
+                                           parseJwtExpiry proxx.runtime.factory-auth/parse-jwt-expiry-js
+                                           factoryCredentialNeedsRefresh proxx.runtime.factory-auth/factory-credential-needs-refresh-js
+                                           refreshFactoryOAuthToken proxx.runtime.factory-auth/refresh-factory-oauth-token-js
+                                           factoryRefreshBufferMs proxx.oauth.factory/refresh-buffer-ms}}}
    :js-options {:js-provider :import
                 :keep-as-import #{"node:fs" "node:path"}}
    :compiler-options {:output-feature-set :es-next
