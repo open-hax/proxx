@@ -497,3 +497,51 @@ test("Gemini pending stream read is cancelled by the queue signal and cleans up 
   assert.equal(reply.raw.writes.length, 1);
   assert.match(String(reply.raw.writes[0]), /Provider stream aborted by request queue timeout/);
 });
+
+test("absolute response deadline covers waiting but stops after readiness", async (t) => {
+  const { withResponseDeadline } = await import("../lib/http/index.js");
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 0 });
+  try {
+    let signal: AbortSignal | undefined;
+    const pending = withResponseDeadline(20000, () => new Error("deadline"), async (lease) => {
+      signal = lease.signal; return await new Promise<string>(() => {});
+    });
+    const rejected = assert.rejects(pending, /deadline/);
+    t.mock.timers.tick(19999);
+    assert.equal(signal?.aborted, false);
+    t.mock.timers.tick(1);
+    await rejected;
+    assert.equal(signal?.aborted, true);
+
+    let finish!: () => void;
+    const streaming = withResponseDeadline(40000, () => new Error("late deadline"), async (lease) => {
+      signal = lease.signal; lease.markReady();
+      await new Promise<void>((resolve) => { finish = resolve; }); return "complete";
+    });
+    t.mock.timers.tick(100000);
+    assert.equal(signal?.aborted, false, "a committed stream retains its separate stream timeout");
+    finish(); assert.equal(await streaming, "complete");
+  } finally { t.mock.timers.reset(); }
+});
+
+test("bootstrap heartbeats do not reset the absolute first-output deadline", async (t) => {
+  const { stageResponse } = await import("../lib/http/index.js");
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 0 });
+  let input!: ReadableStreamDefaultController<Uint8Array>;
+  let canceled = false;
+  let ready = false;
+  try {
+    const body = new ReadableStream<Uint8Array>({ start(c) { input = c; }, cancel() { canceled = true; } });
+    const pending = stageResponse(new Response(body, { headers: { "content-type": "text/event-stream" } }), 12000, 1024,
+      () => ({ ready: false, fatal: false }), () => { ready = true; });
+    const rejected = assert.rejects(pending, /deadline/);
+    input.enqueue(new TextEncoder().encode(": heartbeat\n\n"));
+    for (let n = 0; n < 10; n++) await Promise.resolve();
+    t.mock.timers.tick(6000);
+    input.enqueue(new TextEncoder().encode("data: reasoning\n\n"));
+    for (let n = 0; n < 10; n++) await Promise.resolve();
+    t.mock.timers.tick(5999); assert.equal(ready, false);
+    t.mock.timers.tick(1); await rejected;
+    assert.equal(canceled, true); assert.equal(ready, false);
+  } finally { t.mock.timers.reset(); }
+});

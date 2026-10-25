@@ -1,0 +1,23 @@
+[{:contract/id :paid-budget/knoxx-social
+  :contract/kind :paid-budget
+  :match/key-id "knoxx-social-proxx"
+  :budget/routing-model-pattern "(?i)^(gemma4:31b|(?:google/|deepinfra/google/)?gemma-4-31b-it)$"
+  :budget/free-cutoff-ms 12000
+  :budget/first-output-total-ms 20000
+  :budget/max-bootstrap-bytes 1048576
+  :budget/max-retries 0
+  ;; Requesty catalog observed2026-10-25: both Gemma routes context_window262144.
+  :budget/allowed-modes #{"chat_completions" "ollama_chat" "local_ollama_chat"}
+  :budget/max-input-tokens 262144
+  :budget/max-output-tokens 8192
+  :budget/routes [{:provider-id "requesty" :model-id "google/gemma-4-31b-it" :billing :free :quota/scope :model :quota/disable? false}
+                  {:provider-id "requesty" :model-id "deepinfra/google/gemma-4-31B-it" :billing :paid :quota/scope :model :quota/disable? false}
+                  {:provider-id "ollama-host" :model-id "gemma4:e4b" :billing :free :plan? false}
+                  {:provider-id "ollama-lan" :model-id "gemma4:e4b" :billing :free :plan? false}
+                  {:provider-id "ollama-lan" :model-id "gemma4:e4b-128k" :billing :free :plan? false}]
+  :budget/scope-id "knoxx-social-deepinfra"
+  ;; Both caps include unsettled in-flight reservations. Free/local requests
+  ;; never reserve against this paid allowance. User selected 2026-10-25.
+  :budget/daily-microusd 500000
+  :budget/monthly-microusd 5000000
+  :budget/calendar :utc}]

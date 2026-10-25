@@ -28,7 +28,7 @@ No extra top-up, consumer OAuth proxy, public evaluation posts, or replacement d
 
 Report grounding, tool choice, hallucination, instruction following, first visible latency and throughput. No outbound public posts. Preserve unrelated dirty source and live sessions.
 
-Experiment acceptance: the release plan fixes eight safe tasks, two models, two paired context conditions, three repetitions (96calls),256-token output cap, fixture-specific0/1/2 scoring and manual failure adjudication. Estimate raised to5points for fixture preparation and execution.
+Experiment acceptance: the release plan fixes eight safe tasks, two models, two paired context conditions, three repetitions (96calls),1024-total-token output cap including reasoning (a256-token pilot truncates before visible answers; retain its failure evidence), fixture-specific0/1/2 scoring and manual failure adjudication. Estimate raised to5points for fixture preparation and execution.
 
 Adoption acceptance: E4B has zero fixture-safety or tool-boundary violations and its grounded/instruction/tool aggregate is at least the matched31B score on the fixtures relevant to each contract. Otherwise explicitly record keep31B for that contract; collecting a failed experiment alone never authorizes E4B adoption.
 

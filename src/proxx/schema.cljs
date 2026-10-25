@@ -490,8 +490,32 @@
     [:classify/cooldown-ms {:optional true} [:int {:min 0}]]
     [:classify/disable? {:optional true} :boolean]]])
 
+(def PaidBudgetContract
+  [:and
+   ContractBase
+   [:map
+    [:contract/kind [:enum :paid-budget]]
+    [:match/key-id [:string {:min 1}]]
+    [:budget/routing-model-pattern [:string {:min 1}]]
+    [:budget/free-cutoff-ms [:int {:min 1}]]
+    [:budget/first-output-total-ms [:int {:min 1}]]
+    [:budget/max-bootstrap-bytes [:int {:min 1}]]
+    [:budget/max-retries [:int {:min 0}]]
+    [:budget/allowed-modes [:set :string]]
+    [:budget/max-input-tokens [:int {:min 1}]]
+    [:budget/max-output-tokens [:int {:min 1}]]
+    [:budget/routes [:vector [:map [:provider-id :string] [:model-id :string] [:billing [:enum :free :paid]]
+                                    [:plan? {:optional true} :boolean]
+                                    [:quota/scope {:optional true} [:enum :model :credential]]
+                                    [:quota/disable? {:optional true} :boolean]]]]
+    [:budget/scope-id [:string {:min 1}]]
+    [:budget/daily-microusd [:int {:min 1 :max 9007199254740991}]]
+    [:budget/monthly-microusd [:int {:min 1 :max 9007199254740991}]]
+    [:budget/calendar [:enum :utc]]]])
+
 (def PolicyContract
   [:multi {:dispatch :contract/kind}
+   [:paid-budget PaidBudgetContract]
    [:enum DomainEnumContract]
    [:set DomainSetContract]
    [:scoring-table ScoringTableContract]
@@ -525,7 +549,8 @@
 ;; ══════════════════════════════════════════════════════════════
 
 (def registry
-  {:provenance        Provenance
+  {:proxx/contract-paid-budget PaidBudgetContract
+   :provenance        Provenance
    :provider            Provider
    :provider-endpoint   ProviderEndpoint
    :provider-credential ProviderCredential

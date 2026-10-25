@@ -1,3 +1,4 @@
+import { ADD_REQUEST_USAGE_UPSTREAM_MODEL } from "./schema.js";
 import type { Sql } from "./index.js";
 import type {
   RequestAuthType,
@@ -22,6 +23,7 @@ interface RequestUsageRow {
   readonly account_id: string;
   readonly auth_type: string;
   readonly model: string;
+  readonly upstream_model: string | null;
   readonly upstream_mode: string;
   readonly upstream_path: string;
   readonly status: number | string;
@@ -150,6 +152,7 @@ function toEntry(row: RequestUsageRow): RequestLogEntry {
     accountId: row.account_id,
     authType: normalizeAuthType(row.auth_type),
     model: row.model,
+    upstreamModel: asOptionalString(row.upstream_model),
     upstreamMode: row.upstream_mode,
     upstreamPath: row.upstream_path,
     status: asRequiredNumber(row.status),
@@ -193,6 +196,7 @@ const ENTRY_COLUMNS = [
   "account_id",
   "auth_type",
   "model",
+  "upstream_model",
   "upstream_mode",
   "upstream_path",
   "status",
@@ -255,6 +259,7 @@ export class SqlRequestUsageStore implements RequestLogMirror {
         account_id TEXT NOT NULL,
         auth_type TEXT NOT NULL,
         model TEXT NOT NULL,
+        upstream_model TEXT,
         upstream_mode TEXT NOT NULL,
         upstream_path TEXT NOT NULL,
         status INTEGER NOT NULL,
@@ -297,6 +302,7 @@ export class SqlRequestUsageStore implements RequestLogMirror {
     await this.sql.unsafe("ALTER TABLE request_usage_entries ADD COLUMN IF NOT EXISTS end_to_end_tps DOUBLE PRECISION;");
     await this.sql.unsafe("CREATE INDEX IF NOT EXISTS idx_request_usage_entries_route_ts ON request_usage_entries(route_kind, timestamp_ms DESC, id DESC);");
     await this.sql.unsafe("CREATE INDEX IF NOT EXISTS idx_request_usage_entries_provider_ts ON request_usage_entries(provider_id, timestamp_ms DESC, id DESC);");
+    await this.sql.unsafe(ADD_REQUEST_USAGE_UPSTREAM_MODEL);
     await this.sql.unsafe("CREATE INDEX IF NOT EXISTS idx_request_usage_entries_provider_model_ts ON request_usage_entries(provider_id, model, timestamp_ms DESC, id DESC);");
     await this.sql.unsafe("CREATE INDEX IF NOT EXISTS idx_request_usage_entries_provider_prompt_cache_hash_ts ON request_usage_entries(provider_id, prompt_cache_key_hash, timestamp_ms DESC, id DESC);");
   }
@@ -317,6 +323,7 @@ export class SqlRequestUsageStore implements RequestLogMirror {
         account_id,
         auth_type,
         model,
+        upstream_model,
         upstream_mode,
         upstream_path,
         status,
@@ -357,6 +364,7 @@ export class SqlRequestUsageStore implements RequestLogMirror {
         ${entry.accountId},
         ${entry.authType},
         ${entry.model},
+        ${entry.upstreamModel ?? null},
         ${entry.upstreamMode},
         ${entry.upstreamPath},
         ${entry.status},
@@ -397,6 +405,7 @@ export class SqlRequestUsageStore implements RequestLogMirror {
         account_id = EXCLUDED.account_id,
         auth_type = EXCLUDED.auth_type,
         model = EXCLUDED.model,
+        upstream_model = EXCLUDED.upstream_model,
         upstream_mode = EXCLUDED.upstream_mode,
         upstream_path = EXCLUDED.upstream_path,
         status = EXCLUDED.status,

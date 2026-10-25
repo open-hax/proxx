@@ -1,3 +1,8 @@
+import { getActiveCljsRuntime } from "../../cljs-runtime.js";
+import { getModelPricing } from "../../model-pricing.js";
+import { PAID_BUDGET_QUERIES } from "../../db/schema.js";
+import { OpenAiHttpError } from "../../provider-utils.js";
+
 import type { FastifyReply } from "fastify";
 
 import type { AccountHealthStore } from "../../db/account-health-store.js";
@@ -19,7 +24,7 @@ import {
   responsesEventStreamToErrorPayload,
 } from "../../responses-compat.js";
 import type { ProviderRoute } from "../../provider-routing.js";
-import { fetchWithResponseTimeout } from "../../http/index.js";
+import { fetchWithResponseTimeout, stageResponse } from "../../http/index.js";
 import {
   readUpstreamErrorMessage,
   responseIndicatesQuotaError,
@@ -154,10 +159,14 @@ export async function executeProviderRoutingPlan(
   let abortRemainingCandidatesForStickyTransportFailure = false;
 
   for (const [candidateIndex, candidate] of candidates.entries()) {
-    if (keyPool.isModelUnsupported?.(candidate.providerId, candidate.account.accountId, context.routedModel) === true) {
+    if (keyPool.isModelUnsupported?.(candidate.providerId, candidate.account.accountId, (candidate.upstreamModel ?? context.routedModel)) === true) {
       accumulator.sawModelNotSupportedForAccount = true;
       continue;
     }
+
+    const deadlineAt = candidate.firstUsableOffsetMs === undefined ? undefined
+      : (context.requestAdmittedAt ?? Date.now()) + candidate.firstUsableOffsetMs;
+    if (deadlineAt !== undefined && deadlineAt <= Date.now()) continue;
 
     const candidateStrategy = selectRemoteProviderStrategyForRoute(context, candidate.providerId);
     let candidatePayload = candidateStrategy === strategy
@@ -177,12 +186,89 @@ export async function executeProviderRoutingPlan(
       }
     }
 
+    if (candidate.upstreamModel) {
+      const upstreamPayload = { ...candidatePayload.upstreamPayload, model: candidate.upstreamModel };
+      candidatePayload = { ...candidatePayload, upstreamPayload, bodyText: JSON.stringify(upstreamPayload) };
+    }
+
+    const budgetRuntime = getActiveCljsRuntime();
+    if (!budgetRuntime?.inspectBudgetAttempt) {
+      throw new OpenAiHttpError({ statusCode: 503, message: "Budget policy runtime unavailable.", type: "server_error", code: "budget_unavailable" });
+    }
+    const inspectAttempt = (body: Record<string, unknown>) => budgetRuntime.inspectBudgetAttempt!(
+      context.config.cljsPolicyManifestPath ?? "resources/policies/runtime/00-manifest.edn", context.requestAuth,
+      { providerId: candidate.providerId, model: body.model ?? context.routedModel, mode: candidateStrategy.mode, payload: body },
+    );
+    if (inspectAttempt(candidatePayload.upstreamPayload).status === "denied") {
+      throw new OpenAiHttpError({ statusCode: 403, message: "Route is outside this caller budget policy.", type: "invalid_request_error", code: "budget_route_denied" });
+    }
+    const attemptInspection = inspectAttempt(candidatePayload.upstreamPayload);
+    const markAttemptLimited = (credential: ProviderCredential, retryAfterMs?: number): void => {
+      if (attemptInspection.quotaScope === "model" && keyPool.markModelUnsupported) {
+        keyPool.markModelUnsupported(credential, String(candidatePayload.upstreamPayload.model ?? context.routedModel), retryAfterMs);
+      } else keyPool.markRateLimited(credential, retryAfterMs);
+    };
+    const tickets = new WeakMap<Response, { id: string; scopeId: string; inputPrice: number; outputPrice: number }>();
+    const fetchAttempt = async (url: string, init: RequestInit, timeoutMs: number): Promise<Response> => {
+      const body: Record<string, unknown> = typeof init.body === "string" ? JSON.parse(init.body) as Record<string, unknown> : candidatePayload.upstreamPayload;
+      const inspection = inspectAttempt(body);
+      if (inspection.status === "denied") {
+        throw new OpenAiHttpError({ statusCode: 403, message: "Route is outside this caller budget policy.", type: "invalid_request_error", code: "budget_route_denied" });
+      }
+      let ticket: { id: string; scopeId: string; inputPrice: number; outputPrice: number } | undefined;
+      if (inspection.status === "paid") {
+        const pricing = getModelPricing(candidate.providerId, String(body.model ?? context.routedModel));
+        const amount = pricing.pricingFound && inspection.inputBound !== undefined && inspection.outputBound !== undefined
+          ? budgetRuntime.quotePaidBudget?.(inspection.inputBound, inspection.outputBound, pricing.inputPer1MTokens, pricing.outputPer1MTokens)
+          : null;
+        if (amount == null || !inspection.policy || !budgetRuntime.reservePaidBudget || !budgetRuntime.settlePaidBudget) {
+          throw new OpenAiHttpError({ statusCode: 503, message: "Cannot establish a paid request cost bound.", type: "server_error", code: "budget_unavailable" });
+        }
+        const reservation = await budgetRuntime.reservePaidBudget(context.budgetSql, PAID_BUDGET_QUERIES, inspection.policy, crypto.randomUUID(), amount);
+        if (reservation.status !== "admitted" || !reservation.reservationId) {
+          throw new OpenAiHttpError({ statusCode: 429, message: "Paid fallback allowance unavailable.", type: "insufficient_quota", code: "paid_budget_exhausted", meta: { reason: reservation.status } });
+        }
+        ticket = { id: reservation.reservationId, scopeId: inspection.policy.scopeId, inputPrice: pricing.inputPer1MTokens, outputPrice: pricing.outputPer1MTokens };
+      }
+      // Once sent, a transport failure may still be billed: retain its hold.
+      const remaining = deadlineAt === undefined ? timeoutMs : Math.min(timeoutMs, deadlineAt - Date.now());
+      if (context.firstOutputLease?.signal.aborted || remaining <= 0) {
+        // No upstream send happened: this is a known zero charge, unlike a
+        // timeout after transport began. A failed settlement retains the hold.
+        if (ticket) void budgetRuntime.settlePaidBudget!(context.budgetSql, PAID_BUDGET_QUERIES, ticket.scopeId, ticket.id, 0).catch(() => {});
+        throw context.firstOutputLease?.signal.reason ?? new Error("First usable output deadline exceeded");
+      }
+      let response = await fetchWithResponseTimeout(url, {
+        ...init,
+        ...(inspection.payload ? { body: JSON.stringify(inspection.payload) } : {}),
+      }, remaining);
+      if (deadlineAt !== undefined) {
+        if (!budgetRuntime.probeFirstUsable) throw new Error("First output probe unavailable");
+        response = await stageResponse(response, deadlineAt, context.budgetRoutePlan?.maxBootstrapBytes ?? 0,
+          (text, format) => budgetRuntime.probeFirstUsable!(text, format, body.tools ?? []),
+          () => {
+            if (context.firstOutputLease?.signal.aborted) throw context.firstOutputLease.signal.reason;
+            context.firstOutputLease?.markReady();
+          }, !context.clientWantsStream);
+      }
+      if (ticket) tickets.set(response, ticket);
+      return response;
+    };
+    const settleUsage = (response: Response) => async (counts: { readonly promptTokens?: number; readonly completionTokens?: number }): Promise<void> => {
+      const ticket = tickets.get(response);
+      if (!ticket || counts.promptTokens === undefined || counts.completionTokens === undefined) return;
+      const amount = budgetRuntime.quotePaidBudget?.(counts.promptTokens, counts.completionTokens, ticket.inputPrice, ticket.outputPrice);
+      if (amount == null) return;
+      await budgetRuntime.settlePaidBudget?.(context.budgetSql, PAID_BUDGET_QUERIES, ticket.scopeId, ticket.id, amount);
+    };
+
     const hasMoreCandidates = candidateIndex < candidates.length - 1;
     const releaseInFlight = keyPool.markInFlight(candidate.account);
 
-    for (let retryIndex = 0; retryIndex <= context.config.upstreamTransientRetryCount; retryIndex += 1) {
+    for (let retryIndex = 0; retryIndex <= (context.budgetRoutePlan?.maxRetries ?? context.config.upstreamTransientRetryCount); retryIndex += 1) {
       const baseProviderContext: Omit<ProviderAttemptContext, "attempt"> = {
         ...context,
+        upstreamModel: typeof candidatePayload.upstreamPayload.model === "string" ? candidatePayload.upstreamPayload.model : context.routedModel,
         routeProviderId: candidate.providerId,
         providerId: candidate.providerId,
         // This may be overridden per-attempt when `OPENAI_IMAGES_UPSTREAM_MODE=platform|auto`.
@@ -247,7 +333,7 @@ export async function executeProviderRoutingPlan(
         ];
       })();
 
-      const hasRetryRemaining = retryIndex < context.config.upstreamTransientRetryCount;
+      const hasRetryRemaining = retryIndex < (context.budgetRoutePlan?.maxRetries ?? context.config.upstreamTransientRetryCount);
       let shouldContinueTransientRetry = false;
 
       for (const [stepIndex, step] of upstreamSteps.entries()) {
@@ -351,13 +437,14 @@ export async function executeProviderRoutingPlan(
             break;
           }
 
-          upstreamResponse = await fetchWithResponseTimeout(upstreamUrl, {
+          upstreamResponse = await fetchAttempt(upstreamUrl, {
             method: "POST",
             headers: upstreamHeaders,
             body: effectiveBody,
             signal: queueSignal,
           }, context.upstreamAttemptTimeoutMs);
         } catch (error) {
+          if (error instanceof OpenAiHttpError) { upstreamSpan.recordError(error); upstreamSpan.end(); releaseInFlight(); throw error; }
           const latencyMs = Date.now() - attemptStartedAt;
           upstreamSpan.setAttribute("proxy.latency_ms", latencyMs);
           upstreamSpan.setAttribute("proxy.status", 0);
@@ -447,6 +534,8 @@ export async function executeProviderRoutingPlan(
           candidate.providerId,
           context.config,
           attemptStartedAt,
+          baseProviderContext.upstreamModel,
+          settleUsage(upstreamResponse),
         );
         if (responseLooksLikeEventStream(upstreamResponse, candidateStrategy.mode) && context.clientWantsStream) {
           void usagePromise;
@@ -548,14 +637,14 @@ export async function executeProviderRoutingPlan(
           if (rateLimitKind === "concurrency_throttle") {
             // Concurrency throttle: wait for the indicated period, then retry
             // the same credential instead of falling over to a different provider.
-            const maxRetries = context.config.concurrencyThrottleMaxRetries;
+            const maxRetries = context.budgetRoutePlan?.maxRetries ?? context.config.concurrencyThrottleMaxRetries;
             const waitMs = Math.min(cooldownMs, 10_000);
             upstreamSpan.setAttribute("proxy.rate_limit_kind", "concurrency_throttle");
             upstreamSpan.setAttribute("proxy.concurrency_retry_wait_ms", waitMs);
 
             // Mark a short cooldown so the same account isn't selected by
             // another concurrent request while we're waiting.
-            keyPool.markRateLimited(candidate.account, Math.min(cooldownMs, 15_000));
+            markAttemptLimited(candidate.account, Math.min(cooldownMs, 15_000));
 
             for (let concurrencyRetry = 0; concurrencyRetry < maxRetries; concurrencyRetry += 1) {
               await sleep(waitMs);
@@ -577,13 +666,14 @@ export async function executeProviderRoutingPlan(
 
               let retryResponse: Response;
               try {
-                retryResponse = await fetchWithResponseTimeout(retryUrl, {
+                retryResponse = await fetchAttempt(retryUrl, {
                   method: "POST",
                   headers: retryHeaders,
                   body: effectiveBody,
                   signal: queueSignal,
                 }, context.upstreamAttemptTimeoutMs);
-              } catch {
+              } catch (error) {
+                if (error instanceof OpenAiHttpError) { upstreamSpan.recordError(error); upstreamSpan.end(); releaseInFlight(); throw error; }
                 // Transport error on retry — fall through to normal routing.
                 break;
               }
@@ -612,6 +702,8 @@ export async function executeProviderRoutingPlan(
                   candidate.providerId,
                   context.config,
                   attemptStartedAt,
+                  baseProviderContext.upstreamModel,
+                  settleUsage(retryResponse),
                 );
 
                 if (retryResponse.ok) {
@@ -663,19 +755,19 @@ export async function executeProviderRoutingPlan(
 
               if (retryKind !== "concurrency_throttle") {
                 // Escalated to quota exhaustion — stop retrying this credential.
-                keyPool.markRateLimited(candidate.account, Math.round(retryCooldownMs * ollamaMultiplier));
+                markAttemptLimited(candidate.account, Math.round(retryCooldownMs * ollamaMultiplier));
                 break;
               }
 
               // Still a concurrency throttle — mark short cooldown and loop again.
-              keyPool.markRateLimited(candidate.account, Math.min(retryCooldownMs, 15_000));
+              markAttemptLimited(candidate.account, Math.min(retryCooldownMs, 15_000));
             }
 
             // All concurrency retries exhausted — mark normal cooldown and fall over.
-            keyPool.markRateLimited(candidate.account, cooldownMs);
+            markAttemptLimited(candidate.account, cooldownMs);
           } else {
             // Quota exhaustion: mark rate-limited and fall over to next candidate.
-            keyPool.markRateLimited(candidate.account, cooldownMs);
+            markAttemptLimited(candidate.account, cooldownMs);
           }
 
           if (
@@ -735,9 +827,9 @@ export async function executeProviderRoutingPlan(
 
         if (policyFailure?.kind === "quota_exhausted" || await responseIndicatesQuotaError(upstreamResponse)) {
           accumulator.sawRateLimit = true;
-          const permanentlyDisable = policyFailure
+          const permanentlyDisable = attemptInspection.quotaDisable ?? (policyFailure
             ? policyFailure.disable
-            : shouldPermanentlyDisableCredential(candidate.account, upstreamResponse.status);
+            : shouldPermanentlyDisableCredential(candidate.account, upstreamResponse.status));
           const baseCooldownMs = permanentlyDisable
             ? PERMANENT_DISABLE_COOLDOWN_MS
             : policyFailure?.cooldownMs
@@ -764,7 +856,7 @@ export async function executeProviderRoutingPlan(
               ? healthStore.getGrowingCooldown(candidate.account.providerId, candidate.account.accountId, baseCooldownMs)
               : baseCooldownMs;
           }
-          keyPool.markRateLimited(candidate.account, quotaCooldownMs);
+          markAttemptLimited(candidate.account, quotaCooldownMs);
           if (healthStore) {
             healthStore.recordFailure(candidate.account, upstreamResponse.status, "quota_exhausted");
           }
@@ -811,7 +903,7 @@ export async function executeProviderRoutingPlan(
             shouldContinueTransientRetry = true;
             break;
           }
-          keyPool.markRateLimited(candidate.account, Math.min(context.config.keyCooldownMs, 5000));
+          markAttemptLimited(candidate.account, Math.min(context.config.keyCooldownMs, 5000));
           await providerRoutePheromoneStore.noteFailure(candidate.providerId, context.routedModel);
           try {
             await upstreamResponse.arrayBuffer();
@@ -951,7 +1043,7 @@ export async function executeProviderRoutingPlan(
           const cooldownMs = outcome.rateLimit === true
             ? context.config.keyCooldownMs
             : Math.min(context.config.keyCooldownMs, 10_000);
-          keyPool.markRateLimited(candidate.account, cooldownMs);
+          markAttemptLimited(candidate.account, cooldownMs);
           await providerRoutePheromoneStore.noteFailure(candidate.providerId, context.routedModel);
           if (outcome.rateLimit === true) {
             requestLogStore.update(requestLogEntryId, {
@@ -1004,13 +1096,14 @@ export async function executeProviderRoutingPlan(
             const refreshedAttemptStartedAt = Date.now();
             let refreshedResponse: Response;
             try {
-              refreshedResponse = await fetchWithResponseTimeout(upstreamUrl, {
+              refreshedResponse = await fetchAttempt(upstreamUrl, {
                 method: "POST",
                 headers: refreshedHeaders,
                 body: effectiveBody,
                 signal: queueSignal,
               }, context.upstreamAttemptTimeoutMs);
             } catch (error) {
+              if (error instanceof OpenAiHttpError) { upstreamSpan.recordError(error); upstreamSpan.end(); releaseInFlight(); throw error; }
               refreshedRelease();
               releaseInFlight();
               throw error;
@@ -1047,6 +1140,8 @@ export async function executeProviderRoutingPlan(
                 candidate.providerId,
                 context.config,
                 refreshedAttemptStartedAt,
+                baseProviderContext.upstreamModel,
+                settleUsage(refreshedResponse),
               );
               if (responseLooksLikeEventStream(refreshedResponse, candidateStrategy.mode) && context.clientWantsStream) {
                 void usagePromise;
@@ -1057,7 +1152,7 @@ export async function executeProviderRoutingPlan(
               if (isRateLimitResponse(refreshedResponse)) {
                 accumulator.sawRateLimit = true;
                 const refreshedCooldownMs = await extractRateLimitCooldownMs(refreshedResponse);
-                keyPool.markRateLimited(refreshedCredential, refreshedCooldownMs);
+                markAttemptLimited(refreshedCredential, refreshedCooldownMs);
                 try {
                   await refreshedResponse.arrayBuffer();
                 } catch {
@@ -1167,7 +1262,7 @@ export async function executeProviderRoutingPlan(
               }
               if (!refreshedResponse.ok && refreshedOutcome.modelNotSupportedForAccount !== true && refreshedOutcome.requestError === true && (refreshedResponse.status === 401 || refreshedResponse.status === 403)) {
                 if (shouldCooldownCredentialOnAuthFailure(candidate.providerId, refreshedResponse.status)) {
-                  keyPool.markRateLimited(refreshedCredential, Math.min(context.config.keyCooldownMs, 10_000));
+                  markAttemptLimited(refreshedCredential, Math.min(context.config.keyCooldownMs, 10_000));
                   // Disable OAuth accounts that fail auth even after successful token refresh
                   if (refreshedCredential.authType === "oauth_bearer" && keyPool.disableAccount) {
                     keyPool.disableAccount(refreshedCredential.providerId, refreshedCredential.accountId);
@@ -1183,7 +1278,7 @@ export async function executeProviderRoutingPlan(
             }
           } else {
             await providerRoutePheromoneStore.noteFailure(candidate.providerId, context.routedModel);
-            keyPool.markRateLimited(candidate.account, Math.min(context.config.keyCooldownMs, 10_000));
+            markAttemptLimited(candidate.account, Math.min(context.config.keyCooldownMs, 10_000));
             // Disable OAuth accounts when token refresh fails
             if (candidate.account.authType === "oauth_bearer" && keyPool.disableAccount) {
               keyPool.disableAccount(candidate.account.providerId, candidate.account.accountId);
@@ -1198,7 +1293,7 @@ export async function executeProviderRoutingPlan(
             const cooldownMs = permanentlyDisable
               ? PERMANENT_DISABLE_COOLDOWN_MS
               : Math.min(context.config.keyCooldownMs, 10_000);
-            keyPool.markRateLimited(candidate.account, cooldownMs);
+            markAttemptLimited(candidate.account, cooldownMs);
             if (permanentlyDisable && keyPool.disableAccount) {
               keyPool.disableAccount(candidate.account.providerId, candidate.account.accountId);
             }

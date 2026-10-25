@@ -13,6 +13,7 @@
    "50-account-selection.edn"
    "60-tenant-enforcement.edn"
    "65-federation-routing.edn"
+   "68-paid-budgets.edn"
     "70-request-queue-templates.edn"
     "80-rate-limit-classification.edn"
     "85-credential-failure-classification.edn"

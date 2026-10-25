@@ -19,7 +19,7 @@ CREATE INDEX IF NOT EXISTS idx_account_health_score ON account_health(
 );
 `;
 
-export const SCHEMA_VERSION = 8;
+export const SCHEMA_VERSION = 9;
 
 export const CREATE_TENANTS_TABLE = `
 CREATE TABLE IF NOT EXISTS tenants (
@@ -243,6 +243,80 @@ CREATE TABLE IF NOT EXISTS config (
 );
 `;
 
+export const ADD_REQUEST_USAGE_UPSTREAM_MODEL = `
+ALTER TABLE IF EXISTS request_usage_entries ADD COLUMN IF NOT EXISTS upstream_model TEXT;
+`;
+
+export const CREATE_PAID_BUDGET_RESERVATIONS_TABLE = `
+CREATE TABLE IF NOT EXISTS paid_budget_reservations (
+  id TEXT PRIMARY KEY,
+  scope_id TEXT NOT NULL,
+  day_utc DATE NOT NULL,
+  month_utc DATE NOT NULL,
+  reserved_microusd BIGINT NOT NULL CHECK (reserved_microusd >= 0),
+  charged_microusd BIGINT CHECK (charged_microusd >= 0),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  settled_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_paid_budget_scope_period
+  ON paid_budget_reservations (scope_id, month_utc, day_utc);
+`;
+
+// The adapter runs these inside one transaction, holding the scope lock through
+// usage read and reservation insertion. Unsettled reservations never expire.
+export const LOCK_PAID_BUDGET_SCOPE = `
+SELECT pg_advisory_xact_lock(hashtextextended($1, 0));
+`;
+export const SELECT_PAID_BUDGET_USAGE = `
+SELECT
+  COALESCE(SUM(COALESCE(charged_microusd, reserved_microusd)) FILTER
+    (WHERE day_utc = timezone('UTC', CURRENT_TIMESTAMP)::date OR charged_microusd IS NULL), 0) AS daily_microusd,
+  COALESCE(SUM(COALESCE(charged_microusd, reserved_microusd)) FILTER
+    (WHERE month_utc = date_trunc('month', timezone('UTC', CURRENT_TIMESTAMP))::date
+      OR charged_microusd IS NULL), 0) AS monthly_microusd
+FROM paid_budget_reservations
+WHERE scope_id = $1
+  AND (month_utc = date_trunc('month', timezone('UTC', CURRENT_TIMESTAMP))::date
+    OR charged_microusd IS NULL);
+`;
+export const SELECT_PAID_BUDGET_SNAPSHOT = `
+SELECT
+  timezone('UTC', CURRENT_TIMESTAMP)::date::text AS day_utc,
+  date_trunc('month', timezone('UTC', CURRENT_TIMESTAMP))::date::text AS month_utc,
+  COALESCE(SUM(charged_microusd) FILTER
+    (WHERE day_utc = timezone('UTC', CURRENT_TIMESTAMP)::date), 0) AS daily_charged_microusd,
+  COALESCE(SUM(charged_microusd) FILTER
+    (WHERE month_utc = date_trunc('month', timezone('UTC', CURRENT_TIMESTAMP))::date), 0) AS monthly_charged_microusd,
+  COALESCE(SUM(reserved_microusd) FILTER
+    (WHERE charged_microusd IS NULL), 0) AS held_microusd,
+  COALESCE(SUM(reserved_microusd) FILTER
+    (WHERE charged_microusd IS NULL AND day_utc < timezone('UTC', CURRENT_TIMESTAMP)::date), 0) AS daily_carried_microusd,
+  COALESCE(SUM(reserved_microusd) FILTER
+    (WHERE charged_microusd IS NULL AND month_utc < date_trunc('month', timezone('UTC', CURRENT_TIMESTAMP))::date), 0) AS monthly_carried_microusd,
+  COUNT(*) FILTER (WHERE charged_microusd IS NULL)::int AS unresolved_count
+FROM paid_budget_reservations
+WHERE scope_id = $1;
+`;
+export const INSERT_PAID_BUDGET_RESERVATION = `
+INSERT INTO paid_budget_reservations (id, scope_id, day_utc, month_utc, reserved_microusd)
+VALUES ($1, $2, timezone('UTC', CURRENT_TIMESTAMP)::date,
+  date_trunc('month', timezone('UTC', CURRENT_TIMESTAMP))::date, $3)
+RETURNING id, reserved_microusd;
+`;
+export const SETTLE_PAID_BUDGET_RESERVATION = `
+UPDATE paid_budget_reservations SET charged_microusd = $3, settled_at = NOW()
+WHERE id = $1 AND scope_id = $2 AND charged_microusd IS NULL
+RETURNING id, reserved_microusd, charged_microusd;
+`;
+
+export const PAID_BUDGET_QUERIES = {
+  lock: LOCK_PAID_BUDGET_SCOPE,
+  usage: SELECT_PAID_BUDGET_USAGE,
+  snapshot: SELECT_PAID_BUDGET_SNAPSHOT,
+  insert: INSERT_PAID_BUDGET_RESERVATION,
+  settle: SETTLE_PAID_BUDGET_RESERVATION,
+};
+
 export const ALL_MIGRATIONS = [
   { version: 1, sql: CREATE_PROVIDERS_TABLE },
   { version: 1, sql: CREATE_ACCOUNTS_TABLE },
@@ -269,6 +343,8 @@ export const ALL_MIGRATIONS = [
   { version: 6, sql: "ALTER TABLE providers ADD COLUMN IF NOT EXISTS base_url TEXT;" },
   { version: 7, sql: "ALTER TABLE accounts ADD COLUMN IF NOT EXISTS disabled BOOLEAN NOT NULL DEFAULT FALSE;" },
   { version: 8, sql: CREATE_PROMPT_AFFINITY_TABLE },
+  { version: 9, sql: CREATE_PAID_BUDGET_RESERVATIONS_TABLE },
+  { version: 9, sql: ADD_REQUEST_USAGE_UPSTREAM_MODEL },
 ];
 
 export const UPSERT_TENANT = `

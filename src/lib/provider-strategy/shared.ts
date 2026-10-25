@@ -1,3 +1,5 @@
+import type { BudgetRoutePlan } from "../cljs-runtime.js";
+import type { ResponseDeadlineLease } from "../http/index.js";
 import { createHash } from "node:crypto";
 import type { IncomingHttpHeaders, ServerResponse } from "node:http";
 import { Readable } from "node:stream";
@@ -246,6 +248,11 @@ type UpstreamMode =
 interface StrategyRequestContext {
   /** Provider id for which we're selecting an upstream strategy. */
   readonly routeProviderId?: string;
+  readonly budgetSql?: unknown;
+  readonly budgetRoutePlan?: BudgetRoutePlan;
+  readonly requestAdmittedAt?: number;
+  readonly firstOutputLease?: ResponseDeadlineLease;
+  readonly upstreamModel?: string;
   readonly config: ProxyConfig;
   readonly clientHeaders: IncomingHttpHeaders;
   readonly requestBody: Record<string, unknown>;
@@ -1069,7 +1076,7 @@ function recordAttempt(
 ): string {
   const cost = estimateRequestCost(
     values.providerId,
-    context.routedModel,
+    context.upstreamModel ?? context.routedModel,
     values.promptTokens ?? 0,
     values.completionTokens ?? 0,
   );
@@ -1084,6 +1091,7 @@ function recordAttempt(
     accountId: values.accountId,
     authType: values.authType,
     model: context.routedModel,
+    upstreamModel: context.upstreamModel,
     upstreamMode: mode,
     upstreamPath: values.upstreamPath,
     status: values.status,
@@ -1620,11 +1628,41 @@ async function readClonedResponseWithTiming(
   }
 }
 
+function hasCompletedChatResponse(bodyText: string, streaming: boolean): boolean {
+  let sawFinish = false;
+  let sawDone = !streaming;
+  const values: unknown[] = [];
+  try {
+    if (streaming) {
+      for (const line of bodyText.split(/\r?\n/u)) {
+        if (!line.startsWith("data:")) continue;
+        const data = line.slice(5).trim();
+        if (data === "[DONE]") { sawDone = true; continue; }
+        if (data) values.push(JSON.parse(data));
+      }
+    } else {
+      values.push(JSON.parse(bodyText));
+    }
+    for (const value of values) {
+      if (!isRecord(value) || value.error) return false;
+      if (Array.isArray(value.choices)) {
+        for (const choice of value.choices) {
+          if (!isRecord(choice)) continue;
+          if (choice.finish_reason === "error") return false;
+          if (["stop", "length", "tool_calls", "function_call"].includes(String(choice.finish_reason))) sawFinish = true;
+        }
+      }
+    }
+    return sawDone && sawFinish;
+  } catch { return false; }
+}
+
 async function extractUsageCounts(
   response: Response,
   mode: UpstreamMode,
   routedModel: string,
 ): Promise<{
+  readonly settlementEligible?: boolean;
   readonly usageCounts: UsageCounts;
   readonly completedAt: number;
   readonly firstByteAt: number | null;
@@ -1638,6 +1676,7 @@ async function extractUsageCounts(
     const readResult = await readClonedResponseWithTiming(response, mode);
     if (responseLooksLikeEventStream(response, mode)) {
       return {
+        settlementEligible: hasCompletedChatResponse(readResult.bodyText, true),
         usageCounts: extractUsageCountsFromSseText(readResult.bodyText, mode, routedModel),
         completedAt: readResult.completedAt,
         firstByteAt: readResult.firstByteAt,
@@ -1647,6 +1686,7 @@ async function extractUsageCounts(
 
     const upstreamJson: unknown = JSON.parse(readResult.bodyText);
     return {
+      settlementEligible: hasCompletedChatResponse(readResult.bodyText, false),
       usageCounts: usageCountsForMode(mode, upstreamJson, routedModel),
       completedAt: readResult.completedAt,
       firstByteAt: readResult.firstByteAt,
@@ -1666,6 +1706,8 @@ async function updateUsageCountsFromResponse(
   providerId: string,
   config: ProxyConfig,
   attemptStartedAt: number,
+  upstreamModel?: string,
+  onUsage?: (counts: { readonly promptTokens?: number; readonly completionTokens?: number }) => Promise<void>,
 ): Promise<void> {
   const extraction = await extractUsageCounts(response, mode, routedModel);
   const { usageCounts } = extraction;
@@ -1710,7 +1752,7 @@ async function updateUsageCountsFromResponse(
 
   const updatedCost = estimateRequestCost(
     providerId,
-    routedModel,
+    upstreamModel ?? routedModel,
     usageCounts.promptTokens ?? 0,
     usageCounts.completionTokens ?? 0,
   );
@@ -1727,6 +1769,7 @@ async function updateUsageCountsFromResponse(
     energyJoules: updatedCost.energyJoules,
     waterEvaporatedMl: updatedCost.waterEvaporatedMl,
   });
+  if (extraction.settlementEligible) await onUsage?.(usageCounts);
 }
 
 const CODEX_RESPONSES_IMAGES_MODEL = "gpt-5.4-mini";

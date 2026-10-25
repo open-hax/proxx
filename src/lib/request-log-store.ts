@@ -49,6 +49,7 @@ export interface RequestLogEntry {
   readonly accountId: string;
   readonly authType: RequestAuthType;
   readonly model: string;
+  readonly upstreamModel?: string;
   readonly upstreamMode: string;
   readonly upstreamPath: string;
   readonly status: number;
@@ -103,6 +104,7 @@ export interface RequestLogRecordInput {
   readonly accountId: string;
   readonly authType: RequestAuthType;
   readonly model: string;
+  readonly upstreamModel?: string;
   readonly upstreamMode: string;
   readonly upstreamPath: string;
   readonly status: number;
@@ -617,6 +619,7 @@ function hydrateEntry(raw: unknown): RequestLogEntry | null {
     accountId,
     authType: normalizedAuthType,
     model,
+    upstreamModel: sanitizeOptionalShortString(raw.upstreamModel, 512),
     upstreamMode,
     upstreamPath,
     status,
@@ -1033,6 +1036,7 @@ export class RequestLogStore {
       accountId: input.accountId,
       authType: input.authType,
       model: input.model,
+      upstreamModel: sanitizeOptionalShortString(input.upstreamModel, 512),
       upstreamMode: input.upstreamMode,
       upstreamPath: input.upstreamPath,
       status: input.status,
@@ -1179,7 +1183,7 @@ export class RequestLogStore {
         continue;
       }
 
-      const estimate = estimateRequestCost(current.providerId, current.model, promptTokens, completionTokens);
+      const estimate = estimateRequestCost(current.providerId, current.upstreamModel ?? current.model, promptTokens, completionTokens);
       const changed = Math.abs(sumCount(current.costUsd) - estimate.costUsd) > 1e-12
         || Math.abs(sumCount(current.energyJoules) - estimate.energyJoules) > 1e-12
         || Math.abs(sumCount(current.waterEvaporatedMl) - estimate.waterEvaporatedMl) > 1e-12;
@@ -2615,7 +2619,7 @@ export class RequestLogStore {
         continue;
       }
 
-      const repaired = estimateRequestCost(entry.providerId, entry.model, promptTokens, completionTokens);
+      const repaired = estimateRequestCost(entry.providerId, entry.upstreamModel ?? entry.model, promptTokens, completionTokens);
       const repairedEntry: RequestLogEntry = {
         ...entry,
         ...(missingCost ? { costUsd: repaired.costUsd } : {}),

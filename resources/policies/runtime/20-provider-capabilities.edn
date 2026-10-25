@@ -60,7 +60,7 @@
 
  {:contract/id :provider-order/gemma4
   :contract/kind :preference-order
-  :preference/items ["gemini" "ollama-cloud" "ollama"]}
+  :preference/items ["gemini" "ollama-cloud" "ollama" "requesty"]}
 
  {:contract/id :provider-order/gemini
   :contract/kind :preference-order

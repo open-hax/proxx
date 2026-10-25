@@ -90,6 +90,17 @@ export async function buildRoutingCandidates(
     }
   }
 
+  if (context.budgetRoutePlan?.orderedRoutes) {
+    const candidates = context.budgetRoutePlan.orderedRoutes.flatMap((route) =>
+      (candidatesByProvider[route.providerId] ?? []).map((candidate) => ({
+        ...candidate, upstreamModel: route.upstreamModel, firstUsableOffsetMs: route.firstUsableOffsetMs,
+      })),
+    );
+    // Declared workload order is authoritative; provider performance and
+    // sticky affinity cannot promote a paid attempt ahead of the free one.
+    return { candidates, preferredAffinity: undefined, provisionalAffinity: undefined };
+  }
+
   const affinityRecord = promptCacheKey
     ? await promptAffinityStore.get(promptCacheKey)
     : undefined;

@@ -1,5 +1,9 @@
 (ns proxx.runtime
   (:require [clojure.string]
+            [proxx.budget.store :as budget-store]
+            [proxx.budget.policy :as budget-policy]
+            [proxx.budget.stream :as budget-stream]
+            [proxx.budget.law :as budget-law]
             [proxx.policy :as policy]
             [proxx.policy.contracts :as policy-contracts]
             [proxx.policy.evidence :as policy-evidence]
@@ -351,8 +355,80 @@
       (clj->js {:status "error"
                 :error (.-message e)}))))
 
+(defn resolve-budget-route-plan-js [manifest-path auth model-id]
+  (clj->js (budget-policy/route-plan
+            (get-in (compiled-policy-for-manifest manifest-path) [:index :contracts])
+            (js->clj auth :keywordize-keys true) model-id)))
+
+(defn probe-first-usable-js [text format tools]
+  (clj->js (budget-stream/probe text format (js->clj tools :keywordize-keys true))))
+
+(defn inspect-budget-attempt-js [manifest-path auth attempt]
+  (clj->js (budget-policy/inspect-attempt
+            (get-in (compiled-policy-for-manifest manifest-path) [:index :contracts])
+            (js->clj auth :keywordize-keys true)
+            (js->clj attempt :keywordize-keys true))))
+
+(defn quote-paid-budget-js [input-bound output-bound input-price output-price]
+  (budget-law/reservation-microusd input-bound output-bound input-price output-price))
+
+(defn load-paid-budget-policy-js [manifest-path contract-id]
+  (let [contract (some #(when (and (= :paid-budget (:contract/kind %))
+                                    (= (str (:contract/id %)) contract-id)) %)
+                       (policy-loader/load-policy-contracts! manifest-path))]
+    (when contract
+      (clj->js {:scopeId (:budget/scope-id contract)
+                :dailyMicrousd (:budget/daily-microusd contract)
+                :monthlyMicrousd (:budget/monthly-microusd contract)
+                :calendar "utc"}))))
+
+(defn ^:async reserve-paid-budget-js
+  [sql queries ^js policy reservation-id amount]
+  (let [result (await (budget-store/reserve!
+                       sql (js->clj queries :keywordize-keys true)
+                       (when policy (.-scopeId policy)) reservation-id
+                       {:daily-microusd (when policy (.-dailyMicrousd policy))
+                        :monthly-microusd (when policy (.-monthlyMicrousd policy))} amount))]
+    (clj->js (cond-> {:status (:status result)}
+               (:reservation-id result)
+               (assoc :reservationId (:reservation-id result)
+                      :reservedMicrousd (:reserved-microusd result))))))
+
+(defn ^:async settle-paid-budget-js
+  [sql queries scope-id reservation-id amount]
+  (clj->js (await (budget-store/settle!
+                   sql (js->clj queries :keywordize-keys true)
+                   scope-id reservation-id amount))))
+
+(defn ^:async read-budget-snapshot-policy [sql queries policy]
+  (let [row (await (budget-store/snapshot! sql queries (:scopeId policy)))]
+    (clj->js (if row
+               (budget-policy/snapshot-usage policy row)
+               (assoc policy :status "unavailable")))))
+
+(defn ^:async read-paid-budgets-js [sql queries manifest-path auth requested-key-id]
+  (let [selection (budget-policy/snapshot-selection
+                    (get-in (compiled-policy-for-manifest manifest-path) [:index :contracts])
+                    (js->clj auth :keywordize-keys true) requested-key-id)]
+    (if-not (= "ok" (:status selection))
+      (clj->js selection)
+      (let [budgets (await (js/Promise.all
+                            (into-array
+                              (map #(read-budget-snapshot-policy sql
+                                      (js->clj queries :keywordize-keys true) %)
+                                   (:policies selection)))))]
+        #js {:status "ok" :observedAt (.toISOString (js/Date.)) :budgets budgets}))))
+
 (def exports
-  #js {:normalizeKeys normalize-keys-js
+  #js {:readPaidBudgets read-paid-budgets-js
+       :resolveBudgetRoutePlan resolve-budget-route-plan-js
+       :probeFirstUsable probe-first-usable-js
+       :inspectBudgetAttempt inspect-budget-attempt-js
+       :quotePaidBudget quote-paid-budget-js
+       :loadPaidBudgetPolicy load-paid-budget-policy-js
+       :reservePaidBudget reserve-paid-budget-js
+       :settlePaidBudget settle-paid-budget-js
+       :normalizeKeys normalize-keys-js
        :validateEntity validate-entity-js
        :projectPheromone project-pheromone-js
        :routePolicy route-policy-js

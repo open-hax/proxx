@@ -9,7 +9,15 @@
  {:runtime
   {:target    :esm
    :output-dir "dist/cljs"
-   :modules   {:proxx-runtime {:exports {normalizeKeys proxx.runtime/normalize-keys-js
+   :modules   {:proxx-runtime {:exports {resolveBudgetRoutePlan proxx.runtime/resolve-budget-route-plan-js
+                                          probeFirstUsable proxx.runtime/probe-first-usable-js
+                                          inspectBudgetAttempt proxx.runtime/inspect-budget-attempt-js
+                                          quotePaidBudget proxx.runtime/quote-paid-budget-js
+                                          readPaidBudgets proxx.runtime/read-paid-budgets-js
+                                          loadPaidBudgetPolicy proxx.runtime/load-paid-budget-policy-js
+                                          reservePaidBudget proxx.runtime/reserve-paid-budget-js
+                                          settlePaidBudget proxx.runtime/settle-paid-budget-js
+                                          normalizeKeys proxx.runtime/normalize-keys-js
                                           validateEntity proxx.runtime/validate-entity-js
                                           projectPheromone proxx.runtime/project-pheromone-js
                                           routePolicy proxx.runtime/route-policy-js

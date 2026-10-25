@@ -94,6 +94,12 @@
   :reasoning/control :effort-level
   :reasoning/native-efforts [:none :low :medium :high :max]}
 
+ {:contract/id :model-alias/requesty-gemma4-31b
+  :contract/kind :model-alias
+  :match/model-pattern "(?i)^gemma4:31b$"
+  :match/provider-pattern "(?i)^requesty$"
+  :alias/model-id "google/gemma-4-31b-it"}
+
  {:contract/id :model-alias/gemma4-gemini
   :contract/kind :model-alias
   :match/model-pattern "(?i)^gemma4:31b$"
