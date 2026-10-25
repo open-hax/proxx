@@ -67,7 +67,9 @@
                                            requestHasExplicitNumCtx proxx.runtime.ollama/request-has-explicit-num-ctx-js
                                            ollamaToChatCompletion proxx.runtime.ollama/ollama-to-chat-completion-js
                                            streamOllamaNdjsonToChatCompletionSse proxx.runtime.ollama/stream-ollama-ndjson-to-chat-completion-sse-js
-                                           requestWantsReasoningTrace proxx.runtime.ollama/request-wants-reasoning-trace-js}}}
+                                           requestWantsReasoningTrace proxx.runtime.ollama/request-wants-reasoning-trace-js
+                                           ollamaContextLengthFromShow proxx.runtime.ollama-context/ollama-context-length-from-show-js
+                                           ollamaContextBudget proxx.runtime.ollama-context/ollama-context-budget-js}}}
    :js-options {:js-provider :import
                 :keep-as-import #{"node:fs" "node:path"}}
    :compiler-options {:output-feature-set :es-next

@@ -341,7 +341,9 @@
    [:map
     [:contract/kind [:enum :provider-wire-profile]]
     [:wire/provider-id [:string {:min 1}]]
+    [:wire/context-length-keys {:optional true} [:vector [:string {:min 1}]]]
     [:wire/model-routes
+     {:optional true}
      [:vector {:min 1}
       [:map
        [:match/model-pattern [:string {:min 1}]]

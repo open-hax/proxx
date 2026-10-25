@@ -50,4 +50,17 @@
   ;; Factory rejects the full OpenCode system prompt (403); substitute a safe one.
   :wire/prompt-rewrites
   [{:match/system-contains "you are opencode, the best coding agent on the planet"
-    :wire/replace-with "You are a software engineering assistant running inside a CLI tool.\nBe concise, correct, and action-oriented.\nOnly call tools when you need to inspect files, run commands, or fetch data. For simple replies, respond directly without tools.\nDo not run shell commands (e.g. `echo`) just to print the answer.\nUse the provided tools when needed; do not invent tools.\nAsk a clarifying question only when you cannot proceed safely.\nAvoid destructive actions and avoid exposing secrets."}]}]
+    :wire/replace-with "You are a software engineering assistant running inside a CLI tool.\nBe concise, correct, and action-oriented.\nOnly call tools when you need to inspect files, run commands, or fetch data. For simple replies, respond directly without tools.\nDo not run shell commands (e.g. `echo`) just to print the answer.\nUse the provided tools when needed; do not invent tools.\nAsk a clarifying question only when you cannot proceed safely.\nAvoid destructive actions and avoid exposing secrets."}]}
+
+ {:contract/id :wire-profile/ollama
+  :contract/kind :provider-wire-profile
+  :wire/provider-id "ollama"
+
+  ;; Where Ollama's /api/show reports a model's context window, after the
+  ;; top-level `context_length`: first finite `model_info` entry wins.
+  :wire/context-length-keys
+  ["qwen3.context_length"
+   "qwen35.context_length"
+   "llama.context_length"
+   "gemma3.context_length"
+   "general.context_length"]}]
