@@ -139,6 +139,17 @@ export interface CljsKernels {
     readonly keyEnvNames: readonly string[];
   }[];
   readonly createKeyPool: (config: unknown, deps: unknown) => unknown;
+  // w2-analytics
+  readonly createRequestLogFanout: () => RequestLogFanout;
+}
+
+export interface RequestLogFanout {
+  readonly subscribe: (id: string, identity: object, subscription: object) => void;
+  readonly unsubscribe: (id: string) => void;
+  readonly recipients: (entry: object) => string[];
+  readonly size: () => number;
+  readonly clear: () => void;
+  readonly eventType: (type: string) => string;
 }
 
 const loaded = await loadCljsRuntime({ required: true });

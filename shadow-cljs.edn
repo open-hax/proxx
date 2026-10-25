@@ -90,7 +90,9 @@
                                            requestWantsReasoningTrace proxx.runtime.ollama/request-wants-reasoning-trace-js
                                            ollamaContextLengthFromShow proxx.runtime.ollama-context/ollama-context-length-from-show-js
                                            ollamaContextBudget proxx.runtime.ollama-context/ollama-context-budget-js
-                                           requestyModelProvider proxx.runtime.requesty/requesty-model-provider-js}}}
+                                           requestyModelProvider proxx.runtime.requesty/requesty-model-provider-js
+                                           ;; w2-analytics exports
+                                           createRequestLogFanout proxx.runtime.observability/create-request-log-fanout-js}}}
    :js-options {:js-provider :import
                 :keep-as-import #{"node:fs" "node:path"}}
    :compiler-options {:output-feature-set :es-next
