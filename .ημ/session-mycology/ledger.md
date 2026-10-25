@@ -87,3 +87,55 @@
   spore: none
   receipt-refs: Proxx451 correction of prior native settlement UTF8 claims;Proxx451 auth-suite gate and malformed-UTF8 transport repair
   note: A byte budget does not imply valid decoding. Real malformed HTTP bytes proved replacement decoding could admit a valid-looking catalog and overwrite the last-good baseline; fatal decoding now refuses it while retaining valid split Unicode. Preserve old evidence and append the attribution correction rather than rewriting history. Keep new async fixture bindings bounded to avoid SCI expansion limits. Local App/OIDC tests use mocks only; native COMMENTED and pending enrollment do not qualify approval. Parent owns publication and native correction.
+
+- context: shared-login relay preparation retry review
+  p-friction: 0.2
+  p-skill-candidate: 0.1
+  spore: none
+  note: A preparation failure before socket construction cannot rely on a close callback to retry. Reproduced before repair and checked stop cancellation. Typecheck caught optional preparation result typing; corrected before commit. Receipt adapter selected .ημ ledger; initial explicit staging named root ledger, so preserve the append in a follow-up without amending history. No fleet activation or new spore.
+
+- context: concurrent tenant selection and OIDC renewal
+  p-friction: 0.15
+  p-skill-candidate: 0.1
+  spore: none
+  note: Separate mutable tenant selection from the exact grant-generation fence; merge renewal into the freshly stored session. Actual maintained-client refresh barrier reproduced forced revocation before the repair. Existing race-testing guidance covers this; no spore or promotion.
+
+- context: scoped relay cancelled-frame custody
+  p-friction: 0.15
+  p-skill-candidate: 0.1
+  spore: none
+  note: Cancellation and transport delivery race; remember a bounded set of broker-cancelled IDs per session so expected late frames cannot close unrelated streams. Preserve capability checks and unknown-ID refusal. Reproduced transport failure before repair; reran actual composed PostgreSQL/long-stream fixture after build. Existing protocol-race guidance suffices; no spore or promotion.
+- ts: 2026-10-25T05:34:03.505424702Z
+  session: /home/err/.local/share/codex-work/axxium-sso/proxx-current
+  task: Qualify restart generations and retryable authority outages
+  p-efficiency: 0.85
+  p-friction: 0.3
+  p-skill-candidate: 0.1
+  spore: none
+  receipt-refs: open-hax/proxx#457,4366115291,4366115298,4366115302
+  note: Stopping does not invalidate an asynchronous result if a later start clears the same boolean. Use run identity and close retired prepared capabilities. Rotating refresh consumes old credentials before evidence may fail; preserve validated successor credentials but never authorize without fresh evidence. Differentiate confirmed protocol invalidation from transport/freshness status. Full suites and real PG relay pass; no spore.
+- ts: 2026-10-25T06:19:10.548497912Z
+  session: /home/err/.local/share/codex-work/axxium-sso/proxx-current
+  task: Preserve refresh continuity when OIDC response omits ID token
+  p-efficiency: 0.8
+  p-friction: 0.4
+  p-skill-candidate: 0.3
+  spore: none
+  receipt-refs: shared-login-and-federation; native4369807477
+  note: Separate retained session identity from fresh ID-token claims; require live introspection without destroying consumed-token successor custody on transient outages. No runtime activation claim.
+
+- ts: 2026-10-25T08:48:05.252897+00:00
+  origin: shared-login-transport-boundaries
+  p-efficiency: 0.8
+  p-friction: 0.3
+  p-skill-candidate: 0.4
+  receipt-refs: shared-login-and-federation; native4370097365; native4370097366
+  note: Track dispatch at the actual send boundary: pre-send refusal permits fallback, but uncertain sends stay terminal. A stale browser callback must not issue an unqualified cookie-scoped cancellation for a newer generation. Verify both with real compiled runtime/relay and mounted DOM tests.
+
+- ts: 2026-10-25T09:54:31.123827+00:00
+  origin: shared-login-deployed-policy-composition
+  p-efficiency: 0.82
+  p-friction: 0.3
+  p-skill-candidate: 0.4
+  receipt-refs: shared-login-and-federation; auth0be311b; deployed-policy3ed25ee
+  note: Compare source ancestry and actual deployed image before release. Preserve both runtime export additions rather than choosing a conflict side. Byte-check untouched policy and auth surfaces, then run the combined production adapters against owned PostgreSQL. Passing source tests are separate from native approval, immutable image and mutation qualification, and real fleet sign-in.

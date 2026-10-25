@@ -85,7 +85,9 @@ import { registerHealthRoutes } from "./routes/health.js";
 
 export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
   const app = Fastify({
-    logger: true,
+    // Authorization callbacks carry one-use codes in the URL. Keep those and
+    // credential headers out of both request logs and child logger bindings.
+    logger: { redact: ["req.url", "req.headers.authorization", "req.headers.cookie"] },
     bodyLimit: 300 * 1024 * 1024
   });
 
@@ -204,6 +206,25 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       app.log.error({ error: toErrorMessage(error) }, "failed to initialize database connection");
       throw error;
     }
+  }
+
+  const createAxxiumConsumer = getActiveCljsRuntime()?.createAxxiumConsumer;
+  if (config.axxiumOidc && (!createAxxiumConsumer || !sqlCredentialStore)) {
+    throw new Error("Configured Axxium login requires the CLJS runtime and local account database");
+  }
+  const axxiumConsumer = config.axxiumOidc && createAxxiumConsumer && sqlCredentialStore
+    ? createAxxiumConsumer({ ...config.axxiumOidc, allowUnauthenticated: config.allowUnauthenticated }, {
+      getUser: (id) => sqlCredentialStore!.getUserById(id),
+      getMemberships: (id) => sqlCredentialStore!.listUserMemberships(id),
+    })
+    : undefined;
+  if (axxiumConsumer) app.decorate("axxiumConsumer", axxiumConsumer);
+  axxiumConsumer?.register(app);
+  if (!axxiumConsumer) {
+    app.get("/api/auth/axxium/status", async (_request, reply) => {
+      reply.header("Cache-Control", "no-store");
+      return { enabled: false, authenticated: false };
+    });
   }
 
   const dynamicProviderBaseUrlGetter = createDynamicProviderBaseUrlGetter(sqlCredentialStore);
@@ -469,6 +490,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     keyPool,
     credentialStore: runtimeCredentialStore,
     logger: app.log,
+    consumeRelayRpc: sqlFederationStore ? (issuer, nonce, exp) => sqlFederationStore.consumeRelayLease(issuer, nonce, exp) : undefined,
     getResolvedModelCatalog: () => getResolvedModelCatalog(false),
     handleBridgeRequest: (input) => handleBridgeRequest(getBridgeDeps(), input),
   });
@@ -491,15 +513,18 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     }
 
     const rawPath = (request.raw.url ?? request.url).split("?", 1)[0] ?? request.url;
-    const allowUnauthenticatedRoute = rawPath === "/" || rawPath === "/favicon.ico" || rawPath === "/health" || rawPath === "/api/ui/credentials/openai/oauth/browser/callback" || rawPath === "/api/v1/credentials/openai/oauth/browser/callback"
+    const allowUnauthenticatedRoute = rawPath === "/api/auth/axxium/status" || rawPath === "/" || rawPath === "/favicon.ico" || rawPath === "/health" || rawPath === "/api/ui/credentials/openai/oauth/browser/callback" || rawPath === "/api/v1/credentials/openai/oauth/browser/callback"
       || rawPath === "/auth/callback" || rawPath === "/auth/factory/callback"
       || rawPath === config.githubOAuthCallbackPath || rawPath === "/auth/login"
       || rawPath === "/auth/refresh" || rawPath === "/auth/logout";
     const allowUiSessionAuth = rawPath.startsWith("/api/ui/") || rawPath === "/api/v1" || rawPath.startsWith("/api/v1/") || rawPath.startsWith("/auth/");
 
-    if (allowUnauthenticatedRoute) {
+    if (allowUnauthenticatedRoute || axxiumConsumer?.isPublicPath(rawPath)) {
       return;
     }
+
+    const axxiumAuth = await axxiumConsumer?.admit(request, reply);
+    if (reply.sent) return;
 
     let bridgeResolvedAuth: ResolvedRequestAuth | undefined;
     const bridgeAuthHeader = request.headers["x-open-hax-bridge-auth"];
@@ -524,7 +549,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       };
     }
 
-    const resolvedAuth = bridgeResolvedAuth ?? await resolveRequestAuth({
+    const resolvedAuth = axxiumAuth ?? bridgeResolvedAuth ?? await resolveRequestAuth({
       allowUnauthenticated: config.allowUnauthenticated,
       proxyAuthToken: config.proxyAuthToken,
       authorization: request.headers.authorization,

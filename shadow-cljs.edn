@@ -6,10 +6,21 @@
  :js-options {:js-provider :import}
 
  :builds
- {:runtime
+ {:oidc-browser
+  {:target :esm :output-dir "web/compiled/oidc"
+   :modules {:device {:exports {mountDeviceLogin proxx.browser.device/mount!}}}
+   :compiler-options {:output-feature-set :es-next}}
+
+  :runtime
   {:target    :esm
    :output-dir "dist/cljs"
-   :modules   {:proxx-runtime {:exports {normalizeKeys proxx.runtime/normalize-keys-js
+   :modules   {:proxx-runtime {:exports {createRelayBroker proxx.runtime/create-relay-broker-js
+                                          relayNodeOptions proxx.runtime/relay-node-options-js
+                                          qualifiedOwner proxx.runtime/qualified-owner-js
+                                          relaySessionRoutable proxx.runtime/relay-session-routable-js
+                                          relayFailureTerminal proxx.runtime/relay-failure-terminal-js
+                                          createAxxiumConsumer proxx.runtime/create-axxium-consumer-js
+                                          normalizeKeys proxx.runtime/normalize-keys-js
                                           validateEntity proxx.runtime/validate-entity-js
                                           projectPheromone proxx.runtime/project-pheromone-js
                                           routePolicy proxx.runtime/route-policy-js
@@ -27,12 +38,28 @@
                                              runModelCandidates proxx.runtime/run-model-candidates-js
                                             resolveQueuePolicy proxx.runtime/resolve-queue-policy-js
                                             runQueued proxx.runtime/run-queued-js
-                                            classifyRateLimit proxx.runtime/classify-rate-limit-js}}}
+                                            classifyRateLimit proxx.runtime/classify-rate-limit-js
+                                            classifyCredentialFailure proxx.runtime/classify-credential-failure-js}}}
    :js-options {:js-provider :import
                 :keep-as-import #{"node:fs" "node:path"}}
    :compiler-options {:output-feature-set :es-next
                       :infer-externs :auto
                       :source-map true}}
+
+  :oidc-laws
+  {:target :node-test
+   :output-to "target/oidc-laws.cjs"
+   :ns-regexp "proxx\\.auth\\.oidc-law-test$"}
+
+  :oidc-http
+  {:target :node-test
+   :output-to "target/oidc-http.cjs"
+   :ns-regexp "proxx\\.auth\\.oidc-http-test$"}
+
+  :oidc-test
+  {:target :node-test
+   :output-to "target/oidc-test.cjs"
+   :ns-regexp "proxx\\.auth\\.oidc.*-test$"}
 
   :node-test
   {:target      :node-test

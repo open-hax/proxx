@@ -17,6 +17,11 @@ export async function registerPostTenantSelectUiRoute(
       return;
     }
 
+    if (auth.oidc) {
+      await app.axxiumConsumer!.selectTenant(request, reply, normalizeTenantId(request.params.tenantId));
+      return;
+    }
+
     if (!deps.authPersistence) {
       reply.code(501).send({ error: "auth_persistence_not_supported" });
       return;

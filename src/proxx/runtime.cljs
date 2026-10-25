@@ -1,5 +1,7 @@
 (ns proxx.runtime
   (:require [clojure.string]
+            [proxx.extern.oidc-http :as oidc-http]
+            [proxx.extern.relay :as relay]
             [proxx.policy :as policy]
             [proxx.policy.contracts :as policy-contracts]
             [proxx.policy.evidence :as policy-evidence]
@@ -332,6 +334,25 @@
       (clj->js {:status "error"
                 :error (.-message e)}))))
 
+(defn classify-credential-failure-js
+  "Classify an upstream credential failure using :credential-failure-classification
+   EDN contracts. Returns a JS object {status, result, cooldownMs, disable, contractId}
+   where result is 'quota-exhausted', 'model-unavailable', or null when no contract matches."
+  [manifest-path provider-id status message]
+  (try
+    (let [compiled (compiled-policy-for-manifest manifest-path)
+          contract (policy-contracts/classify-credential-failure
+                    compiled
+                    {:provider-id provider-id :status status :message message})]
+      (clj->js {:status "ok"
+                :result (some-> (:classify/result contract) name)
+                :cooldownMs (:classify/cooldown-ms contract)
+                :disable (true? (:classify/disable? contract))
+                :contractId (some-> (:contract/id contract) str)}))
+    (catch :default e
+      (clj->js {:status "error"
+                :error (.-message e)}))))
+
 (def exports
   #js {:normalizeKeys normalize-keys-js
        :validateEntity validate-entity-js
@@ -352,4 +373,15 @@
         :runModelCandidates run-model-candidates-js
        :resolveQueuePolicy resolve-queue-policy-js
        :runQueued run-queued-js
-       :classifyRateLimit classify-rate-limit-js})
+       :classifyRateLimit classify-rate-limit-js
+       :classifyCredentialFailure classify-credential-failure-js})
+
+(defn create-axxium-consumer-js [config adapters]
+  (oidc-http/create-consumer-js config adapters))
+
+(defn relay-failure-terminal-js "Expose the scoped no-replay contract to the transport boundary." [session dispatched?] (relay/failure-terminal-js session dispatched?))
+(defn create-relay-broker-js [consume!] (relay/env-broker-js consume!))
+(defn relay-node-options-js [options consume!] (relay/env-node-options-js options consume!))
+(defn qualified-owner-js [auth] (relay/qualified-owner-js auth))
+(defn relay-session-routable-js [session auth owner tenant model operation]
+  (relay/session-routable-js session auth owner tenant model operation))

@@ -1,3 +1,5 @@
+import type { RelayCapability } from "../cljs-runtime.js";
+
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
@@ -14,6 +16,7 @@ import {
   type BridgeHealthReportPayload,
   type BridgeHelloAckMessage,
   type BridgeHelloMessage,
+  type BridgeMessage,
   type BridgeRequestOpenMessage,
   type BridgeResponseChunkMessage,
   type BridgeResponseEndMessage,
@@ -23,7 +26,8 @@ import {
 import type { BridgeSendChannel } from "./bridge-send-channel.js";
 
 export interface FederationBridgeAuthorizedIdentity {
-  readonly authKind: "legacy_admin" | "ui_session";
+  readonly authKind: "legacy_admin" | "ui_session" | "axxium_node";
+  readonly relay?: RelayCapability;
   readonly subject?: string;
   readonly tenantId?: string;
 }
@@ -44,6 +48,7 @@ export interface FederationBridgeSessionRecord {
   readonly authKind: FederationBridgeAuthorizedIdentity["authKind"];
   readonly authSubject?: string;
   readonly tenantId?: string;
+  readonly allowedTenants?: readonly string[];
   readonly labels: readonly string[];
   readonly topology?: BridgeTopologySummary;
   readonly capabilities: readonly BridgeCapabilityAdvertisement[];
@@ -70,6 +75,8 @@ interface PendingBridgeRequest {
     readonly resolve: (value: IteratorResult<BridgeRelayResponseEvent>) => void;
     readonly reject: (error: Error) => void;
   }>;
+  readonly scopedRequest?: BridgeRequestOpenMessage;
+  readonly scopedBody?: string;
   done: boolean;
   failure?: Error;
 }
@@ -166,7 +173,9 @@ export class FederationBridgeRelay {
   private readonly wsServer = new WebSocketServer({ noServer: true });
   private readonly sessions = new Map<string, MutableFederationBridgeSessionRecord>();
   private readonly channels = new Map<string, BridgeSendChannel>();
+  private readonly relayCapabilities = new Map<string, RelayCapability>();
   private readonly pendingRequests = new Map<string, PendingBridgeRequest>();
+  private readonly cancelledScopedStreams = new Map<string, Set<string>>();
 
   /** Remove disconnected sessions older than the retention window to prevent unbounded growth. */
   private pruneDisconnectedSessions(maxAgeMs = 300_000): void {
@@ -214,6 +223,7 @@ export class FederationBridgeRelay {
       this.failPendingRequest(pending, new Error("bridge relay closed"));
     }
     this.pendingRequests.clear();
+    this.cancelledScopedStreams.clear();
     for (const client of this.wsServer.clients) {
       client.close();
     }
@@ -228,8 +238,10 @@ export class FederationBridgeRelay {
     readonly timeoutMs: number;
     readonly headers?: Readonly<Record<string, string>>;
     readonly body?: string;
+    readonly requestAuth?: import("../request-auth.js").ResolvedRequestAuth;
     readonly requestContext?: BridgeRequestOpenMessage["requestContext"];
     readonly routingIntent?: BridgeRequestOpenMessage["routingIntent"];
+    readonly onDispatch?: () => void;
   }): AsyncIterable<BridgeRelayResponseEvent> {
     const session = this.sessions.get(sessionId);
     if (!session || session.state !== "connected") {
@@ -241,6 +253,8 @@ export class FederationBridgeRelay {
       throw new Error(`bridge session ${sessionId} has no open channel`);
     }
 
+    const capability = this.relayCapabilities.get(sessionId);
+    capability?.assertRequest({ method: input.method ?? "GET", path: input.path }, input.body);
     const streamId = randomUUID();
     const request: BridgeRequestOpenMessage = {
       type: "request_open",
@@ -254,18 +268,24 @@ export class FederationBridgeRelay {
       agentId: session.agentId,
       method: input.method ?? "GET",
       path: input.path,
-      headers: input.headers ?? { accept: "application/json" },
+      headers: capability ? capability.headers(input.headers ?? {}) : input.headers ?? { accept: "application/json" },
       requestContext: input.requestContext,
       routingIntent: input.routingIntent,
       hopCount: 0,
     };
 
+    if (capability) {
+      (request as { relayBinding?: Record<string, unknown> }).relayBinding = capability.bindRequest(
+        request, input.body, input.requestContext?.tenantId, input.requestAuth,
+      );
+    }
     const timeout = setTimeout(() => {
       const pending = this.pendingRequests.get(streamId);
       if (!pending) {
         return;
       }
       this.pendingRequests.delete(streamId);
+      this.cancelRequest(pending);
       this.failPendingRequest(pending, new Error(`bridge request timed out for ${input.path}`));
     }, input.timeoutMs);
 
@@ -276,9 +296,12 @@ export class FederationBridgeRelay {
       events: [],
       waiters: [],
       done: false,
+      scopedRequest: capability ? request : undefined,
+      scopedBody: capability ? input.body : undefined,
     };
 
     this.pendingRequests.set(streamId, pending);
+    input.onDispatch?.();
     channel.send(JSON.stringify(request));
     if (typeof input.body === "string" && input.body.length > 0) {
       channel.send(JSON.stringify({
@@ -306,6 +329,7 @@ export class FederationBridgeRelay {
     readonly timeoutMs: number;
     readonly headers?: Readonly<Record<string, string>>;
     readonly body?: string;
+    readonly requestAuth?: import("../request-auth.js").ResolvedRequestAuth;
     readonly requestContext?: BridgeRequestOpenMessage["requestContext"];
     readonly routingIntent?: BridgeRequestOpenMessage["routingIntent"];
   }): Promise<{ readonly status: number; readonly headers: Readonly<Record<string, string>>; readonly body: string; readonly json: unknown }> {
@@ -398,6 +422,12 @@ export class FederationBridgeRelay {
         return;
       }
 
+      const streamState = this.channelStreamState(sessionId, parsed.streamId, parsed);
+      if (streamState === "cancelled") return;
+      if (streamState === "unknown") {
+        channel.close(1008, "bridge_stream_mismatch");
+        return;
+      }
       session.lastSeenAt = parsed.sentAt;
       switch (parsed.type) {
         case "heartbeat":
@@ -406,7 +436,7 @@ export class FederationBridgeRelay {
           session.queuedRequests = parsed.queuedRequests;
           break;
         case "capabilities":
-          session.capabilities = cloneCapabilities(parsed);
+          session.capabilities = this.relayCapabilities.get(sessionId)?.capabilities(cloneCapabilities(parsed)) ?? cloneCapabilities(parsed);
           break;
         case "health_report":
           session.health = cloneHealth(parsed);
@@ -448,6 +478,12 @@ export class FederationBridgeRelay {
           break;
       }
     } catch (error) {
+      if (this.relayCapabilities.has(sessionId)) {
+        this.handleDisconnect(sessionId);
+        channel.close(1008, "relay_frame_refused");
+        if (channel instanceof WebSocketBridgeChannel) channel.ws.terminate();
+        return;
+      }
       this.sendErrorToChannel(channel, sessionId, {
         code: "bridge_message_invalid",
         message: error instanceof Error ? error.message : String(error),
@@ -456,10 +492,38 @@ export class FederationBridgeRelay {
     }
   }
 
+  private channelStreamState(sessionId: string, streamId: string | undefined, message: BridgeMessage): "current" | "cancelled" | "unknown" {
+    const capability = this.relayCapabilities.get(sessionId);
+    capability?.assertActive();
+    capability?.assertHello({ ...message, authMode: "axxium_node" });
+    const pending = streamId ? this.pendingRequests.get(streamId) : undefined;
+    if (capability && pending?.scopedRequest) capability.assertDelivery(pending.scopedRequest, pending.scopedBody);
+    if (!capability || !streamId || (pending?.sessionId === sessionId && !pending.done)) return "current";
+    return this.cancelledScopedStreams.get(sessionId)?.has(streamId) ? "cancelled" : "unknown";
+  }
+
   private handleConnection(channel: BridgeSendChannel, identity: FederationBridgeAuthorizedIdentity): void {
     let sessionId: string | undefined;
+    let closed = false;
+    let renewing = false;
+    let expiryTimer: NodeJS.Timeout | undefined;
+    const disconnect = (reason: string) => {
+      if (closed) return;
+      closed = true;
+      clearTimeout(expiryTimer);
+      identity.relay?.close();
+      this.handleDisconnect(sessionId);
+      channel.close(1008, reason);
+      if (channel instanceof WebSocketBridgeChannel) channel.ws.terminate();
+    };
+    const armExpiry = () => {
+      clearTimeout(expiryTimer);
+      if (identity.relay) expiryTimer = setTimeout(() => disconnect("relay_lease_expired"), Math.max(0, identity.relay.expiresAt - Date.now()));
+    };
+    armExpiry();
 
     const handleMessage = (messageText: string): void => {
+      if (closed) return;
       if (!sessionId) {
         try {
           const parsed = parseBridgeMessageJson(messageText);
@@ -488,7 +552,23 @@ export class FederationBridgeRelay {
         }
       }
 
-      this.handleChannelMessage(sessionId!, messageText, channel);
+      try {
+        const parsed = parseBridgeMessageJson(messageText);
+        if (parsed.type === "reauthorize" && identity.relay) {
+          if (renewing || parsed.sessionId !== sessionId) throw new Error("relay renewal binding refused");
+          identity.relay.assertHello({ ...parsed, authMode: "axxium_node" });
+          renewing = true;
+          void identity.relay.renew(parsed.authorization, parsed.predecessor).then(() => {
+            if (closed || !channel.isOpen || this.sessions.get(sessionId!)?.state !== "connected") return;
+            this.refreshRelayScope(sessionId!, identity.relay!);
+            armExpiry();
+            channel.send(JSON.stringify({ ...parsed, type: "reauthorize_ack", authorization: undefined,
+              predecessor: undefined, leaseId: identity.relay!.leaseId }));
+          }).catch(() => disconnect("relay_renewal_refused")).finally(() => { renewing = false; });
+          return;
+        }
+        this.handleChannelMessage(sessionId!, messageText, channel);
+      } catch { disconnect("relay_frame_refused"); }
     };
 
     if (channel instanceof WebSocketBridgeChannel) {
@@ -521,8 +601,27 @@ export class FederationBridgeRelay {
       });
 
       ws.on("close", () => {
+        closed = true;
+        clearTimeout(expiryTimer);
+        identity.relay?.close();
         this.handleDisconnect(sessionId);
       });
+    }
+  }
+
+  private refreshRelayScope(sessionId: string, capability: RelayCapability): void {
+    const session = this.sessions.get(sessionId)!;
+    session.allowedTenants = capability.allowedTenants;
+    session.capabilities = capability.capabilities(session.capabilities);
+    for (const pending of this.pendingRequests.values()) {
+      if (pending.sessionId !== sessionId || !pending.scopedRequest) continue;
+      try { capability.assertDelivery(pending.scopedRequest, pending.scopedBody); }
+      catch {
+        this.cancelRequest(pending);
+        clearTimeout(pending.timeout);
+        this.pendingRequests.delete(pending.streamId);
+        this.failPendingRequest(pending, new Error("relay scope narrowed"));
+      }
     }
   }
 
@@ -535,6 +634,9 @@ export class FederationBridgeRelay {
       return;
     }
     this.channels.delete(sessionId);
+    this.cancelledScopedStreams.delete(sessionId);
+    this.relayCapabilities.get(sessionId)?.close();
+    this.relayCapabilities.delete(sessionId);
     session.state = "disconnected";
     session.disconnectedAt = new Date().toISOString();
     for (const pending of [...this.pendingRequests.values()].filter((candidate) => candidate.sessionId === sessionId)) {
@@ -546,6 +648,11 @@ export class FederationBridgeRelay {
 
   private createResponseStream(streamId: string, pending: PendingBridgeRequest): AsyncIterable<BridgeRelayResponseEvent> {
     const nextEvent = async (): Promise<IteratorResult<BridgeRelayResponseEvent>> => {
+      if (pending.scopedRequest) {
+        const capability = this.relayCapabilities.get(pending.sessionId);
+        if (!capability || this.sessions.get(pending.sessionId)?.state !== "connected") throw new Error("scoped relay closed");
+        capability.assertDelivery(pending.scopedRequest, pending.scopedBody);
+      }
       if (pending.events.length > 0) {
         const event = pending.events.shift()!;
         return { value: event, done: false };
@@ -554,6 +661,7 @@ export class FederationBridgeRelay {
         throw pending.failure;
       }
       if (pending.done) {
+        this.pendingRequests.delete(streamId);
         return { value: undefined, done: true };
       }
       return new Promise<IteratorResult<BridgeRelayResponseEvent>>((resolve, reject) => {
@@ -568,11 +676,25 @@ export class FederationBridgeRelay {
           clearTimeout(pending.timeout);
           this.pendingRequests.delete(streamId);
           pending.done = true;
+          this.cancelRequest(pending);
           this.flushPendingDone(pending);
           return { value: undefined, done: true };
         },
       }),
     };
+  }
+
+  private cancelRequest(pending: PendingBridgeRequest): void {
+    const channel = this.channels.get(pending.sessionId);
+    if (!pending.scopedRequest || this.sessions.get(pending.sessionId)?.state !== "connected" || !channel?.isOpen) return;
+    // Frames sent before request_cancel reaches the peer may still arrive.
+    // Bound memory per session and never admit an ID the broker did not open.
+    const cancelled = this.cancelledScopedStreams.get(pending.sessionId) ?? new Set<string>();
+    cancelled.add(pending.streamId);
+    while (cancelled.size > 1024) cancelled.delete(cancelled.values().next().value!);
+    this.cancelledScopedStreams.set(pending.sessionId, cancelled);
+    channel.send(JSON.stringify({ ...pending.scopedRequest,
+      type: "request_cancel", relayBinding: undefined, headers: undefined }));
   }
 
   private pushPendingEvent(pending: PendingBridgeRequest, event: BridgeRelayResponseEvent): void {
@@ -590,6 +712,7 @@ export class FederationBridgeRelay {
   }
 
   private failPendingRequest(pending: PendingBridgeRequest, error: Error): void {
+    pending.events.length = 0;
     pending.failure = error;
     while (pending.waiters.length > 0) {
       pending.waiters.shift()!.reject(error);
@@ -597,17 +720,20 @@ export class FederationBridgeRelay {
   }
 
   public acceptHello(hello: BridgeHelloMessage, identity: FederationBridgeAuthorizedIdentity): BridgeHelloAckMessage {
+    identity.relay?.assertHello(hello);
+    const ownerSubject = identity.relay?.ownerSubject ?? hello.ownerSubject;
     const connectedAt = hello.sentAt;
     const sessionId = randomUUID();
     // Prune old disconnected sessions before adding a new one to prevent unbounded growth
     this.pruneDisconnectedSessions();
+    if (identity.relay) this.relayCapabilities.set(sessionId, identity.relay);
     this.sessions.set(sessionId, {
       sessionId,
       state: "connected",
       connectedAt,
       lastSeenAt: connectedAt,
       peerDid: hello.peerDid,
-      ownerSubject: hello.ownerSubject,
+      ownerSubject,
       clusterId: hello.clusterId,
       agentId: hello.agentId,
       environment: hello.environment,
@@ -616,6 +742,7 @@ export class FederationBridgeRelay {
       authKind: identity.authKind,
       authSubject: identity.subject,
       tenantId: identity.tenantId,
+      allowedTenants: identity.relay?.allowedTenants,
       labels: [...hello.labels],
       topology: hello.topology
         ? {
@@ -638,7 +765,7 @@ export class FederationBridgeRelay {
       sessionId,
       sentAt: new Date().toISOString(),
       traceId: randomUUID(),
-      ownerSubject: hello.ownerSubject,
+      ownerSubject,
       clusterId: hello.clusterId,
       agentId: hello.agentId,
       heartbeatIntervalMs: 15_000,
@@ -699,7 +826,7 @@ export class FederationBridgeRelay {
       return;
     }
     clearTimeout(pending.timeout);
-    this.pendingRequests.delete(message.streamId);
+    if (!pending.scopedRequest) this.pendingRequests.delete(message.streamId);
     pending.done = true;
     this.pushPendingEvent(pending, message);
     this.flushPendingDone(pending);

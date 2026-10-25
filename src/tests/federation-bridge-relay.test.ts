@@ -19,6 +19,11 @@ import { KeyPool } from "../lib/key-pool.js";
 import { ProxySettingsStore } from "../lib/proxy-settings-store.js";
 import { RequestLogStore } from "../lib/request-log-store.js";
 import { BRIDGE_PROTOCOL_VERSION } from "../lib/federation/bridge-protocol.js";
+import { createFederationBridgeRelay } from "../lib/federation/bridge-relay.js";
+import type { RelayCapability } from "../lib/cljs-runtime.js";
+import { getActiveCljsRuntime, loadCljsRuntime, setActiveCljsRuntime } from "../lib/cljs-runtime.js";
+import { RuntimeCredentialStore } from "../lib/runtime-credential-store.js";
+import { executeBridgeRequestRouting } from "../lib/federation/bridge-routing.js";
 import { registerApiV1Routes } from "../routes/api/v1/index.js";
 import { registerWebSocketRoutes } from "../routes/api/ui/ws.js";
 
@@ -29,6 +34,132 @@ interface BridgeTestContext {
   readonly baseUrl: string;
   readonly wsUrl: string;
 }
+
+test("scoped pre-send refusals try remaining nodes and local fallback; uncertain sends remain terminal", async () => {
+  const previousRuntime = getActiveCljsRuntime();
+  const loaded = await loadCljsRuntime({ required: true });
+  assert.ok(loaded.loaded);
+  const { runtime } = loaded;
+  setActiveCljsRuntime(runtime);
+  const auth = { kind: "ui_session" as const, tenantId: "tenant", source: "cookie" as const,
+    oidc: { issuer: "https://authority.example/oidc", subject: "synthetic-actor" } };
+  const owner = runtime.qualifiedOwner!(auth)!;
+  try {
+    for (const phase of ["assert", "bind", "send"]) {
+      const app = Fastify();
+      const relay = createFederationBridgeRelay();
+      const frames: string[] = [];
+      let attempts = 0;
+      const fileStore = new CredentialStore("unused-synthetic-path", "fixture");
+      for (const agentId of ["node-a", "node-b"]) {
+        const capability: RelayCapability = {
+          ownerSubject: owner, nodeId: agentId, expiresAt: Date.now() + 25_000,
+          leaseId: agentId, allowedTenants: ["tenant"], close() {}, async renew() {},
+          assertActive() {}, assertHello() {}, assertDelivery() {},
+          assertRequest() { attempts++; if (phase === "assert") throw new Error("pre-send refusal"); },
+          bindRequest() { if (phase === "bind") throw new Error("pre-send binding refusal"); return {}; },
+          headers: (headers) => ({ ...headers }), capabilities: (value) => value,
+          execute: async () => { throw new Error("unused"); },
+        };
+        const hello = { type: "hello" as const, protocolVersion: BRIDGE_PROTOCOL_VERSION,
+          sentAt: new Date().toISOString(), traceId: agentId, ownerSubject: owner,
+          clusterId: "cluster", agentId, peerDid: "did:web:test.invalid", environment: "test",
+          bridgeAgentVersion: "test", authMode: "axxium_node" as const, labels: [] };
+        const { sessionId } = relay.acceptHello(hello, { authKind: "axxium_node", relay: capability });
+        const channel = { isOpen: true, send(data: string) { frames.push(data); throw new Error("uncertain send"); }, close() {} };
+        relay.registerSseChannel(sessionId, channel);
+        relay.handleChannelMessage(sessionId, JSON.stringify({ ...hello, type: "capabilities", sessionId,
+          capabilities: [{ providerId: "fixture", modelPrefixes: [], models: ["fixture-model"],
+            paths: ["/v1/responses"], authType: "local", accountCount: 1, availableAccountCount: 1,
+            supportsModelsList: true, supportsChatCompletions: true, supportsResponses: true,
+            supportsStreaming: true, supportsWarmImport: false, credentialMobility: "non_exportable",
+            credentialOrigin: "fixture", topologyTargets: [] }] }), channel);
+      }
+      app.post("/probe", async (_request, reply) => {
+        const handled = await executeBridgeRequestRouting({ bridgeRelay: relay, app,
+          config: buildConfig({ upstreamPort: 1, proxyAuthToken: "synthetic", paths: {
+            keysPath: "unused", modelsPath: "unused", requestLogsPath: "unused",
+            promptAffinityPath: "unused", settingsPath: "unused" } }),
+          runtimeCredentialStore: new RuntimeCredentialStore(fileStore),
+          keyPool: new KeyPool({ keysFilePath: "unused", reloadIntervalMs: 1, defaultCooldownMs: 1, defaultProviderId: "fixture" }),
+          sqlTenantProviderPolicyStore: undefined }, {
+          requestHeaders: {}, requestAuth: auth, requestBody: { model: "fixture-model", background: true },
+          upstreamPath: "/v1/responses", reply, timeoutMs: 1000 });
+        if (!handled) reply.send({ localFallback: true });
+      });
+      try {
+        const response = await app.inject({ method: "POST", url: "/probe" });
+        assert.equal(response.statusCode, phase === "send" ? 502 : 200, phase);
+        assert.equal(attempts, phase === "send" ? 1 : 2, phase);
+        assert.equal(frames.length, phase === "send" ? 1 : 0, phase);
+        if (phase !== "send") assert.deepEqual(response.json(), { localFallback: true });
+      } finally { await relay.close(); await app.close(); fileStore.dispose(); }
+    }
+  } finally { setActiveCljsRuntime(previousRuntime); }
+});
+
+test("late cancelled scoped frames leave concurrent streams connected; unknown IDs refuse", async () => {
+  const relay = createFederationBridgeRelay();
+  const sent: Record<string, unknown>[] = [];
+  const closed: string[] = [];
+  const capability: RelayCapability = {
+    ownerSubject: "owner", nodeId: "node", expiresAt: Date.now() + 25_000,
+    leaseId: "lease", allowedTenants: ["tenant"], close() {}, async renew() {},
+    bindRequest: () => ({}), assertDelivery() {}, assertActive() {}, assertHello() {}, assertRequest() {},
+    headers: (headers) => ({ ...headers }), capabilities: (value) => value,
+    execute: async () => { throw new Error("not part of transport fixture"); },
+  };
+  const channel = { isOpen: true, send(data: string) { sent.push(JSON.parse(data)); },
+    close(_code?: number, reason?: string) { closed.push(reason ?? ""); } };
+  const hello = { type: "hello" as const, protocolVersion: BRIDGE_PROTOCOL_VERSION,
+    sentAt: new Date().toISOString(), traceId: "hello", ownerSubject: "owner", clusterId: "cluster",
+    agentId: "agent", peerDid: "did:web:test.invalid", environment: "test",
+    bridgeAgentVersion: "test", authMode: "axxium_node" as const, labels: [] };
+  const { sessionId } = relay.acceptHello(hello, { authKind: "axxium_node", relay: capability });
+  relay.registerSseChannel(sessionId, channel);
+  try {
+    const cancelled = relay.requestStream(sessionId, { path: "/v1/responses", timeoutMs: 5_000 })[Symbol.asyncIterator]();
+    const cancelledId = sent[0]!.streamId;
+    const allowed = relay.requestStream(sessionId, { path: "/v1/responses", timeoutMs: 5_000 })[Symbol.asyncIterator]();
+    const allowedId = sent[1]!.streamId;
+    await cancelled.return!();
+    const frame = { ...hello, type: "response_chunk", sessionId, chunk: "late", encoding: "utf8" };
+    relay.handleChannelMessage(sessionId, JSON.stringify({ ...frame, streamId: cancelledId }), channel);
+    assert.deepEqual(closed, []);
+    relay.handleChannelMessage(sessionId, JSON.stringify({ ...frame, streamId: allowedId }), channel);
+    const delivered = (await allowed.next()).value;
+    assert.ok(delivered.type === "response_chunk");
+    assert.equal(delivered.chunk, "late");
+    await allowed.return!();
+    relay.handleChannelMessage(sessionId, JSON.stringify({ ...frame, streamId: "never-opened" }), channel);
+    assert.deepEqual(closed, ["bridge_stream_mismatch"]);
+  } finally { await relay.close(); }
+});
+
+test("late iterator cancellation cannot recreate disconnected session custody", async () => {
+  const relay = createFederationBridgeRelay();
+  const capability: RelayCapability = {
+    ownerSubject: "owner", nodeId: "node", expiresAt: Date.now() + 25_000, leaseId: "lease", allowedTenants: ["tenant"],
+    close() {}, async renew() {}, bindRequest: () => ({}), assertDelivery() {}, assertActive() {}, assertHello() {}, assertRequest() {},
+    headers: (headers) => ({ ...headers }), capabilities: (value) => value, execute: async () => { throw new Error("unused"); },
+  };
+  const sent: string[] = [];
+  const channel = { isOpen: true, send(data: string) { sent.push(data); }, close() {} };
+  try {
+    for (let i = 0; i < 5; i++) {
+      const hello = { type: "hello" as const, protocolVersion: BRIDGE_PROTOCOL_VERSION, sentAt: new Date().toISOString(), traceId: `hello-${i}`,
+        ownerSubject: "owner", clusterId: "cluster", agentId: `agent-${i}`, peerDid: "did:web:test.invalid", environment: "test", bridgeAgentVersion: "test", authMode: "axxium_node" as const, labels: [] };
+      const { sessionId } = relay.acceptHello(hello, { authKind: "axxium_node", relay: capability });
+      relay.registerSseChannel(sessionId, channel);
+      const iterator = relay.requestStream(sessionId, { path: "/v1/responses", timeoutMs: 5_000 })[Symbol.asyncIterator]();
+      relay.handleChannelMessage(sessionId, "malformed synthetic frame", channel);
+      assert.equal(relay.getSession(sessionId)?.state, "disconnected");
+      await iterator.return!();
+    }
+    assert.equal((relay as unknown as { cancelledScopedStreams: Map<string, Set<string>> }).cancelledScopedStreams.size, 0);
+    assert.equal(sent.filter((value) => JSON.parse(value).type === "request_cancel").length, 0);
+  } finally { await relay.close(); }
+});
 
 function buildConfig(input: {
   readonly upstreamPort: number;

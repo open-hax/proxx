@@ -99,6 +99,14 @@ export interface ProxyConfig {
   readonly cljsPolicyShadowMode?: boolean;
   readonly cljsPolicyAuthoritative?: boolean;
   readonly databaseUrl?: string;
+  readonly axxiumOidc?: {
+    readonly issuer: string;
+    readonly publicOrigin: string;
+    readonly clientId: string;
+    readonly clientSecret: string;
+    readonly linksJson: string;
+    readonly deviceEnabled?: boolean;
+  };
   readonly githubOAuthClientId?: string;
   readonly githubOAuthClientSecret?: string;
   readonly githubOAuthCallbackPath: string;
@@ -362,6 +370,18 @@ function defaultProviderBaseUrl(providerId: string): string {
  * @returns A fully populated `ProxyConfig` object with upstream routing, provider base URLs, OAuth settings, file paths, timing and throttling limits, and other proxy options
  * @throws If neither `PROXY_AUTH_TOKEN` is set nor unauthenticated access is allowed, or if required provider IDs are empty
  */
+function loadAxxiumOidcConfig(): ProxyConfig["axxiumOidc"] {
+  const clientId = process.env.AXXIUM_OIDC_CLIENT_ID;
+  return clientId ? {
+    issuer: process.env.AXXIUM_OIDC_ISSUER ?? "https://axxium.promethean.rest/oidc",
+    publicOrigin: process.env.AXXIUM_OIDC_PUBLIC_ORIGIN ?? "",
+    clientId,
+    clientSecret: process.env.AXXIUM_OIDC_CLIENT_SECRET ?? "",
+    linksJson: process.env.AXXIUM_OIDC_ACCOUNT_LINKS ?? "[]",
+    deviceEnabled: process.env.AXXIUM_OIDC_DEVICE_ENABLED === "true",
+  } : undefined;
+}
+
 export function loadConfig(cwd: string = process.cwd()): ProxyConfig {
   const upstreamProviderId = "vivgrid";
   const upstreamBaseUrl = defaultProviderBaseUrl(upstreamProviderId).replace(/\/+$/, "");
@@ -542,6 +562,7 @@ export function loadConfig(cwd: string = process.cwd()): ProxyConfig {
     cljsPolicyShadowMode: booleanFromEnvAliases(["PROXX_CLJS_POLICY_SHADOW", "PROXY_CLJS_POLICY_SHADOW"], false),
     cljsPolicyAuthoritative: booleanFromEnvAliases(["PROXX_CLJS_POLICY_AUTHORITATIVE", "PROXY_CLJS_POLICY_AUTHORITATIVE"], false),
     databaseUrl,
+    axxiumOidc: loadAxxiumOidcConfig(),
     githubOAuthClientId,
     githubOAuthClientSecret,
     githubOAuthCallbackPath,

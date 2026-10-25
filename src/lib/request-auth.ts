@@ -26,6 +26,7 @@ export interface UiSessionAuthMatch {
 }
 
 export interface ResolvedRequestAuth {
+  readonly oidc?: { readonly issuer: string; readonly subject: string };
   readonly kind: "legacy_admin" | "tenant_api_key" | "ui_session" | "unauthenticated";
   readonly tenantId?: string;
   readonly role?: RequestAuthRole;

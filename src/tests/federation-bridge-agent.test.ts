@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { once } from "node:events";
+import { EventEmitter, once } from "node:events";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import os from "node:os";
@@ -7,7 +7,7 @@ import path from "node:path";
 import test from "node:test";
 
 import type { FastifyInstance } from "fastify";
-import { WebSocketServer } from "ws";
+import { WebSocket, WebSocketServer } from "ws";
 
 import { createApp } from "../app.js";
 import type { ProxyConfig } from "../lib/config.js";
@@ -19,6 +19,69 @@ interface BridgeTestContext {
   readonly upstream: Server;
   readonly tempDir: string;
   readonly wsUrl: string;
+}
+
+test("preparation outages keep retrying and stop cancels the retry loop", async () => {
+  let attempts = 0;
+  const agent = createFederationBridgeAgent({
+    relayUrl: "ws://127.0.0.1:1",
+    ownerSubject: "actor-test", peerDid: "did:web:test.invalid",
+    clusterId: "test", agentId: "preparation-outage", environment: "local",
+    bridgeAgentVersion: "0.1.0", authMode: "admin_key",
+    reconnectMinMs: 5, reconnectMaxMs: 10,
+    prepareConnection: async () => { attempts += 1; throw new Error("synthetic authority outage"); },
+  });
+  try {
+    await agent.start();
+    await waitFor(async () => attempts >= 4, 1_000);
+    assert.equal(agent.snapshot().lastError?.code, "bridge_prepare_failed");
+  } finally {
+    await agent.stop();
+  }
+  const stoppedAt = attempts;
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.equal(attempts, stoppedAt);
+});
+
+for (const outcome of ["resolve", "reject"] as const) {
+  test(`stale ${outcome} preparation cannot replace or retry a restarted agent`, async () => {
+    const pending: Array<{ resolve: (value: never) => void; reject: (error: Error) => void }> = [];
+    const sockets: WebSocket[] = [];
+    let closed = 0;
+    const capability = { close() { closed += 1; } };
+    const agent = createFederationBridgeAgent({
+      relayUrl: "ws://synthetic.invalid", ownerSubject: "owner", peerDid: "did:web:synthetic.invalid",
+      clusterId: "test", agentId: "restart-race", environment: "local", bridgeAgentVersion: "test", authMode: "admin_key",
+      reconnectMinMs: 60_000, reconnectMaxMs: 60_000,
+      prepareConnection: () => new Promise((resolve, reject) => { pending.push({ resolve, reject }); }),
+      testTransport: { connect() {
+        const emitter = new EventEmitter();
+        const socket = Object.assign(emitter, { readyState: WebSocket.CONNECTING as number,
+          terminate() { socket.readyState = WebSocket.CLOSED; emitter.emit("close"); },
+          close() { socket.terminate(); }, send() {},
+        });
+        sockets.push(socket as unknown as WebSocket); return socket as unknown as WebSocket;
+      } },
+    });
+    const first = agent.start();
+    await agent.stop();
+    const second = agent.start();
+    try {
+      assert.equal(pending.length, 2);
+      if (outcome === "resolve") pending[0]!.resolve({ authorization: "synthetic", relay: capability } as never);
+      else pending[0]!.reject(new Error("stale synthetic failure"));
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.equal(sockets.length, 0, "old preparation must not install a socket into the new run");
+      assert.equal(agent.snapshot().state, "connecting");
+      assert.equal(agent.snapshot().reconnectAttempt, 0, "old failure must not schedule a retry in the new run");
+      assert.equal(closed, outcome === "resolve" ? 1 : 0, "uninstalled stale capability must close");
+      await first;
+    } finally {
+      await agent.stop();
+      pending[1]!.resolve({ authorization: "synthetic", relay: capability } as never);
+      await Promise.allSettled([first, second]);
+    }
+  });
 }
 
 async function withBridgeApp(

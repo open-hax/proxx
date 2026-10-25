@@ -14,3 +14,8 @@ keys.json
 models.json
 
 reports/jscpd/
+
+# Worktree-local dependency and compiler caches
+.cache/
+
+/web/compiled/

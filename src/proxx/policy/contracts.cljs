@@ -105,6 +105,11 @@
        (filter #(= :rate-limit-classification (:contract/kind %)))
        vec))
 
+(defn credential-failure-classifications [idx]
+  (->> (:contracts idx)
+       (filter #(= :credential-failure-classification (:contract/kind %)))
+       vec))
+
 (defn- provider-route-provider-id [route]
   (or (:provider/id route)
       (:provider-id route)
@@ -573,14 +578,27 @@
           [[] []]
           items))
 
-(defn- filter-provider-routes-by-catalog [routes model-id catalog-bundle]
+(declare resolve-model-alias)
+
+(defn- catalog-entry-supports-route-model?
+  "True when a provider catalog lists the requested model or the provider-specific
+  :model-alias target for it, so aliased providers stay eligible."
+  [compiled model-id provider-id entry]
+  (or (catalog-entry-supports-model? model-id entry)
+      (when-let [alias (resolve-model-alias compiled model-id provider-id)]
+        (catalog-entry-supports-model? alias entry))))
+
+(defn- filter-provider-routes-by-catalog [compiled routes model-id catalog-bundle]
   (if (glm-model? model-id)
     (vec routes)
     (let [[routes-without-catalog routes-with-catalog]
           (partition-with #(nil? (provider-entry catalog-bundle (provider-route-id-from-input %))) routes)
-          catalog-matched (filterv #(catalog-entry-supports-model?
-                                     model-id
-                                     (provider-entry catalog-bundle (provider-route-id-from-input %)))
+          catalog-matched (filterv #(let [provider-id (provider-route-id-from-input %)]
+                                      (catalog-entry-supports-route-model?
+                                       compiled
+                                       model-id
+                                       provider-id
+                                       (provider-entry catalog-bundle provider-id)))
                                    routes-with-catalog)]
       (cond
         (seq catalog-matched)
@@ -609,16 +627,17 @@
                      [])]
     (boolean (some #(= normalized-model (str/lower-case (str/trim (str %)))) disabled))))
 
-(defn- catalog-rejects-model? [routes model-id catalog-bundle]
+(defn- catalog-rejects-model? [compiled routes model-id catalog-bundle]
   (if (catalog-declared-model? catalog-bundle model-id)
     false
     (loop [remaining routes
            saw-catalog? false]
       (if-let [route (first remaining)]
-        (let [entry (provider-entry catalog-bundle (provider-route-id-from-input route))]
+        (let [provider-id (provider-route-id-from-input route)
+              entry (provider-entry catalog-bundle provider-id)]
           (cond
             (nil? entry) false
-            (catalog-entry-supports-model? model-id entry) false
+            (catalog-entry-supports-route-model? compiled model-id provider-id entry) false
             :else (recur (rest remaining) true)))
         saw-catalog?))))
 
@@ -628,7 +647,7 @@
   This owns model-support gates, tenant provider allow/deny gates, and optional
   provider-catalog availability/rejection semantics so route handlers do not
   decide provider eligibility locally."
-  [_compiled input]
+  [compiled input]
   (let [model-id (or (get-any input [:model-id :modelId :routed-model :routedModel]) "")
         request-kind (normalized-keyword (or (get-any input [:request-kind :requestKind]) :chat))
         config (or (get-any input [:config]) {})
@@ -637,7 +656,7 @@
         apply-catalog-availability? (not= false (get-any input [:catalog-availability? :catalogAvailability]))
         routes (->> (input-provider-routes input)
                     (filter #(provider-route-supports-model? config % model-id))
-                    (filter #(request-surface-provider-allowed? _compiled
+                    (filter #(request-surface-provider-allowed? compiled
                                                                (provider-route-id-from-input %)
                                                                request-kind))
                     (filter #(requested-provider-allowed? input
@@ -651,10 +670,10 @@
          :catalog {:disabled true
                    :rejected false}}
         (if apply-catalog-availability?
-          (let [catalog-routes (filter-provider-routes-by-catalog routes model-id catalog-bundle)]
+          (let [catalog-routes (filter-provider-routes-by-catalog compiled routes model-id catalog-bundle)]
             {:providerRoutes catalog-routes
              :catalog {:disabled false
-                       :rejected (catalog-rejects-model? catalog-routes model-id catalog-bundle)}})
+                       :rejected (catalog-rejects-model? compiled catalog-routes model-id catalog-bundle)}})
           {:providerRoutes routes
            :catalog {:disabled false
                      :rejected false}}))
@@ -889,6 +908,24 @@
                     (pattern-matches? (:match/provider-pattern %) provider-id))
            (:alias/model-id %))
         (:model-aliases compiled)))
+
+(defn classify-credential-failure
+  "Return the first :credential-failure-classification contract matching an upstream
+  failure, or nil. Contracts match on provider pattern and optionally on HTTP status
+  and an error-message pattern, so provider-specific meanings (quota windows, spend
+  limits, model availability) stay declarative."
+  [compiled {:keys [provider-id status message]}]
+  (let [provider (normalize-provider-id provider-id)
+        text (str message)]
+    (some (fn [contract]
+            (when (and (pattern-matches? (:match/provider-pattern contract) provider)
+                       (or (nil? (:match/status contract))
+                           (= status (:match/status contract)))
+                       (or (nil? (:match/message-pattern contract))
+                           (pattern-matches? (:match/message-pattern contract) text)))
+              contract))
+          (or (:credential-failure-classifications compiled)
+              (some-> (:index compiled) credential-failure-classifications)))))
 
 (defn- reasoning-token [value]
   (when (some? value)
@@ -1133,6 +1170,7 @@
        :model-families (model-families idx)
       :reasoning-normalizations (reasoning-normalizations idx)
       :model-aliases (model-aliases idx)
+      :credential-failure-classifications (credential-failure-classifications idx)
       :queue-templates (queue-templates idx)
       :queue-instances (queue-instances idx)
       :provider-routes (provider-routes idx)

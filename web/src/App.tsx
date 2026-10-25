@@ -1,5 +1,5 @@
 import React from "react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { NavLink, Route, Routes, useLocation } from "react-router-dom";
 
 import { Button, Input, Modal, ThemeProvider, ToastProvider } from "@open-hax/uxx";
@@ -36,6 +36,62 @@ function navClass(isActive: boolean): string {
   return isActive ? "nav-link nav-link-active" : "nav-link";
 }
 
+function AxxiumDeviceLogin(): JSX.Element {
+  const container = React.useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    let dispose: (() => void) | undefined;
+    let mounted = true;
+    void import("../compiled/oidc/device.js").then(({ mountDeviceLogin }) => {
+      if (mounted && container.current) dispose = mountDeviceLogin(container.current, () => window.location.reload());
+    });
+    return () => { mounted = false; dispose?.(); };
+  }, []);
+  return <div ref={container} />;
+}
+
+function AxxiumLogin({ onStatus }: { onStatus: (authenticated: boolean) => void }): JSX.Element | null {
+  const [status, setStatus] = useState<{ authenticated: boolean; deviceEnabled?: boolean } | null>(null);
+  const [message, setMessage] = useState("");
+  useEffect(() => {
+    let mounted = true;
+    void fetch("/api/auth/axxium/status", { credentials: "same-origin" })
+      .then(async (response) => {
+        if (response.status === 404) return;
+        const body = await response.json();
+        if (!mounted || body.enabled === false) return;
+        const authenticated = response.ok && body.authenticated === true;
+        setStatus({ authenticated, deviceEnabled: body.deviceEnabled === true });
+        onStatus(authenticated);
+        if (!response.ok) setMessage(body.message ?? "Shared login could not be verified.");
+      })
+      .catch(() => { if (mounted) setMessage("Shared login is unavailable."); });
+    return () => { mounted = false; };
+  }, [onStatus]);
+
+  const logout = async () => {
+    const response = await fetch("/api/auth/axxium/logout", {
+      method: "POST", credentials: "same-origin",
+    });
+    if (response.status === 403) {
+      setMessage("Logout was refused. Retry from the configured Proxx origin.");
+      return;
+    }
+    setStatus({ authenticated: false });
+    setMessage(response.ok
+      ? "Signed out of Proxx. Your Axxium root session remains on Axxium."
+      : "Proxx session ended; authority revocation could not be confirmed.");
+  };
+
+  if (!status && !message) return null;
+  return <div aria-label="Axxium shared login">
+    {status?.authenticated
+      ? <button type="button" onClick={() => { void logout().catch(() => setMessage("Logout could not be confirmed. Retry.")); }}>Sign out of Proxx</button>
+      : <a href="/api/auth/axxium/start">Sign in with Axxium</a>}
+    {!status?.authenticated && status?.deviceEnabled && <AxxiumDeviceLogin />}
+    {message && <small role="status">{message}</small>}
+  </div>;
+}
+
 export function App(): JSX.Element {
   const [themeName, setThemeName] = useStoredState<ThemeName>(LS_THEME, "monokai", parseThemeName);
   const [tokenInput, setTokenInput] = useState(() => getSavedAuthToken());
@@ -44,10 +100,21 @@ export function App(): JSX.Element {
   const [fastMode, setFastMode] = useState(false);
   const [fastModeSaving, setFastModeSaving] = useState(false);
   const [fastModeMessage, setFastModeMessage] = useState<string | null>(null);
+  const [axxiumAvailable, setAxxiumAvailable] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(() => {
     const stored = localStorage.getItem(LS_ONBOARDED);
     return stored !== "true" && getSavedAuthToken().trim().length === 0;
   });
+
+  const handleAxxiumStatus = useCallback((authenticated: boolean) => {
+    setAxxiumAvailable(true);
+    if (authenticated) {
+      saveAuthToken("");
+      setTokenInput("");
+      setSavedToken("");
+      setShowOnboarding(false);
+    }
+  }, []);
 
   useEffect(() => {
     void getProxyUiSettings()
@@ -122,6 +189,7 @@ export function App(): JSX.Element {
         </div>
 
         <div className="shell-auth">
+          <AxxiumLogin onStatus={handleAxxiumStatus} />
           <label htmlFor="proxy-token">Proxy Token</label>
           <div className="shell-auth-row">
             <input
@@ -222,6 +290,7 @@ export function App(): JSX.Element {
         <p style={{ margin: "0 0 16px", color: "var(--text-muted)" }}>
           Set your proxy token to get started. You can change this later from the header.
         </p>
+        {axxiumAvailable && <p><a href="/api/auth/axxium/start">Continue with Axxium</a></p>}
         <Input
           type="password"
           value={tokenInput}

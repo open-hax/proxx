@@ -3,7 +3,7 @@ import { asString, isRecord } from "../provider-utils.js";
 export const BRIDGE_PROTOCOL_VERSION = "bridge-ws-v0" as const;
 
 export type BridgeProtocolVersion = typeof BRIDGE_PROTOCOL_VERSION;
-export type BridgeAuthMode = "admin_key" | "at_did" | "did_signed_challenge";
+export type BridgeAuthMode = "admin_key" | "at_did" | "did_signed_challenge" | "axxium_node";
 export type BridgeAccountAuthType = "api_key" | "oauth_bearer" | "local" | "none";
 export type BridgeCredentialMobility = "local_only" | "descriptor_only" | "importable" | "non_exportable" | "access_token_only";
 export type BridgeChunkEncoding = "utf8" | "base64";
@@ -147,6 +147,7 @@ export interface BridgeRequestOpenMessage extends BridgeBaseEnvelope {
   readonly method: string;
   readonly path: string;
   readonly headers: Readonly<Record<string, string>>;
+  readonly relayBinding?: Record<string, unknown>;
   readonly requestContext?: BridgeRequestContext;
   readonly routingIntent?: BridgeRoutingIntent;
   readonly originClusterId?: string;
@@ -206,7 +207,24 @@ export interface BridgeErrorMessage extends BridgeBaseEnvelope {
   readonly retryable: boolean;
 }
 
+export interface BridgeReauthorizeMessage extends BridgeBaseEnvelope {
+  readonly type: "reauthorize";
+  readonly authorization: string;
+  readonly predecessor: string;
+}
+export interface BridgeReauthorizeAckMessage extends BridgeBaseEnvelope {
+  readonly type: "reauthorize_ack";
+  readonly leaseId: string;
+}
+export interface BridgeRequestCancelMessage extends BridgeBaseEnvelope {
+  readonly type: "request_cancel";
+  readonly streamId: string;
+}
+
 export type BridgeMessage =
+  | BridgeReauthorizeMessage
+  | BridgeReauthorizeAckMessage
+  | BridgeRequestCancelMessage
   | BridgeHelloMessage
   | BridgeHelloAckMessage
   | BridgeHeartbeatMessage
@@ -538,6 +556,12 @@ export function parseBridgeMessage(value: unknown): BridgeMessage {
 
   const base = parseBaseEnvelope(value);
   switch (base.type) {
+    case "reauthorize":
+      return { ...base, type: "reauthorize", authorization: requiredRawString(value, "authorization"), predecessor: requiredString(value, "predecessor") };
+    case "reauthorize_ack":
+      return { ...base, type: "reauthorize_ack", leaseId: requiredString(value, "leaseId") };
+    case "request_cancel":
+      return { ...base, type: "request_cancel", streamId: requiredString(value, "streamId") };
     case "hello":
       return {
         ...base,
@@ -545,7 +569,7 @@ export function parseBridgeMessage(value: unknown): BridgeMessage {
         peerDid: requiredString(value, "peerDid"),
         environment: requiredString(value, "environment"),
         bridgeAgentVersion: requiredString(value, "bridgeAgentVersion"),
-        authMode: readEnum(value.authMode, "authMode", ["admin_key", "at_did", "did_signed_challenge"] as const),
+        authMode: readEnum(value.authMode, "authMode", ["admin_key", "at_did", "did_signed_challenge", "axxium_node"] as const),
         capabilitiesHash: optionalString(value, "capabilitiesHash"),
         labels: optionalStringArray(value, "labels"),
         topology: parseTopologySummary(value.topology),
@@ -593,6 +617,7 @@ export function parseBridgeMessage(value: unknown): BridgeMessage {
         method: requiredString(value, "method"),
         path: requiredString(value, "path"),
         headers: requiredStringRecord(value, "headers"),
+        relayBinding: isRecord(value.relayBinding) ? value.relayBinding : undefined,
         requestContext: parseRequestContext(value.requestContext),
         routingIntent: parseRoutingIntent(value.routingIntent),
         originClusterId: optionalString(value, "originClusterId"),
