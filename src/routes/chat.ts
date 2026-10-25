@@ -133,7 +133,7 @@ async function executeChatCandidate(input: ChatCandidateInput): Promise<CljsMode
   );
   reply.header("x-open-hax-upstream-mode", executionStrategy.mode);
 
-  if (providerRoutes.length === 0 && !executionStrategy.isLocal) {
+  if (providerRoutes.length === 0 && (request._budgetRoutePlan?.managed || !executionStrategy.isLocal)) {
     if (hasMoreModelCandidates) {
       return { status: "continue" };
     }
@@ -222,6 +222,11 @@ async function executeChatCandidate(input: ChatCandidateInput): Promise<CljsMode
   }
 
   if (executionStrategy.isLocal) {
+    if (request._budgetRoutePlan?.managed) {
+      // Managed calls must pass the wrapped provider executor's policy and
+      // reservation boundary. Local SDK execution cannot substitute for it.
+      throw openAiRouteError(403, "Budget-managed requests require an admitted provider transport.", "invalid_request_error", "budget_route_denied");
+    }
     try {
       await runCljsQueued(
         deps.config.cljsPolicyManifestPath,

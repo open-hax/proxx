@@ -13951,3 +13951,58 @@ test("budget-managed direct execution is denied before SDK effects", async (t) =
       assert.equal(unmanaged.statusCode,200,unmanaged.body);assert.equal(directCalls,1);
     });
 });
+
+
+test("unmanaged transport preserves non-JSON strategy bodies", async (t) => {
+  const prototype = ChatCompletionsProviderStrategy.prototype;
+  const original = prototype.buildPayload;
+  prototype.buildPayload = function(context) { return { ...original.call(this, context), bodyText: "prompt=hello&format=custom" }; };
+  t.after(() => { prototype.buildPayload = original; });
+  let calls = 0;
+  await withProxyApp({ keys: [], keysPayload: {providers:{requesty:{auth:"api_key",accounts:["test-key"]}}},
+    configOverrides:{upstreamProviderId:"requesty"}, upstreamHandler:async (_request,body) => {
+      calls++; assert.equal(body,"prompt=hello&format=custom");
+      return {status:200,body:JSON.stringify({id:"raw",object:"chat.completion",choices:[{index:0,message:{role:"assistant",content:"ok"},finish_reason:"stop"}]})};
+    }}, async ({app}) => {
+      const response = await app.inject({method:"POST",url:"/v1/chat/completions",payload:{model:"vendor/custom",stream:false,messages:[{role:"user",content:"hello"}]}});
+      assert.equal(response.statusCode,200,response.body); assert.equal(calls,1);
+    });
+});
+
+
+test("managed transport rejects non-JSON wire bytes before any upstream send", async (t) => {
+  const prototype = ChatCompletionsProviderStrategy.prototype;
+  const original = prototype.buildPayload;
+  prototype.buildPayload = function(context) { return { ...original.call(this, context), bodyText: "prompt=hello" }; };
+  t.after(() => { prototype.buildPayload = original; });
+  let calls = 0, reservations = 0;
+  await withProxyApp({keys:[],keysPayload:{providers:{requesty:{auth:"api_key",accounts:["test-key"]}}},configOverrides:{upstreamProviderId:"requesty"},
+    upstreamHandler:async()=>{calls++;return {status:500,body:"{}"};}},async({app})=>{
+      const runtime=getActiveCljsRuntime()!;
+      setActiveCljsRuntime({...runtime,
+        resolveBudgetRoutePlan:(path,auth,model)=>{
+          const plan=runtime.resolveBudgetRoutePlan!(path,auth,model);
+          return plan ? {...plan,orderedRoutes:[{providerId:"requesty",upstreamModel:"",firstUsableOffsetMs:20000}]} : null;
+        },
+        reservePaidBudget:async()=>{reservations++;return {status:"unavailable"};}});
+      app.addHook("preHandler",async request=>{request.openHaxAuth={kind:"tenant_api_key",keyId:"71a0813f-dbe3-45ad-a7ae-16555463e716",tenantId:"default",source:"bearer"};});
+      try {
+        const response=await app.inject({method:"POST",url:"/v1/chat/completions",payload:{model:"google/gemma-4-31b-it",stream:false,messages:[{role:"user",content:"hello"}]}});
+        assert.equal(response.statusCode,403,response.body);
+        assert.equal(response.json().error.code,"budget_route_denied");
+        assert.equal(calls,0);assert.equal(reservations,0);
+      } finally {setActiveCljsRuntime(runtime);}
+    });
+});
+
+test("managed callers cannot escape through undeclared local model strategies", async () => {
+  let calls=0;
+  await withProxyApp({keys:["test-key"],upstreamHandler:async()=>{calls++;return {status:200,body:'{"message":{"content":"bypassed"},"done":true}'};}},async({app})=>{
+    app.addHook("preHandler",async request=>{request.openHaxAuth={kind:"tenant_api_key",keyId:"71a0813f-dbe3-45ad-a7ae-16555463e716",tenantId:"default",source:"bearer"};});
+    for(const model of ["llama3:8b","ollama/gemma4:e4b"]){
+      const response=await app.inject({method:"POST",url:"/v1/chat/completions",payload:{model,stream:false,messages:[{role:"user",content:"hello"}]}});
+      assert.equal(response.statusCode,403,response.body);
+      assert.equal(calls,0,`${model}: no local or remote transport may execute`);
+    }
+  });
+});

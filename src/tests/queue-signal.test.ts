@@ -545,3 +545,14 @@ test("bootstrap heartbeats do not reset the absolute first-output deadline", asy
     assert.equal(canceled, true); assert.equal(ready, false);
   } finally { t.mock.timers.reset(); }
 });
+
+test("oversized HTTP refusals preserve status, cancel IO and mark their body incomplete", async () => {
+  const { stageResponse, isResponseBodyComplete } = await import("../lib/http/index.js");
+  let canceled = false, ready = false;
+  const body = new ReadableStream<Uint8Array>({start(c){c.enqueue(new TextEncoder().encode('{"error":"quota"}'+" ".repeat(100)));},cancel(){canceled=true;}});
+  const staged = await stageResponse(new Response(body,{status:402}),Date.now()+1000,24,
+    ()=>{throw Error("refusal must not be probed as output");},()=>{ready=true;});
+  assert.equal(staged.status,402);assert.equal(canceled,true);assert.equal(ready,false);
+  assert.equal(isResponseBodyComplete(staged),false);
+  assert.equal((await staged.arrayBuffer()).byteLength,24);
+});

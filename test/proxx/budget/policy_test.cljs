@@ -126,3 +126,29 @@
   (is (= "denied" (:status (policy/inspect-attempt [contract] auth (assoc attempt :model "vendor/free" :transport "direct")))))
   (is (= "denied" (:status (policy/inspect-attempt [contract] auth (assoc attempt :transport "direct")))))
   (is (= "unmanaged" (:status (policy/inspect-attempt [contract] (assoc auth :keyId "unrelated") (assoc attempt :transport "direct"))))))
+
+(deftest resolved-plan-routes-are-admitted-with-their-billing
+  (let [compiled {:model-aliases [{:match/model-pattern "^vendor/free$" :match/provider-pattern "^router$" :alias/model-id "vendor/free-long"}]}
+        c (assoc contract :budget/routing-model-pattern "^workload$")
+        plan (policy/route-plan [c] auth "workload" compiled)]
+    (is (= ["free" "paid"]
+           (mapv (fn [route]
+                   (:status (policy/inspect-attempt [c] auth
+                              (assoc attempt :providerId (:providerId route) :model (:upstreamModel route)) compiled)))
+                 (:orderedRoutes plan))))
+    (is (= "denied" (:status (policy/inspect-attempt [c] auth
+                                  (assoc attempt :model "unlisted") compiled))))))
+
+(deftest paid-alias-refusal-shares-the-admission-route
+  (let [c (assoc-in contract [:budget/routes 1 :billing/no-charge-statuses] #{402})
+        compiled {:model-aliases [{:match/model-pattern "^vendor/paid$" :match/provider-pattern "^router$" :alias/model-id "vendor/paid-long"}]}
+        response {:providerId "router" :model "vendor/paid-long" :status 402 :body {:error "no balance"}}]
+    (is (= "paid" (:status (policy/inspect-attempt [c] auth (assoc attempt :model (:model response)) compiled))))
+    (is (policy/zero-charge-refusal? [c] auth response compiled))
+    (is (not (policy/zero-charge-refusal? [c] auth (assoc response :body {:error "no balance" :usage nil}) compiled)))))
+
+(deftest truncated-refusals-cannot-release-a-paid-hold
+  (let [c (assoc-in contract [:budget/routes 1 :billing/no-charge-statuses] #{402})
+        response {:providerId "router" :model "vendor/paid" :status 402 :body {:error "quota"}}]
+    (is (policy/zero-charge-refusal? [c] auth response))
+    (is (not (policy/zero-charge-refusal? [c] auth (assoc response :bodyComplete false))))))

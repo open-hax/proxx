@@ -2,6 +2,13 @@
  * HTTP fetch utilities with timeout and abort signal support.
  */
 
+const truncatedErrorResponses = new WeakSet<Response>();
+
+/** Transport fact: a bounded error prefix is not a complete billing response. */
+export function isResponseBodyComplete(response: Response): boolean {
+  return !truncatedErrorResponses.has(response);
+}
+
 const responseAbortControllers = new WeakMap<Response, AbortController>();
 
 /** Abort the transport that produced a response after its headers were received. */
@@ -89,6 +96,7 @@ export async function stageResponse(
   let text = "";
   let bytes = 0;
   let ended = false;
+  let truncated = false;
   const cancel = () => {
     abortFetchResponse(response);
     void reader.cancel().catch(() => {});
@@ -106,9 +114,19 @@ export async function stageResponse(
       } finally { if (timer) clearTimeout(timer); }
       ended = chunk.done === true;
       if (chunk.value) {
+        if (bytes + chunk.value.byteLength > maxBytes) {
+          if (response.ok) throw new Error("Upstream bootstrap byte bound exceeded");
+          // Preserve the upstream refusal for normal failover, but neither read
+          // unbounded data nor treat a potentially valid JSON prefix as complete.
+          const available = Math.max(0, maxBytes - bytes);
+          if (available) chunks.push(chunk.value.slice(0, available));
+          truncated = true;
+          cancel();
+          ended = true;
+          break;
+        }
         chunks.push(chunk.value);
         bytes += chunk.value.byteLength;
-        if (bytes > maxBytes) throw new Error("Upstream bootstrap byte bound exceeded");
         text += decoder.decode(chunk.value, { stream: true });
       }
       if (ended) text += decoder.decode();
@@ -136,5 +154,7 @@ export async function stageResponse(
     },
     cancel() { cancel(); },
   });
-  return new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers });
+  const staged = new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers });
+  if (truncated) truncatedErrorResponses.add(staged);
+  return staged;
 }

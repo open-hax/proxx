@@ -17,6 +17,16 @@
     {:status (if (contains? (:budget/allowed-http-routes budget) [method path]) "allowed" "denied")}
     {:status (if (budget-required? auth) "unavailable" "unmanaged")}))
 
+(defn resolved-route-model [compiled route]
+  (or (when compiled
+        (contracts/resolve-model-alias compiled (:model-id route) (:provider-id route)))
+      (:model-id route)))
+
+(defn matching-route [budget compiled provider-id model-id]
+  (some #(when (and (= (str/lower-case (:provider-id %)) (str/lower-case provider-id))
+                     (= (str/lower-case (resolved-route-model compiled %)) (str/lower-case model-id))) %)
+        (:budget/routes budget)))
+
 (defn route-plan
   ([contracts auth model-id] (route-plan contracts auth model-id nil))
   ([contracts auth model-id compiled]
@@ -33,9 +43,7 @@
        :needsReasoningTrace false
        :orderedRoutes (mapv (fn [route]
                              {:providerId (:provider-id route)
-                              :upstreamModel (or (when compiled
-                                                   (contracts/resolve-model-alias compiled (:model-id route) (:provider-id route)))
-                                                 (:model-id route))
+                              :upstreamModel (resolved-route-model compiled route)
                               :firstUsableOffsetMs (if (and workload? (= :free (:billing route)))
                                                      (:budget/free-cutoff-ms budget)
                                                      (:budget/first-output-total-ms budget))})
@@ -44,11 +52,10 @@
 (defn inspect-attempt
   "Identity comes from server-resolved auth, never request metadata. Matching
    callers cannot escape their allowance by changing a model or provider."
-  [contracts auth {:keys [providerId model mode transport payload]}]
+  ([contracts auth attempt] (inspect-attempt contracts auth attempt nil))
+  ([contracts auth {:keys [providerId model mode transport payload]} compiled]
   (if-let [budget (request-budget contracts auth)]
-    (let [route (some #(when (and (= (:provider-id %) (str/lower-case providerId))
-                                 (= (str/lower-case (:model-id %)) (str/lower-case model))) %)
-                      (:budget/routes budget))
+    (let [route (matching-route budget compiled providerId model)
           requested-output (or (:max_tokens payload) (:max_completion_tokens payload)
                                (:budget/max-output-tokens budget))
           output-cap (:budget/max-output-tokens budget)
@@ -72,7 +79,7 @@
                       (cond-> (and (= :paid (:billing route)) (= "chat_completions" mode) (true? (:stream payload)))
                         (assoc-in [:stream_options :include_usage] true)))}
         {:status "denied"}))
-    {:status (if (budget-required? auth) "denied" "unmanaged")}))
+    {:status (if (budget-required? auth) "denied" "unmanaged")})))
 
 
 (defn snapshot-selection [contracts auth requested-key-id]
@@ -111,12 +118,11 @@
 (defn zero-charge-refusal?
   "Only declared pre-inference refusals with an explicit error and no usage or
    generated-output evidence may release a hold. Unknown/partial results retain it."
-  [contracts auth {:keys [providerId model status body]}]
+  ([contracts auth response] (zero-charge-refusal? contracts auth response nil))
+  ([contracts auth {:keys [providerId model status body bodyComplete]} compiled]
   (boolean
     (when-let [budget (request-budget contracts auth)]
-      (let [route (some #(when (and (= :paid (:billing %))
-                                   (= (str/lower-case (:provider-id %)) (str/lower-case providerId))
-                                   (= (str/lower-case (:model-id %)) (str/lower-case model))) %) (:budget/routes budget))]
-        (and route (contains? (:billing/no-charge-statuses route) status)
+      (let [route (matching-route budget compiled providerId model)]
+        (and route (not= false bodyComplete) (= :paid (:billing route)) (contains? (:billing/no-charge-statuses route) status)
              (map? body) (some? (:error body))
-             (not-any? #(contains? body %) [:usage :usageMetadata :choices :output]))))))
+             (not-any? #(contains? body %) [:usage :usageMetadata :choices :output])))))))

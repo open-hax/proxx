@@ -24,7 +24,7 @@ import {
   responsesEventStreamToErrorPayload,
 } from "../../responses-compat.js";
 import type { ProviderRoute } from "../../provider-routing.js";
-import { fetchWithResponseTimeout, stageResponse } from "../../http/index.js";
+import { fetchWithResponseTimeout, isResponseBodyComplete, stageResponse } from "../../http/index.js";
 import {
   readUpstreamErrorMessage,
   responseIndicatesQuotaError,
@@ -215,7 +215,18 @@ export async function executeProviderRoutingPlan(
     };
     const tickets = new WeakMap<Response, { id: string; scopeId: string; inputPrice: number; outputPrice: number }>();
     const fetchAttempt = async (url: string, init: RequestInit, timeoutMs: number): Promise<Response> => {
-      const body: Record<string, unknown> = typeof init.body === "string" ? JSON.parse(init.body) as Record<string, unknown> : candidatePayload.upstreamPayload;
+      let body = candidatePayload.upstreamPayload;
+      if (attemptInspection.status !== "unmanaged") {
+        // A managed reservation must describe the actual bytes being sent.
+        // Unmanaged strategies may intentionally use a non-JSON wire format.
+        let parsed: unknown;
+        try { parsed = typeof init.body === "string" ? JSON.parse(init.body) : undefined; }
+        catch { /* Typed denial below: no reservation or upstream send. */ }
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+          throw new OpenAiHttpError({ statusCode: 403, message: "Budget-managed transport requires a JSON object body.", type: "invalid_request_error", code: "budget_route_denied" });
+        }
+        body = parsed as Record<string, unknown>;
+      }
       const inspection = inspectAttempt(body);
       if (inspection.status === "denied") {
         throw new OpenAiHttpError({ statusCode: 403, message: "Route is outside this caller budget policy.", type: "invalid_request_error", code: "budget_route_denied" });
@@ -264,7 +275,7 @@ export async function executeProviderRoutingPlan(
         try { errorBody = await response.clone().json(); } catch { /* Unknown error bodies retain the hold. */ }
         if (budgetRuntime.zeroChargeBudgetRefusal(
           context.config.cljsPolicyManifestPath ?? "resources/policies/runtime/00-manifest.edn", context.requestAuth,
-          { providerId: candidate.providerId, model: String(body.model ?? context.routedModel), status: response.status, body: errorBody },
+          { providerId: candidate.providerId, model: String(body.model ?? context.routedModel), status: response.status, body: errorBody, bodyComplete: isResponseBodyComplete(response) },
         )) {
           await budgetRuntime?.settlePaidBudget?.(context.budgetSql, PAID_BUDGET_QUERIES, ticket.scopeId, ticket.id, 0);
           ticket = undefined;
@@ -1122,8 +1133,8 @@ export async function executeProviderRoutingPlan(
                 signal: queueSignal,
               }, context.upstreamAttemptTimeoutMs);
             } catch (error) {
-              if (error instanceof OpenAiHttpError) { upstreamSpan.recordError(error); upstreamSpan.end(); releaseInFlight(); throw error; }
               refreshedRelease();
+              if (error instanceof OpenAiHttpError) { upstreamSpan.recordError(error); upstreamSpan.end(); releaseInFlight(); throw error; }
               releaseInFlight();
               throw error;
             }

@@ -373,12 +373,14 @@
   (clj->js (budget-policy/inspect-attempt
             (get-in (compiled-policy-for-manifest manifest-path) [:index :contracts])
             (js->clj auth :keywordize-keys true)
-            (js->clj attempt :keywordize-keys true))))
+            (js->clj attempt :keywordize-keys true)
+            (compiled-policy-for-manifest manifest-path))))
 
 (defn zero-charge-budget-refusal-js [manifest-path auth response]
   (budget-policy/zero-charge-refusal?
     (get-in (compiled-policy-for-manifest manifest-path) [:index :contracts])
-    (js->clj auth :keywordize-keys true) (js->clj response :keywordize-keys true)))
+    (js->clj auth :keywordize-keys true) (js->clj response :keywordize-keys true)
+    (compiled-policy-for-manifest manifest-path)))
 
 (defn quote-paid-budget-js [input-bound output-bound input-price output-price]
   (budget-law/reservation-microusd input-bound output-bound input-price output-price))
