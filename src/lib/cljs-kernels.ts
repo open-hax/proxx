@@ -153,6 +153,9 @@ export interface CljsKernels {
     readonly responseId?: string;
   };
   readonly extractMarkdownLinks: (text: string) => Array<{ readonly url: string; readonly title?: string }>;
+  readonly deriveOAuthMetadataFromToken: (token: string) => object;
+  readonly accountDisplayName: (account: object) => string;
+  readonly openAiReauthIdentityMatches: (target: object, resolved: object) => boolean;
 }
 
 const loaded = await loadCljsRuntime({ required: true });
