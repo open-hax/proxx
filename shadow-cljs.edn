@@ -93,7 +93,12 @@
                                            requestyModelProvider proxx.runtime.requesty/requesty-model-provider-js
                                            ;; w2-routing exports
                                            bridgeCapabilitySupportsPath proxx.runtime.routing/bridge-capability-supports-path-js
-                                           bridgeCapabilitySupportsModel proxx.runtime.routing/bridge-capability-supports-model-js}}}
+                                           bridgeCapabilitySupportsModel proxx.runtime.routing/bridge-capability-supports-model-js
+                                           tenantApiKeyConstants proxx.runtime.tenant-key/tenant-api-key-constants-js
+                                           normalizeTenantId proxx.runtime.tenant-key/normalize-tenant-id-js
+                                           generateTenantApiKey proxx.runtime.tenant-key/generate-tenant-api-key-js
+                                           buildTenantApiKeyPrefix proxx.runtime.tenant-key/build-tenant-api-key-prefix-js
+                                           hashTenantApiKey proxx.runtime.tenant-key/hash-tenant-api-key-js}}}
    :js-options {:js-provider :import
                 :keep-as-import #{"node:fs" "node:path"}}
    :compiler-options {:output-feature-set :es-next

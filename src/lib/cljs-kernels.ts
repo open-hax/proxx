@@ -142,6 +142,11 @@ export interface CljsKernels {
   // w2-routing kernels
   readonly bridgeCapabilitySupportsPath: (manifestPath: string, capability: object, normalizedPath: string) => boolean;
   readonly bridgeCapabilitySupportsModel: (capability: object, requestedModel: string | undefined) => boolean;
+  readonly tenantApiKeyConstants: () => { readonly defaultTenantId: string; readonly apiKeyPrefix: string; readonly visiblePrefixLength: number };
+  readonly normalizeTenantId: (value: string) => string;
+  readonly generateTenantApiKey: () => string;
+  readonly buildTenantApiKeyPrefix: (token: string) => string;
+  readonly hashTenantApiKey: (token: string, pepper: string) => string;
 }
 
 const loaded = await loadCljsRuntime({ required: true });
