@@ -164,6 +164,8 @@ export interface CljsKernels {
     fetchFn: typeof fetch,
   ) => Promise<{ readonly accessToken: string; readonly refreshToken: string; readonly expiresAt: number | undefined }>;
   readonly factoryRefreshBufferMs: number;
+  // w2 credentials: file-backed credential store
+  readonly createCredentialStore: (filePath: string, defaultProviderId: string, deps: unknown) => unknown;
 }
 
 const loaded = await loadCljsRuntime({ required: true });
