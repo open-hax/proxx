@@ -347,9 +347,9 @@
      [:vector {:min 1}
       [:map
        [:match/model-pattern [:string {:min 1}]]
-       [:wire/model-type :keyword]
        [:wire/api-provider [:string {:min 1}]]
-       [:wire/endpoint-path [:string {:min 1}]]]]]
+       [:wire/model-type {:optional true} :keyword]
+       [:wire/endpoint-path {:optional true} [:string {:min 1}]]]]]
     [:wire/static-headers {:optional true} [:map-of :string :string]]
     [:wire/anthropic-headers {:optional true} [:map-of :string :string]]
     [:wire/thinking-beta-header {:optional true} [:string {:min 1}]]

@@ -5,29 +5,16 @@
   rejected-prompt substitution) is declared in 75-provider-wire-profiles.edn and
   passed in as `profile`; this namespace only interprets it. Per-request random
   ids are inputs, not generated here."
-  (:require [clojure.string :as str]))
+  (:require [clojure.string :as str]
+            [proxx.compat.wire :as wire]))
 
-(defn- matches? [pattern value] (boolean (re-find (re-pattern pattern) value)))
+(def profile wire/profile)
 
-(defn profile
-  "The `:provider-wire-profile` contract for `provider-id` in a compiled policy."
-  [compiled provider-id]
-  (or (some (fn [c] (when (and (= :provider-wire-profile (:contract/kind c))
-                               (= provider-id (:wire/provider-id c)))
-                      c))
-            (get-in compiled [:index :contracts]))
-      (throw (ex-info "Missing provider wire profile"
-                      {:error/type :policy/missing-wire-profile :provider-id provider-id}))))
-
-(defn route
-  "First model route whose pattern matches `model` (the profile ends in a catch-all)."
-  [profile model]
-  (let [model (str model)]
-    (some #(when (matches? (:match/model-pattern %) model) %) (:wire/model-routes profile))))
+(def route wire/route)
 
 (defn model-type [profile model] (:wire/model-type (route profile model)))
 
-(defn api-provider [profile model] (:wire/api-provider (route profile model)))
+(def api-provider wire/api-provider)
 
 (defn endpoint-path
   "Endpoint of the first route serving `model-type`."

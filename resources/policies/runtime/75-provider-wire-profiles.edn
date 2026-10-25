@@ -63,4 +63,28 @@
    "qwen35.context_length"
    "llama.context_length"
    "gemma3.context_length"
-   "general.context_length"]}]
+   "general.context_length"]}
+ {:contract/id :wire-profile/requesty
+  :contract/kind :provider-wire-profile
+  :wire/provider-id "requesty"
+
+  ;; Requesty names the upstream provider as a model prefix. Patterns run against
+  ;; the trimmed, lower-cased model id; a bare family name ("claude") matches too.
+  ;; First match wins; unknown models go to openai.
+  :wire/model-routes
+  [{:match/model-pattern "^(?:gpt-|chatgpt-|o1|o3|o4)|^(?:gpt|chatgpt)$"
+    :wire/api-provider "openai"}
+   {:match/model-pattern "^claude(?:-|$)"
+    :wire/api-provider "anthropic"}
+   {:match/model-pattern "^gemini(?:-|$)"
+    :wire/api-provider "google"}
+   {:match/model-pattern "^glm(?:-|$)"
+    :wire/api-provider "zhipu"}
+   {:match/model-pattern "^deepseek"
+    :wire/api-provider "deepseek"}
+   {:match/model-pattern "^kimi(?:-|$)"
+    :wire/api-provider "moonshotai"}
+   {:match/model-pattern "^qwen"
+    :wire/api-provider "qwen"}
+   {:match/model-pattern ".*"
+    :wire/api-provider "openai"}]}]
