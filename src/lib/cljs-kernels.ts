@@ -161,6 +161,24 @@ export interface CljsKernels {
   readonly eventCountByTagQuery: (since: Date | undefined) => { readonly text: string; readonly values: unknown[] };
   readonly eventParseRow: (row: object) => unknown;
   readonly eventSanitizePayload: (payload: Record<string, unknown>) => Record<string, unknown>;
+  readonly usageDdl: () => string[];
+  readonly usageToEntry: (row: object) => unknown;
+  readonly usageCoverage: (row: object | undefined) => {
+    readonly earliestEntryAtMs: number | null;
+    readonly retainedEntryCount: number;
+    readonly maxRetainedEntries: number;
+  };
+  readonly usageUpsert: (entry: object) => { readonly strings: TemplateStringsArray; readonly values: unknown[] };
+  readonly usageListQuery: (filters: object, cursor: { timestampMs: number; id: string } | undefined) => { readonly text: string; readonly values: unknown[] };
+  readonly usageListSinceQuery: (
+    sinceMs: number,
+    filters: object,
+    limit: number | undefined,
+    after: { timestampMs: number; id: string } | undefined,
+  ) => { readonly text: string; readonly values: unknown[] };
+  readonly usageCoverageQuery: (filters: object) => { readonly text: string; readonly values: unknown[] };
+  readonly usageCursorQuery: () => string;
+  readonly usageToCursor: (row: object) => { readonly timestampMs: number; readonly id: string };
   readonly createSessionStore: (filePath: string, deps?: { now?: () => number; uuid?: () => string }) => unknown;
 }
 

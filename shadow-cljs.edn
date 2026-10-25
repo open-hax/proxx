@@ -107,7 +107,16 @@
                                            eventBuildCount proxx.runtime.events/event-build-count-js
                                            eventCountByTagQuery proxx.runtime.events/event-count-by-tag-query-js
                                            eventParseRow proxx.runtime.events/event-parse-row-js
-                                           eventSanitizePayload proxx.runtime.events/event-sanitize-payload-js}}}
+                                           eventSanitizePayload proxx.runtime.events/event-sanitize-payload-js
+                                           usageDdl proxx.runtime.usage/usage-ddl-js
+                                           usageToEntry proxx.runtime.usage/usage-to-entry-js
+                                           usageCoverage proxx.runtime.usage/usage-coverage-js
+                                           usageUpsert proxx.runtime.usage/usage-upsert-js
+                                           usageListQuery proxx.runtime.usage/usage-list-query-js
+                                           usageListSinceQuery proxx.runtime.usage/usage-list-since-query-js
+                                           usageCoverageQuery proxx.runtime.usage/usage-coverage-query-js
+                                           usageCursorQuery proxx.runtime.usage/usage-cursor-query-js
+                                           usageToCursor proxx.runtime.usage/usage-to-cursor-js}}}
    :js-options {:js-provider :import
                 :keep-as-import #{"node:fs" "node:path"}}
    :compiler-options {:output-feature-set :es-next
