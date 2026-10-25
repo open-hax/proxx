@@ -115,12 +115,14 @@
     (:expires-at tokens)))
 
 (defn renewal-admitted? [session renewed]
-  (and (= (:issuer session) (get-in renewed [:claims :iss]))
-       (= (:subject session) (get-in renewed [:claims :sub]))
+  (and (if-let [claims (:claims renewed)]
+         (and (= (:issuer session) (:iss claims))
+              (= (:subject session) (:sub claims))
+              (or (nil? (:nonce claims)) (= (:nonce session) (:nonce claims))))
+         (= (select-keys session [:issuer :subject :nonce]) (:retained-identity renewed)))
        (nonblank? (:refresh-token renewed))
        (not= (:refresh-token session) (:refresh-token renewed))
-       (or (nil? (get-in renewed [:claims :nonce]))
-           (= (:nonce session) (get-in renewed [:claims :nonce])))))
+       (nonblank? (:access-token renewed))))
 
 (def device-start-path "/api/auth/axxium/device/start")
 (def device-poll-path "/api/auth/axxium/device/poll")

@@ -87,8 +87,8 @@
                     (swap! tokens assoc access {:active true :sub subject :client_id client-id
                                                :exp (+ now 300) :scope "openid profile"
                                                :root_session_expires_at (+ now 3600)})
-                    (response {:access_token access :refresh_token refresh :token_type "Bearer" :expires_in 300
-                               :id_token (sign-token claims)} 200))
+                    (response (cond-> {:access_token access :refresh_token refresh :token_type "Bearer" :expires_in 300}
+                                (not (:omit-refresh-id-token @mode)) (assoc :id_token (sign-token claims))) 200))
                   (response {:error "invalid_grant"} 400)))
               (= path "/oidc/token")
               (let [code (field "code") tx (get @codes code)

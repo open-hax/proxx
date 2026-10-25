@@ -114,7 +114,19 @@
   {:oauth-error (.-error error) :validation-code (.-code error)})
 
 (defn ^:async refresh! [{:keys [^js client ^js rp]} config session]
-  (token-result! config (await (.refreshTokenGrant client rp (:refresh-token session)))))
+  (let [^js tokens (await (.refreshTokenGrant client rp (:refresh-token session)))]
+    (if (some? (.-id_token tokens))
+      (token-result! config tokens)
+      (do
+        ;; OIDC Core 12.2 permits refresh without a new ID token. Retain only
+        ;; the existing session identity; never fabricate fresh ID claims.
+        ;; verify! must introspect this new access token before authorization.
+        (when-not (and (law/nonblank? (.-access_token tokens))
+                       (number? (.-expires_in tokens)) (pos? (.-expires_in tokens)))
+          (throw (ex-info "unauthorized" {:status 401 :error "unauthorized" :invalidate-session? true})))
+        {:retained-identity (select-keys session [:issuer :subject :nonce])
+         :access-token (.-access_token tokens) :refresh-token (.-refresh_token tokens)
+         :expires-at (min (:session-expires-at session) (+ (now) (* 1000 (.-expires_in tokens))))}))))
 
 (defn ^:async revoke-session! [{:keys [^js client ^js rp]} session]
   (let [results (await (js/Promise.allSettled

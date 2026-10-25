@@ -114,3 +114,12 @@
   spore: none
   receipt-refs: open-hax/proxx#457,4366115291,4366115298,4366115302
   note: Stopping does not invalidate an asynchronous result if a later start clears the same boolean. Use run identity and close retired prepared capabilities. Rotating refresh consumes old credentials before evidence may fail; preserve validated successor credentials but never authorize without fresh evidence. Differentiate confirmed protocol invalidation from transport/freshness status. Full suites and real PG relay pass; no spore.
+- ts: 2026-10-25T06:19:10.548497912Z
+  session: /home/err/.local/share/codex-work/axxium-sso/proxx-current
+  task: Preserve refresh continuity when OIDC response omits ID token
+  p-efficiency: 0.8
+  p-friction: 0.4
+  p-skill-candidate: 0.3
+  spore: none
+  receipt-refs: shared-login-and-federation; native4369807477
+  note: Separate retained session identity from fresh ID-token claims; require live introspection without destroying consumed-token successor custody on transient outages. No runtime activation claim.

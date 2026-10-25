@@ -43,6 +43,27 @@
 (deftest rotating-renewal-singleflight-and-live-revocation
   (async done (-> (renewal*) (.catch (fn [e] (is false (str e)))) (.finally done))))
 
+(deftest ^:async optional-refresh-id-token-keeps-identity-and-requires-live-evidence
+  (doseq [evidence [{} {:active false} {:sub "other-actor"} {:client_id "other-client"}]]
+    (let [{:keys [state fixture config adapters handle] :as f} (await (setup!))
+          previous (runtime/session state handle)]
+      (near-expiry! f)
+      (swap! (:mode fixture) assoc :omit-refresh-id-token true :evidence evidence)
+      (if (empty? evidence)
+        (do
+          (is (:userId (await (runtime/verify! state config adapters (runtime/session state handle) (io/now)))))
+          (let [current (runtime/session state handle)]
+            (is (= (:subject previous) (:subject current)))
+            (is (= (:issuer previous) (:issuer current)))
+            (is (= (:nonce previous) (:nonce current)))
+            (is (= (:session-expires-at previous) (:session-expires-at current)))
+            (is (not= (:refresh-token previous) (:refresh-token current)))
+            (is (empty? @(:revoked fixture)))))
+        (do
+          (is (await (refused? (runtime/verify! state config adapters (runtime/session state handle) (io/now)))))
+          (is (nil? (runtime/session state handle)))
+          (is (seq @(:revoked fixture))))))))
+
 (defn- ^:async substitution* []
   (doseq [claims [{:iss "https://other.invalid"} {:aud "other-client"}
                   {:sub "other-actor"} {:nonce "substituted"}]]
@@ -155,11 +176,13 @@
 
 (defn- ^:async transient-retention* []
   (doseq [rotate? [false true]
-          fault [{:introspection-unavailable true} {:introspection-status 503}]]
+          fault [{:introspection-unavailable true} {:introspection-status 503}]
+          omit-id? [false true]
+          :when (or rotate? (not omit-id?))]
     (let [{:keys [state fixture config adapters handle] :as f} (await (setup!))
           initial (runtime/session state handle)]
       (when rotate? (near-expiry! f))
-      (reset! (:mode fixture) fault)
+      (reset! (:mode fixture) (assoc fault :omit-refresh-id-token omit-id?))
       (is (await (refused? (runtime/verify! state config adapters (runtime/session state handle) (io/now)))))
       (let [retained (runtime/session state handle)]
         (is (some? retained))

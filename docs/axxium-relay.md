@@ -262,3 +262,19 @@ local Proxx owner memberships through the existing credential store on all three
 hosts. This is account preparation, not OIDC activation or a deployed relay.
 Native code review, qualified images, host enrollment/cutover and real browser,
 Knoxx actor, cross-host streaming and revocation acceptance remain outstanding.
+
+### Optional refresh ID token
+
+OIDC Core 12.2 permits refresh without a new ID token. That response retains
+the established session issuer, subject and nonce as explicitly retained
+identity, without manufacturing fresh ID claims. New access-token expiry is
+bounded by the original parent deadline. A response containing an ID token
+still requires maintained-library signature/claim validation and identity
+continuity. Authorization-code and device login retain their ID-token checks.
+
+Rotated credentials are kept provisionally under the existing session deadline
+so a temporary introspection outage can retry without reusing a consumed
+refresh token. Every authorization still requires successful fresh
+client-scoped introspection and local policy. Inactive, wrong-subject and
+wrong-client evidence invalidates the attempt; provisional storage grants no
+route access by itself.
