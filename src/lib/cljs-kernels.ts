@@ -6,6 +6,15 @@
  * required: these functions are the implementation, not an optimization.
  */
 import { loadCljsRuntime } from "./cljs-runtime.js";
+import type {
+  ModelPricing,
+  ModelPricingIndexStatus,
+  ModelPricingRefreshHandle,
+  ModelPricingRefreshOptions,
+  ModelPricingRefreshSchedulerOptions,
+  ModelsDevPricingSnapshot,
+  RequestCostEstimate,
+} from "./model-pricing.js";
 
 type JsRecord = Record<string, unknown>;
 
@@ -139,6 +148,24 @@ export interface CljsKernels {
     readonly keyEnvNames: readonly string[];
   }[];
   readonly createKeyPool: (config: unknown, deps: unknown) => unknown;
+  // pricing (model-pricing)
+  readonly getModelPricing: (manifestPath: string, providerId: string, model: string) => ModelPricing;
+  readonly estimateRequestCost: (
+    manifestPath: string,
+    providerId: string,
+    model: string,
+    promptTokens: number,
+    completionTokens: number,
+    waterMlPerKwh: number,
+  ) => RequestCostEstimate;
+  readonly setPolicyModelPricingOverrides: (overrides: unknown) => void;
+  readonly getModelPricingIndexStatus: (manifestPath: string) => ModelPricingIndexStatus;
+  readonly getModelsDevPricingSnapshot: (manifestPath: string) => ModelsDevPricingSnapshot;
+  readonly refreshModelsDevPricingIndex: (manifestPath: string, options: ModelPricingRefreshOptions) => Promise<ModelPricingIndexStatus>;
+  readonly startModelsDevPricingRefresh: (
+    manifestPath: string,
+    options: ModelPricingRefreshSchedulerOptions,
+  ) => ModelPricingRefreshHandle;
 }
 
 const loaded = await loadCljsRuntime({ required: true });

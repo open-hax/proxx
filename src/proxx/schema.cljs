@@ -399,6 +399,56 @@
     [:contract/kind [:enum :model-pricing-override]]
     [:match/model-pattern [:string {:min 1}]]]])
 
+(def ModelPricingSnapshotContract
+  "Locates the models.dev price table (EDN) relative to the contract file."
+  [:and
+   ContractBase
+   [:map
+    [:contract/kind [:enum :model-pricing-snapshot]]
+    [:snapshot/path [:string {:min 1}]]]])
+
+(def ModelPricingProviderRuleContract
+  "A routed provider id either maps onto a models.dev provider or is local (free)."
+  [:and
+   ContractBase
+   [:map
+    [:contract/kind [:enum :model-pricing-provider-rule]]
+    [:match/provider-id [:string {:min 1}]]
+    [:pricing/models-dev-provider {:optional true} [:string {:min 1}]]
+    [:pricing/local {:optional true} :boolean]]
+   [:fn {:error/message "provider rule requires :pricing/models-dev-provider or :pricing/local"}
+    (fn [m] (boolean (or (:pricing/models-dev-provider m) (:pricing/local m))))]])
+
+(def ModelPricingVendorFallbackContract
+  "Canonical vendor providers to consult for a model whose id starts with one of the prefixes."
+  [:and
+   ContractBase
+   [:map
+    [:contract/kind [:enum :model-pricing-vendor-fallback]]
+    [:match/model-prefixes [:vector {:min 1} [:string {:min 1}]]]
+    [:pricing/vendor-providers [:vector {:min 1} [:string {:min 1}]]]]])
+
+(def ModelEnergyProfileContract
+  "Joules per token for models matching a pattern; a profile without a pattern is the default."
+  [:and
+   ContractBase
+   [:map
+    [:contract/kind [:enum :model-energy-profile]]
+    [:match/model-pattern {:optional true} [:string {:min 1}]]
+    [:energy/joules-per-input-token number?]
+    [:energy/joules-per-output-token number?]]])
+
+(def ModelsDevPricingSnapshot
+  "The models.dev price table: per provider an ordered vector of [model-id cost].
+  Order is data (it decides lookup ties), hence vectors rather than maps."
+  [:map
+   [:generated-at :string]
+   [:source-url :string]
+   [:providers
+    [:map-of :string
+     [:vector [:tuple :string
+               [:map-of [:enum :input :output :reasoning :cache-read :cache-write] number?]]]]]])
+
 (def ModelAliasContract
   [:and
    ContractBase
@@ -525,6 +575,10 @@
     [:auto-model-profile AutoModelProfileContract]
     [:authorization-clause AuthorizationClauseContract]
     [:model-pricing-override ModelPricingOverrideContract]
+    [:model-pricing-snapshot ModelPricingSnapshotContract]
+    [:model-pricing-provider-rule ModelPricingProviderRuleContract]
+    [:model-pricing-vendor-fallback ModelPricingVendorFallbackContract]
+    [:model-energy-profile ModelEnergyProfileContract]
     [:model-alias ModelAliasContract]
     [:reasoning-normalization ReasoningNormalizationContract]
    [:request-queue-template RequestQueueTemplateContract]
@@ -555,6 +609,7 @@
    :proxx/trace-entry     TraceEntry
    :proxx/policy          Policy
    :proxx/policy-manifest PolicyManifest
+   :proxx/models-dev-pricing-snapshot ModelsDevPricingSnapshot
    :proxx/contract-base ContractBase
    :proxx/contract-enum DomainEnumContract
    :proxx/contract-set DomainSetContract
@@ -575,6 +630,10 @@
     :proxx/contract-auto-model-profile AutoModelProfileContract
    :proxx/contract-authorization-clause AuthorizationClauseContract
     :proxx/contract-model-pricing-override ModelPricingOverrideContract
+    :proxx/contract-model-pricing-snapshot ModelPricingSnapshotContract
+    :proxx/contract-model-pricing-provider-rule ModelPricingProviderRuleContract
+    :proxx/contract-model-pricing-vendor-fallback ModelPricingVendorFallbackContract
+    :proxx/contract-model-energy-profile ModelEnergyProfileContract
     :proxx/contract-model-alias ModelAliasContract
     :proxx/contract-reasoning-normalization ReasoningNormalizationContract
    :proxx/retry-backoff RetryBackoff
