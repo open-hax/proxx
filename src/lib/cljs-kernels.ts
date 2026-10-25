@@ -38,6 +38,13 @@ import type { FederationOwnerCredential } from "./federation/owner-credential.js
 
 type JsRecord = Record<string, unknown>;
 
+export interface RoutingErrorDescriptor {
+  readonly status: number;
+  readonly message: string;
+  readonly type: string;
+  readonly code: string;
+}
+
 /** Method bag returned by the CLJS OAuth manager factories (typed per manager by its TS class). */
 export type OAuthManagerFacade = Record<string, (...args: never[]) => unknown>;
 
@@ -509,6 +516,56 @@ export interface CljsKernels {
     candidates: ReadonlyArray<{ readonly providerIndex?: number; readonly ttft?: number }>,
     manifestPath?: string,
   ) => number[];
+  // w2-routing kernels (catalog, alias, outcome, pipeline)
+  readonly resolvableConcreteModelIds: (catalog: object | null) => string[] | undefined;
+  readonly resolvableConcreteModelIdsForProviders: (
+    bundle: object | null,
+    providerIds: readonly string[],
+    includeDeclaredModel?: (modelId: string) => boolean,
+  ) => string[] | undefined;
+  readonly resolveCatalogAlias: (
+    manifestPath: string,
+    bundle: object,
+    requested: string,
+    preserveExplicitOllama: boolean | undefined,
+  ) => { readonly error?: RoutingErrorDescriptor; readonly routingModelInput?: string; readonly aliasApplied?: boolean };
+  readonly classifyRoutingOutcome: (execution: object, availability: object) => string;
+  readonly routingOutcomeNeedsRetryHint: (outcome: string) => boolean;
+  readonly routingOutcomeResponse: (
+    outcome: string,
+    ctx: {
+      readonly routedModel: string;
+      readonly logPrefix?: string;
+      readonly lastUpstreamError?: object;
+      readonly sawRequestError?: boolean;
+    },
+    retryInMs: number,
+  ) => RoutingErrorDescriptor & {
+    readonly retryAfterSeconds?: number;
+    readonly log?: { readonly level: "warn" | "error"; readonly message: string };
+    readonly withRequestError?: boolean;
+  };
+  readonly checkRequestedModel: (requestBody: object) => { readonly model?: string; readonly error?: RoutingErrorDescriptor };
+  readonly tenantDeniesModel: (preview: unknown) => boolean;
+  readonly tenantDeniedError: (model: string) => RoutingErrorDescriptor;
+  readonly routingCandidateSource: (flags: { readonly cephalon: boolean; readonly vision: boolean; readonly auto: boolean }) => "cephalon" | "vision" | "auto" | "plain";
+  readonly finishModelRouting: (requested: string, source: string, candidates: readonly string[]) => {
+    readonly error?: RoutingErrorDescriptor;
+    readonly candidates?: string[];
+    readonly isAutoModel?: boolean;
+    readonly candidatesHeader?: string;
+  };
+  readonly createProviderCatalogStore: (
+    manifestPath: string,
+    config: object,
+    keyPool: object,
+    routes: readonly object[],
+    ollamaRoutes: readonly object[],
+    deps: object,
+  ) => {
+    readonly getCatalog: (forceRefresh?: boolean) => Promise<unknown>;
+    readonly isModelAvailable: (providerId: string, modelId: string) => Promise<boolean>;
+  };
 }
 
 export interface ChromaSearchRow {

@@ -18,3 +18,9 @@
 (deftest merge-appends-new-keys
   (is (= [["a" 9] ["b" 2] ["c" 3]]
          (om/om-entries (om/om-merge (om/from-entries [["a" 1] ["b" 2]]) (om/from-entries [["c" 3] ["a" 9]]))))))
+
+(deftest js-key-order-puts-array-indices-first
+  (let [m (om/from-entries [["b" 1] ["10" 2] ["a" 3] ["2" 4] ["01" 5] ["-1" 6] ["4294967295" 7] ["0" 8]])]
+    (is (= ["0" "2" "10" "b" "a" "01" "-1" "4294967295"] (om/om-js-keys m))
+        "what Object.keys reports: 0, 2, 10 ascending, then insertion order (01, -1 and 2^32-1 are not indices)")
+    (is (= ["b" "10" "a" "2" "01" "-1" "4294967295" "0"] (om/om-keys m)) "insertion order is kept separately")))

@@ -11,6 +11,9 @@
             [proxx.policy.contracts :as contracts]
             [proxx.policy.loader :as loader]
             [proxx.routing.bridge :as bridge]
+            [proxx.routing.catalog :as catalog]
+            [proxx.routing.outcome :as outcome]
+            [proxx.routing.pipeline :as pipeline]
             [proxx.routing.model-ids :as model-ids]
             [proxx.routing.provider-routes :as routes]
             [proxx.routing.surface :as surface]))
@@ -176,3 +179,103 @@
     (fn [provider-id]
       (.then (js/Promise.resolve (.getProviderById sql-credential-store provider-id))
              (fn [^js provider] (when (some? provider) (let [url (.-baseUrl provider)] (when (some? url) url))))))))
+
+(defn parse-model-ids
+  "Model ids (a vector) from a provider's JS catalog payload."
+  [payload]
+  (model-ids/parse-model-ids-from-catalog-payload (interop/js->data payload)))
+
+;; ---------------------------------------------------------------------------
+;; catalog resolution, alias resolution (src/lib/catalog-resolution.ts, catalog-alias-resolver.ts)
+;; ---------------------------------------------------------------------------
+
+(defn resolvable-concrete-model-ids-js [catalog-obj]
+  (if (js* "!~{}" catalog-obj)
+    js/undefined
+    (to-array (catalog/concrete-model-ids (interop/js->data catalog-obj)))))
+
+(defn resolvable-concrete-model-ids-for-providers-js [bundle provider-ids include-declared-model]
+  (if (js* "!~{}" bundle)
+    js/undefined
+    (to-array (catalog/concrete-model-ids-for-providers
+               (interop/js->data bundle)
+               (interop/js->data provider-ids)
+               (when (some? include-declared-model) (fn [id] (js* "!!~{}" (include-declared-model id))))))))
+
+(defn resolve-catalog-alias-js
+  "{error: {status, message, type, code}} or {routingModelInput, aliasApplied}."
+  [manifest-path ^js bundle requested preserve-explicit-ollama]
+  (let [data {"catalog" {"aliasTargets" (interop/js->data (.. bundle -catalog -aliasTargets))}
+              "preferences" {"disabled" (interop/js->data (.. bundle -preferences -disabled))}}
+        {:keys [error routing-model alias-applied?]}
+        (catalog/resolve-alias (surface-facts manifest-path) data requested (js* "!!~{}" preserve-explicit-ollama))]
+    (if error
+      #js {:error (clj->js error)}
+      #js {:routingModelInput routing-model :aliasApplied alias-applied?})))
+
+;; ---------------------------------------------------------------------------
+;; routing outcome (src/lib/routing-outcome-handler.ts)
+;; ---------------------------------------------------------------------------
+
+(defn- execution->data [^js execution ^js availability]
+  (let [^js summary (.-summary execution)]
+    [{:candidate-count (.-candidateCount execution)
+      :summary {:saw-upstream-invalid-request (.-sawUpstreamInvalidRequest summary)
+                :saw-rate-limit (.-sawRateLimit summary)
+                :saw-upstream-server-error (.-sawUpstreamServerError summary)
+                :saw-model-not-found (.-sawModelNotFound summary)
+                :saw-request-error (.-sawRequestError summary)
+                :saw-model-not-supported-for-account (.-sawModelNotSupportedForAccount summary)}}
+     {:saw-configured-provider (.-sawConfiguredProvider availability)
+      :saw-only-disabled-providers (.-sawOnlyDisabledProviders availability)}]))
+
+(defn classify-routing-outcome-js [execution availability]
+  (let [[e a] (execution->data execution availability)]
+    (name (outcome/classify e a))))
+
+(defn routing-outcome-needs-retry-hint-js [outcome-name]
+  (outcome/needs-retry-hint? (keyword outcome-name)))
+
+(defn routing-outcome-response-js
+  [outcome-name ^js ctx retry-in-ms]
+  (let [^js last-error (.-lastUpstreamError ctx)
+        {:keys [status message type code retry-after-seconds log with-request-error?]}
+        (outcome/response (keyword outcome-name)
+                          {:routed-model (.-routedModel ctx)
+                           :log-prefix (.-logPrefix ctx)
+                           :saw-request-error (.-sawRequestError ctx)
+                           :last-upstream-error (when (js* "!!~{}" last-error)
+                                                  {:provider-id (.-providerId last-error)
+                                                   :status (.-status last-error)
+                                                   :body (.-body last-error)})}
+                          retry-in-ms)
+        o #js {:status status :message message :type type :code code}]
+    (when retry-after-seconds (aset o "retryAfterSeconds" retry-after-seconds))
+    (when log (aset o "log" #js {:level (name (:level log)) :message (:message log)}))
+    (when with-request-error? (aset o "withRequestError" true))
+    o))
+
+;; ---------------------------------------------------------------------------
+;; model routing pipeline (src/lib/model-routing-pipeline.ts)
+;; ---------------------------------------------------------------------------
+
+(defn check-requested-model-js [request-body]
+  (let [{:keys [model error]} (pipeline/check-requested-model {"model" (aget request-body "model")})]
+    (if error #js {:error (clj->js error)} #js {:model model})))
+
+(defn tenant-denies-model-js [preview]
+  (pipeline/tenant-denies-model? (interop/js->data preview)))
+
+(defn tenant-denied-error-js [model] (clj->js (pipeline/tenant-denied-error model)))
+
+(defn routing-candidate-source-js [^js flags]
+  (name (pipeline/candidate-source {:cephalon? (.-cephalon flags) :vision? (.-vision flags) :auto? (.-auto flags)})))
+
+(defn finish-model-routing-js [requested source candidates]
+  (let [{:keys [error candidates auto? candidates-header]}
+        (pipeline/finish requested (keyword source) (interop/js->data candidates))]
+    (if error
+      #js {:error (clj->js error)}
+      (let [o #js {:candidates (to-array candidates) :isAutoModel auto?}]
+        (when candidates-header (aset o "candidatesHeader" candidates-header))
+        o))))

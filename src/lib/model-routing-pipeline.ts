@@ -7,6 +7,7 @@ import type { ProxySettings } from "./proxy-settings-store.js";
 import type { RequestLogStore } from "./request-log-store.js";
 import type { AccountHealthStore } from "./db/account-health-store.js";
 import { getActiveCljsRuntime } from "./cljs-runtime.js";
+import { kernels } from "./cljs-kernels.js";
 import { sendOpenAiError } from "./provider-utils.js";
 import { resolveCatalogAndAlias } from "./catalog-alias-resolver.js";
 import {
@@ -40,10 +41,7 @@ function policyDeniesModel(config: ProxyConfig, tenantSettings: ProxySettings, m
     tenantSettings,
     providerIds: [],
   });
-  const decision = result?.status === "ok" && typeof result.decision === "object" && result.decision !== null
-    ? result.decision as { readonly status?: unknown; readonly reason?: unknown }
-    : undefined;
-  return decision?.status === "denied" && decision.reason === "tenant-model-not-allowed";
+  return kernels.tenantDeniesModel(result);
 }
 
 export async function resolveModelRouting(
@@ -55,14 +53,17 @@ export async function resolveModelRouting(
     preserveExplicitOllama?: boolean;
   },
 ): Promise<ModelRoutingResult | null> {
-  const requestedModelInput = typeof requestBody.model === "string" ? requestBody.model : "";
-  if (requestedModelInput.length === 0) {
-    sendOpenAiError(reply, 400, "Missing required field: model", "invalid_request_error", "missing_model");
+  const checked = kernels.checkRequestedModel(requestBody);
+  if (checked.error || checked.model === undefined) {
+    const { status, message, type, code } = checked.error ?? kernels.tenantDeniedError("");
+    sendOpenAiError(reply, status, message, type, code);
     return null;
   }
+  const requestedModelInput = checked.model;
 
   if (policyDeniesModel(deps.config, deps.proxySettings, requestedModelInput)) {
-    sendOpenAiError(reply, 403, `Model is disabled for this tenant: ${requestedModelInput}`, "invalid_request_error", "model_not_allowed");
+    const { status, message, type, code } = kernels.tenantDeniedError(requestedModelInput);
+    sendOpenAiError(reply, status, message, type, code);
     return null;
   }
 
@@ -78,18 +79,20 @@ export async function resolveModelRouting(
   }
 
   const { routingModelInput, resolvedModelCatalog, resolvedCatalogBundle } = catalogResult;
-  const autoModel = isAutoModel(routingModelInput);
-  const cephalonAutoModel = isCephalonAutoModel(routingModelInput);
-  const visionAutoModel = isVisionAutoModel(routingModelInput);
+  const source = kernels.routingCandidateSource({
+    cephalon: isCephalonAutoModel(routingModelInput),
+    vision: isVisionAutoModel(routingModelInput),
+    auto: isAutoModel(routingModelInput),
+  });
 
   const concreteModelIds = resolvableConcreteModelIds(resolvedModelCatalog);
   const requestLogStore = deps.requestLogStore;
   const accountHealthStore = deps.accountHealthStore;
   const upstreamProviderId = deps.config.upstreamProviderId;
 
-  let routingModelCandidates: string[];
-  if (cephalonAutoModel) {
-    routingModelCandidates = buildCephalonModelCandidates({
+  let produced: string[];
+  if (source === "cephalon") {
+    produced = buildCephalonModelCandidates({
       routingModelInput,
       requestBody,
       catalog: resolvedModelCatalog,
@@ -98,8 +101,8 @@ export async function resolveModelRouting(
       requestLogStore,
       accountHealthStore,
     });
-  } else if (visionAutoModel) {
-    routingModelCandidates = buildVisionModelCandidates({
+  } else if (source === "vision") {
+    produced = buildVisionModelCandidates({
       routingModelInput,
       requestBody,
       catalog: resolvedModelCatalog,
@@ -108,8 +111,8 @@ export async function resolveModelRouting(
       requestLogStore,
       accountHealthStore,
     });
-  } else if (autoModel) {
-    routingModelCandidates = rankAutoModels(
+  } else if (source === "auto") {
+    produced = rankAutoModels(
       routingModelInput,
       requestBody,
       concreteModelIds,
@@ -118,16 +121,18 @@ export async function resolveModelRouting(
       accountHealthStore,
     ).map((entry) => entry.modelId);
   } else {
-    routingModelCandidates = [routingModelInput];
+    produced = [routingModelInput];
   }
 
-  if (routingModelCandidates.length === 0) {
-    sendOpenAiError(reply, 404, `Model not found: ${requestedModelInput}`, "invalid_request_error", "model_not_found");
+  const finished = kernels.finishModelRouting(requestedModelInput, source, produced);
+  if (finished.error || finished.candidates === undefined) {
+    const { status, message, type, code } = finished.error ?? kernels.tenantDeniedError(requestedModelInput);
+    sendOpenAiError(reply, status, message, type, code);
     return null;
   }
 
-  if (autoModel || cephalonAutoModel || visionAutoModel) {
-    reply.header("x-open-hax-auto-model-candidates", routingModelCandidates.slice(0, 12).join(","));
+  if (finished.candidatesHeader !== undefined) {
+    reply.header("x-open-hax-auto-model-candidates", finished.candidatesHeader);
   }
 
   return {
@@ -135,7 +140,7 @@ export async function resolveModelRouting(
     routingModelInput,
     resolvedModelCatalog,
     resolvedCatalogBundle,
-    routingModelCandidates,
-    isAutoModel: autoModel || cephalonAutoModel || visionAutoModel,
+    routingModelCandidates: finished.candidates,
+    isAutoModel: finished.isAutoModel === true,
   };
 }

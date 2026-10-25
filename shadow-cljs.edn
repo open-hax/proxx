@@ -266,7 +266,20 @@
                                            accountOrderForRequest proxx.runtime.strategy/account-order-for-request-js
                                            accountOrderForLatency proxx.runtime.strategy/account-order-for-latency-js
                                            candidateOrderForAffinities proxx.runtime.strategy/candidate-order-for-affinities-js
-                                           candidateOrderForRoutes proxx.runtime.strategy/candidate-order-for-routes-js}}}
+                                           candidateOrderForRoutes proxx.runtime.strategy/candidate-order-for-routes-js
+                                           ;; w2-routing exports (catalog/outcome/pipeline)
+                                           resolvableConcreteModelIds proxx.runtime.routing/resolvable-concrete-model-ids-js
+                                           resolvableConcreteModelIdsForProviders proxx.runtime.routing/resolvable-concrete-model-ids-for-providers-js
+                                           resolveCatalogAlias proxx.runtime.routing/resolve-catalog-alias-js
+                                           classifyRoutingOutcome proxx.runtime.routing/classify-routing-outcome-js
+                                           routingOutcomeNeedsRetryHint proxx.runtime.routing/routing-outcome-needs-retry-hint-js
+                                           routingOutcomeResponse proxx.runtime.routing/routing-outcome-response-js
+                                           checkRequestedModel proxx.runtime.routing/check-requested-model-js
+                                           tenantDeniesModel proxx.runtime.routing/tenant-denies-model-js
+                                           tenantDeniedError proxx.runtime.routing/tenant-denied-error-js
+                                           routingCandidateSource proxx.runtime.routing/routing-candidate-source-js
+                                           finishModelRouting proxx.runtime.routing/finish-model-routing-js
+                                           createProviderCatalogStore proxx.runtime.catalog/create-provider-catalog-store-js}}}
    :js-options {:js-provider :import
                 :keep-as-import #{"node:fs" "node:path"}}
    :compiler-options {:output-feature-set :es-next
