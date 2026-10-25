@@ -151,6 +151,7 @@ export interface CljsKernels {
     auth: unknown,
     fallbackTenants: readonly { id: string; name: string; status: string }[],
   ) => readonly { id: string; name: string; status: string }[];
+  readonly registerSettingsRoutes: (app: unknown, deps: unknown, prefix: string) => void;
   // key pool
   readonly loadProviderSeedSpecs: (manifestPath: string) => readonly {
     readonly providerIdEnvNames: readonly string[];

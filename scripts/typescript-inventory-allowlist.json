@@ -1060,32 +1060,37 @@
     {
       "path": "src/routes/settings/delete-tenant-api-key-ui.ts",
       "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed"
+      "disposition": "removed",
+      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed",
+      "removed": true
     },
     {
       "path": "src/routes/settings/get-me-ui.ts",
       "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed"
+      "disposition": "removed",
+      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed",
+      "removed": true
     },
     {
       "path": "src/routes/settings/get-settings-ui.ts",
       "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed"
+      "disposition": "removed",
+      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed",
+      "removed": true
     },
     {
       "path": "src/routes/settings/get-tenant-api-keys-ui.ts",
       "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed"
+      "disposition": "removed",
+      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed",
+      "removed": true
     },
     {
       "path": "src/routes/settings/get-tenants-ui.ts",
       "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed"
+      "disposition": "removed",
+      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed",
+      "removed": true
     },
     {
       "path": "src/routes/settings/index.ts",
@@ -1096,26 +1101,30 @@
     {
       "path": "src/routes/settings/post-settings-ui.ts",
       "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed"
+      "disposition": "removed",
+      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed",
+      "removed": true
     },
     {
       "path": "src/routes/settings/post-tenant-api-keys-ui.ts",
       "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed"
+      "disposition": "removed",
+      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed",
+      "removed": true
     },
     {
       "path": "src/routes/settings/post-tenant-select-ui.ts",
       "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed"
+      "disposition": "removed",
+      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed",
+      "removed": true
     },
     {
       "path": "src/routes/settings/prefix.ts",
       "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed"
+      "disposition": "removed",
+      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed",
+      "removed": true
     },
     {
       "path": "src/routes/settings/ui.ts",

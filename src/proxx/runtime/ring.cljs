@@ -18,7 +18,16 @@
   propagates to the application's Fastify error handler unchanged."
   (:require [clojure.string :as str]))
 
-(defn- headers-of [^js req] (js->clj (.-headers req)))
+;; Fastify hands us params/query/headers objects whose prototype is not
+;; Object.prototype, which `js->clj` silently returns unconverted (so `get` finds
+;; nothing). Convert by own keys instead.
+(defn- obj->clj [x]
+  (cond
+    (nil? x) nil
+    (array? x) (mapv obj->clj x)
+    (and (identical? "object" (goog/typeOf x)) (not (instance? js/Date x)) (not (instance? js/Uint8Array x)))
+    (into {} (map (fn [k] [k (obj->clj (aget x k))])) (js/Object.keys x))
+    :else x))
 
 (defn request->map
   "Plain-data view of a Fastify request."
@@ -26,12 +35,12 @@
   {:method (keyword (str/lower-case (.-method req)))
    :url (.-url req)
    :path (first (str/split (.-url req) #"\?" 2))
-   :query (js->clj (.-query req))
-   :params (js->clj (.-params req))
-   :headers (headers-of req)
-   :body (js->clj (.-body req))
+   :query (obj->clj (.-query req))
+   :params (obj->clj (.-params req))
+   :headers (obj->clj (.-headers req))
+   :body (obj->clj (.-body req))
    :ip (.-ip req)
-   :auth (let [auth (.-openHaxAuth req)] (when (some? auth) (js->clj auth)))
+   :auth (obj->clj (.-openHaxAuth req))
    :raw req})
 
 (defn- send-response!

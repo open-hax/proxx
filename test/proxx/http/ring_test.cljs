@@ -23,8 +23,14 @@
       {:method :post :path "/echo/:id"
        :handler (fn ^:async echo [{:keys [method path query params headers body]}]
                   (await (js/Promise.resolve nil))
-                  {:body {"method" (name method) "path" path "query" query "params" params
-                          "ctype" (get headers "content-type") "body" body}})}
+                  ;; read every value through the Clojure maps: echoing the maps whole would
+                  ;; pass even if they were unconverted JS objects
+                  {:body {"method" (name method) "path" path
+                          "x" (get query "x") "y" (get query "y")
+                          "id" (get params "id")
+                          "ctype" (get headers "content-type")
+                          "k" (get body "k") "n" (get body "n")
+                          "types" [(map? query) (map? params) (map? headers) (map? body)]}})}
       {:method :get :path "/denied"
        :handler (fn [_] (throw (ex-info "nope" {:http/status 403 :http/headers {"x-reason" "policy"}})))}
       {:method :get :path "/boom" :handler (fn [_] (throw (js/Error. "unexpected")))}
@@ -40,8 +46,8 @@
       (is (= 202 (:status status)))
       (is (= "yes" (get (:headers status) "x-test")))
       (is (= "hello" (:text status)))
-      (is (= {"method" "post" "path" "/echo/42" "query" {"x" "1" "y" "2"} "params" {"id" "42"}
-              "ctype" "application/json" "body" {"k" "v" "n" 3}}
+      (is (= {"method" "post" "path" "/echo/42" "x" "1" "y" "2" "id" "42"
+              "ctype" "application/json" "k" "v" "n" 3 "types" [true true true true]}
              (:json echo)))
       (is (= 403 (:status denied)))
       (is (= {"error" {"message" "nope"}} (:json denied)))

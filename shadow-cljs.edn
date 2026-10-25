@@ -101,7 +101,8 @@
                                            authCanViewTenant proxx.runtime.ui-auth/auth-can-view-tenant-js
                                            authCanManageTenantKeys proxx.runtime.ui-auth/auth-can-manage-tenant-keys-js
                                            authCanManageFederation proxx.runtime.ui-auth/auth-can-manage-federation-js
-                                           toVisibleTenants proxx.runtime.ui-auth/to-visible-tenants-js}}}
+                                           toVisibleTenants proxx.runtime.ui-auth/to-visible-tenants-js
+                                           registerSettingsRoutes proxx.runtime.routes.settings/register-settings-routes-js}}}
    :js-options {:js-provider :import
                 :keep-as-import #{"node:fs" "node:path"}}
    :compiler-options {:output-feature-set :es-next
