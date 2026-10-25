@@ -6,6 +6,7 @@
  * required: these functions are the implementation, not an optimization.
  */
 import { loadCljsRuntime } from "./cljs-runtime.js";
+import type { BridgeMessage } from "./federation/bridge-protocol.js";
 
 type JsRecord = Record<string, unknown>;
 
@@ -139,6 +140,10 @@ export interface CljsKernels {
     readonly keyEnvNames: readonly string[];
   }[];
   readonly createKeyPool: (config: unknown, deps: unknown) => unknown;
+  // federation (bridge protocol, routing, relay, agent)
+  readonly bridgeProtocolVersion: string;
+  readonly parseBridgeMessage: (value: unknown) => BridgeMessage;
+  readonly parseBridgeMessageJson: (jsonText: string) => BridgeMessage;
 }
 
 const loaded = await loadCljsRuntime({ required: true });
