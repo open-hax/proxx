@@ -9,6 +9,9 @@ import { loadCljsRuntime } from "./cljs-runtime.js";
 
 type JsRecord = Record<string, unknown>;
 
+/** Method bag returned by the CLJS OAuth manager factories (typed per manager by its TS class). */
+export type OAuthManagerFacade = Record<string, (...args: never[]) => unknown>;
+
 export interface CljsKernels {
   // errors/classification
   readonly extractErrorMessage: (payload: unknown) => string | null;
@@ -200,6 +203,49 @@ export interface CljsKernels {
   readonly usageCursorQuery: () => string;
   readonly usageToCursor: (row: object) => { readonly timestampMs: number; readonly id: string };
   readonly createSessionStore: (filePath: string, deps?: { now?: () => number; uuid?: () => string }) => unknown;
+  // w2 auth/oauth: openai + factory oauth
+  readonly createOpenAiOAuthManager: (options: unknown, deps: unknown) => OAuthManagerFacade;
+  readonly resolveOpenAiCallbackPort: (raw: string | undefined) => string;
+  readonly isTerminalOpenAiRefreshErrorFacts: (facts: {
+    readonly status: number;
+    readonly code?: string;
+    readonly type?: string;
+    readonly message: string;
+    readonly responseBody?: string;
+  }) => boolean;
+  readonly createFactoryOAuthManager: (options: unknown, deps: unknown) => OAuthManagerFacade;
+  readonly decryptAuthV2: (keyBase64: string, encryptedContent: string) => { readonly accessToken: string; readonly refreshToken: string };
+  readonly encryptAuthV2: (keyBase64: string, data: { readonly access_token: string; readonly refresh_token: string }) => string;
+  readonly loadFactoryAuthV2: () => Promise<{ readonly accessToken: string; readonly refreshToken: string } | null>;
+  readonly persistFactoryAuthV2: (accessToken: string, refreshToken: string) => Promise<void>;
+  readonly parseJwtExpiry: (token: string) => number | null;
+  readonly factoryCredentialNeedsRefresh: (credential: unknown) => boolean;
+  readonly refreshFactoryOAuthToken: (
+    refreshToken: string,
+    fetchFn: typeof fetch,
+  ) => Promise<{ readonly accessToken: string; readonly refreshToken: string; readonly expiresAt: number | undefined }>;
+  readonly factoryRefreshBufferMs: number;
+  // w2 credentials: file-backed credential store
+  // w2 request auth
+  readonly resolveRequestAuth: (input: unknown, defaultTenantId: string) => Promise<unknown>;
+  // w2 sql credential store mapping (rows in, views/params out; SQL text stays in db/schema.ts)
+  readonly normalizeAuthTypeSql: (raw: string) => "api_key" | "oauth_bearer";
+  readonly sqlProviderCredential: (row: unknown, authType: string) => Record<string, unknown>;
+  readonly legacyOpenAiDuplicateIds: (rows: readonly unknown[]) => string[];
+  readonly sqlUserView: (row: unknown) => Record<string, unknown>;
+  readonly sqlMembershipView: (row: unknown) => Record<string, unknown>;
+  readonly sqlUserUpsertParams: (newUuid: () => string, input: unknown) => unknown[];
+  readonly sqlResolveUiSession: (user: unknown, memberships: readonly unknown[], activeTenantId: string | undefined, defaultTenantId: string) => Record<string, unknown> | null;
+  readonly sqlBootstrapRole: (existing: readonly unknown[], defaultTenantId: string, countRow: unknown) => { readonly role: string; readonly create: boolean };
+  readonly sqlApiKeyScopes: (scopes: readonly unknown[]) => string[];
+  readonly sqlNormalizedApiKeyLabel: (label: string) => string;
+  readonly sqlTenantApiKeyView: (row: unknown) => Record<string, unknown>;
+  readonly sqlTenantApiKeyMatch: (row: unknown) => Record<string, unknown>;
+  readonly sqlCredentialProviderViews: (providerRows: readonly unknown[], accountRows: readonly unknown[], reveal: boolean, derive: (token: string) => unknown) => unknown[];
+  readonly sqlCooldownEntries: (rows: readonly unknown[]) => Array<[string, string, number]>;
+  // w2 account health
+  readonly createAccountHealthStore: (sql: unknown, flushIntervalMs: number, selectAllSql: string) => unknown;
+  readonly createCredentialStore: (filePath: string, defaultProviderId: string, deps: unknown) => unknown;
 }
 
 export interface ChromaSearchRow {
