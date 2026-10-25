@@ -113,7 +113,11 @@
   (let [contracts (policy-loader/load-policy-contracts! manifest-path)
         idx (policy-contracts/index-contracts contracts)
         specs (policy-contracts/provider-seed-specs idx)]
-    (clj->js specs)))
+    (clj->js (mapv (fn [{:keys [provider-id-env-names provider-id-fallback key-env-names]}]
+                     {:providerIdEnvNames provider-id-env-names
+                      :providerIdFallback provider-id-fallback
+                      :keyEnvNames key-env-names})
+                   specs))))
 
 (defn preview-policy-decision-js
   "Load declarative policy contracts from manifest-path and return a pure decision preview."
