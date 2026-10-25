@@ -101,12 +101,6 @@
 ;; bridge-request-helpers.ts
 ;; ---------------------------------------------------------------------------
 
-(defn bridge-capability-supports-path-js [capability normalized-path]
-  (bridge-request/supports-path? (js->wire capability) normalized-path))
-
-(defn bridge-capability-supports-model-js [capability requested-model]
-  (bridge-request/supports-model? (js->wire capability) requested-model))
-
 (defn forwardable-bridge-response-headers-js
   "[name, value] entries of `headers` (a JS object, order preserved) that may be copied onto a reply."
   [headers hide-upstream-account?]

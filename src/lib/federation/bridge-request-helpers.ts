@@ -1,9 +1,10 @@
 import type { FastifyReply } from "fastify";
 
 import { kernels } from "../cljs-kernels.js";
+import { policyManifestPath } from "../policy-manifest.js";
 import type { BridgeRelayResponseEvent } from "./bridge-relay.js";
 
-// Implementation: proxx.federation.bridge-request (pure).
+// Capability matching: proxx.routing.bridge (policy-backed); header forwarding: proxx.federation.bridge-request.
 
 export const bridgeCapabilitySupportsPath = (capability: {
   readonly paths?: readonly string[];
@@ -11,7 +12,7 @@ export const bridgeCapabilitySupportsPath = (capability: {
   readonly supportsModelsList?: boolean;
   readonly supportsChatCompletions?: boolean;
   readonly supportsResponses?: boolean;
-}, normalizedPath: string): boolean => kernels.bridgeCapabilitySupportsPath(capability, normalizedPath);
+}, normalizedPath: string): boolean => kernels.bridgeCapabilitySupportsPath(policyManifestPath(), capability, normalizedPath);
 
 export const bridgeCapabilitySupportsModel = (capability: {
   readonly models?: readonly string[];

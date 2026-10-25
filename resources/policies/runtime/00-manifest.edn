@@ -18,12 +18,9 @@
    "65-federation-routing.edn"
    "70-request-queue-templates.edn"
    "75-provider-wire-profiles.edn"
-<<<<<<< HEAD
    "76-provider-surface-facts.edn"
-=======
    "77-upstream-attempt-policy.edn"
    "78-strategy-registry.edn"
->>>>>>> feat/cljs-w2-strategies
   "90-router.edn"]
  :policy.loader/invariant
  "Files are append/override in order: facts first, then derived rules, then the root router. More-specific clauses must precede catch-all clauses."}

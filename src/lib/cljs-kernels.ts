@@ -370,8 +370,6 @@ export interface CljsKernels {
   ) => string | undefined;
   readonly federationJsonRequestHeaders: (credential: string | undefined) => Record<string, string>;
   readonly federationFailureMessage: (parsed: unknown, status: number) => string;
-  readonly bridgeCapabilitySupportsPath: (capability: object, normalizedPath: string) => boolean;
-  readonly bridgeCapabilitySupportsModel: (capability: object, requestedModel: string | undefined) => boolean;
   readonly forwardableBridgeResponseHeaders: (
     headers: Readonly<Record<string, string>>,
     hideUpstreamAccount: boolean,

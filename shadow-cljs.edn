@@ -199,8 +199,6 @@
                                            resolveFederationOwnerSubject proxx.runtime.federation/resolve-federation-owner-subject-js
                                            federationJsonRequestHeaders proxx.runtime.federation/federation-json-request-headers-js
                                            federationFailureMessage proxx.runtime.federation/federation-failure-message-js
-                                           bridgeCapabilitySupportsPath proxx.runtime.federation/bridge-capability-supports-path-js
-                                           bridgeCapabilitySupportsModel proxx.runtime.federation/bridge-capability-supports-model-js
                                            forwardableBridgeResponseHeaders proxx.runtime.federation/forwardable-bridge-response-headers-js
                                            parseBridgeLeaseAccounts proxx.runtime.federation/parse-bridge-lease-accounts-js
                                            parseBridgeLeaseExport proxx.runtime.federation/parse-bridge-lease-export-js
