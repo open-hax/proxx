@@ -1,6 +1,7 @@
 (ns proxx.runtime
   (:require [clojure.string]
             [proxx.policy :as policy]
+            [proxx.compat.messages :as messages-compat]
             [proxx.errors.classification :as classification]
             [proxx.policy.contracts :as policy-contracts]
             [proxx.policy.evidence :as policy-evidence]
@@ -387,3 +388,30 @@
 
 (defn chat-completion-has-reasoning-content-js [completion]
   (sse/chat-completion-has-reasoning? (js->clj completion)))
+
+;; ---------------------------------------------------------------------------
+;; Anthropic /v1/messages compatibility (JS in, JS out; domain errors rethrown
+;; as plain Errors so the HTTP edge keeps its existing handling)
+;; ---------------------------------------------------------------------------
+
+(defn- rethrow-as-error [e]
+  (throw (if (ex-data e) (js/Error. (ex-message e)) e)))
+
+(defn- translate-js [f & args]
+  (try
+    (clj->js (apply f (map js->clj args)))
+    (catch :default e (rethrow-as-error e))))
+
+(defn chat-request-to-messages-request-js [body]
+  (translate-js messages-compat/chat-request->messages-request body))
+
+(defn normalize-messages-thinking-budget-js [payload]
+  (translate-js messages-compat/normalize-messages-thinking-budget payload))
+
+(defn messages-to-chat-completion-js [body fallback-model]
+  (try
+    (clj->js (messages-compat/messages->chat-completion (js->clj body) fallback-model (js/Date.now)))
+    (catch :default e (rethrow-as-error e))))
+
+(defn should-use-messages-upstream-js [model prefixes]
+  (messages-compat/should-use-messages-upstream? model (js->clj prefixes)))

@@ -35,7 +35,11 @@
                                            stripSseCommentLines proxx.runtime/strip-sse-comment-lines-js
                                            streamPayloadHasReasoningTrace proxx.runtime/stream-payload-has-reasoning-trace-js
                                            streamPayloadHasSubstantiveChunks proxx.runtime/stream-payload-has-substantive-chunks-js
-                                           chatCompletionHasReasoningContent proxx.runtime/chat-completion-has-reasoning-content-js}}}
+                                           chatCompletionHasReasoningContent proxx.runtime/chat-completion-has-reasoning-content-js
+                                           chatRequestToMessagesRequest proxx.runtime/chat-request-to-messages-request-js
+                                           normalizeMessagesThinkingBudget proxx.runtime/normalize-messages-thinking-budget-js
+                                           messagesToChatCompletion proxx.runtime/messages-to-chat-completion-js
+                                           shouldUseMessagesUpstream proxx.runtime/should-use-messages-upstream-js}}}
    :js-options {:js-provider :import
                 :keep-as-import #{"node:fs" "node:path"}}
    :compiler-options {:output-feature-set :es-next
