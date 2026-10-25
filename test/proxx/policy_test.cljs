@@ -613,6 +613,7 @@
         gpt-paid (first (filter #(= :route/gpt-free-blocked (:contract/id %))
                                 (:routing-clauses compiled)))]
     (is (= [:route/gemma4-e4b
+            :route/requesty-gemma4-31b
             :route/gemma4
             :route/gemma-e
             :route/gemma
@@ -1118,3 +1119,19 @@
                                          {:credentials credentials}
                                          (atom []))]
       (is (<= (count (:credentials narrowed)) (count credentials))))))
+
+
+(deftest requesty-native-gemma-names-retain-route-and-reasoning-semantics
+  (let [compiled (contracts/compile-contracts
+                   (loader/load-policy-contracts! "resources/policies/runtime/00-manifest.edn"))]
+    (doseq [model ["google/gemma-4-31b-it" "deepinfra/google/gemma-4-31B-it"]]
+      (let [normalized (contracts/normalize-reasoning-request compiled
+                         {:model-id model :request-body {:model model :reasoning_effort "minimal"}})
+            decision (contracts/preview-policy-decision compiled
+                       {:model-id model :request-kind :chat
+                        :provider-ids ["ollama-host" "requesty" "gemini"]
+                        :accounts-by-provider {"requesty" [{:account-id "fixture" :plan-type :free}]}
+                        :strategies-by-provider {"requesty" [{:mode :chat-completions :priority 0}]}})]
+        (is (= "low" (get-in normalized [:request-body :reasoning_effort])))
+        (is (= :route/requesty-gemma4-31b (:route-id decision)))
+        (is (= ["requesty"] (:providers decision)))))))

@@ -597,6 +597,23 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     }
   });
 
+  app.addHook("preHandler", async (request, reply) => {
+    const auth = request.openHaxAuth;
+    if (auth?.kind !== "tenant_api_key") return;
+    const authorize = getActiveCljsRuntime()?.authorizeBudgetHttpRequest;
+    if (!authorize) {
+      if (auth.scopes?.includes("budget:required"))
+        return reply.code(503).send({error:{code:"budget_unavailable",message:"Budget policy runtime unavailable."}});
+      return;
+    }
+    const decision = authorize(config.cljsPolicyManifestPath ?? "resources/policies/runtime/00-manifest.edn",
+      auth, request.method, (request.raw.url ?? request.url).split("?")[0]!);
+    if (decision.status === "unavailable")
+      return reply.code(503).send({error:{code:"budget_policy_unavailable",message:"No budget policy is bound to this required key."}});
+    if (decision.status === "denied")
+      return reply.code(403).send({error:{code:"budget_route_denied",message:"This key cannot use that HTTP route."}});
+  });
+
   // Attach a telemetry span to each request
   app.decorateRequest("_otelSpan", null);
 

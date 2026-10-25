@@ -8,6 +8,15 @@
                      (= (:match/key-id %) (:keyId auth))) %)
           contracts)))
 
+(defn budget-required? [auth]
+  (and (= "tenant_api_key" (:kind auth))
+       (contains? (set (:scopes auth)) "budget:required")))
+
+(defn authorize-http [contracts auth method path]
+  (if-let [budget (request-budget contracts auth)]
+    {:status (if (contains? (:budget/allowed-http-routes budget) [method path]) "allowed" "denied")}
+    {:status (if (budget-required? auth) "unavailable" "unmanaged")}))
+
 (defn route-plan [contracts auth model-id]
   (when-let [budget (request-budget contracts auth)]
     (if (contracts/pattern-matches? (:budget/routing-model-pattern budget) model-id)
@@ -53,7 +62,7 @@
                       (dissoc :max_completion_tokens)
                       (assoc :max_tokens (min requested-output output-cap)))}
         {:status "denied"}))
-    {:status "unmanaged"}))
+    {:status (if (budget-required? auth) "denied" "unmanaged")}))
 
 
 (defn snapshot-selection [contracts auth requested-key-id]

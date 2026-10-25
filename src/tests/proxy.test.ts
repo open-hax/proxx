@@ -13876,3 +13876,30 @@ test("model unavailability marks and skips the actual upstream alias identity", 
     } finally {setActiveCljsRuntime(runtime);}
   });
 });
+
+for (const model of ["google/gemma-4-31b-it", "deepinfra/google/gemma-4-31B-it"]) {
+  test(`Requesty native Gemma model ${model} normalizes minimal reasoning`, async () => {
+    const observed:unknown[]=[];
+    await withProxyApp({keys:[],keysPayload:{providers:{requesty:["native-gemma-key"]}},configOverrides:{upstreamProviderId:"requesty"},
+      upstreamHandler:async(request,body)=>{const parsed=JSON.parse(body);observed.push({model:parsed.model,effort:parsed.reasoning_effort,auth:request.headers.authorization});
+        return parsed.reasoning_effort==="low"?{status:200,headers:{"content-type":"application/json"},body:JSON.stringify({id:"native-reasoning",object:"chat.completion",choices:[{index:0,message:{role:"assistant",content:"OK"},finish_reason:"stop"}]})}:
+          {status:400,headers:{"content-type":"application/json"},body:JSON.stringify({error:{message:"invalid reasoning value: minimal"}})};}},async({app})=>{
+      const response=await app.inject({method:"POST",url:"/v1/chat/completions",payload:{model,reasoning_effort:"minimal",messages:[{role:"user",content:"hello"}],stream:false}});
+      assert.equal(response.statusCode,200,response.body);
+      assert.deepEqual(observed,[{model,effort:"low",auth:"Bearer native-gemma-key"}]);
+    });
+  });
+}
+
+
+test("required budget identity cannot bypass admission via embeddings or missing binding", async () => {
+  let calls=0;let keyId="knoxx-social-proxx";
+  await withProxyApp({keys:["key-a"],upstreamHandler:async()=>{calls++;return {status:200,body:"{}"};}},async({app})=>{
+    app.addHook("onRequest",async request=>{request.openHaxAuth={kind:"tenant_api_key",keyId,tenantId:"default",source:"bearer",scopes:["proxy:use","budget:required"]};});
+    const blocked=await app.inject({method:"POST",url:"/v1/embeddings",payload:{model:"gemma4:31b",input:"hello"}});
+    assert.equal(blocked.statusCode,403,blocked.body);assert.equal(calls,0);
+    keyId="not-provisioned-in-policy";
+    const unbound=await app.inject({method:"POST",url:"/v1/chat/completions",payload:{model:"gemma4:31b",messages:[{role:"user",content:"hello"}]}});
+    assert.equal(unbound.statusCode,503,unbound.body);assert.equal(calls,0);
+  });
+});

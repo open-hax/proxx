@@ -58,6 +58,10 @@
   :contract/kind :preference-order
   :preference/items ["ollama" "ollama-lan"]}
 
+ {:contract/id :provider-order/requesty-gemma4-31b
+  :contract/kind :preference-order
+  :preference/items ["requesty"]}
+
  {:contract/id :provider-order/gemma4
   :contract/kind :preference-order
   :preference/items ["gemini" "ollama-cloud" "ollama" "requesty"]}

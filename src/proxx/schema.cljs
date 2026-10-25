@@ -501,6 +501,7 @@
     [:budget/first-output-total-ms [:int {:min 1}]]
     [:budget/max-bootstrap-bytes [:int {:min 1}]]
     [:budget/max-retries [:int {:min 0}]]
+    [:budget/allowed-http-routes [:set [:tuple [:enum "GET" "POST"] :string]]]
     [:budget/allowed-modes [:set :string]]
     [:budget/max-input-tokens [:int {:min 1}]]
     [:budget/max-output-tokens [:int {:min 1}]]

@@ -4,6 +4,7 @@
 
 (def contract {:contract/kind :paid-budget :match/key-id "bot-key"
                :budget/scope-id "bot" :budget/daily-microusd 500000 :budget/monthly-microusd 5000000
+               :budget/allowed-http-routes #{["POST" "/v1/chat/completions"] ["GET" "/api/v1/paid-budgets"]}
                :budget/allowed-modes #{"chat_completions"}
                :budget/max-input-tokens 262144 :budget/max-output-tokens 1024
                :budget/routes [{:provider-id "router" :model-id "vendor/free" :billing :free}
@@ -83,3 +84,14 @@
     (is (not (policy/zero-charge-refusal? [c] auth (assoc response :body nil))))
     (is (not (policy/zero-charge-refusal? [c] auth (assoc response :model "vendor/free"))))
     (is (not (policy/zero-charge-refusal? [c] (assoc auth :keyId "other-key") response)))))
+
+
+(deftest budget-bound-key-cannot-use-an-unmetered-http-surface
+  (is (= "allowed" (:status (policy/authorize-http [contract] auth "POST" "/v1/chat/completions"))))
+  (is (= "allowed" (:status (policy/authorize-http [contract] auth "GET" "/api/v1/paid-budgets"))))
+  (is (= "denied" (:status (policy/authorize-http [contract] auth "POST" "/v1/embeddings"))))
+  (is (= "denied" (:status (policy/authorize-http [contract] auth "POST" "/v1/responses"))))
+  (is (= "unmanaged" (:status (policy/authorize-http [] auth "POST" "/v1/chat/completions"))))
+  (let [required (assoc auth :scopes ["proxy:use" "budget:required"])]
+    (is (= "unavailable" (:status (policy/authorize-http [] required "POST" "/v1/chat/completions"))))
+    (is (= "denied" (:status (policy/inspect-attempt [] required attempt))))))

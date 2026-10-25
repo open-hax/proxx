@@ -355,6 +355,11 @@
       (clj->js {:status "error"
                 :error (.-message e)}))))
 
+(defn authorize-budget-http-request-js [manifest-path auth method path]
+  (clj->js (budget-policy/authorize-http
+             (get-in (compiled-policy-for-manifest manifest-path) [:index :contracts])
+             (js->clj auth :keywordize-keys true) method path)))
+
 (defn resolve-budget-route-plan-js [manifest-path auth model-id]
   (clj->js (budget-policy/route-plan
             (get-in (compiled-policy-for-manifest manifest-path) [:index :contracts])
@@ -425,7 +430,8 @@
         #js {:status "ok" :observedAt (.toISOString (js/Date.)) :budgets budgets}))))
 
 (def exports
-  #js {:zeroChargeBudgetRefusal zero-charge-budget-refusal-js
+  #js {:authorizeBudgetHttpRequest authorize-budget-http-request-js
+       :zeroChargeBudgetRefusal zero-charge-budget-refusal-js
        :readPaidBudgets read-paid-budgets-js
        :resolveBudgetRoutePlan resolve-budget-route-plan-js
        :probeFirstUsable probe-first-usable-js

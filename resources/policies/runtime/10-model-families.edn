@@ -70,6 +70,12 @@
   :reasoning/control :effort-level
   :reasoning/native-efforts [:none :low :medium :high]}
 
+ {:contract/id :model-family/requesty-gemma4-31b
+  :contract/kind :model-family
+  :match/model-pattern "(?i)^(?:google|deepinfra/google)/gemma-4-31b-it$"
+  :reasoning/control :effort-level
+  :reasoning/native-efforts [:none :low :medium :high :max]}
+
  {:contract/id :model-family/gemma
   :contract/kind :model-family
   :match/model-pattern "(?i)^gemma"
@@ -184,6 +190,12 @@
  {:contract/id :reasoning-normalization/ollama-style-max-gpt-oss
   :contract/kind :reasoning-normalization
   :match/family :model-family/gpt-oss
+  :normalize/from :gpt-thinking-level
+  :normalize/effort-map {:off :none :disabled :none :minimal :low :auto :medium :normal :medium :xhigh :max :very-high :max :x-high :max}}
+
+ {:contract/id :reasoning-normalization/requesty-gemma4-31b
+  :contract/kind :reasoning-normalization
+  :match/family :model-family/requesty-gemma4-31b
   :normalize/from :gpt-thinking-level
   :normalize/effort-map {:off :none :disabled :none :minimal :low :auto :medium :normal :medium :xhigh :max :very-high :max :x-high :max}}
 
