@@ -23,6 +23,8 @@ A verified free-first bot route with durable paid caps, accurate accounting, mod
 - [Expose agent routes budgets and evaluations in Orbit](orbit-economy-dashboard.md) (`1513e0f7-daac-4007-b209-7e626bd1151c`)
 - [Deploy economy policy through Services and verify bot route](services-release-verification.md) (`7f6de0c4-8a92-44f3-b9c2-d80c930ca98f`)
 
+- [Qualified Kimi publication](qualified-kimi-publication.md) (`865a672a-f711-4ea6-9b67-33fd1c0cff21`)
+
 ## Non-goals
 
 No additional top-up or unbounded paid retries. No replacement Orbit surface.

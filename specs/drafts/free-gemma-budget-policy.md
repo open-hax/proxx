@@ -33,6 +33,12 @@ Check in eight safe fixed fixtures: two grounded summaries, two replies with exp
 5. Orbit: extend the existing authenticated constellation surface with active agent/loaded contract, selected upstream route, free/paid usage, actual/estimated/unpriced distinction, daily/monthly spent/reserved/remaining, reset times, latency distributions, and evaluation evidence. Never expose provider credentials or private prompt text.
 6. Release: settle current-head PR review, deploy through Services, verify image/source and compiled route/pricing/budget canaries, then observe a real bot request using the free route. Check paid fallback below and at both caps without charging real over-budget requests.
 
+## Review publication prerequisite and board format
+
+Consume the exact qualified Kimi workflow from restoration PR445@aba0697 on this release branch, with its regression tests and comment-command trigger isolation. Workflow SHA25690117459b8c0a6883b27df816127fdd3bcb4799e5e25e52f356d04ac134f68bb and the existing pinned runtime/auth hashes are already recognized by the canonical admission profile; neither the gate nor reviewer identities change. This does not merge or update the separate PR445. Its old publication refers to producer attempt1, but the retained artifact belongs to attempt2; a green historical run does not supply an admitted proof. Require a fresh native publication for this changed release head.
+
+The workspace contract requires comma-separated scalar labels. Read-only inspection of installed Rheos0.2.0 shows rheos.backend.domain.kanban_projection.normalize_labels in both CLI and GitHub-sync consumers explicitly supports comma-separated string labels, trims values and removes duplicates. Rheos content/find reads these cards successfully. Preserve this engine-supported form rather than inferring a sequence-only requirement from sibling formatting. No alternate parser or board-state mutation is introduced here.
+
 ## Scope boundaries
 
 Do not replace the existing Orbit integration. Do not copy workstation Google credentials to production, enable consumer OAuth proxying, activate auto-refill, or treat HTTP health as proof of free inference. Preserve other agents' dirty Knoxx work and all live sessions.
