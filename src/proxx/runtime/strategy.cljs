@@ -11,6 +11,8 @@
             [proxx.runtime.factory :as factory-edge]
             [proxx.strategy.attempt :as attempt]
             [proxx.strategy.build :as build]
+            [proxx.strategy.chains :as chains]
+            [proxx.strategy.context :as context]
             [proxx.strategy.diagnostics :as diagnostics]
             [proxx.strategy.executor :as executor]
             [proxx.strategy.select :as select]
@@ -627,3 +629,64 @@
   [id ^js facts manifest-path]
   (let [reg (registry manifest-path)]
     (select/matches? reg (facts->clj facts) (select/entry reg (keyword id)))))
+
+;; ---------------------------------------------------------------------------
+;; Fallback-chain auto models (vision, cephalon)
+;; ---------------------------------------------------------------------------
+
+(defonce ^:private chain-facts (atom {}))
+
+(defn- chain-contract [manifest-path]
+  (let [manifest-path (or manifest-path default-manifest)]
+    (or (get @chain-facts manifest-path)
+        (let [c (chains/chains-from-contracts (loader/load-policy-contracts! manifest-path))]
+          (swap! chain-facts assoc manifest-path c)
+          c))))
+
+(defn max-auto-model-candidates-js [raw manifest-path]
+  (chains/max-candidates (chain-contract manifest-path) raw))
+
+(defn should-advance-auto-candidate-js
+  "`summary` is the routing accumulator; `facts`: `{hasMore, autoModel}`."
+  [^js facts ^js summary manifest-path]
+  (chains/advance? (chain-contract manifest-path)
+                   {:has-more? (true? (.-hasMore facts)) :auto-model? (true? (.-autoModel facts))}
+                   (into {} (map (fn [k] [k (true? (aget summary (kebab->camel k)))]))
+                         (:chains/advance-on (chain-contract manifest-path)))))
+
+(defn is-vision-auto-model-js [model] (chains/vision-model? model))
+
+(defn vision-model-candidates-js [available-models manifest-path]
+  (to-array (chains/vision-candidates (chain-contract manifest-path) (array-seq available-models))))
+
+(defn vision-route-order-js [model provider-ids manifest-path]
+  (to-array (chains/vision-route-order (chain-contract manifest-path) model (vec (array-seq provider-ids)))))
+
+(defn is-cephalon-auto-model-js [model] (chains/cephalon-model? model))
+
+(defn cephalon-plan-js [model available-models manifest-path]
+  (let [{:keys [inner-model candidates]}
+        (chains/cephalon-plan (chain-contract manifest-path) model (some-> available-models array-seq))]
+    #js {"innerModel" inner-model "candidates" (to-array candidates)}))
+
+(defn cephalon-choice-js [model ranked manifest-path]
+  (chains/cephalon-choice (chain-contract manifest-path) model (vec (array-seq ranked))))
+
+;; ---------------------------------------------------------------------------
+;; Request context
+;; ---------------------------------------------------------------------------
+
+(defn derive-strategy-context-facts-js
+  "Routing facts for a request: see proxx.strategy.context/derive-facts."
+  [^js input]
+  (let [^js routing (.-routing input) ^js config (.-config input)
+        f (context/derive-facts {:surface (.-surface input)
+                                 :routing {:factory-prefixed (.-factoryPrefixed routing) :open-ai-prefixed (.-openAiPrefixed routing)
+                                           :explicit-ollama (.-explicitOllama routing) :local-ollama (.-localOllama routing)}
+                                 :request-body (js->clj (.-requestBody input))
+                                 :hosted-openai-family? (.-hostedOpenAiFamily input)
+                                 :config {:request-timeout-ms (.-requestTimeoutMs config)
+                                          :stream-bootstrap-timeout-ms (.-streamBootstrapTimeoutMs config)
+                                          :upstream-provider-id (.-upstreamProviderId config)
+                                          :openai-provider-id (.-openaiProviderId config)}})]
+    (->camel-js f)))

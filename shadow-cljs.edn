@@ -272,7 +272,16 @@
                                            buildStrategyPayload proxx.runtime.strategy/build-strategy-payload-js
                                            strategyUpstreamPath proxx.runtime.strategy/strategy-upstream-path-js
                                            normalizeLlamacppModelName proxx.runtime.strategy/normalize-llamacpp-model-name-js
-                                           strategyMatches proxx.runtime.strategy/strategy-matches-js}}}
+                                           strategyMatches proxx.runtime.strategy/strategy-matches-js
+                                           maxAutoModelCandidates proxx.runtime.strategy/max-auto-model-candidates-js
+                                           shouldAdvanceAutoCandidate proxx.runtime.strategy/should-advance-auto-candidate-js
+                                           isVisionAutoModel proxx.runtime.strategy/is-vision-auto-model-js
+                                           visionModelCandidates proxx.runtime.strategy/vision-model-candidates-js
+                                           visionRouteOrder proxx.runtime.strategy/vision-route-order-js
+                                           isCephalonAutoModel proxx.runtime.strategy/is-cephalon-auto-model-js
+                                           cephalonPlan proxx.runtime.strategy/cephalon-plan-js
+                                           cephalonChoice proxx.runtime.strategy/cephalon-choice-js
+                                           deriveStrategyContextFacts proxx.runtime.strategy/derive-strategy-context-facts-js}}}
    :js-options {:js-provider :import
                 :keep-as-import #{"node:fs" "node:path"}}
    :compiler-options {:output-feature-set :es-next

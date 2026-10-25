@@ -460,6 +460,30 @@
         [:ovm-default-model [:string {:min 1}]]]]
       [:registry/compat-embedding-providers [:set [:string {:min 1}]]]]]))
 
+(def AutoModelChainsContract
+  "Fallback-chain auto models (vision, cephalon) and the shared advance rule."
+  (let [Models [:vector [:string {:min 1}]]]
+    [:and
+     ContractBase
+     [:map
+      [:contract/kind [:enum :auto-model-chains]]
+      [:chains/max-candidates [:map [:default [:int {:min 1}]] [:ceiling [:int {:min 1}]]]]
+      [:chains/advance-on [:vector :keyword]]
+      [:chains/vision
+       [:map
+        [:model-chain Models]
+        [:route-priority
+         [:vector [:map
+                   [:models {:optional true} [:set [:string {:min 1}]]]
+                   [:model-prefix {:optional true} [:string {:min 1}]]
+                   [:model-contains {:optional true} [:string {:min 1}]]
+                   [:provider-ids {:optional true} [:set [:string {:min 1}]]]
+                   [:provider-prefix {:optional true} [:string {:min 1}]]]]]]]
+      [:chains/cephalon
+       [:map
+        [:preferred-models Models] [:ollama-preferred Models] [:ollama-fast-order Models]
+        [:ollama-smart-order Models] [:empty-ranking-fallback [:string {:min 1}]]]]]]))
+
 (def FederationRoutingClauseContract
   [:and
    ContractBase
@@ -676,6 +700,7 @@
     [:auto-model-profile AutoModelProfileContract]
     [:upstream-attempt-policy UpstreamAttemptPolicyContract]
     [:strategy-registry StrategyRegistryContract]
+    [:auto-model-chains AutoModelChainsContract]
     [:authorization-clause AuthorizationClauseContract]
     [:model-pricing-override ModelPricingOverrideContract]
     [:model-pricing-snapshot ModelPricingSnapshotContract]
@@ -735,6 +760,7 @@
     :proxx/contract-auto-model-profile AutoModelProfileContract
     :proxx/contract-upstream-attempt-policy UpstreamAttemptPolicyContract
     :proxx/contract-strategy-registry StrategyRegistryContract
+    :proxx/contract-auto-model-chains AutoModelChainsContract
    :proxx/contract-authorization-clause AuthorizationClauseContract
     :proxx/contract-model-pricing-override ModelPricingOverrideContract
     :proxx/contract-model-pricing-snapshot ModelPricingSnapshotContract

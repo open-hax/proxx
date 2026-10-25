@@ -591,6 +591,44 @@ export interface CljsKernels {
   ) => string | undefined;
   readonly normalizeLlamacppModelName: (model: string) => string;
   readonly strategyMatches: (id: string, facts: StrategySelectionFacts, manifestPath?: string) => boolean;
+  readonly maxAutoModelCandidates: (raw: string | undefined, manifestPath?: string) => number;
+  readonly shouldAdvanceAutoCandidate: (
+    facts: { readonly hasMore: boolean; readonly autoModel: boolean },
+    summary: object,
+    manifestPath?: string,
+  ) => boolean;
+  readonly isVisionAutoModel: (model: string) => boolean;
+  readonly visionModelCandidates: (availableModels: readonly string[], manifestPath?: string) => string[];
+  readonly visionRouteOrder: (model: string, providerIds: readonly string[], manifestPath?: string) => number[];
+  readonly isCephalonAutoModel: (model: string) => boolean;
+  readonly cephalonPlan: (
+    model: string,
+    availableModels: readonly string[] | undefined,
+    manifestPath?: string,
+  ) => { readonly innerModel: string; readonly candidates: string[] };
+  readonly cephalonChoice: (model: string, ranked: readonly string[], manifestPath?: string) => string;
+  readonly deriveStrategyContextFacts: (input: {
+    readonly surface: string;
+    readonly routing: { readonly factoryPrefixed: boolean; readonly openAiPrefixed: boolean; readonly explicitOllama: boolean; readonly localOllama: boolean };
+    readonly requestBody: JsRecord;
+    readonly hostedOpenAiFamily: boolean;
+    readonly config: {
+      readonly requestTimeoutMs: number;
+      readonly streamBootstrapTimeoutMs: number;
+      readonly upstreamProviderId: string;
+      readonly openaiProviderId: string;
+    };
+  }) => {
+    readonly routeProviderId: string;
+    readonly clientWantsStream: boolean;
+    readonly needsReasoningTrace: boolean;
+    readonly upstreamAttemptTimeoutMs: number;
+    readonly explicitOllama: boolean;
+    readonly localOllama: boolean;
+    readonly openAiPrefixed: boolean;
+    readonly responsesPassthrough: boolean;
+    readonly imagesPassthrough: boolean;
+  };
 }
 
 export interface ChromaSearchRow {

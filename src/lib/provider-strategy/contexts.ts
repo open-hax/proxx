@@ -1,7 +1,7 @@
 import type { IncomingHttpHeaders } from "node:http";
 
 import type { ProxyConfig } from "../config.js";
-import { requestWantsReasoningTrace } from "../openai/index.js";
+import { kernels } from "../cljs-kernels.js";
 import { looksLikeHostedOpenAiFamily, resolveRequestRoutingState } from "../provider-routing.js";
 import { selectProviderStrategyForContext } from "./registry.js";
 import type { ResolvedRequestAuth } from "../request-auth.js";
@@ -24,13 +24,6 @@ export function selectProviderStrategy(
   const routingState = resolveRequestRoutingState(config, routingModelInput);
   const surface = options?.surface ?? "chat";
   const chatSurface = surface === "chat";
-  const responsesPassthrough = surface === "responses-passthrough";
-  const imagesPassthrough = surface === "images-passthrough";
-  const clientWantsStream = imagesPassthrough ? false : requestBody.stream === true;
-  const needsReasoningTrace = chatSurface ? requestWantsReasoningTrace(requestBody) : false;
-  const upstreamAttemptTimeoutMs = clientWantsStream
-    ? Math.min(config.requestTimeoutMs, config.streamBootstrapTimeoutMs)
-    : config.requestTimeoutMs;
 
   const routedModel = chatSurface
     ? resolveAutoModel(
@@ -40,16 +33,17 @@ export function selectProviderStrategy(
         config.upstreamProviderId,
       )
     : routingState.routedModel;
-  const routeProviderId = routingState.factoryPrefixed
-    ? "factory"
-    : routingState.openAiPrefixed
-      ? config.openaiProviderId
-      : chatSurface && (routingState.explicitOllama || routingState.localOllama)
-        ? "ollama"
-        : config.upstreamProviderId;
+  // What the request is routed by (provider id, stream, timeout, prefixes) is derived in CLJS.
+  const facts = kernels.deriveStrategyContextFacts({
+    surface,
+    routing: routingState,
+    requestBody,
+    hostedOpenAiFamily: looksLikeHostedOpenAiFamily(routedModel),
+    config,
+  });
 
   const context: StrategyRequestContext = {
-    routeProviderId,
+    ...facts,
     config,
     clientHeaders,
     requestBody,
@@ -57,20 +51,7 @@ export function selectProviderStrategy(
     requestedModelInput,
     routingModelInput,
     routedModel,
-    explicitOllama: chatSurface ? routingState.explicitOllama : false,
-    openAiPrefixed: responsesPassthrough
-      ? routingState.openAiPrefixed
-        || (!routingState.factoryPrefixed
-          && config.upstreamProviderId === config.openaiProviderId
-          && looksLikeHostedOpenAiFamily(routedModel))
-      : routingState.openAiPrefixed,
     factoryPrefixed: routingState.factoryPrefixed,
-    localOllama: chatSurface ? routingState.localOllama : false,
-    clientWantsStream,
-    needsReasoningTrace,
-    upstreamAttemptTimeoutMs,
-    responsesPassthrough,
-    imagesPassthrough,
   };
 
   return { strategy: selectProviderStrategyForContext(context), context };
