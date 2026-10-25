@@ -5,7 +5,8 @@
   `(fn [request] response)` — it may return a Promise (or be `^:async`), and
   request/response are plain maps:
 
-    request   {:method :get :url :path :query :params :headers :body :ip :raw}
+    request   {:method :get :url :path :query :params :headers :body :ip :auth :raw}
+              (`:auth` is the identity resolved by the host's auth hook, or nil)
               (`:raw` is the Fastify request, for handlers that must stream)
     response  {:status 200 :headers {\"x\" \"y\"} :body <map|vector|string|nil>}
 
@@ -30,6 +31,7 @@
    :headers (headers-of req)
    :body (js->clj (.-body req))
    :ip (.-ip req)
+   :auth (let [auth (.-openHaxAuth req)] (when (some? auth) (js->clj auth)))
    :raw req})
 
 (defn- send-response!

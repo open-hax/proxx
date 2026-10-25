@@ -138,6 +138,19 @@ export interface CljsKernels {
     deps: { readonly keyPool: unknown; readonly upstreamProviderId: string; readonly proxyAuthTokenConfigured: boolean },
   ) => void;
   readonly registerApiV1IndexRoute: (app: unknown) => void;
+  // route authorization and request-value parsing (routes/shared/ui-auth)
+  readonly parseBoolean: (value: unknown) => boolean;
+  readonly parseOptionalRequestsPerMinute: (value: unknown) => number | null | undefined;
+  readonly parseOptionalProviderIds: (value: unknown) => readonly string[] | null | undefined;
+  readonly parseOptionalModelIds: (value: unknown) => readonly string[] | null | undefined;
+  readonly parseOptionalPositiveInteger: (value: unknown) => number | undefined;
+  readonly authCanViewTenant: (auth: unknown, tenantId: string) => boolean;
+  readonly authCanManageTenantKeys: (auth: unknown, tenantId: string) => boolean;
+  readonly authCanManageFederation: (auth: unknown) => boolean;
+  readonly toVisibleTenants: (
+    auth: unknown,
+    fallbackTenants: readonly { id: string; name: string; status: string }[],
+  ) => readonly { id: string; name: string; status: string }[];
   // key pool
   readonly loadProviderSeedSpecs: (manifestPath: string) => readonly {
     readonly providerIdEnvNames: readonly string[];
