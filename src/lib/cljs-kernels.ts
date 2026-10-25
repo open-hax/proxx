@@ -132,6 +132,12 @@ export interface CljsKernels {
   } | null | undefined;
   // requesty
   readonly requestyModelProvider: (manifestPath: string, model: string) => string;
+  // http routes (Ring-style handlers registered on Fastify)
+  readonly registerHealthRoutes: (
+    app: unknown,
+    deps: { readonly keyPool: unknown; readonly upstreamProviderId: string; readonly proxyAuthTokenConfigured: boolean },
+  ) => void;
+  readonly registerApiV1IndexRoute: (app: unknown) => void;
   // key pool
   readonly loadProviderSeedSpecs: (manifestPath: string) => readonly {
     readonly providerIdEnvNames: readonly string[];
