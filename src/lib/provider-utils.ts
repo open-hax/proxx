@@ -1,5 +1,6 @@
 import type { FastifyReply } from "fastify";
 
+import { kernels } from "./cljs-kernels.js";
 import { getActiveCljsRuntime } from "./cljs-runtime.js";
 import { openAiError } from "./proxy.js";
 
@@ -38,14 +39,8 @@ export function asString(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
-export function hasBearerToken(header: string | undefined, expectedToken: string): boolean {
-  if (!header) {
-    return false;
-  }
-
-  const [scheme, token] = header.split(/\s+/, 2);
-  return scheme.toLowerCase() === "bearer" && token === expectedToken;
-}
+export const hasBearerToken = (header: string | undefined, expectedToken: string): boolean =>
+  kernels.hasBearerToken(header, expectedToken);
 
 export function sendOpenAiError(
   reply: FastifyReply,

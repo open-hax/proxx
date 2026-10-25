@@ -4,6 +4,7 @@
 
 import { createHash } from "node:crypto";
 import type { FastifyReply } from "fastify";
+import { kernels } from "../cljs-kernels.js";
 import { isRecord, asString } from "../provider-utils.js";
 import { openAiError } from "../proxy.js";
 
@@ -67,50 +68,11 @@ export function shouldEnableInterleavedThinkingHeader(upstreamPayload: Record<st
   return asString(thinking["type"]) === "enabled";
 }
 
-function reasoningEffortIsDisabled(value: string): boolean {
-  const normalized = value.trim().toLowerCase();
-  return normalized === "none" || normalized === "disable" || normalized === "disabled" || normalized === "off";
-}
-
-function includesReasoningTrace(value: unknown): boolean {
-  if (!Array.isArray(value)) {
-    return false;
-  }
-
-  return value.some((entry) => asString(entry) === "reasoning.encrypted_content");
-}
-
 /**
  * Check if a request wants reasoning trace in the response.
  */
-export function requestWantsReasoningTrace(body: Record<string, unknown>): boolean {
-  if (includesReasoningTrace(body["include"])) {
-    return true;
-  }
-
-  const explicitThinking = isRecord(body["thinking"]) ? body["thinking"] : null;
-  if (explicitThinking) {
-    const type = asString(explicitThinking["type"]);
-    if (type === "enabled") {
-      return true;
-    }
-
-    if (type === "disabled") {
-      return false;
-    }
-  }
-
-  const reasoning = isRecord(body["reasoning"]) ? body["reasoning"] : null;
-  const reasoningEffort = asString(reasoning?.["effort"])
-    ?? asString(body["reasoning_effort"])
-    ?? asString(body["reasoningEffort"]);
-
-  if (reasoningEffort) {
-    return !reasoningEffortIsDisabled(reasoningEffort);
-  }
-
-  return reasoning !== null;
-}
+export const requestWantsReasoningTrace = (body: Record<string, unknown>): boolean =>
+  kernels.requestWantsReasoningTrace(body);
 
 /**
  * Send an OpenAI-formatted error response.

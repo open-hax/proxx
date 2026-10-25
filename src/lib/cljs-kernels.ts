@@ -57,6 +57,81 @@ export interface CljsKernels {
     body: ReadableStream<Uint8Array>,
     options: { readonly fallbackModel: string; readonly writeFn: (data: string) => void },
   ) => Promise<{ terminalResponse: JsRecord | null; sawError: JsRecord | null }>;
+  // glm
+  readonly isGlmModel: (model: string) => boolean;
+  readonly applyGlmThinking: (body: JsRecord, model?: string) => JsRecord;
+  // factory
+  readonly getFactoryModelType: (manifestPath: string, model: string) => string;
+  readonly getFactoryApiProvider: (manifestPath: string, model: string) => string;
+  readonly getFactoryEndpointPath: (manifestPath: string, modelType: string) => string;
+  readonly buildFactoryCommonHeaders: (manifestPath: string, model: string) => Record<string, string>;
+  readonly buildFactoryAnthropicHeaders: (
+    manifestPath: string,
+    model: string,
+    payload: JsRecord,
+    interleavedThinkingBeta?: string,
+  ) => Record<string, string>;
+  readonly inlineSystemPrompt: (payload: JsRecord) => JsRecord;
+  readonly sanitizeFactorySystemPrompt: (manifestPath: string, systemText: string) => string;
+  readonly isFkKey: (manifestPath: string, credential: unknown) => boolean;
+  // auto model
+  readonly isAutoModel: (model: string) => boolean;
+  readonly parseAutoModelType: (model: string) => string | null | undefined;
+  readonly rankAutoModels: (
+    manifestPath: string,
+    model: string,
+    requestBody: unknown,
+    availableModels: readonly string[] | undefined,
+    providerId: string,
+    requestLogStore: unknown,
+    accountHealthStore: unknown,
+    getModelPricing: unknown,
+  ) => unknown[];
+  readonly selectAutoModel: (
+    manifestPath: string,
+    model: string,
+    requestBody: unknown,
+    availableModels: readonly string[] | undefined,
+    providerId: string,
+    requestLogStore: unknown,
+    accountHealthStore: unknown,
+    getModelPricing: unknown,
+  ) => string | null;
+  // http helpers
+  readonly readCookieToken: (cookieHeader: string | undefined, name: string) => string | undefined | null;
+  readonly parseJsonIfPossible: (body: string) => unknown;
+  readonly readSingleHeader: (headers: Record<string, unknown>, name: string) => string | undefined | null;
+  readonly escapeHtml: (value: string) => string;
+  readonly normalizeRequestedModel: (value: unknown) => string | undefined | null;
+  readonly isTrustedLocalBridgeAddress: (remoteAddress: string | undefined) => boolean;
+  readonly hasBearerToken: (header: string | undefined, expectedToken: string) => boolean;
+  // ollama
+  readonly shouldUseOllamaUpstream: (model: unknown, prefixes: readonly string[]) => boolean;
+  readonly chatRequestToOllamaRequest: (body: JsRecord, modelPrefixes: readonly string[]) => JsRecord;
+  readonly requestHasExplicitNumCtx: (body: JsRecord) => boolean;
+  readonly ollamaToChatCompletion: (body: unknown, fallbackModel: string) => JsRecord;
+  readonly streamOllamaNdjsonToChatCompletionSse: (
+    body: ReadableStream<Uint8Array>,
+    fallbackModel: string,
+    writeFn: (data: string) => void,
+  ) => Promise<void>;
+  readonly requestWantsReasoningTrace: (body: JsRecord) => boolean;
+  readonly ollamaContextLengthFromShow: (manifestPath: string, payload: unknown) => number | null | undefined;
+  readonly ollamaContextBudget: (
+    kind: "chat" | "nativeChat" | "embed",
+    requestBody: JsRecord,
+    contextLength: number,
+  ) => {
+    readonly model: string;
+    readonly contextLength: number;
+    readonly estimatedInputTokens: number;
+    readonly requestedOutputTokens: number;
+    readonly requiredContextTokens: number;
+    readonly availableContextTokens: number;
+    readonly recommendedNumCtx: number;
+  } | null | undefined;
+  // requesty
+  readonly requestyModelProvider: (manifestPath: string, model: string) => string;
   // key pool
   readonly loadProviderSeedSpecs: (manifestPath: string) => readonly {
     readonly providerIdEnvNames: readonly string[];

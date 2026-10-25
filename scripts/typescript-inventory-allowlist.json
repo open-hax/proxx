@@ -103,6 +103,12 @@
       "removalCondition": "core Proxx runtime starts and serves from CLJS with TS shims removed"
     },
     {
+      "path": "src/lib/cljs-kernels.ts",
+      "owner": "T1-storage-auth-cljs-runtime",
+      "disposition": "delete-with-ts-host",
+      "removalCondition": "no TypeScript module imports the CLJS kernels: the HTTP edge itself runs on the CLJS runtime"
+    },
+    {
       "path": "src/lib/cljs-runtime.ts",
       "owner": "T1-core-proxx-cljs-runtime",
       "disposition": "port-to-cljs",
@@ -456,6 +462,12 @@
       "owner": "T1-core-proxx-cljs-runtime",
       "disposition": "port-to-cljs",
       "removalCondition": "core Proxx runtime starts and serves from CLJS with TS shims removed"
+    },
+    {
+      "path": "src/lib/policy-manifest.ts",
+      "owner": "T1-storage-auth-cljs-runtime",
+      "disposition": "delete-with-ts-host",
+      "removalCondition": "no TypeScript module imports the CLJS kernels: the HTTP edge itself runs on the CLJS runtime"
     },
     {
       "path": "src/lib/provider-catalog.ts",
