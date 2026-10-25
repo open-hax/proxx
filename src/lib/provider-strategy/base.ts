@@ -2,6 +2,8 @@ import { Readable } from "node:stream";
 
 import type { FastifyReply } from "fastify";
 
+import { providerResponseFormatAllowedWithCljs } from "../cljs-runtime.js";
+
 import { copyUpstreamHeaders } from "../proxy.js";
 import { chatCompletionToSse } from "../responses-compat.js";
 import {
@@ -274,7 +276,12 @@ export abstract class BaseProviderStrategy implements ProviderStrategy {
           const looksLikeImagesPayload = context.imagesPassthrough === true
             && isRecord(parsed)
             && Array.isArray(parsed["data"]);
-          const looksLikeNativeOllamaPayload = (context.providerId === "ollama" || context.providerId.startsWith("ollama"))
+          const looksLikeNativeOllamaPayload = providerResponseFormatAllowedWithCljs({
+            manifestPath: context.config.cljsPolicyManifestPath,
+            providerId: context.providerId,
+            requestKind: "chat",
+            responseFormat: "ollama-chat",
+          })
             && isRecord(parsed)
             && (isRecord(parsed["message"]) || typeof parsed["response"] === "string");
           if (

@@ -135,6 +135,7 @@ export interface ProxxCljsRuntime {
     tryCandidate: (candidate: unknown) => Promise<{ readonly status: string; readonly reason?: string }>,
   ) => Promise<{ readonly status: string; readonly result?: unknown; readonly trace?: readonly unknown[] }>;
   readonly normalizeReasoningRequest: (manifestPath: string, input: unknown) => CljsReasoningNormalizationResult;
+  readonly providerResponseFormatAllowed?: (manifestPath: string, providerId: string, requestKind: string, responseFormat: string) => boolean;
   readonly resolveModelAlias: (manifestPath: string, modelId: string, providerId: string) => CljsModelAliasResult;
   readonly resolveAutoModelCandidates?: (manifestPath: string, input: unknown) => CljsAutoModelCandidatesResult;
   readonly getProviderRoutes?: (manifestPath: string) => CljsProviderRoutesResult;
@@ -351,6 +352,22 @@ export function normalizeReasoningRequestWithCljs(input: {
     return extractDecisionRequestBody(result.decision) ?? input.requestBody;
   } catch {
     return input.requestBody;
+  }
+}
+
+export function providerResponseFormatAllowedWithCljs(input: {
+  readonly manifestPath?: string;
+  readonly providerId: string;
+  readonly requestKind: string;
+  readonly responseFormat: string;
+}): boolean {
+  try {
+    return getActiveCljsRuntime()?.providerResponseFormatAllowed?.(
+      input.manifestPath ?? "resources/policies/runtime/00-manifest.edn",
+      input.providerId, input.requestKind, input.responseFormat,
+    ) === true;
+  } catch {
+    return false;
   }
 }
 

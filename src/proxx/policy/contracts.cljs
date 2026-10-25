@@ -213,6 +213,14 @@
                (:request-surface-defaults compiled))
        (filterv #(provider-clause-matches? % provider-id request-kind))))
 
+(defn provider-response-format-allowed?
+  "A response format is accepted only through a matching declared capability."
+  [compiled provider-id request-kind response-format]
+  (boolean
+   (some #(and (provider-clause-matches? % provider-id request-kind)
+               (some #{response-format} (:response/formats %)))
+         (:provider-capabilities compiled))))
+
 (defn order-provider-candidates
   "Filter excluded provider ids and order preferred providers before original order.
 

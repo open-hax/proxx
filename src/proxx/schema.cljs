@@ -282,7 +282,8 @@
     [:match/provider-pattern [:string {:min 1}]]
     [:match/request-kind {:optional true} :keyword]
     [:prefer/strategies {:optional true} KeywordVector]
-    [:exclude/strategies {:optional true} KeywordVector]]])
+    [:exclude/strategies {:optional true} KeywordVector]
+    [:response/formats {:optional true} KeywordVector]]])
 
 (def RequestSurfaceDefaultContract
   [:and

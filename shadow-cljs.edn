@@ -29,6 +29,7 @@
                                            previewPolicyDecision proxx.runtime/preview-policy-decision-js
                                            executePolicyTree proxx.runtime/execute-policy-tree-js
                                            normalizeReasoningRequest proxx.runtime/normalize-reasoning-request-js
+                                            providerResponseFormatAllowed proxx.runtime/provider-response-format-allowed-js
                                             resolveModelAlias proxx.runtime/resolve-model-alias-js
                                              getProviderRoutes proxx.runtime/get-provider-routes-js
                                               filterProviderRoutes proxx.runtime/filter-provider-routes-js

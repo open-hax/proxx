@@ -652,7 +652,7 @@
            (:prefer/provider-order gpt-paid)))
     (is (= [:plus :pro :business :enterprise :team]
            (:require/plan-set gpt-paid)))
-    (is (= 18 (count (:provider-capabilities compiled))))
+    (is (= 19 (count (:provider-capabilities compiled))))
     (is (= 25 (count (:provider-routes compiled))))
     (is (= 7 (count (:request-surface-defaults compiled))))
     (is (= 4 (count (:tenant-authorization-clauses compiled))))
@@ -1144,3 +1144,13 @@
         invalid (assoc budget :budget/routes (into [(nth routes 1) (nth routes 0)] (drop 2 routes)))]
     (is (= :ok (first (schema/validate :proxx/contract-paid-budget budget))))
     (is (= :error (first (schema/validate :proxx/contract-paid-budget invalid))))))
+
+(deftest response-format-capability-is-declared
+  (let [compiled (contracts/compile-contracts
+                  (loader/load-policy-contracts! "resources/policies/runtime/00-manifest.edn"))]
+    (doseq [provider ["ollama" "ollama-local" "ollama-cloud" "ollama-future-device"]]
+      (is (contracts/provider-response-format-allowed? compiled provider :chat :ollama-chat)))
+    (is (not (contracts/provider-response-format-allowed? compiled "requesty" :chat :ollama-chat)))
+    (is (not (contracts/provider-response-format-allowed? compiled "ollama" :embeddings :ollama-chat)))
+    (is (not (contracts/provider-response-format-allowed?
+              {:provider-capabilities []} "ollama" :chat :ollama-chat)))))

@@ -170,16 +170,22 @@
     (let [compiled (compiled-policy-for-manifest manifest-path)
           decision (policy-contracts/normalize-reasoning-request
                     compiled
-                    (js->clj input :keywordize-keys true))]
-      (let [decision-js (clj->js (dissoc decision :request-body))]
-        ;; Reasoning controls may change; arbitrary client JSON keys must not.
-        (aset decision-js "request-body"
-              (clj->js (:request-body decision) :keyword-fn #(subs (str %) 1)))
-        #js {:status "ok" :decision decision-js}))
+                    (js->clj input :keywordize-keys true))
+          decision-js (clj->js (dissoc decision :request-body))]
+      ;; Reasoning controls may change; arbitrary client JSON keys must not.
+      (aset decision-js "request-body"
+            (clj->js (:request-body decision) :keyword-fn #(subs (str %) 1)))
+      #js {:status "ok" :decision decision-js})
     (catch :default e
       (clj->js {:status "error"
                 :error (.-message e)
                 :data (ex-data e)}))))
+
+(defn provider-response-format-allowed-js
+  [manifest-path provider-id request-kind response-format]
+  (policy-contracts/provider-response-format-allowed?
+   (compiled-policy-for-manifest manifest-path)
+   provider-id (keyword request-kind) (keyword response-format)))
 
 (defn resolve-model-alias-js
   "Load declarative policy contracts and resolve a provider-specific model alias."
@@ -460,6 +466,7 @@
        :previewPolicyDecision preview-policy-decision-js
        :executePolicyTree execute-policy-tree-js
        :normalizeReasoningRequest normalize-reasoning-request-js
+       :providerResponseFormatAllowed provider-response-format-allowed-js
        :resolveModelAlias resolve-model-alias-js
         :getProviderRoutes get-provider-routes-js
         :resolveAutoModelCandidates resolve-auto-model-candidates-js

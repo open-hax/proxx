@@ -178,6 +178,12 @@
   :prefer/strategies [:chat-completions :ollama-chat]
   :exclude/strategies [:messages :responses :openai-responses]}
 
+ {:contract/id :provider-capability/ollama-native-response
+  :contract/kind :provider-capability
+  :match/provider-pattern "^ollama"
+  :match/request-kind :chat
+  :response/formats [:ollama-chat]}
+
  {:contract/id :provider-capability/ollama-local-chat
   :contract/kind :provider-capability
   :match/provider-pattern "^ollama-local$"
