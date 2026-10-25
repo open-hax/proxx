@@ -9,6 +9,7 @@ import type { ServerResponse } from "node:http";
 
 import { loadCljsRuntime } from "./cljs-runtime.js";
 import type { CredentialStoreLike } from "./credential-store.js";
+import type { HostDashboardRouteSummary, HostDashboardSnapshot, HostDashboardTarget } from "./host-dashboard.js";
 import type { AccountHealthStore } from "./db/account-health-store.js";
 import type {
   QuotaCooldownController,
@@ -368,6 +369,26 @@ export interface CljsKernels {
     cooldownController: QuotaCooldownController | undefined,
   ) => QuotaMonitorApi;
   readonly quotaMonitorDefaultConfig: () => QuotaMonitorConfig;
+  // host dashboard
+  readonly loadHostDashboardTargetsFromEnv: (env: NodeJS.ProcessEnv) => readonly HostDashboardTarget[];
+  readonly resolveHostDashboardTargetToken: (target: HostDashboardTarget, env: NodeJS.ProcessEnv) => string | undefined;
+  readonly inferSelfHostDashboardTargetId: (input: {
+    readonly targets: readonly HostDashboardTarget[];
+    readonly explicitSelfId?: string;
+    readonly requestBaseUrl?: string;
+    readonly requestHost?: string;
+  }) => string | undefined;
+  readonly parseCaddyRoutes: (source: string) => readonly HostDashboardRouteSummary[];
+  readonly collectLocalHostDashboardSnapshot: (input: {
+    readonly target: HostDashboardTarget;
+    readonly dockerSocketPath?: string;
+    readonly runtimeRoot?: string;
+  }) => Promise<HostDashboardSnapshot>;
+  readonly fetchRemoteHostDashboardSnapshot: (input: {
+    readonly target: HostDashboardTarget;
+    readonly authToken?: string;
+    readonly timeoutMs: number;
+  }) => Promise<HostDashboardSnapshot>;
   // w2-routing kernels
   readonly bridgeCapabilitySupportsPath: (manifestPath: string, capability: object, normalizedPath: string) => boolean;
   readonly bridgeCapabilitySupportsModel: (capability: object, requestedModel: string | undefined) => boolean;
