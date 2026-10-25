@@ -154,7 +154,11 @@
                                            maxStickyTransportFailures proxx.runtime.strategy/max-sticky-transport-failures-js
                                            selectStrategy proxx.runtime.strategy/select-strategy-js
                                            selectRemoteStrategy proxx.runtime.strategy/select-remote-strategy-js
-                                           isCompatEmbeddingProvider proxx.runtime.strategy/is-compat-embedding-provider-js}}}
+                                           isCompatEmbeddingProvider proxx.runtime.strategy/is-compat-embedding-provider-js
+                                           buildStrategyPayload proxx.runtime.strategy/build-strategy-payload-js
+                                           strategyUpstreamPath proxx.runtime.strategy/strategy-upstream-path-js
+                                           normalizeLlamacppModelName proxx.runtime.strategy/normalize-llamacpp-model-name-js
+                                           strategyMatches proxx.runtime.strategy/strategy-matches-js}}}
    :js-options {:js-provider :import
                 :keep-as-import #{"node:fs" "node:path"}}
    :compiler-options {:output-feature-set :es-next

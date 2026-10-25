@@ -8,7 +8,9 @@
             [clojure.string :as str]
             [proxx.policy.loader :as loader]
             [proxx.runtime :as runtime]
+            [proxx.runtime.factory :as factory-edge]
             [proxx.strategy.attempt :as attempt]
+            [proxx.strategy.build :as build]
             [proxx.strategy.diagnostics :as diagnostics]
             [proxx.strategy.executor :as executor]
             [proxx.strategy.select :as select]
@@ -588,3 +590,40 @@
 
 (defn is-compat-embedding-provider-js [provider-id manifest-path]
   (select/compat-embedding-provider? (registry manifest-path) provider-id))
+
+;; ---------------------------------------------------------------------------
+;; Strategy payloads and paths
+;; ---------------------------------------------------------------------------
+
+(defn build-strategy-payload-js
+  "The upstream payload of strategy `id`. `opts`: `{ollamaModelPrefixes}`; Factory's
+  system-prompt rewrite reads its wire profile through `manifest-path`."
+  [id upstream-body request-body headers ^js opts manifest-path]
+  (try
+    (clj->js (build/build-payload
+              (keyword id)
+              {:upstream-body (js->clj upstream-body)
+               :request-body (js->clj request-body)
+               :headers (js->clj headers)
+               :rules (:registry/payload-rules (registry manifest-path))
+               :ollama-prefixes (some-> (some-> opts .-ollamaModelPrefixes) js->clj)
+               :sanitize-system (fn [text] (factory-edge/sanitize-factory-system-prompt-js (or manifest-path default-manifest) text))}))
+    (catch :default e (rethrow-as-error e))))
+
+(defn strategy-upstream-path-js
+  "The upstream path of strategy `id`, or undefined when its wire profile owns it."
+  [id provider-paths ^js config model manifest-path]
+  (let [entry (select/entry (registry manifest-path) (keyword id))
+        config-key (get-in entry [:strategy/path :config-key])]
+    (undefined-if-nil
+     (build/upstream-path entry {:provider-paths (js->clj provider-paths)
+                                 :config (when config-key {config-key (aget config config-key)})
+                                 :model model}))))
+
+(defn normalize-llamacpp-model-name-js [model] (build/normalize-llamacpp-model model))
+
+(defn strategy-matches-js
+  "Does the registry entry `id` accept a request with these facts?"
+  [id ^js facts manifest-path]
+  (let [reg (registry manifest-path)]
+    (select/matches? reg (facts->clj facts) (select/entry reg (keyword id)))))

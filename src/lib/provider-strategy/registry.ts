@@ -1,6 +1,5 @@
-import { kernels, type StrategySelectionFacts } from "../cljs-kernels.js";
-import { getFactoryModelType } from "../factory-compat.js";
-import type { ProviderStrategy, StrategyRequestContext, UpstreamMode } from "./shared.js";
+import { kernels } from "../cljs-kernels.js";
+import { selectionFacts, type ProviderStrategy, type StrategyRequestContext, type UpstreamMode } from "./shared.js";
 import { GeminiChatProviderStrategy } from "./strategies/gemini.js";
 import { FactoryChatCompletionsProviderStrategy, FactoryMessagesProviderStrategy, FactoryResponsesPassthroughStrategy, FactoryResponsesProviderStrategy } from "./strategies/factory.js";
 import { OpenAiChatCompletionsProviderStrategy, OpenAiResponsesPassthroughStrategy, OpenAiResponsesProviderStrategy } from "./strategies/openai.js";
@@ -65,23 +64,6 @@ function strategyForId(id: string): ProviderStrategy {
   return strategy;
 }
 
-function selectionFacts(context: StrategyRequestContext, policyPreferredMode?: string): StrategySelectionFacts {
-  return {
-    routeProviderId: context.routeProviderId,
-    responsesPassthrough: context.responsesPassthrough,
-    imagesPassthrough: context.imagesPassthrough,
-    embeddingsPassthrough: context.embeddingsPassthrough,
-    explicitOllama: context.explicitOllama,
-    localOllama: context.localOllama,
-    openAiPrefixed: context.openAiPrefixed,
-    factoryPrefixed: context.factoryPrefixed,
-    policyPreferredMode: policyPreferredMode ?? context.policyPreferredStrategyMode,
-    factoryModelType: context.factoryPrefixed ? getFactoryModelType(context.routedModel) : undefined,
-    clientHeaders: context.clientHeaders,
-    requestBody: context.requestBody,
-  };
-}
-
 export function selectProviderStrategyForContext(
   context: StrategyRequestContext,
 ): ProviderStrategy {
@@ -103,7 +85,7 @@ export function selectRemoteProviderStrategyForRoute(
 ): ProviderStrategy {
   const facts = {
     ...selectionFacts({ ...context, routeProviderId: providerId.trim().toLowerCase() }),
-    factoryModelType: providerId === "factory" ? getFactoryModelType(context.routedModel) : undefined,
+    factoryModelType: providerId === "factory" ? kernels.getFactoryModelType(context.config.cljsPolicyManifestPath ?? "resources/policies/runtime/00-manifest.edn", context.routedModel) : undefined,
   };
   return strategyForId(kernels.selectRemoteStrategy(
     facts,

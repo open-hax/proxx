@@ -4,30 +4,24 @@ import type { FastifyReply } from "fastify";
 
 import { copyUpstreamHeaders } from "../../proxy.js";
 import {
-  chatRequestToResponsesRequest,
   chatCompletionEventStreamToResponsesEventStream,
   chatCompletionEventStreamToResponsesResponse,
   chatCompletionToResponsesResponse,
   chatCompletionToSse,
-  responsesRequestToChatRequest,
   responsesToChatCompletion,
   responsesOutputHasReasoning,
   writeInterleavedResponsesSse,
 } from "../../responses-compat.js";
-import {
-  chatRequestToMessagesRequest,
-  messagesToChatCompletion,
-} from "../../messages-compat.js";
+import { messagesToChatCompletion } from "../../messages-compat.js";
+import { kernels } from "../../cljs-kernels.js";
 import { appendCsvHeaderValue, shouldEnableInterleavedThinkingHeader } from "../../openai/index.js";
 import { chatCompletionHasReasoningContent } from "../../sse/index.js";
 import { BaseProviderStrategy, TransformedJsonProviderStrategy } from "../base.js";
 import {
-  applyRequestedServiceTier,
-  buildPayloadResult,
   buildRequestBodyForUpstream,
-  ensureChatCompletionsUsageInStream,
+  buildStrategyPayloadResult,
   isRecord,
-  stripTrailingAssistantPrefill,
+  strategyUpstreamPath,
   type BuildPayloadResult,
   type ProviderAttemptContext,
   type ProviderAttemptOutcome,
@@ -35,35 +29,21 @@ import {
 } from "../shared.js";
 
 function isChatCompletionResponse(value: unknown): value is Record<string, unknown> {
-  if (!isRecord(value)) {
-    return false;
-  }
-
-  const choices = value["choices"];
-  const firstChoice = Array.isArray(choices) && choices.length > 0 && isRecord(choices[0]) ? choices[0] : undefined;
-  return Boolean(firstChoice && isRecord(firstChoice["message"]));
+  return kernels.isChatCompletionResponse(value);
 }
 
 export class MessagesProviderStrategy extends TransformedJsonProviderStrategy {
   public readonly mode = "messages" as const;
 
   public readonly isLocal = false;
-
-  public matches(context: StrategyRequestContext): boolean {
-    return !context.localOllama
-      && !context.explicitOllama
-      && !context.openAiPrefixed
-      && !context.factoryPrefixed
-      && context.responsesPassthrough !== true
-      && context.imagesPassthrough !== true;
-  }
+  public readonly registryId: string = "messages";
 
   public getUpstreamPath(context: StrategyRequestContext): string {
-    return context.providerPaths?.messages ?? context.config.messagesPath;
+    return strategyUpstreamPath("messages", context);
   }
 
   public buildPayload(context: StrategyRequestContext): BuildPayloadResult {
-    return buildPayloadResult(chatRequestToMessagesRequest(buildRequestBodyForUpstream(context)), context);
+    return buildStrategyPayloadResult("messages", context, buildRequestBodyForUpstream(context));
   }
 
   public override applyRequestHeaders(headers: Headers, context: ProviderAttemptContext, payload: Record<string, unknown>): void {
@@ -81,25 +61,14 @@ export class ResponsesProviderStrategy extends TransformedJsonProviderStrategy {
   public readonly mode = "responses" as const;
 
   public readonly isLocal = false;
-
-  public matches(context: StrategyRequestContext): boolean {
-    return !context.localOllama
-      && !context.explicitOllama
-      && !context.openAiPrefixed
-      && !context.factoryPrefixed
-      && context.responsesPassthrough !== true
-      && context.imagesPassthrough !== true;
-  }
+  public readonly registryId: string = "responses";
 
   public getUpstreamPath(context: StrategyRequestContext): string {
-    return context.providerPaths?.responses ?? context.config.responsesPath;
+    return strategyUpstreamPath("responses", context);
   }
 
   public buildPayload(context: StrategyRequestContext): BuildPayloadResult {
-    const upstreamPayload = chatRequestToResponsesRequest(buildRequestBodyForUpstream(context));
-    applyRequestedServiceTier(upstreamPayload, context);
-    stripTrailingAssistantPrefill(upstreamPayload);
-    return buildPayloadResult(upstreamPayload, context);
+    return buildStrategyPayloadResult("responses", context, buildRequestBodyForUpstream(context));
   }
 
   public override async handleProviderAttempt(
@@ -182,48 +151,30 @@ export class ChatCompletionsProviderStrategy extends BaseProviderStrategy {
   public readonly mode = "chat_completions" as const;
 
   public readonly isLocal = false;
-
-  public matches(_context: StrategyRequestContext): boolean {
-    return _context.responsesPassthrough !== true
-      && _context.imagesPassthrough !== true
-      && !_context.factoryPrefixed
-      && !_context.localOllama
-      && !_context.explicitOllama
-      && _context.routeProviderId !== "zai";
-  }
+  public readonly registryId: string = "chat-completions";
 
   public getUpstreamPath(context: StrategyRequestContext): string {
-    return context.providerPaths?.["chat-completions"] ?? context.config.chatCompletionsPath;
+    return strategyUpstreamPath("chat-completions", context);
   }
 
   public buildPayload(context: StrategyRequestContext): BuildPayloadResult {
-    const upstreamPayload = buildRequestBodyForUpstream(context);
-    ensureChatCompletionsUsageInStream(upstreamPayload);
-    return buildPayloadResult(upstreamPayload, context);
+    return buildStrategyPayloadResult("chat-completions", context, buildRequestBodyForUpstream(context));
   }
 }
 
 export class ZaiChatCompletionsProviderStrategy extends ChatCompletionsProviderStrategy {
-  public override matches(context: StrategyRequestContext): boolean {
-    return context.routeProviderId === "zai"
-      && context.responsesPassthrough !== true
-      && context.imagesPassthrough !== true;
-  }
+  public override readonly registryId: string = "zai-chat";
 
-  public override getUpstreamPath(_context: StrategyRequestContext): string {
-    return "/chat/completions";
+  public override getUpstreamPath(context: StrategyRequestContext): string {
+    return strategyUpstreamPath("zai-chat", context);
   }
 }
 
 export class BlazeChatCompletionsProviderStrategy extends ChatCompletionsProviderStrategy {
-  public override matches(context: StrategyRequestContext): boolean {
-    return context.routeProviderId === "blaze"
-      && context.responsesPassthrough !== true
-      && context.imagesPassthrough !== true;
-  }
+  public override readonly registryId: string = "blaze-chat";
 
-  public override getUpstreamPath(_context: StrategyRequestContext): string {
-    return "/chat/completions";
+  public override getUpstreamPath(context: StrategyRequestContext): string {
+    return strategyUpstreamPath("blaze-chat", context);
   }
 }
 
@@ -231,20 +182,14 @@ export class BlazeImagesGenerationsPassthroughStrategy extends BaseProviderStrat
   public readonly mode = "images" as const;
 
   public readonly isLocal = false;
+  public readonly registryId: string = "blaze-images";
 
-  public matches(context: StrategyRequestContext): boolean {
-    return context.routeProviderId === "blaze"
-      && context.imagesPassthrough === true;
-  }
-
-  public getUpstreamPath(_context: StrategyRequestContext): string {
-    return "/images/generations";
+  public getUpstreamPath(context: StrategyRequestContext): string {
+    return strategyUpstreamPath("blaze-images", context);
   }
 
   public buildPayload(context: StrategyRequestContext): BuildPayloadResult {
-    const upstreamPayload: Record<string, unknown> = { ...context.requestBody };
-    delete upstreamPayload["open_hax"];
-    return buildPayloadResult(upstreamPayload, context);
+    return buildStrategyPayloadResult("blaze-images", context);
   }
 }
 
@@ -252,19 +197,14 @@ export class ImagesGenerationsPassthroughStrategy extends BaseProviderStrategy {
   public readonly mode = "images" as const;
 
   public readonly isLocal = false;
-
-  public matches(context: StrategyRequestContext): boolean {
-    return context.imagesPassthrough === true;
-  }
+  public readonly registryId: string = "images-passthrough";
 
   public getUpstreamPath(context: StrategyRequestContext): string {
-    return context.providerPaths?.["images-generations"] ?? context.config.imagesGenerationsPath;
+    return strategyUpstreamPath("images-passthrough", context);
   }
 
   public buildPayload(context: StrategyRequestContext): BuildPayloadResult {
-    const upstreamPayload: Record<string, unknown> = { ...context.requestBody };
-    delete upstreamPayload["open_hax"];
-    return buildPayloadResult(upstreamPayload, context);
+    return buildStrategyPayloadResult("images-passthrough", context);
   }
 }
 
@@ -273,19 +213,14 @@ export class ResponsesPassthroughStrategy extends BaseProviderStrategy {
   public readonly mode = "responses_passthrough" as const;
 
   public readonly isLocal = false;
-
-  public matches(context: StrategyRequestContext): boolean {
-    return context.responsesPassthrough === true && !context.openAiPrefixed;
-  }
+  public readonly registryId: string = "responses-passthrough";
 
   public getUpstreamPath(context: StrategyRequestContext): string {
-    return context.providerPaths?.responses ?? context.config.responsesPath;
+    return strategyUpstreamPath("responses-passthrough", context);
   }
 
   public buildPayload(context: StrategyRequestContext): BuildPayloadResult {
-    const upstreamPayload = buildRequestBodyForUpstream(context);
-    stripTrailingAssistantPrefill(upstreamPayload);
-    return buildPayloadResult(upstreamPayload, context);
+    return buildStrategyPayloadResult("responses-passthrough", context, buildRequestBodyForUpstream(context));
   }
 
   public override async handleProviderAttempt(
@@ -348,20 +283,14 @@ export class ResponsesViaChatCompletionsStrategy extends BaseProviderStrategy {
   public readonly mode = "chat_completions" as const;
 
   public readonly isLocal = false;
-
-  public matches(context: StrategyRequestContext): boolean {
-    return context.responsesPassthrough === true && !context.openAiPrefixed;
-  }
+  public readonly registryId: string = "responses-via-chat";
 
   public getUpstreamPath(context: StrategyRequestContext): string {
-    return context.providerPaths?.["chat-completions"] ?? context.config.chatCompletionsPath;
+    return strategyUpstreamPath("responses-via-chat", context);
   }
 
   public buildPayload(context: StrategyRequestContext): BuildPayloadResult {
-    const upstreamPayload = responsesRequestToChatRequest(buildRequestBodyForUpstream(context));
-    ensureChatCompletionsUsageInStream(upstreamPayload);
-    stripTrailingAssistantPrefill(upstreamPayload);
-    return buildPayloadResult(upstreamPayload, context);
+    return buildStrategyPayloadResult("responses-via-chat", context, buildRequestBodyForUpstream(context));
   }
 
   public override async handleProviderAttempt(

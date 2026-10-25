@@ -18,6 +18,7 @@ import {
 import {
   type BuildPayloadResult,
   isRecord,
+  selectionFacts,
   type LocalAttemptContext,
   type ProviderAttemptContext,
   type ProviderAttemptOutcome,
@@ -114,7 +115,13 @@ export abstract class BaseProviderStrategy implements ProviderStrategy {
   public abstract readonly mode: UpstreamMode;
   public abstract readonly isLocal: boolean;
 
-  public abstract matches(context: StrategyRequestContext): boolean;
+  /** Id of this strategy's entry in the strategy registry (78-strategy-registry.edn). */
+  public abstract readonly registryId: string;
+
+  /** Whether the registry's predicates accept this request. */
+  public matches(context: StrategyRequestContext): boolean {
+    return kernels.strategyMatches(this.registryId, selectionFacts(context), context.config?.cljsPolicyManifestPath);
+  }
 
   public abstract getUpstreamPath(context: StrategyRequestContext): string;
 

@@ -57,12 +57,7 @@ export class GeminiChatProviderStrategy extends BaseProviderStrategy implements 
   public readonly mode = "gemini_chat" as const;
 
   public readonly isLocal = false;
-
-  public matches(_context: StrategyRequestContext): boolean {
-    return _context.routeProviderId === "gemini"
-      && _context.responsesPassthrough !== true
-      && _context.imagesPassthrough !== true;
-  }
+  public readonly registryId: string = "gemini-chat";
 
   public getUpstreamPath(context: StrategyRequestContext): string {
     const manifestPath = context.config.cljsPolicyManifestPath;

@@ -2,7 +2,6 @@ import type { FastifyReply } from "fastify";
 
 import { copyUpstreamHeaders } from "../../proxy.js";
 import {
-  chatRequestToResponsesRequest,
   extractTerminalResponseFromEventStream,
   responsesEventStreamToErrorPayload,
   responsesToChatCompletion,
@@ -10,38 +9,15 @@ import {
 import { BaseProviderStrategy, TransformedJsonProviderStrategy } from "../base.js";
 import { handleResponsesEventStreamAsChatCompletion } from "./responses-event-stream.js";
 import {
-  applyRequestedServiceTier,
-  buildPayloadResult,
   buildRequestBodyForUpstream,
-  stripTrailingAssistantPrefill,
+  buildStrategyPayloadResult,
+  strategyUpstreamPath,
   type BuildPayloadResult,
   type ProviderAttemptContext,
   type ProviderAttemptOutcome,
   type StrategyRequestContext,
   type UpstreamMode,
 } from "../shared.js";
-
-/**
- * Parameters that the ChatGPT Codex backend (`chatgpt.com/backend-api/codex/responses`)
- * does not support and will reject with HTTP 400.
- */
-const CODEX_UNSUPPORTED_PARAMS = [
-  "max_output_tokens",
-  "prompt_cache_retention",
-  "temperature",
-  "top_p",
-  "presence_penalty",
-  "frequency_penalty",
-  "seed",
-  "service_tier",
-  "user",
-] as const;
-
-function stripCodexUnsupportedParams(payload: Record<string, unknown>): void {
-  for (const key of CODEX_UNSUPPORTED_PARAMS) {
-    delete payload[key];
-  }
-}
 
 async function readStreamChunkWithTimeout(
   reader: ReadableStreamDefaultReader<Uint8Array>,
@@ -146,27 +122,12 @@ abstract class OpenAiCodexResponsesStrategy extends TransformedJsonProviderStrat
 
   public readonly isLocal = false;
 
-  public matches(context: StrategyRequestContext): boolean {
-    return context.openAiPrefixed
-      && context.responsesPassthrough !== true
-      && context.imagesPassthrough !== true;
-  }
-
   public getUpstreamPath(context: StrategyRequestContext): string {
-    return context.config.openaiResponsesPath;
+    return strategyUpstreamPath("openai-responses", context);
   }
 
   public buildPayload(context: StrategyRequestContext): BuildPayloadResult {
-    const upstreamPayload = chatRequestToResponsesRequest(buildRequestBodyForUpstream(context));
-    applyRequestedServiceTier(upstreamPayload, context);
-    stripCodexUnsupportedParams(upstreamPayload);
-    if (upstreamPayload["instructions"] == null) {
-      upstreamPayload["instructions"] = "";
-    }
-    upstreamPayload["store"] = false;
-    upstreamPayload["stream"] = true;
-    stripTrailingAssistantPrefill(upstreamPayload);
-    return buildPayloadResult(upstreamPayload, context);
+    return buildStrategyPayloadResult("openai-responses", context, buildRequestBodyForUpstream(context));
   }
 
   public override async handleProviderAttempt(
@@ -191,10 +152,14 @@ abstract class OpenAiCodexResponsesStrategy extends TransformedJsonProviderStrat
 }
 
 export class OpenAiResponsesProviderStrategy extends OpenAiCodexResponsesStrategy {
+  public readonly registryId: string = "openai-responses";
+
   public readonly mode = "openai_responses" as const;
 }
 
 export class OpenAiChatCompletionsProviderStrategy extends OpenAiCodexResponsesStrategy {
+  public readonly registryId: string = "openai-chat";
+
   public readonly mode = "openai_chat_completions" as const;
 }
 
@@ -203,25 +168,14 @@ export class OpenAiResponsesPassthroughStrategy extends BaseProviderStrategy {
   public readonly mode = "openai_responses_passthrough" as const;
 
   public readonly isLocal = false;
-
-  public matches(context: StrategyRequestContext): boolean {
-    return context.responsesPassthrough === true && context.openAiPrefixed;
-  }
+  public readonly registryId: string = "openai-responses-passthrough";
 
   public getUpstreamPath(context: StrategyRequestContext): string {
-    return context.config.openaiResponsesPath;
+    return strategyUpstreamPath("openai-responses-passthrough", context);
   }
 
   public buildPayload(context: StrategyRequestContext): BuildPayloadResult {
-    const upstreamPayload = buildRequestBodyForUpstream(context);
-    stripCodexUnsupportedParams(upstreamPayload);
-    upstreamPayload["store"] = false;
-    upstreamPayload["stream"] = true;
-    if (upstreamPayload["instructions"] == null) {
-      upstreamPayload["instructions"] = "";
-    }
-    stripTrailingAssistantPrefill(upstreamPayload);
-    return buildPayloadResult(upstreamPayload, context);
+    return buildStrategyPayloadResult("openai-responses-passthrough", context, buildRequestBodyForUpstream(context));
   }
 
   public override async handleProviderAttempt(

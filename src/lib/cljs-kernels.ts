@@ -334,6 +334,23 @@ export interface CljsKernels {
     manifestPath?: string,
   ) => string;
   readonly isCompatEmbeddingProvider: (providerId: string, manifestPath?: string) => boolean;
+  readonly buildStrategyPayload: (
+    id: string,
+    upstreamBody: JsRecord | undefined,
+    requestBody: JsRecord | undefined,
+    headers: unknown,
+    opts: { readonly ollamaModelPrefixes?: readonly string[] },
+    manifestPath?: string,
+  ) => JsRecord;
+  readonly strategyUpstreamPath: (
+    id: string,
+    providerPaths: Readonly<Record<string, string>> | undefined,
+    config: unknown,
+    model: unknown,
+    manifestPath?: string,
+  ) => string | undefined;
+  readonly normalizeLlamacppModelName: (model: string) => string;
+  readonly strategyMatches: (id: string, facts: StrategySelectionFacts, manifestPath?: string) => boolean;
 }
 
 const loaded = await loadCljsRuntime({ required: true });

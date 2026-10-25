@@ -93,3 +93,9 @@
            :explicit-ollama false
            :local-ollama false
            :policy-preferred-mode (or explicit-mode (get mode-by-provider normalized) (:policy-preferred-mode facts)))))
+
+(defn entry
+  "The registry entry with strategy id `id` (a keyword)."
+  [registry id]
+  (or (some #(when (= id (:strategy/id %)) %) (:registry/entries registry))
+      (throw (ex-info "Unknown strategy" {:error/type :strategy/unknown :strategy/id id}))))

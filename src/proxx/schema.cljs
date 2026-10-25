@@ -418,7 +418,19 @@
          [:strategy/id :keyword]
          [:strategy/mode [:string {:min 1}]]
          [:strategy/local? {:optional true} :boolean]
+         [:strategy/path {:optional true}
+          [:map
+           [:static {:optional true} [:string {:min 1}]]
+           [:config-key {:optional true} [:string {:min 1}]]
+           [:provider-path-key {:optional true} [:string {:min 1}]]
+           [:template {:optional true} [:string {:min 1}]]
+           [:model-default {:optional true} [:string {:min 1}]]]]
          [:strategy/match [:vector Pred]]]]]
+      [:registry/payload-rules
+       [:map
+        [:codex-unsupported-params [:vector [:string {:min 1}]]]
+        [:factory-default-max-tokens [:int {:min 1}]]
+        [:ovm-default-model [:string {:min 1}]]]]
       [:registry/compat-embedding-providers [:set [:string {:min 1}]]]]]))
 
 (def FederationRoutingClauseContract

@@ -1,10 +1,11 @@
 import {
   ChatCompletionsProviderStrategy,
 } from "./standard.js";
+import { kernels } from "../../cljs-kernels.js";
 import {
-  buildPayloadResult,
   buildRequestBodyForUpstream,
-  ensureChatCompletionsUsageInStream,
+  buildStrategyPayloadResult,
+  strategyUpstreamPath,
   type BuildPayloadResult,
   type StrategyRequestContext,
 } from "../shared.js";
@@ -18,7 +19,7 @@ import {
  * use Ollama conventions) resolve correctly when forwarded to a llama.cpp server.
  */
 export function normalizeLlamacppModelName(model: string): string {
-  return model.replace(/:/g, "-");
+  return kernels.normalizeLlamacppModelName(model);
 }
 
 /**
@@ -28,19 +29,14 @@ export function normalizeLlamacppModelName(model: string): string {
  * (colon → hyphen) to match llama.cpp's `--alias` convention.
  */
 export class LlamacppChatCompletionsProviderStrategy extends ChatCompletionsProviderStrategy {
-  public override matches(context: StrategyRequestContext): boolean {
-    return context.routeProviderId === "llamacpp"
-      && context.responsesPassthrough !== true
-      && context.imagesPassthrough !== true;
+  public override readonly registryId: string = "llamacpp-chat";
+
+  public override getUpstreamPath(context: StrategyRequestContext): string {
+    return strategyUpstreamPath("llamacpp-chat", context);
   }
 
   public override buildPayload(context: StrategyRequestContext): BuildPayloadResult {
-    const upstreamPayload = buildRequestBodyForUpstream(context);
-    // Normalize the model name for llama.cpp (e.g. "gemma4:e4b" → "gemma4-e4b")
-    if (typeof upstreamPayload.model === "string") {
-      upstreamPayload.model = normalizeLlamacppModelName(upstreamPayload.model);
-    }
-    ensureChatCompletionsUsageInStream(upstreamPayload);
-    return buildPayloadResult(upstreamPayload, context);
+    // The model name is normalised for llama.cpp (e.g. "gemma4:e4b" → "gemma4-e4b").
+    return buildStrategyPayloadResult("llamacpp-chat", context, buildRequestBodyForUpstream(context));
   }
 }

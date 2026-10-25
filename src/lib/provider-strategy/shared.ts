@@ -7,7 +7,7 @@ import type { ProviderCredential } from "../key-pool.js";
 import type { Factory4xxDiagnostics, RequestLogStore } from "../request-log-store.js";
 import type { ResolvedRequestAuth } from "../request-auth.js";
 import { estimateRequestCost } from "../model-pricing.js";
-import { kernels } from "../cljs-kernels.js";
+import { kernels, type StrategySelectionFacts } from "../cljs-kernels.js";
 import { normalizeReasoningRequestWithCljs, resolveModelAliasWithCljs } from "../cljs-runtime.js";
 import {
   isGlmModel,
@@ -352,6 +352,59 @@ function buildRequestBodyForUpstream(context: StrategyRequestContext): Record<st
   return upstreamBody;
 }
 
+/** The request facts the strategy registry's predicates read (proxx.strategy.select). */
+function selectionFacts(context: StrategyRequestContext, policyPreferredMode?: string): StrategySelectionFacts {
+  const manifestPath = context.config?.cljsPolicyManifestPath ?? "resources/policies/runtime/00-manifest.edn";
+  return {
+    routeProviderId: context.routeProviderId,
+    responsesPassthrough: context.responsesPassthrough,
+    imagesPassthrough: context.imagesPassthrough,
+    embeddingsPassthrough: context.embeddingsPassthrough,
+    explicitOllama: context.explicitOllama,
+    localOllama: context.localOllama,
+    openAiPrefixed: context.openAiPrefixed,
+    factoryPrefixed: context.factoryPrefixed,
+    policyPreferredMode: policyPreferredMode ?? context.policyPreferredStrategyMode,
+    factoryModelType: context.factoryPrefixed ? kernels.getFactoryModelType(manifestPath, context.routedModel) : undefined,
+    clientHeaders: context.clientHeaders,
+    requestBody: context.requestBody,
+  };
+}
+
+/**
+ * The upstream payload of the strategy registered as `id` (recipes in
+ * proxx.strategy.build). Strategies that translate the normalised chat body get it
+ * from `buildRequestBodyForUpstream`; the others work from the raw request.
+ */
+function buildStrategyPayloadResult(
+  id: string,
+  context: StrategyRequestContext,
+  upstreamBody?: Record<string, unknown>,
+): BuildPayloadResult {
+  return buildPayloadResult(
+    kernels.buildStrategyPayload(
+      id,
+      upstreamBody,
+      context.requestBody,
+      context.clientHeaders,
+      { ollamaModelPrefixes: context.config.ollamaModelPrefixes },
+      context.config.cljsPolicyManifestPath,
+    ),
+    context,
+  );
+}
+
+/** The registry-declared upstream path of strategy `id` (undefined when a wire profile owns it). */
+function strategyUpstreamPath(id: string, context: StrategyRequestContext): string {
+  return kernels.strategyUpstreamPath(
+    id,
+    context.providerPaths,
+    context.config,
+    context.requestBody["model"],
+    context.config.cljsPolicyManifestPath,
+  ) as string;
+}
+
 function ensureChatCompletionsUsageInStream(upstreamBody: Record<string, unknown>): void {
   if (upstreamBody["stream"] !== true) {
     return;
@@ -541,6 +594,9 @@ export {
   updateFailedAttemptDiagnostics,
   stripTrailingAssistantPrefill,
   buildPayloadResult,
+  selectionFacts,
+  buildStrategyPayloadResult,
+  strategyUpstreamPath,
   applyProviderModelAliasToPayload,
   buildRequestBodyForUpstream,
   ensureChatCompletionsUsageInStream,

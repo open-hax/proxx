@@ -1,7 +1,6 @@
 import type { FastifyReply } from "fastify";
 
 import {
-  chatRequestToOllamaRequest,
   ollamaToChatCompletion,
   streamOllamaNdjsonToChatCompletionSse,
 } from "../../ollama-compat.js";
@@ -9,7 +8,8 @@ import { toErrorMessage } from "../../errors/index.js";
 import { normalizeReasoningRequestWithCljs } from "../../cljs-runtime.js";
 import { BaseProviderStrategy } from "../base.js";
 import {
-  buildPayloadResult,
+  buildStrategyPayloadResult,
+  strategyUpstreamPath,
   type BuildPayloadResult,
   type ProviderAttemptContext,
   type ProviderAttemptOutcome,
@@ -27,15 +27,10 @@ export class OllamaCloudProviderStrategy extends BaseProviderStrategy {
   public readonly mode = "ollama_chat" as const;
 
   public readonly isLocal = false;
+  public readonly registryId: string = "ollama-cloud";
 
-  public matches(context: StrategyRequestContext): boolean {
-    return context.routeProviderId === "ollama-cloud"
-      && context.responsesPassthrough !== true
-      && context.imagesPassthrough !== true;
-  }
-
-  public getUpstreamPath(_context: StrategyRequestContext): string {
-    return "/api/chat";
+  public getUpstreamPath(context: StrategyRequestContext): string {
+    return strategyUpstreamPath("ollama-cloud", context);
   }
 
   public buildPayload(context: StrategyRequestContext): BuildPayloadResult {
@@ -46,7 +41,7 @@ export class OllamaCloudProviderStrategy extends BaseProviderStrategy {
       providerId: "ollama-cloud",
       strategyMode: this.mode,
     });
-    return buildPayloadResult(chatRequestToOllamaRequest(requestBody, context.config.ollamaModelPrefixes), context);
+    return buildStrategyPayloadResult("ollama-cloud", context, requestBody);
   }
 
   public override async handleProviderAttempt(

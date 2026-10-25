@@ -100,16 +100,16 @@
   asks for nothing or the model family has no thinking controls."
   [body model]
   (let [effort (request-effort body)
-        wants-trace? (reasoning/wants-reasoning-trace? body)
-        lower (str/lower-case model)]
+        wants-trace? (reasoning/wants-reasoning-trace? body)]
     (when (or wants-trace? (some? effort))
-      (when-let [config (cond
+      (when-let [config (let [lower (str/lower-case model)]
+                          (cond
                           (str/starts-with? lower "gemini-2.5-flash")
                           {"thinkingBudget" (thinking-budget-25 effort 1024 24576 true)}
                           (str/starts-with? lower "gemini-2.5-pro")
                           {"thinkingBudget" (thinking-budget-25 effort 128 32768 false)}
                           (str/starts-with? lower "gemini-3")
-                          {"thinkingLevel" (thinking-level-3 model effort)})]
+                          {"thinkingLevel" (thinking-level-3 model effort)}))]
         (cond-> config wants-trace? (assoc "includeThoughts" true))))))
 
 ;; ---------------------------------------------------------------------------

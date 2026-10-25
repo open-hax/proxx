@@ -3,13 +3,8 @@ import { Readable } from "node:stream";
 import type { FastifyReply } from "fastify";
 
 import { copyUpstreamHeaders } from "../../proxy.js";
+import { messagesToChatCompletion } from "../../messages-compat.js";
 import {
-  chatRequestToMessagesRequest,
-  messagesToChatCompletion,
-  normalizeMessagesThinkingBudget,
-} from "../../messages-compat.js";
-import {
-  chatRequestToResponsesRequest,
   chatCompletionToSse,
   responsesEventStreamToChatCompletion,
   responsesEventStreamToErrorPayload,
@@ -20,16 +15,11 @@ import {
   buildFactoryAnthropicHeaders,
   buildFactoryCommonHeaders,
   getFactoryEndpointPath,
-  getFactoryModelType,
-  inlineSystemPrompt,
-  sanitizeFactorySystemPrompt,
 } from "../../factory-compat.js";
 import { BaseProviderStrategy, TransformedJsonProviderStrategy } from "../base.js";
 import {
-  applyRequestedServiceTier,
-  buildPayloadResult,
   buildRequestBodyForUpstream,
-  stripTrailingAssistantPrefill,
+  buildStrategyPayloadResult,
   type BuildPayloadResult,
   type ProviderAttemptContext,
   type ProviderAttemptOutcome,
@@ -40,22 +30,14 @@ export class FactoryResponsesPassthroughStrategy extends BaseProviderStrategy {
   public readonly mode = "responses_passthrough" as const;
 
   public readonly isLocal = false;
-
-  public matches(context: StrategyRequestContext): boolean {
-    return context.responsesPassthrough === true
-      && context.factoryPrefixed
-      && getFactoryModelType(context.routedModel) === "openai";
-  }
+  public readonly registryId: string = "factory-responses-passthrough";
 
   public getUpstreamPath(_context: StrategyRequestContext): string {
     return getFactoryEndpointPath("openai");
   }
 
   public buildPayload(context: StrategyRequestContext): BuildPayloadResult {
-    const upstreamPayload: Record<string, unknown> = { ...context.requestBody };
-    delete upstreamPayload["open_hax"];
-    stripTrailingAssistantPrefill(upstreamPayload);
-    return buildPayloadResult(upstreamPayload, context);
+    return buildStrategyPayloadResult("factory-responses-passthrough", context);
   }
 
   public override applyRequestHeaders(headers: Headers, context: ProviderAttemptContext, _payload: Record<string, unknown>): void {
@@ -126,39 +108,16 @@ export class FactoryMessagesProviderStrategy extends TransformedJsonProviderStra
   public readonly mode = "messages" as const;
 
   public readonly isLocal = false;
-
-  private static readonly defaultMaxTokens = 4096;
-
-  public matches(context: StrategyRequestContext): boolean {
-    return context.factoryPrefixed
-      && getFactoryModelType(context.routedModel) === "anthropic";
-  }
+  public readonly registryId: string = "factory-messages";
 
   public getUpstreamPath(_context: StrategyRequestContext): string {
     return getFactoryEndpointPath("anthropic");
   }
 
   public buildPayload(context: StrategyRequestContext): BuildPayloadResult {
-    const messagesPayload = chatRequestToMessagesRequest(buildRequestBodyForUpstream(context));
-    const rawSystem = messagesPayload["system"];
-    const sanitizedSystem = typeof rawSystem === "string" ? sanitizeFactorySystemPrompt(rawSystem) : rawSystem;
-    const sanitizedPayload = sanitizedSystem === rawSystem
-      ? messagesPayload
-      : {
-          ...messagesPayload,
-          system: sanitizedSystem,
-        };
-    const payloadWithMaxTokens = sanitizedPayload["max_tokens"] === undefined
-      ? {
-          ...sanitizedPayload,
-          max_tokens: FactoryMessagesProviderStrategy.defaultMaxTokens,
-        }
-      : sanitizedPayload;
-    const normalizedThinkingPayload = normalizeMessagesThinkingBudget(payloadWithMaxTokens);
-    // Inline system content into first user message to avoid Factory 403 with fk- keys.
-    // We always inline for Factory to keep behavior consistent across credential types.
-    const inlinedPayload = inlineSystemPrompt(normalizedThinkingPayload);
-    return buildPayloadResult(inlinedPayload, context);
+    // System content is sanitised, given a default max_tokens, thinking-budget
+    // normalised and always inlined into the first user message (see proxx.strategy.build).
+    return buildStrategyPayloadResult("factory-messages", context, buildRequestBodyForUpstream(context));
   }
 
   public override applyRequestHeaders(headers: Headers, context: ProviderAttemptContext, payload: Record<string, unknown>): void {
@@ -188,37 +147,14 @@ export class FactoryResponsesProviderStrategy extends TransformedJsonProviderStr
   public readonly mode = "responses" as const;
 
   public readonly isLocal = false;
-
-  public matches(context: StrategyRequestContext): boolean {
-    return context.factoryPrefixed
-      && getFactoryModelType(context.routedModel) === "openai";
-  }
+  public readonly registryId: string = "factory-responses";
 
   public getUpstreamPath(_context: StrategyRequestContext): string {
     return getFactoryEndpointPath("openai");
   }
 
   public buildPayload(context: StrategyRequestContext): BuildPayloadResult {
-    const upstreamPayload = chatRequestToResponsesRequest(buildRequestBodyForUpstream(context));
-    applyRequestedServiceTier(upstreamPayload, context);
-    upstreamPayload["store"] = false;
-    upstreamPayload["stream"] = true;
-
-    // Factory rejects non-empty `instructions` with 403; move system instructions
-    // into the input array as a developer message instead.
-    const instructions = typeof upstreamPayload["instructions"] === "string"
-      ? upstreamPayload["instructions"].trim()
-      : "";
-    if (instructions.length > 0 && Array.isArray(upstreamPayload["input"])) {
-      const input = upstreamPayload["input"] as unknown[];
-      input.unshift({
-        role: "developer",
-        content: [{ type: "input_text", text: instructions }],
-      });
-    }
-    delete upstreamPayload["instructions"];
-
-    return buildPayloadResult(upstreamPayload, context);
+    return buildStrategyPayloadResult("factory-responses", context, buildRequestBodyForUpstream(context));
   }
 
   public override applyRequestHeaders(headers: Headers, context: ProviderAttemptContext, _payload: Record<string, unknown>): void {
@@ -350,18 +286,14 @@ export class FactoryChatCompletionsProviderStrategy extends BaseProviderStrategy
   public readonly mode = "chat_completions" as const;
 
   public readonly isLocal = false;
-
-  public matches(context: StrategyRequestContext): boolean {
-    return context.factoryPrefixed
-      && getFactoryModelType(context.routedModel) === "common";
-  }
+  public readonly registryId: string = "factory-chat";
 
   public getUpstreamPath(_context: StrategyRequestContext): string {
     return getFactoryEndpointPath("common");
   }
 
   public buildPayload(context: StrategyRequestContext): BuildPayloadResult {
-    return buildPayloadResult(buildRequestBodyForUpstream(context), context);
+    return buildStrategyPayloadResult("factory-chat", context, buildRequestBodyForUpstream(context));
   }
 
   public override applyRequestHeaders(headers: Headers, context: ProviderAttemptContext, _payload: Record<string, unknown>): void {
