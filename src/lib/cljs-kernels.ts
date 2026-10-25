@@ -9,6 +9,8 @@ import type { ServerResponse } from "node:http";
 
 import { loadCljsRuntime } from "./cljs-runtime.js";
 import type { CredentialStoreLike } from "./credential-store.js";
+import type { Sql } from "./db/index.js";
+import type { ProxySettingsStoreApi } from "./proxy-settings-store.js";
 import type { HostDashboardRouteSummary, HostDashboardSnapshot, HostDashboardTarget } from "./host-dashboard.js";
 import type { AccountHealthStore } from "./db/account-health-store.js";
 import type {
@@ -369,6 +371,8 @@ export interface CljsKernels {
     cooldownController: QuotaCooldownController | undefined,
   ) => QuotaMonitorApi;
   readonly quotaMonitorDefaultConfig: () => QuotaMonitorConfig;
+  // proxy settings
+  readonly createProxySettingsStore: (filePath: string, sql?: Sql) => ProxySettingsStoreApi;
   // host dashboard
   readonly loadHostDashboardTargetsFromEnv: (env: NodeJS.ProcessEnv) => readonly HostDashboardTarget[];
   readonly resolveHostDashboardTargetToken: (target: HostDashboardTarget, env: NodeJS.ProcessEnv) => string | undefined;

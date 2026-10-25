@@ -337,7 +337,8 @@
                                            inferSelfHostDashboardTargetId proxx.runtime.host-dashboard/infer-self-host-dashboard-target-id-js
                                            parseCaddyRoutes proxx.runtime.host-dashboard/parse-caddy-routes-js
                                            collectLocalHostDashboardSnapshot proxx.runtime.host-dashboard/collect-local-host-dashboard-snapshot-js
-                                           fetchRemoteHostDashboardSnapshot proxx.runtime.host-dashboard/fetch-remote-host-dashboard-snapshot-js}}}
+                                           fetchRemoteHostDashboardSnapshot proxx.runtime.host-dashboard/fetch-remote-host-dashboard-snapshot-js
+                                           createProxySettingsStore proxx.runtime.settings/create-proxy-settings-store-js}}}
    :js-options {:js-provider :import
                 :keep-as-import #{"node:fs" "node:path"}}
    :compiler-options {:output-feature-set :es-next

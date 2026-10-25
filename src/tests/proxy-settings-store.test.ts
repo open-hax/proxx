@@ -4,7 +4,6 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { setActiveCljsRuntime, type ProxxCljsRuntime } from "../lib/cljs-runtime.js";
 import type { Sql } from "../lib/db/index.js";
 import { ProxySettingsStore } from "../lib/proxy-settings-store.js";
 
@@ -101,27 +100,14 @@ test("proxy settings store scopes SQL-backed settings by tenant", async () => {
   }
 });
 
-test("proxy settings store normalizes file-backed keys through active CLJS runtime", async () => {
+test("proxy settings store accepts kebab-case and snake_case settings keys", async () => {
   const tempDir = await mkdtemp(path.join(os.tmpdir(), "proxx-settings-store-"));
   const settingsPath = path.join(tempDir, "proxy-settings.json");
-  const cljsRuntime: ProxxCljsRuntime = {
-    normalizeKeys: () => ({
-      "fast-mode": true,
-      "requests-per-minute": 12,
-      "allowed-provider-ids": [" OPENAI ", "openai", "ollama"],
-    }),
-    validateEntity: () => ({ status: "ok" }),
-    projectPheromone: () => 0,
-    routePolicy: () => ({ status: "error", trace: [] }),
-    loadPolicyEvidence: async () => ({}),
-    loadModelPricingOverrides: () => ([]),
-    loadProviderSeedSpecs: () => ([]),
-    previewPolicyDecision: () => ({ status: "error" }),
-    normalizeReasoningRequest: (_manifestPath, input) => ({ status: "ok", decision: { "request-body": (input as { readonly requestBody?: unknown }).requestBody } }),
-    resolveModelAlias: () => ({ status: "ok", alias: null }),
-  };
-  setActiveCljsRuntime(cljsRuntime);
-  await writeFile(settingsPath, JSON.stringify({ fastMode: false }), "utf8");
+  await writeFile(settingsPath, JSON.stringify({
+    "fast-mode": true,
+    requests_per_minute: 12,
+    allowedProviderIds: [" OPENAI ", "openai", "ollama"],
+  }), "utf8");
 
   const store = new ProxySettingsStore(settingsPath);
   try {
@@ -134,7 +120,6 @@ test("proxy settings store normalizes file-backed keys through active CLJS runti
       disabledProviderIds: null,
     });
   } finally {
-    setActiveCljsRuntime(undefined);
     await rm(tempDir, { recursive: true, force: true });
   }
 });
