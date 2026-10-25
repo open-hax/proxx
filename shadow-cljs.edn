@@ -25,7 +25,13 @@
                                               authorizeTenantProviderPolicy proxx.runtime/authorize-tenant-provider-policy-js
                                              runModelCandidates proxx.runtime/run-model-candidates-js
                                            resolveQueuePolicy proxx.runtime/resolve-queue-policy-js
-                                           runQueued proxx.runtime/run-queued-js}}}
+                                           runQueued proxx.runtime/run-queued-js
+                                           responseIndicatesQuotaError proxx.runtime/response-indicates-quota-error-js
+                                           responseIndicatesMissingModel proxx.runtime/response-indicates-missing-model-js
+                                           responseIndicatesModelNotSupportedForAccount proxx.runtime/response-indicates-model-not-supported-js
+                                           summarizeUpstreamError proxx.runtime/summarize-upstream-error-js
+                                           streamPayloadIndicatesQuotaError proxx.runtime/stream-payload-indicates-quota-error-js
+                                           extractErrorMessage proxx.runtime/extract-error-message-js}}}
    :js-options {:js-provider :import
                 :keep-as-import #{"node:fs" "node:path"}}
    :compiler-options {:output-feature-set :es-next

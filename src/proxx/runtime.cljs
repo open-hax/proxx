@@ -1,6 +1,7 @@
 (ns proxx.runtime
   (:require [clojure.string]
             [proxx.policy :as policy]
+            [proxx.errors.classification :as classification]
             [proxx.policy.contracts :as policy-contracts]
             [proxx.policy.evidence :as policy-evidence]
             [proxx.policy.loader :as policy-loader]
@@ -306,3 +307,67 @@
         :runModelCandidates run-model-candidates-js
        :resolveQueuePolicy resolve-queue-policy-js
        :runQueued run-queued-js})
+
+;; ---------------------------------------------------------------------------
+;; Upstream error classification (edge: reads the Response once, then applies
+;; the pure verdicts in proxx.errors.classification to the same facts)
+;; ---------------------------------------------------------------------------
+
+(defn- parse-json [text]
+  (js->clj (js/JSON.parse text)))
+
+(defn- ^:async read-payload
+  "Body of a cloned response as parsed JSON, falling back to raw text, else nil."
+  [response]
+  (try
+    (parse-json (await (.text (.clone response))))
+    (catch :default _
+      (try (await (.text (.clone response)))
+           (catch :default _ nil)))))
+
+(defn- response-head [response]
+  {:status (.-status response)
+   :content-type (.get (.-headers response) "content-type")})
+
+(defn- ^:async with-payload [response head]
+  (assoc head :payload (await (read-payload response))))
+
+(defn ^:async response-indicates-quota-error-js
+  "Resolve true when a provider Response reports quota/credit exhaustion.
+  The body is read only when the head leaves the question open."
+  [response]
+  (let [head (response-head response)]
+    (classification/quota-error?
+     (if (classification/quota-body-needed? head)
+       (await (with-payload response head))
+       head))))
+
+(defn ^:async response-indicates-missing-model-js
+  [response requested-model]
+  (classification/missing-model? (await (with-payload response (response-head response)))
+                                 requested-model))
+
+(defn ^:async response-indicates-model-not-supported-js
+  [response requested-model]
+  (classification/model-not-supported-for-account?
+   (await (with-payload response (response-head response)))
+   requested-model))
+
+(defn ^:async summarize-upstream-error-js
+  "Resolve to {upstreamErrorCode?, upstreamErrorType?, upstreamErrorMessage?}."
+  [response]
+  (let [summary (classification/summarize-upstream-error (:payload (await (with-payload response {}))))]
+    (clj->js (cond-> {}
+               (:upstream-error-code summary) (assoc :upstreamErrorCode (:upstream-error-code summary))
+               (:upstream-error-type summary) (assoc :upstreamErrorType (:upstream-error-type summary))
+               (:upstream-error-message summary) (assoc :upstreamErrorMessage (:upstream-error-message summary))))))
+
+(defn stream-payload-indicates-quota-error-js
+  "True when any SSE event in `body` reports a quota failure."
+  [body]
+  (classification/stream-quota-error? parse-json body))
+
+(defn extract-error-message-js
+  "Message text of a parsed JSON error payload, or undefined."
+  [payload]
+  (clj->js (classification/extract-error-message (js->clj payload))))
