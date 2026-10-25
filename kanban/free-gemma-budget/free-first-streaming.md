@@ -29,6 +29,8 @@ No extra top-up, consumer OAuth proxy, public evaluation posts, or replacement d
 
 A slow free response falls back before committing visible output. Affinity cannot promote paid routes. Every paid attempt has a reservation; fallback denial remains an explicit exhausted result.
 
+Timing acceptance: free cutoff12seconds; total first usable deadline20seconds from admission including queue time; reasoning/headers/partial tools do not qualify. Fake-clock cases and terminal behavior follow the release plan.
+
 ## Verification
 
 Relevant unit/integration tests, compiled runtime checks and retained evidence in workspace receipts. Release story additionally requires production and real bot inference evidence.

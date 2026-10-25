@@ -29,6 +29,8 @@ No extra top-up, consumer OAuth proxy, public evaluation posts, or replacement d
 
 Concurrent requests and process restarts cannot overspend either cap. Missing usage retains conservative reservation. Free/local work stays outside the paid allowance.
 
+Calendar acceptance: admission-date charge ownership, unresolved carryover against both current caps, late settlement, midnight/month rollover and restart cases follow the release plan.
+
 ## Verification
 
 Relevant unit/integration tests, compiled runtime checks and retained evidence in workspace receipts. Release story additionally requires production and real bot inference evidence.
