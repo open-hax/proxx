@@ -164,6 +164,35 @@ export interface CljsKernels {
     readonly aliases: Readonly<Record<string, string>>;
   }>;
   readonly toOpenAiModel: (modelId: string) => { readonly id: string; readonly object: "model"; readonly created: number; readonly owned_by: string };
+  readonly providerRoutesFromRaw: (raw: unknown) => object[] | undefined;
+  readonly declaredProviderRoutes: (manifestPath: string, result: unknown, config: unknown) => object[];
+  readonly filteredProviderRoutes: (result: unknown, inputRoutes: readonly object[]) => object[];
+  readonly applyProviderRouteDecision: (preview: unknown, filteredRoutes: readonly object[], upstreamModes: readonly string[]) => {
+    readonly providerRoutes: object[];
+    readonly strategyMode?: string;
+    readonly strategyModeByProvider?: Readonly<Record<string, string>>;
+  };
+  readonly looksLikeHostedOpenAiFamily: (manifestPath: string, model: string) => boolean;
+  readonly stripModelPrefix: (model: string, prefixes: readonly string[]) => string;
+  readonly hasModelPrefix: (model: string, prefixes: readonly string[]) => boolean;
+  readonly shouldUseLocalOllama: (manifestPath: string, model: string, patterns: readonly string[]) => boolean;
+  readonly resolveRequestRoutingState: (manifestPath: string, config: object, requestedModel: string) => {
+    readonly explicitOllama: boolean;
+    readonly openAiPrefixed: boolean;
+    readonly factoryPrefixed: boolean;
+    readonly localOllama: boolean;
+    readonly routedModel: string;
+  };
+  readonly dedupeModelIds: (modelIds: readonly string[]) => string[];
+  readonly parseModelIdsFromCatalogPayload: (payload: unknown) => string[];
+  readonly buildLargestModelAliases: (modelIds: readonly string[]) => Record<string, string>;
+  readonly buildOllamaCatalogRoutes: (manifestPath: string, config: object) => object[];
+  readonly providerSupportsResponsesApi: (manifestPath: string, providerId: string, openAiProviderId?: string) => boolean;
+  readonly providerSupportsImagesApi: (manifestPath: string, providerId: string, openAiProviderId?: string) => boolean;
+  readonly filterResponsesApiRoutes: <T extends { readonly providerId: string }>(manifestPath: string, routes: readonly T[], openAiProviderId?: string) => T[];
+  readonly filterImagesApiRoutes: <T extends { readonly providerId: string }>(manifestPath: string, routes: readonly T[], openAiProviderId?: string) => T[];
+  readonly minMsUntilAnyProviderKeyReady: (keyPool: object, routes: readonly { readonly providerId: string }[]) => Promise<number>;
+  readonly createDynamicProviderBaseUrlGetter: (store: object | undefined) => ((providerId: string) => Promise<string | null | undefined>) | undefined;
 }
 
 const loaded = await loadCljsRuntime({ required: true });

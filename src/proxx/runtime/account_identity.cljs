@@ -1,7 +1,8 @@
 (ns proxx.runtime.account-identity
   "JS edge for src/lib/account-identity.ts: base64url + JSON decoding of the JWT
   payload live here, the identity rules in proxx.routing.account-identity."
-  (:require [proxx.routing.account-identity :as identity]))
+  (:require [proxx.runtime.interop :as interop]
+            [proxx.routing.account-identity :as identity]))
 
 (defn- jwt-claims
   "The decoded JWT payload as a JS value, or nil when the token is not a
@@ -17,7 +18,7 @@
 
 (defn derive-oauth-metadata-from-token-js [token]
   (if-let [claims (jwt-claims token)]
-    (let [{:keys [email subject chatgpt-account-id plan-type]} (identity/derive-oauth-metadata (js->clj claims))
+    (let [{:keys [email subject chatgpt-account-id plan-type]} (identity/derive-oauth-metadata (interop/js->data claims))
           o #js {}]
       (doseq [[k v] [["email" email] ["subject" subject] ["chatgptAccountId" chatgpt-account-id] ["planType" plan-type]]]
         (aset o k (if (some? v) v js/undefined)))

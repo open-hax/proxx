@@ -107,7 +107,26 @@
                                            loadModels proxx.runtime.models/load-models-js
                                            loadDeclaredModels proxx.runtime.models/load-declared-models-js
                                            loadModelPreferences proxx.runtime.models/load-model-preferences-js
-                                           toOpenAiModel proxx.runtime.models/to-open-ai-model-js}}}
+                                           toOpenAiModel proxx.runtime.models/to-open-ai-model-js
+                                           providerRoutesFromRaw proxx.runtime.routing/provider-routes-from-raw-js
+                                           declaredProviderRoutes proxx.runtime.routing/declared-provider-routes-js
+                                           filteredProviderRoutes proxx.runtime.routing/filtered-provider-routes-js
+                                           applyProviderRouteDecision proxx.runtime.routing/apply-provider-route-decision-js
+                                           looksLikeHostedOpenAiFamily proxx.runtime.routing/looks-like-hosted-open-ai-family-js
+                                           stripModelPrefix proxx.runtime.routing/strip-model-prefix-js
+                                           hasModelPrefix proxx.runtime.routing/has-model-prefix-js
+                                           shouldUseLocalOllama proxx.runtime.routing/should-use-local-ollama-js
+                                           resolveRequestRoutingState proxx.runtime.routing/resolve-request-routing-state-js
+                                           dedupeModelIds proxx.runtime.routing/dedupe-model-ids-js
+                                           parseModelIdsFromCatalogPayload proxx.runtime.routing/parse-model-ids-from-catalog-payload-js
+                                           buildLargestModelAliases proxx.runtime.routing/build-largest-model-aliases-js
+                                           buildOllamaCatalogRoutes proxx.runtime.routing/build-ollama-catalog-routes-js
+                                           providerSupportsResponsesApi proxx.runtime.routing/provider-supports-responses-api-js
+                                           providerSupportsImagesApi proxx.runtime.routing/provider-supports-images-api-js
+                                           filterResponsesApiRoutes proxx.runtime.routing/filter-responses-api-routes-js
+                                           filterImagesApiRoutes proxx.runtime.routing/filter-images-api-routes-js
+                                           minMsUntilAnyProviderKeyReady proxx.runtime.routing/min-ms-until-any-provider-key-ready-js
+                                           createDynamicProviderBaseUrlGetter proxx.runtime.routing/create-dynamic-provider-base-url-getter-js}}}
    :js-options {:js-provider :import
                 :keep-as-import #{"node:fs" "node:path"}}
    :compiler-options {:output-feature-set :es-next
