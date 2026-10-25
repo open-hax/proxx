@@ -247,7 +247,8 @@
                                            accountOrderForRequest proxx.runtime.strategy/account-order-for-request-js
                                            accountOrderForLatency proxx.runtime.strategy/account-order-for-latency-js
                                            candidateOrderForAffinities proxx.runtime.strategy/candidate-order-for-affinities-js
-                                           candidateOrderForRoutes proxx.runtime.strategy/candidate-order-for-routes-js}}}
+                                           candidateOrderForRoutes proxx.runtime.strategy/candidate-order-for-routes-js
+                                           createRequestLogCore proxx.runtime.request-log/create-request-log-core-js}}}
    :js-options {:js-provider :import
                 :keep-as-import #{"node:fs" "node:path"}}
    :compiler-options {:output-feature-set :es-next

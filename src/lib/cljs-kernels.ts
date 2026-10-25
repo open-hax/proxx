@@ -231,6 +231,7 @@ export interface CljsKernels {
   readonly usageCoverageQuery: (filters: object) => { readonly text: string; readonly values: unknown[] };
   readonly usageCursorQuery: () => string;
   readonly usageToCursor: (row: object) => { readonly timestampMs: number; readonly id: string };
+  readonly createRequestLogCore: (maxEntries: number, deps?: { now?: () => number; uuid?: () => string }) => unknown;
   readonly createSessionStore: (filePath: string, deps?: { now?: () => number; uuid?: () => string }) => unknown;
   // w2 auth/oauth: openai + factory oauth
   readonly createOpenAiOAuthManager: (options: unknown, deps: unknown) => OAuthManagerFacade;
