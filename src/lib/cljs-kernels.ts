@@ -5,7 +5,10 @@
  * this one can call the kernels synchronously. The compiled artifact is
  * required: these functions are the implementation, not an optimization.
  */
+import type { ServerResponse } from "node:http";
+
 import { loadCljsRuntime } from "./cljs-runtime.js";
+import type { BridgeSendChannel } from "./federation/bridge-send-channel.js";
 import type { BridgeMessage } from "./federation/bridge-protocol.js";
 import type { BridgeLeaseAccountSummary, BridgeLeaseExportedAccount } from "../routes/federation/bridge-lease-parsers.js";
 import type { FederationOwnerCredential } from "./federation/owner-credential.js";
@@ -182,6 +185,9 @@ export interface CljsKernels {
   ) => [string, string][];
   readonly parseBridgeLeaseAccounts: (payload: unknown, fallbackProviderId: string) => BridgeLeaseAccountSummary[];
   readonly parseBridgeLeaseExport: (payload: unknown) => BridgeLeaseExportedAccount | undefined;
+  readonly createBridgeRelay: () => unknown;
+  readonly createSseBridgeSendChannel: (res: ServerResponse) => BridgeSendChannel;
+  readonly formatSseEvent: (event: string, data: unknown) => string;
 }
 
 const loaded = await loadCljsRuntime({ required: true });

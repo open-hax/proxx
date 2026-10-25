@@ -108,7 +108,10 @@
                                            bridgeCapabilitySupportsModel proxx.runtime.federation/bridge-capability-supports-model-js
                                            forwardableBridgeResponseHeaders proxx.runtime.federation/forwardable-bridge-response-headers-js
                                            parseBridgeLeaseAccounts proxx.runtime.federation/parse-bridge-lease-accounts-js
-                                           parseBridgeLeaseExport proxx.runtime.federation/parse-bridge-lease-export-js}}}
+                                           parseBridgeLeaseExport proxx.runtime.federation/parse-bridge-lease-export-js
+                                           createBridgeRelay proxx.runtime.federation-relay/create-relay-js
+                                           createSseBridgeSendChannel proxx.runtime.federation/create-sse-bridge-send-channel-js
+                                           formatSseEvent proxx.runtime.federation/format-sse-event-js}}}
    :js-options {:js-provider :import
                 :keep-as-import #{"node:fs" "node:path"}}
    :compiler-options {:output-feature-set :es-next

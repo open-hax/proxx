@@ -12,7 +12,8 @@
             [proxx.federation.helpers :as helpers]
             [proxx.federation.lease :as lease]
             [proxx.federation.owner :as owner]
-            [proxx.federation.protocol :as protocol]))
+            [proxx.federation.protocol :as protocol]
+            [proxx.federation.sse-channel :as sse]))
 
 (defn js->wire
   "JS value to wire data: plain objects to string-keyed maps (undefined props
@@ -121,3 +122,63 @@
 
 (defn parse-bridge-lease-export-js [payload]
   (or-undefined (some-> (lease/parse-export (js->wire payload)) clj->js)))
+
+;; ---------------------------------------------------------------------------
+;; sse-bridge-channel.ts
+;; ---------------------------------------------------------------------------
+
+(defn create-sse-bridge-send-channel-js
+  "A BridgeSendChannel over a server response: `send` writes data events,
+  `close` writes the optional close event and ends the response, once."
+  [^js res]
+  (let [open? (atom true)
+        live? (fn [] (and @open? (not (.-writableEnded res))))
+        channel (js-obj)]
+    (aset channel "send" (fn [data] (when (live?) (.write res (sse/data-frame data)))))
+    (aset channel "close"
+          (fn [code reason]
+            (when @open?
+              (reset! open? false)
+              (when-let [frame (sse/close-frame code (js/JSON.stringify (if (nil? reason) "" reason)))]
+                (.write res frame))
+              (.end res))))
+    (js/Object.defineProperty channel "isOpen" #js {:get live?})
+    channel))
+
+(defn format-sse-event-js [event data]
+  (sse/event-frame event (js/String (js/JSON.stringify data))))
+
+;; ---------------------------------------------------------------------------
+;; Shared edge helpers for the bridge relay and agent
+;; ---------------------------------------------------------------------------
+
+(defn ws-text
+  "Text of a websocket message payload of any shape `ws` may deliver."
+  [data]
+  (cond
+    (string? data) data
+    (js/Buffer.isBuffer data) (.toString ^js data "utf8")
+    (array? data) (.toString (js/Buffer.concat (.map data (fn [e] (if (js/Buffer.isBuffer e) e (js/Buffer.from e))))) "utf8")
+    (instance? js/ArrayBuffer data) (.toString (js/Buffer.from data) "utf8")
+    :else (.toString (js/Buffer.from (str data)) "utf8")))
+
+(defn consume-async-iterable
+  "Promise resolved when `f` has seen every item of the async iterable (like
+  for-await). `f` returning :stop ends iteration early, calling `return()` on
+  the iterator; the promise then resolves to :stopped (else nil). A rejection
+  from the iterable rejects the promise."
+  [iterable f]
+  (let [it ((aget iterable js/Symbol.asyncIterator))]
+    (js/Promise.
+     (fn [resolve reject]
+       (letfn [(step []
+                 (-> (.next it)
+                     (.then (fn [r]
+                              (if (.-done r)
+                                (resolve nil)
+                                (if (= :stop (f (.-value r)))
+                                  (-> (if (fn? (.-return it)) (.return it) (js/Promise.resolve))
+                                      (.then (fn [_] (resolve :stopped))))
+                                  (step)))))
+                     (.catch reject)))]
+         (step))))))
