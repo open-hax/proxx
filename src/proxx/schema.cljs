@@ -358,6 +358,21 @@
                [:match/system-contains [:string {:min 1}]]
                [:wire/replace-with [:string {:min 1}]]]]]]])
 
+(def AutoModelProfileContract
+  "Facts behind auto:* model selection: default candidate list, and per model an
+  intelligence rank and the optional capabilities it supports."
+  [:and
+   ContractBase
+   [:map
+    [:contract/kind [:enum :auto-model-profile]]
+    [:auto/default-intelligence [:int {:min 0}]]
+    [:auto/default-candidates [:vector [:string {:min 1}]]]
+    [:auto/models
+     [:map-of [:string {:min 1}]
+      [:map
+       [:intelligence {:optional true} [:int {:min 0}]]
+       [:capabilities {:optional true} [:set [:enum :vision :tools :thinking]]]]]]]])
+
 (def FederationRoutingClauseContract
   [:and
    ContractBase
@@ -505,6 +520,7 @@
     [:account-constraint AccountConstraintContract]
     [:federation-routing-clause FederationRoutingClauseContract]
     [:provider-wire-profile ProviderWireProfileContract]
+    [:auto-model-profile AutoModelProfileContract]
     [:authorization-clause AuthorizationClauseContract]
     [:model-pricing-override ModelPricingOverrideContract]
     [:model-alias ModelAliasContract]
@@ -554,6 +570,7 @@
     :proxx/contract-account-constraint AccountConstraintContract
     :proxx/contract-federation-routing-clause FederationRoutingClauseContract
     :proxx/contract-provider-wire-profile ProviderWireProfileContract
+    :proxx/contract-auto-model-profile AutoModelProfileContract
    :proxx/contract-authorization-clause AuthorizationClauseContract
     :proxx/contract-model-pricing-override ModelPricingOverrideContract
     :proxx/contract-model-alias ModelAliasContract

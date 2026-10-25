@@ -49,7 +49,11 @@
                                            buildFactoryAnthropicHeaders proxx.runtime.factory/build-factory-anthropic-headers-js
                                            inlineSystemPrompt proxx.runtime.factory/inline-system-prompt-js
                                            sanitizeFactorySystemPrompt proxx.runtime.factory/sanitize-factory-system-prompt-js
-                                           isFkKey proxx.runtime.factory/is-fk-key-js}}}
+                                           isFkKey proxx.runtime.factory/is-fk-key-js
+                                           isAutoModel proxx.runtime.auto-model/is-auto-model-js
+                                           parseAutoModelType proxx.runtime.auto-model/parse-auto-model-type-js
+                                           rankAutoModels proxx.runtime.auto-model/rank-auto-models-js
+                                           selectAutoModel proxx.runtime.auto-model/select-auto-model-js}}}
    :js-options {:js-provider :import
                 :keep-as-import #{"node:fs" "node:path"}}
    :compiler-options {:output-feature-set :es-next
