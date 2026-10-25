@@ -92,7 +92,8 @@
                                            ollamaContextBudget proxx.runtime.ollama-context/ollama-context-budget-js
                                            requestyModelProvider proxx.runtime.requesty/requesty-model-provider-js
                                            ;; w2-analytics exports
-                                           createRequestLogFanout proxx.runtime.observability/create-request-log-fanout-js}}}
+                                           createRequestLogFanout proxx.runtime.observability/create-request-log-fanout-js
+                                           createSessionStore proxx.runtime.session/create-session-store-js}}}
    :js-options {:js-provider :import
                 :keep-as-import #{"node:fs" "node:path"}}
    :compiler-options {:output-feature-set :es-next

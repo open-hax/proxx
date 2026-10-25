@@ -141,6 +141,7 @@ export interface CljsKernels {
   readonly createKeyPool: (config: unknown, deps: unknown) => unknown;
   // w2-analytics
   readonly createRequestLogFanout: () => RequestLogFanout;
+  readonly createSessionStore: (filePath: string, deps?: { now?: () => number; uuid?: () => string }) => unknown;
 }
 
 export interface RequestLogFanout {
