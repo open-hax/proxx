@@ -373,6 +373,17 @@
   [body]
   (classification/stream-quota-error? parse-json body))
 
+(defn truncate-for-log-js
+  "Collapse whitespace and cap at `max-length` (default 240) characters."
+  [value max-length]
+  (classification/truncate-for-log value (if (some? max-length) max-length 240)))
+
+(defn message-indicates-quota-error-js [message]
+  (classification/quota-message? message))
+
+(defn payload-looks-like-error-js [payload]
+  (classification/error-like-payload? (js->clj payload)))
+
 (defn extract-error-message-js
   "Message text of a parsed JSON error payload, or undefined."
   [payload]
@@ -381,6 +392,8 @@
 ;; ---------------------------------------------------------------------------
 ;; SSE inspection (sync, string in / boolean out)
 ;; ---------------------------------------------------------------------------
+
+(defn extract-sse-data-lines-js [body] (to-array (sse/data-lines body)))
 
 (defn strip-sse-comment-lines-js [body] (sse/strip-comment-lines body))
 

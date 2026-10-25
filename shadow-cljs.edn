@@ -32,6 +32,10 @@
                                            summarizeUpstreamError proxx.runtime/summarize-upstream-error-js
                                            streamPayloadIndicatesQuotaError proxx.runtime/stream-payload-indicates-quota-error-js
                                            extractErrorMessage proxx.runtime/extract-error-message-js
+                                           truncateForLog proxx.runtime/truncate-for-log-js
+                                           messageIndicatesQuotaError proxx.runtime/message-indicates-quota-error-js
+                                           payloadLooksLikeError proxx.runtime/payload-looks-like-error-js
+                                           extractSseDataLines proxx.runtime/extract-sse-data-lines-js
                                            stripSseCommentLines proxx.runtime/strip-sse-comment-lines-js
                                            streamPayloadHasReasoningTrace proxx.runtime/stream-payload-has-reasoning-trace-js
                                            streamPayloadHasSubstantiveChunks proxx.runtime/stream-payload-has-substantive-chunks-js

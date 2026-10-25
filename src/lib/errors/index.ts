@@ -11,6 +11,4 @@ export {
   responseIndicatesModelNotSupportedForAccount,
   summarizeUpstreamError,
   type UpstreamErrorSummary,
-  QUOTA_ERROR_PATTERNS,
-  MODEL_NOT_SUPPORTED_WITH_CHATGPT_PATTERNS,
 } from "./classification.js";
