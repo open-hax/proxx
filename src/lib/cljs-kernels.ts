@@ -141,7 +141,29 @@ export interface CljsKernels {
   readonly createKeyPool: (config: unknown, deps: unknown) => unknown;
   // w2-analytics
   readonly createRequestLogFanout: () => RequestLogFanout;
+  readonly ollamaBatchVectors: (payload: unknown, expectedCount: number) => number[][];
+  readonly ollamaLegacyVector: (payload: unknown) => number[];
+  readonly ollamaValidateConfig: (config: Record<string, unknown>) => void;
+  readonly ollamaBuildConfig: (config: Record<string, unknown>) => { readonly url: string; readonly model: string };
+  readonly chromaConnectionOptions: (url: URL) => { readonly host: string; readonly ssl: boolean; readonly port?: number };
+  readonly chromaSearchResults: (
+    ids: readonly unknown[],
+    docs: readonly unknown[],
+    metas: readonly unknown[],
+    distances: readonly unknown[],
+    now: number,
+  ) => ChromaSearchRow[];
   readonly createSessionStore: (filePath: string, deps?: { now?: () => number; uuid?: () => string }) => unknown;
+}
+
+export interface ChromaSearchRow {
+  readonly sessionId: string;
+  readonly sessionTitle: string;
+  readonly messageId: string;
+  readonly role: "system" | "user" | "assistant" | "tool";
+  readonly content: string;
+  readonly createdAt: number;
+  readonly distance: number;
 }
 
 export interface RequestLogFanout {

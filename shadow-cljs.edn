@@ -93,7 +93,13 @@
                                            requestyModelProvider proxx.runtime.requesty/requesty-model-provider-js
                                            ;; w2-analytics exports
                                            createRequestLogFanout proxx.runtime.observability/create-request-log-fanout-js
-                                           createSessionStore proxx.runtime.session/create-session-store-js}}}
+                                           createSessionStore proxx.runtime.session/create-session-store-js
+                                           ollamaBatchVectors proxx.runtime.chroma/ollama-batch-vectors-js
+                                           ollamaLegacyVector proxx.runtime.chroma/ollama-legacy-vector-js
+                                           ollamaValidateConfig proxx.runtime.chroma/ollama-validate-config-js
+                                           ollamaBuildConfig proxx.runtime.chroma/ollama-build-config-js
+                                           chromaConnectionOptions proxx.runtime.chroma/chroma-connection-options-js
+                                           chromaSearchResults proxx.runtime.chroma/chroma-search-results-js}}}
    :js-options {:js-provider :import
                 :keep-as-import #{"node:fs" "node:path"}}
    :compiler-options {:output-feature-set :es-next
