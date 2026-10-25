@@ -381,6 +381,107 @@ export interface CljsKernels {
   readonly createBridgeRelay: () => unknown;
   readonly createSseBridgeSendChannel: (res: ServerResponse) => BridgeSendChannel;
   readonly formatSseEvent: (event: string, data: unknown) => string;
+  // provider-strategy (proxx.strategy.*)
+  readonly normalizeGeminiReasoningEffort: (value: unknown) => string | undefined;
+  readonly openAiMessagesToGeminiContents: (messages: unknown[]) => Array<{ role: string; parts: Array<Record<string, unknown>> }>;
+  readonly extractSystemInstructions: (messages: unknown[]) => string[];
+  readonly buildGeminiPayload: (upstreamBody: JsRecord, routedModel: string) => JsRecord;
+  readonly geminiResponseToChatCompletion: (response: unknown, routedModel: string) => JsRecord;
+  readonly geminiPayloadToSdkRequest: (
+    model: string,
+    payload: JsRecord,
+  ) => { model: string; contents: Array<{ role: string; parts: Array<Record<string, unknown>> }>; config: JsRecord };
+  readonly geminiUpstreamPath: (alias: string | undefined | null, routedModel: string) => string;
+  readonly isLocalGeminiBaseUrl: (baseUrl: string) => boolean;
+  readonly isGeminiSdkModel: (model: string) => boolean;
+  readonly classifyGeminiSdkError: (message: string) => {
+    readonly kind: "continue";
+    readonly rateLimit?: boolean;
+    readonly modelNotFound?: boolean;
+    readonly modelNotSupportedForAccount?: boolean;
+    readonly requestError?: boolean;
+    readonly upstreamInvalidRequest?: boolean;
+  };
+  readonly createGeminiStreamAccumulator: () => {
+    readonly push: (chunk: unknown) => void;
+    readonly completion: (routedModel: string) => JsRecord;
+  };
+  readonly extractUsageCountsFromSseText: (streamText: string, mode: string, routedModel: string) => JsRecord;
+  readonly usageCountsForMode: (mode: string, upstreamJson: unknown, routedModel: string) => JsRecord;
+  readonly responseLooksLikeEventStream: (response: Response, mode: string) => boolean;
+  readonly updateUsageCountsFromResponse: (
+    requestLogStore: unknown,
+    entryId: string,
+    response: Response,
+    mode: string,
+    routedModel: string,
+    providerId: string,
+    config: unknown,
+    attemptStartedAt: number,
+    estimateCost: unknown,
+  ) => Promise<void>;
+  readonly buildFactory4xxDiagnostics: (payload: JsRecord, promptCacheKey?: string) => JsRecord;
+  readonly promptCacheKeyHash: (requestBody: JsRecord) => string | undefined;
+  readonly updateFailedAttemptDiagnostics: (
+    requestLogStore: unknown,
+    entryId: string,
+    response: Response,
+    providerId: string,
+    payload: JsRecord,
+    promptCacheKey?: string,
+  ) => Promise<void>;
+  readonly requestedServiceTier: (requestBody: JsRecord, headers: unknown) => string | undefined;
+  readonly loggedServiceTier: (
+    payload: JsRecord,
+    requestBody: JsRecord | undefined,
+    headers: unknown,
+  ) => { readonly serviceTier?: string; readonly serviceTierSource: "fast_mode" | "explicit" | "none" };
+  readonly stripTrailingAssistantPrefill: (payload: JsRecord) => JsRecord;
+  readonly ensureUsageInStream: (payload: JsRecord) => JsRecord;
+  readonly prepareUpstreamBody: (requestBody: JsRecord, routedModel: string, requestedModel: string) => JsRecord;
+  readonly requestyModel: (model: string, prefix: string) => string;
+  readonly buildCodexResponsesImagesBody: (imagesBody: JsRecord) => string;
+  readonly extractImagesFromResponsesOutput: (response: JsRecord) => JsRecord | undefined;
+  readonly extractImagesFromCodexResponse: (responseBody: string) => JsRecord | undefined;
+  readonly extractImagesFromCodexEventStream: (streamText: string) => JsRecord | undefined;
+  readonly openAiContentToText: (content: unknown) => string;
+  readonly resolveUsageAttribution: (auth: unknown) => { readonly tenantId?: string; readonly issuer?: string; readonly keyId?: string };
+  readonly shouldRetrySameCredentialForServerError: (status: number, manifestPath?: string) => boolean;
+  readonly isTransientProviderRetry: (providerId: string, status: number, manifestPath?: string) => boolean;
+  readonly shouldCooldownCredentialOnAuthFailure: (providerId: string, status: number, manifestPath?: string) => boolean;
+  readonly shouldPermanentlyDisableCredential: (credential: unknown, status: number, manifestPath?: string) => boolean;
+  readonly permanentDisableCooldownMs: (manifestPath?: string) => number;
+  readonly cooldownCapMs: (kind: string, manifestPath?: string) => number;
+  readonly classifyAuthError: (
+    credential: unknown,
+    providerId: string,
+    status: number,
+    configuredCooldownMs: number,
+    manifestPath?: string,
+  ) => { readonly classification: string; readonly cooldownMs?: number };
+  readonly classifyModelNotSupported: (
+    configuredCooldownMs: number,
+    manifestPath?: string,
+  ) => { readonly classification: string; readonly cooldownMs?: number };
+  readonly clampRouteQuality: (latencyMs: number, manifestPath?: string) => number;
+  readonly accountOrderForRequest: (
+    providerId: string,
+    routedModel: string,
+    planTypes: ReadonlyArray<string | undefined>,
+    manifestPath?: string,
+  ) => number[];
+  readonly accountOrderForLatency: (
+    facts: ReadonlyArray<{ readonly planType?: string; readonly ttft?: number; readonly tps?: number }>,
+    manifestPath?: string,
+  ) => number[];
+  readonly candidateOrderForAffinities: (
+    candidates: ReadonlyArray<readonly [string, string]>,
+    preferred: ReadonlyArray<readonly [string, string]>,
+  ) => number[];
+  readonly candidateOrderForRoutes: (
+    candidates: ReadonlyArray<{ readonly providerIndex?: number; readonly ttft?: number }>,
+    manifestPath?: string,
+  ) => number[];
 }
 
 export interface ChromaSearchRow {

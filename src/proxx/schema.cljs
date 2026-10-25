@@ -402,6 +402,52 @@
        [:intelligence {:optional true} [:int {:min 0}]]
        [:capabilities {:optional true} [:set [:enum :vision :tools :thinking]]]]]]]])
 
+(def UpstreamAttemptPolicyContract
+  "How an upstream attempt is judged: which statuses retry the same credential,
+  cool it down or disable it for good (with per-provider exceptions), the
+  cooldown ceilings by failure kind, and the ordering/route-quality constants."
+  (let [Statuses [:set [:int {:min 100 :max 599}]]
+        ByProvider [:map-of [:string {:min 1}] Statuses]
+        Ms [:int {:min 0}]]
+    [:and
+     ContractBase
+     [:map
+      [:contract/kind [:enum :upstream-attempt-policy]]
+      [:attempt/retry-same-credential [:map [:statuses Statuses] [:by-provider ByProvider]]]
+      [:attempt/auth-cooldown [:map [:statuses Statuses] [:except-by-provider ByProvider] [:cap-ms Ms]]]
+      [:attempt/permanent-disable
+       [:map [:auth-types [:set :keyword]] [:statuses Statuses] [:except-by-provider ByProvider] [:cooldown-ms Ms]]]
+      [:attempt/cooldown-caps [:map-of :keyword Ms]]
+      [:attempt/latency-ordering [:map [:ttft-grace-ms Ms] [:window-size [:int {:min 1}]]]]
+      [:attempt/plan-cost-tier [:map-of [:string {:min 1}] [:int {:min 0}]]]
+      [:attempt/free-plan-first
+       [:vector [:map [:provider-id [:string {:min 1}]] [:model-prefix [:string {:min 1}]]]]]
+      [:attempt/max-sticky-transport-failures [:int {:min 1}]]
+      [:attempt/route-quality
+       [:map [:min-latency-ms Ms] [:max-latency-ms Ms] [:floor [:and number? [:fn pos?]]]]]]]))
+
+(def StrategyRegistryContract
+  "Ordered strategy descriptors with data predicates over request facts; first
+  match wins. See 78-strategy-registry.edn for the predicate forms."
+  (let [Pred [:or
+              [:tuple [:enum :true :not-true] :keyword]
+              [:tuple [:enum :eq :not-eq] :keyword [:or :string :keyword]]
+              [:tuple [:enum :in] :keyword [:set :string]]
+              [:tuple [:enum :fn] :keyword]
+              [:tuple [:enum :not] [:tuple [:enum :fn] :keyword]]]]
+    [:and
+     ContractBase
+     [:map
+      [:contract/kind [:enum :strategy-registry]]
+      [:registry/entries
+       [:vector {:min 1}
+        [:map
+         [:strategy/id :keyword]
+         [:strategy/mode [:string {:min 1}]]
+         [:strategy/local? {:optional true} :boolean]
+         [:strategy/match [:vector Pred]]]]]
+      [:registry/compat-embedding-providers [:set [:string {:min 1}]]]]]))
+
 (def FederationRoutingClauseContract
   [:and
    ContractBase
@@ -616,6 +662,8 @@
     [:provider-wire-profile ProviderWireProfileContract]
     [:provider-surface-facts ProviderSurfaceFactsContract]
     [:auto-model-profile AutoModelProfileContract]
+    [:upstream-attempt-policy UpstreamAttemptPolicyContract]
+    [:strategy-registry StrategyRegistryContract]
     [:authorization-clause AuthorizationClauseContract]
     [:model-pricing-override ModelPricingOverrideContract]
     [:model-pricing-snapshot ModelPricingSnapshotContract]
@@ -673,6 +721,8 @@
     :proxx/contract-provider-wire-profile ProviderWireProfileContract
     :proxx/contract-provider-surface-facts ProviderSurfaceFactsContract
     :proxx/contract-auto-model-profile AutoModelProfileContract
+    :proxx/contract-upstream-attempt-policy UpstreamAttemptPolicyContract
+    :proxx/contract-strategy-registry StrategyRegistryContract
    :proxx/contract-authorization-clause AuthorizationClauseContract
     :proxx/contract-model-pricing-override ModelPricingOverrideContract
     :proxx/contract-model-pricing-snapshot ModelPricingSnapshotContract

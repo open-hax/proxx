@@ -1,5 +1,7 @@
 import type { FastifyReply } from "fastify";
 
+import { kernels } from "../../cljs-kernels.js";
+
 import type { AccountHealthStore } from "../../db/account-health-store.js";
 import type { EventStore } from "../../db/event-store.js";
 import type { ProviderCredential } from "../../key-pool.js";
@@ -16,9 +18,8 @@ import type {
   StrategyRequestContext,
 } from "../shared.js";
 
-export function clampRouteQuality(latencyMs: number): number {
-  const clampedLatency = Math.min(Math.max(latencyMs, 250), 30_000);
-  return Math.max(0.05, 1 - ((clampedLatency - 250) / (30_000 - 250)));
+export function clampRouteQuality(latencyMs: number, manifestPath?: string): number {
+  return kernels.clampRouteQuality(latencyMs, manifestPath);
 }
 
 export interface RoutingKeyPool {
