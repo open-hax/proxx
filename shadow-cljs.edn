@@ -61,7 +61,13 @@
                                            normalizeRequestedModel proxx.runtime.http/normalize-requested-model-js
                                            isTrustedLocalBridgeAddress proxx.runtime.http/is-trusted-local-bridge-address-js
                                            hasBearerToken proxx.runtime.http/has-bearer-token-js
-                                           queueErrorResponse proxx.runtime.http/queue-error-response-js}}}
+                                           queueErrorResponse proxx.runtime.http/queue-error-response-js
+                                           shouldUseOllamaUpstream proxx.runtime.ollama/should-use-ollama-upstream-js
+                                           chatRequestToOllamaRequest proxx.runtime.ollama/chat-request-to-ollama-request-js
+                                           requestHasExplicitNumCtx proxx.runtime.ollama/request-has-explicit-num-ctx-js
+                                           ollamaToChatCompletion proxx.runtime.ollama/ollama-to-chat-completion-js
+                                           streamOllamaNdjsonToChatCompletionSse proxx.runtime.ollama/stream-ollama-ndjson-to-chat-completion-sse-js
+                                           requestWantsReasoningTrace proxx.runtime.ollama/request-wants-reasoning-trace-js}}}
    :js-options {:js-provider :import
                 :keep-as-import #{"node:fs" "node:path"}}
    :compiler-options {:output-feature-set :es-next
