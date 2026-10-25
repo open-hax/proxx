@@ -7,6 +7,7 @@
  */
 import { loadCljsRuntime } from "./cljs-runtime.js";
 import type { BridgeMessage } from "./federation/bridge-protocol.js";
+import type { BridgeLeaseAccountSummary, BridgeLeaseExportedAccount } from "../routes/federation/bridge-lease-parsers.js";
 import type { FederationOwnerCredential } from "./federation/owner-credential.js";
 
 type JsRecord = Record<string, unknown>;
@@ -149,6 +150,38 @@ export interface CljsKernels {
   readonly normalizeAtDid: (value: string) => string;
   readonly fingerprintAdminKey: (value: string) => string;
   readonly parseFederationOwnerCredential: (raw: string | undefined) => FederationOwnerCredential | undefined;
+  readonly federationHeaders: {
+    readonly hop: string;
+    readonly ownerSubject: string;
+    readonly bridgeTenant: string;
+    readonly forcedProvider: string;
+    readonly forcedAccountId: string;
+    readonly routedPeer: string;
+    readonly routedProvider: string;
+    readonly routedAccount: string;
+    readonly imported: string;
+    readonly blockedResponseHeaders: readonly string[];
+  };
+  readonly extractPeerCredential: (auth: Record<string, unknown>) => string | undefined;
+  readonly resolveFederationHopCount: (headers: Record<string, unknown>) => number;
+  readonly resolveFederationOwnerSubject: (
+    input: {
+      readonly headers: Record<string, unknown>;
+      readonly requestAuth?: { readonly kind?: string; readonly subject?: string; readonly tenantId?: string };
+      readonly hopCount?: number;
+    },
+    defaultOwnerSubject: string | undefined,
+  ) => string | undefined;
+  readonly federationJsonRequestHeaders: (credential: string | undefined) => Record<string, string>;
+  readonly federationFailureMessage: (parsed: unknown, status: number) => string;
+  readonly bridgeCapabilitySupportsPath: (capability: object, normalizedPath: string) => boolean;
+  readonly bridgeCapabilitySupportsModel: (capability: object, requestedModel: string | undefined) => boolean;
+  readonly forwardableBridgeResponseHeaders: (
+    headers: Readonly<Record<string, string>>,
+    hideUpstreamAccount: boolean,
+  ) => [string, string][];
+  readonly parseBridgeLeaseAccounts: (payload: unknown, fallbackProviderId: string) => BridgeLeaseAccountSummary[];
+  readonly parseBridgeLeaseExport: (payload: unknown) => BridgeLeaseExportedAccount | undefined;
 }
 
 const loaded = await loadCljsRuntime({ required: true });
