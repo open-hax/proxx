@@ -159,10 +159,6 @@ export async function executeProviderRoutingPlan(
   let abortRemainingCandidatesForStickyTransportFailure = false;
 
   for (const [candidateIndex, candidate] of candidates.entries()) {
-    if (keyPool.isModelUnsupported?.(candidate.providerId, candidate.account.accountId, (candidate.upstreamModel ?? context.routedModel)) === true) {
-      accumulator.sawModelNotSupportedForAccount = true;
-      continue;
-    }
 
     const deadlineAt = candidate.firstUsableOffsetMs === undefined ? undefined
       : (context.requestAdmittedAt ?? Date.now()) + candidate.firstUsableOffsetMs;
@@ -191,14 +187,22 @@ export async function executeProviderRoutingPlan(
       candidatePayload = { ...candidatePayload, upstreamPayload, bodyText: JSON.stringify(upstreamPayload) };
     }
 
+    const candidateModel = String(candidatePayload.upstreamPayload.model ?? context.routedModel);
+    if (keyPool.isModelUnsupported?.(candidate.providerId, candidate.account.accountId, candidateModel) === true) {
+      accumulator.sawModelNotSupportedForAccount = true;
+      continue;
+    }
     const budgetRuntime = getActiveCljsRuntime();
-    if (!budgetRuntime?.inspectBudgetAttempt) {
+    // This is a server-resolved authorization capability, not request metadata.
+    // Provisioning must mark a budget-bound key before enabling its policy.
+    if (!budgetRuntime?.inspectBudgetAttempt && (context.budgetRoutePlan?.managed
+        || context.requestAuth?.scopes?.includes("budget:required"))) {
       throw new OpenAiHttpError({ statusCode: 503, message: "Budget policy runtime unavailable.", type: "server_error", code: "budget_unavailable" });
     }
-    const inspectAttempt = (body: Record<string, unknown>) => budgetRuntime.inspectBudgetAttempt!(
+    const inspectAttempt = (body: Record<string, unknown>) => budgetRuntime?.inspectBudgetAttempt?.(
       context.config.cljsPolicyManifestPath ?? "resources/policies/runtime/00-manifest.edn", context.requestAuth,
       { providerId: candidate.providerId, model: body.model ?? context.routedModel, mode: candidateStrategy.mode, payload: body },
-    );
+    ) ?? { status: "unmanaged" };
     if (inspectAttempt(candidatePayload.upstreamPayload).status === "denied") {
       throw new OpenAiHttpError({ statusCode: 403, message: "Route is outside this caller budget policy.", type: "invalid_request_error", code: "budget_route_denied" });
     }
@@ -219,9 +223,9 @@ export async function executeProviderRoutingPlan(
       if (inspection.status === "paid") {
         const pricing = getModelPricing(candidate.providerId, String(body.model ?? context.routedModel));
         const amount = pricing.pricingFound && inspection.inputBound !== undefined && inspection.outputBound !== undefined
-          ? budgetRuntime.quotePaidBudget?.(inspection.inputBound, inspection.outputBound, pricing.inputPer1MTokens, pricing.outputPer1MTokens)
+          ? budgetRuntime?.quotePaidBudget?.(inspection.inputBound, inspection.outputBound, pricing.inputPer1MTokens, pricing.outputPer1MTokens)
           : null;
-        if (amount == null || !inspection.policy || !budgetRuntime.reservePaidBudget || !budgetRuntime.settlePaidBudget) {
+        if (amount == null || !inspection.policy || !budgetRuntime?.reservePaidBudget || !budgetRuntime.settlePaidBudget) {
           throw new OpenAiHttpError({ statusCode: 503, message: "Cannot establish a paid request cost bound.", type: "server_error", code: "budget_unavailable" });
         }
         const reservation = await budgetRuntime.reservePaidBudget(context.budgetSql, PAID_BUDGET_QUERIES, inspection.policy, crypto.randomUUID(), amount);
@@ -235,7 +239,7 @@ export async function executeProviderRoutingPlan(
       if (context.firstOutputLease?.signal.aborted || remaining <= 0) {
         // No upstream send happened: this is a known zero charge, unlike a
         // timeout after transport began. A failed settlement retains the hold.
-        if (ticket) void budgetRuntime.settlePaidBudget!(context.budgetSql, PAID_BUDGET_QUERIES, ticket.scopeId, ticket.id, 0).catch(() => {});
+        if (ticket) void budgetRuntime?.settlePaidBudget?.(context.budgetSql, PAID_BUDGET_QUERIES, ticket.scopeId, ticket.id, 0).catch(() => {});
         throw context.firstOutputLease?.signal.reason ?? new Error("First usable output deadline exceeded");
       }
       let response = await fetchWithResponseTimeout(url, {
@@ -243,7 +247,7 @@ export async function executeProviderRoutingPlan(
         ...(inspection.payload ? { body: JSON.stringify(inspection.payload) } : {}),
       }, remaining);
       if (deadlineAt !== undefined) {
-        if (!budgetRuntime.probeFirstUsable) throw new Error("First output probe unavailable");
+        if (!budgetRuntime?.probeFirstUsable) throw new Error("First output probe unavailable");
         response = await stageResponse(response, deadlineAt, context.budgetRoutePlan?.maxBootstrapBytes ?? 0,
           (text, format) => budgetRuntime.probeFirstUsable!(text, format, body.tools ?? []),
           () => {
@@ -251,15 +255,26 @@ export async function executeProviderRoutingPlan(
             context.firstOutputLease?.markReady();
           }, !context.clientWantsStream);
       }
+      if (ticket && !response.ok && budgetRuntime?.zeroChargeBudgetRefusal) {
+        let errorBody: unknown;
+        try { errorBody = await response.clone().json(); } catch { /* Unknown error bodies retain the hold. */ }
+        if (budgetRuntime.zeroChargeBudgetRefusal(
+          context.config.cljsPolicyManifestPath ?? "resources/policies/runtime/00-manifest.edn", context.requestAuth,
+          { providerId: candidate.providerId, model: String(body.model ?? context.routedModel), status: response.status, body: errorBody },
+        )) {
+          await budgetRuntime?.settlePaidBudget?.(context.budgetSql, PAID_BUDGET_QUERIES, ticket.scopeId, ticket.id, 0);
+          ticket = undefined;
+        }
+      }
       if (ticket) tickets.set(response, ticket);
       return response;
     };
     const settleUsage = (response: Response) => async (counts: { readonly promptTokens?: number; readonly completionTokens?: number }): Promise<void> => {
       const ticket = tickets.get(response);
       if (!ticket || counts.promptTokens === undefined || counts.completionTokens === undefined) return;
-      const amount = budgetRuntime.quotePaidBudget?.(counts.promptTokens, counts.completionTokens, ticket.inputPrice, ticket.outputPrice);
+      const amount = budgetRuntime?.quotePaidBudget?.(counts.promptTokens, counts.completionTokens, ticket.inputPrice, ticket.outputPrice);
       if (amount == null) return;
-      await budgetRuntime.settlePaidBudget?.(context.budgetSql, PAID_BUDGET_QUERIES, ticket.scopeId, ticket.id, amount);
+      await budgetRuntime?.settlePaidBudget?.(context.budgetSql, PAID_BUDGET_QUERIES, ticket.scopeId, ticket.id, amount);
     };
 
     const hasMoreCandidates = candidateIndex < candidates.length - 1;
@@ -268,7 +283,7 @@ export async function executeProviderRoutingPlan(
     for (let retryIndex = 0; retryIndex <= (context.budgetRoutePlan?.maxRetries ?? context.config.upstreamTransientRetryCount); retryIndex += 1) {
       const baseProviderContext: Omit<ProviderAttemptContext, "attempt"> = {
         ...context,
-        upstreamModel: typeof candidatePayload.upstreamPayload.model === "string" ? candidatePayload.upstreamPayload.model : context.routedModel,
+        upstreamModel: candidateModel,
         routeProviderId: candidate.providerId,
         providerId: candidate.providerId,
         // This may be overridden per-attempt when `OPENAI_IMAGES_UPSTREAM_MODE=platform|auto`.
@@ -811,7 +826,7 @@ export async function executeProviderRoutingPlan(
           accumulator.sawModelNotSupportedForAccount = true;
           keyPool.markModelUnsupported?.(
             candidate.account,
-            context.routedModel,
+            candidateModel,
             policyFailure.cooldownMs ?? Math.min(context.config.keyCooldownMs, 60_000),
           );
           await providerRoutePheromoneStore.noteFailure(candidate.providerId, context.routedModel);
@@ -948,7 +963,7 @@ export async function executeProviderRoutingPlan(
             if (healthStore) {
               healthStore.recordSuccess(candidate.account, upstreamResponse.status);
             }
-            keyPool.clearModelUnsupported?.(candidate.account.providerId, candidate.account.accountId, context.routedModel);
+            keyPool.clearModelUnsupported?.(candidate.account.providerId, candidate.account.accountId, candidateModel);
             if (candidate.account.providerId === "ollama-cloud" && keyPool.clearAccountCooldown) {
               keyPool.clearAccountCooldown(candidate.account.providerId, candidate.account.accountId);
             }
@@ -977,7 +992,7 @@ export async function executeProviderRoutingPlan(
             healthStore.recordSuccess(candidate.account, upstreamResponse.status);
           }
           if (upstreamResponse.ok) {
-            keyPool.clearModelUnsupported?.(candidate.account.providerId, candidate.account.accountId, context.routedModel);
+            keyPool.clearModelUnsupported?.(candidate.account.providerId, candidate.account.accountId, candidateModel);
           }
           if (upstreamResponse.ok && candidate.account.providerId === "ollama-cloud" && keyPool.clearAccountCooldown) {
             keyPool.clearAccountCooldown(candidate.account.providerId, candidate.account.accountId);
@@ -1191,7 +1206,7 @@ export async function executeProviderRoutingPlan(
                   if (healthStore) {
                     healthStore.recordSuccess(refreshedCredential, refreshedResponse.status);
                   }
-                  keyPool.clearModelUnsupported?.(refreshedCredential.providerId, refreshedCredential.accountId, context.routedModel);
+                  keyPool.clearModelUnsupported?.(refreshedCredential.providerId, refreshedCredential.accountId, candidateModel);
                   await providerRoutePheromoneStore.noteSuccess(
                     candidate.providerId,
                     context.routedModel,
@@ -1216,7 +1231,7 @@ export async function executeProviderRoutingPlan(
                   healthStore.recordSuccess(refreshedCredential, refreshedResponse.status);
                 }
                 if (refreshedResponse.ok) {
-                  keyPool.clearModelUnsupported?.(refreshedCredential.providerId, refreshedCredential.accountId, context.routedModel);
+                  keyPool.clearModelUnsupported?.(refreshedCredential.providerId, refreshedCredential.accountId, candidateModel);
                 }
                 await providerRoutePheromoneStore.noteSuccess(
                   candidate.providerId,
@@ -1256,7 +1271,7 @@ export async function executeProviderRoutingPlan(
               if (refreshedOutcome.modelNotSupportedForAccount === true) {
                 keyPool.markModelUnsupported?.(
                   refreshedCredential,
-                  context.routedModel,
+                  candidateModel,
                   Math.min(context.config.keyCooldownMs, 60_000),
                 );
               }
@@ -1313,7 +1328,7 @@ export async function executeProviderRoutingPlan(
         // Keep model-gated accounts available for other models (e.g. gemma4) while
         // skipping them for the rejected model on subsequent attempts.
         if (outcome.modelNotSupportedForAccount === true) {
-          keyPool.markModelUnsupported?.(candidate.account, context.routedModel, Math.min(context.config.keyCooldownMs, 60_000));
+          keyPool.markModelUnsupported?.(candidate.account, candidateModel, Math.min(context.config.keyCooldownMs, 60_000));
         }
 
         if (!upstreamResponse.ok && outcome.requestError === true && !outcome.modelNotFound && !outcome.modelNotSupportedForAccount) {

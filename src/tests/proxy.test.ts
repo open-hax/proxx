@@ -10,6 +10,7 @@ import test from "node:test";
 import type { FastifyInstance } from "fastify";
 
 import { createApp } from "../app.js";
+import { KeyPool } from "../lib/key-pool.js";
 import { SqlPromptAffinityStore } from "../lib/db/sql-prompt-affinity-store.js";
 import { getActiveCljsRuntime, loadCljsRuntime, setActiveCljsRuntime } from "../lib/cljs-runtime.js";
 import type { ProxyConfig } from "../lib/config.js";
@@ -13819,5 +13820,59 @@ test("paid budget snapshots deny anonymous callers and distinguish missing ledge
     assert.equal(result.budgets[0].dailyMicrousd, 500000);
     assert.equal(result.budgets[0].monthlyMicrousd, 5000000);
     assert.equal(result.budgets[0].dailyRemainingMicrousd, undefined);
+  });
+});
+
+
+test("unmanaged traffic keeps serving without the optional CLJS budget runtime", async () => {
+  await withProxyApp({ keys: ["key-a"], upstreamHandler: async () => ({status:200,
+    headers:{"content-type":"application/json"},body:JSON.stringify({id:"no-runtime",object:"chat.completion",
+      choices:[{index:0,message:{role:"assistant",content:"OK"},finish_reason:"stop"}]})}) }, async ({app}) => {
+    const runtime=getActiveCljsRuntime()!;setActiveCljsRuntime({...runtime,inspectBudgetAttempt:undefined,resolveBudgetRoutePlan:undefined});
+    try {const response=await app.inject({method:"POST",url:"/v1/chat/completions",payload:{model:"test-model",messages:[{role:"user",content:"hello"}],stream:false}});
+      assert.equal(response.statusCode,200,response.body);
+    } finally {setActiveCljsRuntime(runtime);}
+  });
+});
+
+test("budget-marked auth fails closed if the budget interpreter disappears", async () => {
+  let calls=0;
+  await withProxyApp({keys:["key-a"],upstreamHandler:async()=>{calls++;return {status:200,body:"{}"};}},async({app})=>{
+    const runtime=getActiveCljsRuntime()!;setActiveCljsRuntime({...runtime,inspectBudgetAttempt:undefined,resolveBudgetRoutePlan:undefined});
+    app.addHook("preHandler",async request=>{request.openHaxAuth={kind:"tenant_api_key",keyId:"knoxx-social-proxx",tenantId:"default",source:"bearer",scopes:["proxy:use","budget:required"]};});
+    try {const response=await app.inject({method:"POST",url:"/v1/chat/completions",payload:{model:"test-model",messages:[{role:"user",content:"hello"}],stream:false}});
+      assert.equal(response.statusCode,503,response.body);assert.equal(calls,0);
+    } finally {setActiveCljsRuntime(runtime);}
+  });
+});
+
+test("a definitive paid refusal settles its reservation to zero", async () => {
+  const settled:number[]=[];let paid=0;
+  await withProxyApp({keys:[],keysPayload:{providers:{requesty:["refusal-key"]}},configOverrides:{upstreamProviderId:"requesty"},
+    upstreamHandler:async(_req,body)=>{const free=JSON.parse(body).model==="google/gemma-4-31b-it";if(!free)paid++;
+      return {status:free?429:402,headers:{"content-type":"application/json"},body:JSON.stringify({error:{message:free?"Rate limit exceeded":"Insufficient balance"}})};}},async({app})=>{
+    const runtime=getActiveCljsRuntime()!;setActiveCljsRuntime({...runtime,reservePaidBudget:async()=>({status:"admitted",reservationId:"rejected-hold"}),
+      settlePaidBudget:async(_sql,_queries,_scope,_id,amount)=>{settled.push(amount!);return {status:"settled"};}});
+    app.addHook("preHandler",async request=>{request.openHaxAuth={kind:"tenant_api_key",keyId:"knoxx-social-proxx",tenantId:"default",source:"bearer",scopes:["proxy:use","budget:required"]};});
+    try {const response=await app.inject({method:"POST",url:"/v1/chat/completions",payload:{model:"gemma4:31b",messages:[{role:"user",content:"hello"}],stream:false}});
+      assert.notEqual(response.statusCode,200);assert.equal(paid,1);assert.deepEqual(settled,[0]);
+    } finally {setActiveCljsRuntime(runtime);}
+  });
+});
+
+test("model unavailability marks and skips the actual upstream alias identity", async (t) => {
+  const marked=t.mock.method(KeyPool.prototype,"markModelUnsupported");const observed:string[]=[];
+  await withProxyApp({keys:[],keysPayload:{providers:{requesty:["alias-key"]}},configOverrides:{upstreamProviderId:"requesty"},
+    upstreamHandler:async(_req,body)=>{const model=JSON.parse(body).model;observed.push(model);
+      return model==="google/gemma-4-31b-it"?{status:404,headers:{"content-type":"application/json"},body:JSON.stringify({error:{message:"No allowed providers"}})}:
+        {status:200,headers:{"content-type":"application/json"},body:JSON.stringify({id:"alias-fallback",object:"chat.completion",choices:[{index:0,message:{role:"assistant",content:"OK"},finish_reason:"stop"}],usage:{prompt_tokens:10,completion_tokens:2}})};}},async({app})=>{
+    const runtime=getActiveCljsRuntime()!;setActiveCljsRuntime({...runtime,
+      classifyCredentialFailure:(manifest,provider,status,message)=>status===404?{status:"ok",result:"model-unavailable",cooldownMs:60000}:runtime.classifyCredentialFailure!(manifest,provider,status,message),
+      reservePaidBudget:async()=>({status:"admitted",reservationId:crypto.randomUUID()}),settlePaidBudget:async()=>({status:"settled"})});
+    app.addHook("preHandler",async request=>{request.openHaxAuth={kind:"tenant_api_key",keyId:"knoxx-social-proxx",tenantId:"default",source:"bearer"};});
+    try {for(let n=0;n<2;n++){const response=await app.inject({method:"POST",url:"/v1/chat/completions",payload:{model:"gemma4:31b",messages:[{role:"user",content:"hello"}],stream:false}});assert.equal(response.statusCode,200,response.body);}
+      assert.equal(marked.mock.calls[0]?.arguments[1],"google/gemma-4-31b-it");
+      assert.deepEqual(observed,["google/gemma-4-31b-it","deepinfra/google/gemma-4-31B-it","deepinfra/google/gemma-4-31B-it"]);
+    } finally {setActiveCljsRuntime(runtime);}
   });
 });

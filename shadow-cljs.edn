@@ -12,6 +12,7 @@
    :modules   {:proxx-runtime {:exports {resolveBudgetRoutePlan proxx.runtime/resolve-budget-route-plan-js
                                           probeFirstUsable proxx.runtime/probe-first-usable-js
                                           inspectBudgetAttempt proxx.runtime/inspect-budget-attempt-js
+                                          zeroChargeBudgetRefusal proxx.runtime/zero-charge-budget-refusal-js
                                           quotePaidBudget proxx.runtime/quote-paid-budget-js
                                           readPaidBudgets proxx.runtime/read-paid-budgets-js
                                           loadPaidBudgetPolicy proxx.runtime/load-paid-budget-policy-js

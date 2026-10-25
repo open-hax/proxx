@@ -87,3 +87,17 @@
     (assoc policy :status "ok" :usage row
            :dailyRemainingMicrousd (max 0 (- (:dailyMicrousd policy) daily held))
            :monthlyRemainingMicrousd (max 0 (- (:monthlyMicrousd policy) monthly held)))))
+
+
+(defn zero-charge-refusal?
+  "Only declared pre-inference refusals with an explicit error and no usage or
+   generated-output evidence may release a hold. Unknown/partial results retain it."
+  [contracts auth {:keys [providerId model status body]}]
+  (boolean
+    (when-let [budget (request-budget contracts auth)]
+      (let [route (some #(when (and (= :paid (:billing %))
+                                   (= (:provider-id %) providerId)
+                                   (= (:model-id %) model)) %) (:budget/routes budget))]
+        (and route (contains? (:billing/no-charge-statuses route) status)
+             (map? body) (some? (:error body))
+             (not-any? #(contains? body %) [:usage :usageMetadata :choices :output]))))))

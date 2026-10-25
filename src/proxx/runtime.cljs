@@ -369,6 +369,11 @@
             (js->clj auth :keywordize-keys true)
             (js->clj attempt :keywordize-keys true))))
 
+(defn zero-charge-budget-refusal-js [manifest-path auth response]
+  (budget-policy/zero-charge-refusal?
+    (get-in (compiled-policy-for-manifest manifest-path) [:index :contracts])
+    (js->clj auth :keywordize-keys true) (js->clj response :keywordize-keys true)))
+
 (defn quote-paid-budget-js [input-bound output-bound input-price output-price]
   (budget-law/reservation-microusd input-bound output-bound input-price output-price))
 
@@ -420,7 +425,8 @@
         #js {:status "ok" :observedAt (.toISOString (js/Date.)) :budgets budgets}))))
 
 (def exports
-  #js {:readPaidBudgets read-paid-budgets-js
+  #js {:zeroChargeBudgetRefusal zero-charge-budget-refusal-js
+       :readPaidBudgets read-paid-budgets-js
        :resolveBudgetRoutePlan resolve-budget-route-plan-js
        :probeFirstUsable probe-first-usable-js
        :inspectBudgetAttempt inspect-budget-attempt-js

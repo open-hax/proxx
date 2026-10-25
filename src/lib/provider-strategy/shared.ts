@@ -256,7 +256,7 @@ interface StrategyRequestContext {
   readonly config: ProxyConfig;
   readonly clientHeaders: IncomingHttpHeaders;
   readonly requestBody: Record<string, unknown>;
-  readonly requestAuth?: Pick<ResolvedRequestAuth, "kind" | "tenantId" | "keyId" | "subject">;
+  readonly requestAuth?: Pick<ResolvedRequestAuth, "kind" | "tenantId" | "keyId" | "subject" | "scopes">;
   readonly requestedModelInput: string;
   readonly routingModelInput: string;
   readonly routedModel: string;

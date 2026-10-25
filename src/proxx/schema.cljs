@@ -505,6 +505,7 @@
     [:budget/max-input-tokens [:int {:min 1}]]
     [:budget/max-output-tokens [:int {:min 1}]]
     [:budget/routes [:vector [:map [:provider-id :string] [:model-id :string] [:billing [:enum :free :paid]]
+                                    [:billing/no-charge-statuses {:optional true} [:set [:int {:min 400 :max 499}]]]
                                     [:plan? {:optional true} :boolean]
                                     [:quota/scope {:optional true} [:enum :model :credential]]
                                     [:quota/disable? {:optional true} :boolean]]]]

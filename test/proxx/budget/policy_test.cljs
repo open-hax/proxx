@@ -68,3 +68,18 @@
     (is (= 3850000 (:monthlyRemainingMicrousd result)))
     (is (= usage (:usage result)))
     (is (= 0 (:dailyRemainingMicrousd exhausted)))))
+
+
+(deftest explicit-nonbillable-refusals-do-not-leak-reservations
+  (let [c (assoc-in contract [:budget/routes 1 :billing/no-charge-statuses] #{402 412 429})
+        response {:providerId "router" :model "vendor/paid" :status 402
+                  :body {:error {:message "Insufficient balance"}}}]
+    (is (policy/zero-charge-refusal? [c] auth response))
+    (is (policy/zero-charge-refusal? [c] auth (assoc response :status 429)))
+    (is (not (policy/zero-charge-refusal? [c] auth (assoc response :status 500))))
+    (is (not (policy/zero-charge-refusal? [c] auth (assoc response :body {:error "quota" :usage nil}))))
+    (is (not (policy/zero-charge-refusal? [c] auth (assoc response :body {:error "quota" :usage {:completion_tokens 1}}))))
+    (is (not (policy/zero-charge-refusal? [c] auth (assoc response :body {:error "quota" :choices []}))))
+    (is (not (policy/zero-charge-refusal? [c] auth (assoc response :body nil))))
+    (is (not (policy/zero-charge-refusal? [c] auth (assoc response :model "vendor/free"))))
+    (is (not (policy/zero-charge-refusal? [c] (assoc auth :keyId "other-key") response)))))
