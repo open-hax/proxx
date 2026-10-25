@@ -267,6 +267,55 @@
     (is (= true (get-in rejected [:catalog :rejected])))
     (is (= true (get-in disabled [:catalog :disabled])))))
 
+(deftest provider-route-filtering-honours-model-aliases-for-catalogs
+  (let [alias (fn [provider-pattern model-id]
+                {:contract/id (keyword "model-alias" provider-pattern)
+                 :contract/kind :model-alias
+                 :match/model-pattern "(?i)^kimi-k3$"
+                 :match/provider-pattern provider-pattern
+                 :alias/model-id model-id})
+        compiled {:model-aliases [(alias "^kimi-for-coding$" "k3")
+                                  (alias "^openrouter$" "moonshotai/kimi-k3")]}
+        input {:model-id "kimi-k3"
+               :config {:openaiProviderId "openai"}
+               :tenantSettings {}
+               :providerRoutes [{:providerId "kimi-for-coding" :baseUrl "https://kimi.test"}
+                                {:providerId "zen" :baseUrl "https://zen.test"}
+                                {:providerId "openrouter" :baseUrl "https://openrouter.test"}
+                                {:providerId "requesty" :baseUrl "https://requesty.test"}]
+               :catalogBundle {:catalog {:declaredModelIds []
+                                         :dynamicOllamaModelIds []}
+                               :preferences {:disabled []}
+                               :providerCatalogs {"kimi-for-coding" {:modelIds ["k3" "k3-256k"]}
+                                                  "zen" {:modelIds ["kimi-k3"]}
+                                                  "openrouter" {:modelIds ["moonshotai/kimi-k3"]}
+                                                  "requesty" {:modelIds ["moonshot/kimi-k2.5"]}}}}
+        aliased (contracts/filter-provider-routes compiled input)
+        unaliased (contracts/filter-provider-routes {} input)]
+    (is (= ["kimi-for-coding" "zen" "openrouter"]
+           (mapv :providerId (:providerRoutes aliased))))
+    (is (= false (get-in aliased [:catalog :rejected])))
+    (is (= ["zen"] (mapv :providerId (:providerRoutes unaliased))))))
+
+(deftest credential-failure-classification-matches-provider-status-and-message
+  (let [compiled (contracts/compile-contracts
+                  (loader/load-policy-contracts! "resources/policies/runtime/00-manifest.edn"))
+        classify #(contracts/classify-credential-failure compiled %)]
+    (is (= :credential-failure/kimi-for-coding-usage-window
+           (:contract/id (classify {:provider-id "kimi-for-coding"
+                                    :status 403
+                                    :message "You've reached your 5-hour usage limit. Please try again later."}))))
+    (is (= :credential-failure/kimi-for-coding-monthly-limit
+           (:contract/id (classify {:provider-id " Kimi-For-Coding "
+                                    :status 403
+                                    :message "You've reached your monthly usage limit for this billing cycle."}))))
+    (is (= :credential/model-unavailable
+           (:classify/result (classify {:provider-id "openrouter"
+                                        :status 404
+                                        :message "No allowed providers are available for the selected model."}))))
+    (is (nil? (classify {:provider-id "kimi-for-coding" :status 401 :message "does not have access to k3"})))
+    (is (nil? (classify {:provider-id "openai" :status 402 :message "Payment required"})))))
+
 (deftest dynamic-ollama-catalog-does-not-override-policy-provider-universe
   (let [result (contracts/filter-provider-routes
                 {}
@@ -602,7 +651,7 @@
     (is (= [:plus :pro :business :enterprise :team]
            (:require/plan-set gpt-paid)))
     (is (= 18 (count (:provider-capabilities compiled))))
-    (is (= 24 (count (:provider-routes compiled))))
+    (is (= 25 (count (:provider-routes compiled))))
     (is (= 7 (count (:request-surface-defaults compiled))))
     (is (= 4 (count (:tenant-authorization-clauses compiled))))
     (is (= :router/root (get-in compiled [:root-program :contract/id])))))

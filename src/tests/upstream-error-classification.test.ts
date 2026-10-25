@@ -1,7 +1,28 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { responseIndicatesModelNotSupportedForAccount } from "../lib/errors/classification.js";
+import { readUpstreamErrorMessage, responseIndicatesModelNotSupportedForAccount } from "../lib/errors/classification.js";
+
+test("readUpstreamErrorMessage reads JSON and text errors without consuming the body", async () => {
+  const json = new Response(
+    JSON.stringify({ error: { code: 403, message: "Key limit exceeded (total limit)." } }),
+    { status: 403, headers: { "content-type": "application/json" } },
+  );
+  assert.equal(await readUpstreamErrorMessage(json), "Key limit exceeded (total limit).");
+  assert.equal((await json.json() as { error: { message: string } }).error.message, "Key limit exceeded (total limit).");
+
+  const text = new Response(
+    "error, status code: 403, message: You've reached your 5-hour usage limit",
+    { status: 403, headers: { "content-type": "text/plain" } },
+  );
+  assert.match((await readUpstreamErrorMessage(text)) ?? "", /5-hour usage limit/);
+
+  const stream = new Response("data: {}\n\n", { status: 403, headers: { "content-type": "text/event-stream" } });
+  assert.equal(await readUpstreamErrorMessage(stream), undefined);
+
+  const ok = new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
+  assert.equal(await readUpstreamErrorMessage(ok), undefined);
+});
 
 test("ollama-cloud subscription-gated 403 is treated as model-not-supported-for-account", async () => {
   const response = new Response(

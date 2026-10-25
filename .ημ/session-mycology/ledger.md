@@ -131,3 +131,11 @@
   p-skill-candidate: 0.4
   receipt-refs: shared-login-and-federation; native4370097365; native4370097366
   note: Track dispatch at the actual send boundary: pre-send refusal permits fallback, but uncertain sends stay terminal. A stale browser callback must not issue an unqualified cookie-scoped cancellation for a newer generation. Verify both with real compiled runtime/relay and mounted DOM tests.
+
+- ts: 2026-10-25T09:54:31.123827+00:00
+  origin: shared-login-deployed-policy-composition
+  p-efficiency: 0.82
+  p-friction: 0.3
+  p-skill-candidate: 0.4
+  receipt-refs: shared-login-and-federation; auth0be311b; deployed-policy3ed25ee
+  note: Compare source ancestry and actual deployed image before release. Preserve both runtime export additions rather than choosing a conflict side. Byte-check untouched policy and auth surfaces, then run the combined production adapters against owned PostgreSQL. Passing source tests are separate from native approval, immutable image and mutation qualification, and real fleet sign-in.
