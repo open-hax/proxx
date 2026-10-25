@@ -104,9 +104,14 @@
                    (some #{(:clientId config)} audiences)
                    (law/nonblank? (:sub claims)) (number? (:exp claims))
                    (law/nonblank? (.-access_token tokens)) (number? (.-expires_in tokens)))
-      (throw (ex-info "unauthorized" {:status 401 :error "unauthorized"})))
+      (throw (ex-info "unauthorized" {:status 401 :error "unauthorized" :invalidate-session? true})))
     {:claims claims :access-token (.-access_token tokens) :refresh-token (.-refresh_token tokens)
      :expires-at (min (* 1000 (:exp claims)) (+ (now) (* 1000 (.-expires_in tokens))))}))
+
+(defn protocol-error
+  "Decode only maintained-library error identifiers, never response bodies."
+  [error]
+  {:oauth-error (.-error error) :validation-code (.-code error)})
 
 (defn ^:async refresh! [{:keys [^js client ^js rp]} config session]
   (token-result! config (await (.refreshTokenGrant client rp (:refresh-token session)))))

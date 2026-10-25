@@ -68,3 +68,18 @@ sign-in; multiple workers require sticky ownership or a shared transactional pro
 session store. Actual durable authority rotation, consumer-to-authority integration,
 real host/client registration, multi-device human UX, and deployment qualification
 remain owned by the parent. There is no full migration/deployment acceptance claim.
+
+Transient authority transport, timeout, 5xx and stale-evidence refusals deny the
+request while retaining the current server-side session for retry. A successful
+refresh stores its rotated credentials under the existing parent deadline before
+introspection, since the previous refresh token is already consumed. No route
+receives authorization until fresh authority evidence and current local policy
+both pass. Confirmed inactive grants, invalid_grant/invalid_token, cryptographic
+claim failures, expired root bounds and local account removal still invalidate
+admission; cleanup never removes a concurrent successor.
+
+Bridge start/stop generations invalidate pending connection preparation and its
+retry scheduling. Capabilities prepared for a retired generation are closed.
+Disconnected relay sessions cannot regain cancellation custody when an iterator
+finishes later. Regressions cover resolved/rejected preparation races and repeated
+disconnect/cancel cycles alongside the existing connected-stream behavior.

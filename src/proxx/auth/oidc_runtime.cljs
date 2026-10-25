@@ -52,17 +52,18 @@
         renewed (await (io/refresh! rp config previous))]
     (try
       (when-not (law/renewal-admitted? previous renewed)
-        (throw (ex-info "unauthorized" {:status 401 :error "unauthorized"})))
-      (let [current (merge previous (select-keys renewed [:access-token :refresh-token :expires-at]))
-            evidence (await (io/introspect! rp (:access-token current)))
-            now (current-time adapters)
-            bound (min (:session-expires-at previous) (law/session-bound current evidence now))
-            stored (get @(:sessions state) (:key previous))]
-        (when-not (and (law/grant-admitted? config current evidence now)
+        (throw (ex-info "unauthorized" {:status 401 :error "unauthorized" :invalidate-session? true})))
+      (let [stored (get @(:sessions state) (:key previous))
+            now (current-time adapters)]
+        (when-not (and (law/current-session? previous now)
+                       (> (:expires-at renewed) now)
                        (law/renewal-current? previous stored))
-          (throw (ex-info "unauthorized" {:status 401 :error "unauthorized"})))
-        (let [current (assoc (merge stored (select-keys renewed [:access-token :refresh-token :expires-at]))
-                            :session-expires-at bound)]
+          (throw (ex-info "unauthorized" {:status 401 :error "unauthorized" :invalidate-session? true})))
+        ;; A successful rotation consumes the old refresh token. Retain the new
+        ;; credentials under the unchanged parent deadline before introspection,
+        ;; so a temporary evidence outage remains retryable. verify! still reads
+        ;; current authority evidence before any route receives authorization.
+        (let [current (merge stored (select-keys renewed [:access-token :refresh-token :expires-at]))]
           (swap! (:sessions state) assoc (:key previous) current)
           current))
       (catch :default error
@@ -84,26 +85,28 @@
   (let [attempted (atom session)]
    (try
     (when-not (law/current-session? session now)
-      (throw (ex-info "unauthorized" {:status 401 :error "unauthorized"})))
+      (throw (ex-info "unauthorized" {:status 401 :error "unauthorized" :invalidate-session? true})))
     (let [session (await (current-session! state config adapters session))
           _ (reset! attempted session)
           rp (await (relying-party! state config))
           evidence (await (io/introspect! rp (:access-token session)))
           auth (await (local-auth! adapters session))
           current (max now (current-time adapters))]
+      (when-not (< (- current now) 5000)
+        (throw (ex-info "authority_unavailable" {:status 503 :error "authority_unavailable"})))
       (when-not (and (law/grant-admitted? config session evidence current)
-                     (< (- current now) 5000)
                      (or (nil? (:key session))
                          (law/session-continuity? session (get @(:sessions state) (:key session)) current)))
-        (throw (ex-info "unauthorized" {:status 401 :error "unauthorized"})))
+        (throw (ex-info "unauthorized" {:status 401 :error "unauthorized" :invalidate-session? true})))
       (when (:refresh-token session) (law/session-bound session evidence current))
       (if auth
         (assoc auth :sessionExpiresAt (min (or (:session-expires-at session) (:expires-at session))
                                             (law/session-bound session evidence current))
                     :expiresAt (min (:expires-at session) (law/session-bound session evidence current)))
-        (throw (ex-info "account_link_required" {:status 403 :error "account_link_required"}))))
+        (throw (ex-info "account_link_required" {:status 403 :error "account_link_required" :invalidate-session? true}))))
     (catch :default error
-      (when (:key session)
+      (when (and (:key session)
+                 (law/definitive-invalidation? (ex-data error) (io/protocol-error error)))
         (let [key (:key session)
               [before after] (swap-vals! (:sessions state)
                                #(if (= @attempted (get % key)) (dissoc % key) %))]

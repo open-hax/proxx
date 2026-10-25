@@ -94,3 +94,16 @@
   (is (not (law/tenant-admitted? {:memberships [{:tenantId "local"}]} "remote")))
   (is (= 400 (:status (law/callback-failure "OAUTH_JWT_CLAIM_COMPARISON_FAILED"))))
   (is (= 503 (:status (law/callback-failure "network failure")))))
+
+(deftest only-confirmed-invalidations-discard-session-custody
+  (is (law/definitive-invalidation? {:invalidate-session? true} nil))
+  (is (law/definitive-invalidation? nil {:oauth-error "invalid_grant"}))
+  (is (law/definitive-invalidation? nil {:oauth-error "invalid_token"}))
+  (doseq [data [nil {:status 401} {:status 403} {:status 503} {:error "unauthorized"}]]
+    (is (not (law/definitive-invalidation? data nil))))
+  (is (not (law/definitive-invalidation? nil {:oauth-error "temporarily_unavailable"}))))
+
+(deftest cryptographic-claim-failures-are-distinct-from-http-response-errors
+  (doseq [code law/invalid-renewal-validation-codes]
+    (is (law/definitive-invalidation? nil {:validation-code code})))
+  (is (not (law/definitive-invalidation? nil {:validation-code "OAUTH_RESPONSE_BODY_ERROR" :oauth-error "temporarily_unavailable"}))))

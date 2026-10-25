@@ -41,7 +41,11 @@
                 body (js/URLSearchParams. (.-body options))
                 field (fn [k] (.get body k))
                 authenticated? (and (= client-id (field "client_id")) (= secret (field "client_secret")))]
+            (when (and (= path "/oidc/introspection") (:introspection-unavailable @mode))
+              (throw (js/TypeError. "fixture introspection unavailable")))
             (cond
+              (and (= path "/oidc/introspection") (:introspection-status @mode))
+              (response {:error "temporarily_unavailable"} (:introspection-status @mode))
               (str/includes? path ".well-known") (response (merge metadata (:metadata @mode)) 200)
               (= path "/oidc/jwks") (response {:keys [(assoc public-key :kid "fixture-key" :alg "RS256" :use "sig")]} 200)
               (not authenticated?) (response {:error "invalid_client"} 401)

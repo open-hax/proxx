@@ -105,3 +105,12 @@
   p-skill-candidate: 0.1
   spore: none
   note: Cancellation and transport delivery race; remember a bounded set of broker-cancelled IDs per session so expected late frames cannot close unrelated streams. Preserve capability checks and unknown-ID refusal. Reproduced transport failure before repair; reran actual composed PostgreSQL/long-stream fixture after build. Existing protocol-race guidance suffices; no spore or promotion.
+- ts: 2026-10-25T05:34:03.505424702Z
+  session: /home/err/.local/share/codex-work/axxium-sso/proxx-current
+  task: Qualify restart generations and retryable authority outages
+  p-efficiency: 0.85
+  p-friction: 0.3
+  p-skill-candidate: 0.1
+  spore: none
+  receipt-refs: open-hax/proxx#457,4366115291,4366115298,4366115302
+  note: Stopping does not invalidate an asynchronous result if a later start clears the same boolean. Use run identity and close retired prepared capabilities. Rotating refresh consumes old credentials before evidence may fail; preserve validated successor credentials but never authorize without fresh evidence. Differentiate confirmed protocol invalidation from transport/freshness status. Full suites and real PG relay pass; no spore.

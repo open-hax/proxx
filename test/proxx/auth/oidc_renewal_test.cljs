@@ -58,7 +58,9 @@
     (near-expiry! f)
     (swap! (:mode fixture) assoc :unavailable true)
     (is (await (refused? (runtime/verify! state config adapters (runtime/session state handle) (io/now)))))
-    (is (nil? (runtime/session state handle)))))
+    (is (some? (runtime/session state handle)))
+    (reset! (:mode fixture) {})
+    (is (:userId (await (runtime/verify! state config adapters (runtime/session state handle) (io/now)))))))
 
 (deftest refreshed-id-token-issuer-audience-subject-nonce-and-outage
   (async done (-> (substitution*) (.catch (fn [e] (is false (str e)))) (.finally done))))
@@ -150,3 +152,43 @@
 
 (deftest saturated-pending-transactions-still-permit-a-new-valid-login
   (async done (run-bounded-start! done)))
+
+(defn- ^:async transient-retention* []
+  (doseq [rotate? [false true]
+          fault [{:introspection-unavailable true} {:introspection-status 503}]]
+    (let [{:keys [state fixture config adapters handle] :as f} (await (setup!))
+          initial (runtime/session state handle)]
+      (when rotate? (near-expiry! f))
+      (reset! (:mode fixture) fault)
+      (is (await (refused? (runtime/verify! state config adapters (runtime/session state handle) (io/now)))))
+      (let [retained (runtime/session state handle)]
+        (is (some? retained))
+        (is (empty? @(:revoked fixture)))
+        (when rotate? (is (not= (:refresh-token initial) (:refresh-token retained)))))
+      (reset! (:mode fixture) {})
+      (is (:userId (await (runtime/verify! state config adapters (runtime/session state handle) (io/now)))))
+      (is (= (if rotate? 1 0) @(:rotations fixture)))))
+  (let [{:keys [state fixture config adapters handle] :as f} (await (setup!))]
+    (near-expiry! f)
+    (reset! (:refreshes fixture) {})
+    (is (await (refused? (runtime/verify! state config adapters (runtime/session state handle) (io/now)))))
+    (is (nil? (runtime/session state handle)) "confirmed invalid_grant still removes admission")))
+
+(deftest transient-introspection-after-rotation-preserves-retryable-session
+  (async done (-> (transient-retention*) (.catch (fn [e] (is false (str e)))) (.finally done))))
+
+(defn- ^:async stale-evidence-retention* []
+  (let [{:keys [state fixture config adapters handle]} (await (setup!))
+        clock (atom (io/now))
+        delayed (assoc adapters :now #(deref clock)
+                  :get-user (fn ^:async delayed-user [id]
+                              (swap! clock + 6000)
+                              (await ((:get-user adapters) id))))]
+    (is (await (refused? (runtime/verify! state config delayed (runtime/session state handle) @clock))))
+    (is (some? (runtime/session state handle)))
+    (is (empty? @(:revoked fixture)))
+    (is (:userId (await (runtime/verify! state config (assoc adapters :now #(deref clock))
+                         (runtime/session state handle) @clock))))))
+
+(deftest freshness-refusal-does-not-revoke-an-otherwise-current-session
+  (async done (-> (stale-evidence-retention*) (.catch (fn [e] (is false (str e)))) (.finally done))))

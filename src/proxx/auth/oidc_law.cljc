@@ -110,7 +110,7 @@
   (if (:refresh-token tokens)
     (let [bound (:root_session_expires_at evidence)]
       (when-not (and (number? bound) (< now (* bound 1000)))
-        (throw (ex-info "unauthorized" {:status 401 :error "unauthorized"})))
+        (throw (ex-info "unauthorized" {:status 401 :error "unauthorized" :invalidate-session? true})))
       (min (+ now session-limit-ms) (* bound 1000)))
     (:expires-at tokens)))
 
@@ -152,3 +152,15 @@
   [entries limit]
   (->> entries (sort-by (fn [[_ tx]] (or (:created-at tx) (:expires-at tx))))
        (take (max 0 (inc (- (count entries) limit)))) (mapv key)))
+
+(def invalid-renewal-validation-codes
+  #{"OAUTH_JWT_CLAIM_COMPARISON_FAILED" "OAUTH_JWT_TIMESTAMP_CHECK_FAILED"
+    "ERR_JWT_CLAIM_VALIDATION_FAILED" "ERR_JWT_EXPIRED"
+    "ERR_JWS_SIGNATURE_VERIFICATION_FAILED"})
+
+(defn definitive-invalidation?
+  "Transport status and freshness refusals are not evidence of revocation."
+  [data {:keys [oauth-error validation-code]}]
+  (or (true? (:invalidate-session? data))
+      (contains? #{"invalid_grant" "invalid_token"} oauth-error)
+      (contains? invalid-renewal-validation-codes validation-code)))

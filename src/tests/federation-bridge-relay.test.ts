@@ -70,6 +70,31 @@ test("late cancelled scoped frames leave concurrent streams connected; unknown I
   } finally { await relay.close(); }
 });
 
+test("late iterator cancellation cannot recreate disconnected session custody", async () => {
+  const relay = createFederationBridgeRelay();
+  const capability: RelayCapability = {
+    ownerSubject: "owner", nodeId: "node", expiresAt: Date.now() + 25_000, leaseId: "lease", allowedTenants: ["tenant"],
+    close() {}, async renew() {}, bindRequest: () => ({}), assertDelivery() {}, assertActive() {}, assertHello() {}, assertRequest() {},
+    headers: (headers) => ({ ...headers }), capabilities: (value) => value, execute: async () => { throw new Error("unused"); },
+  };
+  const sent: string[] = [];
+  const channel = { isOpen: true, send(data: string) { sent.push(data); }, close() {} };
+  try {
+    for (let i = 0; i < 5; i++) {
+      const hello = { type: "hello" as const, protocolVersion: BRIDGE_PROTOCOL_VERSION, sentAt: new Date().toISOString(), traceId: `hello-${i}`,
+        ownerSubject: "owner", clusterId: "cluster", agentId: `agent-${i}`, peerDid: "did:web:test.invalid", environment: "test", bridgeAgentVersion: "test", authMode: "axxium_node" as const, labels: [] };
+      const { sessionId } = relay.acceptHello(hello, { authKind: "axxium_node", relay: capability });
+      relay.registerSseChannel(sessionId, channel);
+      const iterator = relay.requestStream(sessionId, { path: "/v1/responses", timeoutMs: 5_000 })[Symbol.asyncIterator]();
+      relay.handleChannelMessage(sessionId, "malformed synthetic frame", channel);
+      assert.equal(relay.getSession(sessionId)?.state, "disconnected");
+      await iterator.return!();
+    }
+    assert.equal((relay as unknown as { cancelledScopedStreams: Map<string, Set<string>> }).cancelledScopedStreams.size, 0);
+    assert.equal(sent.filter((value) => JSON.parse(value).type === "request_cancel").length, 0);
+  } finally { await relay.close(); }
+});
+
 function buildConfig(input: {
   readonly upstreamPort: number;
   readonly paths: {

@@ -116,6 +116,7 @@ export class FederationBridgeAgent {
   private heartbeatTimer: NodeJS.Timeout | undefined;
   private reconnectTimer: NodeJS.Timeout | undefined;
   private stopped = false;
+  private runGeneration = 0;
   private startPromise: Promise<void> | undefined;
 
   public constructor(private readonly options: FederationBridgeAgentOptions) {}
@@ -138,7 +139,8 @@ export class FederationBridgeAgent {
       return this.startPromise ?? Promise.resolve();
     }
     this.clearReconnectTimer();
-    this.startPromise = this.connect(false);
+    const generation = ++this.runGeneration;
+    this.startPromise = this.connect(false, generation);
 
     // Handle transient relay outages during startup gracefully.
     // If the initial connection fails, schedule reconnection and resolve
@@ -147,6 +149,7 @@ export class FederationBridgeAgent {
     try {
       await this.startPromise;
     } catch (error) {
+      if (this.stopped || generation !== this.runGeneration) return;
       this.recordError({
         code: "bridge_initial_connection_failed",
         message: error instanceof Error ? error.message : String(error),
@@ -162,6 +165,7 @@ export class FederationBridgeAgent {
 
   public async stop(): Promise<void> {
     this.stopped = true;
+    this.runGeneration += 1;
     this.clearHeartbeatTimer();
     this.clearReconnectTimer();
     this.state = "stopped";
@@ -180,20 +184,22 @@ export class FederationBridgeAgent {
     }
   }
 
-  private async connect(isReconnect: boolean): Promise<void> {
+  private async connect(isReconnect: boolean, generation = this.runGeneration): Promise<void> {
+    if (this.stopped || generation !== this.runGeneration) return;
     this.state = isReconnect ? "reconnecting" : "connecting";
 
     let prepared: Awaited<ReturnType<NonNullable<FederationBridgeAgentOptions["prepareConnection"]>>> | undefined;
     try {
       prepared = await this.options.prepareConnection?.();
     } catch (error) {
+      if (this.stopped || generation !== this.runGeneration) return;
       this.recordError({ code: "bridge_prepare_failed", message: "Relay connection preparation failed", retryable: true });
       // start() owns initial retry scheduling; reconnect attempts have no socket
       // whose close handler could schedule their next attempt.
       if (isReconnect && !this.stopped) this.scheduleReconnect();
       throw error;
     }
-    if (this.stopped) return;
+    if (this.stopped || generation !== this.runGeneration) { prepared?.relay.close(); return; }
     const authorization = prepared?.authorization ?? this.options.authorization;
     const headers: Record<string, string> = {};
     if (typeof authorization === "string" && authorization.trim().length > 0) {
@@ -290,7 +296,7 @@ export class FederationBridgeAgent {
         clearHandshakeTimer();
         lifecycle.close();
         if (this.webSocket === ws) this.clearConnection();
-        if (!this.stopped) {
+        if (!this.stopped && generation === this.runGeneration) {
           this.scheduleReconnect();
         }
         if (!settled && !helloAckReceived) {
@@ -750,6 +756,7 @@ export class FederationBridgeAgent {
   }
 
   private scheduleReconnect(): void {
+    const generation = this.runGeneration;
     if (this.stopped) {
       return;
     }
@@ -760,10 +767,10 @@ export class FederationBridgeAgent {
     const delayMs = Math.min(maxMs, minMs * 2 ** Math.max(0, this.reconnectAttempt - 1));
     this.state = "reconnecting";
     this.reconnectTimer = setTimeout(() => {
-      if (this.stopped) {
+      if (this.stopped || generation !== this.runGeneration) {
         return;
       }
-      this.startPromise = this.connect(true).catch(() => undefined);
+      this.startPromise = this.connect(true, generation).catch(() => undefined);
     }, delayMs);
   }
 

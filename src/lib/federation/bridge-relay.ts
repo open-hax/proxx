@@ -683,14 +683,15 @@ export class FederationBridgeRelay {
   }
 
   private cancelRequest(pending: PendingBridgeRequest): void {
-    if (!pending.scopedRequest) return;
+    const channel = this.channels.get(pending.sessionId);
+    if (!pending.scopedRequest || this.sessions.get(pending.sessionId)?.state !== "connected" || !channel?.isOpen) return;
     // Frames sent before request_cancel reaches the peer may still arrive.
     // Bound memory per session and never admit an ID the broker did not open.
     const cancelled = this.cancelledScopedStreams.get(pending.sessionId) ?? new Set<string>();
     cancelled.add(pending.streamId);
     while (cancelled.size > 1024) cancelled.delete(cancelled.values().next().value!);
     this.cancelledScopedStreams.set(pending.sessionId, cancelled);
-    this.channels.get(pending.sessionId)?.send(JSON.stringify({ ...pending.scopedRequest,
+    channel.send(JSON.stringify({ ...pending.scopedRequest,
       type: "request_cancel", relayBinding: undefined, headers: undefined }));
   }
 
