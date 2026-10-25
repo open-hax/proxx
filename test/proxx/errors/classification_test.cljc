@@ -95,7 +95,6 @@
 (deftest sse-and-stream-quota
   (let [parse (fn [s] #?(:cljs (js->clj (js/JSON.parse s)) :clj (throw (ex-info "no json" {}))))
         body "event: x\r\ndata: {\"type\":\"error\",\"error\":{\"message\":\"quota exceeded\"}}\n\ndata: [DONE]\n"]
-    (is (= ["{\"a\":1}" "[DONE]"] (c/sse-data-lines "data: {\"a\":1}\ndata:\nnoise\ndata:  [DONE] \n")))
     #?(:cljs
        (testing "parsed error events"
          (is (c/stream-quota-error? parse body))

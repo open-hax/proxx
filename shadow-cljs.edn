@@ -31,7 +31,11 @@
                                            responseIndicatesModelNotSupportedForAccount proxx.runtime/response-indicates-model-not-supported-js
                                            summarizeUpstreamError proxx.runtime/summarize-upstream-error-js
                                            streamPayloadIndicatesQuotaError proxx.runtime/stream-payload-indicates-quota-error-js
-                                           extractErrorMessage proxx.runtime/extract-error-message-js}}}
+                                           extractErrorMessage proxx.runtime/extract-error-message-js
+                                           stripSseCommentLines proxx.runtime/strip-sse-comment-lines-js
+                                           streamPayloadHasReasoningTrace proxx.runtime/stream-payload-has-reasoning-trace-js
+                                           streamPayloadHasSubstantiveChunks proxx.runtime/stream-payload-has-substantive-chunks-js
+                                           chatCompletionHasReasoningContent proxx.runtime/chat-completion-has-reasoning-content-js}}}
    :js-options {:js-provider :import
                 :keep-as-import #{"node:fs" "node:path"}}
    :compiler-options {:output-feature-set :es-next

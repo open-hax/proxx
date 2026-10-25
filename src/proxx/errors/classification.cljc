@@ -9,7 +9,8 @@
     {:status       int
      :content-type string | nil
      :payload      parsed JSON (string-keyed map), raw text, or nil}"
-  (:require [clojure.string :as str]))
+  (:require [clojure.string :as str]
+            [proxx.sse :as sse]))
 
 ;; ---------------------------------------------------------------------------
 ;; Pattern tables (data)
@@ -191,26 +192,17 @@
 ;; Event streams
 ;; ---------------------------------------------------------------------------
 
-(defn sse-data-lines
-  "Non-empty `data:` payloads of an SSE body, in order."
-  [body]
-  (->> (str/split-lines body)
-       (map str/trim)
-       (filter #(str/starts-with? % "data:"))
-       (map #(str/trim (subs % 5)))
-       (remove str/blank?)))
+(defn- quota-event?
+  "Unparseable events are judged as raw text; parsed ones must declare
+  themselves errors first."
+  [{:keys [data parsed malformed?]}]
+  (if malformed?
+    (quota-message? data)
+    (and (error-like-payload? parsed)
+         (or (some-> (extract-error-message parsed) quota-message?)
+             (quota-message? data)))))
 
 (defn stream-quota-error?
-  "Does any event in an SSE body report a quota failure? `parse-json` returns
-  parsed data or throws; an unparseable event is judged as raw text."
+  "Does any event in an SSE body report a quota failure?"
   [parse-json body]
-  (boolean
-   (some (fn [data]
-           (when-not (= "[DONE]" data)
-             (let [parsed (try (parse-json data) (catch #?(:clj Exception :cljs :default) _ ::unparsed))]
-               (if (= ::unparsed parsed)
-                 (quota-message? data)
-                 (and (error-like-payload? parsed)
-                      (or (some-> (extract-error-message parsed) quota-message?)
-                          (quota-message? data)))))))
-         (sse-data-lines body))))
+  (boolean (some quota-event? (sse/events parse-json body))))

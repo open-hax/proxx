@@ -10,6 +10,7 @@
             [proxx.queue.policy :as queue-policy]
             [proxx.queue.runtime :as queue-runtime]
             [proxx.schema :as schema]
+            [proxx.sse :as sse]
             [proxx.strategies.anthropic :as anthropic]
             [proxx.strategies.openai :as openai]))
 
@@ -371,3 +372,18 @@
   "Message text of a parsed JSON error payload, or undefined."
   [payload]
   (clj->js (classification/extract-error-message (js->clj payload))))
+
+;; ---------------------------------------------------------------------------
+;; SSE inspection (sync, string in / boolean out)
+;; ---------------------------------------------------------------------------
+
+(defn strip-sse-comment-lines-js [body] (sse/strip-comment-lines body))
+
+(defn stream-payload-has-reasoning-trace-js [body]
+  (sse/stream-has-reasoning-trace? parse-json body))
+
+(defn stream-payload-has-substantive-chunks-js [body]
+  (sse/stream-has-substantive-chunks? parse-json body))
+
+(defn chat-completion-has-reasoning-content-js [completion]
+  (sse/chat-completion-has-reasoning? (js->clj completion)))
