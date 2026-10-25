@@ -1,3 +1,4 @@
+import { kernels } from "./cljs-kernels.js";
 import { DEFAULT_TENANT_ID } from "./tenant-api-key.js";
 
 export interface TenantApiKeyAuthMatch {
@@ -37,20 +38,10 @@ export interface ResolvedRequestAuth {
   readonly memberships?: readonly RequestAuthMembership[];
 }
 
-function extractBearerToken(authorization: string | undefined): string | undefined {
-  if (!authorization) {
-    return undefined;
-  }
-
-  const trimmed = authorization.trim();
-  if (!trimmed.toLowerCase().startsWith("bearer ")) {
-    return undefined;
-  }
-
-  const token = trimmed.slice(7).trim();
-  return token.length > 0 ? token : undefined;
-}
-
+/**
+ * Resolve who is calling. The resolution order and the decisions are CLJS
+ * (`proxx.auth.request`, `proxx.runtime.auth`); lookups stay callbacks.
+ */
 export async function resolveRequestAuth(input: {
   readonly allowUnauthenticated: boolean;
   readonly proxyAuthToken?: string;
@@ -60,89 +51,6 @@ export async function resolveRequestAuth(input: {
   readonly resolveTenantApiKey?: (token: string) => Promise<TenantApiKeyAuthMatch | undefined>;
   readonly resolveUiSession?: (token: string) => Promise<UiSessionAuthMatch | undefined>;
 }): Promise<ResolvedRequestAuth | undefined> {
-  const bearerToken = extractBearerToken(input.authorization);
-  const cookieToken = typeof input.cookieToken === "string" && input.cookieToken.trim().length > 0
-    ? input.cookieToken.trim()
-    : undefined;
-  const oauthAccessToken = typeof input.oauthAccessToken === "string" && input.oauthAccessToken.trim().length > 0
-    ? input.oauthAccessToken.trim()
-    : undefined;
-
-  if (input.proxyAuthToken) {
-    if (bearerToken === input.proxyAuthToken) {
-      return {
-        kind: "legacy_admin",
-        tenantId: DEFAULT_TENANT_ID,
-        role: "owner",
-        source: "bearer",
-        subject: "legacy:proxy-auth-token",
-      };
-    }
-
-    if (cookieToken === input.proxyAuthToken) {
-      return {
-        kind: "legacy_admin",
-        tenantId: DEFAULT_TENANT_ID,
-        role: "owner",
-        source: "cookie",
-        subject: "legacy:proxy-auth-token",
-      };
-    }
-  }
-
-  if (bearerToken && input.resolveTenantApiKey) {
-    const match = await input.resolveTenantApiKey(bearerToken);
-    if (match) {
-      return {
-        kind: "tenant_api_key",
-        tenantId: match.tenantId,
-        role: "member",
-        source: "bearer",
-        subject: `tenant_api_key:${match.id}`,
-        keyId: match.id,
-        scopes: match.scopes,
-      };
-    }
-  }
-
-  if (input.resolveUiSession) {
-    if (bearerToken) {
-      const match = await input.resolveUiSession(bearerToken);
-      if (match) {
-        return {
-          kind: "ui_session",
-          tenantId: match.activeTenantId,
-          role: match.role,
-          source: "bearer",
-          userId: match.userId,
-          subject: match.subject,
-          memberships: match.memberships,
-        };
-      }
-    }
-
-    if (oauthAccessToken && oauthAccessToken !== bearerToken) {
-      const match = await input.resolveUiSession(oauthAccessToken);
-      if (match) {
-        return {
-          kind: "ui_session",
-          tenantId: match.activeTenantId,
-          role: match.role,
-          source: "cookie",
-          userId: match.userId,
-          subject: match.subject,
-          memberships: match.memberships,
-        };
-      }
-    }
-  }
-
-  if (input.allowUnauthenticated) {
-    return {
-      kind: "unauthenticated",
-      source: "none",
-    };
-  }
-
-  return undefined;
+  const resolved = await kernels.resolveRequestAuth(input, DEFAULT_TENANT_ID);
+  return (resolved ?? undefined) as ResolvedRequestAuth | undefined;
 }

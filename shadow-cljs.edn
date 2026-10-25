@@ -103,7 +103,8 @@
                                            factoryCredentialNeedsRefresh proxx.runtime.factory-auth/factory-credential-needs-refresh-js
                                            refreshFactoryOAuthToken proxx.runtime.factory-auth/refresh-factory-oauth-token-js
                                            factoryRefreshBufferMs proxx.oauth.factory/refresh-buffer-ms
-                                           createCredentialStore proxx.runtime.credentials/create-credential-store-js}}}
+                                           createCredentialStore proxx.runtime.credentials/create-credential-store-js
+                                           resolveRequestAuth proxx.runtime.auth/resolve-request-auth-js}}}
    :js-options {:js-provider :import
                 :keep-as-import #{"node:fs" "node:path"}}
    :compiler-options {:output-feature-set :es-next

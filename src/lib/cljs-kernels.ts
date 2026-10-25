@@ -165,6 +165,8 @@ export interface CljsKernels {
   ) => Promise<{ readonly accessToken: string; readonly refreshToken: string; readonly expiresAt: number | undefined }>;
   readonly factoryRefreshBufferMs: number;
   // w2 credentials: file-backed credential store
+  // w2 request auth
+  readonly resolveRequestAuth: (input: unknown, defaultTenantId: string) => Promise<unknown>;
   readonly createCredentialStore: (filePath: string, defaultProviderId: string, deps: unknown) => unknown;
 }
 
