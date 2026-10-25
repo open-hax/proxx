@@ -87,6 +87,11 @@
 
 (defn okv-count [c] (count (:by c)))
 
+(defn okv-entries
+  "[[k v] ...] in insertion order."
+  [c]
+  (->> (:by c) (sort-by (fn [[k _]] (get (:seq c) k))) vec))
+
 (defn- okv-remove-where [c pred]
   (reduce (fn [acc [k v]] (if (pred v) (okv-dissoc acc k) acc)) c (:by c)))
 

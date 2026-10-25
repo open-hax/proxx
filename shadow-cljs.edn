@@ -248,7 +248,17 @@
                                            accountOrderForLatency proxx.runtime.strategy/account-order-for-latency-js
                                            candidateOrderForAffinities proxx.runtime.strategy/candidate-order-for-affinities-js
                                            candidateOrderForRoutes proxx.runtime.strategy/candidate-order-for-routes-js
-                                           createRequestLogCore proxx.runtime.request-log/create-request-log-core-js}}}
+                                           createRequestLogCore proxx.runtime.request-log/create-request-log-core-js
+                                           usageToWindow proxx.runtime.usage-analytics/usage-to-window-js
+                                           usageToSafeLimit proxx.runtime.usage-analytics/usage-to-safe-limit-js
+                                           usageWindowConfig proxx.runtime.usage-analytics/usage-window-config-js
+                                           usageOverviewFromEntries proxx.runtime.usage-analytics/usage-overview-from-entries-js
+                                           usageOverviewFromRollups proxx.runtime.usage-analytics/usage-overview-from-rollups-js
+                                           usageAnalyticsFromEntries proxx.runtime.usage-analytics/usage-analytics-from-entries-js
+                                           usageAnalyticsFromRollups proxx.runtime.usage-analytics/usage-analytics-from-rollups-js
+                                           usageScopeActive proxx.runtime.usage-analytics/usage-scope-active-js
+                                           usageFilterEntries proxx.runtime.usage-analytics/usage-filter-entries-js
+                                           usageSummarizeRouting proxx.runtime.usage-analytics/usage-summarize-routing-js}}}
    :js-options {:js-provider :import
                 :keep-as-import #{"node:fs" "node:path"}}
    :compiler-options {:output-feature-set :es-next
