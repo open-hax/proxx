@@ -51,6 +51,32 @@ leaves the question open).
   what cannot be honoured.
 * Async: `defn ^:async` / `(await …)`, never `js-await`.
 
+## HTTP routes (Ring-style on Fastify)
+
+Routes are data and handlers are pure-ish functions of plain maps — see
+`src/proxx/runtime/ring.cljs` (adapter), `src/proxx/runtime/routes.cljs`
+(route tables), `src/proxx/http/*.cljc` (pure builders/authorization) and
+`test/proxx/http/ring_test.cljs` (tested against a real in-process Fastify).
+
+* A route is `{:method :get :path "/x" :handler f}`. `f` takes
+  `{:method :url :path :query :params :headers :body :ip :auth :raw}` and returns
+  `{:status 200 :headers {…} :body …}` (maps/vectors → JSON, strings as given).
+  It may be `^:async`/return a Promise. `:raw` is the Fastify request, for the
+  rare handler that must stream.
+* **Gather facts at the edge, decide in pure code.** The handler awaits stores
+  and collaborators, then hands plain data to a builder in `proxx.http.*`
+  (e.g. `health/report`). Authorization is a pure predicate over `:auth`
+  (`proxx.http.ui-auth`), never inline `if (auth.kind === …)`.
+* Signal HTTP failures with `(throw (ex-info msg {:http/status 403}))`; the
+  adapter renders `{"error": {"message": …}}`. Other throws propagate to the
+  application's Fastify error handler unchanged.
+* The TS route file becomes a shim that calls `kernels.registerXRoutes(app, deps)`
+  with the host collaborators (stores etc.) as a plain object. Parsers must
+  distinguish *absent* from `null` (`::absent` sentinel): `js->clj` conflates
+  `undefined` and `null`, and several routes give them different meanings.
+* Streaming/SSE/WebSocket bodies are effects: keep the byte plumbing at the edge
+  and drive it from a pure sequence of frames.
+
 ## Closure advanced-compilation hazards (the release build)
 
 * Reading properties of host objects: hint them `^js` (`[^js store]`) so externs

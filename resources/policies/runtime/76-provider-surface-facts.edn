@@ -1,0 +1,44 @@
+;; Provider surface facts: which providers speak which API, what hosted-OpenAI
+;; model ids look like, which provider ids are dedicated Ollama hosts, where a
+;; provider publishes its model catalog, and which bridge paths a bridge that
+;; advertises no capabilities may serve.
+;; Consumed by proxx.routing.surface; never restated in TypeScript or CLJS code.
+[{:contract/id :provider-surface-facts/default
+  :contract/kind :provider-surface-facts
+
+  ;; Providers treated as OpenAI-compatible (chat/images). The configured OpenAI
+  ;; provider id is added by the interpreter, not listed here.
+  :surface/openai-compatible-providers ["vivgrid" "openai" "factory" "requesty" "zen" "xiaomi"]
+
+  ;; Providers that expose the Responses API.
+  :surface/responses-providers ["vivgrid" "openai" "factory" "requesty" "zen" "rotussy"]
+
+  ;; Matched against the lower-cased model id: hosted OpenAI families, which are
+  ;; never routed to a local Ollama.
+  :surface/hosted-openai-model-patterns ["^gpt-" "^openai/" "^openai:" "^chatgpt-" "^o[134]$" "^o[134]-"]
+
+  ;; Matched against the trimmed, lower-cased provider id: `ollama-*` hosts other
+  ;; than the hosted `ollama-cloud`.
+  :surface/dedicated-ollama-provider-pattern "^ollama-(?!cloud$)"
+
+  ;; Model-id prefixes that mean "the caller explicitly asked for Ollama".
+  :surface/explicit-ollama-prefixes ["ollama/" "ollama:" "ollama-lan/" "ollama-lan:"]
+
+  ;; Paths a bridge with no structured capability hints is assumed to serve.
+  :surface/legacy-bridge-path-prefixes
+  ["/v1/chat/completions" "/v1/models" "/v1/responses" "/v1/embeddings" "/v1/images/generations"]
+
+  ;; Model catalog endpoints, first match on the trimmed lower-cased provider id wins.
+  :catalog/source-paths
+  [{:match/provider-pattern "^zai$" :catalog/paths ["/models"]}
+   {:match/provider-pattern "^rotussy$" :catalog/paths ["/v1/models" "/models"]}
+   {:match/provider-pattern ".*" :catalog/paths ["/v1/models"]}]
+
+  ;; The configured OpenAI provider has no public catalog when it is served
+  ;; through the Codex surface: any base url / path containing these markers.
+  :catalog/codex-markers
+  {:openai-base-url-contains ["chatgpt.com/backend-api"]
+   :openai-path-contains ["/codex/"]}
+
+  ;; Catalog endpoints probed on Ollama routes.
+  :catalog/ollama-paths ["/v1/models" "/api/tags"]}]

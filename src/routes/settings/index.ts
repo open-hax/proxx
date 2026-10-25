@@ -1,9 +1,10 @@
 import type { FastifyInstance } from "fastify";
 import type { UiRouteDependencies } from "../types.js";
+import { registerSettingsUiRoutes } from "./ui.js";
 
 export { registerSettingsUiRoutes } from "./ui.js";
-import { API_V1_SETTINGS_ROUTE_PREFIX } from "./prefix.js";
-import { registerSettingsUiRoutes } from "./ui.js";
+
+const API_V1_SETTINGS_ROUTE_PREFIX = "/api/v1";
 
 export async function registerSettingsRoutes(
   app: FastifyInstance,

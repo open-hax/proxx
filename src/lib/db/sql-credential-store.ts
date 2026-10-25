@@ -2,10 +2,10 @@ import crypto from "node:crypto";
 
 import type { Sql } from "./index.js";
 import type { ProviderCredential, ProviderAuthType } from "../key-pool.js";
-import { accountDisplayName, deriveOAuthMetadataFromToken } from "../account-identity.js";
-import { normalizeEpochMilliseconds } from "../epoch.js";
+import { deriveOAuthMetadataFromToken } from "../account-identity.js";
+import { kernels } from "../cljs-kernels.js";
 import { DEFAULT_TENANT_ID, buildTenantApiKeyPrefix, generateTenantApiKey, hashTenantApiKey, normalizeTenantId } from "../tenant-api-key.js";
-import type { CredentialAccountView, CredentialProviderView } from "../credential-store.js";
+import type { CredentialProviderView } from "../credential-store.js";
 import {
   INSERT_VERSION,
   CHECK_VERSION_EXISTS,
@@ -96,72 +96,15 @@ export interface SqlOpenAiAccountIdentityRow {
 }
 
 function normalizeAuthType(raw: string): ProviderAuthType {
-  const normalized = raw.trim().toLowerCase();
-  if (normalized === "oauth" || normalized === "oauth_bearer" || normalized === "oauth-bearer") {
-    return "oauth_bearer";
-  }
-  return "api_key";
+  return kernels.normalizeAuthTypeSql(raw);
 }
 
 function toProviderCredential(row: AccountRow, authType: ProviderAuthType): ProviderCredential {
-  return {
-    providerId: row.provider_id,
-    accountId: row.id,
-    token: row.token,
-    authType,
-    refreshToken: row.refresh_token ?? undefined,
-    expiresAt: normalizeEpochMilliseconds(row.expires_at ?? undefined),
-    chatgptAccountId: row.chatgpt_account_id ?? undefined,
-    planType: row.plan_type ?? undefined,
-  };
-}
-
-function escapeRegexLiteral(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function isLegacyOpenAiAccountId(accountId: string, chatgptAccountId: string): boolean {
-  return new RegExp(`^${escapeRegexLiteral(chatgptAccountId)}_[0-9a-f]{8}$`).test(accountId);
-}
-
-function isCurrentOpenAiAccountId(accountId: string, chatgptAccountId: string): boolean {
-  return new RegExp(`^${escapeRegexLiteral(chatgptAccountId)}-[0-9a-f]{12}$`).test(accountId);
+  return kernels.sqlProviderCredential(row, authType) as unknown as ProviderCredential;
 }
 
 export function selectLegacyOpenAiDuplicateIds(rows: readonly SqlOpenAiAccountIdentityRow[]): string[] {
-  const grouped = new Map<string, SqlOpenAiAccountIdentityRow[]>();
-
-  for (const row of rows) {
-    if (row.provider_id !== "openai" || !row.chatgpt_account_id) {
-      continue;
-    }
-    const accounts = grouped.get(row.chatgpt_account_id) ?? [];
-    accounts.push(row);
-    grouped.set(row.chatgpt_account_id, accounts);
-  }
-
-  const idsToDelete: string[] = [];
-  for (const [chatgptAccountId, accounts] of grouped.entries()) {
-    const hasCurrentSibling = accounts.some((account) => isCurrentOpenAiAccountId(account.id, chatgptAccountId));
-    if (!hasCurrentSibling) {
-      continue;
-    }
-    for (const account of accounts) {
-      if (isLegacyOpenAiAccountId(account.id, chatgptAccountId)) {
-        idsToDelete.push(account.id);
-      }
-    }
-  }
-
-  return idsToDelete;
-}
-
-function maskSecret(secret: string): string {
-  if (secret.length <= 8) {
-    return `${secret.slice(0, 2)}***${secret.slice(-2)}`;
-  }
-
-  return `${secret.slice(0, 4)}...${secret.slice(-4)}`;
+  return kernels.legacyOpenAiDuplicateIds(rows);
 }
 
 export interface SqlCredentialStoreStatus {
@@ -232,51 +175,12 @@ export interface CreatedTenantApiKey {
   scopes: readonly string[];
 }
 
-function parseScopes(value: string[] | string | null): string[] {
-  if (Array.isArray(value)) {
-    return value.filter((item): item is string => typeof item === "string");
-  }
-
-  if (typeof value === "string") {
-    try {
-      const parsed: unknown = JSON.parse(value);
-      return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
-    } catch {
-      return [];
-    }
-  }
-
-  return [];
-}
-
-function normalizeMembershipRole(value: string): TenantMembershipRole {
-  const normalized = value.trim().toLowerCase();
-  if (normalized === "owner" || normalized === "admin" || normalized === "member" || normalized === "viewer") {
-    return normalized;
-  }
-
-  return "viewer";
-}
-
 function toUserView(row: UserRow): UserView {
-  return {
-    id: row.id,
-    provider: row.provider,
-    subject: row.subject,
-    login: row.login,
-    email: row.email,
-    name: row.name,
-    avatarUrl: row.avatar_url,
-  };
+  return kernels.sqlUserView(row) as unknown as UserView;
 }
 
 function toTenantMembershipView(row: TenantMembershipRow): TenantMembershipView {
-  return {
-    tenantId: row.tenant_id,
-    tenantName: row.tenant_name,
-    tenantStatus: row.tenant_status,
-    role: normalizeMembershipRole(row.role),
-  };
+  return kernels.sqlMembershipView(row) as unknown as TenantMembershipView;
 }
 
 export class SqlCredentialStore {
@@ -349,20 +253,8 @@ export class SqlCredentialStore {
     name?: string | null;
     avatarUrl?: string | null;
   }): Promise<UserView> {
-    const subject = input.subject.trim().toLowerCase();
-    if (subject.length === 0) {
-      throw new Error("user subject must not be empty");
-    }
-
-    const rows = await this.sql.unsafe<UserRow[]>(UPSERT_USER, [
-      crypto.randomUUID(),
-      input.provider.trim().toLowerCase(),
-      subject,
-      input.login?.trim() || null,
-      input.email?.trim() || null,
-      input.name?.trim() || null,
-      input.avatarUrl?.trim() || null,
-    ]);
+    const params = kernels.sqlUserUpsertParams(() => crypto.randomUUID(), input);
+    const rows = await this.sql.unsafe<UserRow[]>(UPSERT_USER, params as never[]);
     const row = rows[0];
     if (!row) {
       throw new Error("failed to upsert user");
@@ -394,15 +286,15 @@ export class SqlCredentialStore {
 
   public async ensureDefaultTenantBootstrapMembership(userId: string): Promise<TenantMembershipRole> {
     const existingMemberships = await this.listUserMemberships(userId);
-    const existingDefaultMembership = existingMemberships.find((membership) => membership.tenantId === DEFAULT_TENANT_ID);
-    if (existingDefaultMembership) {
-      return existingDefaultMembership.role;
+    const hasDefault = existingMemberships.some((membership) => membership.tenantId === DEFAULT_TENANT_ID);
+    const rows = hasDefault
+      ? []
+      : await this.sql.unsafe<Array<{ count: string | number }>>(COUNT_TENANT_MEMBERSHIPS_FOR_TENANT, [DEFAULT_TENANT_ID]);
+    const plan = kernels.sqlBootstrapRole(existingMemberships, DEFAULT_TENANT_ID, rows[0] ?? {});
+    const role = plan.role as TenantMembershipRole;
+    if (plan.create) {
+      await this.ensureTenantMembership(userId, DEFAULT_TENANT_ID, role);
     }
-
-    const rows = await this.sql.unsafe<Array<{ count: string | number }>>(COUNT_TENANT_MEMBERSHIPS_FOR_TENANT, [DEFAULT_TENANT_ID]);
-    const count = Number(rows[0]?.count ?? 0);
-    const role: TenantMembershipRole = count === 0 ? "owner" : "admin";
-    await this.ensureTenantMembership(userId, DEFAULT_TENANT_ID, role);
     return role;
   }
 
@@ -420,19 +312,7 @@ export class SqlCredentialStore {
     const normalizedActiveTenantId = typeof activeTenantId === "string" && activeTenantId.trim().length > 0
       ? normalizeTenantId(activeTenantId)
       : undefined;
-    const activeMembership = (normalizedActiveTenantId
-      ? memberships.find((membership) => membership.tenantId === normalizedActiveTenantId)
-      : undefined)
-      ?? memberships.find((membership) => membership.tenantId === DEFAULT_TENANT_ID)
-      ?? memberships[0];
-
-    return {
-      userId: user.id,
-      subject: user.subject,
-      activeTenantId: activeMembership.tenantId,
-      role: activeMembership.role,
-      memberships,
-    };
+    return (kernels.sqlResolveUiSession(user, memberships, normalizedActiveTenantId, DEFAULT_TENANT_ID) ?? undefined) as ResolvedUiSession | undefined;
   }
 
   public async resolveTenantApiKey(token: string, pepper: string): Promise<TenantApiKeyMatch | undefined> {
@@ -443,42 +323,24 @@ export class SqlCredentialStore {
       return undefined;
     }
 
-    return {
-      id: row.id,
-      tenantId: row.tenant_id,
-      label: row.label,
-      prefix: row.prefix,
-      scopes: parseScopes(row.scopes),
-    };
+    return kernels.sqlTenantApiKeyMatch(row) as unknown as TenantApiKeyMatch;
   }
 
   public async listTenantApiKeys(tenantId: string): Promise<TenantApiKeyView[]> {
     const normalizedTenantId = normalizeTenantId(tenantId);
     const rows = await this.sql.unsafe<TenantApiKeyRow[]>(SELECT_TENANT_API_KEYS_BY_TENANT, [normalizedTenantId]);
-    return rows.map((row) => ({
-      id: row.id,
-      tenantId: row.tenant_id,
-      label: row.label,
-      prefix: row.prefix,
-      scopes: parseScopes(row.scopes),
-      createdAt: row.created_at ?? null,
-      lastUsedAt: row.last_used_at ?? null,
-      revokedAt: row.revoked_at ?? null,
-    }));
+    return rows.map((row) => kernels.sqlTenantApiKeyView(row) as unknown as TenantApiKeyView);
   }
 
   public async createTenantApiKey(tenantId: string, label: string, scopes: readonly string[], pepper: string): Promise<CreatedTenantApiKey> {
     const normalizedTenantId = normalizeTenantId(tenantId);
-    const normalizedLabel = label.trim();
-    if (normalizedLabel.length === 0) {
-      throw new Error("tenant api key label must not be empty");
-    }
+    const normalizedLabel = kernels.sqlNormalizedApiKeyLabel(label);
 
     const token = generateTenantApiKey();
     const id = crypto.randomUUID();
     const prefix = buildTenantApiKeyPrefix(token);
     const tokenHash = hashTenantApiKey(token, pepper);
-    const normalizedScopes = scopes.filter((scope): scope is string => typeof scope === "string" && scope.trim().length > 0);
+    const storedScopes = kernels.sqlApiKeyScopes(scopes);
 
     await this.sql.unsafe(INSERT_TENANT_API_KEY, [
       id,
@@ -486,7 +348,7 @@ export class SqlCredentialStore {
       normalizedLabel,
       prefix,
       tokenHash,
-      JSON.stringify(normalizedScopes.length > 0 ? normalizedScopes : ["proxy:use"]),
+      JSON.stringify(storedScopes),
     ]);
 
     return {
@@ -495,7 +357,7 @@ export class SqlCredentialStore {
       label: normalizedLabel,
       prefix,
       token,
-      scopes: normalizedScopes.length > 0 ? normalizedScopes : ["proxy:use"],
+      scopes: storedScopes,
     };
   }
 
@@ -516,49 +378,8 @@ export class SqlCredentialStore {
   public async listProviders(revealSecrets: boolean): Promise<CredentialProviderView[]> {
     const providerRows = await this.sql.unsafe<ProviderRow[]>(SELECT_ALL_PROVIDERS);
     const accountRows = await this.sql.unsafe<AccountRow[]>(SELECT_ALL_ACCOUNTS);
-    const authTypeByProvider = new Map<string, ProviderAuthType>(
-      providerRows.map((row) => [row.id, normalizeAuthType(row.auth_type)])
-    );
-    const accountsByProvider = new Map<string, CredentialAccountView[]>();
-
-    for (const row of accountRows) {
-      const authType = authTypeByProvider.get(row.provider_id) ?? "api_key";
-      const derived = authType === "oauth_bearer"
-        ? deriveOAuthMetadataFromToken(row.token)
-        : {};
-      const chatgptAccountId = row.chatgpt_account_id ?? derived.chatgptAccountId;
-      const email = derived.email;
-      const subject = derived.subject;
-      const planType = row.plan_type ?? derived.planType;
-      const accounts = accountsByProvider.get(row.provider_id) ?? [];
-      accounts.push({
-        id: row.id,
-        authType,
-        displayName: accountDisplayName({ id: row.id, email, chatgptAccountId }),
-        secretPreview: maskSecret(row.token),
-        secret: revealSecrets ? row.token : undefined,
-        refreshTokenPreview: row.refresh_token ? maskSecret(row.refresh_token) : undefined,
-        refreshToken: revealSecrets ? row.refresh_token ?? undefined : undefined,
-        expiresAt: normalizeEpochMilliseconds(row.expires_at ?? undefined),
-        chatgptAccountId,
-        email,
-        subject,
-        planType,
-      });
-      accountsByProvider.set(row.provider_id, accounts);
-    }
-
-    return providerRows
-      .map((row): CredentialProviderView => {
-        const accounts = accountsByProvider.get(row.id) ?? [];
-        return {
-          id: row.id,
-          authType: normalizeAuthType(row.auth_type),
-          accountCount: accounts.length,
-          accounts,
-        };
-      })
-      .sort((left, right) => left.id.localeCompare(right.id));
+    return kernels.sqlCredentialProviderViews(providerRows, accountRows, revealSecrets, deriveOAuthMetadataFromToken)
+      .sort((left, right) => (left as CredentialProviderView).id.localeCompare((right as CredentialProviderView).id)) as CredentialProviderView[];
   }
 
   public async getAllProviders(): Promise<Map<string, { authType: ProviderAuthType }>> {
@@ -771,16 +592,9 @@ export class SqlCredentialStore {
 
     this.cooldowns.clear();
     const result = new Map<string, number>();
-    for (const row of rows) {
-      const cooldownUntil = typeof row.cooldown_until === "number"
-        ? row.cooldown_until
-        : Number.parseInt(row.cooldown_until, 10);
-      if (!Number.isFinite(cooldownUntil)) {
-        continue;
-      }
-      const key = `${row.provider_id}\0${row.account_id}`;
-      result.set(key, cooldownUntil);
-      this.cooldowns.set(`${row.provider_id}:${row.account_id}`, cooldownUntil);
+    for (const [providerId, accountId, cooldownUntil] of kernels.sqlCooldownEntries(rows)) {
+      result.set(`${providerId}\0${accountId}`, cooldownUntil);
+      this.cooldowns.set(`${providerId}:${accountId}`, cooldownUntil);
     }
     return result;
   }

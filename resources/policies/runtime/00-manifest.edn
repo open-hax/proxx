@@ -7,6 +7,8 @@
   "05-provider-seed.edn"
   "10-model-families.edn"
   "15-model-pricing-overrides.edn"
+  "16-model-pricing-resolution.edn"
+  "17-provider-quota-profiles.edn"
   "18-auto-model-profile.edn"
   "20-provider-capabilities.edn"
   "30-model-routing.edn"
@@ -16,6 +18,7 @@
    "65-federation-routing.edn"
    "70-request-queue-templates.edn"
    "75-provider-wire-profiles.edn"
+   "76-provider-surface-facts.edn"
    "77-upstream-attempt-policy.edn"
    "78-strategy-registry.edn"
   "90-router.edn"]
