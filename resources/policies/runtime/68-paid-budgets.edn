@@ -12,6 +12,7 @@
                                 ["GET" "/v1/models"]
                                 ["GET" "/api/v1/paid-budgets"]
                                 ["GET" "/api/v1/request-logs"]}
+  :budget/allowed-transports #{"fetch"}
   :budget/allowed-modes #{"chat_completions" "ollama_chat" "local_ollama_chat"}
   :budget/max-input-tokens 262144
   :budget/max-output-tokens 8192

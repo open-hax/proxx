@@ -5,6 +5,7 @@
 (def contract {:contract/kind :paid-budget :match/key-id "bot-key"
                :budget/scope-id "bot" :budget/daily-microusd 500000 :budget/monthly-microusd 5000000
                :budget/allowed-http-routes #{["POST" "/v1/chat/completions"] ["GET" "/api/v1/paid-budgets"]}
+               :budget/allowed-transports #{"fetch"}
                :budget/allowed-modes #{"chat_completions"}
                :budget/max-input-tokens 262144 :budget/max-output-tokens 1024
                :budget/routes [{:provider-id "router" :model-id "vendor/free" :billing :free}
@@ -118,3 +119,10 @@
                                  {:match/model-pattern "^workload$" :match/provider-pattern "^router$" :alias/model-id "wrong-original-workload-alias"}]}
         plan (policy/route-plan [c] auth "workload" compiled)]
     (is (= ["vendor/free-long" "vendor/paid"] (mapv :upstreamModel (:orderedRoutes plan))))))
+
+
+(deftest direct-transports-cannot-bypass-managed-admission
+  (is (= "denied" (:status (policy/inspect-attempt [contract] auth (assoc attempt :transport "direct" :payload {:transport "fetch"})))))
+  (is (= "denied" (:status (policy/inspect-attempt [contract] auth (assoc attempt :model "vendor/free" :transport "direct")))))
+  (is (= "denied" (:status (policy/inspect-attempt [contract] auth (assoc attempt :transport "direct")))))
+  (is (= "unmanaged" (:status (policy/inspect-attempt [contract] (assoc auth :keyId "unrelated") (assoc attempt :transport "direct"))))))

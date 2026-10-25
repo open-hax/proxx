@@ -44,7 +44,7 @@
 (defn inspect-attempt
   "Identity comes from server-resolved auth, never request metadata. Matching
    callers cannot escape their allowance by changing a model or provider."
-  [contracts auth {:keys [providerId model mode payload]}]
+  [contracts auth {:keys [providerId model mode transport payload]}]
   (if-let [budget (request-budget contracts auth)]
     (let [route (some #(when (and (= (:provider-id %) (str/lower-case providerId))
                                  (= (str/lower-case (:model-id %)) (str/lower-case model))) %)
@@ -54,7 +54,8 @@
           output-cap (:budget/max-output-tokens budget)
           completions (or (:n payload) 1)
           best-of (or (:best_of payload) 1)]
-      (if (and route (contains? (:budget/allowed-modes budget) mode)
+      (if (and route (contains? (:budget/allowed-transports budget) (or transport "fetch"))
+               (contains? (:budget/allowed-modes budget) mode)
                (integer? requested-output) (pos? requested-output)
                (= 1 completions) (= 1 best-of))
         {:status (name (:billing route))

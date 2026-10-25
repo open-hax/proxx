@@ -201,7 +201,8 @@ export async function executeProviderRoutingPlan(
     }
     const inspectAttempt = (body: Record<string, unknown>) => budgetRuntime?.inspectBudgetAttempt?.(
       context.config.cljsPolicyManifestPath ?? "resources/policies/runtime/00-manifest.edn", context.requestAuth,
-      { providerId: candidate.providerId, model: body.model ?? context.routedModel, mode: candidateStrategy.mode, payload: body },
+      { providerId: candidate.providerId, model: body.model ?? context.routedModel, mode: candidateStrategy.mode,
+        transport: typeof (candidateStrategy as Partial<DirectExecutionProviderStrategy>).executeDirect === "function" ? "direct" : "fetch", payload: body },
     ) ?? { status: "unmanaged" };
     if (inspectAttempt(candidatePayload.upstreamPayload).status === "denied") {
       throw new OpenAiHttpError({ statusCode: 403, message: "Route is outside this caller budget policy.", type: "invalid_request_error", code: "budget_route_denied" });

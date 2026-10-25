@@ -7,7 +7,8 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply } from "fastify";
+import { ChatCompletionsProviderStrategy } from "../lib/provider-strategy/strategies/standard.js";
 
 import { createApp } from "../app.js";
 import { KeyPool } from "../lib/key-pool.js";
@@ -13929,5 +13930,24 @@ test("paid streamed requests override disabled usage reporting before transport"
         const response=await app.inject({method:"POST",url:"/v1/chat/completions",payload:{model:"gemma4:31b",stream:true,stream_options:{include_usage:false},messages:[{role:"user",content:"hello"}]}});
         assert.equal(response.statusCode,200,response.body);assert.equal(paidCalls,1);assert.equal(settlements,1);
       } finally {setActiveCljsRuntime(runtime);}
+    });
+});
+
+
+test("budget-managed direct execution is denied before SDK effects", async (t) => {
+  let directCalls=0, keyId="71a0813f-dbe3-45ad-a7ae-16555463e716";
+  const prototype=ChatCompletionsProviderStrategy.prototype;
+  const previous=Object.getOwnPropertyDescriptor(prototype,"executeDirect");
+  Object.defineProperty(prototype,"executeDirect",{configurable:true,value:async(reply:FastifyReply)=>{directCalls++;reply.send({direct:true});return {kind:"handled"};}});
+  t.after(()=>{if(previous)Object.defineProperty(prototype,"executeDirect",previous);else Reflect.deleteProperty(prototype,"executeDirect");});
+  await withProxyApp({keys:[],keysPayload:{providers:{requesty:{auth:"api_key",accounts:["test-key"]}}},configOverrides:{upstreamProviderId:"requesty"},
+    upstreamHandler:async()=>{throw Error("wrapped provider transport should not run");}},async({app})=>{
+      app.addHook("preHandler",async request=>{request.openHaxAuth={kind:"tenant_api_key",keyId,tenantId:"default",source:"bearer"};});
+      const payload={model:"google/gemma-4-31b-it",stream:false,messages:[{role:"user",content:"hello"}]};
+      const managed=await app.inject({method:"POST",url:"/v1/chat/completions",payload});
+      assert.equal(managed.statusCode,403,managed.body);assert.equal(directCalls,0);
+      keyId="unrelated-unmanaged-key";
+      const unmanaged=await app.inject({method:"POST",url:"/v1/chat/completions",payload});
+      assert.equal(unmanaged.statusCode,200,unmanaged.body);assert.equal(directCalls,1);
     });
 });
