@@ -1,26 +1,10 @@
 import type { ProxyConfig } from "./config.js";
-import type { KeyPool, ProviderCredential } from "./key-pool.js";
+import type { KeyPool } from "./key-pool.js";
 import type { ProviderRoute, ResolvedModelCatalog } from "./provider-routing.js";
-import { parseModelIdsFromCatalogPayload, buildLargestModelAliases, dedupeModelIds } from "./provider-routing.js";
-import { fetchWithResponseTimeout } from "./http/index.js";
-import { loadDeclaredModels, loadModelPreferences, type ModelPreferences } from "./models.js";
-import { joinUrl } from "./http/index.js";
-
-const DEFAULT_CATALOG_ROUTE_TIMEOUT_MS = 15_000;
-
-function resolveCatalogRouteTimeoutMs(): number {
-  const raw = process.env.PROXY_PROVIDER_CATALOG_ROUTE_TIMEOUT_MS?.trim();
-  if (!raw) {
-    return DEFAULT_CATALOG_ROUTE_TIMEOUT_MS;
-  }
-
-  const parsed = Number.parseInt(raw, 10);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    return DEFAULT_CATALOG_ROUTE_TIMEOUT_MS;
-  }
-
-  return parsed;
-}
+import { fetchWithResponseTimeout, joinUrl } from "./http/index.js";
+import type { ModelPreferences } from "./models.js";
+import { kernels } from "./cljs-kernels.js";
+import { policyManifestPath } from "./policy-manifest.js";
 
 export interface ProviderCatalogEntry {
   readonly providerId: string;
@@ -36,361 +20,31 @@ export interface ResolvedCatalogWithPreferences {
   readonly preferences: ModelPreferences;
 }
 
-interface CachedCatalog {
-  readonly expiresAt: number;
-  readonly resolved: ResolvedCatalogWithPreferences;
-}
-
-function providerModelCatalogPaths(config: ProxyConfig, providerId: string): string[] {
-  const normalizedProviderId = providerId.trim().toLowerCase();
-
-  if (normalizedProviderId === config.openaiProviderId.trim().toLowerCase()) {
-    const openAiBaseUrl = config.openaiBaseUrl.trim().toLowerCase();
-    const openAiResponsesPath = config.openaiResponsesPath.trim().toLowerCase();
-    const openAiChatCompletionsPath = config.openaiChatCompletionsPath.trim().toLowerCase();
-    const usesCodexSurface = openAiBaseUrl.includes("chatgpt.com/backend-api")
-      || openAiResponsesPath.includes("/codex/")
-      || openAiChatCompletionsPath.includes("/codex/");
-
-    if (usesCodexSurface) {
-      return [];
-    }
-  }
-
-  if (normalizedProviderId === "zai") {
-    return ["/models"];
-  }
-
-  if (normalizedProviderId === "rotussy") {
-    return ["/v1/models", "/models"];
-  }
-
-  return ["/v1/models"];
-}
-
-function uniqueOrdered(values: readonly string[]): string[] {
-  const seen = new Set<string>();
-  const result: string[] = [];
-  for (const value of values) {
-    const trimmed = value.trim();
-    if (trimmed.length === 0 || seen.has(trimmed)) {
-      continue;
-    }
-    seen.add(trimmed);
-    result.push(trimmed);
-  }
-  return result;
-}
-
-function filterDisabled(models: readonly string[], disabled: readonly string[]): string[] {
-  if (disabled.length === 0) {
-    return [...models];
-  }
-  const disabledSet = new Set(disabled.map((entry) => entry.trim()).filter((entry) => entry.length > 0));
-  return models.filter((modelId) => !disabledSet.has(modelId));
-}
-
-function orderPreferredFirst(models: readonly string[], preferred: readonly string[]): string[] {
-  if (preferred.length === 0) {
-    return [...models];
-  }
-  const preferredSet = new Set(preferred.map((entry) => entry.trim()).filter((entry) => entry.length > 0));
-  const preferredModels: string[] = [];
-  const remaining: string[] = [];
-  for (const modelId of models) {
-    if (preferredSet.has(modelId)) {
-      preferredModels.push(modelId);
-    } else {
-      remaining.push(modelId);
-    }
-  }
-  return [...preferredModels, ...remaining];
-}
-
-function extractPreferredDiscovered(preferred: readonly string[], discovered: readonly string[]): string[] {
-  const discoveredSet = new Set(discovered);
-  return preferred.filter((entry) => discoveredSet.has(entry));
-}
-
-function buildPreferredAliasTargets(preferredAliases: Readonly<Record<string, string>>, discovered: readonly string[]): Record<string, string> {
-  const discoveredSet = new Set(discovered);
-  const aliases: Record<string, string> = {};
-  for (const [alias, target] of Object.entries(preferredAliases)) {
-    if (discoveredSet.has(target)) {
-      aliases[alias] = target;
-    }
-  }
-  return aliases;
-}
-
+/**
+ * Resolved model catalog of every provider route. The store itself (cache, per-route
+ * fetch with key-pool credentials and timeouts, catalog assembly) is the CLJS
+ * runtime's `proxx.runtime.catalog`; the HTTP helpers it cannot import are handed in.
+ */
 export class ProviderCatalogStore {
-  private cached: CachedCatalog | null = null;
-  private readonly ttlMs: number;
-  private readonly routeTimeoutMs: number;
+  private readonly impl: ReturnType<typeof kernels.createProviderCatalogStore>;
 
   constructor(
-    private readonly config: ProxyConfig,
-    private readonly keyPool: KeyPool,
-    private readonly routes: readonly ProviderRoute[],
-    private readonly ollamaRoutes: readonly ProviderRoute[],
+    config: ProxyConfig,
+    keyPool: KeyPool,
+    routes: readonly ProviderRoute[],
+    ollamaRoutes: readonly ProviderRoute[],
   ) {
-    this.ttlMs = Math.max(5_000, Math.min(120_000, Math.trunc(config.keyReloadMs)));
-    this.routeTimeoutMs = resolveCatalogRouteTimeoutMs();
+    this.impl = kernels.createProviderCatalogStore(policyManifestPath(), config, keyPool, routes, ollamaRoutes, {
+      fetchWithResponseTimeout,
+      joinUrl,
+    });
   }
 
-  public async getCatalog(forceRefresh = false): Promise<ResolvedCatalogWithPreferences> {
-    const now = Date.now();
-    if (!forceRefresh && this.cached && this.cached.expiresAt > now) {
-      return this.cached.resolved;
-    }
-
-    const preferences = await loadModelPreferences(this.config.modelsFilePath, []);
-    const declaredModels = await loadDeclaredModels(this.config.modelsFilePath);
-    const providerCatalogs: Record<string, ProviderCatalogEntry> = {};
-    const discoveredModels: string[] = [];
-
-    for (const route of this.routes) {
-      const sourceEndpoints = providerModelCatalogPaths(this.config, route.providerId);
-      const providerModels = await this.fetchRouteCatalogWithTimeout(route, sourceEndpoints);
-      if (providerModels.length > 0) {
-        providerCatalogs[route.providerId] = {
-          providerId: route.providerId,
-          modelIds: providerModels,
-          fetchedAt: Date.now(),
-          stale: false,
-          sourceEndpoints,
-        };
-        discoveredModels.push(...providerModels);
-      }
-    }
-
-    for (const route of this.ollamaRoutes) {
-      const providerModels = await this.fetchRouteCatalogWithTimeout(route, ["/v1/models", "/api/tags"]);
-      if (providerModels.length > 0) {
-        const existing = providerCatalogs[route.providerId];
-        if (existing) {
-          providerCatalogs[route.providerId] = {
-            ...existing,
-            modelIds: uniqueOrdered([...existing.modelIds, ...providerModels]),
-          };
-        } else {
-          providerCatalogs[route.providerId] = {
-            providerId: route.providerId,
-            modelIds: providerModels,
-            fetchedAt: Date.now(),
-            stale: false,
-            sourceEndpoints: ["/v1/models", "/api/tags"],
-          };
-        }
-        discoveredModels.push(...providerModels);
-      }
-    }
-
-    const dedupedDiscovered = dedupeModelIds(discoveredModels);
-    const disabledFiltered = filterDisabled(dedupedDiscovered, preferences.disabled);
-    const preferredDiscovered = extractPreferredDiscovered(preferences.preferred, disabledFiltered);
-    const orderedDiscoveredModels = orderPreferredFirst(disabledFiltered, preferredDiscovered);
-    const declaredFiltered = filterDisabled(declaredModels, preferences.disabled);
-    const declaredOnlyModels = declaredFiltered.filter((modelId) => !disabledFiltered.includes(modelId));
-    const orderedModels = dedupeModelIds([...orderedDiscoveredModels, ...declaredOnlyModels]);
-
-    const ollamaModelIds = dedupeModelIds(
-      this.ollamaRoutes.flatMap((route) => providerCatalogs[route.providerId]?.modelIds ?? [])
-    );
-    const aliasTargets = {
-      ...buildLargestModelAliases(ollamaModelIds),
-      ...buildPreferredAliasTargets(preferences.aliases, orderedModels),
-    };
-    const aliasIds = Object.keys(aliasTargets);
-    const modelIds = dedupeModelIds([...orderedModels, ...aliasIds]);
-
-    const resolvedCatalog: ResolvedModelCatalog = {
-      modelIds,
-      aliasTargets,
-      dynamicOllamaModelIds: ollamaModelIds,
-      declaredModelIds: declaredFiltered,
-    };
-
-    const resolved = {
-      catalog: resolvedCatalog,
-      providerCatalogs,
-      preferences: {
-        preferred: preferredDiscovered,
-        disabled: preferences.disabled,
-        aliases: preferences.aliases,
-      },
-    };
-
-    this.cached = {
-      expiresAt: now + this.ttlMs,
-      resolved,
-    };
-
-    return resolved;
+  public getCatalog(forceRefresh = false): Promise<ResolvedCatalogWithPreferences> {
+    return this.impl.getCatalog(forceRefresh) as Promise<ResolvedCatalogWithPreferences>;
   }
 
-  public async isModelAvailable(providerId: string, modelId: string): Promise<boolean> {
-    const resolved = await this.getCatalog(false);
-    const entry = resolved.providerCatalogs[providerId];
-    if (!entry) {
-      return false;
-    }
-    return entry.modelIds.includes(modelId);
-  }
-
-  private async fetchRouteCatalogWithTimeout(
-    route: ProviderRoute,
-    candidatePaths: readonly string[],
-  ): Promise<string[]> {
-    const controller = new AbortController();
-    const timeoutHandle = setTimeout(() => controller.abort(), this.routeTimeoutMs);
-    try {
-      const result = await Promise.race([
-        this.fetchProviderModelCatalog(route, candidatePaths, controller.signal),
-        new Promise<null>((resolve) => {
-          controller.signal.addEventListener("abort", () => resolve(null), { once: true });
-        }),
-      ]);
-      return result ?? [];
-    } catch {
-      return [];
-    } finally {
-      clearTimeout(timeoutHandle);
-    }
-  }
-
-  private async fetchProviderModelCatalog(
-    route: ProviderRoute,
-    candidatePaths: readonly string[] = ["/v1/models"],
-    signal?: AbortSignal,
-  ): Promise<string[]> {
-    const localOllamaRoute = this.isLocalOllamaCatalogRoute(route);
-
-    let accounts: ProviderCredential[] | null = null;
-    try {
-      accounts = await this.keyPool.getAllAccounts(route.providerId);
-    } catch {
-      accounts = null;
-    }
-
-    if (!accounts || accounts.length === 0) {
-      // Local Ollama typically does not require credentials, so still attempt
-      // catalog discovery even when the key pool has no accounts.
-      if (localOllamaRoute) {
-        return await this.fetchUnauthenticatedModelCatalog(route, candidatePaths, signal);
-      }
-      return [];
-    }
-
-    for (const account of accounts) {
-      if (signal?.aborted) {
-        return [];
-      }
-
-      for (const candidatePath of candidatePaths) {
-        if (signal?.aborted) {
-          return [];
-        }
-        const url = joinUrl(route.baseUrl, candidatePath);
-        let response: Response;
-        try {
-          response = await fetchWithResponseTimeout(url, {
-            method: "GET",
-            headers: {
-              authorization: `Bearer ${account.token}`,
-              accept: "application/json",
-            },
-            signal,
-          }, Math.min(this.config.requestTimeoutMs, 45_000));
-        } catch {
-          continue;
-        }
-
-        if (!response.ok) {
-          try {
-            await response.arrayBuffer();
-          } catch {
-            // ignore body read failures
-          }
-          continue;
-        }
-
-        let payload: unknown;
-        try {
-          payload = await response.json();
-        } catch {
-          continue;
-        }
-
-        const modelIds = parseModelIdsFromCatalogPayload(payload);
-        if (modelIds.length > 0) {
-          return modelIds;
-        }
-      }
-    }
-
-    return [];
-  }
-
-  private normalizeBaseUrl(value: string): string {
-    return value.trim().replace(/\/+$/, "");
-  }
-
-  private isLocalOllamaCatalogRoute(route: ProviderRoute): boolean {
-    const routeUrl = this.normalizeBaseUrl(route.baseUrl).toLowerCase();
-    const configuredLocalUrl = this.normalizeBaseUrl(this.config.ollamaBaseUrl).toLowerCase();
-    return routeUrl.length > 0 && configuredLocalUrl.length > 0 && routeUrl === configuredLocalUrl;
-  }
-
-  private async fetchUnauthenticatedModelCatalog(
-    route: ProviderRoute,
-    candidatePaths: readonly string[],
-    signal?: AbortSignal,
-  ): Promise<string[]> {
-    for (const candidatePath of candidatePaths) {
-      if (signal?.aborted) {
-        return [];
-      }
-
-      const url = joinUrl(route.baseUrl, candidatePath);
-      const headers = new Headers({ accept: "application/json" });
-      if (this.config.ollamaApiKey) {
-        headers.set("authorization", `Bearer ${this.config.ollamaApiKey}`);
-      }
-
-      let response: Response;
-      try {
-        response = await fetchWithResponseTimeout(url, {
-          method: "GET",
-          headers,
-          signal,
-        }, Math.min(this.config.requestTimeoutMs, 45_000));
-      } catch {
-        continue;
-      }
-
-      if (!response.ok) {
-        try {
-          await response.arrayBuffer();
-        } catch {
-          // ignore body read failures
-        }
-        continue;
-      }
-
-      let payload: unknown;
-      try {
-        payload = await response.json();
-      } catch {
-        continue;
-      }
-
-      const modelIds = parseModelIdsFromCatalogPayload(payload);
-      if (modelIds.length > 0) {
-        return modelIds;
-      }
-    }
-
-    return [];
+  public isModelAvailable(providerId: string, modelId: string): Promise<boolean> {
+    return this.impl.isModelAvailable(providerId, modelId);
   }
 }

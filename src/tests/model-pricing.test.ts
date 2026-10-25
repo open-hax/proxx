@@ -1,8 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import modelsDevPricingSnapshot from "../lib/data/models-dev-pricing-data.js";
-import { estimateRequestCost, getModelPricing, refreshModelsDevPricingIndex, setPolicyModelPricingOverrides } from "../lib/model-pricing.js";
+import { estimateRequestCost, getModelPricing, getModelsDevPricingSnapshot, refreshModelsDevPricingIndex, setPolicyModelPricingOverrides } from "../lib/model-pricing.js";
 
 function resetPolicyOverrides(): void {
   setPolicyModelPricingOverrides([]);
@@ -80,9 +79,10 @@ test("policy pricing overrides can provide fallback prices for unpriced models",
 
 test("refreshes the in-memory pricing index from models.dev-compatible payloads", async () => {
   resetPolicyOverrides();
+  const bundledProviders = getModelsDevPricingSnapshot().providers;
   const fetchFn: typeof fetch = async () => new Response(JSON.stringify({
     providers: {
-      ...modelsDevPricingSnapshot.providers,
+      ...bundledProviders,
       freshprovider: {
         models: {
           "fresh-model-2026": {

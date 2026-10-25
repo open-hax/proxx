@@ -1,77 +1,18 @@
 import { rankAutoModels } from "../../auto-model-selector.js";
 import type { AccountHealthStore } from "../../db/account-health-store.js";
+import { kernels } from "../../cljs-kernels.js";
 import type { ResolvedModelCatalog } from "../../provider-routing.js";
 import type { RequestLogStore } from "../../request-log-store.js";
 import type { ProviderRoutingExecutionResult } from "../shared.js";
 
-const CEPHALON_PREFERRED_MODELS: readonly string[] = [
-  "gpt-5.4-nano",
-  "gpt-5.3-nano",
-  "gpt-5.2-nano",
-  "gpt-5.1-nano",
-  "gpt-5-nano",
-  "gpt-5.4-mini",
-  "gpt-5.3-mini",
-  "gpt-5.2-mini",
-  "gpt-5.1-mini",
-  "gpt-5-mini",
-  "glm-4-flash",
-  "glm-4.7",
-  "qwen3.5:0.6b",
-  "qwen3.5:1.5b",
-  "qwen3.5:2b",
-  "qwen3.5:4b",
-];
-
-const CEPHALON_OLLAMA_PREFERRED: readonly string[] = [
-  "gpt-oss:20b",
-  "gpt-oss:120b",
-  "qwen3-coder:480b",
-  "gemma3:27b",
-  "gemma3:12b",
-  "gemma3:4b",
-];
-
-const CEPHALON_OLLAMA_FAST_ORDER: readonly string[] = [
-  "gpt-oss:20b",
-  "gemma3:12b",
-  "gemma3:4b",
-  "gemma3:27b",
-  "gpt-oss:120b",
-  "qwen3-coder:480b",
-];
-
-const CEPHALON_OLLAMA_SMART_ORDER: readonly string[] = [
-  "gpt-oss:120b",
-  "qwen3-coder:480b",
-  "gemma3:27b",
-  "gpt-oss:20b",
-  "gemma3:12b",
-  "gemma3:4b",
-];
-
-function preferOrderedModel(
-  ranked: readonly { readonly modelId: string }[],
-  preferredOrder: readonly string[],
-): string | null {
-  const rankedSet = new Set(ranked.map((entry) => normalizeModel(entry.modelId)));
-
-  for (const modelId of preferredOrder) {
-    if (rankedSet.has(normalizeModel(modelId))) {
-      return modelId;
-    }
-  }
-
-  return null;
-}
-
-function normalizeModel(modelId: string): string {
-  return modelId.trim().toLowerCase();
-}
-
+/*
+ * auto:cephalon picks among ranked candidates by preference lists declared in
+ * 79-auto-model-chains.edn (proxx.strategy.chains). The ranking itself needs the
+ * request log and account health, so it is requested here and handed back to the
+ * kernel for the choice.
+ */
 export function isCephalonAutoModel(model: string): boolean {
-  const normalized = normalizeModel(model);
-  return normalized === "auto:cephalon" || normalized.startsWith("auto:cephalon:");
+  return kernels.isCephalonAutoModel(model);
 }
 
 export function resolveCephalonAutoModel(
@@ -86,57 +27,17 @@ export function resolveCephalonAutoModel(
     return null;
   }
 
-  const suffix = model.includes(":")
-    ? model.split(":").slice(1).join(":").trim().toLowerCase()
-    : "cheapest";
-
-  const autoType = suffix === "fastest"
-    ? "fastest"
-    : suffix === "smartest"
-      ? "smartest"
-      : "cheapest";
-
-  const innerAutoModel = `auto:${autoType}`;
-
-  const preferredOllamaSet = new Set(CEPHALON_OLLAMA_PREFERRED.map(normalizeModel));
-
-  const allAvailableModels = [...new Set([
-    ...(availableModels ?? []),
-    ...CEPHALON_OLLAMA_PREFERRED,
-  ])];
-
+  const plan = kernels.cephalonPlan(model, availableModels);
   const ranked = rankAutoModels(
-    innerAutoModel,
+    plan.innerModel,
     requestBody,
-    allAvailableModels,
+    plan.candidates,
     providerId,
     requestLogStore,
     accountHealthStore,
   );
 
-  if (ranked.length === 0) {
-    return CEPHALON_PREFERRED_MODELS[0] ?? "gpt-5-nano";
-  }
-
-  const preferredSet = new Set(CEPHALON_PREFERRED_MODELS.map(normalizeModel));
-  const orderedOllamaChoice = preferOrderedModel(
-    ranked,
-    autoType === "smartest" ? CEPHALON_OLLAMA_SMART_ORDER : CEPHALON_OLLAMA_FAST_ORDER,
-  );
-
-  if (orderedOllamaChoice) {
-    return orderedOllamaChoice;
-  }
-
-  const preferredOllama = ranked.find((entry) => preferredOllamaSet.has(normalizeModel(entry.modelId)));
-
-  if (preferredOllama) {
-    return preferredOllama.modelId;
-  }
-
-  const inPreferred = ranked.find((entry) => preferredSet.has(normalizeModel(entry.modelId)));
-
-  return inPreferred?.modelId ?? ranked[0]?.modelId ?? "gpt-5-nano";
+  return kernels.cephalonChoice(model, ranked.map((entry) => entry.modelId));
 }
 
 export function buildCephalonModelCandidates(input: {
@@ -169,16 +70,10 @@ export function shouldAdvanceCephalonProviderCandidate(input: {
   readonly hasMoreProviderCandidates: boolean;
   readonly execution: ProviderRoutingExecutionResult;
 }): boolean {
-  if (!input.hasMoreProviderCandidates || !isCephalonAutoModel(input.routingModelInput)) {
-    return false;
-  }
-
-  const { summary } = input.execution;
-  return summary.sawRateLimit
-    || summary.sawRequestError
-    || summary.sawUpstreamServerError
-    || summary.sawModelNotFound
-    || summary.sawModelNotSupportedForAccount;
+  return kernels.shouldAdvanceAutoCandidate(
+    { hasMore: input.hasMoreProviderCandidates, autoModel: isCephalonAutoModel(input.routingModelInput) },
+    input.execution.summary,
+  );
 }
 
 export const CEPHALON_AUTO_MODEL_TYPES: readonly string[] = [

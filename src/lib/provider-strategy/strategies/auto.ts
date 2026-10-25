@@ -1,18 +1,12 @@
 import { isAutoModel, rankAutoModels, selectAutoModel } from "../../auto-model-selector.js";
+import { kernels } from "../../cljs-kernels.js";
 import type { AccountHealthStore } from "../../db/account-health-store.js";
 import type { ResolvedModelCatalog } from "../../provider-routing.js";
 import type { RequestLogStore } from "../../request-log-store.js";
 import type { ProviderRoutingExecutionResult } from "../shared.js";
 
-const DEFAULT_AUTO_MODEL_MAX_CANDIDATES = 8;
-
 function resolveAutoModelMaxCandidates(): number {
-  const raw = process.env.PROXY_AUTO_MODEL_MAX_CANDIDATES;
-  const parsed = raw ? Number.parseInt(raw, 10) : Number.NaN;
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    return DEFAULT_AUTO_MODEL_MAX_CANDIDATES;
-  }
-  return Math.min(parsed, 24);
+  return kernels.maxAutoModelCandidates(process.env.PROXY_AUTO_MODEL_MAX_CANDIDATES);
 }
 
 export function resolveAutoModel(
@@ -75,10 +69,8 @@ export function shouldAdvanceAutoModelCandidate(input: {
     return false;
   }
 
-  const { summary } = input.execution;
-  return summary.sawRateLimit
-    || summary.sawRequestError
-    || summary.sawUpstreamServerError
-    || summary.sawModelNotFound
-    || summary.sawModelNotSupportedForAccount;
+  return kernels.shouldAdvanceAutoCandidate(
+    { hasMore: input.hasMoreModelCandidates, autoModel: isAutoModel(input.routingModelInput) },
+    input.execution.summary,
+  );
 }

@@ -1,4 +1,5 @@
 import type { ProviderCredential } from "../../key-pool.js";
+import { kernels } from "../../cljs-kernels.js";
 import type { StrategyRequestContext } from "../shared.js";
 import {
   providerAccountsForRequest,
@@ -104,31 +105,19 @@ export async function buildRoutingCandidates(
 
   const providerIndex = new Map(providerRoutes.map((route, index) => [route.providerId, index] as const));
 
-  const sortedCandidates = [...allCandidates].sort((left, right) => {
-    const idxLeft = providerIndex.get(left.providerId) ?? Number.MAX_SAFE_INTEGER;
-    const idxRight = providerIndex.get(right.providerId) ?? Number.MAX_SAFE_INTEGER;
-
-    if (idxLeft !== idxRight) {
-      const perfLeft = requestLogStore.getPerfSummary(left.providerId, left.account.accountId, context.routedModel, strategy.mode);
-      const perfRight = requestLogStore.getPerfSummary(right.providerId, right.account.accountId, context.routedModel, strategy.mode);
-
-      const ttftLeft = perfLeft?.ewmaTtftMs;
-      const ttftRight = perfRight?.ewmaTtftMs;
-      if (
-        typeof ttftLeft === "number" && Number.isFinite(ttftLeft)
-        && typeof ttftRight === "number" && Number.isFinite(ttftRight)
-      ) {
-        const ttftDelta = Math.abs(ttftLeft - ttftRight);
-        if (ttftDelta > 120) {
-          return ttftLeft - ttftRight;
-        }
-      }
-
-      return idxLeft - idxRight;
-    }
-
-    return 0;
-  });
+  const sortedCandidates = kernels
+    .candidateOrderForRoutes(
+      allCandidates.map((candidate) => {
+        const perf = requestLogStore.getPerfSummary(candidate.providerId, candidate.account.accountId, context.routedModel, strategy.mode);
+        const ttft = perf?.ewmaTtftMs;
+        return {
+          providerIndex: providerIndex.get(candidate.providerId),
+          ttft: typeof ttft === "number" && Number.isFinite(ttft) ? ttft : undefined,
+        };
+      }),
+      context.config.cljsPolicyManifestPath,
+    )
+    .map((index) => allCandidates[index]!);
 
   const candidates = reorderCandidatesForAffinities(
     sortedCandidates,

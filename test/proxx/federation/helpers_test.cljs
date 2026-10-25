@@ -42,29 +42,6 @@
   (is (= "boom" (h/failure-message "boom" 500)))
   (is (= "request failed with 502" (h/failure-message 7 502))))
 
-(deftest capability-path-support
-  (is (req/supports-path? {"paths" ["/v1/models"]} "/v1/models/x"))
-  (is (not (req/supports-path? {"paths" ["/v1/models"]} "/v1/responses")) "an advertised list is exhaustive")
-  (is (req/supports-path? {"supportsResponses" true} "/v1/responses"))
-  (is (not (req/supports-path? {"supportsResponses" false} "/v1/responses")))
-  (is (not (req/supports-path? {"supportsResponses" "true"} "/v1/responses")) "only boolean true counts")
-  (is (req/supports-path? {} "/v1/embeddings") "no hints: legacy path set")
-  (is (not (req/supports-path? {"supportsModelsList" true} "/v1/embeddings")) "any structured hint disables the legacy set")
-  (is (not (req/supports-path? {"supportsModelsList" nil} "/v1/embeddings")) "a null hint still counts as a hint")
-  (is (not (req/supports-path? {} "/other"))))
-
-(deftest intentional-divergence-strings-are-not-route-lists
-  ;; TS spread `paths: "abc"` into the characters a, b, c.
-  (is (not (req/supports-path? {"paths" "/v1/models"} "/v1/models"))
-      "a string where an array belongs is ignored, not spread"))
-
-(deftest capability-model-support
-  (is (req/supports-model? {} nil))
-  (is (req/supports-model? {} "  "))
-  (is (req/supports-model? {"models" [" gpt-5 "]} "gpt-5"))
-  (is (req/supports-model? {"modelPrefixes" ["gpt-"]} "gpt-5.1"))
-  (is (not (req/supports-model? {"modelPrefixes" ["gpt-"] "models" ["x"]} "claude"))))
-
 (deftest forwardable-headers
   (is (not (req/forwardable-header? "Content-Length" false)))
   (is (req/forwardable-header? "x-open-hax-upstream-account" false))

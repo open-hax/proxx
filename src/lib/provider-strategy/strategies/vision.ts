@@ -1,31 +1,16 @@
 import type { AccountHealthStore } from "../../db/account-health-store.js";
+import { kernels } from "../../cljs-kernels.js";
 import type { ResolvedModelCatalog } from "../../provider-routing.js";
 import type { RequestLogStore } from "../../request-log-store.js";
 import type { ProviderRoutingExecutionResult } from "../shared.js";
 
-/**
- * Vision model routing chain.
- *
- * Priority order:
- * 1. glm-5v-turbo - z.ai vision flagship via zai
- * 2. Kimi-K2.5 - ollama-cloud route
- * 3. gpt-5.4-mini - cloud route
- * 4. qwen3.5:4b-q8_0 - local ollama last resort
+/*
+ * The auto:vision fallback chain (glm-5v-turbo, Kimi-K2.5, gpt-5.4-mini, local qwen)
+ * and its provider ordering are facts in 79-auto-model-chains.edn, interpreted by
+ * proxx.strategy.chains.
  */
-const VISION_MODEL_CHAIN: readonly string[] = [
-  "glm-5v-turbo",
-  "Kimi-K2.5",
-  "gpt-5.4-mini",
-  "qwen3.5:4b-q8_0",
-];
-
-function normalizeModel(modelId: string): string {
-  return modelId.trim().toLowerCase();
-}
-
 export function isVisionAutoModel(model: string): boolean {
-  const normalized = normalizeModel(model);
-  return normalized === "auto:vision";
+  return kernels.isVisionAutoModel(model);
 }
 
 /**
@@ -45,16 +30,7 @@ export function buildVisionModelCandidates(input: {
     return [input.routingModelInput];
   }
 
-  const availableSet = new Set(
-    (input.availableModels ?? input.catalog?.modelIds ?? []).map(normalizeModel),
-  );
-
-  const preferredAvailable = VISION_MODEL_CHAIN.filter((modelId) => availableSet.has(normalizeModel(modelId)));
-  if (preferredAvailable.length > 0) {
-    return preferredAvailable;
-  }
-
-  return [...VISION_MODEL_CHAIN];
+  return kernels.visionModelCandidates(input.availableModels ?? input.catalog?.modelIds ?? []);
 }
 
 /**
@@ -66,78 +42,24 @@ export function shouldAdvanceVisionModelCandidate(input: {
   readonly hasMoreModelCandidates: boolean;
   readonly execution: ProviderRoutingExecutionResult;
 }): boolean {
-  if (!input.hasMoreModelCandidates || !isVisionAutoModel(input.routingModelInput)) {
-    return false;
-  }
-
-  const { summary } = input.execution;
-  return summary.sawRateLimit
-    || summary.sawRequestError
-    || summary.sawUpstreamServerError
-    || summary.sawModelNotFound
-    || summary.sawModelNotSupportedForAccount;
+  return kernels.shouldAdvanceAutoCandidate(
+    { hasMore: input.hasMoreModelCandidates, autoModel: isVisionAutoModel(input.routingModelInput) },
+    input.execution.summary,
+  );
 }
 
 /**
- * Reorder provider routes for vision requests.
- * Prioritizes zai when the model is a GLM vision model.
- * For ollama models, prioritizes ollama-cloud then local ollama.
+ * Reorder provider routes for vision requests: providers favoured for the routed
+ * model (zai for GLM vision models, ollama-cloud for Kimi, ollama for local models)
+ * go first.
  */
 export function reorderVisionProviderRoutes(
   routes: readonly { readonly providerId: string; readonly baseUrl: string }[],
   routedModel: string,
 ): { readonly providerId: string; readonly baseUrl: string }[] {
-  const normalized = normalizeModel(routedModel);
-
-  // For GLM vision models, prioritize zai
-  if (normalized === "glm-5v-turbo" || normalized === "glm-4.6v" || normalized === "glm-4.5v") {
-    const zaiRoutes: { readonly providerId: string; readonly baseUrl: string }[] = [];
-    const otherRoutes: { readonly providerId: string; readonly baseUrl: string }[] = [];
-
-    for (const route of routes) {
-      if (route.providerId === "zai") {
-        zaiRoutes.push(route);
-      } else {
-        otherRoutes.push(route);
-      }
-    }
-
-    return [...zaiRoutes, ...otherRoutes];
-  }
-
-  // For Kimi-K2.5, prioritize ollama-cloud
-  if (normalized === "kimi-k2.5" || normalized === "kimi") {
-    const ollamaCloudRoutes: { readonly providerId: string; readonly baseUrl: string }[] = [];
-    const otherRoutes: { readonly providerId: string; readonly baseUrl: string }[] = [];
-
-    for (const route of routes) {
-      if (route.providerId === "ollama-cloud") {
-        ollamaCloudRoutes.push(route);
-      } else {
-        otherRoutes.push(route);
-      }
-    }
-
-    return [...ollamaCloudRoutes, ...otherRoutes];
-  }
-
-  // For ollama/local models, prioritize ollama providers
-  if (normalized.startsWith("qwen") || normalized.includes(":")) {
-    const ollamaRoutes: { readonly providerId: string; readonly baseUrl: string }[] = [];
-    const otherRoutes: { readonly providerId: string; readonly baseUrl: string }[] = [];
-
-    for (const route of routes) {
-      if (route.providerId.startsWith("ollama")) {
-        ollamaRoutes.push(route);
-      } else {
-        otherRoutes.push(route);
-      }
-    }
-
-    return [...ollamaRoutes, ...otherRoutes];
-  }
-
-  return [...routes];
+  return kernels
+    .visionRouteOrder(routedModel, routes.map((route) => route.providerId))
+    .map((index) => routes[index]!);
 }
 
 export const VISION_AUTO_MODEL_TYPES: readonly string[] = [
