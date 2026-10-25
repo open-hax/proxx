@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { kernels } from "../cljs-kernels.js";
 import type { Sql } from "./index.js";
 
 export type EventKind = "request" | "response" | "error" | "label" | "metric";
@@ -69,31 +70,8 @@ interface EventRow {
 }
 
 function parseRow(row: EventRow): ProxyEvent {
-  const tags = typeof row.tags === "string" ? JSON.parse(row.tags) : (row.tags ?? []);
-  const meta = typeof row.meta === "string" ? JSON.parse(row.meta) : (row.meta ?? {});
-  const payload = row.payload === undefined
-    ? null
-    : typeof row.payload === "string"
-      ? JSON.parse(row.payload)
-      : (row.payload ?? null);
-
-  return {
-    id: row.id,
-    ts: typeof row.ts === "string" ? new Date(row.ts) : row.ts,
-    kind: row.kind as EventKind,
-    entryId: row.entry_id,
-    providerId: row.provider_id ?? undefined,
-    accountId: row.account_id ?? undefined,
-    model: row.model ?? undefined,
-    status: row.status ?? undefined,
-    tags,
-    meta,
-    payload,
-    payloadBytes: row.payload_bytes ?? undefined,
-  };
+  return kernels.eventParseRow(row) as ProxyEvent;
 }
-
-const MAX_PAYLOAD_BYTES = 2 * 1024 * 1024; // 2MB safety limit per event
 
 export class EventStore {
   private readonly buffer: EventInsert[] = [];
@@ -108,38 +86,10 @@ export class EventStore {
   ) {}
 
   public async init(): Promise<void> {
-    await this.sql.unsafe(`
-      CREATE TABLE IF NOT EXISTS events (
-        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        ts TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        kind TEXT NOT NULL,
-        entry_id TEXT NOT NULL,
-        provider_id TEXT,
-        account_id TEXT,
-        model TEXT,
-        status INTEGER,
-        tags JSONB DEFAULT '[]'::jsonb,
-        meta JSONB DEFAULT '{}'::jsonb,
-        payload JSONB,
-        payload_bytes INTEGER
-      );
-    `);
-
-    await this.sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_events_entry ON events(entry_id);`);
-    await this.sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_events_ts ON events(ts DESC);`);
-    await this.sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_events_kind ON events(kind);`);
-    await this.sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_events_model ON events(model);`);
-    await this.sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_events_tags ON events USING GIN(tags);`);
-    await this.sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_events_provider_status ON events(provider_id, status);`);
-
-    await this.sql.unsafe(`
-      CREATE TABLE IF NOT EXISTS labels (
-        id TEXT PRIMARY KEY,
-        category TEXT NOT NULL,
-        description TEXT,
-        created_at TIMESTAMPTZ DEFAULT NOW()
-      );
-    `);
+    // Table and index DDL is the persisted contract in proxx.events.store/ddl.
+    for (const statement of kernels.eventDdl()) {
+      await this.sql.unsafe(statement);
+    }
 
     this.startFlushTimer();
   }
@@ -236,116 +186,16 @@ export class EventStore {
   }
 
   public async query(filters: EventQuery): Promise<ProxyEvent[]> {
-    const conditions: string[] = [];
-    const values: unknown[] = [];
-    let paramIndex = 1;
-
-    if (filters.kind) {
-      conditions.push(`kind = $${paramIndex++}`);
-      values.push(filters.kind);
-    }
-    if (filters.entryId) {
-      conditions.push(`entry_id = $${paramIndex++}`);
-      values.push(filters.entryId);
-    }
-    if (filters.providerId) {
-      conditions.push(`provider_id = $${paramIndex++}`);
-      values.push(filters.providerId);
-    }
-    if (filters.model) {
-      conditions.push(`model = $${paramIndex++}`);
-      values.push(filters.model);
-    }
-    if (filters.status !== undefined) {
-      conditions.push(`status = $${paramIndex++}`);
-      values.push(filters.status);
-    }
-    if (filters.statusGte !== undefined) {
-      conditions.push(`status >= $${paramIndex++}`);
-      values.push(filters.statusGte);
-    }
-    if (filters.statusLt !== undefined) {
-      conditions.push(`status < $${paramIndex++}`);
-      values.push(filters.statusLt);
-    }
-    if (filters.tag) {
-      conditions.push(`tags ? $${paramIndex++}`);
-      values.push(filters.tag);
-    }
-    if (filters.since) {
-      conditions.push(`ts >= $${paramIndex++}`);
-      values.push(filters.since.toISOString());
-    }
-    if (filters.until) {
-      conditions.push(`ts < $${paramIndex++}`);
-      values.push(filters.until.toISOString());
-    }
-
-    const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
-    const order = filters.orderDesc === false ? "ASC" : "DESC";
-    const limit = Math.min(filters.limit ?? 100, 1000);
-    const offset = filters.offset ?? 0;
-
-    const selectColumns = filters.includePayload
-      ? "*"
-      : "id, ts, kind, entry_id, provider_id, account_id, model, status, tags, meta, payload_bytes";
-    const query = `SELECT ${selectColumns} FROM events ${where} ORDER BY ts ${order} LIMIT $${paramIndex++} OFFSET $${paramIndex++}`;
-    values.push(limit, offset);
+    const { text: query, values } = kernels.eventBuildQuery(filters);
 
     const rows = await this.sql.unsafe<EventRow[]>(query, values as (string | number | null | Date)[]);
     return rows.map(parseRow);
   }
 
   public async count(filters: Omit<EventQuery, "limit" | "offset" | "orderDesc" | "includePayload">): Promise<number> {
-    const conditions: string[] = [];
-    const values: Array<string | number | null> = [];
-    let paramIndex = 1;
+    const { text: query, values } = kernels.eventBuildCount(filters);
 
-    if (filters.kind) {
-      conditions.push(`kind = $${paramIndex++}`);
-      values.push(filters.kind);
-    }
-    if (filters.entryId) {
-      conditions.push(`entry_id = $${paramIndex++}`);
-      values.push(filters.entryId);
-    }
-    if (filters.providerId) {
-      conditions.push(`provider_id = $${paramIndex++}`);
-      values.push(filters.providerId);
-    }
-    if (filters.model) {
-      conditions.push(`model = $${paramIndex++}`);
-      values.push(filters.model);
-    }
-    if (filters.status !== undefined) {
-      conditions.push(`status = $${paramIndex++}`);
-      values.push(filters.status);
-    }
-    if (filters.statusGte !== undefined) {
-      conditions.push(`status >= $${paramIndex++}`);
-      values.push(filters.statusGte);
-    }
-    if (filters.statusLt !== undefined) {
-      conditions.push(`status < $${paramIndex++}`);
-      values.push(filters.statusLt);
-    }
-    if (filters.tag) {
-      conditions.push(`tags ? $${paramIndex++}`);
-      values.push(filters.tag);
-    }
-    if (filters.since) {
-      conditions.push(`ts >= $${paramIndex++}`);
-      values.push(filters.since.toISOString());
-    }
-    if (filters.until) {
-      conditions.push(`ts < $${paramIndex++}`);
-      values.push(filters.until.toISOString());
-    }
-
-    const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
-    const query = `SELECT COUNT(*) as count FROM events ${where}`;
-
-    const rows = await this.sql.unsafe<Array<{ count: string }>>(query, values);
+    const rows = await this.sql.unsafe<Array<{ count: string }>>(query, values as Array<string | number | null>);
     const first = rows[0];
     return first ? Number.parseInt(first.count, 10) : 0;
   }
@@ -369,12 +219,8 @@ export class EventStore {
   }
 
   public async countByTag(since?: Date): Promise<Record<string, number>> {
-    const params = since ? [since.toISOString()] : [];
-    const timeFilter = since ? `AND e.ts >= $1` : "";
-    const rows = await this.sql.unsafe<Array<{ tag: string; count: string }>>(
-      `SELECT tag, COUNT(*) as count FROM events e, LATERAL jsonb_array_elements_text(e.tags) AS tag WHERE e.tags IS NOT NULL AND jsonb_typeof(e.tags) = 'array' ${timeFilter} GROUP BY tag ORDER BY count DESC`,
-      params,
-    );
+    const { text, values } = kernels.eventCountByTagQuery(since);
+    const rows = await this.sql.unsafe<Array<{ tag: string; count: string }>>(text, values as string[]);
     const result: Record<string, number> = {};
     for (const row of rows) {
       result[row.tag] = parseInt(row.count, 10);
@@ -456,58 +302,6 @@ export class EventStore {
   }
 }
 
-function extractUrls(value: unknown): string[] {
-  const urls: string[] = [];
-  if (typeof value === "string") {
-    // Look for http(s) URLs, especially media/asset URLs
-    if (/^https?:\/\//.test(value)) {
-      urls.push(value);
-    }
-  } else if (Array.isArray(value)) {
-    for (const item of value) {
-      urls.push(...extractUrls(item));
-    }
-  } else if (typeof value === "object" && value !== null) {
-    for (const v of Object.values(value as Record<string, unknown>)) {
-      urls.push(...extractUrls(v));
-    }
-  }
-  return urls;
-}
-
 function sanitizePayload(payload: Record<string, unknown>): Record<string, unknown> {
-  const json = JSON.stringify(payload);
-  if (Buffer.byteLength(json, "utf8") > MAX_PAYLOAD_BYTES) {
-    const urls = extractUrls(payload);
-    return {
-      _truncated: true,
-      _originalBytes: Buffer.byteLength(json, "utf8"),
-      model: payload["model"],
-      _messageCount: Array.isArray(payload["messages"]) ? payload["messages"].length : undefined,
-      _inputCount: Array.isArray(payload["input"]) ? payload["input"].length : undefined,
-      ...(urls.length > 0 ? { _urls: urls } : {}),
-    };
-  }
-  return stripInvalidJsonChars(payload) as Record<string, unknown>;
-}
-
-function stripInvalidJsonChars(obj: unknown): unknown {
-  if (obj === null || obj === undefined) return obj;
-  if (typeof obj === "string") {
-    // eslint-disable-next-line no-control-regex
-    return obj.replace(new RegExp("\\x00", "g"), "").replace(new RegExp("[\\x01-\\x1F]", "g"), (c) =>
-      c === "\x1F" ? "\u241F" : c
-    );
-  }
-  if (Array.isArray(obj)) {
-    return obj.map(stripInvalidJsonChars);
-  }
-  if (typeof obj === "object") {
-    const result: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
-      result[key] = stripInvalidJsonChars(value);
-    }
-    return result;
-  }
-  return obj;
+  return kernels.eventSanitizePayload(payload);
 }

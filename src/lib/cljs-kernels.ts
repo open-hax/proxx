@@ -153,6 +153,14 @@ export interface CljsKernels {
     distances: readonly unknown[],
     now: number,
   ) => ChromaSearchRow[];
+  readonly eventLabelerApplies: (id: string, event: object) => boolean;
+  readonly eventLabelerLabel: (id: string, event: object) => string[];
+  readonly eventDdl: () => string[];
+  readonly eventBuildQuery: (filters: object) => { readonly text: string; readonly values: unknown[] };
+  readonly eventBuildCount: (filters: object) => { readonly text: string; readonly values: unknown[] };
+  readonly eventCountByTagQuery: (since: Date | undefined) => { readonly text: string; readonly values: unknown[] };
+  readonly eventParseRow: (row: object) => unknown;
+  readonly eventSanitizePayload: (payload: Record<string, unknown>) => Record<string, unknown>;
   readonly createSessionStore: (filePath: string, deps?: { now?: () => number; uuid?: () => string }) => unknown;
 }
 

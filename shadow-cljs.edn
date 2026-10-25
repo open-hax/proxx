@@ -99,7 +99,15 @@
                                            ollamaValidateConfig proxx.runtime.chroma/ollama-validate-config-js
                                            ollamaBuildConfig proxx.runtime.chroma/ollama-build-config-js
                                            chromaConnectionOptions proxx.runtime.chroma/chroma-connection-options-js
-                                           chromaSearchResults proxx.runtime.chroma/chroma-search-results-js}}}
+                                           chromaSearchResults proxx.runtime.chroma/chroma-search-results-js
+                                           eventLabelerApplies proxx.runtime.events/event-labeler-applies-js
+                                           eventLabelerLabel proxx.runtime.events/event-labeler-label-js
+                                           eventDdl proxx.runtime.events/event-ddl-js
+                                           eventBuildQuery proxx.runtime.events/event-build-query-js
+                                           eventBuildCount proxx.runtime.events/event-build-count-js
+                                           eventCountByTagQuery proxx.runtime.events/event-count-by-tag-query-js
+                                           eventParseRow proxx.runtime.events/event-parse-row-js
+                                           eventSanitizePayload proxx.runtime.events/event-sanitize-payload-js}}}
    :js-options {:js-provider :import
                 :keep-as-import #{"node:fs" "node:path"}}
    :compiler-options {:output-feature-set :es-next
