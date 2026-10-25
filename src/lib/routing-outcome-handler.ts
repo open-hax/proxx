@@ -5,6 +5,7 @@ import type { ProviderRoute } from "./provider-routing.js";
 import type { ProviderRoutingExecutionResult, ProviderAvailabilitySummary } from "./provider-strategy.js";
 import { minMsUntilAnyProviderKeyReady } from "./provider-routing.js";
 import { sendOpenAiError } from "./provider-utils.js";
+import { kernels } from "./cljs-kernels.js";
 
 export interface RoutingOutcomeDeps {
   readonly keyPool: KeyPool;
@@ -26,112 +27,39 @@ export interface RoutingOutcomeInput {
  * Handles the error outcome after executeProviderRoutingPlan returns with handled=false.
  * Sends an appropriate error response based on the execution summary.
  * Returns true if a response was sent, false if the caller should continue (e.g. try routing).
+ *
+ * Which response to send is decided by the CLJS kernel `proxx.routing.outcome`; this
+ * function only gathers the key-cooldown hint and sends the result.
  */
 export async function handleRoutingOutcome(input: RoutingOutcomeInput): Promise<boolean> {
   const { keyPool, reply, execution, availability, providerRoutes, strategyMode, routedModel, log, logPrefix } = input;
-  const prefix = logPrefix ? `${logPrefix}: ` : "";
 
-  if (execution.candidateCount === 0) {
-    const retryInMs = await minMsUntilAnyProviderKeyReady(keyPool, providerRoutes);
-    if (retryInMs > 0) {
-      reply.header("retry-after", Math.ceil(retryInMs / 1000));
+  const outcome = kernels.classifyRoutingOutcome(execution, availability);
+  const retryInMs = kernels.routingOutcomeNeedsRetryHint(outcome)
+    ? await minMsUntilAnyProviderKeyReady(keyPool, providerRoutes)
+    : 0;
+  const response = kernels.routingOutcomeResponse(
+    outcome,
+    {
+      routedModel,
+      logPrefix,
+      lastUpstreamError: execution.summary.lastUpstreamError,
+      sawRequestError: execution.summary.sawRequestError,
+    },
+    retryInMs,
+  );
+
+  if (response.retryAfterSeconds !== undefined) {
+    reply.header("retry-after", response.retryAfterSeconds);
+  }
+  if (response.log) {
+    const fields = { providerRoutes, attempts: execution.summary.attempts, upstreamMode: strategyMode };
+    if (response.log.level === "error") {
+      log.error({ ...fields, sawRequestError: execution.summary.sawRequestError }, response.log.message);
+    } else {
+      log.warn(fields, response.log.message);
     }
-
-    if (!availability.sawConfiguredProvider) {
-      sendOpenAiError(reply, 500, "Proxy is missing upstream account configuration", "server_error", "keys_unavailable");
-      return true;
-    }
-
-    if (availability.sawOnlyDisabledProviders) {
-      sendOpenAiError(reply, 503, "Proxy has upstream accounts but all are disabled", "server_error", "keys_unavailable");
-      return true;
-    }
-
-    sendOpenAiError(
-      reply,
-      429,
-      "All upstream accounts are currently rate-limited. Retry after the cooldown window.",
-      "rate_limit_error",
-      "all_keys_rate_limited",
-    );
-    return true;
   }
-
-  const { summary } = execution;
-
-  if (summary.sawUpstreamInvalidRequest) {
-    log.warn({ providerRoutes, attempts: summary.attempts, upstreamMode: strategyMode }, `${prefix}all attempts exhausted due to upstream invalid-request responses`);
-    const upstreamDetail = summary.lastUpstreamError
-      ? ` Last upstream error (${summary.lastUpstreamError.providerId ?? "unknown"}, HTTP ${summary.lastUpstreamError.status}): ${summary.lastUpstreamError.body}`
-      : "";
-    sendOpenAiError(
-      reply,
-      400,
-      `No upstream account accepted the request payload. Check model availability and request parameters.${upstreamDetail}`,
-      "invalid_request_error",
-      "upstream_rejected_request",
-    );
-    return true;
-  }
-
-  if (summary.sawRateLimit) {
-    const retryInMs = await minMsUntilAnyProviderKeyReady(keyPool, providerRoutes);
-    if (retryInMs > 0) {
-      reply.header("retry-after", Math.ceil(retryInMs / 1000));
-    }
-
-    log.warn({ providerRoutes, attempts: summary.attempts, upstreamMode: strategyMode }, `${prefix}all attempts exhausted due to upstream rate limits`);
-    sendOpenAiError(
-      reply,
-      429,
-      "No upstream account succeeded. Accounts may be rate-limited, quota-exhausted, or have outstanding balances.",
-      "rate_limit_error",
-      "no_available_key",
-    );
-    return true;
-  }
-
-  if (summary.sawUpstreamServerError) {
-    log.warn({ providerRoutes, attempts: summary.attempts, upstreamMode: strategyMode }, `${prefix}all attempts exhausted due to upstream server errors`);
-    sendOpenAiError(
-      reply,
-      502,
-      "Upstream returned transient server errors across all available accounts.",
-      "server_error",
-      "upstream_server_error",
-    );
-    return true;
-  }
-
-  if (summary.sawModelNotFound && !summary.sawRequestError) {
-    log.warn({ providerRoutes, attempts: summary.attempts, upstreamMode: strategyMode }, `${prefix}all attempts exhausted due to model-not-found responses`);
-    sendOpenAiError(
-      reply,
-      404,
-      `Model not found across available upstream providers: ${routedModel}`,
-      "invalid_request_error",
-      "model_not_found",
-    );
-    return true;
-  }
-
-  if (summary.sawModelNotSupportedForAccount) {
-    log.warn({ providerRoutes, attempts: summary.attempts, upstreamMode: strategyMode }, `${prefix}all attempts exhausted due to model access restrictions`);
-    sendOpenAiError(
-      reply,
-      403,
-      `Available upstream accounts are not allowed to use model: ${routedModel}`,
-      "invalid_request_error",
-      "model_not_supported_for_account",
-    );
-    return true;
-  }
-
-  const message = summary.sawRequestError
-    ? "All upstream attempts failed due to network/transport errors."
-    : "Upstream rejected the request with no successful routing.";
-
-  log.error({ providerRoutes, attempts: summary.attempts, upstreamMode: strategyMode, sawRequestError: summary.sawRequestError }, `${prefix}all upstream attempts exhausted`);
-  sendOpenAiError(reply, 502, message, "server_error", "upstream_unavailable");
+  sendOpenAiError(reply, response.status, response.message, response.type, response.code);
   return true;
 }

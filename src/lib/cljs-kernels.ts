@@ -51,6 +51,13 @@ export interface StrategyContinueOutcome {
   readonly upstreamAuthError?: { readonly status: number; readonly message?: string };
 }
 
+export interface RoutingErrorDescriptor {
+  readonly status: number;
+  readonly message: string;
+  readonly type: string;
+  readonly code: string;
+}
+
 /** Opaque immutable state of the routing state machine (proxx.strategy.executor). */
 export type ExecutorState = { readonly __executorState: never };
 
@@ -386,6 +393,35 @@ export interface CljsKernels {
     readonly aliases: Readonly<Record<string, string>>;
   }>;
   readonly toOpenAiModel: (modelId: string) => { readonly id: string; readonly object: "model"; readonly created: number; readonly owned_by: string };
+  readonly providerRoutesFromRaw: (raw: unknown) => object[] | undefined;
+  readonly declaredProviderRoutes: (manifestPath: string, result: unknown, config: unknown) => object[];
+  readonly filteredProviderRoutes: (result: unknown, inputRoutes: readonly object[]) => object[];
+  readonly applyProviderRouteDecision: (preview: unknown, filteredRoutes: readonly object[], upstreamModes: readonly string[]) => {
+    readonly providerRoutes: object[];
+    readonly strategyMode?: string;
+    readonly strategyModeByProvider?: Readonly<Record<string, string>>;
+  };
+  readonly looksLikeHostedOpenAiFamily: (manifestPath: string, model: string) => boolean;
+  readonly stripModelPrefix: (model: string, prefixes: readonly string[]) => string;
+  readonly hasModelPrefix: (model: string, prefixes: readonly string[]) => boolean;
+  readonly shouldUseLocalOllama: (manifestPath: string, model: string, patterns: readonly string[]) => boolean;
+  readonly resolveRequestRoutingState: (manifestPath: string, config: object, requestedModel: string) => {
+    readonly explicitOllama: boolean;
+    readonly openAiPrefixed: boolean;
+    readonly factoryPrefixed: boolean;
+    readonly localOllama: boolean;
+    readonly routedModel: string;
+  };
+  readonly dedupeModelIds: (modelIds: readonly string[]) => string[];
+  readonly parseModelIdsFromCatalogPayload: (payload: unknown) => string[];
+  readonly buildLargestModelAliases: (modelIds: readonly string[]) => Record<string, string>;
+  readonly buildOllamaCatalogRoutes: (manifestPath: string, config: object) => object[];
+  readonly providerSupportsResponsesApi: (manifestPath: string, providerId: string, openAiProviderId?: string) => boolean;
+  readonly providerSupportsImagesApi: (manifestPath: string, providerId: string, openAiProviderId?: string) => boolean;
+  readonly filterResponsesApiRoutes: <T extends { readonly providerId: string }>(manifestPath: string, routes: readonly T[], openAiProviderId?: string) => T[];
+  readonly filterImagesApiRoutes: <T extends { readonly providerId: string }>(manifestPath: string, routes: readonly T[], openAiProviderId?: string) => T[];
+  readonly minMsUntilAnyProviderKeyReady: (keyPool: object, routes: readonly { readonly providerId: string }[]) => Promise<number>;
+  readonly createDynamicProviderBaseUrlGetter: (store: object | undefined) => ((providerId: string) => Promise<string | null | undefined>) | undefined;
   // federation (bridge protocol, routing, relay, agent)
   readonly bridgeProtocolVersion: string;
   readonly parseBridgeMessage: (value: unknown) => BridgeMessage;
@@ -645,6 +681,66 @@ export interface CljsKernels {
     readonly responsesPassthrough: boolean;
     readonly imagesPassthrough: boolean;
   };
+  // w2-routing kernels (catalog, alias, outcome, pipeline)
+  readonly resolvableConcreteModelIds: (catalog: object | null) => string[] | undefined;
+  readonly resolvableConcreteModelIdsForProviders: (
+    bundle: object | null,
+    providerIds: readonly string[],
+    includeDeclaredModel?: (modelId: string) => boolean,
+  ) => string[] | undefined;
+  readonly resolveCatalogAlias: (
+    manifestPath: string,
+    bundle: object,
+    requested: string,
+    preserveExplicitOllama: boolean | undefined,
+  ) => { readonly error?: RoutingErrorDescriptor; readonly routingModelInput?: string; readonly aliasApplied?: boolean };
+  readonly classifyRoutingOutcome: (execution: object, availability: object) => string;
+  readonly routingOutcomeNeedsRetryHint: (outcome: string) => boolean;
+  readonly routingOutcomeResponse: (
+    outcome: string,
+    ctx: {
+      readonly routedModel: string;
+      readonly logPrefix?: string;
+      readonly lastUpstreamError?: object;
+      readonly sawRequestError?: boolean;
+    },
+    retryInMs: number,
+  ) => RoutingErrorDescriptor & {
+    readonly retryAfterSeconds?: number;
+    readonly log?: { readonly level: "warn" | "error"; readonly message: string };
+    readonly withRequestError?: boolean;
+  };
+  readonly checkRequestedModel: (requestBody: object) => { readonly model?: string; readonly error?: RoutingErrorDescriptor };
+  readonly tenantDeniesModel: (preview: unknown) => boolean;
+  readonly tenantDeniedError: (model: string) => RoutingErrorDescriptor;
+  readonly routingCandidateSource: (flags: { readonly cephalon: boolean; readonly vision: boolean; readonly auto: boolean }) => "cephalon" | "vision" | "auto" | "plain";
+  readonly finishModelRouting: (requested: string, source: string, candidates: readonly string[]) => {
+    readonly error?: RoutingErrorDescriptor;
+    readonly candidates?: string[];
+    readonly isAutoModel?: boolean;
+    readonly candidatesHeader?: string;
+  };
+  readonly createProviderCatalogStore: (
+    manifestPath: string,
+    config: object,
+    keyPool: object,
+    routes: readonly object[],
+    ollamaRoutes: readonly object[],
+    deps: object,
+  ) => {
+    readonly getCatalog: (forceRefresh?: boolean) => Promise<unknown>;
+    readonly isModelAvailable: (providerId: string, modelId: string) => Promise<boolean>;
+  };
+  // w2-routing kernels (aco, pheromone)
+  readonly rankProviderRoutesWithAco: (manifestPath: string, input: object) => Promise<{
+    readonly orderedRoutes: object[];
+    readonly signals: readonly object[];
+  }>;
+  readonly pheromoneHydrateDb: (raw: unknown) => object[];
+  readonly pheromoneKeyValid: (providerId: string, model: string) => boolean;
+  readonly pheromoneGet: (records: readonly object[], providerId: string, model: string) => number;
+  readonly pheromoneNoteSuccess: (records: readonly object[], providerId: string, model: string, quality: number) => object[];
+  readonly pheromoneNoteFailure: (records: readonly object[], providerId: string, model: string) => object[];
 }
 
 export interface ChromaSearchRow {

@@ -374,6 +374,9 @@
     [:surface/responses-providers NonEmptyStringVector]
     [:surface/hosted-openai-model-patterns NonEmptyStringVector]
     [:surface/dedicated-ollama-provider-pattern [:string {:min 1}]]
+    [:surface/ollama-base-url-provider [:string {:min 1}]]
+    [:surface/local-ollama-provider-id [:string {:min 1}]]
+    [:surface/ollama-provider-id-pattern [:string {:min 1}]]
     [:surface/explicit-ollama-prefixes NonEmptyStringVector]
     [:surface/legacy-bridge-path-prefixes NonEmptyStringVector]
     [:catalog/source-paths

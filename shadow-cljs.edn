@@ -186,6 +186,25 @@
                                            loadDeclaredModels proxx.runtime.models/load-declared-models-js
                                            loadModelPreferences proxx.runtime.models/load-model-preferences-js
                                            toOpenAiModel proxx.runtime.models/to-open-ai-model-js
+                                           providerRoutesFromRaw proxx.runtime.routing/provider-routes-from-raw-js
+                                           declaredProviderRoutes proxx.runtime.routing/declared-provider-routes-js
+                                           filteredProviderRoutes proxx.runtime.routing/filtered-provider-routes-js
+                                           applyProviderRouteDecision proxx.runtime.routing/apply-provider-route-decision-js
+                                           looksLikeHostedOpenAiFamily proxx.runtime.routing/looks-like-hosted-open-ai-family-js
+                                           stripModelPrefix proxx.runtime.routing/strip-model-prefix-js
+                                           hasModelPrefix proxx.runtime.routing/has-model-prefix-js
+                                           shouldUseLocalOllama proxx.runtime.routing/should-use-local-ollama-js
+                                           resolveRequestRoutingState proxx.runtime.routing/resolve-request-routing-state-js
+                                           dedupeModelIds proxx.runtime.routing/dedupe-model-ids-js
+                                           parseModelIdsFromCatalogPayload proxx.runtime.routing/parse-model-ids-from-catalog-payload-js
+                                           buildLargestModelAliases proxx.runtime.routing/build-largest-model-aliases-js
+                                           buildOllamaCatalogRoutes proxx.runtime.routing/build-ollama-catalog-routes-js
+                                           providerSupportsResponsesApi proxx.runtime.routing/provider-supports-responses-api-js
+                                           providerSupportsImagesApi proxx.runtime.routing/provider-supports-images-api-js
+                                           filterResponsesApiRoutes proxx.runtime.routing/filter-responses-api-routes-js
+                                           filterImagesApiRoutes proxx.runtime.routing/filter-images-api-routes-js
+                                           minMsUntilAnyProviderKeyReady proxx.runtime.routing/min-ms-until-any-provider-key-ready-js
+                                           createDynamicProviderBaseUrlGetter proxx.runtime.routing/create-dynamic-provider-base-url-getter-js
                                            bridgeProtocolVersion proxx.runtime.federation/bridge-protocol-version
                                            parseBridgeMessage proxx.runtime.federation/parse-bridge-message-js
                                            parseBridgeMessageJson proxx.runtime.federation/parse-bridge-message-json-js
@@ -292,7 +311,27 @@
                                            usageAnalyticsFromRollups proxx.runtime.usage-analytics/usage-analytics-from-rollups-js
                                            usageScopeActive proxx.runtime.usage-analytics/usage-scope-active-js
                                            usageFilterEntries proxx.runtime.usage-analytics/usage-filter-entries-js
-                                           usageSummarizeRouting proxx.runtime.usage-analytics/usage-summarize-routing-js}}}
+                                           usageSummarizeRouting proxx.runtime.usage-analytics/usage-summarize-routing-js
+                                           ;; w2-routing exports (catalog/outcome/pipeline)
+                                           resolvableConcreteModelIds proxx.runtime.routing/resolvable-concrete-model-ids-js
+                                           resolvableConcreteModelIdsForProviders proxx.runtime.routing/resolvable-concrete-model-ids-for-providers-js
+                                           resolveCatalogAlias proxx.runtime.routing/resolve-catalog-alias-js
+                                           classifyRoutingOutcome proxx.runtime.routing/classify-routing-outcome-js
+                                           routingOutcomeNeedsRetryHint proxx.runtime.routing/routing-outcome-needs-retry-hint-js
+                                           routingOutcomeResponse proxx.runtime.routing/routing-outcome-response-js
+                                           checkRequestedModel proxx.runtime.routing/check-requested-model-js
+                                           tenantDeniesModel proxx.runtime.routing/tenant-denies-model-js
+                                           tenantDeniedError proxx.runtime.routing/tenant-denied-error-js
+                                           routingCandidateSource proxx.runtime.routing/routing-candidate-source-js
+                                           finishModelRouting proxx.runtime.routing/finish-model-routing-js
+                                           createProviderCatalogStore proxx.runtime.catalog/create-provider-catalog-store-js
+                                           ;; w2-routing exports (aco/pheromone)
+                                           rankProviderRoutesWithAco proxx.runtime.aco/rank-provider-routes-with-aco-js
+                                           pheromoneHydrateDb proxx.runtime.aco/pheromone-hydrate-db-js
+                                           pheromoneKeyValid proxx.runtime.aco/pheromone-key-valid-js
+                                           pheromoneGet proxx.runtime.aco/pheromone-get-js
+                                           pheromoneNoteSuccess proxx.runtime.aco/pheromone-note-success-js
+                                           pheromoneNoteFailure proxx.runtime.aco/pheromone-note-failure-js}}}
    :js-options {:js-provider :import
                 :keep-as-import #{"node:fs" "node:path"}}
    :compiler-options {:output-feature-set :es-next

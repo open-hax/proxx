@@ -21,6 +21,13 @@
   ;; than the hosted `ollama-cloud`.
   :surface/dedicated-ollama-provider-pattern "^ollama-(?!cloud$)"
 
+  ;; The provider whose base url is the configured Ollama url, the id given to the
+  ;; local Ollama catalog route, and the (lower-cased) provider-id pattern that
+  ;; marks a configured provider as an Ollama host.
+  :surface/ollama-base-url-provider "ollama"
+  :surface/local-ollama-provider-id "ollama-local"
+  :surface/ollama-provider-id-pattern "ollama"
+
   ;; Model-id prefixes that mean "the caller explicitly asked for Ollama".
   :surface/explicit-ollama-prefixes ["ollama/" "ollama:" "ollama-lan/" "ollama-lan:"]
 
