@@ -28,6 +28,8 @@ No extra top-up, consumer OAuth proxy, public evaluation posts, or replacement d
 
 Compiled manifest distinguishes zero-cost Google from 0.13/0.38 per-million DeepInfra. Forced pricing works without catalog coverage. Unknown price is distinct from free.
 
+Identity acceptance: a requested alias resolving to a different upstream model retains both identities, computes billing from the actual upstream route, and preserves those identities and prices through journal reload, SQL readback and derived-estimate refresh.
+
 ## Verification
 
 Relevant unit/integration tests, compiled runtime checks and retained evidence in workspace receipts. Release story additionally requires production and real bot inference evidence.

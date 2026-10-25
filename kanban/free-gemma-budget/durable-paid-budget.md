@@ -31,6 +31,8 @@ Concurrent requests and process restarts cannot overspend either cap. Missing us
 
 Calendar acceptance: admission-date charge ownership, unresolved carryover against both current caps, late settlement, midnight/month rollover and restart cases follow the release plan.
 
+Ownership acceptance: two sessions authenticated by the bot key share one policy allowance; unrelated keys cannot consume it; absent or spoofed session metadata cannot bypass the server-side key binding. Missing bot binding or budget storage denies paid admission. Verify the same ownership cases across restart.
+
 ## Verification
 
 Relevant unit/integration tests, compiled runtime checks and retained evidence in workspace receipts. Release story additionally requires production and real bot inference evidence.

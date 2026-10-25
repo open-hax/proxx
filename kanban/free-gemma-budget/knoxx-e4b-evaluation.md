@@ -30,6 +30,8 @@ Report grounding, tool choice, hallucination, instruction following, first visib
 
 Experiment acceptance: the release plan fixes eight safe tasks, two models, two paired context conditions, three repetitions (96calls),256-token output cap, fixture-specific0/1/2 scoring and manual failure adjudication. Estimate raised to5points for fixture preparation and execution.
 
+Adoption acceptance: E4B has zero fixture-safety or tool-boundary violations and its grounded/instruction/tool aggregate is at least the matched31B score on the fixtures relevant to each contract. Otherwise explicitly record keep31B for that contract; collecting a failed experiment alone never authorizes E4B adoption.
+
 ## Verification
 
 Relevant unit/integration tests, compiled runtime checks and retained evidence in workspace receipts. Release story additionally requires production and real bot inference evidence.

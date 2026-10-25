@@ -29,6 +29,8 @@ No extra top-up, consumer OAuth proxy, public evaluation posts, or replacement d
 
 Show agent and contract identity, free/paid route use, actual versus estimated/unpriced cost, daily/monthly spent/reserved/remaining and UTC resets, latency distributions and evaluation evidence. No credentials or private prompts reach UI.
 
+Rollover display acceptance: show current-period actual spend, current reservations, and carried unresolved reservations as separate values for each cap. Remaining allowance subtracts all three; do not hide conservative old holds inside a single reserved total.
+
 ## Verification
 
 Relevant unit/integration tests, compiled runtime checks and retained evidence in workspace receipts. Release story additionally requires production and real bot inference evidence.
