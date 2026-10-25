@@ -39,7 +39,21 @@
                                            chatRequestToMessagesRequest proxx.runtime/chat-request-to-messages-request-js
                                            normalizeMessagesThinkingBudget proxx.runtime/normalize-messages-thinking-budget-js
                                            messagesToChatCompletion proxx.runtime/messages-to-chat-completion-js
-                                           shouldUseMessagesUpstream proxx.runtime/should-use-messages-upstream-js}}}
+                                           shouldUseMessagesUpstream proxx.runtime/should-use-messages-upstream-js
+                                           shouldUseResponsesUpstream proxx.runtime.responses/should-use-responses-upstream-js
+                                           chatRequestToResponsesRequest proxx.runtime.responses/chat-request-to-responses-request-js
+                                           responsesRequestToChatRequest proxx.runtime.responses/responses-request-to-chat-request-js
+                                           chatCompletionToResponsesResponse proxx.runtime.responses/chat-completion-to-responses-response-js
+                                           responsesToChatCompletion proxx.runtime.responses/responses-to-chat-completion-js
+                                           responsesOutputHasReasoning proxx.runtime.responses/responses-output-has-reasoning-js
+                                           responsesEventStreamToErrorPayload proxx.runtime.responses/responses-event-stream-to-error-payload-js
+                                           extractTerminalResponseFromEventStream proxx.runtime.responses/extract-terminal-response-from-event-stream-js
+                                           responsesEventStreamToChatCompletion proxx.runtime.responses/responses-event-stream-to-chat-completion-js
+                                           chatCompletionEventStreamToResponsesEventStream proxx.runtime.responses/chat-completion-event-stream-to-responses-event-stream-js
+                                           chatCompletionEventStreamToResponsesResponse proxx.runtime.responses/chat-completion-event-stream-to-responses-response-js
+                                           chatCompletionToSse proxx.runtime.responses/chat-completion-to-sse-js
+                                           writeInterleavedResponsesSse proxx.runtime.responses/write-interleaved-responses-sse-js
+                                           streamResponsesSseToChatCompletionChunks proxx.runtime.responses/stream-responses-sse-to-chat-completion-chunks-js}}}
    :js-options {:js-provider :import
                 :keep-as-import #{"node:fs" "node:path"}}
    :compiler-options {:output-feature-set :es-next
