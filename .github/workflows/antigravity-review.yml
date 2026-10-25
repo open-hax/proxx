@@ -3,7 +3,7 @@ name: Antigravity evidence review
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review, edited]
+    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft, edited]
 
 permissions:
   contents: read
@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   review:
-    if: ${{ github.event.pull_request.draft == false && (github.event.action != 'edited' || github.event.changes.base.ref.from != '') }}
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.draft == false && (github.event.action != 'edited' || github.event.changes.base.ref.from != '') }}
     uses: open-hax/eta-mu/.github/workflows/antigravity-code-review.yml@2f49ccc2378ef2bbe873e79fb3cd52508ebe32f2
     with:
       pr_head_sha: ${{ github.event.pull_request.head.sha }}
