@@ -5,15 +5,14 @@ import type { FastifyReply } from "fastify";
 import { copyUpstreamHeaders } from "../proxy.js";
 import { chatCompletionToSse } from "../responses-compat.js";
 import {
-  streamPayloadHasReasoningTrace,
   stripSseCommentLines,
   streamPayloadHasSubstantiveChunks,
   chatCompletionHasReasoningContent,
 } from "../sse/index.js";
+import { kernels } from "../cljs-kernels.js";
 import {
   responseIndicatesMissingModel,
   responseIndicatesModelNotSupportedForAccount,
-  streamPayloadIndicatesQuotaError,
   summarizeUpstreamError,
 } from "../errors/index.js";
 import {
@@ -39,125 +38,29 @@ function appendUpstreamIdentityHeaders(reply: FastifyReply, context: ProviderAtt
   }
 }
 
-type StreamBootstrapResult =
-  | { kind: "continue"; rateLimit?: true; requestError?: true }
-  | {
-    kind: "ready";
-    reader: ReadableStreamDefaultReader<Uint8Array>;
-    bufferedChunks: Uint8Array[];
-  };
+type StreamBootstrapResult = Awaited<ReturnType<typeof kernels.bootstrapEventStream>>;
 
-async function cancelStreamReader(reader: ReadableStreamDefaultReader<Uint8Array>): Promise<void> {
-  try {
-    await reader.cancel();
-  } catch {
-    // Ignore cancellation errors while failing over.
-  }
-}
-
-async function readStreamChunkWithTimeout(
-  reader: ReadableStreamDefaultReader<Uint8Array>,
-  timeoutMs: number,
-): Promise<ReadableStreamReadResult<Uint8Array>> {
-  let timeoutHandle: NodeJS.Timeout | undefined;
-
-  try {
-    return await Promise.race([
-      reader.read(),
-      new Promise<ReadableStreamReadResult<Uint8Array>>((_, reject) => {
-        timeoutHandle = setTimeout(() => {
-          reject(new Error("stream bootstrap timeout"));
-        }, timeoutMs);
-      }),
-    ]);
-  } finally {
-    if (timeoutHandle) {
-      clearTimeout(timeoutHandle);
-    }
-  }
-}
-
+/*
+ * Whether a stream has proven itself (substantive data, no hidden quota error,
+ * a reasoning trace when required) is decided in CLJS: the bootstrap reader loop
+ * and its verdict live in proxx.strategy.attempt / proxx.runtime.strategy.
+ */
 async function bootstrapEventStream(
   upstreamResponse: Response,
   context: ProviderAttemptContext,
 ): Promise<StreamBootstrapResult> {
-  if (!upstreamResponse.body) {
-    return { kind: "continue", requestError: true };
-  }
-
-  const reader = upstreamResponse.body.getReader();
-  const decoder = new TextDecoder();
-  const bufferedChunks: Uint8Array[] = [];
-  let bufferedText = "";
-
-  try {
-    while (true) {
-      const { done, value } = await readStreamChunkWithTimeout(reader, context.upstreamAttemptTimeoutMs);
-
-      if (done) {
-        bufferedText += decoder.decode();
-        const sanitized = stripSseCommentLines(bufferedText);
-
-        if (streamPayloadIndicatesQuotaError(sanitized)) {
-          await cancelStreamReader(reader);
-          return { kind: "continue", rateLimit: true };
-        }
-
-        if (!streamPayloadHasSubstantiveChunks(sanitized)) {
-          await cancelStreamReader(reader);
-          return { kind: "continue", requestError: true };
-        }
-
-        if (context.needsReasoningTrace && context.hasMoreCandidates && !streamPayloadHasReasoningTrace(sanitized)) {
-          await cancelStreamReader(reader);
-          return { kind: "continue", requestError: true };
-        }
-
-        return {
-          kind: "ready",
-          reader,
-          bufferedChunks,
-        };
-      }
-
-      if (!value || value.byteLength === 0) {
-        continue;
-      }
-
-      bufferedChunks.push(value);
-      bufferedText += decoder.decode(value, { stream: true });
-      const sanitized = stripSseCommentLines(bufferedText);
-
-      if (streamPayloadIndicatesQuotaError(sanitized)) {
-        await cancelStreamReader(reader);
-        return { kind: "continue", rateLimit: true };
-      }
-
-      if (!streamPayloadHasSubstantiveChunks(sanitized)) {
-        continue;
-      }
-
-      if (context.needsReasoningTrace && context.hasMoreCandidates && !streamPayloadHasReasoningTrace(sanitized)) {
-        continue;
-      }
-
-      return {
-        kind: "ready",
-        reader,
-        bufferedChunks,
-      };
-    }
-  } catch {
-    await cancelStreamReader(reader);
-    return { kind: "continue", requestError: true };
-  }
+  return kernels.bootstrapEventStream(upstreamResponse, {
+    timeoutMs: context.upstreamAttemptTimeoutMs,
+    needsReasoningTrace: context.needsReasoningTrace,
+    hasMoreCandidates: context.hasMoreCandidates,
+  });
 }
 
 async function streamEventStreamToClient(
   reply: FastifyReply,
   upstreamResponse: Response,
   context: ProviderAttemptContext,
-  bootstrap: Extract<StreamBootstrapResult, { kind: "ready" }>,
+  bootstrap: Extract<StreamBootstrapResult, { readonly kind: "ready" }>,
 ): Promise<ProviderAttemptOutcome> {
   appendUpstreamIdentityHeaders(reply, context);
   reply.code(upstreamResponse.status);
@@ -240,35 +143,26 @@ export abstract class BaseProviderStrategy implements ProviderStrategy {
   ): Promise<ProviderAttemptOutcome> {
     if (upstreamResponse.ok) {
       const contentType = upstreamResponse.headers.get("content-type") ?? "";
-      const isEventStream = contentType.toLowerCase().includes("text/event-stream");
+      const isEventStream = kernels.isEventStreamContentType(contentType);
 
       if (!isEventStream) {
+        let bodyText: string;
         try {
-          const bodyText = await upstreamResponse.clone().text();
-          if (bodyText.length === 0) {
-            return { kind: "continue", requestError: true };
-          }
-
-          if (context.clientWantsStream && streamPayloadHasSubstantiveChunks(stripSseCommentLines(bodyText))) {
-            return this.handleSuccessfulProviderAttempt(reply, upstreamResponse, context);
-          }
-
-          const parsed = JSON.parse(bodyText);
-          const looksLikeImagesPayload = context.imagesPassthrough === true
-            && isRecord(parsed)
-            && Array.isArray(parsed["data"]);
-          const looksLikeNativeOllamaPayload = context.providerId === "ollama"
-            && isRecord(parsed)
-            && (isRecord(parsed["message"]) || typeof parsed["response"] === "string");
-          if (
-            ((typeof parsed !== "object" || parsed === null)
-            || (!("choices" in parsed) && !("object" in parsed) && !("id" in parsed)))
-            && !looksLikeImagesPayload
-            && !looksLikeNativeOllamaPayload
-          ) {
-            return { kind: "continue", requestError: true };
-          }
+          bodyText = await upstreamResponse.clone().text();
         } catch {
+          return { kind: "continue", requestError: true };
+        }
+
+        const verdict = kernels.okBodyVerdict(bodyText, {
+          clientWantsStream: context.clientWantsStream,
+          streamLike: context.clientWantsStream && streamPayloadHasSubstantiveChunks(stripSseCommentLines(bodyText)),
+          imagesPassthrough: context.imagesPassthrough === true,
+          providerId: context.providerId,
+        });
+        if (verdict === "stream-like") {
+          return this.handleSuccessfulProviderAttempt(reply, upstreamResponse, context);
+        }
+        if (verdict !== "ok") {
           return { kind: "continue", requestError: true };
         }
       }
@@ -277,77 +171,38 @@ export abstract class BaseProviderStrategy implements ProviderStrategy {
     }
 
     const isMissingModel = await responseIndicatesMissingModel(upstreamResponse, context.routedModel);
-    if (isMissingModel) {
+    const modelNotSupported = !isMissingModel
+      && await responseIndicatesModelNotSupportedForAccount(upstreamResponse, context.routedModel);
+    const bodyNeeded = isMissingModel || modelNotSupported
+      ? undefined
+      : kernels.failedBodyNeeded(upstreamResponse.status);
+
+    let authMessage: string | undefined;
+    let errorBody: string | undefined;
+    if (bodyNeeded === "auth-summary") {
+      authMessage = (await summarizeUpstreamError(upstreamResponse)).upstreamErrorMessage;
+    }
+    if (bodyNeeded === "text") {
+      try {
+        errorBody = await upstreamResponse.text();
+      } catch {
+        // Ignore body read failures while failing over.
+      }
+    } else {
       try {
         await upstreamResponse.arrayBuffer();
       } catch {
         // Ignore body read failures while failing over.
       }
-
-      return {
-        kind: "continue",
-        modelNotFound: true
-      };
     }
 
-    const modelNotSupportedForAccount = await responseIndicatesModelNotSupportedForAccount(upstreamResponse, context.routedModel);
-    if (modelNotSupportedForAccount) {
-      try {
-        await upstreamResponse.arrayBuffer();
-      } catch {
-        // Ignore body read failures while failing over.
-      }
-
-      return {
-        kind: "continue",
-        modelNotSupportedForAccount: true,
-        requestError: true
-      };
-    }
-
-    if (upstreamResponse.status === 401 || upstreamResponse.status === 403) {
-      const authSummary = await summarizeUpstreamError(upstreamResponse);
-      try {
-        await upstreamResponse.arrayBuffer();
-      } catch {
-        // Ignore body read failures while failing over.
-      }
-
-      return {
-        kind: "continue",
-        requestError: true,
-        upstreamAuthError: {
-          status: upstreamResponse.status,
-          message: authSummary.upstreamErrorMessage,
-        },
-      };
-    }
-
-    if (upstreamResponse.status === 400 || upstreamResponse.status === 422) {
-      let upstreamErrorBody = "";
-      try {
-        upstreamErrorBody = await upstreamResponse.text();
-      } catch {
-        // Ignore body read failures while failing over.
-      }
-      return {
-        kind: "continue",
-        requestError: true,
-        upstreamInvalidRequest: true,
-        upstreamErrorBody,
-      };
-    }
-
-    try {
-      await upstreamResponse.arrayBuffer();
-    } catch {
-      // Ignore body read failures while failing over.
-    }
-
-    return {
-      kind: "continue",
-      requestError: true
-    };
+    return kernels.failedAttemptOutcome({
+      status: upstreamResponse.status,
+      missingModel: isMissingModel,
+      modelNotSupported,
+      authMessage,
+      errorBody,
+    });
   }
 
   protected async handleStandardLocalAttempt(
@@ -436,7 +291,8 @@ export abstract class BaseProviderStrategy implements ProviderStrategy {
     upstreamResponse: Response,
     context: ProviderAttemptContext
   ): Promise<ProviderAttemptOutcome> {
-    if (!context.clientWantsStream && context.needsReasoningTrace) {
+    const mode = kernels.successMode(context);
+    if (mode === "reasoning-json") {
       let upstreamJson: unknown;
       try {
         upstreamJson = await upstreamResponse.json();
@@ -448,7 +304,7 @@ export abstract class BaseProviderStrategy implements ProviderStrategy {
       }
 
       const hasReasoning = isRecord(upstreamJson) && chatCompletionHasReasoningContent(upstreamJson);
-      if (!hasReasoning && context.hasMoreCandidates) {
+      if (kernels.missingReasoningSkips(context, hasReasoning)) {
         return {
           kind: "continue",
           requestError: true
@@ -463,7 +319,7 @@ export abstract class BaseProviderStrategy implements ProviderStrategy {
       return { kind: "handled" };
     }
 
-    if (context.clientWantsStream) {
+    if (mode === "stream") {
       const bootstrap = await bootstrapEventStream(upstreamResponse, context);
       if (bootstrap.kind === "continue") {
         return bootstrap;
@@ -521,7 +377,7 @@ export abstract class TransformedJsonProviderStrategy extends BaseProviderStrate
     }
 
     const chatCompletion = this.convertResponseToChatCompletion(upstreamJson, context.routedModel);
-    if (context.needsReasoningTrace && !chatCompletionHasReasoningContent(chatCompletion) && context.hasMoreCandidates) {
+    if (kernels.missingReasoningSkips(context, chatCompletionHasReasoningContent(chatCompletion))) {
       return {
         kind: "continue",
         requestError: true

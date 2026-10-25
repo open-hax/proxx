@@ -9,6 +9,38 @@ import { loadCljsRuntime } from "./cljs-runtime.js";
 
 type JsRecord = Record<string, unknown>;
 
+/** A `continue` attempt outcome (see proxx.strategy.attempt). */
+export interface StrategyContinueOutcome {
+  readonly kind: "continue";
+  readonly rateLimit?: boolean;
+  readonly requestError?: boolean;
+  readonly upstreamServerError?: boolean;
+  readonly upstreamInvalidRequest?: boolean;
+  readonly upstreamErrorBody?: string;
+  readonly modelNotFound?: boolean;
+  readonly modelNotSupportedForAccount?: boolean;
+  readonly upstreamAuthError?: { readonly status: number; readonly message?: string };
+}
+
+/** Opaque immutable state of the routing state machine (proxx.strategy.executor). */
+export type ExecutorState = { readonly __executorState: never };
+
+/** Request facts the strategy registry's predicates read (proxx.strategy.select). */
+export interface StrategySelectionFacts {
+  readonly routeProviderId?: string;
+  readonly responsesPassthrough?: boolean;
+  readonly imagesPassthrough?: boolean;
+  readonly embeddingsPassthrough?: boolean;
+  readonly explicitOllama?: boolean;
+  readonly localOllama?: boolean;
+  readonly openAiPrefixed?: boolean;
+  readonly factoryPrefixed?: boolean;
+  readonly policyPreferredMode?: string;
+  readonly factoryModelType?: string;
+  readonly clientHeaders?: unknown;
+  readonly requestBody?: unknown;
+}
+
 export interface CljsKernels {
   // errors/classification
   readonly extractErrorMessage: (payload: unknown) => string | null;
@@ -240,6 +272,68 @@ export interface CljsKernels {
     candidates: ReadonlyArray<{ readonly providerIndex?: number; readonly ttft?: number }>,
     manifestPath?: string,
   ) => number[];
+  readonly failedBodyNeeded: (status: number) => "auth-summary" | "text" | undefined;
+  readonly failedAttemptOutcome: (facts: {
+    readonly status: number;
+    readonly missingModel?: boolean;
+    readonly modelNotSupported?: boolean;
+    readonly authMessage?: string;
+    readonly errorBody?: string;
+  }) => StrategyContinueOutcome;
+  readonly isEventStreamContentType: (contentType: string | null | undefined) => boolean;
+  readonly isEventStreamOrUntyped: (contentType: string | null | undefined) => boolean;
+  readonly okBodyVerdict: (
+    bodyText: string,
+    facts: { readonly clientWantsStream?: boolean; readonly streamLike?: boolean; readonly imagesPassthrough?: boolean; readonly providerId?: string },
+  ) => "empty" | "stream-like" | "invalid" | "ok";
+  readonly successMode: (facts: { readonly clientWantsStream?: boolean; readonly needsReasoningTrace?: boolean }) => "reasoning-json" | "stream" | "relay";
+  readonly missingReasoningSkips: (
+    facts: { readonly needsReasoningTrace?: boolean; readonly hasMoreCandidates?: boolean },
+    hasReasoning: boolean,
+  ) => boolean;
+  readonly isChatCompletionResponse: (value: unknown) => boolean;
+  readonly bootstrapEventStream: (
+    response: Response,
+    opts: { readonly timeoutMs: number; readonly needsReasoningTrace?: boolean; readonly hasMoreCandidates?: boolean },
+  ) => Promise<
+    | StrategyContinueOutcome
+    | { readonly kind: "ready"; readonly reader: ReadableStreamDefaultReader<Uint8Array>; readonly bufferedChunks: Uint8Array[] }
+  >;
+  readonly createExecutorState: (opts: { readonly reassignmentAllowed: boolean; readonly sticky: boolean }) => ExecutorState;
+  readonly executorStep: (state: ExecutorState, event: JsRecord, manifestPath?: string) => {
+    readonly state: ExecutorState;
+    readonly effects: ReadonlyArray<readonly unknown[]>;
+    readonly next?: "handled" | "retry-credential" | "next-step" | "next-candidate" | "stop-candidates" | "refresh-token";
+    readonly attempts: number;
+    readonly abort: boolean;
+  };
+  readonly executorSummary: (state: ExecutorState) => JsRecord;
+  readonly throttlePlan: (cooldownMs: number, manifestPath?: string) => { readonly waitMs: number; readonly shortCooldownMs: number };
+  readonly throttleRetryVerdict: (facts: { readonly rateLimited: boolean; readonly ok: boolean; readonly retryKind?: string }) => string;
+  readonly quotaBaseCooldownMs: (
+    facts: { readonly status: number; readonly authType: string; readonly accountProviderId: string; readonly keyCooldownMs: number },
+    manifestPath?: string,
+  ) => number;
+  readonly transientStatus: (
+    facts: { readonly status: number; readonly providerId: string; readonly hasRetryRemaining: boolean },
+    manifestPath?: string,
+  ) => "transient-provider" | "server-error-retry" | "server-error" | undefined;
+  readonly imagesNextBase: (facts: {
+    readonly status: number;
+    readonly tryNextBaseOnStatuses?: readonly number[];
+    readonly nextBaseDiffers: boolean;
+  }) => boolean;
+  readonly maxStickyTransportFailures: (manifestPath?: string) => number;
+  readonly selectStrategy: (facts: StrategySelectionFacts, opts: { readonly remoteOnly?: boolean; readonly preferredMode?: string }, manifestPath?: string) => string;
+  readonly selectRemoteStrategy: (
+    facts: StrategySelectionFacts,
+    providerId: string,
+    openaiProviderId: string,
+    explicitMode: string | undefined,
+    modeByProvider: Readonly<Record<string, string>> | undefined,
+    manifestPath?: string,
+  ) => string;
+  readonly isCompatEmbeddingProvider: (providerId: string, manifestPath?: string) => boolean;
 }
 
 const loaded = await loadCljsRuntime({ required: true });

@@ -133,7 +133,28 @@
                                            accountOrderForRequest proxx.runtime.strategy/account-order-for-request-js
                                            accountOrderForLatency proxx.runtime.strategy/account-order-for-latency-js
                                            candidateOrderForAffinities proxx.runtime.strategy/candidate-order-for-affinities-js
-                                           candidateOrderForRoutes proxx.runtime.strategy/candidate-order-for-routes-js}}}
+                                           candidateOrderForRoutes proxx.runtime.strategy/candidate-order-for-routes-js
+                                           failedBodyNeeded proxx.runtime.strategy/failed-body-needed-js
+                                           failedAttemptOutcome proxx.runtime.strategy/failed-attempt-outcome-js
+                                           isEventStreamContentType proxx.runtime.strategy/is-event-stream-content-type-js
+                                           isEventStreamOrUntyped proxx.runtime.strategy/is-event-stream-or-untyped-js
+                                           okBodyVerdict proxx.runtime.strategy/ok-body-verdict-js
+                                           successMode proxx.runtime.strategy/success-mode-js
+                                           missingReasoningSkips proxx.runtime.strategy/missing-reasoning-skips-js
+                                           isChatCompletionResponse proxx.runtime.strategy/is-chat-completion-response-js
+                                           bootstrapEventStream proxx.runtime.strategy/bootstrap-event-stream-js
+                                           createExecutorState proxx.runtime.strategy/create-executor-state-js
+                                           executorStep proxx.runtime.strategy/executor-step-js
+                                           executorSummary proxx.runtime.strategy/executor-summary-js
+                                           throttlePlan proxx.runtime.strategy/throttle-plan-js
+                                           throttleRetryVerdict proxx.runtime.strategy/throttle-retry-verdict-js
+                                           quotaBaseCooldownMs proxx.runtime.strategy/quota-base-cooldown-ms-js
+                                           transientStatus proxx.runtime.strategy/transient-status-js
+                                           imagesNextBase proxx.runtime.strategy/images-next-base-js
+                                           maxStickyTransportFailures proxx.runtime.strategy/max-sticky-transport-failures-js
+                                           selectStrategy proxx.runtime.strategy/select-strategy-js
+                                           selectRemoteStrategy proxx.runtime.strategy/select-remote-strategy-js
+                                           isCompatEmbeddingProvider proxx.runtime.strategy/is-compat-embedding-provider-js}}}
    :js-options {:js-provider :import
                 :keep-as-import #{"node:fs" "node:path"}}
    :compiler-options {:output-feature-set :es-next

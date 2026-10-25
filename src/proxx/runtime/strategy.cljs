@@ -8,7 +8,10 @@
             [clojure.string :as str]
             [proxx.policy.loader :as loader]
             [proxx.runtime :as runtime]
+            [proxx.strategy.attempt :as attempt]
             [proxx.strategy.diagnostics :as diagnostics]
+            [proxx.strategy.executor :as executor]
+            [proxx.strategy.select :as select]
             [proxx.strategy.gemini :as gemini]
             [proxx.compat.responses.stream :as stream]
             [proxx.strategy.payload :as payload]
@@ -345,3 +348,243 @@
   (to-array (routing/candidate-order-for-routes
              (attempt-policy manifest-path)
              (mapv (fn [^js c] {:provider-index (.-providerIndex c) :ttft (.-ttft c)}) (array-seq candidates)))))
+
+;; ---------------------------------------------------------------------------
+;; Attempt verdicts
+;; ---------------------------------------------------------------------------
+
+(defn- outcome->js
+  "A `continue` attempt outcome as the camelCase object the router reads."
+  [outcome]
+  (let [o #js {"kind" "continue"}]
+    (doseq [[k v] outcome :when (some? v)]
+      (aset o (kebab->camel k)
+            (if (= :upstream-auth-error k) (->camel-js v) v)))
+    o))
+
+(defn failed-body-needed-js [status]
+  (undefined-if-nil (some-> (attempt/failure-body-needed status) name)))
+
+(defn failed-attempt-outcome-js [^js facts]
+  (outcome->js (attempt/failed-outcome {:status (.-status facts)
+                                        :missing-model? (true? (.-missingModel facts))
+                                        :model-not-supported? (true? (.-modelNotSupported facts))
+                                        :auth-message (.-authMessage facts)
+                                        :error-body (.-errorBody facts)})))
+
+(defn is-event-stream-content-type-js [content-type]
+  (attempt/event-stream-content-type? content-type))
+
+(defn is-event-stream-or-untyped-js [content-type]
+  (attempt/event-stream-or-untyped? content-type))
+
+(defn ok-body-verdict-js [body-text ^js facts]
+  (name (attempt/ok-body-verdict body-text {:client-wants-stream? (true? (.-clientWantsStream facts))
+                                            :stream-like? (true? (.-streamLike facts))
+                                            :images-passthrough? (true? (.-imagesPassthrough facts))
+                                            :provider-id (.-providerId facts)})))
+
+(defn success-mode-js [^js facts]
+  (name (attempt/success-mode {:client-wants-stream? (true? (.-clientWantsStream facts))
+                               :needs-reasoning-trace? (true? (.-needsReasoningTrace facts))})))
+
+(defn missing-reasoning-skips-js [^js facts has-reasoning]
+  (attempt/missing-reasoning-skips? {:needs-reasoning-trace? (true? (.-needsReasoningTrace facts))
+                                     :has-more-candidates? (true? (.-hasMoreCandidates facts))}
+                                    (true? has-reasoning)))
+
+(defn is-chat-completion-response-js [value] (attempt/chat-completion-response? (js->clj value)))
+
+(defn- read-with-timeout
+  "`reader.read()` racing a timeout that rejects with `message`."
+  [^js reader timeout-ms message]
+  (let [timer (atom nil)
+        timeout (js/Promise. (fn [_ reject] (reset! timer (js/setTimeout #(reject (js/Error. message)) timeout-ms))))]
+    (-> (js/Promise.race #js [(.read reader) timeout])
+        (.finally (fn [] (when @timer (js/clearTimeout @timer)))))))
+
+(defn- cancel-quietly [^js reader]
+  (-> (js/Promise.resolve (.cancel reader)) (.catch (fn [_] nil))))
+
+(defn ^:async bootstrap-event-stream-js
+  "Read an OK event stream until it proves itself (substantive data, no quota error,
+  and a reasoning trace when one is required and another candidate remains), or
+  fails. Resolves to `{kind:\"ready\", reader, bufferedChunks}` or a `continue`
+  outcome; the reader is cancelled on every failure."
+  [^js response ^js opts]
+  (if-not (.-body response)
+    #js {"kind" "continue" "requestError" true}
+    (let [reader (.getReader (.-body response))
+          decoder (js/TextDecoder.)
+          facts {:needs-reasoning-trace? (true? (.-needsReasoningTrace opts))
+                 :has-more-candidates? (true? (.-hasMoreCandidates opts))}
+          wants-reasoning? (and (:needs-reasoning-trace? facts) (:has-more-candidates? facts))
+          judge (fn [text done?]
+                  (let [clean (runtime/strip-sse-comment-lines-js text)
+                        quota? (runtime/stream-payload-indicates-quota-error-js clean)
+                        substantive? (and (not quota?) (runtime/stream-payload-has-substantive-chunks-js clean))
+                        reasoning? (or (not wants-reasoning?) (not substantive?) (runtime/stream-payload-has-reasoning-trace-js clean))]
+                    (attempt/bootstrap-verdict {:quota? quota? :substantive? substantive? :reasoning? reasoning? :done? done?} facts)))
+          fail (fn [flags] (outcome->js flags))]
+      (try
+        (loop [chunks [] text ""]
+          (let [result (await (read-with-timeout reader (.-timeoutMs opts) "stream bootstrap timeout"))
+                done? (.-done result)
+                value (.-value result)]
+            (if done?
+              (let [verdict (judge (str text (.decode decoder)) true)]
+                (if (= :ready verdict)
+                  #js {"kind" "ready" "reader" reader "bufferedChunks" (to-array chunks)}
+                  (do (await (cancel-quietly reader))
+                      (fail (:continue verdict)))))
+              (if (or (nil? value) (zero? (.-byteLength value)))
+                (recur chunks text)
+                (let [chunks (conj chunks value)
+                      text (str text (.decode decoder value #js {"stream" true}))
+                      verdict (judge text false)]
+                  (cond
+                    (= :ready verdict) #js {"kind" "ready" "reader" reader "bufferedChunks" (to-array chunks)}
+                    (= :read-more verdict) (recur chunks text)
+                    :else (do (await (cancel-quietly reader))
+                              (fail (:continue verdict)))))))))
+        (catch :default _
+          (await (cancel-quietly reader))
+          #js {"kind" "continue" "requestError" true})))))
+
+;; ---------------------------------------------------------------------------
+;; The routing loop's state machine
+;; ---------------------------------------------------------------------------
+
+(defn- kebab-key [k] (keyword (str/replace (name k) #"([a-z])([A-Z])" (fn [[_ a b]] (str a "-" (str/lower-case b))))))
+
+(defn- event->clj
+  "Event facts from JS: camelCase keys become kebab keywords (at any depth);
+  `type`/`variant` become keywords, and the credential `authType` its keyword."
+  [event]
+  (let [convert (fn convert [x]
+                  (cond
+                    (map? x) (into {} (map (fn [[k v]] [(kebab-key k) (convert v)])) x)
+                    (sequential? x) (mapv convert x)
+                    :else x))
+        e (convert (js->clj event))]
+    (cond-> (-> e
+                (update :ctx (fn [c] (reduce (fn [c k] (if (contains? c k) (-> c (assoc (keyword (str (name k) "?")) (get c k)) (dissoc k)) c))
+                                             c [:prompt-cache-key :matches-preferred :matches-provisional :preferred-affinity
+                                                :health :refresh-available :has-refresh-token :ollama-cloud])))
+                (as-> e (if (contains? e :ok) (-> e (assoc :ok? (:ok e)) (dissoc :ok)) e)))
+      (:type e) (update :type keyword)
+      (:variant e) (update :variant keyword)
+      (:kind e) (update :kind keyword)
+      (get-in e [:ctx :auth-type]) (update-in [:ctx :auth-type] #(keyword (str/replace % "_" "-"))))))
+
+(defn- summary->js [{:keys [saw-rate-limit saw-request-error saw-upstream-server-error saw-upstream-invalid-request
+                            last-upstream-error saw-model-not-found saw-model-not-supported-for-account attempts
+                            last-upstream-auth-error]}]
+  (->camel-js {:saw-rate-limit saw-rate-limit :saw-request-error saw-request-error
+               :saw-upstream-server-error saw-upstream-server-error
+               :saw-upstream-invalid-request saw-upstream-invalid-request
+               :last-upstream-error (some-> last-upstream-error ->camel-js)
+               :saw-model-not-found saw-model-not-found
+               :saw-model-not-supported-for-account saw-model-not-supported-for-account
+               :attempts attempts
+               :last-upstream-auth-error (some-> last-upstream-auth-error ->camel-js)}))
+
+(defn- holder [state] #js {"state" state})
+
+(defn create-executor-state-js
+  "Opaque state for a routing run: `{reassignmentAllowed, sticky}`."
+  [^js opts]
+  (holder (executor/initial-state {:reassignment-allowed? (.-reassignmentAllowed opts) :sticky? (.-sticky opts)})))
+
+(defn executor-step-js
+  "Advance the routing state machine with an attempt event. Resolves to
+  `{state, effects, next, attempts, abort}`; `state` is the next opaque state."
+  [^js state-holder event manifest-path]
+  (let [{:keys [state effects next]} (executor/step (.-state state-holder) (attempt-policy manifest-path) (event->clj event))]
+    #js {"state" (holder state)
+         "effects" (clj->js effects)
+         "next" (undefined-if-nil (some-> next name))
+         "attempts" (get-in state [:accumulator :attempts])
+         "abort" (boolean (:abort? state))}))
+
+(defn executor-summary-js [^js state-holder]
+  (summary->js (:accumulator (.-state state-holder))))
+
+(defn throttle-plan-js [cooldown-ms manifest-path]
+  (let [{:keys [wait-ms short-cooldown-ms]} (executor/throttle-plan (attempt-policy manifest-path) cooldown-ms)]
+    #js {"waitMs" wait-ms "shortCooldownMs" short-cooldown-ms}))
+
+(defn throttle-retry-verdict-js [^js facts]
+  (name (executor/throttle-retry-verdict {:rate-limited? (true? (.-rateLimited facts))
+                                          :ok? (true? (.-ok facts))
+                                          :retry-kind (.-retryKind facts)})))
+
+(defn quota-base-cooldown-ms-js [^js facts manifest-path]
+  (executor/quota-base-cooldown-ms (attempt-policy manifest-path)
+                                   {:status (.-status facts)
+                                    :auth-type (keyword (str/replace (.-authType facts) "_" "-"))
+                                    :account-provider-id (.-accountProviderId facts)
+                                    :key-cooldown-ms (.-keyCooldownMs facts)}))
+
+(defn transient-status-js [^js facts manifest-path]
+  (undefined-if-nil (some-> (executor/transient-status (attempt-policy manifest-path)
+                                                       {:status (.-status facts)
+                                                        :provider-id (.-providerId facts)
+                                                        :has-retry-remaining? (true? (.-hasRetryRemaining facts))})
+                            name)))
+
+(defn images-next-base-js [^js facts]
+  (executor/images-next-base? {:status (.-status facts)
+                               :try-next-base-on-statuses (some-> (.-tryNextBaseOnStatuses facts) array-seq)
+                               :next-base-differs? (true? (.-nextBaseDiffers facts))}))
+
+(defn max-sticky-transport-failures-js [manifest-path]
+  (:attempt/max-sticky-transport-failures (attempt-policy manifest-path)))
+
+;; ---------------------------------------------------------------------------
+;; Strategy selection
+;; ---------------------------------------------------------------------------
+
+(defonce ^:private registries (atom {}))
+
+(defn- registry [manifest-path]
+  (let [manifest-path (or manifest-path default-manifest)]
+    (or (get @registries manifest-path)
+        (let [r (select/registry-from-contracts (loader/load-policy-contracts! manifest-path))]
+          (swap! registries assoc manifest-path r)
+          r))))
+
+(defn- facts->clj [^js facts]
+  {:route-provider-id (.-routeProviderId facts)
+   :responses-passthrough (.-responsesPassthrough facts)
+   :images-passthrough (.-imagesPassthrough facts)
+   :embeddings-passthrough (.-embeddingsPassthrough facts)
+   :explicit-ollama (.-explicitOllama facts)
+   :local-ollama (.-localOllama facts)
+   :open-ai-prefixed (.-openAiPrefixed facts)
+   :factory-prefixed (.-factoryPrefixed facts)
+   :policy-preferred-mode (.-policyPreferredMode facts)
+   :factory-model-type (.-factoryModelType facts)
+   :embedding-provider (select/embedding-provider-header (js->clj (.-clientHeaders facts)))
+   :request-body (js->clj (.-requestBody facts))})
+
+(defn select-strategy-js
+  "The id of the strategy for the request `facts`. `opts`: `{remoteOnly, preferredMode}`."
+  [^js facts ^js opts manifest-path]
+  (name (select/select (registry manifest-path) (facts->clj facts)
+                       {:remote-only? (true? (some-> opts .-remoteOnly))
+                        :preferred-mode (some-> opts .-preferredMode)})))
+
+(defn select-remote-strategy-js
+  "The strategy id for one provider route within a request context: route flags are
+  recomputed from `provider-id`, local-Ollama is ruled out, and a policy-preferred
+  mode (explicit, per provider, or request-wide) wins among the matches."
+  [^js facts provider-id openai-provider-id explicit-mode mode-by-provider manifest-path]
+  (let [f (select/route-facts (facts->clj facts) provider-id openai-provider-id
+                              (when (some? explicit-mode) explicit-mode)
+                              (js->clj mode-by-provider))]
+    (name (select/select (registry manifest-path) f
+                         {:remote-only? true :preferred-mode (:policy-preferred-mode f)}))))
+
+(defn is-compat-embedding-provider-js [provider-id manifest-path]
+  (select/compat-embedding-provider? (registry manifest-path) provider-id))
