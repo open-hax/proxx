@@ -263,6 +263,22 @@ export interface CljsKernels {
   readonly usageCoverageQuery: (filters: object) => { readonly text: string; readonly values: unknown[] };
   readonly usageCursorQuery: () => string;
   readonly usageToCursor: (row: object) => { readonly timestampMs: number; readonly id: string };
+  readonly createRequestLogCore: (maxEntries: number, deps?: { now?: () => number; uuid?: () => string }) => unknown;
+  readonly usageToWindow: (value: unknown) => string;
+  readonly usageToSafeLimit: (value: unknown, fallback: number, max: number) => number;
+  readonly usageWindowConfig: (window: string, now: number) => {
+    readonly bucketMs: number;
+    readonly bucketCount: number;
+    readonly bucketWindowStart: number;
+    readonly entryWindowStart: number;
+  };
+  readonly usageOverviewFromEntries: (entries: object[], ctx: object) => unknown;
+  readonly usageOverviewFromRollups: (input: object) => unknown;
+  readonly usageAnalyticsFromEntries: (entries: object[], ctx: object) => unknown;
+  readonly usageAnalyticsFromRollups: (input: object) => unknown;
+  readonly usageScopeActive: (scope: object | undefined) => boolean;
+  readonly usageFilterEntries: <T extends object>(entries: T[], scope: object | undefined) => T[];
+  readonly usageSummarizeRouting: (entries: object[]) => unknown;
   readonly createSessionStore: (filePath: string, deps?: { now?: () => number; uuid?: () => string }) => unknown;
   // w2 auth/oauth: openai + factory oauth
   readonly createOpenAiOAuthManager: (options: unknown, deps: unknown) => OAuthManagerFacade;
