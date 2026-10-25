@@ -1,91 +1,20 @@
+import { kernels } from "../cljs-kernels.js";
 import { fetchWithResponseTimeout } from "../http/index.js";
-import { readSingleHeader } from "../request-utils.js";
 
-const FEDERATION_HOP_HEADER = "x-open-hax-federation-hop";
-const FEDERATION_OWNER_SUBJECT_HEADER = "x-open-hax-federation-owner-subject";
+// Decisions live in proxx.federation.helpers (pure); only the environment read and the fetch stay here.
 
-export function extractPeerCredential(auth: Record<string, unknown>): string | undefined {
-  const direct = typeof auth.credential === "string" ? auth.credential.trim() : "";
-  if (direct.length > 0) {
-    return direct;
-  }
+export const extractPeerCredential = (auth: Record<string, unknown>): string | undefined =>
+  kernels.extractPeerCredential(auth);
 
-  const bearer = typeof auth.bearer === "string" ? auth.bearer.trim() : "";
-  return bearer.length > 0 ? bearer : undefined;
-}
+export const resolveFederationHopCount = (headers: Record<string, unknown>): number =>
+  kernels.resolveFederationHopCount(headers);
 
-export function resolveFederationHopCount(headers: Record<string, unknown>): number {
-  const raw = readSingleHeader(headers, FEDERATION_HOP_HEADER)?.trim();
-  if (!raw) {
-    return 0;
-  }
-
-  const parsed = Number.parseInt(raw, 10);
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
-}
-
-function resolveTenantApiKeyBoundOwnerSubject(
-  requestAuth: { readonly kind?: string; readonly subject?: string; readonly tenantId?: string } | undefined,
-): string | undefined {
-  if (requestAuth?.kind !== "tenant_api_key") {
-    return undefined;
-  }
-
-  const tenantId = requestAuth.tenantId?.trim();
-  if (tenantId && tenantId.startsWith("did:")) {
-    return tenantId;
-  }
-
-  const authSubject = requestAuth.subject?.trim();
-  if (!authSubject?.startsWith("tenant_api_key:")) {
-    return undefined;
-  }
-
-  const boundOwnerSubject = authSubject.slice("tenant_api_key:".length).trim();
-  if (boundOwnerSubject.length === 0 || !boundOwnerSubject.startsWith("did:")) {
-    return undefined;
-  }
-
-  return boundOwnerSubject;
-}
-
-export function resolveFederationOwnerSubject(input: {
+export const resolveFederationOwnerSubject = (input: {
   readonly headers: Record<string, unknown>;
   readonly requestAuth?: { readonly kind?: string; readonly subject?: string; readonly tenantId?: string };
   readonly hopCount?: number;
-}): string | undefined {
-  const explicitHeader = readSingleHeader(input.headers, FEDERATION_OWNER_SUBJECT_HEADER)?.trim();
-  const tenantApiKeyOwnerSubject = resolveTenantApiKeyBoundOwnerSubject(input.requestAuth);
-  if (explicitHeader && (
-    (input.hopCount ?? 0) > 0
-    || input.requestAuth?.kind === "legacy_admin"
-    || tenantApiKeyOwnerSubject === explicitHeader
-  )) {
-    return explicitHeader;
-  }
-
-  if (explicitHeader && input.requestAuth?.kind === "tenant_api_key") {
-    return undefined;
-  }
-
-  if (input.requestAuth?.kind === "tenant_api_key") {
-    return tenantApiKeyOwnerSubject;
-  }
-
-  const authSubject = input.requestAuth?.subject?.trim();
-  if (authSubject && authSubject !== "legacy:proxy-auth-token") {
-    return authSubject;
-  }
-
-  if (input.requestAuth?.kind === "legacy_admin") {
-    const defaultOwnerSubject = process.env.FEDERATION_DEFAULT_OWNER_SUBJECT?.trim();
-    if (defaultOwnerSubject) {
-      return defaultOwnerSubject;
-    }
-  }
-
-  return undefined;
-}
+}): string | undefined =>
+  kernels.resolveFederationOwnerSubject(input, process.env.FEDERATION_DEFAULT_OWNER_SUBJECT);
 
 export async function fetchFederationJson<T>(input: {
   readonly url: string;
@@ -94,22 +23,16 @@ export async function fetchFederationJson<T>(input: {
   readonly method?: "GET" | "POST";
   readonly body?: Record<string, unknown>;
 }): Promise<T> {
-  const headers = new Headers();
-  headers.set("content-type", "application/json");
-  if (input.credential && input.credential.length > 0) {
-    headers.set("authorization", `Bearer ${input.credential}`);
-  }
-
   const response = await fetchWithResponseTimeout(input.url, {
     method: input.method ?? "GET",
-    headers,
+    headers: new Headers(kernels.federationJsonRequestHeaders(input.credential)),
     body: input.body ? JSON.stringify(input.body) : undefined,
   }, input.timeoutMs);
 
   const text = await response.text();
-  const parsed = text.length > 0 ? JSON.parse(text) as T & { readonly error?: string } : {} as T & { readonly error?: string };
+  const parsed: unknown = text.length > 0 ? JSON.parse(text) : {};
   if (!response.ok) {
-    throw new Error(typeof parsed.error === "string" ? parsed.error : `request failed with ${response.status}`);
+    throw new Error(kernels.federationFailureMessage(parsed, response.status));
   }
 
   return parsed as T;

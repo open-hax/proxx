@@ -5,6 +5,8 @@
  * this one can call the kernels synchronously. The compiled artifact is
  * required: these functions are the implementation, not an optimization.
  */
+import type { ServerResponse } from "node:http";
+
 import { loadCljsRuntime } from "./cljs-runtime.js";
 import type { CredentialStoreLike } from "./credential-store.js";
 import type { AccountHealthStore } from "./db/account-health-store.js";
@@ -29,6 +31,10 @@ import type {
   ModelsDevPricingSnapshot,
   RequestCostEstimate,
 } from "./model-pricing.js";
+import type { BridgeSendChannel } from "./federation/bridge-send-channel.js";
+import type { BridgeMessage } from "./federation/bridge-protocol.js";
+import type { BridgeLeaseAccountSummary, BridgeLeaseExportedAccount } from "../routes/federation/bridge-lease-parsers.js";
+import type { FederationOwnerCredential } from "./federation/owner-credential.js";
 
 type JsRecord = Record<string, unknown>;
 
@@ -332,6 +338,49 @@ export interface CljsKernels {
     readonly aliases: Readonly<Record<string, string>>;
   }>;
   readonly toOpenAiModel: (modelId: string) => { readonly id: string; readonly object: "model"; readonly created: number; readonly owned_by: string };
+  // federation (bridge protocol, routing, relay, agent)
+  readonly bridgeProtocolVersion: string;
+  readonly parseBridgeMessage: (value: unknown) => BridgeMessage;
+  readonly parseBridgeMessageJson: (jsonText: string) => BridgeMessage;
+  readonly isAtDid: (value: string | undefined) => boolean;
+  readonly normalizeAtDid: (value: string) => string;
+  readonly fingerprintAdminKey: (value: string) => string;
+  readonly parseFederationOwnerCredential: (raw: string | undefined) => FederationOwnerCredential | undefined;
+  readonly federationHeaders: {
+    readonly hop: string;
+    readonly ownerSubject: string;
+    readonly bridgeTenant: string;
+    readonly forcedProvider: string;
+    readonly forcedAccountId: string;
+    readonly routedPeer: string;
+    readonly routedProvider: string;
+    readonly routedAccount: string;
+    readonly imported: string;
+    readonly blockedResponseHeaders: readonly string[];
+  };
+  readonly extractPeerCredential: (auth: Record<string, unknown>) => string | undefined;
+  readonly resolveFederationHopCount: (headers: Record<string, unknown>) => number;
+  readonly resolveFederationOwnerSubject: (
+    input: {
+      readonly headers: Record<string, unknown>;
+      readonly requestAuth?: { readonly kind?: string; readonly subject?: string; readonly tenantId?: string };
+      readonly hopCount?: number;
+    },
+    defaultOwnerSubject: string | undefined,
+  ) => string | undefined;
+  readonly federationJsonRequestHeaders: (credential: string | undefined) => Record<string, string>;
+  readonly federationFailureMessage: (parsed: unknown, status: number) => string;
+  readonly bridgeCapabilitySupportsPath: (capability: object, normalizedPath: string) => boolean;
+  readonly bridgeCapabilitySupportsModel: (capability: object, requestedModel: string | undefined) => boolean;
+  readonly forwardableBridgeResponseHeaders: (
+    headers: Readonly<Record<string, string>>,
+    hideUpstreamAccount: boolean,
+  ) => [string, string][];
+  readonly parseBridgeLeaseAccounts: (payload: unknown, fallbackProviderId: string) => BridgeLeaseAccountSummary[];
+  readonly parseBridgeLeaseExport: (payload: unknown) => BridgeLeaseExportedAccount | undefined;
+  readonly createBridgeRelay: () => unknown;
+  readonly createSseBridgeSendChannel: (res: ServerResponse) => BridgeSendChannel;
+  readonly formatSseEvent: (event: string, data: unknown) => string;
 }
 
 export interface ChromaSearchRow {
