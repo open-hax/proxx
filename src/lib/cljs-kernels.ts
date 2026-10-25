@@ -159,6 +159,66 @@ export interface CljsKernels {
     readonly keyEnvNames: readonly string[];
   }[];
   readonly createKeyPool: (config: unknown, deps: unknown) => unknown;
+  // w2-analytics
+  readonly createRequestLogFanout: () => RequestLogFanout;
+  readonly ollamaBatchVectors: (payload: unknown, expectedCount: number) => number[][];
+  readonly ollamaLegacyVector: (payload: unknown) => number[];
+  readonly ollamaValidateConfig: (config: Record<string, unknown>) => void;
+  readonly ollamaBuildConfig: (config: Record<string, unknown>) => { readonly url: string; readonly model: string };
+  readonly chromaConnectionOptions: (url: URL) => { readonly host: string; readonly ssl: boolean; readonly port?: number };
+  readonly chromaSearchResults: (
+    ids: readonly unknown[],
+    docs: readonly unknown[],
+    metas: readonly unknown[],
+    distances: readonly unknown[],
+    now: number,
+  ) => ChromaSearchRow[];
+  readonly eventLabelerApplies: (id: string, event: object) => boolean;
+  readonly eventLabelerLabel: (id: string, event: object) => string[];
+  readonly eventDdl: () => string[];
+  readonly eventBuildQuery: (filters: object) => { readonly text: string; readonly values: unknown[] };
+  readonly eventBuildCount: (filters: object) => { readonly text: string; readonly values: unknown[] };
+  readonly eventCountByTagQuery: (since: Date | undefined) => { readonly text: string; readonly values: unknown[] };
+  readonly eventParseRow: (row: object) => unknown;
+  readonly eventSanitizePayload: (payload: Record<string, unknown>) => Record<string, unknown>;
+  readonly usageDdl: () => string[];
+  readonly usageToEntry: (row: object) => unknown;
+  readonly usageCoverage: (row: object | undefined) => {
+    readonly earliestEntryAtMs: number | null;
+    readonly retainedEntryCount: number;
+    readonly maxRetainedEntries: number;
+  };
+  readonly usageUpsert: (entry: object) => { readonly strings: TemplateStringsArray; readonly values: unknown[] };
+  readonly usageListQuery: (filters: object, cursor: { timestampMs: number; id: string } | undefined) => { readonly text: string; readonly values: unknown[] };
+  readonly usageListSinceQuery: (
+    sinceMs: number,
+    filters: object,
+    limit: number | undefined,
+    after: { timestampMs: number; id: string } | undefined,
+  ) => { readonly text: string; readonly values: unknown[] };
+  readonly usageCoverageQuery: (filters: object) => { readonly text: string; readonly values: unknown[] };
+  readonly usageCursorQuery: () => string;
+  readonly usageToCursor: (row: object) => { readonly timestampMs: number; readonly id: string };
+  readonly createSessionStore: (filePath: string, deps?: { now?: () => number; uuid?: () => string }) => unknown;
+}
+
+export interface ChromaSearchRow {
+  readonly sessionId: string;
+  readonly sessionTitle: string;
+  readonly messageId: string;
+  readonly role: "system" | "user" | "assistant" | "tool";
+  readonly content: string;
+  readonly createdAt: number;
+  readonly distance: number;
+}
+
+export interface RequestLogFanout {
+  readonly subscribe: (id: string, identity: object, subscription: object) => void;
+  readonly unsubscribe: (id: string) => void;
+  readonly recipients: (entry: object) => string[];
+  readonly size: () => number;
+  readonly clear: () => void;
+  readonly eventType: (type: string) => string;
 }
 
 const loaded = await loadCljsRuntime({ required: true });

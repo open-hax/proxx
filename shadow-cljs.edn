@@ -102,7 +102,33 @@
                                            authCanManageTenantKeys proxx.runtime.ui-auth/auth-can-manage-tenant-keys-js
                                            authCanManageFederation proxx.runtime.ui-auth/auth-can-manage-federation-js
                                            toVisibleTenants proxx.runtime.ui-auth/to-visible-tenants-js
-                                           registerSettingsRoutes proxx.runtime.routes.settings/register-settings-routes-js}}}
+                                           registerSettingsRoutes proxx.runtime.routes.settings/register-settings-routes-js
+                                           ;; w2-analytics exports
+                                           createRequestLogFanout proxx.runtime.observability/create-request-log-fanout-js
+                                           createSessionStore proxx.runtime.session/create-session-store-js
+                                           ollamaBatchVectors proxx.runtime.chroma/ollama-batch-vectors-js
+                                           ollamaLegacyVector proxx.runtime.chroma/ollama-legacy-vector-js
+                                           ollamaValidateConfig proxx.runtime.chroma/ollama-validate-config-js
+                                           ollamaBuildConfig proxx.runtime.chroma/ollama-build-config-js
+                                           chromaConnectionOptions proxx.runtime.chroma/chroma-connection-options-js
+                                           chromaSearchResults proxx.runtime.chroma/chroma-search-results-js
+                                           eventLabelerApplies proxx.runtime.events/event-labeler-applies-js
+                                           eventLabelerLabel proxx.runtime.events/event-labeler-label-js
+                                           eventDdl proxx.runtime.events/event-ddl-js
+                                           eventBuildQuery proxx.runtime.events/event-build-query-js
+                                           eventBuildCount proxx.runtime.events/event-build-count-js
+                                           eventCountByTagQuery proxx.runtime.events/event-count-by-tag-query-js
+                                           eventParseRow proxx.runtime.events/event-parse-row-js
+                                           eventSanitizePayload proxx.runtime.events/event-sanitize-payload-js
+                                           usageDdl proxx.runtime.usage/usage-ddl-js
+                                           usageToEntry proxx.runtime.usage/usage-to-entry-js
+                                           usageCoverage proxx.runtime.usage/usage-coverage-js
+                                           usageUpsert proxx.runtime.usage/usage-upsert-js
+                                           usageListQuery proxx.runtime.usage/usage-list-query-js
+                                           usageListSinceQuery proxx.runtime.usage/usage-list-since-query-js
+                                           usageCoverageQuery proxx.runtime.usage/usage-coverage-query-js
+                                           usageCursorQuery proxx.runtime.usage/usage-cursor-query-js
+                                           usageToCursor proxx.runtime.usage/usage-to-cursor-js}}}
    :js-options {:js-provider :import
                 :keep-as-import #{"node:fs" "node:path"}}
    :compiler-options {:output-feature-set :es-next

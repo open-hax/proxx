@@ -1,5 +1,6 @@
 import { ChromaClient, IncludeEnum, type Collection } from "chromadb";
 
+import { kernels } from "./cljs-kernels.js";
 import { OllamaEmbeddingFunction, registerOllamaEmbeddingFunction } from "./chroma-ollama-embedding.js";
 
 import type { ChatRole } from "./session-store.js";
@@ -36,40 +37,8 @@ type ChromaConnectionOptions = {
   readonly port?: number;
 };
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
-function asString(value: unknown): string | undefined {
-  return typeof value === "string" ? value : undefined;
-}
-
-function asNumber(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
-}
-
-function asRole(value: unknown): ChatRole {
-  if (value === "system" || value === "user" || value === "assistant" || value === "tool") {
-    return value;
-  }
-
-  return "user";
-}
-
 function parseChromaConnectionOptions(rawUrl: string): ChromaConnectionOptions {
-  const parsed = new URL(rawUrl);
-  const ssl = parsed.protocol === "https:";
-
-  if (!ssl && parsed.protocol !== "http:") {
-    throw new Error(`Unsupported Chroma protocol: ${parsed.protocol}`);
-  }
-
-  const trimmedPort = parsed.port.trim();
-  return {
-    host: parsed.hostname,
-    ssl,
-    port: trimmedPort.length > 0 ? Number.parseInt(trimmedPort, 10) : undefined,
-  };
+  return kernels.chromaConnectionOptions(new URL(rawUrl));
 }
 
 export class ChromaSessionIndex {
@@ -136,30 +105,13 @@ export class ChromaSessionIndex {
         include: [IncludeEnum.documents, IncludeEnum.metadatas, IncludeEnum.distances],
       });
 
-      const ids = results.ids[0] ?? [];
-      const docs = results.documents?.[0] ?? [];
-      const metas = results.metadatas?.[0] ?? [];
-      const distances = results.distances?.[0] ?? [];
-
-      const mapped: ChromaSearchResult[] = [];
-      for (let index = 0; index < ids.length; index += 1) {
-        const rawMetadata = metas[index];
-        const metadata: Record<string, unknown> =
-          isRecord(rawMetadata) ? (rawMetadata as Record<string, unknown>) : {};
-        const content = asString(docs[index]) ?? "";
-
-        mapped.push({
-          sessionId: asString(metadata.sessionId) ?? "",
-          sessionTitle: asString(metadata.sessionTitle) ?? "",
-          messageId: asString(metadata.messageId) ?? asString(ids[index]) ?? "",
-          role: asRole(metadata.role),
-          content,
-          createdAt: asNumber(metadata.createdAt) ?? Date.now(),
-          distance: asNumber(distances[index]) ?? 0,
-        });
-      }
-
-      return mapped.filter((entry) => entry.sessionId.length > 0 && entry.messageId.length > 0);
+      return kernels.chromaSearchResults(
+        results.ids[0] ?? [],
+        results.documents?.[0] ?? [],
+        results.metadatas?.[0] ?? [],
+        results.distances?.[0] ?? [],
+        Date.now(),
+      ) as ChromaSearchResult[];
     } catch {
       this.disabled = true;
       return [];

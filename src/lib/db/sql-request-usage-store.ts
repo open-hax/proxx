@@ -1,11 +1,9 @@
+import { kernels } from "../cljs-kernels.js";
 import type { Sql } from "./index.js";
 import type {
-  RequestAuthType,
-  Factory4xxDiagnostics,
   RequestLogEntry,
   RequestLogFilters,
   RequestLogMirror,
-  RequestServiceTierSource,
 } from "../request-log-store.js";
 
 interface RequestUsageRow {
@@ -66,484 +64,57 @@ export interface RequestUsageCoverage {
   readonly maxRetainedEntries: number;
 }
 
-function asOptionalString(value: string | null | undefined): string | undefined {
-  return typeof value === "string" && value.length > 0 ? value : undefined;
-}
+type FilterWithoutPaging = Omit<RequestLogFilters, "limit" | "before">;
+type SqlParams = (string | number | boolean | null)[];
 
-function asOptionalBoolean(value: boolean | null | undefined): boolean {
-  return value === true;
-}
-
-function asOptionalNumber(value: number | string | null | undefined): number | undefined {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return value;
-  }
-
-  if (typeof value === "string" && value.trim().length > 0) {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : undefined;
-  }
-
-  return undefined;
-}
-
-function asRequiredNumber(value: number | string): number {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return value;
-  }
-
-  if (typeof value === "string" && value.trim().length > 0) {
-    const parsed = Number(value);
-    if (Number.isFinite(parsed)) {
-      return parsed;
-    }
-  }
-
-  throw new Error(`Expected numeric database value, got ${String(value)}`);
-}
-
-function parseFactoryDiagnostics(value: Record<string, unknown> | string | null): Factory4xxDiagnostics | undefined {
-  if (!value) {
-    return undefined;
-  }
-
-  if (typeof value === "string") {
-    try {
-      const parsed: unknown = JSON.parse(value);
-      return typeof parsed === "object" && parsed !== null ? parsed as unknown as Factory4xxDiagnostics : undefined;
-    } catch {
-      return undefined;
-    }
-  }
-
-  return value as unknown as Factory4xxDiagnostics;
-}
-
-function normalizeAuthType(value: string): RequestAuthType {
-  if (value === "api_key" || value === "oauth_bearer" || value === "local" || value === "none") {
-    return value;
-  }
-
-  return "none";
-}
-
-function normalizeServiceTierSource(value: string): RequestServiceTierSource {
-  if (value === "fast_mode" || value === "explicit" || value === "none") {
-    return value;
-  }
-
-  return "none";
-}
-
-function toEntry(row: RequestUsageRow): RequestLogEntry {
-  return {
-    id: row.id,
-    timestamp: asRequiredNumber(row.timestamp_ms),
-    tenantId: asOptionalString(row.tenant_id),
-    issuer: asOptionalString(row.issuer),
-    keyId: asOptionalString(row.key_id),
-    routeKind: row.route_kind === "federated" || row.route_kind === "bridge" ? row.route_kind : "local",
-    federationOwnerSubject: asOptionalString(row.federation_owner_subject),
-    routedPeerId: asOptionalString(row.routed_peer_id),
-    routedPeerLabel: asOptionalString(row.routed_peer_label),
-    providerId: row.provider_id,
-    accountId: row.account_id,
-    authType: normalizeAuthType(row.auth_type),
-    model: row.model,
-    upstreamMode: row.upstream_mode,
-    upstreamPath: row.upstream_path,
-    status: asRequiredNumber(row.status),
-    latencyMs: asRequiredNumber(row.latency_ms),
-    serviceTier: asOptionalString(row.service_tier),
-    serviceTierSource: normalizeServiceTierSource(row.service_tier_source),
-    promptTokens: asOptionalNumber(row.prompt_tokens),
-    completionTokens: asOptionalNumber(row.completion_tokens),
-    totalTokens: asOptionalNumber(row.total_tokens),
-    cachedPromptTokens: asOptionalNumber(row.cached_prompt_tokens),
-    imageCount: asOptionalNumber(row.image_count),
-    imageCostUsd: asOptionalNumber(row.image_cost_usd),
-    promptCacheKeyHash: asOptionalString(row.prompt_cache_key_hash),
-    promptCacheKeyUsed: asOptionalBoolean(row.prompt_cache_key_used),
-    cacheHit: asOptionalBoolean(row.cache_hit),
-    ttftMs: asOptionalNumber(row.ttft_ms),
-    tps: asOptionalNumber(row.tps),
-    endToEndTps: asOptionalNumber(row.end_to_end_tps),
-    error: asOptionalString(row.error),
-    upstreamErrorCode: asOptionalString(row.upstream_error_code),
-    upstreamErrorType: asOptionalString(row.upstream_error_type),
-    upstreamErrorMessage: asOptionalString(row.upstream_error_message),
-    factoryDiagnostics: parseFactoryDiagnostics(row.factory_diagnostics),
-    costUsd: asOptionalNumber(row.cost_usd),
-    energyJoules: asOptionalNumber(row.energy_joules),
-    waterEvaporatedMl: asOptionalNumber(row.water_evaporated_ml),
-  };
-}
-
-const ENTRY_COLUMNS = [
-  "id",
-  "timestamp_ms",
-  "tenant_id",
-  "issuer",
-  "key_id",
-  "route_kind",
-  "federation_owner_subject",
-  "routed_peer_id",
-  "routed_peer_label",
-  "provider_id",
-  "account_id",
-  "auth_type",
-  "model",
-  "upstream_mode",
-  "upstream_path",
-  "status",
-  "latency_ms",
-  "service_tier",
-  "service_tier_source",
-  "prompt_tokens",
-  "completion_tokens",
-  "total_tokens",
-  "cached_prompt_tokens",
-  "image_count",
-  "image_cost_usd",
-  "prompt_cache_key_hash",
-  "prompt_cache_key_used",
-  "cache_hit",
-  "ttft_ms",
-  "tps",
-  "end_to_end_tps",
-  "error",
-  "upstream_error_code",
-  "upstream_error_type",
-  "upstream_error_message",
-  "factory_diagnostics",
-  "cost_usd",
-  "energy_joules",
-  "water_evaporated_ml",
-].join(", ");
-
-const MAX_PAGE_SIZE = 5000;
-
-function sanitizeLimit(limit: number | undefined, fallback: number): number {
-  if (typeof limit !== "number" || !Number.isFinite(limit)) {
-    return fallback;
-  }
-
-  const normalized = Math.floor(limit);
-  if (normalized <= 0) {
-    return fallback;
-  }
-
-  return Math.min(normalized, MAX_PAGE_SIZE);
-}
-
+// The statements, parameters and row mapping are the persisted contract in
+// proxx.usage.sql; this class only executes them.
 export class SqlRequestUsageStore implements RequestLogMirror {
   public constructor(private readonly sql: Sql) {}
 
   public async init(): Promise<void> {
-    await this.sql.unsafe(`
-      CREATE TABLE IF NOT EXISTS request_usage_entries (
-        id TEXT PRIMARY KEY,
-        timestamp_ms BIGINT NOT NULL,
-        tenant_id TEXT,
-        issuer TEXT,
-        key_id TEXT,
-        route_kind TEXT NOT NULL DEFAULT 'local',
-        federation_owner_subject TEXT,
-        routed_peer_id TEXT,
-        routed_peer_label TEXT,
-        provider_id TEXT NOT NULL,
-        account_id TEXT NOT NULL,
-        auth_type TEXT NOT NULL,
-        model TEXT NOT NULL,
-        upstream_mode TEXT NOT NULL,
-        upstream_path TEXT NOT NULL,
-        status INTEGER NOT NULL,
-        latency_ms BIGINT NOT NULL,
-        service_tier TEXT,
-        service_tier_source TEXT NOT NULL DEFAULT 'none',
-        prompt_tokens BIGINT,
-        completion_tokens BIGINT,
-        total_tokens BIGINT,
-        cached_prompt_tokens BIGINT,
-        image_count BIGINT,
-        image_cost_usd DOUBLE PRECISION,
-        prompt_cache_key_hash TEXT,
-        prompt_cache_key_used BOOLEAN NOT NULL DEFAULT FALSE,
-        cache_hit BOOLEAN NOT NULL DEFAULT FALSE,
-        ttft_ms BIGINT,
-        tps DOUBLE PRECISION,
-        end_to_end_tps DOUBLE PRECISION,
-        error TEXT,
-        upstream_error_code TEXT,
-        upstream_error_type TEXT,
-        upstream_error_message TEXT,
-        factory_diagnostics JSONB,
-        cost_usd DOUBLE PRECISION,
-        energy_joules DOUBLE PRECISION,
-        water_evaporated_ml DOUBLE PRECISION
-      );
-    `);
-
-    await this.sql.unsafe("CREATE INDEX IF NOT EXISTS idx_request_usage_entries_ts ON request_usage_entries(timestamp_ms DESC, id DESC);");
-    await this.sql.unsafe("CREATE INDEX IF NOT EXISTS idx_request_usage_entries_tenant_ts ON request_usage_entries(tenant_id, timestamp_ms DESC, id DESC);");
-    await this.sql.unsafe("CREATE INDEX IF NOT EXISTS idx_request_usage_entries_account_ts ON request_usage_entries(account_id, timestamp_ms DESC, id DESC);");
-    await this.sql.unsafe("CREATE INDEX IF NOT EXISTS idx_request_usage_entries_issuer_ts ON request_usage_entries(issuer, timestamp_ms DESC, id DESC);");
-    await this.sql.unsafe("CREATE INDEX IF NOT EXISTS idx_request_usage_entries_key_ts ON request_usage_entries(key_id, timestamp_ms DESC, id DESC);");
-    await this.sql.unsafe("ALTER TABLE request_usage_entries ADD COLUMN IF NOT EXISTS route_kind TEXT NOT NULL DEFAULT 'local';");
-    await this.sql.unsafe("ALTER TABLE request_usage_entries ADD COLUMN IF NOT EXISTS federation_owner_subject TEXT;");
-    await this.sql.unsafe("ALTER TABLE request_usage_entries ADD COLUMN IF NOT EXISTS routed_peer_id TEXT;");
-    await this.sql.unsafe("ALTER TABLE request_usage_entries ADD COLUMN IF NOT EXISTS routed_peer_label TEXT;");
-    await this.sql.unsafe("ALTER TABLE request_usage_entries ADD COLUMN IF NOT EXISTS prompt_cache_key_hash TEXT;");
-    await this.sql.unsafe("ALTER TABLE request_usage_entries ADD COLUMN IF NOT EXISTS end_to_end_tps DOUBLE PRECISION;");
-    await this.sql.unsafe("CREATE INDEX IF NOT EXISTS idx_request_usage_entries_route_ts ON request_usage_entries(route_kind, timestamp_ms DESC, id DESC);");
-    await this.sql.unsafe("CREATE INDEX IF NOT EXISTS idx_request_usage_entries_provider_ts ON request_usage_entries(provider_id, timestamp_ms DESC, id DESC);");
-    await this.sql.unsafe("CREATE INDEX IF NOT EXISTS idx_request_usage_entries_provider_model_ts ON request_usage_entries(provider_id, model, timestamp_ms DESC, id DESC);");
-    await this.sql.unsafe("CREATE INDEX IF NOT EXISTS idx_request_usage_entries_provider_prompt_cache_hash_ts ON request_usage_entries(provider_id, prompt_cache_key_hash, timestamp_ms DESC, id DESC);");
+    for (const statement of kernels.usageDdl()) {
+      await this.sql.unsafe(statement);
+    }
   }
 
   public async upsertEntry(entry: RequestLogEntry): Promise<void> {
-    await this.sql`
-      INSERT INTO request_usage_entries (
-        id,
-        timestamp_ms,
-        tenant_id,
-        issuer,
-        key_id,
-        route_kind,
-        federation_owner_subject,
-        routed_peer_id,
-        routed_peer_label,
-        provider_id,
-        account_id,
-        auth_type,
-        model,
-        upstream_mode,
-        upstream_path,
-        status,
-        latency_ms,
-        service_tier,
-        service_tier_source,
-        prompt_tokens,
-        completion_tokens,
-        total_tokens,
-        cached_prompt_tokens,
-        image_count,
-        image_cost_usd,
-        prompt_cache_key_hash,
-        prompt_cache_key_used,
-        cache_hit,
-        ttft_ms,
-        tps,
-        end_to_end_tps,
-        error,
-        upstream_error_code,
-        upstream_error_type,
-        upstream_error_message,
-        factory_diagnostics,
-        cost_usd,
-        energy_joules,
-        water_evaporated_ml
-      ) VALUES (
-        ${entry.id},
-        ${entry.timestamp},
-        ${entry.tenantId ?? null},
-        ${entry.issuer ?? null},
-        ${entry.keyId ?? null},
-        ${entry.routeKind},
-        ${entry.federationOwnerSubject ?? null},
-        ${entry.routedPeerId ?? null},
-        ${entry.routedPeerLabel ?? null},
-        ${entry.providerId},
-        ${entry.accountId},
-        ${entry.authType},
-        ${entry.model},
-        ${entry.upstreamMode},
-        ${entry.upstreamPath},
-        ${entry.status},
-        ${entry.latencyMs},
-        ${entry.serviceTier ?? null},
-        ${entry.serviceTierSource},
-        ${entry.promptTokens ?? null},
-        ${entry.completionTokens ?? null},
-        ${entry.totalTokens ?? null},
-        ${entry.cachedPromptTokens ?? null},
-        ${entry.imageCount ?? null},
-        ${entry.imageCostUsd ?? null},
-        ${entry.promptCacheKeyHash ?? null},
-        ${entry.promptCacheKeyUsed === true},
-        ${entry.cacheHit === true},
-        ${entry.ttftMs ?? null},
-        ${entry.tps ?? null},
-        ${entry.endToEndTps ?? null},
-        ${entry.error ?? null},
-        ${entry.upstreamErrorCode ?? null},
-        ${entry.upstreamErrorType ?? null},
-        ${entry.upstreamErrorMessage ?? null},
-        ${entry.factoryDiagnostics ? JSON.stringify(entry.factoryDiagnostics) : null}::jsonb,
-        ${entry.costUsd ?? null},
-        ${entry.energyJoules ?? null},
-        ${entry.waterEvaporatedMl ?? null}
-      )
-      ON CONFLICT (id) DO UPDATE SET
-        timestamp_ms = EXCLUDED.timestamp_ms,
-        tenant_id = EXCLUDED.tenant_id,
-        issuer = EXCLUDED.issuer,
-        key_id = EXCLUDED.key_id,
-        route_kind = EXCLUDED.route_kind,
-        federation_owner_subject = EXCLUDED.federation_owner_subject,
-        routed_peer_id = EXCLUDED.routed_peer_id,
-        routed_peer_label = EXCLUDED.routed_peer_label,
-        provider_id = EXCLUDED.provider_id,
-        account_id = EXCLUDED.account_id,
-        auth_type = EXCLUDED.auth_type,
-        model = EXCLUDED.model,
-        upstream_mode = EXCLUDED.upstream_mode,
-        upstream_path = EXCLUDED.upstream_path,
-        status = EXCLUDED.status,
-        latency_ms = EXCLUDED.latency_ms,
-        service_tier = EXCLUDED.service_tier,
-        service_tier_source = EXCLUDED.service_tier_source,
-        prompt_tokens = EXCLUDED.prompt_tokens,
-        completion_tokens = EXCLUDED.completion_tokens,
-        total_tokens = EXCLUDED.total_tokens,
-        cached_prompt_tokens = EXCLUDED.cached_prompt_tokens,
-        image_count = EXCLUDED.image_count,
-        image_cost_usd = EXCLUDED.image_cost_usd,
-        prompt_cache_key_hash = EXCLUDED.prompt_cache_key_hash,
-        prompt_cache_key_used = EXCLUDED.prompt_cache_key_used,
-        cache_hit = EXCLUDED.cache_hit,
-        ttft_ms = EXCLUDED.ttft_ms,
-        tps = EXCLUDED.tps,
-        end_to_end_tps = EXCLUDED.end_to_end_tps,
-        error = EXCLUDED.error,
-        upstream_error_code = EXCLUDED.upstream_error_code,
-        upstream_error_type = EXCLUDED.upstream_error_type,
-        upstream_error_message = EXCLUDED.upstream_error_message,
-        factory_diagnostics = EXCLUDED.factory_diagnostics,
-        cost_usd = EXCLUDED.cost_usd,
-        energy_joules = EXCLUDED.energy_joules,
-        water_evaporated_ml = EXCLUDED.water_evaporated_ml
-    `;
-  }
-
-  private buildWhere(
-    filters: Omit<RequestLogFilters, "limit" | "before"> & { readonly sinceMs?: number },
-    cursor?: { readonly timestampMs: number; readonly id: string },
-  ): { readonly where: string; readonly values: unknown[] } {
-    const conditions: string[] = [];
-    const values: unknown[] = [];
-    let index = 1;
-
-    if (typeof filters.sinceMs === "number" && Number.isFinite(filters.sinceMs)) {
-      conditions.push(`timestamp_ms >= $${index++}`);
-      values.push(filters.sinceMs);
-    }
-
-    if (filters.providerId) {
-      conditions.push(`provider_id = $${index++}`);
-      values.push(filters.providerId);
-    }
-
-    if (filters.accountId) {
-      conditions.push(`account_id = $${index++}`);
-      values.push(filters.accountId);
-    }
-
-    if (filters.tenantId) {
-      conditions.push(`tenant_id = $${index++}`);
-      values.push(filters.tenantId);
-    }
-
-    if (filters.issuer) {
-      conditions.push(`issuer = $${index++}`);
-      values.push(filters.issuer);
-    }
-
-    if (filters.keyId) {
-      conditions.push(`key_id = $${index++}`);
-      values.push(filters.keyId);
-    }
-
-    if (cursor) {
-      conditions.push(`(timestamp_ms < $${index} OR (timestamp_ms = $${index} AND id < $${index + 1}))`);
-      values.push(cursor.timestampMs, cursor.id);
-      index += 2;
-    }
-
-    return {
-      where: conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "",
-      values,
-    };
+    const { strings, values } = kernels.usageUpsert(entry);
+    await this.sql(strings, ...(values as never[]));
   }
 
   public async listEntriesSince(
     sinceMs: number,
-    filters: Omit<RequestLogFilters, "limit" | "before"> = {},
+    filters: FilterWithoutPaging = {},
     limit?: number,
     after?: { readonly timestampMs: number; readonly id: string },
   ): Promise<RequestLogEntry[]> {
-    const queryFilters = { ...filters, sinceMs };
-    const { where, values } = this.buildWhere(queryFilters);
-    const baseConditions = where.length > 0 ? [where.replace(/^WHERE\s+/u, "")] : [];
-    if (after) {
-      const timestampIndex = values.length + 1;
-      const idIndex = values.length + 2;
-      baseConditions.push(`(timestamp_ms > $${timestampIndex} OR (timestamp_ms = $${timestampIndex} AND id > $${idIndex}))`);
-      values.push(after.timestampMs, after.id);
-    }
-    const finalWhere = baseConditions.length > 0 ? `WHERE ${baseConditions.join(" AND ")}` : "";
-    const limitClause = typeof limit === "number" && Number.isFinite(limit)
-      ? ` LIMIT ${sanitizeLimit(limit, MAX_PAGE_SIZE)}`
-      : "";
-    const rows = await this.sql.unsafe<RequestUsageRow[]>(
-      `SELECT ${ENTRY_COLUMNS} FROM request_usage_entries ${finalWhere} ORDER BY timestamp_ms ASC, id ASC${limitClause}`,
-      values as (string | number | boolean | null)[],
-    );
-    return rows.map(toEntry);
+    const { text, values } = kernels.usageListSinceQuery(sinceMs, filters, limit, after);
+    const rows = await this.sql.unsafe<RequestUsageRow[]>(text, values as SqlParams);
+    return rows.map((row) => kernels.usageToEntry(row) as RequestLogEntry);
   }
 
   public async listEntries(filters: RequestLogFilters = {}): Promise<RequestLogEntry[]> {
-    const limit = sanitizeLimit(filters.limit, 200);
-    let cursor: { readonly timestampMs: number; readonly id: string } | undefined;
+    let cursor: { timestampMs: number; id: string } | undefined;
 
     if (typeof filters.before === "string" && filters.before.length > 0) {
-      const cursorRows = await this.sql.unsafe<CursorRow[]>(
-        "SELECT id, timestamp_ms FROM request_usage_entries WHERE id = $1 LIMIT 1",
-        [filters.before],
-      );
+      const cursorRows = await this.sql.unsafe<CursorRow[]>(kernels.usageCursorQuery(), [filters.before]);
       const cursorRow = cursorRows[0];
       if (!cursorRow) {
         return [];
       }
 
-      cursor = {
-        timestampMs: asRequiredNumber(cursorRow.timestamp_ms),
-        id: cursorRow.id,
-      };
+      cursor = kernels.usageToCursor(cursorRow);
     }
 
-    const { where, values } = this.buildWhere(filters, cursor);
-    const rows = await this.sql.unsafe<RequestUsageRow[]>(
-      `SELECT ${ENTRY_COLUMNS} FROM request_usage_entries ${where} ORDER BY timestamp_ms DESC, id DESC LIMIT ${limit}`,
-      values as (string | number | boolean | null)[],
-    );
-    return rows.map(toEntry);
+    const { text, values } = kernels.usageListQuery(filters, cursor);
+    const rows = await this.sql.unsafe<RequestUsageRow[]>(text, values as SqlParams);
+    return rows.map((row) => kernels.usageToEntry(row) as RequestLogEntry);
   }
 
-  public async getCoverage(filters: Omit<RequestLogFilters, "limit" | "before"> = {}): Promise<RequestUsageCoverage> {
-    const { where, values } = this.buildWhere(filters);
-    const rows = await this.sql.unsafe<CoverageRow[]>(
-      `SELECT MIN(timestamp_ms) AS earliest_entry_at_ms, COUNT(*)::BIGINT AS retained_entry_count FROM request_usage_entries ${where}`,
-      values as (string | number | boolean | null)[],
-    );
-    const row = rows[0];
-    const retainedEntryCount = row ? asRequiredNumber(row.retained_entry_count) : 0;
-    const earliestEntryAtMs = row ? asOptionalNumber(row.earliest_entry_at_ms) ?? null : null;
-
-    return {
-      earliestEntryAtMs,
-      retainedEntryCount,
-      maxRetainedEntries: retainedEntryCount,
-    };
+  public async getCoverage(filters: FilterWithoutPaging = {}): Promise<RequestUsageCoverage> {
+    const { text, values } = kernels.usageCoverageQuery(filters);
+    const rows = await this.sql.unsafe<CoverageRow[]>(text, values as SqlParams);
+    return kernels.usageCoverage(rows[0]);
   }
 }
