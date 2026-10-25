@@ -99,7 +99,9 @@
                                            refreshModelsDevPricingIndex proxx.runtime.pricing/refresh-models-dev-pricing-index-js
                                            startModelsDevPricingRefresh proxx.runtime.pricing/start-models-dev-pricing-refresh-js
                                            fetchOpenAiQuotaSnapshots proxx.runtime.quota/fetch-openai-quota-snapshots-js
-                                           probeOpenAiAccount proxx.runtime.quota/probe-openai-account-js}}}
+                                           probeOpenAiAccount proxx.runtime.quota/probe-openai-account-js
+                                           createQuotaMonitor proxx.runtime.quota-monitor/create-quota-monitor-js
+                                           quotaMonitorDefaultConfig proxx.runtime.quota-monitor/quota-monitor-default-config-js}}}
    :js-options {:js-provider :import
                 :keep-as-import #{"node:fs" "node:path"}}
    :compiler-options {:output-feature-set :es-next

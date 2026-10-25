@@ -198,9 +198,8 @@
         provider (first (filter #(= provider-id (.-id ^js %)) (array-seq providers)))]
     (q/oauth-accounts (map js->account (array-seq (or (some-> ^js provider .-accounts) #js []))) account-id)))
 
-(defn ^:async fetch-openai-quota-snapshots-js
-  "Quota snapshots of a provider's OAuth accounts, fetched concurrently.
-  options: {providerId, accountId?, accounts?, fetchFn?, logger?}."
+(defn ^:async fetch-openai-quota-snapshots
+  "{:generated-at :accounts [snapshot]} as data; see `fetch-openai-quota-snapshots-js`."
   [manifest-path store ^js options]
   (let [profile (profile-for manifest-path)
         fetch-fn (nullish-or (.-fetchFn options) (.-fetch js/globalThis))
@@ -211,8 +210,14 @@
                    (await (list-oauth-accounts store provider-id (.-accountId options))))
         snapshots (await (js/Promise.all
                           (to-array (map #(fetch-quota-for-account profile provider-id % store fetch-fn logger) accounts))))]
-    #js {:generatedAt (now-iso)
-         :accounts (to-array (map snapshot->js (array-seq snapshots)))}))
+    {:generated-at (now-iso) :accounts (vec (array-seq snapshots))}))
+
+(defn ^:async fetch-openai-quota-snapshots-js
+  "Quota snapshots of a provider's OAuth accounts, fetched concurrently.
+  options: {providerId, accountId?, accounts?, fetchFn?, logger?}."
+  [manifest-path store options]
+  (let [{:keys [generated-at accounts]} (await (fetch-openai-quota-snapshots manifest-path store options))]
+    #js {:generatedAt generated-at :accounts (to-array (map snapshot->js accounts))}))
 
 ;; ---------------------------------------------------------------------------
 ;; Liveness probe

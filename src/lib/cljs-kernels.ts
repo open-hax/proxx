@@ -7,6 +7,13 @@
  */
 import { loadCljsRuntime } from "./cljs-runtime.js";
 import type { CredentialStoreLike } from "./credential-store.js";
+import type { AccountHealthStore } from "./db/account-health-store.js";
+import type {
+  QuotaCooldownController,
+  QuotaMonitorApi,
+  QuotaMonitorConfig,
+  QuotaMonitorLogger,
+} from "./quota-monitor.js";
 import type {
   OpenAiAccountProbeResult,
   OpenAiProbeOptions,
@@ -184,6 +191,15 @@ export interface CljsKernels {
     credentialStore: CredentialStoreLike,
     options: OpenAiProbeOptions,
   ) => Promise<OpenAiAccountProbeResult>;
+  readonly createQuotaMonitor: (
+    manifestPath: string,
+    credentialStore: CredentialStoreLike,
+    logger: QuotaMonitorLogger,
+    config: Partial<QuotaMonitorConfig>,
+    healthStore: AccountHealthStore | undefined,
+    cooldownController: QuotaCooldownController | undefined,
+  ) => QuotaMonitorApi;
+  readonly quotaMonitorDefaultConfig: () => QuotaMonitorConfig;
 }
 
 const loaded = await loadCljsRuntime({ required: true });
