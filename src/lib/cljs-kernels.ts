@@ -184,6 +184,7 @@ export interface CljsKernels {
   readonly sqlCooldownEntries: (rows: readonly unknown[]) => Array<[string, string, number]>;
   // w2 account health
   readonly createAccountHealthStore: (sql: unknown, flushIntervalMs: number, selectAllSql: string) => unknown;
+  readonly createPromptAffinityStore: (sql: unknown, statements: unknown) => unknown;
   readonly createCredentialStore: (filePath: string, defaultProviderId: string, deps: unknown) => unknown;
 }
 
