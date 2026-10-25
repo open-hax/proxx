@@ -279,7 +279,14 @@
                                            tenantDeniedError proxx.runtime.routing/tenant-denied-error-js
                                            routingCandidateSource proxx.runtime.routing/routing-candidate-source-js
                                            finishModelRouting proxx.runtime.routing/finish-model-routing-js
-                                           createProviderCatalogStore proxx.runtime.catalog/create-provider-catalog-store-js}}}
+                                           createProviderCatalogStore proxx.runtime.catalog/create-provider-catalog-store-js
+                                           ;; w2-routing exports (aco/pheromone)
+                                           rankProviderRoutesWithAco proxx.runtime.aco/rank-provider-routes-with-aco-js
+                                           pheromoneHydrateDb proxx.runtime.aco/pheromone-hydrate-db-js
+                                           pheromoneKeyValid proxx.runtime.aco/pheromone-key-valid-js
+                                           pheromoneGet proxx.runtime.aco/pheromone-get-js
+                                           pheromoneNoteSuccess proxx.runtime.aco/pheromone-note-success-js
+                                           pheromoneNoteFailure proxx.runtime.aco/pheromone-note-failure-js}}}
    :js-options {:js-provider :import
                 :keep-as-import #{"node:fs" "node:path"}}
    :compiler-options {:output-feature-set :es-next

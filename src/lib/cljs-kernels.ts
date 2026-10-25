@@ -566,6 +566,16 @@ export interface CljsKernels {
     readonly getCatalog: (forceRefresh?: boolean) => Promise<unknown>;
     readonly isModelAvailable: (providerId: string, modelId: string) => Promise<boolean>;
   };
+  // w2-routing kernels (aco, pheromone)
+  readonly rankProviderRoutesWithAco: (manifestPath: string, input: object) => Promise<{
+    readonly orderedRoutes: object[];
+    readonly signals: readonly object[];
+  }>;
+  readonly pheromoneHydrateDb: (raw: unknown) => object[];
+  readonly pheromoneKeyValid: (providerId: string, model: string) => boolean;
+  readonly pheromoneGet: (records: readonly object[], providerId: string, model: string) => number;
+  readonly pheromoneNoteSuccess: (records: readonly object[], providerId: string, model: string, quality: number) => object[];
+  readonly pheromoneNoteFailure: (records: readonly object[], providerId: string, model: string) => object[];
 }
 
 export interface ChromaSearchRow {
