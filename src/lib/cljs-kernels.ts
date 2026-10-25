@@ -307,6 +307,31 @@ export interface CljsKernels {
     cooldownController: QuotaCooldownController | undefined,
   ) => QuotaMonitorApi;
   readonly quotaMonitorDefaultConfig: () => QuotaMonitorConfig;
+  // w2-routing kernels
+  readonly bridgeCapabilitySupportsPath: (manifestPath: string, capability: object, normalizedPath: string) => boolean;
+  readonly bridgeCapabilitySupportsModel: (capability: object, requestedModel: string | undefined) => boolean;
+  readonly tenantApiKeyConstants: () => { readonly defaultTenantId: string; readonly apiKeyPrefix: string; readonly visiblePrefixLength: number };
+  readonly normalizeTenantId: (value: string) => string;
+  readonly generateTenantApiKey: () => string;
+  readonly buildTenantApiKeyPrefix: (token: string) => string;
+  readonly hashTenantApiKey: (token: string, pepper: string) => string;
+  readonly extractResponseTextAndUrlCitations: (payload: unknown) => {
+    readonly text: string;
+    readonly citations: Array<{ readonly url: string; readonly title?: string }>;
+    readonly responseId?: string;
+  };
+  readonly extractMarkdownLinks: (text: string) => Array<{ readonly url: string; readonly title?: string }>;
+  readonly deriveOAuthMetadataFromToken: (token: string) => object;
+  readonly accountDisplayName: (account: object) => string;
+  readonly openAiReauthIdentityMatches: (target: object, resolved: object) => boolean;
+  readonly loadModels: (modelsFilePath: string, fallback: readonly string[]) => Promise<string[]>;
+  readonly loadDeclaredModels: (modelsFilePath: string) => Promise<string[]>;
+  readonly loadModelPreferences: (modelsFilePath: string, fallbackPreferred: readonly string[]) => Promise<{
+    readonly preferred: readonly string[];
+    readonly disabled: readonly string[];
+    readonly aliases: Readonly<Record<string, string>>;
+  }>;
+  readonly toOpenAiModel: (modelId: string) => { readonly id: string; readonly object: "model"; readonly created: number; readonly owned_by: string };
 }
 
 export interface ChromaSearchRow {
