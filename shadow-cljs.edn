@@ -111,7 +111,8 @@
                                            parseBridgeLeaseExport proxx.runtime.federation/parse-bridge-lease-export-js
                                            createBridgeRelay proxx.runtime.federation-relay/create-relay-js
                                            createSseBridgeSendChannel proxx.runtime.federation/create-sse-bridge-send-channel-js
-                                           formatSseEvent proxx.runtime.federation/format-sse-event-js}}}
+                                           formatSseEvent proxx.runtime.federation/format-sse-event-js
+                                           createBridgeAgent proxx.runtime.federation-agent/create-agent-js}}}
    :js-options {:js-provider :import
                 :keep-as-import #{"node:fs" "node:path"}}
    :compiler-options {:output-feature-set :es-next

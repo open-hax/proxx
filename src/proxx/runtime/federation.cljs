@@ -168,7 +168,7 @@
   the iterator; the promise then resolves to :stopped (else nil). A rejection
   from the iterable rejects the promise."
   [iterable f]
-  (let [it ((aget iterable js/Symbol.asyncIterator))]
+  (let [it (.call (aget iterable js/Symbol.asyncIterator) iterable)]
     (js/Promise.
      (fn [resolve reject]
        (letfn [(step []

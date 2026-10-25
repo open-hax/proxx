@@ -188,6 +188,7 @@ export interface CljsKernels {
   readonly createBridgeRelay: () => unknown;
   readonly createSseBridgeSendChannel: (res: ServerResponse) => BridgeSendChannel;
   readonly formatSseEvent: (event: string, data: unknown) => string;
+  readonly createBridgeAgent: (options: unknown) => unknown;
 }
 
 const loaded = await loadCljsRuntime({ required: true });
