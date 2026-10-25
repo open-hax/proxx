@@ -47,15 +47,10 @@ import {
   type StrategyRequestContext,
   type DirectExecutionProviderStrategy,
 } from "../shared.js";
-import {
-  PERMANENT_DISABLE_COOLDOWN_MS,
-  shouldCooldownCredentialOnAuthFailure,
-  shouldPermanentlyDisableCredential,
-  shouldRetrySameCredentialForServerError,
-} from "./error-classifier.js";
 import { requestyModelProvider } from "../../model-family.js";
+import { kernels, type ExecutorState } from "../../cljs-kernels.js";
 import { buildRoutingCandidates } from "./candidate-builder.js";
-import { clampRouteQuality, createAccumulator, emptyResult, type RoutingDeps } from "./types.js";
+import { emptyResult, type RoutingDeps } from "./types.js";
 
 function shouldUseOpenAiCodexHeaderProfile(
   providerId: string,
@@ -64,8 +59,6 @@ function shouldUseOpenAiCodexHeaderProfile(
 ): boolean {
   return providerId === openaiProviderId && account.authType === "oauth_bearer";
 }
-
-const MAX_STICKY_TRANSPORT_FAILURE_CANDIDATES = 4;
 
 function transportErrorMessage(error: unknown): string {
   const base = toErrorMessage(error);
@@ -84,10 +77,6 @@ function transportErrorMessage(error: unknown): string {
   return causeParts.length > 0 ? `${base} (${causeParts.join(": ")})` : base;
 }
 
-function requestyModelPrefix(model: string): string {
-  return requestyModelProvider(model);
-}
-
 function candidateMatchesAffinity(
   candidate: { readonly providerId: string; readonly account: ProviderCredential },
   affinity: { readonly providerId: string; readonly accountId: string } | undefined,
@@ -97,11 +86,20 @@ function candidateMatchesAffinity(
     && candidate.account.accountId === affinity.accountId;
 }
 
+type RoutingKeyPool = RoutingDeps["keyPool"];
+type StepEvent = Record<string, unknown>;
+type StepResult = ReturnType<typeof kernels.executorStep>;
+
 /**
  * Executes the provider routing plan: iterates over routing candidates,
  * attempts each one, and handles success/failure/rate-limit outcomes.
  * Supports prompt-cache-key affinity for session stickiness and
  * hidden quota error detection (200 OK with error in stream body).
+ *
+ * The loop only sequences I/O. What each result costs the credential, whether to
+ * retry, rotate or stop, and what to remember is decided by the pure state machine
+ * `proxx.strategy.executor` (`kernels.executorStep`): the loop reports an event and
+ * interprets the effects it returns, in order.
  */
 export async function executeProviderRoutingPlan(
   strategy: ProviderStrategy,
@@ -109,17 +107,7 @@ export async function executeProviderRoutingPlan(
   requestLogStore: RequestLogStore,
   promptAffinityStore: IPromptAffinityStore,
   providerRoutePheromoneStore: ProviderRoutePheromoneStore,
-  keyPool: {
-    getRequestOrder(providerId: string): Promise<ProviderCredential[]>;
-    markInFlight(credential: ProviderCredential): () => void;
-    markRateLimited(credential: ProviderCredential, retryAfterMs?: number): void;
-    markModelUnsupported?(credential: ProviderCredential, modelId: string, retryAfterMs?: number): void;
-    isModelUnsupported?(providerId: string, accountId: string, modelId: string): boolean;
-    clearModelUnsupported?(providerId: string, accountId: string, modelId: string): void;
-    isAccountExpired?(credential: ProviderCredential): boolean;
-    clearAccountCooldown?(providerId: string, accountId: string): void;
-    disableAccount?(providerId: string, accountId: string): void;
-  },
+  keyPool: RoutingKeyPool,
   providerRoutes: readonly ProviderRoute[],
   context: StrategyRequestContext,
   payload: BuildPayloadResult,
@@ -130,7 +118,7 @@ export async function executeProviderRoutingPlan(
   quotaMonitor?: QuotaMonitor,
   queueSignal?: AbortSignal,
 ): Promise<ProviderRoutingExecutionResult> {
-  const accumulator = createAccumulator();
+  const manifestPath = context.config.cljsPolicyManifestPath;
 
   const deps: RoutingDeps = {
     strategy, reply, requestLogStore, promptAffinityStore, providerRoutePheromoneStore,
@@ -144,16 +132,25 @@ export async function executeProviderRoutingPlan(
     return emptyResult(0);
   }
 
-  let preferredReassignmentAllowed = preferredAffinity === undefined || candidates.every(
-    (candidate) => candidate.providerId !== preferredAffinity.providerId || candidate.account.accountId !== preferredAffinity.accountId,
-  );
-  const hasStickyAffinity = Boolean(promptCacheKey && (preferredAffinity || provisionalAffinity));
-  let stickyTransportFailureCandidates = 0;
+  let exec: ExecutorState = kernels.createExecutorState({
+    reassignmentAllowed: preferredAffinity === undefined || candidates.every(
+      (candidate) => candidate.providerId !== preferredAffinity.providerId || candidate.account.accountId !== preferredAffinity.accountId,
+    ),
+    sticky: Boolean(promptCacheKey && (preferredAffinity || provisionalAffinity)),
+  });
+  const summary = (): ProviderRoutingExecutionResult["summary"] =>
+    kernels.executorSummary(exec) as unknown as ProviderRoutingExecutionResult["summary"];
+  const advance = (event: StepEvent): StepResult => {
+    const result = kernels.executorStep(exec, event, manifestPath);
+    exec = result.state;
+    return result;
+  };
+  const handledResult = (): ProviderRoutingExecutionResult => ({ handled: true, candidateCount: candidates.length, summary: summary() });
   let abortRemainingCandidatesForStickyTransportFailure = false;
 
   for (const [candidateIndex, candidate] of candidates.entries()) {
     if (keyPool.isModelUnsupported?.(candidate.providerId, candidate.account.accountId, context.routedModel) === true) {
-      accumulator.sawModelNotSupportedForAccount = true;
+      advance({ type: "model-skipped" });
       continue;
     }
 
@@ -168,15 +165,93 @@ export async function executeProviderRoutingPlan(
       const model = typeof candidatePayload.upstreamPayload.model === "string"
         ? candidatePayload.upstreamPayload.model
         : "";
-      if (model && !model.includes("/")) {
-        const prefix = requestyModelPrefix(model);
-        const prefixed = { ...candidatePayload.upstreamPayload, model: `${prefix}/${model}` };
+      const prefixedModel = kernels.requestyModel(model, requestyModelProvider(model));
+      if (prefixedModel !== model) {
+        const prefixed = { ...candidatePayload.upstreamPayload, model: prefixedModel };
         candidatePayload = { ...candidatePayload, upstreamPayload: prefixed, bodyText: JSON.stringify(prefixed) };
       }
     }
 
     const hasMoreCandidates = candidateIndex < candidates.length - 1;
     const releaseInFlight = keyPool.markInFlight(candidate.account);
+
+    /** Facts about who is being tried, as the state machine reads them. */
+    const ctxFor = (account: ProviderCredential): Record<string, unknown> => ({
+      providerId: candidate.providerId,
+      accountProviderId: account.providerId,
+      authType: account.authType,
+      hasRefreshToken: Boolean(account.refreshToken),
+      keyCooldownMs: context.config.keyCooldownMs,
+      promptCacheKey: Boolean(promptCacheKey),
+      matchesPreferred: candidateMatchesAffinity({ providerId: candidate.providerId, account }, preferredAffinity),
+      matchesProvisional: candidateMatchesAffinity({ providerId: candidate.providerId, account }, provisionalAffinity),
+      preferredAffinity: preferredAffinity !== undefined,
+      health: Boolean(healthStore),
+      refreshAvailable: Boolean(refreshExpiredToken),
+      ollamaCloud: account.providerId === "ollama-cloud" && Boolean(keyPool.clearAccountCooldown),
+    });
+
+    /** Interpret the state machine's effects against the stores and the key pool. */
+    const runEffects = async (
+      effects: StepResult["effects"],
+      account: ProviderCredential,
+      at: { readonly status?: number; readonly response?: Response; readonly logEntryId?: string; readonly emitResponse?: () => void; readonly retryIndex?: number },
+    ): Promise<void> => {
+      for (const effect of effects) {
+        const [kind, a, b] = effect as [string, unknown, unknown];
+        switch (kind) {
+          case "mark-rate-limited":
+            keyPool.markRateLimited(account, (a ?? undefined) as number | undefined);
+            break;
+          case "disable-account":
+            keyPool.disableAccount?.(account.providerId, account.accountId);
+            break;
+          case "mark-model-unsupported":
+            keyPool.markModelUnsupported?.(account, context.routedModel, a as number);
+            break;
+          case "clear-model-unsupported":
+            keyPool.clearModelUnsupported?.(account.providerId, account.accountId, context.routedModel);
+            break;
+          case "clear-account-cooldown":
+            keyPool.clearAccountCooldown?.(account.providerId, account.accountId);
+            break;
+          case "pheromone":
+            if (a === "success") {
+              await providerRoutePheromoneStore.noteSuccess(candidate.providerId, context.routedModel, b as number);
+            } else {
+              await providerRoutePheromoneStore.noteFailure(candidate.providerId, context.routedModel);
+            }
+            break;
+          case "health":
+            if (a === "success") {
+              healthStore?.recordSuccess(account, at.status as number);
+            } else if (typeof b === "string") {
+              healthStore?.recordFailure(account, at.status as number, b);
+            } else {
+              healthStore?.recordFailure(account, at.status as number);
+            }
+            break;
+          case "delete-affinity":
+            await promptAffinityStore.delete(promptCacheKey as string);
+            break;
+          case "note-affinity-success":
+            await promptAffinityStore.noteSuccess(promptCacheKey as string, candidate.providerId, account.accountId);
+            break;
+          case "log-upstream-error":
+            requestLogStore.update(at.logEntryId as string, { upstreamErrorCode: a as string, upstreamErrorMessage: b as string });
+            break;
+          case "emit-response":
+            at.emitResponse?.();
+            break;
+          case "summarize-error":
+            await summarizeUpstreamError(at.response as Response);
+            break;
+          case "sleep":
+            await sleep(transientRetryDelayMs(context, at.retryIndex ?? 0));
+            break;
+        }
+      }
+    };
 
     for (let retryIndex = 0; retryIndex <= context.config.upstreamTransientRetryCount; retryIndex += 1) {
       const baseProviderContext: Omit<ProviderAttemptContext, "attempt"> = {
@@ -250,11 +325,11 @@ export async function executeProviderRoutingPlan(
 
       for (const [stepIndex, step] of upstreamSteps.entries()) {
         const upstreamPath = step.upstreamPath;
-        accumulator.attempts += 1;
+        const attempt = advance({ type: "attempt-started" }).attempts;
         const providerContext: ProviderAttemptContext = {
           ...baseProviderContext,
           baseUrl: step.baseUrl,
-          attempt: accumulator.attempts,
+          attempt,
         };
 
         const upstreamUrl = joinUrl(providerContext.baseUrl, upstreamPath);
@@ -277,7 +352,7 @@ export async function executeProviderRoutingPlan(
           "proxy.model": context.routedModel,
           "proxy.requested_model": context.requestedModelInput,
           "proxy.base_url": providerContext.baseUrl,
-          "proxy.routing_attempt": accumulator.attempts,
+          "proxy.routing_attempt": attempt,
         });
         upstreamSpan.setAttributes({
           "proxy.service_tier": candidatePayload.serviceTier,
@@ -302,7 +377,7 @@ export async function executeProviderRoutingPlan(
               upstreamMode: candidateStrategy.mode,
               upstreamPath,
               upstreamUrl,
-              attempt: accumulator.attempts,
+              attempt,
               requestedModel: context.requestedModelInput,
               serviceTier: candidatePayload.serviceTier,
             },
@@ -321,29 +396,17 @@ export async function executeProviderRoutingPlan(
             if (outcome.kind === "handled") {
               upstreamSpan.setStatus("ok");
               upstreamSpan.end();
-              await providerRoutePheromoneStore.noteSuccess(
-                candidate.providerId,
-                context.routedModel,
-                clampRouteQuality(latencyMs),
+              await runEffects(
+                advance({ type: "handled", variant: "direct", ctx: ctxFor(candidate.account), latencyMs }).effects,
+                candidate.account,
+                {},
               );
               releaseInFlight();
-              return { handled: true, candidateCount: candidates.length, summary: accumulator };
+              return handledResult();
             }
 
             // Track errors for continue outcomes
-            accumulator.sawRequestError = outcome.requestError ?? true;
-            if (outcome.rateLimit) {
-              accumulator.sawRateLimit = true;
-            }
-            if (outcome.modelNotFound) {
-              accumulator.sawModelNotFound = true;
-            }
-            if (outcome.modelNotSupportedForAccount) {
-              accumulator.sawModelNotSupportedForAccount = true;
-            }
-            if (outcome.upstreamInvalidRequest) {
-              accumulator.sawUpstreamInvalidRequest = true;
-            }
+            advance({ type: "direct-declined", outcome });
             upstreamSpan.end();
             break;
           }
@@ -360,8 +423,8 @@ export async function executeProviderRoutingPlan(
           upstreamSpan.setAttribute("proxy.status", 0);
           upstreamSpan.recordError(error);
           upstreamSpan.end();
-          accumulator.sawRequestError = true;
-          await providerRoutePheromoneStore.noteFailure(candidate.providerId, context.routedModel);
+          const failed = advance({ type: "transport-error", ctx: ctxFor(candidate.account) });
+          await runEffects(failed.effects, candidate.account, {});
           const logEntryId = recordAttempt(requestLogStore, providerContext, {
             providerId: candidate.providerId,
             accountId: candidate.account.accountId,
@@ -381,11 +444,8 @@ export async function executeProviderRoutingPlan(
               logEntryId,
             }, { latencyMs });
           }
-          if (hasStickyAffinity) {
-            stickyTransportFailureCandidates += 1;
-            if (stickyTransportFailureCandidates >= MAX_STICKY_TRANSPORT_FAILURE_CANDIDATES) {
-              abortRemainingCandidatesForStickyTransportFailure = true;
-            }
+          if (failed.abort) {
+            abortRemainingCandidatesForStickyTransportFailure = true;
           }
           break;
         }
@@ -458,10 +518,11 @@ export async function executeProviderRoutingPlan(
         // scope/auth failures.
         if (isOpenAiImages) {
           const nextStep = stepIndex < upstreamSteps.length - 1 ? upstreamSteps[stepIndex + 1] : undefined;
-          const canTryNextBase =
-            step.tryNextBaseOnStatuses?.includes(upstreamResponse.status) === true
-            && nextStep
-            && nextStep.baseUrl !== step.baseUrl;
+          const canTryNextBase = kernels.imagesNextBase({
+            status: upstreamResponse.status,
+            tryNextBaseOnStatuses: step.tryNextBaseOnStatuses,
+            nextBaseDiffers: nextStep !== undefined && nextStep.baseUrl !== step.baseUrl,
+          });
 
           if (canTryNextBase) {
             try {
@@ -479,9 +540,10 @@ export async function executeProviderRoutingPlan(
           // rejection.
         }
 
-        if (isRateLimitResponse(upstreamResponse)) {
-          accumulator.sawRateLimit = true;
+        const ctx = ctxFor(candidate.account);
 
+        if (isRateLimitResponse(upstreamResponse)) {
+          advance({ type: "rate-limit-seen" });
           let ollamaMultiplier = 1;
           let ollamaLimitKind: ReturnType<typeof detectOllamaLimitKind> = "unknown";
           let responseBody: Record<string, unknown> | undefined;
@@ -543,16 +605,16 @@ export async function executeProviderRoutingPlan(
             // Concurrency throttle: wait for the indicated period, then retry
             // the same credential instead of falling over to a different provider.
             const maxRetries = context.config.concurrencyThrottleMaxRetries;
-            const waitMs = Math.min(cooldownMs, 10_000);
+            const throttle = kernels.throttlePlan(cooldownMs, manifestPath);
             upstreamSpan.setAttribute("proxy.rate_limit_kind", "concurrency_throttle");
-            upstreamSpan.setAttribute("proxy.concurrency_retry_wait_ms", waitMs);
+            upstreamSpan.setAttribute("proxy.concurrency_retry_wait_ms", throttle.waitMs);
 
             // Mark a short cooldown so the same account isn't selected by
             // another concurrent request while we're waiting.
-            keyPool.markRateLimited(candidate.account, Math.min(cooldownMs, 15_000));
+            keyPool.markRateLimited(candidate.account, throttle.shortCooldownMs);
 
             for (let concurrencyRetry = 0; concurrencyRetry < maxRetries; concurrencyRetry += 1) {
-              await sleep(waitMs);
+              await sleep(throttle.waitMs);
 
               // Clear the short cooldown so we can re-use this account.
               if (keyPool.clearAccountCooldown) {
@@ -610,26 +672,19 @@ export async function executeProviderRoutingPlan(
 
                 if (retryResponse.ok) {
                   await retryUsagePromise;
-                  if (healthStore) {
-                    healthStore.recordSuccess(candidate.account, retryResponse.status);
-                  }
-                  if (candidate.account.providerId === "ollama-cloud" && keyPool.clearAccountCooldown) {
-                    keyPool.clearAccountCooldown(candidate.account.providerId, candidate.account.accountId);
-                  }
-                  await providerRoutePheromoneStore.noteSuccess(
-                    candidate.providerId,
-                    context.routedModel,
-                    clampRouteQuality(retryLatencyMs),
+                  await runEffects(
+                    advance({ type: "handled", variant: "throttle-retry", ctx, latencyMs: retryLatencyMs }).effects,
+                    candidate.account,
+                    { status: retryResponse.status },
                   );
                   upstreamSpan.setStatus("ok");
                   upstreamSpan.end();
                   releaseInFlight();
-                  return { handled: true, candidateCount: candidates.length, summary: accumulator };
+                  return handledResult();
                 }
 
                 // Non-429 error on retry — accumulate and break to routing loop.
-                accumulator.sawUpstreamServerError ||= retryResponse.status >= 500;
-                accumulator.sawUpstreamInvalidRequest ||= retryResponse.status >= 400 && retryResponse.status < 500;
+                advance({ type: "throttle-error", status: retryResponse.status });
                 try { await retryResponse.arrayBuffer(); } catch { /* ignore */ }
                 break;
               }
@@ -648,14 +703,14 @@ export async function executeProviderRoutingPlan(
               const retryKind = classifyRateLimitKind(retryBody, retryCooldownMs, context.config.concurrencyThrottleThresholdMs);
               try { await retryResponse.arrayBuffer(); } catch { /* ignore */ }
 
-              if (retryKind !== "concurrency_throttle") {
+              if (kernels.throttleRetryVerdict({ rateLimited: true, ok: false, retryKind }) === "escalated") {
                 // Escalated to quota exhaustion — stop retrying this credential.
                 keyPool.markRateLimited(candidate.account, Math.round(retryCooldownMs * ollamaMultiplier));
                 break;
               }
 
               // Still a concurrency throttle — mark short cooldown and loop again.
-              keyPool.markRateLimited(candidate.account, Math.min(retryCooldownMs, 15_000));
+              keyPool.markRateLimited(candidate.account, kernels.throttlePlan(retryCooldownMs, manifestPath).shortCooldownMs);
             }
 
             // All concurrency retries exhausted — mark normal cooldown and fall over.
@@ -665,37 +720,23 @@ export async function executeProviderRoutingPlan(
             keyPool.markRateLimited(candidate.account, cooldownMs);
           }
 
-          if (
-            ollamaLimitKind === "session"
-            && promptCacheKey
-            && (
-              candidateMatchesAffinity(candidate, preferredAffinity)
-              || candidateMatchesAffinity(candidate, provisionalAffinity)
-            )
-          ) {
-            await promptAffinityStore.delete(promptCacheKey);
-            preferredReassignmentAllowed = true;
-          }
-          if (
-            preferredAffinity
-            && candidate.providerId === preferredAffinity.providerId
-            && candidate.account.accountId === preferredAffinity.accountId
-          ) {
-            preferredReassignmentAllowed = true;
-          }
+          await runEffects(
+            advance({ type: "rate-limited", ctx, limitKind: ollamaLimitKind }).effects,
+            candidate.account,
+            {},
+          );
           upstreamSpan.setStatus("error", rateLimitKind === "concurrency_throttle" ? "concurrency_throttle" : "rate_limited");
           upstreamSpan.end();
           break;
         }
 
         if (await responseIndicatesQuotaError(upstreamResponse)) {
-          accumulator.sawRateLimit = true;
-          const permanentlyDisable = shouldPermanentlyDisableCredential(candidate.account, upstreamResponse.status);
-          const baseCooldownMs = permanentlyDisable
-            ? PERMANENT_DISABLE_COOLDOWN_MS
-            : upstreamResponse.status === 402
-              ? 24 * 60 * 60 * 1000
-              : Math.min(context.config.keyCooldownMs, 60_000);
+          const baseCooldownMs = kernels.quotaBaseCooldownMs({
+            status: upstreamResponse.status,
+            authType: candidate.account.authType,
+            accountProviderId: candidate.account.providerId,
+            keyCooldownMs: context.config.keyCooldownMs,
+          }, manifestPath);
           let quotaCooldownMs: number | undefined;
           if (quotaMonitor?.tracksProvider(candidate.account.providerId)) {
             quotaCooldownMs = quotaMonitor.getCooldownMs(candidate.account.accountId);
@@ -716,18 +757,11 @@ export async function executeProviderRoutingPlan(
               ? healthStore.getGrowingCooldown(candidate.account.providerId, candidate.account.accountId, baseCooldownMs)
               : baseCooldownMs;
           }
-          keyPool.markRateLimited(candidate.account, quotaCooldownMs);
-          if (healthStore) {
-            healthStore.recordFailure(candidate.account, upstreamResponse.status, "quota_exhausted");
-          }
-          await providerRoutePheromoneStore.noteFailure(candidate.providerId, context.routedModel);
-          if (
-            preferredAffinity
-            && candidate.providerId === preferredAffinity.providerId
-            && candidate.account.accountId === preferredAffinity.accountId
-          ) {
-            preferredReassignmentAllowed = true;
-          }
+          await runEffects(
+            advance({ type: "quota-exhausted", ctx, cooldownMs: quotaCooldownMs }).effects,
+            candidate.account,
+            { status: upstreamResponse.status },
+          );
           try {
             await upstreamResponse.arrayBuffer();
           } catch {
@@ -738,20 +772,25 @@ export async function executeProviderRoutingPlan(
           break;
         }
 
-        // Factory intermittently returns 403 during auth token rotation; retry once
-        // just like a server error so the next attempt often succeeds.
-        if (upstreamResponse.status === 403 && candidate.providerId === "factory" && hasRetryRemaining) {
+        // Factory intermittently returns 403 during auth token rotation, and gateways
+        // return 5xx: retry on the same credential, or cool it down once retries are spent.
+        const transient = kernels.transientStatus({
+          status: upstreamResponse.status,
+          providerId: candidate.providerId,
+          hasRetryRemaining,
+        }, manifestPath);
+        if (transient === "transient-provider") {
           try { await upstreamResponse.arrayBuffer(); } catch { /* ignore */ }
           upstreamSpan.setStatus("error", "factory_transient_403");
           upstreamSpan.end();
-          await sleep(transientRetryDelayMs(context, retryIndex));
+          await runEffects(advance({ type: "transient-provider", ctx }).effects, candidate.account, { retryIndex });
           shouldContinueTransientRetry = true;
           break;
         }
 
-        if (upstreamResponse.status >= 500 && upstreamResponse.status <= 599) {
-          accumulator.sawUpstreamServerError = true;
-          if (hasRetryRemaining && shouldRetrySameCredentialForServerError(upstreamResponse.status)) {
+        if (transient === "server-error-retry" || transient === "server-error") {
+          const planned = advance({ type: "server-error", kind: transient, ctx });
+          if (planned.next === "retry-credential") {
             try {
               await upstreamResponse.arrayBuffer();
             } catch {
@@ -759,12 +798,11 @@ export async function executeProviderRoutingPlan(
             }
             upstreamSpan.setStatus("error", `upstream_server_error_${upstreamResponse.status}`);
             upstreamSpan.end();
-            await sleep(transientRetryDelayMs(context, retryIndex));
+            await runEffects(planned.effects, candidate.account, { retryIndex });
             shouldContinueTransientRetry = true;
             break;
           }
-          keyPool.markRateLimited(candidate.account, Math.min(context.config.keyCooldownMs, 5000));
-          await providerRoutePheromoneStore.noteFailure(candidate.providerId, context.routedModel);
+          await runEffects(planned.effects, candidate.account, { retryIndex });
           try {
             await upstreamResponse.arrayBuffer();
           } catch {
@@ -780,7 +818,7 @@ export async function executeProviderRoutingPlan(
         if (isCodexResponsesImages && upstreamResponse.ok) {
           const responseText = await upstreamResponse.text();
           const contentType = upstreamResponse.headers.get("content-type") ?? "";
-          const looksLikeEventStream = contentType.toLowerCase().includes("text/event-stream") || contentType.length === 0;
+          const looksLikeEventStream = kernels.isEventStreamOrUntyped(contentType);
 
           // Check for errors in the SSE stream.
           if (looksLikeEventStream) {
@@ -788,7 +826,7 @@ export async function executeProviderRoutingPlan(
             if (streamError) {
               upstreamSpan.setStatus("error", "codex_responses_stream_error");
               upstreamSpan.end();
-              accumulator.sawUpstreamInvalidRequest = true;
+              advance({ type: "codex-images-failed" });
               break;
             }
           }
@@ -805,26 +843,19 @@ export async function executeProviderRoutingPlan(
             reply.send(imagesPayload);
             upstreamSpan.setStatus("ok");
             upstreamSpan.end();
-            if (healthStore) {
-              healthStore.recordSuccess(candidate.account, upstreamResponse.status);
-            }
-            keyPool.clearModelUnsupported?.(candidate.account.providerId, candidate.account.accountId, context.routedModel);
-            if (candidate.account.providerId === "ollama-cloud" && keyPool.clearAccountCooldown) {
-              keyPool.clearAccountCooldown(candidate.account.providerId, candidate.account.accountId);
-            }
-            await providerRoutePheromoneStore.noteSuccess(
-              candidate.providerId,
-              context.routedModel,
-              clampRouteQuality(latencyMs),
+            await runEffects(
+              advance({ type: "handled", variant: "codex", ctx, latencyMs }).effects,
+              candidate.account,
+              { status: upstreamResponse.status },
             );
             releaseInFlight();
-            return { handled: true, candidateCount: candidates.length, summary: accumulator };
+            return handledResult();
           }
 
           // Responses completed but contained no image_generation_call outputs.
           upstreamSpan.setStatus("error", "codex_responses_no_image_output");
           upstreamSpan.end();
-          accumulator.sawUpstreamInvalidRequest = true;
+          advance({ type: "codex-images-failed" });
           break;
         }
 
@@ -833,116 +864,36 @@ export async function executeProviderRoutingPlan(
         if (outcome.kind === "handled") {
           upstreamSpan.setStatus("ok");
           upstreamSpan.end();
-          if (healthStore && upstreamResponse.ok) {
-            healthStore.recordSuccess(candidate.account, upstreamResponse.status);
-          }
-          if (upstreamResponse.ok) {
-            keyPool.clearModelUnsupported?.(candidate.account.providerId, candidate.account.accountId, context.routedModel);
-          }
-          if (upstreamResponse.ok && candidate.account.providerId === "ollama-cloud" && keyPool.clearAccountCooldown) {
-            keyPool.clearAccountCooldown(candidate.account.providerId, candidate.account.accountId);
-          }
-          await providerRoutePheromoneStore.noteSuccess(
-            candidate.providerId,
-            context.routedModel,
-            clampRouteQuality(latencyMs),
+          await runEffects(
+            advance({ type: "handled", variant: "strategy", ctx, ok: upstreamResponse.ok, latencyMs }).effects,
+            candidate.account,
+            {
+              status: upstreamResponse.status,
+              emitResponse: () => eventStore?.emitResponse(
+                attemptEntryId, candidate.providerId, candidate.account.accountId,
+                context.routedModel, upstreamResponse.status, null,
+                { latencyMs: Date.now() - attemptStartedAt, logEntryId: requestLogEntryId },
+              ),
+            },
           );
-          if (eventStore) {
-            eventStore.emitResponse(
-              attemptEntryId, candidate.providerId, candidate.account.accountId,
-              context.routedModel, upstreamResponse.status, null,
-              { latencyMs: Date.now() - attemptStartedAt, logEntryId: requestLogEntryId },
-            );
-          }
-          if (
-            promptCacheKey
-            && (
-              preferredAffinity === undefined
-              || preferredReassignmentAllowed
-              || (candidate.providerId === preferredAffinity.providerId && candidate.account.accountId === preferredAffinity.accountId)
-            )
-          ) {
-            await promptAffinityStore.noteSuccess(promptCacheKey, candidate.providerId, candidate.account.accountId);
-          }
           releaseInFlight();
-          return {
-            handled: true,
-            candidateCount: candidates.length,
-            summary: accumulator
-          };
+          return handledResult();
         }
 
-        if (
-          healthStore
-          && !upstreamResponse.ok
-          && upstreamResponse.status >= 500
-          && !outcome.upstreamInvalidRequest
-          && !outcome.modelNotFound
-          && !outcome.modelNotSupportedForAccount
-        ) {
-          healthStore.recordFailure(candidate.account, upstreamResponse.status);
-        }
-        if (!upstreamResponse.ok) {
-          await providerRoutePheromoneStore.noteFailure(candidate.providerId, context.routedModel);
-          if (
-            preferredAffinity
-            && candidate.providerId === preferredAffinity.providerId
-            && candidate.account.accountId === preferredAffinity.accountId
-          ) {
-            preferredReassignmentAllowed = true;
-          }
-        }
+        // The strategy declined. Hidden upstream errors are 200s that carry a quota error
+        // ("stream_quota_error") or an empty/invalid body ("stream_empty_or_invalid"): the
+        // account cools down and the sticky affinity is dropped so the next candidate is tried.
+        const declined = advance({ type: "declined", ctx, status: upstreamResponse.status, ok: upstreamResponse.ok, outcome });
+        await runEffects(declined.effects, candidate.account, {
+          status: upstreamResponse.status,
+          response: upstreamResponse,
+          logEntryId: requestLogEntryId,
+        });
 
-        /**
-         * Handle hidden upstream errors: providers that return 200 OK but carry a
-         * quota error ("stream_quota_error") or empty/invalid body ("stream_empty_or_invalid")
-         * in the SSE stream. These accounts must be put into cooldown and the sticky
-         * affinity record deleted so the routing loop can try the next candidate.
-         */
-        if (upstreamResponse.ok && (outcome.rateLimit === true || outcome.requestError === true)) {
-          const cooldownMs = outcome.rateLimit === true
-            ? context.config.keyCooldownMs
-            : Math.min(context.config.keyCooldownMs, 10_000);
-          keyPool.markRateLimited(candidate.account, cooldownMs);
-          await providerRoutePheromoneStore.noteFailure(candidate.providerId, context.routedModel);
-          if (outcome.rateLimit === true) {
-            requestLogStore.update(requestLogEntryId, {
-              upstreamErrorCode: "stream_quota_error",
-              upstreamErrorMessage: "200 OK with quota error in stream body",
-            });
-          } else {
-            requestLogStore.update(requestLogEntryId, {
-              upstreamErrorCode: "stream_empty_or_invalid",
-              upstreamErrorMessage: "200 OK with no substantive content in stream body",
-            });
-          }
-          if (
-            candidateMatchesAffinity(candidate, preferredAffinity)
-            || candidateMatchesAffinity(candidate, provisionalAffinity)
-          ) {
-            preferredReassignmentAllowed = true;
-          }
-          if (outcome.rateLimit === true && promptCacheKey && (candidateMatchesAffinity(candidate, preferredAffinity) || candidateMatchesAffinity(candidate, provisionalAffinity))) {
-            await promptAffinityStore.delete(promptCacheKey);
-          }
-        }
-
-        accumulator.sawRateLimit ||= outcome.rateLimit === true;
-        accumulator.sawRequestError ||= outcome.requestError === true;
-        accumulator.sawUpstreamServerError ||= outcome.upstreamServerError === true;
-        accumulator.sawUpstreamInvalidRequest ||= outcome.upstreamInvalidRequest === true;
-        if (outcome.upstreamInvalidRequest && outcome.upstreamErrorBody) {
-          accumulator.lastUpstreamError = { status: upstreamResponse.status, body: outcome.upstreamErrorBody, providerId: candidate.providerId };
-        }
-        accumulator.sawModelNotFound ||= outcome.modelNotFound === true;
-        accumulator.sawModelNotSupportedForAccount ||= outcome.modelNotSupportedForAccount === true;
-        if (outcome.upstreamAuthError) {
-          accumulator.lastUpstreamAuthError = outcome.upstreamAuthError;
-        }
-
-        if (!upstreamResponse.ok && outcome.requestError === true && upstreamResponse.status === 401 && candidate.account.authType === "oauth_bearer" && candidate.account.refreshToken && refreshExpiredToken) {
-          const refreshedCredential = await refreshExpiredToken(candidate.account);
+        if (declined.next === "refresh-token") {
+          const refreshedCredential = await refreshExpiredToken!(candidate.account);
           if (refreshedCredential) {
+            const refreshedCtx = ctxFor(refreshedCredential);
             const refreshedProviderContext: ProviderAttemptContext = { ...providerContext, account: refreshedCredential };
             const refreshedHeaders = buildUpstreamHeadersForCredential(context.clientHeaders, refreshedCredential, {
               useOpenAiCodexHeaderProfile: shouldUseOpenAiCodexHeaderProfile(
@@ -990,7 +941,7 @@ export async function executeProviderRoutingPlan(
                 candidatePayload.upstreamPayload,
                 promptCacheKey,
               );
-              const usagePromise = updateUsageCountsFromResponse(
+              const refreshedUsagePromise = updateUsageCountsFromResponse(
                 requestLogStore,
                 refreshedLogId,
                 refreshedResponse,
@@ -1001,15 +952,18 @@ export async function executeProviderRoutingPlan(
                 refreshedAttemptStartedAt,
               );
               if (responseLooksLikeEventStream(refreshedResponse, candidateStrategy.mode) && context.clientWantsStream) {
-                void usagePromise;
+                void refreshedUsagePromise;
               } else {
-                await usagePromise;
+                await refreshedUsagePromise;
               }
               await refreshedDiagnosticsPromise;
               if (isRateLimitResponse(refreshedResponse)) {
-                accumulator.sawRateLimit = true;
                 const refreshedCooldownMs = await extractRateLimitCooldownMs(refreshedResponse);
-                keyPool.markRateLimited(refreshedCredential, refreshedCooldownMs);
+                await runEffects(
+                  advance({ type: "refreshed-rate-limited", cooldownMs: refreshedCooldownMs }).effects,
+                  refreshedCredential,
+                  {},
+                );
                 try {
                   await refreshedResponse.arrayBuffer();
                 } catch {
@@ -1021,14 +975,14 @@ export async function executeProviderRoutingPlan(
               if (isCodexResponsesImages && refreshedResponse.ok) {
                 const refreshedText = await refreshedResponse.text();
                 const refreshedContentType = refreshedResponse.headers.get("content-type") ?? "";
-                const refreshedLooksLikeEventStream = refreshedContentType.toLowerCase().includes("text/event-stream") || refreshedContentType.length === 0;
+                const refreshedLooksLikeEventStream = kernels.isEventStreamOrUntyped(refreshedContentType);
 
                 if (refreshedLooksLikeEventStream) {
                   const streamError = responsesEventStreamToErrorPayload(refreshedText);
                   if (streamError) {
                     upstreamSpan.setStatus("error", "codex_responses_stream_error");
                     upstreamSpan.end();
-                    accumulator.sawUpstreamInvalidRequest = true;
+                    advance({ type: "codex-images-failed" });
                     break;
                   }
                 }
@@ -1045,21 +999,17 @@ export async function executeProviderRoutingPlan(
                   reply.send(refreshedImagesPayload);
                   upstreamSpan.setStatus("ok");
                   upstreamSpan.end();
-                  if (healthStore) {
-                    healthStore.recordSuccess(refreshedCredential, refreshedResponse.status);
-                  }
-                  keyPool.clearModelUnsupported?.(refreshedCredential.providerId, refreshedCredential.accountId, context.routedModel);
-                  await providerRoutePheromoneStore.noteSuccess(
-                    candidate.providerId,
-                    context.routedModel,
-                    clampRouteQuality(refreshedLatencyMs),
+                  await runEffects(
+                    advance({ type: "handled", variant: "refreshed-codex", ctx: refreshedCtx, latencyMs: refreshedLatencyMs }).effects,
+                    refreshedCredential,
+                    { status: refreshedResponse.status },
                   );
                   releaseInFlight();
-                  return { handled: true, candidateCount: candidates.length, summary: accumulator };
+                  return handledResult();
                 }
                 upstreamSpan.setStatus("error", "codex_responses_no_image_output");
                 upstreamSpan.end();
-                accumulator.sawUpstreamInvalidRequest = true;
+                advance({ type: "codex-images-failed" });
                 break;
               }
 
@@ -1068,113 +1018,31 @@ export async function executeProviderRoutingPlan(
               if (refreshedOutcome.kind === "handled") {
                 upstreamSpan.setStatus("ok");
                 upstreamSpan.end();
-
-                if (healthStore && refreshedResponse.ok) {
-                  healthStore.recordSuccess(refreshedCredential, refreshedResponse.status);
-                }
-                if (refreshedResponse.ok) {
-                  keyPool.clearModelUnsupported?.(refreshedCredential.providerId, refreshedCredential.accountId, context.routedModel);
-                }
-                await providerRoutePheromoneStore.noteSuccess(
-                  candidate.providerId,
-                  context.routedModel,
-                  clampRouteQuality(refreshedLatencyMs),
-                );
-
-                if (
-                  promptCacheKey
-                  && (
-                    preferredAffinity === undefined
-                    || preferredReassignmentAllowed
-                    || (candidate.providerId === preferredAffinity.providerId && refreshedCredential.accountId === preferredAffinity.accountId)
-                  )
-                ) {
-                  await promptAffinityStore.noteSuccess(promptCacheKey, candidate.providerId, refreshedCredential.accountId);
-                }
-
-                releaseInFlight();
-                return { handled: true, candidateCount: candidates.length, summary: accumulator };
-              }
-              accumulator.sawRateLimit ||= refreshedOutcome.rateLimit === true;
-              accumulator.sawRequestError ||= refreshedOutcome.requestError === true;
-              accumulator.sawUpstreamServerError ||= refreshedOutcome.upstreamServerError === true;
-              accumulator.sawUpstreamInvalidRequest ||= refreshedOutcome.upstreamInvalidRequest === true;
-              if (refreshedOutcome.upstreamInvalidRequest && refreshedOutcome.upstreamErrorBody) {
-                accumulator.lastUpstreamError = { status: refreshedResponse.status, body: refreshedOutcome.upstreamErrorBody, providerId: candidate.providerId };
-              }
-              accumulator.sawModelNotFound ||= refreshedOutcome.modelNotFound === true;
-              accumulator.sawModelNotSupportedForAccount ||= refreshedOutcome.modelNotSupportedForAccount === true;
-              if (!refreshedResponse.ok) {
-                await providerRoutePheromoneStore.noteFailure(candidate.providerId, context.routedModel);
-              }
-              if (refreshedOutcome.upstreamAuthError) {
-                accumulator.lastUpstreamAuthError = refreshedOutcome.upstreamAuthError;
-              }
-              if (refreshedOutcome.modelNotSupportedForAccount === true) {
-                keyPool.markModelUnsupported?.(
+                await runEffects(
+                  advance({ type: "handled", variant: "refreshed-strategy", ctx: refreshedCtx, ok: refreshedResponse.ok, latencyMs: refreshedLatencyMs }).effects,
                   refreshedCredential,
-                  context.routedModel,
-                  Math.min(context.config.keyCooldownMs, 60_000),
+                  { status: refreshedResponse.status },
                 );
+                releaseInFlight();
+                return handledResult();
               }
-              if (!refreshedResponse.ok && refreshedOutcome.modelNotSupportedForAccount !== true && refreshedOutcome.requestError === true && (refreshedResponse.status === 401 || refreshedResponse.status === 403)) {
-                if (shouldCooldownCredentialOnAuthFailure(candidate.providerId, refreshedResponse.status)) {
-                  keyPool.markRateLimited(refreshedCredential, Math.min(context.config.keyCooldownMs, 10_000));
-                  // Disable OAuth accounts that fail auth even after successful token refresh
-                  if (refreshedCredential.authType === "oauth_bearer" && keyPool.disableAccount) {
-                    keyPool.disableAccount(refreshedCredential.providerId, refreshedCredential.accountId);
-                  }
-                  if (preferredAffinity && candidate.providerId === preferredAffinity.providerId && refreshedCredential.accountId === preferredAffinity.accountId) {
-                    preferredReassignmentAllowed = true;
-                  }
-                }
-              }
+              await runEffects(
+                advance({ type: "refreshed-declined", ctx: refreshedCtx, status: refreshedResponse.status, ok: refreshedResponse.ok, outcome: refreshedOutcome }).effects,
+                refreshedCredential,
+                { status: refreshedResponse.status },
+              );
               break;
             } finally {
               refreshedRelease();
             }
           } else {
-            await providerRoutePheromoneStore.noteFailure(candidate.providerId, context.routedModel);
-            keyPool.markRateLimited(candidate.account, Math.min(context.config.keyCooldownMs, 10_000));
-            // Disable OAuth accounts when token refresh fails
-            if (candidate.account.authType === "oauth_bearer" && keyPool.disableAccount) {
-              keyPool.disableAccount(candidate.account.providerId, candidate.account.accountId);
-            }
-            if (preferredAffinity && candidate.providerId === preferredAffinity.providerId && candidate.account.accountId === preferredAffinity.accountId) {
-              preferredReassignmentAllowed = true;
-            }
+            const failedRefresh = advance({ type: "refresh-failed", ctx, ok: upstreamResponse.ok, outcome });
+            await runEffects(failedRefresh.effects, candidate.account, {
+              status: upstreamResponse.status,
+              response: upstreamResponse,
+              logEntryId: requestLogEntryId,
+            });
           }
-        } else if (!upstreamResponse.ok && outcome.modelNotSupportedForAccount !== true && outcome.requestError === true && (upstreamResponse.status === 401 || upstreamResponse.status === 402 || upstreamResponse.status === 403)) {
-          if (shouldCooldownCredentialOnAuthFailure(candidate.providerId, upstreamResponse.status) || shouldPermanentlyDisableCredential(candidate.account, upstreamResponse.status)) {
-            const permanentlyDisable = shouldPermanentlyDisableCredential(candidate.account, upstreamResponse.status);
-            const cooldownMs = permanentlyDisable
-              ? PERMANENT_DISABLE_COOLDOWN_MS
-              : Math.min(context.config.keyCooldownMs, 10_000);
-            keyPool.markRateLimited(candidate.account, cooldownMs);
-            if (permanentlyDisable && keyPool.disableAccount) {
-              keyPool.disableAccount(candidate.account.providerId, candidate.account.accountId);
-            }
-            // Also disable OAuth accounts with 401 that have no refresh token (unrecoverable)
-            if (upstreamResponse.status === 401 && candidate.account.authType === "oauth_bearer" && !candidate.account.refreshToken && keyPool.disableAccount) {
-              keyPool.disableAccount(candidate.account.providerId, candidate.account.accountId);
-            }
-            if (healthStore) {
-              healthStore.recordFailure(candidate.account, upstreamResponse.status, "credential_disabled");
-            }
-            if (preferredAffinity && candidate.providerId === preferredAffinity.providerId && candidate.account.accountId === preferredAffinity.accountId) {
-              preferredReassignmentAllowed = true;
-            }
-          }
-        }
-
-        // Keep model-gated accounts available for other models (e.g. gemma4) while
-        // skipping them for the rejected model on subsequent attempts.
-        if (outcome.modelNotSupportedForAccount === true) {
-          keyPool.markModelUnsupported?.(candidate.account, context.routedModel, Math.min(context.config.keyCooldownMs, 60_000));
-        }
-
-        if (!upstreamResponse.ok && outcome.requestError === true && !outcome.modelNotFound && !outcome.modelNotSupportedForAccount) {
-          await summarizeUpstreamError(upstreamResponse);
         }
 
         upstreamSpan.setStatus("error", `routing_continue_${upstreamResponse.status}`);
@@ -1199,7 +1067,7 @@ export async function executeProviderRoutingPlan(
   return {
     handled: false,
     candidateCount: candidates.length,
-    summary: accumulator,
+    summary: summary(),
   };
 }
 
