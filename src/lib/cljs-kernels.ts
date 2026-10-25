@@ -139,6 +139,9 @@ export interface CljsKernels {
     readonly keyEnvNames: readonly string[];
   }[];
   readonly createKeyPool: (config: unknown, deps: unknown) => unknown;
+  // w2-routing kernels
+  readonly bridgeCapabilitySupportsPath: (manifestPath: string, capability: object, normalizedPath: string) => boolean;
+  readonly bridgeCapabilitySupportsModel: (capability: object, requestedModel: string | undefined) => boolean;
 }
 
 const loaded = await loadCljsRuntime({ required: true });

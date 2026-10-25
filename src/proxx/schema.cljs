@@ -360,6 +360,33 @@
                [:match/system-contains [:string {:min 1}]]
                [:wire/replace-with [:string {:min 1}]]]]]]])
 
+(def ProviderSurfaceFactsContract
+  "Facts about which provider/model surfaces exist: which providers speak the
+  OpenAI-compatible and Responses APIs, how hosted-OpenAI model ids look, which
+  provider ids are dedicated Ollama hosts, where a provider's model catalog
+  lives, and which bridge paths a capability-less bridge may serve. Interpreted
+  by `proxx.routing.surface`; never restated in TypeScript."
+  [:and
+   ContractBase
+   [:map
+    [:contract/kind [:enum :provider-surface-facts]]
+    [:surface/openai-compatible-providers NonEmptyStringVector]
+    [:surface/responses-providers NonEmptyStringVector]
+    [:surface/hosted-openai-model-patterns NonEmptyStringVector]
+    [:surface/dedicated-ollama-provider-pattern [:string {:min 1}]]
+    [:surface/explicit-ollama-prefixes NonEmptyStringVector]
+    [:surface/legacy-bridge-path-prefixes NonEmptyStringVector]
+    [:catalog/source-paths
+     [:vector {:min 1}
+      [:map
+       [:match/provider-pattern [:string {:min 1}]]
+       [:catalog/paths NonEmptyStringVector]]]]
+    [:catalog/codex-markers
+     [:map
+      [:openai-base-url-contains NonEmptyStringVector]
+      [:openai-path-contains NonEmptyStringVector]]]
+    [:catalog/ollama-paths NonEmptyStringVector]]])
+
 (def AutoModelProfileContract
   "Facts behind auto:* model selection: default candidate list, and per model an
   intelligence rank and the optional capabilities it supports."
@@ -522,6 +549,7 @@
     [:account-constraint AccountConstraintContract]
     [:federation-routing-clause FederationRoutingClauseContract]
     [:provider-wire-profile ProviderWireProfileContract]
+    [:provider-surface-facts ProviderSurfaceFactsContract]
     [:auto-model-profile AutoModelProfileContract]
     [:authorization-clause AuthorizationClauseContract]
     [:model-pricing-override ModelPricingOverrideContract]
@@ -572,6 +600,7 @@
     :proxx/contract-account-constraint AccountConstraintContract
     :proxx/contract-federation-routing-clause FederationRoutingClauseContract
     :proxx/contract-provider-wire-profile ProviderWireProfileContract
+    :proxx/contract-provider-surface-facts ProviderSurfaceFactsContract
     :proxx/contract-auto-model-profile AutoModelProfileContract
    :proxx/contract-authorization-clause AuthorizationClauseContract
     :proxx/contract-model-pricing-override ModelPricingOverrideContract
