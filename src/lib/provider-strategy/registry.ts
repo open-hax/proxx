@@ -1,4 +1,5 @@
-import type { ProviderStrategy, StrategyRequestContext, UpstreamMode } from "./shared.js";
+import { kernels } from "../cljs-kernels.js";
+import { selectionFacts, type ProviderStrategy, type StrategyRequestContext, type UpstreamMode } from "./shared.js";
 import { GeminiChatProviderStrategy } from "./strategies/gemini.js";
 import { FactoryChatCompletionsProviderStrategy, FactoryMessagesProviderStrategy, FactoryResponsesPassthroughStrategy, FactoryResponsesProviderStrategy } from "./strategies/factory.js";
 import { OpenAiChatCompletionsProviderStrategy, OpenAiResponsesPassthroughStrategy, OpenAiResponsesProviderStrategy } from "./strategies/openai.js";
@@ -17,46 +18,56 @@ export const LLAMACPP_CHAT_STRATEGY = new LlamacppChatCompletionsProviderStrateg
 export const OPENAI_COMPAT_EMBEDDINGS_STRATEGY = new OpenAiCompatEmbeddingsStrategy();
 export const OLLAMA_EMBEDDINGS_STRATEGY = new OllamaEmbeddingsStrategy();
 
-export const PROVIDER_STRATEGIES: readonly ProviderStrategy[] = [
-  new HuggingFaceEmbeddingStrategy(),
-  new TEIEmbeddingStrategy(),
-  new OvmNpuEmbeddingStrategy(),
-  new BlazeImagesGenerationsPassthroughStrategy(),
-  new ImagesGenerationsPassthroughStrategy(),
-  new OpenAiResponsesPassthroughStrategy(),
-  new FactoryResponsesPassthroughStrategy(),
-  new ResponsesPassthroughStrategy(),
-  // Provider-specific adapters (policy chooses when applicable)
-  GEMINI_CHAT_STRATEGY,
-  ZAI_CHAT_STRATEGY,
-  BLAZE_CHAT_STRATEGY,
-  OPENAI_COMPAT_EMBEDDINGS_STRATEGY,
-  OLLAMA_EMBEDDINGS_STRATEGY,
-  LLAMACPP_CHAT_STRATEGY,
-  ROTUSSY_RESPONSES_VIA_CHAT_STRATEGY,
-  OLLAMA_CLOUD_STRATEGY,
-  new RemoteOllamaProviderStrategy(),
-  new OllamaProviderStrategy(),
-  new LocalOllamaProviderStrategy(),
-  new FactoryMessagesProviderStrategy(),
-  new FactoryResponsesProviderStrategy(),
-  new FactoryChatCompletionsProviderStrategy(),
-  new OpenAiResponsesProviderStrategy(),
-  new OpenAiChatCompletionsProviderStrategy(),
-  new MessagesProviderStrategy(),
-  new ResponsesProviderStrategy(),
-  new ChatCompletionsProviderStrategy(),
-];
+/**
+ * Strategy implementations by registry id. Which one handles a request, and in
+ * which priority order, is declared in 78-strategy-registry.edn and decided by
+ * proxx.strategy.select; this table only maps ids to their classes.
+ */
+const STRATEGIES_BY_ID: Readonly<Record<string, ProviderStrategy>> = {
+  "hf-embeddings": new HuggingFaceEmbeddingStrategy(),
+  "tei-embeddings": new TEIEmbeddingStrategy(),
+  "ovm-embeddings": new OvmNpuEmbeddingStrategy(),
+  "blaze-images": new BlazeImagesGenerationsPassthroughStrategy(),
+  "images-passthrough": new ImagesGenerationsPassthroughStrategy(),
+  "openai-responses-passthrough": new OpenAiResponsesPassthroughStrategy(),
+  "factory-responses-passthrough": new FactoryResponsesPassthroughStrategy(),
+  "responses-passthrough": new ResponsesPassthroughStrategy(),
+  "gemini-chat": GEMINI_CHAT_STRATEGY,
+  "zai-chat": ZAI_CHAT_STRATEGY,
+  "blaze-chat": BLAZE_CHAT_STRATEGY,
+  "openai-compat-embeddings": OPENAI_COMPAT_EMBEDDINGS_STRATEGY,
+  "ollama-embeddings": OLLAMA_EMBEDDINGS_STRATEGY,
+  "llamacpp-chat": LLAMACPP_CHAT_STRATEGY,
+  "responses-via-chat": ROTUSSY_RESPONSES_VIA_CHAT_STRATEGY,
+  "ollama-cloud": OLLAMA_CLOUD_STRATEGY,
+  "remote-ollama": new RemoteOllamaProviderStrategy(),
+  "ollama": new OllamaProviderStrategy(),
+  "local-ollama": new LocalOllamaProviderStrategy(),
+  "factory-messages": new FactoryMessagesProviderStrategy(),
+  "factory-responses": new FactoryResponsesProviderStrategy(),
+  "factory-chat": new FactoryChatCompletionsProviderStrategy(),
+  "openai-responses": new OpenAiResponsesProviderStrategy(),
+  "openai-chat": new OpenAiChatCompletionsProviderStrategy(),
+  "messages": new MessagesProviderStrategy(),
+  "responses": new ResponsesProviderStrategy(),
+  "chat-completions": new ChatCompletionsProviderStrategy(),
+};
+
+/** Priority order (highest first), the registry's own order. */
+export const PROVIDER_STRATEGIES: readonly ProviderStrategy[] = Object.values(STRATEGIES_BY_ID);
+
+function strategyForId(id: string): ProviderStrategy {
+  const strategy = STRATEGIES_BY_ID[id];
+  if (!strategy) {
+    throw new Error(`Strategy registry names unknown strategy '${id}'`);
+  }
+  return strategy;
+}
 
 export function selectProviderStrategyForContext(
   context: StrategyRequestContext,
 ): ProviderStrategy {
-  const matchingStrategies = PROVIDER_STRATEGIES.filter((entry) => entry.matches(context));
-  if (matchingStrategies.length === 0) {
-    return PROVIDER_STRATEGIES[PROVIDER_STRATEGIES.length - 1]!;
-  }
-
-  return matchingStrategies[0]!;
+  return strategyForId(kernels.selectStrategy(selectionFacts(context), {}, context.config.cljsPolicyManifestPath));
 }
 
 export function allProviderStrategyInfos(): Array<{ readonly mode: UpstreamMode; readonly isLocal: boolean; readonly priority: number }> {
@@ -72,32 +83,18 @@ export function selectRemoteProviderStrategyForRoute(
   providerId: string,
   policyPreferredStrategyMode?: UpstreamMode,
 ): ProviderStrategy {
-  const normalizedProviderId = providerId.trim().toLowerCase();
-  const effectivePolicyPreferredStrategyMode = policyPreferredStrategyMode
-    ?? context.policyPreferredStrategyModeByProvider?.[normalizedProviderId]
-    ?? context.policyPreferredStrategyMode;
-
-  const routeContext: StrategyRequestContext = {
-    ...context,
-    routeProviderId: normalizedProviderId,
-    openAiPrefixed: providerId === context.config.openaiProviderId,
-    factoryPrefixed: providerId === "factory",
-    explicitOllama: false,
-    localOllama: false,
-    policyPreferredStrategyMode: effectivePolicyPreferredStrategyMode,
+  const facts = {
+    ...selectionFacts({ ...context, routeProviderId: providerId.trim().toLowerCase() }),
+    factoryModelType: providerId === "factory" ? kernels.getFactoryModelType(context.config.cljsPolicyManifestPath ?? "resources/policies/runtime/00-manifest.edn", context.routedModel) : undefined,
   };
-
-  const matchingStrategies = PROVIDER_STRATEGIES.filter((entry) => !entry.isLocal && entry.matches(routeContext));
-  if (matchingStrategies.length === 0) {
-    return PROVIDER_STRATEGIES[PROVIDER_STRATEGIES.length - 1]!;
-  }
-
-  if (effectivePolicyPreferredStrategyMode) {
-    return matchingStrategies.find((strategy) => strategy.mode === effectivePolicyPreferredStrategyMode)
-      ?? matchingStrategies[0]!;
-  }
-
-  return matchingStrategies[0]!;
+  return strategyForId(kernels.selectRemoteStrategy(
+    facts,
+    providerId,
+    context.config.openaiProviderId,
+    policyPreferredStrategyMode,
+    context.policyPreferredStrategyModeByProvider,
+    context.config.cljsPolicyManifestPath,
+  ));
 }
 
 export function selectExecutionStrategyForProviderRoutes(

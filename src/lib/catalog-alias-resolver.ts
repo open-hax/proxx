@@ -3,6 +3,8 @@ import type { FastifyReply } from "fastify";
 import type { ProviderCatalogStore, ResolvedCatalogWithPreferences } from "./provider-catalog.js";
 import type { ResolvedModelCatalog } from "./provider-routing.js";
 import { sendOpenAiError } from "./provider-utils.js";
+import { kernels } from "./cljs-kernels.js";
+import { policyManifestPath } from "./policy-manifest.js";
 
 export interface CatalogAliasResult {
   readonly routingModelInput: string;
@@ -28,31 +30,22 @@ export async function resolveCatalogAndAlias(
     resolvedCatalogBundle = catalogBundle;
     resolvedModelCatalog = catalogBundle.catalog;
 
-    const disabledModelSet = new Set(catalogBundle.preferences.disabled);
-    if (disabledModelSet.has(requestedModelInput) || disabledModelSet.has(catalogBundle.catalog.aliasTargets[requestedModelInput] ?? "")) {
-      sendOpenAiError(reply, 403, `Model is disabled: ${requestedModelInput}`, "invalid_request_error", "model_disabled");
+    const decision = kernels.resolveCatalogAlias(
+      policyManifestPath(),
+      catalogBundle,
+      requestedModelInput,
+      options?.preserveExplicitOllama,
+    );
+    if (decision.error) {
+      const { status, message, type, code } = decision.error;
+      sendOpenAiError(reply, status, message, type, code);
       return null;
     }
 
-    const aliasTarget = catalogBundle.catalog.aliasTargets[requestedModelInput];
-    if (typeof aliasTarget === "string" && aliasTarget.length > 0) {
-      if (options?.preserveExplicitOllama) {
-        const requestedLower = requestedModelInput.trim().toLowerCase();
-        const aliasLower = aliasTarget.trim().toLowerCase();
-        const requestedWasExplicitOllama = requestedLower.startsWith("ollama/") || requestedLower.startsWith("ollama:")
-          || requestedLower.startsWith("ollama-lan/") || requestedLower.startsWith("ollama-lan:");
-        const aliasIsExplicitOllama = aliasLower.startsWith("ollama/") || aliasLower.startsWith("ollama:")
-          || aliasLower.startsWith("ollama-lan/") || aliasLower.startsWith("ollama-lan:");
-        routingModelInput = requestedWasExplicitOllama && !aliasIsExplicitOllama
-          ? requestedModelInput
-          : aliasTarget;
-      } else {
-        routingModelInput = aliasTarget;
-      }
-      aliasApplied = routingModelInput !== requestedModelInput;
-      if (aliasApplied) {
-        reply.header("x-open-hax-model-alias", `${requestedModelInput}->${routingModelInput}`);
-      }
+    routingModelInput = decision.routingModelInput ?? requestedModelInput;
+    aliasApplied = decision.aliasApplied === true;
+    if (aliasApplied) {
+      reply.header("x-open-hax-model-alias", `${requestedModelInput}->${routingModelInput}`);
     }
   } catch (error) {
     log.warn({ error: error instanceof Error ? error.message : String(error) }, "failed to resolve dynamic model aliases; using requested model as-is");

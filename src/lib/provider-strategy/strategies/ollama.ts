@@ -2,7 +2,6 @@ import type { FastifyReply } from "fastify";
 
 import { chatCompletionToSse } from "../../responses-compat.js";
 import {
-  chatRequestToOllamaRequest,
   ollamaToChatCompletion,
   streamOllamaNdjsonToChatCompletionSse,
 } from "../../ollama-compat.js";
@@ -13,6 +12,8 @@ import { BaseProviderStrategy } from "../base.js";
 import {
   buildPayloadResult,
   buildRequestBodyForUpstream,
+  buildStrategyPayloadResult,
+  strategyUpstreamPath,
   type BuildPayloadResult,
   type LocalAttemptContext,
   type StrategyRequestContext,
@@ -22,13 +23,10 @@ export class LocalOllamaProviderStrategy extends BaseProviderStrategy {
   public readonly mode = "local_ollama_chat" as const;
 
   public readonly isLocal: boolean = true;
-
-  public matches(context: StrategyRequestContext): boolean {
-    return context.localOllama && !context.explicitOllama;
-  }
+  public readonly registryId: string = "local-ollama";
 
   public getUpstreamPath(context: StrategyRequestContext): string {
-    return context.config.ollamaV1ChatPath;
+    return strategyUpstreamPath("local-ollama", context);
   }
 
   public buildPayload(context: StrategyRequestContext): BuildPayloadResult {
@@ -80,13 +78,10 @@ export class OllamaProviderStrategy extends BaseProviderStrategy {
   public readonly mode = "ollama_chat" as const;
 
   public readonly isLocal: boolean = true;
-
-  public matches(context: StrategyRequestContext): boolean {
-    return context.explicitOllama;
-  }
+  public readonly registryId: string = "ollama";
 
   public getUpstreamPath(context: StrategyRequestContext): string {
-    return context.config.ollamaChatPath;
+    return strategyUpstreamPath("ollama", context);
   }
 
   protected getReasoningProviderId(context: StrategyRequestContext): string {
@@ -101,7 +96,7 @@ export class OllamaProviderStrategy extends BaseProviderStrategy {
       providerId: this.getReasoningProviderId(context),
       strategyMode: this.mode,
     });
-    return buildPayloadResult(chatRequestToOllamaRequest(requestBody, context.config.ollamaModelPrefixes), context);
+    return buildStrategyPayloadResult("ollama", context, requestBody);
   }
 
   public override async handleLocalAttempt(
@@ -180,10 +175,6 @@ export class OllamaProviderStrategy extends BaseProviderStrategy {
 
 export class RemoteOllamaProviderStrategy extends OllamaProviderStrategy {
   public override readonly isLocal = false;
+  public override readonly registryId: string = "remote-ollama";
 
-  public override matches(context: StrategyRequestContext): boolean {
-    return context.policyPreferredStrategyMode === "ollama_chat"
-      && context.responsesPassthrough !== true
-      && context.imagesPassthrough !== true;
-  }
 }

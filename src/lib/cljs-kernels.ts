@@ -5,9 +5,77 @@
  * this one can call the kernels synchronously. The compiled artifact is
  * required: these functions are the implementation, not an optimization.
  */
+import type { ServerResponse } from "node:http";
+
 import { loadCljsRuntime } from "./cljs-runtime.js";
+import type { CredentialStoreLike } from "./credential-store.js";
+import type { AccountHealthStore } from "./db/account-health-store.js";
+import type {
+  QuotaCooldownController,
+  QuotaMonitorApi,
+  QuotaMonitorConfig,
+  QuotaMonitorLogger,
+} from "./quota-monitor.js";
+import type {
+  OpenAiAccountProbeResult,
+  OpenAiProbeOptions,
+  OpenAiQuotaFetchOptions,
+  OpenAiQuotaSnapshotResponse,
+} from "./openai-quota.js";
+import type {
+  ModelPricing,
+  ModelPricingIndexStatus,
+  ModelPricingRefreshHandle,
+  ModelPricingRefreshOptions,
+  ModelPricingRefreshSchedulerOptions,
+  ModelsDevPricingSnapshot,
+  RequestCostEstimate,
+} from "./model-pricing.js";
+import type { BridgeSendChannel } from "./federation/bridge-send-channel.js";
+import type { BridgeMessage } from "./federation/bridge-protocol.js";
+import type { BridgeLeaseAccountSummary, BridgeLeaseExportedAccount } from "../routes/federation/bridge-lease-parsers.js";
+import type { FederationOwnerCredential } from "./federation/owner-credential.js";
 
 type JsRecord = Record<string, unknown>;
+
+/** A `continue` attempt outcome (see proxx.strategy.attempt). */
+export interface StrategyContinueOutcome {
+  readonly kind: "continue";
+  readonly rateLimit?: boolean;
+  readonly requestError?: boolean;
+  readonly upstreamServerError?: boolean;
+  readonly upstreamInvalidRequest?: boolean;
+  readonly upstreamErrorBody?: string;
+  readonly modelNotFound?: boolean;
+  readonly modelNotSupportedForAccount?: boolean;
+  readonly upstreamAuthError?: { readonly status: number; readonly message?: string };
+}
+
+export interface RoutingErrorDescriptor {
+  readonly status: number;
+  readonly message: string;
+  readonly type: string;
+  readonly code: string;
+}
+
+/** Opaque immutable state of the routing state machine (proxx.strategy.executor). */
+export type ExecutorState = { readonly __executorState: never };
+
+/** Request facts the strategy registry's predicates read (proxx.strategy.select). */
+export interface StrategySelectionFacts {
+  readonly routeProviderId?: string;
+  readonly responsesPassthrough?: boolean;
+  readonly imagesPassthrough?: boolean;
+  readonly embeddingsPassthrough?: boolean;
+  readonly explicitOllama?: boolean;
+  readonly localOllama?: boolean;
+  readonly openAiPrefixed?: boolean;
+  readonly factoryPrefixed?: boolean;
+  readonly policyPreferredMode?: string;
+  readonly factoryModelType?: string;
+  readonly clientHeaders?: unknown;
+  readonly requestBody?: unknown;
+}
 
 /** Method bag returned by the CLJS OAuth manager factories (typed per manager by its TS class). */
 export type OAuthManagerFacade = Record<string, (...args: never[]) => unknown>;
@@ -135,6 +203,26 @@ export interface CljsKernels {
   } | null | undefined;
   // requesty
   readonly requestyModelProvider: (manifestPath: string, model: string) => string;
+  // http routes (Ring-style handlers registered on Fastify)
+  readonly registerHealthRoutes: (
+    app: unknown,
+    deps: { readonly keyPool: unknown; readonly upstreamProviderId: string; readonly proxyAuthTokenConfigured: boolean },
+  ) => void;
+  readonly registerApiV1IndexRoute: (app: unknown) => void;
+  // route authorization and request-value parsing (routes/shared/ui-auth)
+  readonly parseBoolean: (value: unknown) => boolean;
+  readonly parseOptionalRequestsPerMinute: (value: unknown) => number | null | undefined;
+  readonly parseOptionalProviderIds: (value: unknown) => readonly string[] | null | undefined;
+  readonly parseOptionalModelIds: (value: unknown) => readonly string[] | null | undefined;
+  readonly parseOptionalPositiveInteger: (value: unknown) => number | undefined;
+  readonly authCanViewTenant: (auth: unknown, tenantId: string) => boolean;
+  readonly authCanManageTenantKeys: (auth: unknown, tenantId: string) => boolean;
+  readonly authCanManageFederation: (auth: unknown) => boolean;
+  readonly toVisibleTenants: (
+    auth: unknown,
+    fallbackTenants: readonly { id: string; name: string; status: string }[],
+  ) => readonly { id: string; name: string; status: string }[];
+  readonly registerSettingsRoutes: (app: unknown, deps: unknown, prefix: string) => void;
   // key pool
   readonly loadProviderSeedSpecs: (manifestPath: string) => readonly {
     readonly providerIdEnvNames: readonly string[];
@@ -142,6 +230,63 @@ export interface CljsKernels {
     readonly keyEnvNames: readonly string[];
   }[];
   readonly createKeyPool: (config: unknown, deps: unknown) => unknown;
+  // w2-analytics
+  readonly createRequestLogFanout: () => RequestLogFanout;
+  readonly ollamaBatchVectors: (payload: unknown, expectedCount: number) => number[][];
+  readonly ollamaLegacyVector: (payload: unknown) => number[];
+  readonly ollamaValidateConfig: (config: Record<string, unknown>) => void;
+  readonly ollamaBuildConfig: (config: Record<string, unknown>) => { readonly url: string; readonly model: string };
+  readonly chromaConnectionOptions: (url: URL) => { readonly host: string; readonly ssl: boolean; readonly port?: number };
+  readonly chromaSearchResults: (
+    ids: readonly unknown[],
+    docs: readonly unknown[],
+    metas: readonly unknown[],
+    distances: readonly unknown[],
+    now: number,
+  ) => ChromaSearchRow[];
+  readonly eventLabelerApplies: (id: string, event: object) => boolean;
+  readonly eventLabelerLabel: (id: string, event: object) => string[];
+  readonly eventDdl: () => string[];
+  readonly eventBuildQuery: (filters: object) => { readonly text: string; readonly values: unknown[] };
+  readonly eventBuildCount: (filters: object) => { readonly text: string; readonly values: unknown[] };
+  readonly eventCountByTagQuery: (since: Date | undefined) => { readonly text: string; readonly values: unknown[] };
+  readonly eventParseRow: (row: object) => unknown;
+  readonly eventSanitizePayload: (payload: Record<string, unknown>) => Record<string, unknown>;
+  readonly usageDdl: () => string[];
+  readonly usageToEntry: (row: object) => unknown;
+  readonly usageCoverage: (row: object | undefined) => {
+    readonly earliestEntryAtMs: number | null;
+    readonly retainedEntryCount: number;
+    readonly maxRetainedEntries: number;
+  };
+  readonly usageUpsert: (entry: object) => { readonly strings: TemplateStringsArray; readonly values: unknown[] };
+  readonly usageListQuery: (filters: object, cursor: { timestampMs: number; id: string } | undefined) => { readonly text: string; readonly values: unknown[] };
+  readonly usageListSinceQuery: (
+    sinceMs: number,
+    filters: object,
+    limit: number | undefined,
+    after: { timestampMs: number; id: string } | undefined,
+  ) => { readonly text: string; readonly values: unknown[] };
+  readonly usageCoverageQuery: (filters: object) => { readonly text: string; readonly values: unknown[] };
+  readonly usageCursorQuery: () => string;
+  readonly usageToCursor: (row: object) => { readonly timestampMs: number; readonly id: string };
+  readonly createRequestLogCore: (maxEntries: number, deps?: { now?: () => number; uuid?: () => string }) => unknown;
+  readonly usageToWindow: (value: unknown) => string;
+  readonly usageToSafeLimit: (value: unknown, fallback: number, max: number) => number;
+  readonly usageWindowConfig: (window: string, now: number) => {
+    readonly bucketMs: number;
+    readonly bucketCount: number;
+    readonly bucketWindowStart: number;
+    readonly entryWindowStart: number;
+  };
+  readonly usageOverviewFromEntries: (entries: object[], ctx: object) => unknown;
+  readonly usageOverviewFromRollups: (input: object) => unknown;
+  readonly usageAnalyticsFromEntries: (entries: object[], ctx: object) => unknown;
+  readonly usageAnalyticsFromRollups: (input: object) => unknown;
+  readonly usageScopeActive: (scope: object | undefined) => boolean;
+  readonly usageFilterEntries: <T extends object>(entries: T[], scope: object | undefined) => T[];
+  readonly usageSummarizeRouting: (entries: object[]) => unknown;
+  readonly createSessionStore: (filePath: string, deps?: { now?: () => number; uuid?: () => string }) => unknown;
   // w2 auth/oauth: openai + factory oauth
   readonly createOpenAiOAuthManager: (options: unknown, deps: unknown) => OAuthManagerFacade;
   readonly resolveOpenAiCallbackPort: (raw: string | undefined) => string;
@@ -186,6 +331,436 @@ export interface CljsKernels {
   readonly createAccountHealthStore: (sql: unknown, flushIntervalMs: number, selectAllSql: string) => unknown;
   readonly createPromptAffinityStore: (sql: unknown, statements: unknown) => unknown;
   readonly createCredentialStore: (filePath: string, defaultProviderId: string, deps: unknown) => unknown;
+  // pricing (model-pricing)
+  readonly getModelPricing: (manifestPath: string, providerId: string, model: string) => ModelPricing;
+  readonly estimateRequestCost: (
+    manifestPath: string,
+    providerId: string,
+    model: string,
+    promptTokens: number,
+    completionTokens: number,
+    waterMlPerKwh: number,
+  ) => RequestCostEstimate;
+  readonly setPolicyModelPricingOverrides: (overrides: unknown) => void;
+  readonly getModelPricingIndexStatus: (manifestPath: string) => ModelPricingIndexStatus;
+  readonly getModelsDevPricingSnapshot: (manifestPath: string) => ModelsDevPricingSnapshot;
+  readonly refreshModelsDevPricingIndex: (manifestPath: string, options: ModelPricingRefreshOptions) => Promise<ModelPricingIndexStatus>;
+  readonly startModelsDevPricingRefresh: (
+    manifestPath: string,
+    options: ModelPricingRefreshSchedulerOptions,
+  ) => ModelPricingRefreshHandle;
+  // quota (openai-quota)
+  readonly fetchOpenAiQuotaSnapshots: (
+    manifestPath: string,
+    credentialStore: CredentialStoreLike,
+    options: OpenAiQuotaFetchOptions,
+  ) => Promise<OpenAiQuotaSnapshotResponse>;
+  readonly probeOpenAiAccount: (
+    manifestPath: string,
+    credentialStore: CredentialStoreLike,
+    options: OpenAiProbeOptions,
+  ) => Promise<OpenAiAccountProbeResult>;
+  readonly createQuotaMonitor: (
+    manifestPath: string,
+    credentialStore: CredentialStoreLike,
+    logger: QuotaMonitorLogger,
+    config: Partial<QuotaMonitorConfig>,
+    healthStore: AccountHealthStore | undefined,
+    cooldownController: QuotaCooldownController | undefined,
+  ) => QuotaMonitorApi;
+  readonly quotaMonitorDefaultConfig: () => QuotaMonitorConfig;
+  // w2-routing kernels
+  readonly bridgeCapabilitySupportsPath: (manifestPath: string, capability: object, normalizedPath: string) => boolean;
+  readonly bridgeCapabilitySupportsModel: (capability: object, requestedModel: string | undefined) => boolean;
+  readonly tenantApiKeyConstants: () => { readonly defaultTenantId: string; readonly apiKeyPrefix: string; readonly visiblePrefixLength: number };
+  readonly normalizeTenantId: (value: string) => string;
+  readonly generateTenantApiKey: () => string;
+  readonly buildTenantApiKeyPrefix: (token: string) => string;
+  readonly hashTenantApiKey: (token: string, pepper: string) => string;
+  readonly extractResponseTextAndUrlCitations: (payload: unknown) => {
+    readonly text: string;
+    readonly citations: Array<{ readonly url: string; readonly title?: string }>;
+    readonly responseId?: string;
+  };
+  readonly extractMarkdownLinks: (text: string) => Array<{ readonly url: string; readonly title?: string }>;
+  readonly deriveOAuthMetadataFromToken: (token: string) => object;
+  readonly accountDisplayName: (account: object) => string;
+  readonly openAiReauthIdentityMatches: (target: object, resolved: object) => boolean;
+  readonly loadModels: (modelsFilePath: string, fallback: readonly string[]) => Promise<string[]>;
+  readonly loadDeclaredModels: (modelsFilePath: string) => Promise<string[]>;
+  readonly loadModelPreferences: (modelsFilePath: string, fallbackPreferred: readonly string[]) => Promise<{
+    readonly preferred: readonly string[];
+    readonly disabled: readonly string[];
+    readonly aliases: Readonly<Record<string, string>>;
+  }>;
+  readonly toOpenAiModel: (modelId: string) => { readonly id: string; readonly object: "model"; readonly created: number; readonly owned_by: string };
+  readonly providerRoutesFromRaw: (raw: unknown) => object[] | undefined;
+  readonly declaredProviderRoutes: (manifestPath: string, result: unknown, config: unknown) => object[];
+  readonly filteredProviderRoutes: (result: unknown, inputRoutes: readonly object[]) => object[];
+  readonly applyProviderRouteDecision: (preview: unknown, filteredRoutes: readonly object[], upstreamModes: readonly string[]) => {
+    readonly providerRoutes: object[];
+    readonly strategyMode?: string;
+    readonly strategyModeByProvider?: Readonly<Record<string, string>>;
+  };
+  readonly looksLikeHostedOpenAiFamily: (manifestPath: string, model: string) => boolean;
+  readonly stripModelPrefix: (model: string, prefixes: readonly string[]) => string;
+  readonly hasModelPrefix: (model: string, prefixes: readonly string[]) => boolean;
+  readonly shouldUseLocalOllama: (manifestPath: string, model: string, patterns: readonly string[]) => boolean;
+  readonly resolveRequestRoutingState: (manifestPath: string, config: object, requestedModel: string) => {
+    readonly explicitOllama: boolean;
+    readonly openAiPrefixed: boolean;
+    readonly factoryPrefixed: boolean;
+    readonly localOllama: boolean;
+    readonly routedModel: string;
+  };
+  readonly dedupeModelIds: (modelIds: readonly string[]) => string[];
+  readonly parseModelIdsFromCatalogPayload: (payload: unknown) => string[];
+  readonly buildLargestModelAliases: (modelIds: readonly string[]) => Record<string, string>;
+  readonly buildOllamaCatalogRoutes: (manifestPath: string, config: object) => object[];
+  readonly providerSupportsResponsesApi: (manifestPath: string, providerId: string, openAiProviderId?: string) => boolean;
+  readonly providerSupportsImagesApi: (manifestPath: string, providerId: string, openAiProviderId?: string) => boolean;
+  readonly filterResponsesApiRoutes: <T extends { readonly providerId: string }>(manifestPath: string, routes: readonly T[], openAiProviderId?: string) => T[];
+  readonly filterImagesApiRoutes: <T extends { readonly providerId: string }>(manifestPath: string, routes: readonly T[], openAiProviderId?: string) => T[];
+  readonly minMsUntilAnyProviderKeyReady: (keyPool: object, routes: readonly { readonly providerId: string }[]) => Promise<number>;
+  readonly createDynamicProviderBaseUrlGetter: (store: object | undefined) => ((providerId: string) => Promise<string | null | undefined>) | undefined;
+  // federation (bridge protocol, routing, relay, agent)
+  readonly bridgeProtocolVersion: string;
+  readonly parseBridgeMessage: (value: unknown) => BridgeMessage;
+  readonly parseBridgeMessageJson: (jsonText: string) => BridgeMessage;
+  readonly isAtDid: (value: string | undefined) => boolean;
+  readonly normalizeAtDid: (value: string) => string;
+  readonly fingerprintAdminKey: (value: string) => string;
+  readonly parseFederationOwnerCredential: (raw: string | undefined) => FederationOwnerCredential | undefined;
+  readonly federationHeaders: {
+    readonly hop: string;
+    readonly ownerSubject: string;
+    readonly bridgeTenant: string;
+    readonly forcedProvider: string;
+    readonly forcedAccountId: string;
+    readonly routedPeer: string;
+    readonly routedProvider: string;
+    readonly routedAccount: string;
+    readonly imported: string;
+    readonly blockedResponseHeaders: readonly string[];
+  };
+  readonly extractPeerCredential: (auth: Record<string, unknown>) => string | undefined;
+  readonly resolveFederationHopCount: (headers: Record<string, unknown>) => number;
+  readonly resolveFederationOwnerSubject: (
+    input: {
+      readonly headers: Record<string, unknown>;
+      readonly requestAuth?: { readonly kind?: string; readonly subject?: string; readonly tenantId?: string };
+      readonly hopCount?: number;
+    },
+    defaultOwnerSubject: string | undefined,
+  ) => string | undefined;
+  readonly federationJsonRequestHeaders: (credential: string | undefined) => Record<string, string>;
+  readonly federationFailureMessage: (parsed: unknown, status: number) => string;
+  readonly forwardableBridgeResponseHeaders: (
+    headers: Readonly<Record<string, string>>,
+    hideUpstreamAccount: boolean,
+  ) => [string, string][];
+  readonly parseBridgeLeaseAccounts: (payload: unknown, fallbackProviderId: string) => BridgeLeaseAccountSummary[];
+  readonly parseBridgeLeaseExport: (payload: unknown) => BridgeLeaseExportedAccount | undefined;
+  readonly createBridgeRelay: () => unknown;
+  readonly createSseBridgeSendChannel: (res: ServerResponse) => BridgeSendChannel;
+  readonly formatSseEvent: (event: string, data: unknown) => string;
+  // provider-strategy (proxx.strategy.*)
+  readonly normalizeGeminiReasoningEffort: (value: unknown) => string | undefined;
+  readonly openAiMessagesToGeminiContents: (messages: unknown[]) => Array<{ role: string; parts: Array<Record<string, unknown>> }>;
+  readonly extractSystemInstructions: (messages: unknown[]) => string[];
+  readonly buildGeminiPayload: (upstreamBody: JsRecord, routedModel: string) => JsRecord;
+  readonly geminiResponseToChatCompletion: (response: unknown, routedModel: string) => JsRecord;
+  readonly geminiPayloadToSdkRequest: (
+    model: string,
+    payload: JsRecord,
+  ) => { model: string; contents: Array<{ role: string; parts: Array<Record<string, unknown>> }>; config: JsRecord };
+  readonly geminiUpstreamPath: (alias: string | undefined | null, routedModel: string) => string;
+  readonly isLocalGeminiBaseUrl: (baseUrl: string) => boolean;
+  readonly isGeminiSdkModel: (model: string) => boolean;
+  readonly classifyGeminiSdkError: (message: string) => {
+    readonly kind: "continue";
+    readonly rateLimit?: boolean;
+    readonly modelNotFound?: boolean;
+    readonly modelNotSupportedForAccount?: boolean;
+    readonly requestError?: boolean;
+    readonly upstreamInvalidRequest?: boolean;
+  };
+  readonly createGeminiStreamAccumulator: () => {
+    readonly push: (chunk: unknown) => void;
+    readonly completion: (routedModel: string) => JsRecord;
+  };
+  readonly extractUsageCountsFromSseText: (streamText: string, mode: string, routedModel: string) => JsRecord;
+  readonly usageCountsForMode: (mode: string, upstreamJson: unknown, routedModel: string) => JsRecord;
+  readonly responseLooksLikeEventStream: (response: Response, mode: string) => boolean;
+  readonly updateUsageCountsFromResponse: (
+    requestLogStore: unknown,
+    entryId: string,
+    response: Response,
+    mode: string,
+    routedModel: string,
+    providerId: string,
+    config: unknown,
+    attemptStartedAt: number,
+    estimateCost: unknown,
+  ) => Promise<void>;
+  readonly buildFactory4xxDiagnostics: (payload: JsRecord, promptCacheKey?: string) => JsRecord;
+  readonly promptCacheKeyHash: (requestBody: JsRecord) => string | undefined;
+  readonly updateFailedAttemptDiagnostics: (
+    requestLogStore: unknown,
+    entryId: string,
+    response: Response,
+    providerId: string,
+    payload: JsRecord,
+    promptCacheKey?: string,
+  ) => Promise<void>;
+  readonly requestedServiceTier: (requestBody: JsRecord, headers: unknown) => string | undefined;
+  readonly loggedServiceTier: (
+    payload: JsRecord,
+    requestBody: JsRecord | undefined,
+    headers: unknown,
+  ) => { readonly serviceTier?: string; readonly serviceTierSource: "fast_mode" | "explicit" | "none" };
+  readonly stripTrailingAssistantPrefill: (payload: JsRecord) => JsRecord;
+  readonly ensureUsageInStream: (payload: JsRecord) => JsRecord;
+  readonly prepareUpstreamBody: (requestBody: JsRecord, routedModel: string, requestedModel: string) => JsRecord;
+  readonly requestyModel: (model: string, prefix: string) => string;
+  readonly buildCodexResponsesImagesBody: (imagesBody: JsRecord) => string;
+  readonly extractImagesFromResponsesOutput: (response: JsRecord) => JsRecord | undefined;
+  readonly extractImagesFromCodexResponse: (responseBody: string) => JsRecord | undefined;
+  readonly extractImagesFromCodexEventStream: (streamText: string) => JsRecord | undefined;
+  readonly openAiContentToText: (content: unknown) => string;
+  readonly resolveUsageAttribution: (auth: unknown) => { readonly tenantId?: string; readonly issuer?: string; readonly keyId?: string };
+  readonly shouldRetrySameCredentialForServerError: (status: number, manifestPath?: string) => boolean;
+  readonly isTransientProviderRetry: (providerId: string, status: number, manifestPath?: string) => boolean;
+  readonly shouldCooldownCredentialOnAuthFailure: (providerId: string, status: number, manifestPath?: string) => boolean;
+  readonly shouldPermanentlyDisableCredential: (credential: unknown, status: number, manifestPath?: string) => boolean;
+  readonly permanentDisableCooldownMs: (manifestPath?: string) => number;
+  readonly cooldownCapMs: (kind: string, manifestPath?: string) => number;
+  readonly classifyAuthError: (
+    credential: unknown,
+    providerId: string,
+    status: number,
+    configuredCooldownMs: number,
+    manifestPath?: string,
+  ) => { readonly classification: string; readonly cooldownMs?: number };
+  readonly classifyModelNotSupported: (
+    configuredCooldownMs: number,
+    manifestPath?: string,
+  ) => { readonly classification: string; readonly cooldownMs?: number };
+  readonly clampRouteQuality: (latencyMs: number, manifestPath?: string) => number;
+  readonly accountOrderForRequest: (
+    providerId: string,
+    routedModel: string,
+    planTypes: ReadonlyArray<string | undefined>,
+    manifestPath?: string,
+  ) => number[];
+  readonly accountOrderForLatency: (
+    facts: ReadonlyArray<{ readonly planType?: string; readonly ttft?: number; readonly tps?: number }>,
+    manifestPath?: string,
+  ) => number[];
+  readonly candidateOrderForAffinities: (
+    candidates: ReadonlyArray<readonly [string, string]>,
+    preferred: ReadonlyArray<readonly [string, string]>,
+  ) => number[];
+  readonly candidateOrderForRoutes: (
+    candidates: ReadonlyArray<{ readonly providerIndex?: number; readonly ttft?: number }>,
+    manifestPath?: string,
+  ) => number[];
+  readonly failedBodyNeeded: (status: number) => "auth-summary" | "text" | undefined;
+  readonly failedAttemptOutcome: (facts: {
+    readonly status: number;
+    readonly missingModel?: boolean;
+    readonly modelNotSupported?: boolean;
+    readonly authMessage?: string;
+    readonly errorBody?: string;
+  }) => StrategyContinueOutcome;
+  readonly isEventStreamContentType: (contentType: string | null | undefined) => boolean;
+  readonly isEventStreamOrUntyped: (contentType: string | null | undefined) => boolean;
+  readonly okBodyVerdict: (
+    bodyText: string,
+    facts: { readonly clientWantsStream?: boolean; readonly streamLike?: boolean; readonly imagesPassthrough?: boolean; readonly providerId?: string },
+  ) => "empty" | "stream-like" | "invalid" | "ok";
+  readonly successMode: (facts: { readonly clientWantsStream?: boolean; readonly needsReasoningTrace?: boolean }) => "reasoning-json" | "stream" | "relay";
+  readonly missingReasoningSkips: (
+    facts: { readonly needsReasoningTrace?: boolean; readonly hasMoreCandidates?: boolean },
+    hasReasoning: boolean,
+  ) => boolean;
+  readonly isChatCompletionResponse: (value: unknown) => boolean;
+  readonly bootstrapEventStream: (
+    response: Response,
+    opts: { readonly timeoutMs: number; readonly needsReasoningTrace?: boolean; readonly hasMoreCandidates?: boolean },
+  ) => Promise<
+    | StrategyContinueOutcome
+    | { readonly kind: "ready"; readonly reader: ReadableStreamDefaultReader<Uint8Array>; readonly bufferedChunks: Uint8Array[] }
+  >;
+  readonly createExecutorState: (opts: { readonly reassignmentAllowed: boolean; readonly sticky: boolean }) => ExecutorState;
+  readonly executorStep: (state: ExecutorState, event: JsRecord, manifestPath?: string) => {
+    readonly state: ExecutorState;
+    readonly effects: ReadonlyArray<readonly unknown[]>;
+    readonly next?: "handled" | "retry-credential" | "next-step" | "next-candidate" | "stop-candidates" | "refresh-token";
+    readonly attempts: number;
+    readonly abort: boolean;
+  };
+  readonly executorSummary: (state: ExecutorState) => JsRecord;
+  readonly throttlePlan: (cooldownMs: number, manifestPath?: string) => { readonly waitMs: number; readonly shortCooldownMs: number };
+  readonly throttleRetryVerdict: (facts: { readonly rateLimited: boolean; readonly ok: boolean; readonly retryKind?: string }) => string;
+  readonly quotaBaseCooldownMs: (
+    facts: { readonly status: number; readonly authType: string; readonly accountProviderId: string; readonly keyCooldownMs: number },
+    manifestPath?: string,
+  ) => number;
+  readonly transientStatus: (
+    facts: { readonly status: number; readonly providerId: string; readonly hasRetryRemaining: boolean },
+    manifestPath?: string,
+  ) => "transient-provider" | "server-error-retry" | "server-error" | undefined;
+  readonly imagesNextBase: (facts: {
+    readonly status: number;
+    readonly tryNextBaseOnStatuses?: readonly number[];
+    readonly nextBaseDiffers: boolean;
+  }) => boolean;
+  readonly maxStickyTransportFailures: (manifestPath?: string) => number;
+  readonly selectStrategy: (facts: StrategySelectionFacts, opts: { readonly remoteOnly?: boolean; readonly preferredMode?: string }, manifestPath?: string) => string;
+  readonly selectRemoteStrategy: (
+    facts: StrategySelectionFacts,
+    providerId: string,
+    openaiProviderId: string,
+    explicitMode: string | undefined,
+    modeByProvider: Readonly<Record<string, string>> | undefined,
+    manifestPath?: string,
+  ) => string;
+  readonly isCompatEmbeddingProvider: (providerId: string, manifestPath?: string) => boolean;
+  readonly buildStrategyPayload: (
+    id: string,
+    upstreamBody: JsRecord | undefined,
+    requestBody: JsRecord | undefined,
+    headers: unknown,
+    opts: { readonly ollamaModelPrefixes?: readonly string[] },
+    manifestPath?: string,
+  ) => JsRecord;
+  readonly strategyUpstreamPath: (
+    id: string,
+    providerPaths: Readonly<Record<string, string>> | undefined,
+    config: unknown,
+    model: unknown,
+    manifestPath?: string,
+  ) => string | undefined;
+  readonly normalizeLlamacppModelName: (model: string) => string;
+  readonly strategyMatches: (id: string, facts: StrategySelectionFacts, manifestPath?: string) => boolean;
+  readonly maxAutoModelCandidates: (raw: string | undefined, manifestPath?: string) => number;
+  readonly shouldAdvanceAutoCandidate: (
+    facts: { readonly hasMore: boolean; readonly autoModel: boolean },
+    summary: object,
+    manifestPath?: string,
+  ) => boolean;
+  readonly isVisionAutoModel: (model: string) => boolean;
+  readonly visionModelCandidates: (availableModels: readonly string[], manifestPath?: string) => string[];
+  readonly visionRouteOrder: (model: string, providerIds: readonly string[], manifestPath?: string) => number[];
+  readonly isCephalonAutoModel: (model: string) => boolean;
+  readonly cephalonPlan: (
+    model: string,
+    availableModels: readonly string[] | undefined,
+    manifestPath?: string,
+  ) => { readonly innerModel: string; readonly candidates: string[] };
+  readonly cephalonChoice: (model: string, ranked: readonly string[], manifestPath?: string) => string;
+  readonly deriveStrategyContextFacts: (input: {
+    readonly surface: string;
+    readonly routing: { readonly factoryPrefixed: boolean; readonly openAiPrefixed: boolean; readonly explicitOllama: boolean; readonly localOllama: boolean };
+    readonly requestBody: JsRecord;
+    readonly hostedOpenAiFamily: boolean;
+    readonly config: {
+      readonly requestTimeoutMs: number;
+      readonly streamBootstrapTimeoutMs: number;
+      readonly upstreamProviderId: string;
+      readonly openaiProviderId: string;
+    };
+  }) => {
+    readonly routeProviderId: string;
+    readonly clientWantsStream: boolean;
+    readonly needsReasoningTrace: boolean;
+    readonly upstreamAttemptTimeoutMs: number;
+    readonly explicitOllama: boolean;
+    readonly localOllama: boolean;
+    readonly openAiPrefixed: boolean;
+    readonly responsesPassthrough: boolean;
+    readonly imagesPassthrough: boolean;
+  };
+  // w2-routing kernels (catalog, alias, outcome, pipeline)
+  readonly resolvableConcreteModelIds: (catalog: object | null) => string[] | undefined;
+  readonly resolvableConcreteModelIdsForProviders: (
+    bundle: object | null,
+    providerIds: readonly string[],
+    includeDeclaredModel?: (modelId: string) => boolean,
+  ) => string[] | undefined;
+  readonly resolveCatalogAlias: (
+    manifestPath: string,
+    bundle: object,
+    requested: string,
+    preserveExplicitOllama: boolean | undefined,
+  ) => { readonly error?: RoutingErrorDescriptor; readonly routingModelInput?: string; readonly aliasApplied?: boolean };
+  readonly classifyRoutingOutcome: (execution: object, availability: object) => string;
+  readonly routingOutcomeNeedsRetryHint: (outcome: string) => boolean;
+  readonly routingOutcomeResponse: (
+    outcome: string,
+    ctx: {
+      readonly routedModel: string;
+      readonly logPrefix?: string;
+      readonly lastUpstreamError?: object;
+      readonly sawRequestError?: boolean;
+    },
+    retryInMs: number,
+  ) => RoutingErrorDescriptor & {
+    readonly retryAfterSeconds?: number;
+    readonly log?: { readonly level: "warn" | "error"; readonly message: string };
+    readonly withRequestError?: boolean;
+  };
+  readonly checkRequestedModel: (requestBody: object) => { readonly model?: string; readonly error?: RoutingErrorDescriptor };
+  readonly tenantDeniesModel: (preview: unknown) => boolean;
+  readonly tenantDeniedError: (model: string) => RoutingErrorDescriptor;
+  readonly routingCandidateSource: (flags: { readonly cephalon: boolean; readonly vision: boolean; readonly auto: boolean }) => "cephalon" | "vision" | "auto" | "plain";
+  readonly finishModelRouting: (requested: string, source: string, candidates: readonly string[]) => {
+    readonly error?: RoutingErrorDescriptor;
+    readonly candidates?: string[];
+    readonly isAutoModel?: boolean;
+    readonly candidatesHeader?: string;
+  };
+  readonly createProviderCatalogStore: (
+    manifestPath: string,
+    config: object,
+    keyPool: object,
+    routes: readonly object[],
+    ollamaRoutes: readonly object[],
+    deps: object,
+  ) => {
+    readonly getCatalog: (forceRefresh?: boolean) => Promise<unknown>;
+    readonly isModelAvailable: (providerId: string, modelId: string) => Promise<boolean>;
+  };
+  // w2-routing kernels (aco, pheromone)
+  readonly rankProviderRoutesWithAco: (manifestPath: string, input: object) => Promise<{
+    readonly orderedRoutes: object[];
+    readonly signals: readonly object[];
+  }>;
+  readonly pheromoneHydrateDb: (raw: unknown) => object[];
+  readonly pheromoneKeyValid: (providerId: string, model: string) => boolean;
+  readonly pheromoneGet: (records: readonly object[], providerId: string, model: string) => number;
+  readonly pheromoneNoteSuccess: (records: readonly object[], providerId: string, model: string, quality: number) => object[];
+  readonly pheromoneNoteFailure: (records: readonly object[], providerId: string, model: string) => object[];
+}
+
+export interface ChromaSearchRow {
+  readonly sessionId: string;
+  readonly sessionTitle: string;
+  readonly messageId: string;
+  readonly role: "system" | "user" | "assistant" | "tool";
+  readonly content: string;
+  readonly createdAt: number;
+  readonly distance: number;
+}
+
+export interface RequestLogFanout {
+  readonly subscribe: (id: string, identity: object, subscription: object) => void;
+  readonly unsubscribe: (id: string) => void;
+  readonly recipients: (entry: object) => string[];
+  readonly size: () => number;
+  readonly clear: () => void;
+  readonly eventType: (type: string) => string;
 }
 
 const loaded = await loadCljsRuntime({ required: true });
