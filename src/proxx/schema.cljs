@@ -449,6 +449,21 @@
      [:vector [:tuple :string
                [:map-of [:enum :input :output :reasoning :cache-read :cache-write] number?]]]]]])
 
+(def ProviderQuotaProfileContract
+  "Endpoints, client id, timeouts and probe settings for reading a provider account's quota."
+  [:and
+   ContractBase
+   [:map
+    [:contract/kind [:enum :provider-quota-profile]]
+    [:quota/token-url [:string {:min 1}]]
+    [:quota/usage-url [:string {:min 1}]]
+    [:quota/client-id [:string {:min 1}]]
+    [:quota/refresh-buffer-ms [:int {:min 0}]]
+    [:quota/usage-timeout-ms [:int {:min 1}]]
+    [:quota/probe-timeout-ms [:int {:min 1}]]
+    [:quota/probe-model [:string {:min 1}]]
+    [:quota/probe-expected-text [:string {:min 1}]]]])
+
 (def ModelAliasContract
   [:and
    ContractBase
@@ -579,6 +594,7 @@
     [:model-pricing-provider-rule ModelPricingProviderRuleContract]
     [:model-pricing-vendor-fallback ModelPricingVendorFallbackContract]
     [:model-energy-profile ModelEnergyProfileContract]
+    [:provider-quota-profile ProviderQuotaProfileContract]
     [:model-alias ModelAliasContract]
     [:reasoning-normalization ReasoningNormalizationContract]
    [:request-queue-template RequestQueueTemplateContract]
@@ -634,6 +650,7 @@
     :proxx/contract-model-pricing-provider-rule ModelPricingProviderRuleContract
     :proxx/contract-model-pricing-vendor-fallback ModelPricingVendorFallbackContract
     :proxx/contract-model-energy-profile ModelEnergyProfileContract
+    :proxx/contract-provider-quota-profile ProviderQuotaProfileContract
     :proxx/contract-model-alias ModelAliasContract
     :proxx/contract-reasoning-normalization ReasoningNormalizationContract
    :proxx/retry-backoff RetryBackoff

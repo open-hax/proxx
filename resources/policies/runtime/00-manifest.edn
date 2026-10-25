@@ -8,6 +8,7 @@
   "10-model-families.edn"
   "15-model-pricing-overrides.edn"
   "16-model-pricing-resolution.edn"
+  "17-provider-quota-profiles.edn"
   "18-auto-model-profile.edn"
   "20-provider-capabilities.edn"
   "30-model-routing.edn"

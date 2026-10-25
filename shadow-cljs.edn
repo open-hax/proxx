@@ -97,7 +97,9 @@
                                            getModelPricingIndexStatus proxx.runtime.pricing/get-model-pricing-index-status-js
                                            getModelsDevPricingSnapshot proxx.runtime.pricing/get-models-dev-pricing-snapshot-js
                                            refreshModelsDevPricingIndex proxx.runtime.pricing/refresh-models-dev-pricing-index-js
-                                           startModelsDevPricingRefresh proxx.runtime.pricing/start-models-dev-pricing-refresh-js}}}
+                                           startModelsDevPricingRefresh proxx.runtime.pricing/start-models-dev-pricing-refresh-js
+                                           fetchOpenAiQuotaSnapshots proxx.runtime.quota/fetch-openai-quota-snapshots-js
+                                           probeOpenAiAccount proxx.runtime.quota/probe-openai-account-js}}}
    :js-options {:js-provider :import
                 :keep-as-import #{"node:fs" "node:path"}}
    :compiler-options {:output-feature-set :es-next

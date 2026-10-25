@@ -6,6 +6,13 @@
  * required: these functions are the implementation, not an optimization.
  */
 import { loadCljsRuntime } from "./cljs-runtime.js";
+import type { CredentialStoreLike } from "./credential-store.js";
+import type {
+  OpenAiAccountProbeResult,
+  OpenAiProbeOptions,
+  OpenAiQuotaFetchOptions,
+  OpenAiQuotaSnapshotResponse,
+} from "./openai-quota.js";
 import type {
   ModelPricing,
   ModelPricingIndexStatus,
@@ -166,6 +173,17 @@ export interface CljsKernels {
     manifestPath: string,
     options: ModelPricingRefreshSchedulerOptions,
   ) => ModelPricingRefreshHandle;
+  // quota (openai-quota)
+  readonly fetchOpenAiQuotaSnapshots: (
+    manifestPath: string,
+    credentialStore: CredentialStoreLike,
+    options: OpenAiQuotaFetchOptions,
+  ) => Promise<OpenAiQuotaSnapshotResponse>;
+  readonly probeOpenAiAccount: (
+    manifestPath: string,
+    credentialStore: CredentialStoreLike,
+    options: OpenAiProbeOptions,
+  ) => Promise<OpenAiAccountProbeResult>;
 }
 
 const loaded = await loadCljsRuntime({ required: true });
