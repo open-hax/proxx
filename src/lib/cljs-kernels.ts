@@ -182,6 +182,8 @@ export interface CljsKernels {
   readonly sqlTenantApiKeyMatch: (row: unknown) => Record<string, unknown>;
   readonly sqlCredentialProviderViews: (providerRows: readonly unknown[], accountRows: readonly unknown[], reveal: boolean, derive: (token: string) => unknown) => unknown[];
   readonly sqlCooldownEntries: (rows: readonly unknown[]) => Array<[string, string, number]>;
+  // w2 account health
+  readonly createAccountHealthStore: (sql: unknown, flushIntervalMs: number, selectAllSql: string) => unknown;
   readonly createCredentialStore: (filePath: string, defaultProviderId: string, deps: unknown) => unknown;
 }
 

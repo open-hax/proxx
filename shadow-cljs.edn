@@ -118,7 +118,8 @@
                                            sqlTenantApiKeyView proxx.runtime.sql/tenant-api-key-view-js
                                            sqlTenantApiKeyMatch proxx.runtime.sql/tenant-api-key-match-js
                                            sqlCredentialProviderViews proxx.runtime.sql/credential-provider-views-js
-                                           sqlCooldownEntries proxx.runtime.sql/cooldown-entries-js}}}
+                                           sqlCooldownEntries proxx.runtime.sql/cooldown-entries-js
+                                           createAccountHealthStore proxx.runtime.account-health/create-account-health-store-js}}}
    :js-options {:js-provider :import
                 :keep-as-import #{"node:fs" "node:path"}}
    :compiler-options {:output-feature-set :es-next
