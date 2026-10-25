@@ -5,9 +5,41 @@
  * this one can call the kernels synchronously. The compiled artifact is
  * required: these functions are the implementation, not an optimization.
  */
+import type { ServerResponse } from "node:http";
+
 import { loadCljsRuntime } from "./cljs-runtime.js";
+import type { CredentialStoreLike } from "./credential-store.js";
+import type { AccountHealthStore } from "./db/account-health-store.js";
+import type {
+  QuotaCooldownController,
+  QuotaMonitorApi,
+  QuotaMonitorConfig,
+  QuotaMonitorLogger,
+} from "./quota-monitor.js";
+import type {
+  OpenAiAccountProbeResult,
+  OpenAiProbeOptions,
+  OpenAiQuotaFetchOptions,
+  OpenAiQuotaSnapshotResponse,
+} from "./openai-quota.js";
+import type {
+  ModelPricing,
+  ModelPricingIndexStatus,
+  ModelPricingRefreshHandle,
+  ModelPricingRefreshOptions,
+  ModelPricingRefreshSchedulerOptions,
+  ModelsDevPricingSnapshot,
+  RequestCostEstimate,
+} from "./model-pricing.js";
+import type { BridgeSendChannel } from "./federation/bridge-send-channel.js";
+import type { BridgeMessage } from "./federation/bridge-protocol.js";
+import type { BridgeLeaseAccountSummary, BridgeLeaseExportedAccount } from "../routes/federation/bridge-lease-parsers.js";
+import type { FederationOwnerCredential } from "./federation/owner-credential.js";
 
 type JsRecord = Record<string, unknown>;
+
+/** Method bag returned by the CLJS OAuth manager factories (typed per manager by its TS class). */
+export type OAuthManagerFacade = Record<string, (...args: never[]) => unknown>;
 
 export interface CljsKernels {
   // errors/classification
@@ -132,6 +164,26 @@ export interface CljsKernels {
   } | null | undefined;
   // requesty
   readonly requestyModelProvider: (manifestPath: string, model: string) => string;
+  // http routes (Ring-style handlers registered on Fastify)
+  readonly registerHealthRoutes: (
+    app: unknown,
+    deps: { readonly keyPool: unknown; readonly upstreamProviderId: string; readonly proxyAuthTokenConfigured: boolean },
+  ) => void;
+  readonly registerApiV1IndexRoute: (app: unknown) => void;
+  // route authorization and request-value parsing (routes/shared/ui-auth)
+  readonly parseBoolean: (value: unknown) => boolean;
+  readonly parseOptionalRequestsPerMinute: (value: unknown) => number | null | undefined;
+  readonly parseOptionalProviderIds: (value: unknown) => readonly string[] | null | undefined;
+  readonly parseOptionalModelIds: (value: unknown) => readonly string[] | null | undefined;
+  readonly parseOptionalPositiveInteger: (value: unknown) => number | undefined;
+  readonly authCanViewTenant: (auth: unknown, tenantId: string) => boolean;
+  readonly authCanManageTenantKeys: (auth: unknown, tenantId: string) => boolean;
+  readonly authCanManageFederation: (auth: unknown) => boolean;
+  readonly toVisibleTenants: (
+    auth: unknown,
+    fallbackTenants: readonly { id: string; name: string; status: string }[],
+  ) => readonly { id: string; name: string; status: string }[];
+  readonly registerSettingsRoutes: (app: unknown, deps: unknown, prefix: string) => void;
   // key pool
   readonly loadProviderSeedSpecs: (manifestPath: string) => readonly {
     readonly providerIdEnvNames: readonly string[];
@@ -139,6 +191,128 @@ export interface CljsKernels {
     readonly keyEnvNames: readonly string[];
   }[];
   readonly createKeyPool: (config: unknown, deps: unknown) => unknown;
+  // w2-analytics
+  readonly createRequestLogFanout: () => RequestLogFanout;
+  readonly ollamaBatchVectors: (payload: unknown, expectedCount: number) => number[][];
+  readonly ollamaLegacyVector: (payload: unknown) => number[];
+  readonly ollamaValidateConfig: (config: Record<string, unknown>) => void;
+  readonly ollamaBuildConfig: (config: Record<string, unknown>) => { readonly url: string; readonly model: string };
+  readonly chromaConnectionOptions: (url: URL) => { readonly host: string; readonly ssl: boolean; readonly port?: number };
+  readonly chromaSearchResults: (
+    ids: readonly unknown[],
+    docs: readonly unknown[],
+    metas: readonly unknown[],
+    distances: readonly unknown[],
+    now: number,
+  ) => ChromaSearchRow[];
+  readonly eventLabelerApplies: (id: string, event: object) => boolean;
+  readonly eventLabelerLabel: (id: string, event: object) => string[];
+  readonly eventDdl: () => string[];
+  readonly eventBuildQuery: (filters: object) => { readonly text: string; readonly values: unknown[] };
+  readonly eventBuildCount: (filters: object) => { readonly text: string; readonly values: unknown[] };
+  readonly eventCountByTagQuery: (since: Date | undefined) => { readonly text: string; readonly values: unknown[] };
+  readonly eventParseRow: (row: object) => unknown;
+  readonly eventSanitizePayload: (payload: Record<string, unknown>) => Record<string, unknown>;
+  readonly usageDdl: () => string[];
+  readonly usageToEntry: (row: object) => unknown;
+  readonly usageCoverage: (row: object | undefined) => {
+    readonly earliestEntryAtMs: number | null;
+    readonly retainedEntryCount: number;
+    readonly maxRetainedEntries: number;
+  };
+  readonly usageUpsert: (entry: object) => { readonly strings: TemplateStringsArray; readonly values: unknown[] };
+  readonly usageListQuery: (filters: object, cursor: { timestampMs: number; id: string } | undefined) => { readonly text: string; readonly values: unknown[] };
+  readonly usageListSinceQuery: (
+    sinceMs: number,
+    filters: object,
+    limit: number | undefined,
+    after: { timestampMs: number; id: string } | undefined,
+  ) => { readonly text: string; readonly values: unknown[] };
+  readonly usageCoverageQuery: (filters: object) => { readonly text: string; readonly values: unknown[] };
+  readonly usageCursorQuery: () => string;
+  readonly usageToCursor: (row: object) => { readonly timestampMs: number; readonly id: string };
+  readonly createSessionStore: (filePath: string, deps?: { now?: () => number; uuid?: () => string }) => unknown;
+  // w2 auth/oauth: openai + factory oauth
+  readonly createOpenAiOAuthManager: (options: unknown, deps: unknown) => OAuthManagerFacade;
+  readonly resolveOpenAiCallbackPort: (raw: string | undefined) => string;
+  readonly isTerminalOpenAiRefreshErrorFacts: (facts: {
+    readonly status: number;
+    readonly code?: string;
+    readonly type?: string;
+    readonly message: string;
+    readonly responseBody?: string;
+  }) => boolean;
+  readonly createFactoryOAuthManager: (options: unknown, deps: unknown) => OAuthManagerFacade;
+  readonly decryptAuthV2: (keyBase64: string, encryptedContent: string) => { readonly accessToken: string; readonly refreshToken: string };
+  readonly encryptAuthV2: (keyBase64: string, data: { readonly access_token: string; readonly refresh_token: string }) => string;
+  readonly loadFactoryAuthV2: () => Promise<{ readonly accessToken: string; readonly refreshToken: string } | null>;
+  readonly persistFactoryAuthV2: (accessToken: string, refreshToken: string) => Promise<void>;
+  readonly parseJwtExpiry: (token: string) => number | null;
+  readonly factoryCredentialNeedsRefresh: (credential: unknown) => boolean;
+  readonly refreshFactoryOAuthToken: (
+    refreshToken: string,
+    fetchFn: typeof fetch,
+  ) => Promise<{ readonly accessToken: string; readonly refreshToken: string; readonly expiresAt: number | undefined }>;
+  readonly factoryRefreshBufferMs: number;
+  // w2 credentials: file-backed credential store
+  // w2 request auth
+  readonly resolveRequestAuth: (input: unknown, defaultTenantId: string) => Promise<unknown>;
+  // w2 sql credential store mapping (rows in, views/params out; SQL text stays in db/schema.ts)
+  readonly normalizeAuthTypeSql: (raw: string) => "api_key" | "oauth_bearer";
+  readonly sqlProviderCredential: (row: unknown, authType: string) => Record<string, unknown>;
+  readonly legacyOpenAiDuplicateIds: (rows: readonly unknown[]) => string[];
+  readonly sqlUserView: (row: unknown) => Record<string, unknown>;
+  readonly sqlMembershipView: (row: unknown) => Record<string, unknown>;
+  readonly sqlUserUpsertParams: (newUuid: () => string, input: unknown) => unknown[];
+  readonly sqlResolveUiSession: (user: unknown, memberships: readonly unknown[], activeTenantId: string | undefined, defaultTenantId: string) => Record<string, unknown> | null;
+  readonly sqlBootstrapRole: (existing: readonly unknown[], defaultTenantId: string, countRow: unknown) => { readonly role: string; readonly create: boolean };
+  readonly sqlApiKeyScopes: (scopes: readonly unknown[]) => string[];
+  readonly sqlNormalizedApiKeyLabel: (label: string) => string;
+  readonly sqlTenantApiKeyView: (row: unknown) => Record<string, unknown>;
+  readonly sqlTenantApiKeyMatch: (row: unknown) => Record<string, unknown>;
+  readonly sqlCredentialProviderViews: (providerRows: readonly unknown[], accountRows: readonly unknown[], reveal: boolean, derive: (token: string) => unknown) => unknown[];
+  readonly sqlCooldownEntries: (rows: readonly unknown[]) => Array<[string, string, number]>;
+  // w2 account health
+  readonly createAccountHealthStore: (sql: unknown, flushIntervalMs: number, selectAllSql: string) => unknown;
+  readonly createCredentialStore: (filePath: string, defaultProviderId: string, deps: unknown) => unknown;
+  // pricing (model-pricing)
+  readonly getModelPricing: (manifestPath: string, providerId: string, model: string) => ModelPricing;
+  readonly estimateRequestCost: (
+    manifestPath: string,
+    providerId: string,
+    model: string,
+    promptTokens: number,
+    completionTokens: number,
+    waterMlPerKwh: number,
+  ) => RequestCostEstimate;
+  readonly setPolicyModelPricingOverrides: (overrides: unknown) => void;
+  readonly getModelPricingIndexStatus: (manifestPath: string) => ModelPricingIndexStatus;
+  readonly getModelsDevPricingSnapshot: (manifestPath: string) => ModelsDevPricingSnapshot;
+  readonly refreshModelsDevPricingIndex: (manifestPath: string, options: ModelPricingRefreshOptions) => Promise<ModelPricingIndexStatus>;
+  readonly startModelsDevPricingRefresh: (
+    manifestPath: string,
+    options: ModelPricingRefreshSchedulerOptions,
+  ) => ModelPricingRefreshHandle;
+  // quota (openai-quota)
+  readonly fetchOpenAiQuotaSnapshots: (
+    manifestPath: string,
+    credentialStore: CredentialStoreLike,
+    options: OpenAiQuotaFetchOptions,
+  ) => Promise<OpenAiQuotaSnapshotResponse>;
+  readonly probeOpenAiAccount: (
+    manifestPath: string,
+    credentialStore: CredentialStoreLike,
+    options: OpenAiProbeOptions,
+  ) => Promise<OpenAiAccountProbeResult>;
+  readonly createQuotaMonitor: (
+    manifestPath: string,
+    credentialStore: CredentialStoreLike,
+    logger: QuotaMonitorLogger,
+    config: Partial<QuotaMonitorConfig>,
+    healthStore: AccountHealthStore | undefined,
+    cooldownController: QuotaCooldownController | undefined,
+  ) => QuotaMonitorApi;
+  readonly quotaMonitorDefaultConfig: () => QuotaMonitorConfig;
   // w2-routing kernels
   readonly bridgeCapabilitySupportsPath: (manifestPath: string, capability: object, normalizedPath: string) => boolean;
   readonly bridgeCapabilitySupportsModel: (capability: object, requestedModel: string | undefined) => boolean;
@@ -193,6 +367,167 @@ export interface CljsKernels {
   readonly filterImagesApiRoutes: <T extends { readonly providerId: string }>(manifestPath: string, routes: readonly T[], openAiProviderId?: string) => T[];
   readonly minMsUntilAnyProviderKeyReady: (keyPool: object, routes: readonly { readonly providerId: string }[]) => Promise<number>;
   readonly createDynamicProviderBaseUrlGetter: (store: object | undefined) => ((providerId: string) => Promise<string | null | undefined>) | undefined;
+  // federation (bridge protocol, routing, relay, agent)
+  readonly bridgeProtocolVersion: string;
+  readonly parseBridgeMessage: (value: unknown) => BridgeMessage;
+  readonly parseBridgeMessageJson: (jsonText: string) => BridgeMessage;
+  readonly isAtDid: (value: string | undefined) => boolean;
+  readonly normalizeAtDid: (value: string) => string;
+  readonly fingerprintAdminKey: (value: string) => string;
+  readonly parseFederationOwnerCredential: (raw: string | undefined) => FederationOwnerCredential | undefined;
+  readonly federationHeaders: {
+    readonly hop: string;
+    readonly ownerSubject: string;
+    readonly bridgeTenant: string;
+    readonly forcedProvider: string;
+    readonly forcedAccountId: string;
+    readonly routedPeer: string;
+    readonly routedProvider: string;
+    readonly routedAccount: string;
+    readonly imported: string;
+    readonly blockedResponseHeaders: readonly string[];
+  };
+  readonly extractPeerCredential: (auth: Record<string, unknown>) => string | undefined;
+  readonly resolveFederationHopCount: (headers: Record<string, unknown>) => number;
+  readonly resolveFederationOwnerSubject: (
+    input: {
+      readonly headers: Record<string, unknown>;
+      readonly requestAuth?: { readonly kind?: string; readonly subject?: string; readonly tenantId?: string };
+      readonly hopCount?: number;
+    },
+    defaultOwnerSubject: string | undefined,
+  ) => string | undefined;
+  readonly federationJsonRequestHeaders: (credential: string | undefined) => Record<string, string>;
+  readonly federationFailureMessage: (parsed: unknown, status: number) => string;
+  readonly forwardableBridgeResponseHeaders: (
+    headers: Readonly<Record<string, string>>,
+    hideUpstreamAccount: boolean,
+  ) => [string, string][];
+  readonly parseBridgeLeaseAccounts: (payload: unknown, fallbackProviderId: string) => BridgeLeaseAccountSummary[];
+  readonly parseBridgeLeaseExport: (payload: unknown) => BridgeLeaseExportedAccount | undefined;
+  readonly createBridgeRelay: () => unknown;
+  readonly createSseBridgeSendChannel: (res: ServerResponse) => BridgeSendChannel;
+  readonly formatSseEvent: (event: string, data: unknown) => string;
+  // provider-strategy (proxx.strategy.*)
+  readonly normalizeGeminiReasoningEffort: (value: unknown) => string | undefined;
+  readonly openAiMessagesToGeminiContents: (messages: unknown[]) => Array<{ role: string; parts: Array<Record<string, unknown>> }>;
+  readonly extractSystemInstructions: (messages: unknown[]) => string[];
+  readonly buildGeminiPayload: (upstreamBody: JsRecord, routedModel: string) => JsRecord;
+  readonly geminiResponseToChatCompletion: (response: unknown, routedModel: string) => JsRecord;
+  readonly geminiPayloadToSdkRequest: (
+    model: string,
+    payload: JsRecord,
+  ) => { model: string; contents: Array<{ role: string; parts: Array<Record<string, unknown>> }>; config: JsRecord };
+  readonly geminiUpstreamPath: (alias: string | undefined | null, routedModel: string) => string;
+  readonly isLocalGeminiBaseUrl: (baseUrl: string) => boolean;
+  readonly isGeminiSdkModel: (model: string) => boolean;
+  readonly classifyGeminiSdkError: (message: string) => {
+    readonly kind: "continue";
+    readonly rateLimit?: boolean;
+    readonly modelNotFound?: boolean;
+    readonly modelNotSupportedForAccount?: boolean;
+    readonly requestError?: boolean;
+    readonly upstreamInvalidRequest?: boolean;
+  };
+  readonly createGeminiStreamAccumulator: () => {
+    readonly push: (chunk: unknown) => void;
+    readonly completion: (routedModel: string) => JsRecord;
+  };
+  readonly extractUsageCountsFromSseText: (streamText: string, mode: string, routedModel: string) => JsRecord;
+  readonly usageCountsForMode: (mode: string, upstreamJson: unknown, routedModel: string) => JsRecord;
+  readonly responseLooksLikeEventStream: (response: Response, mode: string) => boolean;
+  readonly updateUsageCountsFromResponse: (
+    requestLogStore: unknown,
+    entryId: string,
+    response: Response,
+    mode: string,
+    routedModel: string,
+    providerId: string,
+    config: unknown,
+    attemptStartedAt: number,
+    estimateCost: unknown,
+  ) => Promise<void>;
+  readonly buildFactory4xxDiagnostics: (payload: JsRecord, promptCacheKey?: string) => JsRecord;
+  readonly promptCacheKeyHash: (requestBody: JsRecord) => string | undefined;
+  readonly updateFailedAttemptDiagnostics: (
+    requestLogStore: unknown,
+    entryId: string,
+    response: Response,
+    providerId: string,
+    payload: JsRecord,
+    promptCacheKey?: string,
+  ) => Promise<void>;
+  readonly requestedServiceTier: (requestBody: JsRecord, headers: unknown) => string | undefined;
+  readonly loggedServiceTier: (
+    payload: JsRecord,
+    requestBody: JsRecord | undefined,
+    headers: unknown,
+  ) => { readonly serviceTier?: string; readonly serviceTierSource: "fast_mode" | "explicit" | "none" };
+  readonly stripTrailingAssistantPrefill: (payload: JsRecord) => JsRecord;
+  readonly ensureUsageInStream: (payload: JsRecord) => JsRecord;
+  readonly prepareUpstreamBody: (requestBody: JsRecord, routedModel: string, requestedModel: string) => JsRecord;
+  readonly requestyModel: (model: string, prefix: string) => string;
+  readonly buildCodexResponsesImagesBody: (imagesBody: JsRecord) => string;
+  readonly extractImagesFromResponsesOutput: (response: JsRecord) => JsRecord | undefined;
+  readonly extractImagesFromCodexResponse: (responseBody: string) => JsRecord | undefined;
+  readonly extractImagesFromCodexEventStream: (streamText: string) => JsRecord | undefined;
+  readonly openAiContentToText: (content: unknown) => string;
+  readonly resolveUsageAttribution: (auth: unknown) => { readonly tenantId?: string; readonly issuer?: string; readonly keyId?: string };
+  readonly shouldRetrySameCredentialForServerError: (status: number, manifestPath?: string) => boolean;
+  readonly isTransientProviderRetry: (providerId: string, status: number, manifestPath?: string) => boolean;
+  readonly shouldCooldownCredentialOnAuthFailure: (providerId: string, status: number, manifestPath?: string) => boolean;
+  readonly shouldPermanentlyDisableCredential: (credential: unknown, status: number, manifestPath?: string) => boolean;
+  readonly permanentDisableCooldownMs: (manifestPath?: string) => number;
+  readonly cooldownCapMs: (kind: string, manifestPath?: string) => number;
+  readonly classifyAuthError: (
+    credential: unknown,
+    providerId: string,
+    status: number,
+    configuredCooldownMs: number,
+    manifestPath?: string,
+  ) => { readonly classification: string; readonly cooldownMs?: number };
+  readonly classifyModelNotSupported: (
+    configuredCooldownMs: number,
+    manifestPath?: string,
+  ) => { readonly classification: string; readonly cooldownMs?: number };
+  readonly clampRouteQuality: (latencyMs: number, manifestPath?: string) => number;
+  readonly accountOrderForRequest: (
+    providerId: string,
+    routedModel: string,
+    planTypes: ReadonlyArray<string | undefined>,
+    manifestPath?: string,
+  ) => number[];
+  readonly accountOrderForLatency: (
+    facts: ReadonlyArray<{ readonly planType?: string; readonly ttft?: number; readonly tps?: number }>,
+    manifestPath?: string,
+  ) => number[];
+  readonly candidateOrderForAffinities: (
+    candidates: ReadonlyArray<readonly [string, string]>,
+    preferred: ReadonlyArray<readonly [string, string]>,
+  ) => number[];
+  readonly candidateOrderForRoutes: (
+    candidates: ReadonlyArray<{ readonly providerIndex?: number; readonly ttft?: number }>,
+    manifestPath?: string,
+  ) => number[];
+}
+
+export interface ChromaSearchRow {
+  readonly sessionId: string;
+  readonly sessionTitle: string;
+  readonly messageId: string;
+  readonly role: "system" | "user" | "assistant" | "tool";
+  readonly content: string;
+  readonly createdAt: number;
+  readonly distance: number;
+}
+
+export interface RequestLogFanout {
+  readonly subscribe: (id: string, identity: object, subscription: object) => void;
+  readonly unsubscribe: (id: string) => void;
+  readonly recipients: (entry: object) => string[];
+  readonly size: () => number;
+  readonly clear: () => void;
+  readonly eventType: (type: string) => string;
 }
 
 const loaded = await loadCljsRuntime({ required: true });

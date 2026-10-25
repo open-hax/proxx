@@ -5,22 +5,11 @@ import {
   type EmbeddingFunctionSpace,
 } from "chromadb";
 
+import { kernels } from "./cljs-kernels.js";
+
 interface OllamaEmbeddingConfig {
   readonly url: string;
   readonly model_name: string;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
-function toVector(value: unknown): number[] | null {
-  if (!Array.isArray(value)) {
-    return null;
-  }
-
-  const vector = value.filter((entry): entry is number => typeof entry === "number" && Number.isFinite(entry));
-  return vector.length > 0 ? vector : null;
 }
 
 export class OllamaEmbeddingFunction implements EmbeddingFunction {
@@ -66,18 +55,7 @@ export class OllamaEmbeddingFunction implements EmbeddingFunction {
   }
 
   public validateConfig(config: Record<string, unknown>): void {
-    if (typeof config.url !== "string" || config.url.trim().length === 0) {
-      throw new Error("Ollama embedding config requires a non-empty url");
-    }
-
-    const modelName = typeof config.model_name === "string"
-      ? config.model_name
-      : typeof config.model === "string"
-        ? config.model
-        : "";
-    if (modelName.trim().length === 0) {
-      throw new Error("Ollama embedding config requires a non-empty model_name");
-    }
+    kernels.ollamaValidateConfig(config);
   }
 
   public validateConfigUpdate(_newConfig: Record<string, unknown>): void {
@@ -85,14 +63,7 @@ export class OllamaEmbeddingFunction implements EmbeddingFunction {
   }
 
   public static buildFromConfig(config: Record<string, unknown>): OllamaEmbeddingFunction {
-    const url = typeof config.url === "string" && config.url.trim().length > 0
-      ? config.url.trim()
-      : "http://127.0.0.1:11434";
-    const model = typeof config.model_name === "string" && config.model_name.trim().length > 0
-      ? config.model_name.trim()
-      : typeof config.model === "string" && config.model.trim().length > 0
-        ? config.model.trim()
-        : "nomic-embed-text:latest";
+    const { url, model } = kernels.ollamaBuildConfig(config);
 
     return new OllamaEmbeddingFunction({ url, model });
   }
@@ -117,19 +88,7 @@ export class OllamaEmbeddingFunction implements EmbeddingFunction {
       throw new Error(`Ollama /api/embed request failed: ${response.status}`);
     }
 
-    const payload: unknown = await response.json();
-    if (!isRecord(payload) || !Array.isArray(payload.embeddings)) {
-      throw new Error("Ollama /api/embed response missing embeddings");
-    }
-
-    const vectors = payload.embeddings
-      .map((entry) => toVector(entry))
-      .filter((entry): entry is number[] => entry !== null);
-    if (vectors.length !== texts.length) {
-      throw new Error("Ollama /api/embed returned an unexpected embedding count");
-    }
-
-    return vectors;
+    return kernels.ollamaBatchVectors(await response.json(), texts.length);
   }
 
   private async generateLegacy(text: string): Promise<number[]> {
@@ -148,13 +107,7 @@ export class OllamaEmbeddingFunction implements EmbeddingFunction {
       throw new Error(`Ollama /api/embeddings request failed: ${response.status}`);
     }
 
-    const payload: unknown = await response.json();
-    const vector = isRecord(payload) ? toVector(payload.embedding) : null;
-    if (vector === null) {
-      throw new Error("Ollama /api/embeddings response missing embedding");
-    }
-
-    return vector;
+    return kernels.ollamaLegacyVector(await response.json());
   }
 }
 

@@ -3,6 +3,7 @@ import type { Duplex } from "node:stream";
 
 import { WebSocket, WebSocketServer } from "ws";
 
+import { kernels } from "../cljs-kernels.js";
 import type { RequestLogEntry, RequestLogEvent, RequestLogStore } from "../request-log-store.js";
 
 export interface RequestLogWsIdentity {
@@ -28,47 +29,6 @@ function writeUpgradeResponse(socket: Duplex, statusCode: number, statusText: st
   socket.destroy();
 }
 
-function normalizeRouteKind(value: string | undefined): RequestLogWsSubscription["routeKind"] {
-  const normalized = value?.trim().toLowerCase();
-  if (normalized === "local" || normalized === "federated" || normalized === "bridge" || normalized === "routed" || normalized === "any") {
-    return normalized;
-  }
-  return undefined;
-}
-
-function entryMatchesSubscription(entry: RequestLogEntry, subscription: RequestLogWsSubscription): boolean {
-  const routeKind = normalizeRouteKind(subscription.routeKind);
-  if (routeKind && routeKind !== "any") {
-    if (routeKind === "routed") {
-      if (entry.routeKind === "local") {
-        return false;
-      }
-    } else if (entry.routeKind !== routeKind) {
-      return false;
-    }
-  }
-
-  const ownerSubject = typeof subscription.ownerSubject === "string" ? subscription.ownerSubject.trim() : "";
-  if (ownerSubject.length > 0) {
-    return entry.federationOwnerSubject === ownerSubject;
-  }
-
-  return true;
-}
-
-function entryVisibleToIdentity(entry: RequestLogEntry, identity: RequestLogWsIdentity): boolean {
-  if (identity.authKind === "legacy_admin") {
-    return true;
-  }
-
-  const tenantId = typeof identity.tenantId === "string" ? identity.tenantId.trim() : "";
-  if (tenantId.length === 0) {
-    return false;
-  }
-
-  return entry.tenantId === tenantId;
-}
-
 function toWireEntry(entry: RequestLogEntry): RequestLogEntry & { readonly decodeTps?: number } {
   return {
     ...entry,
@@ -78,7 +38,11 @@ function toWireEntry(entry: RequestLogEntry): RequestLogEntry & { readonly decod
 
 export class RequestLogWsHub {
   private readonly wsServer = new WebSocketServer({ noServer: true });
-  private readonly clients = new Map<WebSocket, { readonly identity: RequestLogWsIdentity; readonly subscription: RequestLogWsSubscription }>();
+  // Sockets keyed by the id registered with the CLJS fan-out state
+  // (proxx.observability.fanout), which decides who receives each entry.
+  private readonly clients = new Map<string, WebSocket>();
+  private readonly fanout = kernels.createRequestLogFanout();
+  private nextClientId = 0;
   private readonly unsubscribe: () => void;
 
   public constructor(store: RequestLogStore) {
@@ -100,15 +64,16 @@ export class RequestLogWsHub {
     subscription: RequestLogWsSubscription,
   ): void {
     this.wsServer.handleUpgrade(request, socket, head, (webSocket) => {
-      this.clients.set(webSocket, { identity, subscription });
+      const clientId = `ws-${this.nextClientId++}`;
+      this.clients.set(clientId, webSocket);
+      this.fanout.subscribe(clientId, identity, subscription);
 
-      webSocket.on("close", () => {
-        this.clients.delete(webSocket);
-      });
-
-      webSocket.on("error", () => {
-        this.clients.delete(webSocket);
-      });
+      const remove = () => {
+        this.clients.delete(clientId);
+        this.fanout.unsubscribe(clientId);
+      };
+      webSocket.on("close", remove);
+      webSocket.on("error", remove);
 
       webSocket.send(JSON.stringify({
         type: "hello",
@@ -131,6 +96,7 @@ export class RequestLogWsHub {
     });
 
     this.clients.clear();
+    this.fanout.clear();
   }
 
   private broadcast(event: RequestLogEvent): void {
@@ -139,20 +105,13 @@ export class RequestLogWsHub {
     }
 
     const payload = JSON.stringify({
-      type: event.type === "record" ? "request_log_record" : "request_log_update",
+      type: this.fanout.eventType(event.type),
       entry: toWireEntry(event.entry),
     });
 
-    for (const [client, meta] of this.clients.entries()) {
-      if (client.readyState !== WebSocket.OPEN) {
-        continue;
-      }
-
-      if (!entryVisibleToIdentity(event.entry, meta.identity)) {
-        continue;
-      }
-
-      if (!entryMatchesSubscription(event.entry, meta.subscription)) {
+    for (const clientId of this.fanout.recipients(event.entry)) {
+      const client = this.clients.get(clientId);
+      if (client === undefined || client.readyState !== WebSocket.OPEN) {
         continue;
       }
 
@@ -164,7 +123,8 @@ export class RequestLogWsHub {
         } catch {
           // ignore
         }
-        this.clients.delete(client);
+        this.clients.delete(clientId);
+        this.fanout.unsubscribe(clientId);
       }
     }
   }
