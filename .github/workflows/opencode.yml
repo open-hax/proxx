@@ -33,6 +33,8 @@ jobs:
     runs-on: ubuntu-latest
     # Separate from comment deduplication: serialize mutations for one issue/PR.
     # GitHub persists up to 100 pending jobs rather than replacing the pending job.
+    # Native queue support shipped May 7, 2026; older actionlint schemas reject it.
+    # https://github.blog/changelog/2026-05-07-github-actions-concurrency-groups-now-allow-larger-queues/
     concurrency:
       group: opencode-mutation-${{ github.repository }}-${{ github.event.issue.number || github.event.pull_request.number }}
       cancel-in-progress: false
