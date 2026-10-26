@@ -891,6 +891,8 @@ export interface CljsKernels {
   readonly registerWebsearchRoutes: (app: unknown, deps: unknown) => void;
   // w3:nativeollama ollama-native routes (proxx.http.native-ollama)
   readonly registerNativeOllamaRoutes: (app: unknown, deps: unknown) => void;
+  // w3:embeddings embeddings route (proxx.http.embeddings)
+  readonly registerEmbeddingsRoutes: (app: unknown, deps: unknown, collaborators: unknown) => void;
 }
 
 export interface ChromaSearchRow {
