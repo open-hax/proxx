@@ -889,6 +889,8 @@ export interface CljsKernels {
   readonly pheromoneNoteFailure: (records: readonly object[], providerId: string, model: string) => object[];
   // w3:websearch websearch route (proxx.http.websearch)
   readonly registerWebsearchRoutes: (app: unknown, deps: unknown) => void;
+  // w3:nativeollama ollama-native routes (proxx.http.native-ollama)
+  readonly registerNativeOllamaRoutes: (app: unknown, deps: unknown) => void;
 }
 
 export interface ChromaSearchRow {
