@@ -175,6 +175,20 @@
                                            tenantPolicyUpsertParams proxx.runtime.sql/tenant-policy-upsert-params-js
                                            tenantPolicyRecord proxx.runtime.sql/tenant-policy-record-js
                                            tenantPolicyListFilters proxx.runtime.sql/tenant-policy-list-filters-js
+                                           githubOAuthConstants proxx.runtime.github-oauth/github-oauth-constants-js
+                                           createGithubPendingStore proxx.runtime.github-oauth/create-github-pending-store-js
+                                           githubAuthorizeQuery proxx.runtime.github-oauth/github-authorize-query-js
+                                           githubCallbackRejection proxx.runtime.github-oauth/github-callback-rejection-js
+                                           githubRefreshPlan proxx.runtime.github-oauth/github-refresh-plan-js
+                                           githubAdminAccountView proxx.runtime.github-oauth/github-admin-account-view-js
+                                           githubNormalizeLogin proxx.runtime.github-oauth/github-normalize-login-js
+                                           githubCookieValue proxx.runtime.github-oauth/github-cookie-value-js
+                                           githubSetCookieHeader proxx.runtime.github-oauth/github-set-cookie-header-js
+                                           githubClearCookieHeader proxx.runtime.github-oauth/github-clear-cookie-header-js
+                                           githubBearer proxx.runtime.github-oauth/github-bearer-js
+                                           authTokenView proxx.runtime.sql/auth-token-view-js
+                                           authSessionView proxx.runtime.sql/auth-session-view-js
+                                           authClientView proxx.runtime.sql/auth-client-view-js
                                            getModelPricing proxx.runtime.pricing/get-model-pricing-js
                                            estimateRequestCost proxx.runtime.pricing/estimate-request-cost-js
                                            setPolicyModelPricingOverrides proxx.runtime.pricing/set-policy-model-pricing-overrides-js

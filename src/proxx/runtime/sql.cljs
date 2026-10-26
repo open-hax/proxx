@@ -2,7 +2,8 @@
   "JS edge for the SQL stores' pure mapping (rows in, views/params out).
   Rows are plain objects from the postgres driver; results are plain JS
   objects/arrays. Statement execution and transactions stay in TypeScript."
-  (:require [proxx.credentials.federation :as fed]
+  (:require [proxx.auth.persistence :as ap]
+            [proxx.credentials.federation :as fed]
             [proxx.credentials.sql :as sql]
             [proxx.credentials.tenant-policy :as tp]))
 
@@ -99,3 +100,26 @@
 (defn tenant-policy-record-js [row] (out (tp/policy-record (in row) parse-json)))
 (defn tenant-policy-list-filters-js [filters]
   (let [[clauses values] (tp/list-filters (in filters))] #js {"clauses" (to-array clauses) "values" (to-array values)}))
+
+;; ---------------------------------------------------------------------------
+;; OAuth session tables
+;; ---------------------------------------------------------------------------
+
+(defn- parse-or-nil [s] (try (js->clj (js/JSON.parse s)) (catch :default _ nil)))
+
+(defn- with-extra
+  "Attach the parsed `extra` document of `row` (JS), or leave it undefined."
+  [^js row record]
+  (let [raw (aget row "extra")]
+    (when (seq raw)
+      (let [parsed (try (js/JSON.parse raw) (catch :default _ js/undefined))]
+        (when-not (undefined? parsed) (aset record "extra" parsed))))
+    record))
+
+(defn auth-token-view-js [row] (with-extra row (clj->js (ap/token-view (in row) parse-or-nil))))
+
+(defn auth-session-view-js [row]
+  (with-extra row (clj->js (ap/session-view (in row) parse-or-nil
+                                            (js/Math.floor (/ (.getTime (js/Date. (aget row "created_at"))) 1000))))))
+
+(defn auth-client-view-js [row] (clj->js (ap/client-view (in row) parse-or-nil)))

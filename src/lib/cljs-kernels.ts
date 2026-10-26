@@ -347,6 +347,34 @@ export interface CljsKernels {
   readonly tenantPolicyUpsertParams: (normalized: unknown) => unknown[];
   readonly tenantPolicyRecord: (row: unknown) => Record<string, unknown>;
   readonly tenantPolicyListFilters: (filters: unknown) => { readonly clauses: string[]; readonly values: string[] };
+  // w2 github login routes
+  readonly githubOAuthConstants: () => {
+    readonly authorizeUrl: string;
+    readonly tokenUrl: string;
+    readonly userUrl: string;
+    readonly accessTokenTtlSeconds: number;
+    readonly refreshTokenTtlSeconds: number;
+    readonly clientId: string;
+  };
+  readonly createGithubPendingStore: () => {
+    add(state: string, redirectUri: string, nowMs: number): void;
+    take(state: string, nowMs: number): {
+      readonly redirectUri?: string;
+      readonly rejection?: { readonly status: number; readonly body: Record<string, unknown> };
+    };
+  };
+  readonly githubAuthorizeQuery: (clientId: string, redirectUri: string, state: string) => string;
+  readonly githubCallbackRejection: (query: Record<string, unknown>) => { readonly status: number; readonly body: Record<string, unknown> } | null;
+  readonly githubRefreshPlan: (found: boolean, expiresAt: number | undefined, nowSeconds: number) => "missing" | "expired" | "rotate";
+  readonly githubAdminAccountView: (credential: unknown) => Record<string, unknown>;
+  readonly githubNormalizeLogin: (login: string) => string;
+  readonly githubCookieValue: (header: string | undefined, name: string, decode: (value: string) => string) => string | null;
+  readonly githubSetCookieHeader: (name: string, value: string, expires: string) => string;
+  readonly githubClearCookieHeader: (name: string) => string;
+  readonly githubBearer: (authorization: string | undefined) => string | null;
+  readonly authTokenView: (row: unknown) => Record<string, unknown>;
+  readonly authSessionView: (row: unknown) => Record<string, unknown>;
+  readonly authClientView: (row: unknown) => Record<string, unknown>;
   readonly createPromptAffinityStore: (sql: unknown, statements: unknown) => unknown;
   readonly createCredentialStore: (filePath: string, defaultProviderId: string, deps: unknown) => unknown;
   // pricing (model-pricing)

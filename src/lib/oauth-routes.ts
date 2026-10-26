@@ -6,6 +6,7 @@ import { SqlAuthPersistence } from "./auth/sql-persistence.js";
 import { SqlGitHubAllowlist } from "./auth/github-allowlist.js";
 import { SqlCredentialStore } from "./db/sql-credential-store.js";
 import { DEFAULT_TENANT_ID } from "./tenant-api-key.js";
+import { kernels } from "./cljs-kernels.js";
 
 interface GitHubUser {
   id: number;
@@ -15,19 +16,13 @@ interface GitHubUser {
   avatar_url?: string | null;
 }
 
-interface PendingAuth {
-  readonly codeVerifier: string;
-  readonly state: string;
-  readonly redirectUri: string;
-  readonly createdAt: number;
-}
-
-const GITHUB_AUTHORIZE_URL = "https://github.com/login/oauth/authorize";
-const GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token";
-const GITHUB_USER_URL = "https://api.github.com/user";
-
-const ACCESS_TOKEN_TTL_SECONDS = 60 * 60;
-const REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60;
+const {
+  authorizeUrl: GITHUB_AUTHORIZE_URL,
+  tokenUrl: GITHUB_TOKEN_URL,
+  userUrl: GITHUB_USER_URL,
+  accessTokenTtlSeconds: ACCESS_TOKEN_TTL_SECONDS,
+  refreshTokenTtlSeconds: REFRESH_TOKEN_TTL_SECONDS,
+} = kernels.githubOAuthConstants();
 
 function generateToken(): string {
   const buffer = crypto.getRandomValues(new Uint8Array(32));
@@ -51,29 +46,19 @@ interface OAuthRouteDependencies {
   readonly credentialStore: SqlCredentialStore;
 }
 
-const pendingAuths = new Map<string, PendingAuth>();
+const pendingAuths = kernels.createGithubPendingStore();
 
 function setCookie(reply: FastifyReply, name: string, value: string, maxAge: number): void {
   const expires = new Date(Date.now() + maxAge * 1000).toUTCString();
-  reply.header("Set-Cookie", `${name}=${value}; Path=/; HttpOnly; Secure; SameSite=Strict; Expires=${expires}`);
+  reply.header("Set-Cookie", kernels.githubSetCookieHeader(name, value, expires));
 }
 
 function clearCookie(reply: FastifyReply, name: string): void {
-  reply.header("Set-Cookie", `${name}=; Path=/; HttpOnly; Secure; SameSite=Strict; Expires=Thu, 01 Jan 1970 00:00:00 GMT`);
+  reply.header("Set-Cookie", kernels.githubClearCookieHeader(name));
 }
 
 function getCookie(request: FastifyRequest, name: string): string | undefined {
-  const cookie = request.headers.cookie;
-  if (!cookie) return undefined;
-
-  for (const part of cookie.split(";")) {
-    const trimmed = part.trim();
-    if (trimmed.startsWith(`${name}=`)) {
-      return decodeURIComponent(trimmed.slice(name.length + 1));
-    }
-  }
-
-  return undefined;
+  return kernels.githubCookieValue(request.headers.cookie, name, decodeURIComponent) ?? undefined;
 }
 
 export async function registerOAuthRoutes(
@@ -96,56 +81,35 @@ export async function registerOAuthRoutes(
     const query = request.query as Record<string, string | undefined>;
     const redirectUri = query.redirect_uri ?? "/";
 
-    const codeVerifier = generateToken();
+    // The PKCE verifier was never sent to GitHub; it is still drawn so the token stream is unchanged.
+    generateToken();
     const state = generateToken();
 
-    pendingAuths.set(state, {
-      codeVerifier,
-      state,
-      redirectUri,
-      createdAt: Date.now(),
-    });
+    pendingAuths.add(state, redirectUri, Date.now());
 
-    const params = new URLSearchParams({
-      client_id: config.clientId!,
-      redirect_uri: `${request.protocol}://${request.headers.host}${config.callbackPath}`,
-      scope: "read:user user:email",
+    reply.redirect(`${GITHUB_AUTHORIZE_URL}?${kernels.githubAuthorizeQuery(
+      config.clientId!,
+      `${request.protocol}://${request.headers.host}${config.callbackPath}`,
       state,
-    });
-
-    reply.redirect(`${GITHUB_AUTHORIZE_URL}?${params.toString()}`);
+    )}`);
   });
 
   app.get(config.callbackPath, async (request, reply) => {
     const query = request.query as Record<string, string | undefined>;
     const code = query.code;
     const state = query.state;
-    const error = query.error;
 
-    if (error) {
-      reply.code(400);
-      reply.send({ error, error_description: query.error_description });
+    const queryRejection = kernels.githubCallbackRejection(query);
+    if (queryRejection || !code || !state) {
+      reply.code(queryRejection?.status ?? 400);
+      reply.send(queryRejection?.body);
       return;
     }
 
-    if (!code || !state) {
-      reply.code(400);
-      reply.send({ error: "invalid_request", error_description: "Missing code or state" });
-      return;
-    }
-
-    const pending = pendingAuths.get(state);
-    if (!pending) {
-      reply.code(400);
-      reply.send({ error: "invalid_state", error_description: "Invalid or expired state" });
-      return;
-    }
-
-    pendingAuths.delete(state);
-
-    if (Date.now() - pending.createdAt > 5 * 60 * 1000) {
-      reply.code(400);
-      reply.send({ error: "expired_state", error_description: "OAuth state expired" });
+    const pending = pendingAuths.take(state, Date.now());
+    if (pending.rejection) {
+      reply.code(pending.rejection.status);
+      reply.send(pending.rejection.body);
       return;
     }
 
@@ -201,7 +165,7 @@ export async function registerOAuthRoutes(
       return;
     }
 
-    const subject = user.login.trim().toLowerCase();
+    const subject = kernels.githubNormalizeLogin(user.login);
     const persistedUser = await deps.credentialStore.upsertUser({
       provider: "github",
       subject,
@@ -242,7 +206,7 @@ export async function registerOAuthRoutes(
     setCookie(reply, "proxy_auth", accessToken, ACCESS_TOKEN_TTL_SECONDS);
     setCookie(reply, "proxy_refresh", refreshToken, REFRESH_TOKEN_TTL_SECONDS);
 
-    reply.redirect(pending.redirectUri);
+    reply.redirect(pending.redirectUri!);
   });
 
   app.post("/auth/refresh", async (request, reply) => {
@@ -261,7 +225,7 @@ export async function registerOAuthRoutes(
     }
 
     const now = Math.floor(Date.now() / 1000);
-    if (existing.expiresAt <= now) {
+    if (kernels.githubRefreshPlan(true, existing.expiresAt, now) === "expired") {
       await deps.authPersistence.deleteRefreshToken(refreshToken);
       reply.code(401);
       reply.send({ error: "invalid_grant", error_description: "Refresh token expired" });
@@ -360,11 +324,10 @@ export async function registerOAuthRoutes(
     const accounts = await deps.credentialStore.getAllAccounts();
     const result: Record<string, unknown[]> = {};
     for (const [providerId, creds] of accounts) {
-      result[providerId] = creds.map((c) => ({
-        id: c.accountId,
+      result[providerId] = creds.map((c) => kernels.githubAdminAccountView({
+        accountId: c.accountId,
         authType: c.authType,
-        hasToken: true,
-        hasRefreshToken: !!c.refreshToken,
+        refreshToken: c.refreshToken,
         expiresAt: c.expiresAt,
       }));
     }
@@ -378,7 +341,8 @@ export async function registerOAuthRoutes(
   });
 
   app.post<{ Body: { readonly login?: string } }>("/auth/admin/allowlist", async (request, reply) => {
-    const login = request.body?.login?.trim().toLowerCase();
+    const rawLogin = request.body?.login;
+    const login = rawLogin === undefined || rawLogin === null ? undefined : kernels.githubNormalizeLogin(rawLogin);
     if (!login) {
       reply.code(400);
       reply.send({ error: "login_required" });
@@ -390,7 +354,8 @@ export async function registerOAuthRoutes(
   });
 
   app.delete<{ Body: { readonly login?: string } }>("/auth/admin/allowlist", async (request, reply) => {
-    const login = request.body?.login?.trim().toLowerCase();
+    const rawLogin = request.body?.login;
+    const login = rawLogin === undefined || rawLogin === null ? undefined : kernels.githubNormalizeLogin(rawLogin);
     if (!login) {
       reply.code(400);
       reply.send({ error: "login_required" });
@@ -404,9 +369,8 @@ export async function registerOAuthRoutes(
 
 export function createVerifyBearerToken(deps: OAuthRouteDependencies) {
   return async (request: FastifyRequest, reply: FastifyReply): Promise<boolean> => {
-    const auth = request.headers.authorization;
-    if (auth?.startsWith("Bearer ")) {
-      const token = auth.slice(7);
+    const token = kernels.githubBearer(request.headers.authorization);
+    if (token !== null) {
       const stored = await deps.authPersistence.getAccessToken(token);
       if (stored) {
         return true;

@@ -1,4 +1,5 @@
 import type { Sql } from "../db/index.js";
+import { kernels } from "../cljs-kernels.js";
 import {
   CREATE_SESSIONS_TABLE,
   CREATE_ACCESS_TOKENS_TABLE,
@@ -50,62 +51,20 @@ interface ClientRow {
   response_types: string;
 }
 
-function parseJson<T>(raw: string | null): T | undefined {
-  if (!raw) return undefined;
-  try {
-    return JSON.parse(raw) as T;
-  } catch {
-    return undefined;
-  }
-}
-
 function toAuthSession(row: SessionRow): AuthSession {
-  return {
-    id: row.id,
-    subject: row.subject,
-    clientId: row.client_id,
-    scopes: parseJson<string[]>(row.scopes) ?? [],
-    resource: row.resource ?? undefined,
-    extra: parseJson<Record<string, unknown>>(row.extra),
-    createdAt: Math.floor(new Date(row.created_at).getTime() / 1000),
-    expiresAt: Number(row.expires_at),
-  };
+  return kernels.authSessionView(row) as unknown as AuthSession;
 }
 
 function toAccessToken(row: AccessTokenRow): AccessToken {
-  return {
-    token: row.token,
-    clientId: row.client_id,
-    subject: row.subject,
-    scopes: parseJson<string[]>(row.scopes) ?? [],
-    resource: row.resource ?? undefined,
-    extra: parseJson<Record<string, unknown>>(row.extra),
-    expiresAt: Number(row.expires_at),
-  };
+  return kernels.authTokenView(row) as unknown as AccessToken;
 }
 
 function toRefreshToken(row: RefreshTokenRow): RefreshToken {
-  return {
-    token: row.token,
-    clientId: row.client_id,
-    subject: row.subject,
-    scopes: parseJson<string[]>(row.scopes) ?? [],
-    resource: row.resource ?? undefined,
-    extra: parseJson<Record<string, unknown>>(row.extra),
-    expiresAt: Number(row.expires_at),
-  };
+  return kernels.authTokenView(row) as unknown as RefreshToken;
 }
 
 function toOAuthClient(row: ClientRow): OAuthClient {
-  return {
-    clientId: row.client_id,
-    clientSecret: row.client_secret,
-    clientName: row.client_name,
-    redirectUris: parseJson<string[]>(row.redirect_uris) ?? [],
-    tokenEndpointAuthMethod: row.token_endpoint_auth_method,
-    grantTypes: parseJson<string[]>(row.grant_types) ?? ["authorization_code", "refresh_token"],
-    responseTypes: parseJson<string[]>(row.response_types) ?? ["code"],
-  };
+  return kernels.authClientView(row) as unknown as OAuthClient;
 }
 
 export class SqlAuthPersistence {
