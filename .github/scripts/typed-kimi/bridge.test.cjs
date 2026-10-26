@@ -42,3 +42,22 @@ test('legacy v1 structured request stays closed and unchanged', () => {
   assert.equal(old.properties.version, undefined);
   assert.equal(old.properties.verdict, undefined);
 });
+
+test('changed vendored owner bytes refuse before loading in a fresh process', () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const { spawnSync } = require('node:child_process');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'proxx-typed-kimi-'));
+  try {
+    fs.cpSync(__dirname, root, { recursive: true, filter: source => !source.includes('node_modules') });
+    fs.symlinkSync(path.join(__dirname, 'node_modules'), path.join(root, 'node_modules'), 'dir');
+    fs.appendFileSync(path.join(root, 'src/pr_flow/kimi_verdict.cljc'), '\n;; changed owner bytes\n');
+    const probe = spawnSync(process.execPath, ['-e', `require('./bridge.cjs').schema({}).then(
+      () => process.exit(2), error => { console.error(error.message); process.exit(1); })`],
+      { cwd: root, encoding: 'utf8', timeout: 10000 });
+    assert.equal(probe.error, undefined);
+    assert.equal(probe.status, 1);
+    assert.match(probe.stderr, /typed-kimi:owner-source-mismatch/);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
