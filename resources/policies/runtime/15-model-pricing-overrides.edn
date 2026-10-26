@@ -1,4 +1,22 @@
-[{:contract/id :model-pricing-override/gemma4-31b-weighted-average
+[{:contract/id :model-pricing-override/requesty-deepinfra-gemma4-31b
+  :contract/kind :model-pricing-override
+  :match/provider-pattern "(?i)^requesty$"
+  :match/model-pattern "(?i)^deepinfra/google/gemma-4-31b-it$"
+  :pricing/input-per-1m-tokens 0.13
+  :pricing/output-per-1m-tokens 0.38
+  :override/mode :force
+  :override/source "requesty-model-catalog-2026-10-25"
+  :override/notes "Observed Requesty route price; do not substitute canonical Google's free price."}
+ {:contract/id :model-pricing-override/requesty-google-gemma4-31b
+  :contract/kind :model-pricing-override
+  :match/provider-pattern "(?i)^requesty$"
+  :match/model-pattern "(?i)^google/gemma-4-31b-it$"
+  :pricing/input-per-1m-tokens 0
+  :pricing/output-per-1m-tokens 0
+  :override/mode :force
+  :override/source "requesty-model-catalog-2026-10-25"
+  :override/notes "Free Google route is distinct from the paid DeepInfra route."}
+ {:contract/id :model-pricing-override/gemma4-31b-weighted-average
   :contract/kind :model-pricing-override
   :match/model-pattern "(?i)^gemma4:31b$"
   ;; Weighted average across providers (OpenRouter observed, past hour).

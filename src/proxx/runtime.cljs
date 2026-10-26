@@ -1,5 +1,9 @@
 (ns proxx.runtime
   (:require [clojure.string]
+            [proxx.budget.store :as budget-store]
+            [proxx.budget.policy :as budget-policy]
+            [proxx.budget.stream :as budget-stream]
+            [proxx.budget.law :as budget-law]
             [proxx.policy :as policy]
             [proxx.policy.contracts :as policy-contracts]
             [proxx.policy.evidence :as policy-evidence]
@@ -166,12 +170,22 @@
     (let [compiled (compiled-policy-for-manifest manifest-path)
           decision (policy-contracts/normalize-reasoning-request
                     compiled
-                    (js->clj input :keywordize-keys true))]
-      (clj->js {:status "ok" :decision decision}))
+                    (js->clj input :keywordize-keys true))
+          decision-js (clj->js (dissoc decision :request-body))]
+      ;; Reasoning controls may change; arbitrary client JSON keys must not.
+      (aset decision-js "request-body"
+            (clj->js (:request-body decision) :keyword-fn #(subs (str %) 1)))
+      #js {:status "ok" :decision decision-js})
     (catch :default e
       (clj->js {:status "error"
                 :error (.-message e)
                 :data (ex-data e)}))))
+
+(defn provider-response-format-allowed-js
+  [manifest-path provider-id request-kind response-format]
+  (policy-contracts/provider-response-format-allowed?
+   (compiled-policy-for-manifest manifest-path)
+   provider-id (keyword request-kind) (keyword response-format)))
 
 (defn resolve-model-alias-js
   "Load declarative policy contracts and resolve a provider-specific model alias."
@@ -332,8 +346,124 @@
       (clj->js {:status "error"
                 :error (.-message e)}))))
 
+(defn classify-credential-failure-js
+  "Classify an upstream credential failure using :credential-failure-classification
+   EDN contracts. Returns a JS object {status, result, cooldownMs, disable, contractId}
+   where result is 'quota-exhausted', 'model-unavailable', or null when no contract matches."
+  [manifest-path provider-id status message]
+  (try
+    (let [compiled (compiled-policy-for-manifest manifest-path)
+          contract (policy-contracts/classify-credential-failure
+                    compiled
+                    {:provider-id provider-id :status status :message message})]
+      (clj->js {:status "ok"
+                :result (some-> (:classify/result contract) name)
+                :cooldownMs (:classify/cooldown-ms contract)
+                :disable (true? (:classify/disable? contract))
+                :contractId (some-> (:contract/id contract) str)}))
+    (catch :default e
+      (clj->js {:status "error"
+                :error (.-message e)}))))
+
+(defn authorize-budget-http-request-js [manifest-path auth method path]
+  (clj->js (budget-policy/authorize-http
+             (get-in (compiled-policy-for-manifest manifest-path) [:index :contracts])
+             (js->clj auth :keywordize-keys true) method path)))
+
+(defn resolve-budget-route-plan-js [manifest-path auth model-id]
+  (let [compiled (compiled-policy-for-manifest manifest-path)]
+    (clj->js (budget-policy/route-plan
+              (get-in compiled [:index :contracts])
+              (js->clj auth :keywordize-keys true) model-id compiled))))
+
+(defn probe-first-usable-js [text format tools]
+  (clj->js (budget-stream/probe text format (js->clj tools :keywordize-keys true))))
+
+(defn advance-first-usable-js [text format tools state ended?]
+  (let [next-state (budget-stream/advance state text format (js->clj tools :keywordize-keys true) ended?)]
+    ;; State is opaque to the HTTP adapter; do not repeatedly serialize tools.
+    #js {:ready (boolean (:ready next-state)) :fatal (boolean (:fatal next-state)) :state next-state}))
+
+(defn inspect-budget-attempt-js [manifest-path auth attempt]
+  (let [compiled (compiled-policy-for-manifest manifest-path)]
+    ;; This payload becomes wire JSON. Preserve the namespace of arbitrary
+    ;; client schema/metadata keys instead of clj->js's default `name`.
+    (clj->js (budget-policy/inspect-attempt
+              (get-in compiled [:index :contracts])
+              (js->clj auth :keywordize-keys true)
+              (js->clj attempt :keywordize-keys true) compiled)
+            :keyword-fn #(subs (str %) 1))))
+
+(defn zero-charge-budget-refusal-js [manifest-path auth response]
+  (budget-policy/zero-charge-refusal?
+    (get-in (compiled-policy-for-manifest manifest-path) [:index :contracts])
+    (js->clj auth :keywordize-keys true) (js->clj response :keywordize-keys true)
+    (compiled-policy-for-manifest manifest-path)))
+
+(defn quote-paid-budget-js [input-bound output-bound input-price output-price]
+  (budget-law/reservation-microusd input-bound output-bound input-price output-price))
+
+(defn load-paid-budget-policy-js [manifest-path contract-id]
+  (let [contract (some #(when (and (= :paid-budget (:contract/kind %))
+                                    (= (str (:contract/id %)) contract-id)) %)
+                       (policy-loader/load-policy-contracts! manifest-path))]
+    (when contract
+      (clj->js {:scopeId (:budget/scope-id contract)
+                :dailyMicrousd (:budget/daily-microusd contract)
+                :monthlyMicrousd (:budget/monthly-microusd contract)
+                :calendar "utc"}))))
+
+(defn ^:async reserve-paid-budget-js
+  [sql queries ^js policy reservation-id amount admitted-at]
+  (let [result (await (budget-store/reserve!
+                       sql (js->clj queries :keywordize-keys true)
+                       (when policy (.-scopeId policy)) reservation-id
+                       {:daily-microusd (when policy (.-dailyMicrousd policy))
+                        :monthly-microusd (when policy (.-monthlyMicrousd policy))} amount
+                       (if (some? admitted-at) admitted-at (.now js/Date))))]
+    (clj->js (cond-> {:status (:status result)}
+               (:reservation-id result)
+               (assoc :reservationId (:reservation-id result)
+                      :reservedMicrousd (:reserved-microusd result))))))
+
+(defn ^:async settle-paid-budget-js
+  [sql queries scope-id reservation-id amount]
+  (clj->js (await (budget-store/settle!
+                   sql (js->clj queries :keywordize-keys true)
+                   scope-id reservation-id amount))))
+
+(defn ^:async read-budget-snapshot-policy [sql queries policy]
+  (let [row (await (budget-store/snapshot! sql queries (:scopeId policy)))]
+    (clj->js (if row
+               (budget-policy/snapshot-usage policy row)
+               (assoc policy :status "unavailable")))))
+
+(defn ^:async read-paid-budgets-js [sql queries manifest-path auth requested-key-id]
+  (let [selection (budget-policy/snapshot-selection
+                    (get-in (compiled-policy-for-manifest manifest-path) [:index :contracts])
+                    (js->clj auth :keywordize-keys true) requested-key-id)]
+    (if-not (= "ok" (:status selection))
+      (clj->js selection)
+      (let [budgets (await (js/Promise.all
+                            (into-array
+                              (map #(read-budget-snapshot-policy sql
+                                      (js->clj queries :keywordize-keys true) %)
+                                   (:policies selection)))))]
+        #js {:status "ok" :observedAt (.toISOString (js/Date.)) :budgets budgets}))))
+
 (def exports
-  #js {:normalizeKeys normalize-keys-js
+  #js {:authorizeBudgetHttpRequest authorize-budget-http-request-js
+       :zeroChargeBudgetRefusal zero-charge-budget-refusal-js
+       :readPaidBudgets read-paid-budgets-js
+       :resolveBudgetRoutePlan resolve-budget-route-plan-js
+       :probeFirstUsable probe-first-usable-js
+       :advanceFirstUsable advance-first-usable-js
+       :inspectBudgetAttempt inspect-budget-attempt-js
+       :quotePaidBudget quote-paid-budget-js
+       :loadPaidBudgetPolicy load-paid-budget-policy-js
+       :reservePaidBudget reserve-paid-budget-js
+       :settlePaidBudget settle-paid-budget-js
+       :normalizeKeys normalize-keys-js
        :validateEntity validate-entity-js
        :projectPheromone project-pheromone-js
        :routePolicy route-policy-js
@@ -343,6 +473,7 @@
        :previewPolicyDecision preview-policy-decision-js
        :executePolicyTree execute-policy-tree-js
        :normalizeReasoningRequest normalize-reasoning-request-js
+       :providerResponseFormatAllowed provider-response-format-allowed-js
        :resolveModelAlias resolve-model-alias-js
         :getProviderRoutes get-provider-routes-js
         :resolveAutoModelCandidates resolve-auto-model-candidates-js
@@ -352,4 +483,5 @@
         :runModelCandidates run-model-candidates-js
        :resolveQueuePolicy resolve-queue-policy-js
        :runQueued run-queued-js
-       :classifyRateLimit classify-rate-limit-js})
+       :classifyRateLimit classify-rate-limit-js
+       :classifyCredentialFailure classify-credential-failure-js})

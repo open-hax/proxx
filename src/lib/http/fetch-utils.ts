@@ -2,6 +2,18 @@
  * HTTP fetch utilities with timeout and abort signal support.
  */
 
+/** A declared first-usable bound expired, rather than the transport failing. */
+export class FirstUsableDeadlineError extends Error {
+  constructor() { super("First usable output deadline exceeded"); this.name = "FirstUsableDeadlineError"; }
+}
+
+const truncatedErrorResponses = new WeakSet<Response>();
+
+/** Transport fact: a bounded error prefix is not a complete billing response. */
+export function isResponseBodyComplete(response: Response): boolean {
+  return !truncatedErrorResponses.has(response);
+}
+
 const responseAbortControllers = new WeakMap<Response, AbortController>();
 
 /** Abort the transport that produced a response after its headers were received. */
@@ -22,11 +34,16 @@ export async function fetchWithResponseTimeout(
   url: string,
   init: RequestInit,
   timeoutMs: number,
+  firstUsableDeadlineAt?: number,
 ): Promise<Response> {
   const controller = new AbortController();
-  const timeoutHandle = setTimeout(() => {
+  const policyBound = firstUsableDeadlineAt !== undefined && firstUsableDeadlineAt <= Date.now() + timeoutMs;
+  const timeoutHandle = policyBound ? undefined : setTimeout(() => {
     controller.abort(new DOMException("The operation was aborted due to timeout", "TimeoutError"));
   }, timeoutMs);
+  const cancelDeadline = policyBound
+    ? armDeadline(firstUsableDeadlineAt!, () => controller.abort(new FirstUsableDeadlineError()))
+    : () => clearTimeout(timeoutHandle);
 
   const mergedSignal = init.signal
     ? AbortSignal.any([init.signal, controller.signal])
@@ -40,6 +57,129 @@ export async function fetchWithResponseTimeout(
     responseAbortControllers.set(response, controller);
     return response;
   } finally {
-    clearTimeout(timeoutHandle);
+    cancelDeadline();
   }
+}
+
+export interface ResponseDeadlineLease {
+  readonly signal: AbortSignal;
+  readonly markReady: () => void;
+}
+
+/** An absolute deadline covers queueing and setup, and ends at usable output. */
+// Timers may wake before their absolute cutoff (clock granularity or clock adjustment).
+// Recheck the cutoff rather than turning that early wake-up into a failed route.
+function armDeadline(deadlineAt: number, expire: () => void): () => void {
+  let timer: ReturnType<typeof setTimeout>;
+  const check = () => {
+    const remaining = deadlineAt - Date.now();
+    if (remaining > 0) timer = setTimeout(check, remaining);
+    else expire();
+  };
+  timer = setTimeout(check, Math.max(0, deadlineAt - Date.now()));
+  return () => clearTimeout(timer);
+}
+
+export async function withResponseDeadline<T>(
+  deadlineAt: number,
+  timeoutError: () => Error,
+  task: (lease: ResponseDeadlineLease) => Promise<T>,
+): Promise<T> {
+  const controller = new AbortController();
+  const remaining = deadlineAt - Date.now();
+  if (remaining <= 0) throw timeoutError();
+  let cancelDeadline: (() => void) | undefined;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    cancelDeadline = armDeadline(deadlineAt, () => {
+      const error = timeoutError();
+      controller.abort(error);
+      reject(error);
+    });
+  });
+  const markReady = () => { cancelDeadline?.(); cancelDeadline = undefined; };
+  try { return await Promise.race([task({ signal: controller.signal, markReady }), timeout]); }
+  finally { markReady(); }
+}
+
+/** Buffer bytes before downstream commitment. The CLJS policy supplies the
+ * readiness probe; this adapter only enforces byte/time bounds and replays IO.
+ * SSE probes receive only new decoded text; JSON is supplied once at body end. */
+export async function stageResponse(
+  response: Response,
+  deadlineAt: number,
+  maxBytes: number,
+  probe: (text: string, format: string, ended: boolean) => { readonly ready: boolean; readonly fatal: boolean },
+  onReady: () => void,
+  awaitEnd = false,
+): Promise<Response> {
+  const reader = response.body?.getReader();
+  if (!reader) throw new Error("No upstream response body");
+  const decoder = new TextDecoder();
+  const chunks: Uint8Array[] = [];
+  const format = response.headers.get("content-type")?.toLowerCase().includes("text/event-stream") ? "sse" : "json";
+  let text = "";
+  let bytes = 0;
+  let ended = false;
+  let truncated = false;
+  const cancel = () => {
+    abortFetchResponse(response);
+    void reader.cancel().catch(() => {});
+  };
+  try {
+    while (true) {
+      const remaining = deadlineAt - Date.now();
+      if (remaining <= 0) throw new FirstUsableDeadlineError();
+      let cancelDeadline: (() => void) | undefined;
+      let chunk: ReadableStreamReadResult<Uint8Array>;
+      try {
+        chunk = await Promise.race([reader.read(), new Promise<never>((_resolve, reject) => {
+          cancelDeadline = armDeadline(deadlineAt, () => reject(new FirstUsableDeadlineError()));
+        })]);
+      } finally { cancelDeadline?.(); }
+      ended = chunk.done === true;
+      if (chunk.value) {
+        if (bytes + chunk.value.byteLength > maxBytes) {
+          if (response.ok) throw new Error("Upstream bootstrap byte bound exceeded");
+          // Preserve the upstream refusal for normal failover, but neither read
+          // unbounded data nor treat a potentially valid JSON prefix as complete.
+          const available = Math.max(0, maxBytes - bytes);
+          if (available) chunks.push(chunk.value.slice(0, available));
+          truncated = true;
+          cancel();
+          ended = true;
+          break;
+        }
+        chunks.push(chunk.value);
+        bytes += chunk.value.byteLength;
+        const decoded = decoder.decode(chunk.value, { stream: true });
+        text = format === "sse" ? decoded : text + decoded;
+      } else if (format === "sse") text = "";
+      if (ended) text += decoder.decode();
+      const result = response.ok && (format === "sse" || ended) ? probe(text, format, ended) : { ready: false, fatal: false };
+      if (result.fatal) { cancel(); ended = true; break; }
+      if (result.ready && (ended || (format === "sse" && !awaitEnd))) { onReady(); break; }
+      if (ended) {
+        if (response.ok) throw new Error("Upstream ended without usable output");
+        break;
+      }
+    }
+  } catch (error) { cancel(); throw error; }
+  const body = new ReadableStream<Uint8Array>({
+    start(c) {
+      for (const chunk of chunks) c.enqueue(chunk);
+      if (ended) { c.close(); try { reader.releaseLock(); } catch { /* canceled reader */ } }
+    },
+    async pull(c) {
+      if (ended) return;
+      try {
+        const next = await reader.read();
+        if (next.done) { ended = true; c.close(); reader.releaseLock(); }
+        else if (next.value) c.enqueue(next.value);
+      } catch (error) { c.error(error); cancel(); }
+    },
+    cancel() { cancel(); },
+  });
+  const staged = new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers });
+  if (truncated) truncatedErrorResponses.add(staged);
+  return staged;
 }

@@ -1,0 +1,11 @@
+# Paired Gemma evaluation fixtures
+
+Eight synthetic, safe fixtures cover grounding, abstention, approved drafts, tool selection, contradictory evidence and injected context. No real Discord messages are included and no tool calls are executed.
+
+The preparation runner renders each conversation through the existing BitchTracker `bitch-tracker.domain.lens-context/resolve-context` and uses the same `lens-turn/system-prompt` for clean and Lens-formatted conditions. Thus this comparison isolates context formatting under a common system prompt; it does not isolate every effect of the Lens system prompt itself. Hash fixture bytes, generated prompts, source, model digest/control, tool schemas and output before interpreting results.
+
+Design: two models (local E4B and explicit free Requesty Google31B), two context conditions, three repetitions, concurrency one:96 accepted samples. Use1024 total generated tokens, including provider reasoning. A preliminary256-token cap often ended in reasoning-only truncation; retain that pilot as a control failure, not a quality score. Keep the20second first-usable deadline and60second total diagnostic bound; retain incomplete/error samples separately. Cold startup and warm inference must be reported separately.
+
+Tool selection uses the actual Knoxx graph-query-params and memory-session-params schema from `infra/openplanner/tools.cljs`. In particular, graph query is search text and memory-session uses camel-case `sessionId`. Synthetic abbreviated-tool pilots do not establish real tool-call correctness. Calls remain inert; selecting a tool is not proof of successful execution.
+
+Each completed output receives fixture-specific0/1/2 grounding/instruction/tool scores with manual failure adjudication. A transport timeout or truncation is not scored as a hallucinated answer. Adoption requires no safety/tool-boundary violation, an aggregate at least matching31B on relevant fixtures, and acceptable latency/reliability. Initial samples do not establish daytime tail performance; repeat in at least three load windows. Provider token counts that include reasoning must not be relabeled visible decode TPS without a matching tokenizer or authoritative reasoning split.

@@ -22,8 +22,9 @@ jobs:
       setup_eta_mu_toolchain: false
       evidence_gates_script: |
         run_gate diff_stat git diff --stat "${PR_BASE_SHA}...HEAD"
-    # Least privilege: forward only the secrets the review job consumes.
+    # Dedicated GitHub event/inline workflows already own Discord delivery.
+    # Forward only review credentials; optional duplicate notifications must not
+    # turn a published review into a failed required review job.
     secrets:
       ETA_MU_APP_ID: ${{ secrets.ETA_MU_APP_ID }}
       ETA_MU_APP_PRIVATE_KEY: ${{ secrets.ETA_MU_APP_PRIVATE_KEY }}
-      DISCORD_REVIEW_WEBHOOK_URL: ${{ secrets.DISCORD_REVIEW_WEBHOOK_URL }}

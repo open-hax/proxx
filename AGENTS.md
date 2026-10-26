@@ -74,7 +74,11 @@ Loaded in order via `00-manifest.edn`:
 | `40-strategy-selection.edn` | Strategy selection rules |
 | `50-account-selection.edn` | Account ordering constraints (plan weights, free-tier preference) |
 | `60-tenant-enforcement.edn` | Authorization clauses (model allow-lists, provider disabled lists) |
+| `65-federation-routing.edn` | Federation routing and target selection |
+| `68-paid-budgets.edn` | Key-bound paid allowances, free-first routes, and first-usable deadlines |
 | `70-request-queue-templates.edn` | Queue templates and instances (concurrency, timeout, backoff) |
+| `80-rate-limit-classification.edn` | Provider rate-limit classification |
+| `85-credential-failure-classification.edn` | Credential failure and quota-exhaustion classification |
 | `90-router.edn` | Root policy program and strategy bindings |
 
 **Invariant**: Files append/override in order. Facts first, derived rules next, root router last. More-specific clauses precede catch-all clauses.

@@ -110,3 +110,23 @@ test("refreshes the in-memory pricing index from models.dev-compatible payloads"
   assert.equal(pricing.inputPer1MTokens, 0.25);
   assert.equal(pricing.outputPer1MTokens, 0.75);
 });
+
+
+test("forced policy pricing applies even when the catalog has no model", () => {
+  setPolicyModelPricingOverrides([{
+    contractId: ":model-pricing-override/paid-route",
+    providerPattern: "^test-router$",
+    modelPattern: "^uncatalogued-paid-route$",
+    mode: "force",
+    inputPer1MTokens: 0.13,
+    outputPer1MTokens: 0.38,
+  }]);
+  const pricing = getModelPricing("test-router", "uncatalogued-paid-route");
+  assert.equal(pricing.pricingFound, true);
+  assert.equal(pricing.pricingSource, "policy");
+  assert.equal(pricing.inputPer1MTokens, 0.13);
+  assert.equal(pricing.outputPer1MTokens, 0.38);
+  assert.equal(estimateRequestCost("test-router", "uncatalogued-paid-route", 1_000_000, 1_000_000).costUsd, 0.51);
+  assert.equal(getModelPricing("other-router", "uncatalogued-paid-route").pricingFound, false);
+  resetPolicyOverrides();
+});

@@ -1,6 +1,7 @@
 (ns proxx.policy-test
   (:require [cljs.test :refer [deftest is]]
             [proxx.policy :as policy]
+            [proxx.schema :as schema]
             [proxx.policy.contracts :as contracts]
             [proxx.policy.evidence :as evidence]
             [proxx.policy.loader :as loader]
@@ -266,6 +267,55 @@
            (mapv :providerId (:providerRoutes filtered))))
     (is (= true (get-in rejected [:catalog :rejected])))
     (is (= true (get-in disabled [:catalog :disabled])))))
+
+(deftest provider-route-filtering-honours-model-aliases-for-catalogs
+  (let [alias (fn [provider-pattern model-id]
+                {:contract/id (keyword "model-alias" provider-pattern)
+                 :contract/kind :model-alias
+                 :match/model-pattern "(?i)^kimi-k3$"
+                 :match/provider-pattern provider-pattern
+                 :alias/model-id model-id})
+        compiled {:model-aliases [(alias "^kimi-for-coding$" "k3")
+                                  (alias "^openrouter$" "moonshotai/kimi-k3")]}
+        input {:model-id "kimi-k3"
+               :config {:openaiProviderId "openai"}
+               :tenantSettings {}
+               :providerRoutes [{:providerId "kimi-for-coding" :baseUrl "https://kimi.test"}
+                                {:providerId "zen" :baseUrl "https://zen.test"}
+                                {:providerId "openrouter" :baseUrl "https://openrouter.test"}
+                                {:providerId "requesty" :baseUrl "https://requesty.test"}]
+               :catalogBundle {:catalog {:declaredModelIds []
+                                         :dynamicOllamaModelIds []}
+                               :preferences {:disabled []}
+                               :providerCatalogs {"kimi-for-coding" {:modelIds ["k3" "k3-256k"]}
+                                                  "zen" {:modelIds ["kimi-k3"]}
+                                                  "openrouter" {:modelIds ["moonshotai/kimi-k3"]}
+                                                  "requesty" {:modelIds ["moonshot/kimi-k2.5"]}}}}
+        aliased (contracts/filter-provider-routes compiled input)
+        unaliased (contracts/filter-provider-routes {} input)]
+    (is (= ["kimi-for-coding" "zen" "openrouter"]
+           (mapv :providerId (:providerRoutes aliased))))
+    (is (= false (get-in aliased [:catalog :rejected])))
+    (is (= ["zen"] (mapv :providerId (:providerRoutes unaliased))))))
+
+(deftest credential-failure-classification-matches-provider-status-and-message
+  (let [compiled (contracts/compile-contracts
+                  (loader/load-policy-contracts! "resources/policies/runtime/00-manifest.edn"))
+        classify #(contracts/classify-credential-failure compiled %)]
+    (is (= :credential-failure/kimi-for-coding-usage-window
+           (:contract/id (classify {:provider-id "kimi-for-coding"
+                                    :status 403
+                                    :message "You've reached your 5-hour usage limit. Please try again later."}))))
+    (is (= :credential-failure/kimi-for-coding-monthly-limit
+           (:contract/id (classify {:provider-id " Kimi-For-Coding "
+                                    :status 403
+                                    :message "You've reached your monthly usage limit for this billing cycle."}))))
+    (is (= :credential/model-unavailable
+           (:classify/result (classify {:provider-id "openrouter"
+                                        :status 404
+                                        :message "No allowed providers are available for the selected model."}))))
+    (is (nil? (classify {:provider-id "kimi-for-coding" :status 401 :message "does not have access to k3"})))
+    (is (nil? (classify {:provider-id "openai" :status 402 :message "Payment required"})))))
 
 (deftest dynamic-ollama-catalog-does-not-override-policy-provider-universe
   (let [result (contracts/filter-provider-routes
@@ -564,6 +614,7 @@
         gpt-paid (first (filter #(= :route/gpt-free-blocked (:contract/id %))
                                 (:routing-clauses compiled)))]
     (is (= [:route/gemma4-e4b
+            :route/requesty-gemma4-31b
             :route/gemma4
             :route/gemma-e
             :route/gemma
@@ -601,8 +652,8 @@
            (:prefer/provider-order gpt-paid)))
     (is (= [:plus :pro :business :enterprise :team]
            (:require/plan-set gpt-paid)))
-    (is (= 18 (count (:provider-capabilities compiled))))
-    (is (= 24 (count (:provider-routes compiled))))
+    (is (= 19 (count (:provider-capabilities compiled))))
+    (is (= 25 (count (:provider-routes compiled))))
     (is (= 7 (count (:request-surface-defaults compiled))))
     (is (= 4 (count (:tenant-authorization-clauses compiled))))
     (is (= :router/root (get-in compiled [:root-program :contract/id])))))
@@ -1069,3 +1120,37 @@
                                          {:credentials credentials}
                                          (atom []))]
       (is (<= (count (:credentials narrowed)) (count credentials))))))
+
+
+(deftest requesty-native-gemma-names-retain-route-and-reasoning-semantics
+  (let [compiled (contracts/compile-contracts
+                   (loader/load-policy-contracts! "resources/policies/runtime/00-manifest.edn"))]
+    (doseq [model ["google/gemma-4-31b-it" "deepinfra/google/gemma-4-31B-it"]]
+      (let [normalized (contracts/normalize-reasoning-request compiled
+                         {:model-id model :request-body {:model model :reasoning_effort "minimal"}})
+            decision (contracts/preview-policy-decision compiled
+                       {:model-id model :request-kind :chat
+                        :provider-ids ["ollama-host" "requesty" "gemini"]
+                        :accounts-by-provider {"requesty" [{:account-id "fixture" :plan-type :free}]}
+                        :strategies-by-provider {"requesty" [{:mode :chat-completions :priority 0}]}})]
+        (is (= "low" (get-in normalized [:request-body :reasoning_effort])))
+        (is (= :route/requesty-gemma4-31b (:route-id decision)))
+        (is (= ["requesty"] (:providers decision)))))))
+
+(deftest workload-budget-contract-rejects-free-routes-after-paid-admission
+  (let [budget (some #(when (= :paid-budget/knoxx-social (:contract/id %)) %)
+                     (loader/load-policy-contracts! "resources/policies/runtime/00-manifest.edn"))
+        routes (:budget/routes budget)
+        invalid (assoc budget :budget/routes (into [(nth routes 1) (nth routes 0)] (drop 2 routes)))]
+    (is (= :ok (first (schema/validate :proxx/contract-paid-budget budget))))
+    (is (= :error (first (schema/validate :proxx/contract-paid-budget invalid))))))
+
+(deftest response-format-capability-is-declared
+  (let [compiled (contracts/compile-contracts
+                  (loader/load-policy-contracts! "resources/policies/runtime/00-manifest.edn"))]
+    (doseq [provider ["ollama" "ollama-local" "ollama-cloud" "ollama-future-device"]]
+      (is (contracts/provider-response-format-allowed? compiled provider :chat :ollama-chat)))
+    (is (not (contracts/provider-response-format-allowed? compiled "requesty" :chat :ollama-chat)))
+    (is (not (contracts/provider-response-format-allowed? compiled "ollama" :embeddings :ollama-chat)))
+    (is (not (contracts/provider-response-format-allowed?
+              {:provider-capabilities []} "ollama" :chat :ollama-chat)))))

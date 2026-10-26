@@ -38,6 +38,7 @@ export interface InjectNativeBridgeResult {
 
 export interface AppDeps {
   readonly app: FastifyInstance;
+  readonly budgetSql?: unknown;
   readonly config: ProxyConfig;
   readonly keyPool: KeyPool;
   readonly credentialStore: CredentialStore;

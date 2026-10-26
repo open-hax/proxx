@@ -89,6 +89,9 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     bodyLimit: 300 * 1024 * 1024
   });
 
+  app.decorateRequest("_proxxAdmittedAt", 0);
+  app.addHook("onRequest", async (request) => { request._proxxAdmittedAt = Date.now(); });
+
   app.setErrorHandler(async (error, request, reply) => {
     if (isOpenAiHttpError(error)) {
       request.log.warn({
@@ -594,6 +597,23 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     }
   });
 
+  app.addHook("preHandler", async (request, reply) => {
+    const auth = request.openHaxAuth;
+    if (auth?.kind !== "tenant_api_key") return;
+    const authorize = getActiveCljsRuntime()?.authorizeBudgetHttpRequest;
+    if (!authorize) {
+      if (auth.scopes?.includes("budget:required"))
+        return reply.code(503).send({error:{code:"budget_unavailable",message:"Budget policy runtime unavailable."}});
+      return;
+    }
+    const decision = authorize(config.cljsPolicyManifestPath ?? "resources/policies/runtime/00-manifest.edn",
+      auth, request.method, (request.raw.url ?? request.url).split("?")[0]!);
+    if (decision.status === "unavailable")
+      return reply.code(503).send({error:{code:"budget_policy_unavailable",message:"No budget policy is bound to this required key."}});
+    if (decision.status === "denied")
+      return reply.code(403).send({error:{code:"budget_route_denied",message:"This key cannot use that HTTP route."}});
+  });
+
   // Attach a telemetry span to each request
   app.decorateRequest("_otelSpan", null);
 
@@ -648,7 +668,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
   });
 
   const deps: AppDeps = {
-    app, config, keyPool, credentialStore, runtimeCredentialStore,
+    app, config, keyPool, credentialStore, runtimeCredentialStore, budgetSql: sql,
     sqlCredentialStore, sqlFederationStore, sqlTenantProviderPolicyStore,
     accountHealthStore, eventStore, requestLogStore, promptAffinityStore, providerRoutePheromoneStore,
     proxySettingsStore,  providerCatalogStore, tokenRefreshManager,
@@ -719,6 +739,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
   }, requestLogSseHub);
 
   await registerApiV1Routes(app, {
+    budgetSql: sql,
     config,
     keyPool,
     requestLogStore,
@@ -737,6 +758,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
   // Legacy /api/ui analytics + request logs used by Knoxx admin.
   // NOTE: These routes are auth-gated by Proxx request auth middleware.
   await registerObservabilityRoutes(app, {
+    budgetSql: sql,
     config,
     keyPool,
     requestLogStore,

@@ -1,5 +1,6 @@
 (ns proxx.schema
   (:require [malli.core :as m]
+            [proxx.budget.law :as budget-law]
             [malli.error :as me]
             [malli.registry :as mr]
             [malli.transform :as mt]))
@@ -281,7 +282,8 @@
     [:match/provider-pattern [:string {:min 1}]]
     [:match/request-kind {:optional true} :keyword]
     [:prefer/strategies {:optional true} KeywordVector]
-    [:exclude/strategies {:optional true} KeywordVector]]])
+    [:exclude/strategies {:optional true} KeywordVector]
+    [:response/formats {:optional true} KeywordVector]]])
 
 (def RequestSurfaceDefaultContract
   [:and
@@ -474,8 +476,53 @@
    [:fn {:error/message "strategy-binding requires :strategy/mode, :match/strategy, or :policy/strategy"}
     (fn [m] (boolean (or (:strategy/mode m) (:match/strategy m) (:policy/strategy m))))]])
 
+;; Maps an upstream failure (provider, status, message) to its credential meaning.
+;; :credential/quota-exhausted cools the account down instead of disabling it, so
+;; quota windows and topped-up balances recover; :credential/model-unavailable
+;; skips only the requested model for that account.
+(def CredentialFailureClassificationContract
+  [:and
+   ContractBase
+   [:map
+    [:contract/kind [:enum :credential-failure-classification]]
+    [:match/provider-pattern [:string {:min 1}]]
+    [:match/status {:optional true} [:int {:min 100 :max 599}]]
+    [:match/message-pattern {:optional true} [:string {:min 1}]]
+    [:classify/result [:enum :credential/quota-exhausted :credential/model-unavailable]]
+    [:classify/cooldown-ms {:optional true} [:int {:min 0}]]
+    [:classify/disable? {:optional true} :boolean]]])
+
+(def PaidBudgetContract
+  [:and
+   ContractBase
+   [:map
+    [:contract/kind [:enum :paid-budget]]
+    [:match/key-id [:string {:min 1}]]
+    [:budget/routing-model-pattern [:string {:min 1}]]
+    [:budget/free-cutoff-ms [:int {:min 1}]]
+    [:budget/first-output-total-ms [:int {:min 1}]]
+    [:budget/max-bootstrap-bytes [:int {:min 1}]]
+    [:budget/max-retries [:int {:min 0}]]
+    [:budget/allowed-http-routes [:set [:tuple [:enum "GET" "POST"] :string]]]
+    [:budget/allowed-transports [:set [:enum "fetch"]]]
+    [:budget/allowed-modes [:set :string]]
+    [:budget/max-input-tokens [:int {:min 1}]]
+    [:budget/max-output-tokens [:int {:min 1}]]
+    [:budget/routes [:vector [:map [:provider-id :string] [:model-id :string] [:billing [:enum :free :paid]]
+                                    [:billing/no-charge-statuses {:optional true} [:set [:int {:min 400 :max 499}]]]
+                                    [:plan? {:optional true} :boolean]
+                                    [:quota/scope {:optional true} [:enum :model :credential]]
+                                    [:quota/disable? {:optional true} :boolean]]]]
+    [:budget/scope-id [:string {:min 1}]]
+    [:budget/daily-microusd [:int {:min 1 :max 9007199254740991}]]
+    [:budget/monthly-microusd [:int {:min 1 :max 9007199254740991}]]
+    [:budget/calendar [:enum :utc]]]
+   [:fn {:error/message "Workload free routes must precede paid admission; explicit-only routes are separate."}
+    #(budget-law/workload-free-before-paid? (:budget/routes %))]])
+
 (def PolicyContract
   [:multi {:dispatch :contract/kind}
+   [:paid-budget PaidBudgetContract]
    [:enum DomainEnumContract]
    [:set DomainSetContract]
    [:scoring-table ScoringTableContract]
@@ -498,6 +545,7 @@
    [:request-queue-template RequestQueueTemplateContract]
     [:request-queue-instance RequestQueueInstanceContract]
     [:rate-limit-classification RateLimitClassificationContract]
+    [:credential-failure-classification CredentialFailureClassificationContract]
     [:policy-program PolicyProgramContract]
    [:strategy-binding StrategyBindingContract]
    [:policy Policy]
@@ -508,7 +556,8 @@
 ;; ══════════════════════════════════════════════════════════════
 
 (def registry
-  {:provenance        Provenance
+  {:proxx/contract-paid-budget PaidBudgetContract
+   :provenance        Provenance
    :provider            Provider
    :provider-endpoint   ProviderEndpoint
    :provider-credential ProviderCredential
@@ -543,6 +592,7 @@
    :proxx/contract-authorization-clause AuthorizationClauseContract
     :proxx/contract-model-pricing-override ModelPricingOverrideContract
     :proxx/contract-model-alias ModelAliasContract
+    :proxx/contract-credential-failure-classification CredentialFailureClassificationContract
     :proxx/contract-reasoning-normalization ReasoningNormalizationContract
    :proxx/retry-backoff RetryBackoff
    :proxx/queue-status QueueStatus

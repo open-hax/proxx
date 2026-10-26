@@ -58,9 +58,13 @@
   :contract/kind :preference-order
   :preference/items ["ollama" "ollama-lan"]}
 
+ {:contract/id :provider-order/requesty-gemma4-31b
+  :contract/kind :preference-order
+  :preference/items ["requesty"]}
+
  {:contract/id :provider-order/gemma4
   :contract/kind :preference-order
-  :preference/items ["gemini" "ollama-cloud" "ollama"]}
+  :preference/items ["gemini" "ollama-cloud" "ollama" "requesty"]}
 
  {:contract/id :provider-order/gemini
   :contract/kind :preference-order
@@ -162,7 +166,7 @@
 
  {:contract/id :provider-capability/ollama-lan-chat
   :contract/kind :provider-capability
-  :match/provider-pattern "^ollama-lan$"
+  :match/provider-pattern "^(ollama-lan|ollama-host)$"
   :match/request-kind :chat
   :prefer/strategies [:chat-completions]
   :exclude/strategies [:ollama-chat :messages :responses :openai-responses]}
@@ -173,6 +177,12 @@
   :match/request-kind :chat
   :prefer/strategies [:chat-completions :ollama-chat]
   :exclude/strategies [:messages :responses :openai-responses]}
+
+ {:contract/id :provider-capability/ollama-native-response
+  :contract/kind :provider-capability
+  :match/provider-pattern "^ollama"
+  :match/request-kind :chat
+  :response/formats [:ollama-chat]}
 
  {:contract/id :provider-capability/ollama-local-chat
   :contract/kind :provider-capability

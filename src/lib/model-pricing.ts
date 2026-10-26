@@ -347,7 +347,9 @@ export function setPolicyModelPricingOverrides(overrides: unknown): void {
 
 function resolvePolicyPricingOverride(providerId: string, model: string): ModelPricingOverrideRule | undefined {
   const normalizedProvider = providerId.trim().toLowerCase();
-  const normalizedModel = normalizeLookupModel(model);
+  // Contract patterns match the actual upstream route, including routing prefixes.
+  // Catalog alias normalization can collapse independently billed routes.
+  const normalizedModel = model.trim().toLowerCase();
 
   for (const rule of policyPricingOverrides) {
     if (rule.providerPattern && !rule.providerPattern.test(normalizedProvider)) {
@@ -690,9 +692,25 @@ export function getModelPricing(providerId: string, model: string): ModelPricing
 
   const policyOverride = resolvePolicyPricingOverride(providerId, model);
 
+  if (policyOverride && policyOverride.mode === "force") {
+    return {
+      inputPer1MTokens: policyOverride.inputPer1MTokens,
+      outputPer1MTokens: policyOverride.outputPer1MTokens,
+      reasoningPer1MTokens: policyOverride.reasoningPer1MTokens,
+      cacheReadPer1MTokens: policyOverride.cacheReadPer1MTokens,
+      cacheWritePer1MTokens: policyOverride.cacheWritePer1MTokens,
+      ...energyProfile,
+      pricingFound: true,
+      pricingSource: "policy",
+      pricingProviderId: "policy",
+      pricingModelId: model.trim().toLowerCase(),
+    };
+  }
+
+
   const resolved = resolveModelsDevCost(providerId, model);
   if (!resolved) {
-    if (policyOverride && policyOverride.mode !== "force") {
+    if (policyOverride) {
       return {
         inputPer1MTokens: policyOverride.inputPer1MTokens,
         outputPer1MTokens: policyOverride.outputPer1MTokens,
@@ -703,7 +721,7 @@ export function getModelPricing(providerId: string, model: string): ModelPricing
         pricingFound: true,
         pricingSource: "policy",
         pricingProviderId: "policy",
-        pricingModelId: normalizeLookupModel(model),
+        pricingModelId: model.trim().toLowerCase(),
       };
     }
 
@@ -719,20 +737,6 @@ export function getModelPricing(providerId: string, model: string): ModelPricing
     };
   }
 
-  if (policyOverride && policyOverride.mode === "force") {
-    return {
-      inputPer1MTokens: policyOverride.inputPer1MTokens,
-      outputPer1MTokens: policyOverride.outputPer1MTokens,
-      reasoningPer1MTokens: policyOverride.reasoningPer1MTokens,
-      cacheReadPer1MTokens: policyOverride.cacheReadPer1MTokens,
-      cacheWritePer1MTokens: policyOverride.cacheWritePer1MTokens,
-      ...energyProfile,
-      pricingFound: true,
-      pricingSource: "policy",
-      pricingProviderId: "policy",
-      pricingModelId: normalizeLookupModel(model),
-    };
-  }
 
   const cost = resolved.cost;
   return {

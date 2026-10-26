@@ -7,11 +7,16 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply } from "fastify";
+import { ChatCompletionsProviderStrategy } from "../lib/provider-strategy/strategies/standard.js";
 
 import { createApp } from "../app.js";
+import { KeyPool } from "../lib/key-pool.js";
+import { ProviderRoutePheromoneStore } from "../lib/provider-route-pheromone-store.js";
+import { SqlPromptAffinityStore } from "../lib/db/sql-prompt-affinity-store.js";
 import { getActiveCljsRuntime, loadCljsRuntime, setActiveCljsRuntime } from "../lib/cljs-runtime.js";
 import type { ProxyConfig } from "../lib/config.js";
+import { setPolicyModelPricingOverrides } from "../lib/model-pricing.js";
 
 interface TestContext {
   readonly app: FastifyInstance;
@@ -253,7 +258,9 @@ async function withProxyApp(
 
   await withClearedAmbientProviders(async () => {
     const previousCljsRuntime = getActiveCljsRuntime();
-    setActiveCljsRuntime(await testCljsRuntimePromise);
+    const runtime = await testCljsRuntimePromise;
+    setActiveCljsRuntime(runtime);
+    setPolicyModelPricingOverrides(runtime.loadModelPricingOverrides(config.cljsPolicyManifestPath ?? "resources/policies/runtime/00-manifest.edn"));
     const app = await createApp(config);
     try {
       await fn({ app, upstream, tempDir });
@@ -4047,6 +4054,96 @@ test("permanently disables api_key accounts on 403 (forbidden/suspended)", async
 
       assert.equal(requestCount, firstCount, "second request must not reach upstream — account is permanently disabled");
     }
+  );
+});
+
+test("policy-classified openrouter key-limit 403 cools the key down and fails over instead of disabling it", async () => {
+  const chatAuth: string[] = [];
+
+  await withProxyApp(
+    {
+      keys: [],
+      keysPayload: {
+        providers: {
+          openrouter: [{ id: "openrouter-main", api_key: "openrouter-limited-key" }],
+          requesty: ["requesty-working-key"],
+        },
+      },
+      configOverrides: {
+        upstreamProviderId: "openrouter",
+      },
+      upstreamHandler: async (request) => {
+        const auth = typeof request.headers.authorization === "string" ? request.headers.authorization : "";
+        if (request.method === "POST" && (request.url ?? "").includes("chat/completions")) {
+          chatAuth.push(auth.replace(/^Bearer\s+/i, ""));
+        }
+
+        if (auth === "Bearer openrouter-limited-key") {
+          return {
+            status: 403,
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ error: { code: 403, message: "Key limit exceeded (total limit). Manage it in your OpenRouter settings." } }),
+          };
+        }
+
+        return {
+          status: 200,
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            id: "chatcmpl-credential-policy",
+            object: "chat.completion",
+            model: "acme-coder-1",
+            choices: [
+              {
+                index: 0,
+                message: { role: "assistant", content: "credential-policy-ok" },
+                finish_reason: "stop",
+              },
+            ],
+          }),
+        };
+      },
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: { "content-type": "application/json" },
+        payload: {
+          model: "acme-coder-1",
+          messages: [{ role: "user", content: "hello" }],
+          stream: false,
+        },
+      });
+
+      assert.equal(response.statusCode, 200);
+      assert.match(response.body, /credential-policy-ok/);
+      assert.deepEqual(chatAuth, ["openrouter-limited-key", "requesty-working-key"]);
+
+      const credentials = await app.inject({ method: "GET", url: "/api/v1/credentials" });
+      assert.equal(credentials.statusCode, 200);
+      const payload: unknown = credentials.json();
+      assert.ok(isRecord(payload) && isRecord(payload.keyPoolStatuses));
+      const openrouter = payload.keyPoolStatuses.openrouter;
+      assert.ok(isRecord(openrouter));
+      assert.equal(openrouter.disabledAccounts, 0, "a spend limit must not disable the key");
+      assert.equal(openrouter.cooldownAccounts, 1, "the limited key cools down until the limit resets");
+
+      const enable = await app.inject({
+        method: "POST",
+        url: "/api/v1/credentials/account/enable",
+        headers: { "content-type": "application/json" },
+        payload: { providerId: "openrouter", accountId: "openrouter-main" },
+      });
+      assert.equal(enable.statusCode, 200);
+
+      const afterEnable: unknown = (await app.inject({ method: "GET", url: "/api/v1/credentials" })).json();
+      assert.ok(isRecord(afterEnable) && isRecord(afterEnable.keyPoolStatuses));
+      const reenabled = afterEnable.keyPoolStatuses.openrouter;
+      assert.ok(isRecord(reenabled));
+      assert.equal(reenabled.cooldownAccounts, 0, "an explicit re-enable clears the cooldown");
+      assert.equal(reenabled.availableAccounts, 1);
+    },
   );
 });
 
@@ -13397,4 +13494,778 @@ test("rewrites largest-model alias requests for ollama catalog models", async ()
       assert.equal(payload.choices[0].message.content, "alias-ok");
     }
   );
+});
+
+for (const [reservationStatus, expectedStatus, expectedCode] of [
+  ["daily-limit",429,"paid_budget_exhausted"],
+  ["monthly-limit",429,"paid_budget_exhausted"],
+  ["unavailable",503,"budget_unavailable"],
+] as const) {
+test(`budget ${reservationStatus} stops the paid HTTP attempt before provider transport`, async () => {
+  let calls = 0;
+  await withProxyApp({
+    keys: [],
+    keysPayload: { providers: { requesty: { auth: "api_key", accounts: ["test-requesty-key"] } } },
+    configOverrides: { upstreamProviderId: "requesty" },
+    upstreamHandler: async (_request, body) => { calls += 1; assert.equal(JSON.parse(body).model, "google/gemma-4-31b-it"); return { status: 503, body: '{}' }; },
+  }, async ({ app }) => {
+    const runtime = getActiveCljsRuntime()!;
+    let reservations = 0;
+    setActiveCljsRuntime({ ...runtime, reservePaidBudget: async () => { reservations += 1; return { status: reservationStatus }; } });
+    app.addHook("preHandler", async (request) => {
+      request.openHaxAuth = { kind: "tenant_api_key", keyId: "71a0813f-dbe3-45ad-a7ae-16555463e716", tenantId: "default", source: "bearer" };
+    });
+    try {
+      const response = await app.inject({ method: "POST", url: "/v1/chat/completions", payload: {
+        model: "deepinfra/google/gemma-4-31B-it", messages: [{ role: "user", content: "hello" }], stream: false,
+      } });
+      assert.equal(response.statusCode, expectedStatus, response.body);
+      assert.equal(response.json().error.code, expectedCode);
+      assert.equal(reservations, 1);
+      assert.equal(calls, 1, "only the free route reaches transport");
+    } finally { setActiveCljsRuntime(runtime); }
+  });
+});
+}
+
+test("budgeted HTTP request caps output and settles completed usage", async () => {
+  let observedMax: unknown;
+  let settlements = 0;
+  let edgeAdmission: number | undefined;
+  await withProxyApp({
+    keys: [],
+    keysPayload: { providers: { requesty: { auth: "api_key", accounts: ["test-requesty-key"] } } },
+    configOverrides: { upstreamProviderId: "requesty" },
+    upstreamHandler: async (_request, body) => {
+      if (JSON.parse(body).model === "google/gemma-4-31b-it") return { status: 503, body: "{}" };
+      observedMax = JSON.parse(body).max_tokens;
+      return { status: 200, headers: { "content-type": "application/json" }, body: JSON.stringify({
+        id: "budget-completion", object: "chat.completion", model: "deepinfra/google/gemma-4-31B-it",
+        choices: [{ index: 0, message: { role: "assistant", content: "OK" }, finish_reason: "stop" }],
+        usage: { prompt_tokens: 100, completion_tokens: 10, total_tokens: 110 },
+      }) };
+    },
+  }, async ({ app }) => {
+    const runtime = getActiveCljsRuntime()!;
+    setActiveCljsRuntime({ ...runtime,
+      reservePaidBudget: async (_sql, _queries, _policy, _id, _amount, admittedAt) => {
+        assert.ok(Number.isSafeInteger(admittedAt)); assert.equal(admittedAt, edgeAdmission);
+        return { status: "admitted", reservationId: "test-hold" };
+      },
+      settlePaidBudget: async (_sql, _queries, scope, id, amount) => {
+        assert.equal(scope, "knoxx-social-deepinfra"); assert.equal(id, "test-hold"); assert.equal(amount, 17);
+        settlements += 1; return { status: "settled" };
+      },
+    });
+    app.addHook("preHandler", async (request) => {
+      edgeAdmission = request._proxxAdmittedAt;
+      request.openHaxAuth = { kind: "tenant_api_key", keyId: "71a0813f-dbe3-45ad-a7ae-16555463e716", tenantId: "default", source: "bearer" };
+    });
+    try {
+      const response = await app.inject({ method: "POST", url: "/v1/chat/completions", payload: {
+        model: "deepinfra/google/gemma-4-31B-it", messages: [{ role: "user", content: "hello" }], max_tokens: 10000, stream: false,
+      } });
+      assert.equal(response.statusCode, 200, response.body);
+      assert.equal(observedMax, 8192);
+      assert.equal(settlements, 1);
+    } finally { setActiveCljsRuntime(runtime); }
+  });
+});
+
+test("free route does not reserve paid allowance and unfinished paid usage retains its hold", async () => {
+  for (const free of [true, false]) {
+    let reservations = 0;
+    let settlements = 0;
+    await withProxyApp({
+      keys: [],
+      keysPayload: { providers: { requesty: { auth: "api_key", accounts: ["test-requesty-key"] } } },
+      configOverrides: { upstreamProviderId: "requesty" },
+      upstreamHandler: async (_request, body) => !free && JSON.parse(body).model === "google/gemma-4-31b-it"
+        ? { status: 503, body: "{}" }
+        : ({ status: 200, headers: { "content-type": "application/json" }, body: JSON.stringify({
+        id: "test-incomplete", object: "chat.completion",
+        choices: [{ index: 0, message: { role: "assistant", content: "partial" }, finish_reason: null }],
+        usage: { prompt_tokens: 100, completion_tokens: 10, total_tokens: 110 },
+      }) }),
+    }, async ({ app }) => {
+      const runtime = getActiveCljsRuntime()!;
+      setActiveCljsRuntime({ ...runtime,
+        reservePaidBudget: async () => { reservations += 1; return { status: "admitted", reservationId: "test-hold" }; },
+        settlePaidBudget: async () => { settlements += 1; return { status: "settled" }; },
+      });
+      app.addHook("preHandler", async (request) => {
+        request.openHaxAuth = { kind: "tenant_api_key", keyId: "71a0813f-dbe3-45ad-a7ae-16555463e716", tenantId: "default", source: "bearer" };
+      });
+      try {
+        const response = await app.inject({ method: "POST", url: "/v1/chat/completions", payload: {
+          model: free ? "google/gemma-4-31b-it" : "deepinfra/google/gemma-4-31B-it",
+          messages: [{ role: "user", content: "hello" }], stream: false,
+        } });
+        assert.equal(response.statusCode, 200, response.body);
+        assert.equal(reservations, free ? 0 : 1);
+        assert.equal(settlements, 0, "incomplete response must not release a paid hold");
+      } finally { setActiveCljsRuntime(runtime); }
+    });
+  }
+});
+
+test("canonical Gemma workload prefers free route even after paid sticky success", async () => {
+  const observed: string[] = [];
+  let freeAttempts = 0;
+  let reservations = 0;
+  await withProxyApp({
+    keys: [], keysPayload: { providers: { requesty: { auth: "api_key", accounts: ["test-requesty-key"] } } },
+    configOverrides: { upstreamProviderId: "requesty" },
+    upstreamHandler: async (_req, body) => {
+      const model = JSON.parse(body).model as string; observed.push(model);
+      if (model === "google/gemma-4-31b-it" && freeAttempts++ === 0) return { status: 200, headers: { "content-type": "application/json" }, body: "{}" };
+      return { status: 200, headers: { "content-type": "application/json" }, body: JSON.stringify({
+        id: "free-first", object: "chat.completion", model,
+        choices: [{ index: 0, message: { role: "assistant", content: "OK" }, finish_reason: "stop" }],
+        usage: { prompt_tokens: 100, completion_tokens: 10, total_tokens: 110 },
+      }) };
+    },
+  }, async ({ app }) => {
+    const runtime = getActiveCljsRuntime()!;
+    setActiveCljsRuntime({ ...runtime,
+      reservePaidBudget: async () => { reservations++; return { status: "admitted", reservationId: "hold" }; },
+      settlePaidBudget: async () => ({ status: "settled" }),
+    });
+    app.addHook("preHandler", async (request) => {
+      request.openHaxAuth = { kind: "tenant_api_key", keyId: "71a0813f-dbe3-45ad-a7ae-16555463e716", tenantId: "default", source: "bearer" };
+    });
+    try {
+      const payload = { model: "gemma4:31b", prompt_cache_key: "same-session", messages: [{ role: "user", content: "hello" }], stream: false };
+      const first = await app.inject({ method: "POST", url: "/v1/chat/completions", payload });
+      assert.equal(first.statusCode, 200, first.body);
+      assert.equal(first.headers["x-open-hax-upstream-model"], "deepinfra/google/gemma-4-31B-it");
+      const second = await app.inject({ method: "POST", url: "/v1/chat/completions", payload });
+      assert.equal(second.statusCode, 200, second.body);
+      assert.equal(second.headers["x-open-hax-upstream-model"], "google/gemma-4-31b-it");
+      assert.deepEqual(observed, ["google/gemma-4-31b-it", "deepinfra/google/gemma-4-31B-it", "google/gemma-4-31b-it"]);
+      assert.equal(reservations, 1);
+    } finally { setActiveCljsRuntime(runtime); }
+  });
+});
+
+test("free model quota leaves the paid route available on later requests", async () => {
+  const observed: string[] = [];
+  await withProxyApp({
+    keys: [], keysPayload: { providers: { requesty: { auth: "api_key", accounts: ["test-requesty-key"] } } },
+    configOverrides: { upstreamProviderId: "requesty" },
+    upstreamHandler: async (_req, body) => {
+      const model = JSON.parse(body).model as string; observed.push(model);
+      if (model === "google/gemma-4-31b-it") return { status: 429, headers: { "content-type": "application/json", "retry-after": "60" } as Record<string, string>, body: JSON.stringify({ error: { origin: "provider", message: "Rate limit exceeded" } }) };
+      return { status: 200, headers: { "content-type": "application/json" } as Record<string, string>, body: JSON.stringify({
+        id: "paid-after-free-quota", object: "chat.completion", model,
+        choices: [{ index: 0, message: { role: "assistant", content: "OK" }, finish_reason: "stop" }],
+        usage: { prompt_tokens: 100, completion_tokens: 10, total_tokens: 110 },
+      }) };
+    },
+  }, async ({ app }) => {
+    const runtime = getActiveCljsRuntime()!;
+    setActiveCljsRuntime({ ...runtime,
+      reservePaidBudget: async () => ({ status: "admitted", reservationId: crypto.randomUUID() }),
+      settlePaidBudget: async () => ({ status: "settled" }),
+    });
+    app.addHook("preHandler", async (request) => {
+      request.openHaxAuth = { kind: "tenant_api_key", keyId: "71a0813f-dbe3-45ad-a7ae-16555463e716", tenantId: "default", source: "bearer" };
+    });
+    try {
+      for (let n = 0; n < 2; n++) {
+        const r = await app.inject({ method: "POST", url: "/v1/chat/completions", payload: {
+          model: "gemma4:31b", messages: [{ role: "user", content: "hello" }], stream: false,
+        } });
+        assert.equal(r.statusCode, 200, r.body);
+        assert.equal(r.headers["x-open-hax-upstream-model"], "deepinfra/google/gemma-4-31B-it");
+      }
+      assert.deepEqual(observed, ["google/gemma-4-31b-it", "deepinfra/google/gemma-4-31B-it", "deepinfra/google/gemma-4-31B-it"]);
+    } finally { setActiveCljsRuntime(runtime); }
+  });
+});
+
+test("reasoning-only free stream falls back before any downstream output", async (t) => {
+  const transportFailures=t.mock.method(ProviderRoutePheromoneStore.prototype,"noteFailure",async()=>{});
+  let reservations = 0;
+  const observed: string[] = [];
+  await withProxyApp({
+    keys: [], keysPayload: { providers: { requesty: { auth: "api_key", accounts: ["test-requesty-key"] } } },
+    configOverrides: { upstreamProviderId: "requesty" },
+    upstreamHandler: async (_req, body) => {
+      const model = JSON.parse(body).model as string; observed.push(model);
+      if (model === "google/gemma-4-31b-it") return { status: 200, headers: { "content-type": "text/event-stream" },
+        streamBody: async (res) => { res.write('data: {"choices":[{"delta":{"reasoning_content":"unusable-thinking"}}]}\n\n'); await once(res, "close"); },
+      };
+      return { status: 200, headers: { "content-type": "application/json" }, body: JSON.stringify({
+        id: "paid-visible", object: "chat.completion", model,
+        choices: [{ index: 0, message: { role: "assistant", content: "paid-visible" }, finish_reason: "stop" }],
+        usage: { prompt_tokens: 100, completion_tokens: 10, total_tokens: 110 },
+      }) };
+    },
+  }, async ({ app }) => {
+    const runtime = getActiveCljsRuntime()!;
+    setActiveCljsRuntime({ ...runtime,
+      resolveBudgetRoutePlan: (path, auth, model) => {
+        const plan = runtime.resolveBudgetRoutePlan!(path, auth, model);
+        return plan?.orderedRoutes ? { ...plan, totalFirstUsableMs: 2000,
+          orderedRoutes: plan.orderedRoutes.map((route) => ({ ...route, firstUsableOffsetMs: route.firstUsableOffsetMs / 10 })) } : plan;
+      },
+      reservePaidBudget: async () => { reservations++; return { status: "admitted", reservationId: "hold" }; },
+      settlePaidBudget: async () => ({ status: "settled" }),
+    });
+    app.addHook("preHandler", async (request) => {
+      request.openHaxAuth = { kind: "tenant_api_key", keyId: "71a0813f-dbe3-45ad-a7ae-16555463e716", tenantId: "default", source: "bearer" };
+    });
+    try {
+      const response = await app.inject({ method: "POST", url: "/v1/chat/completions", payload: {
+        model: "gemma4:31b", messages: [{ role: "user", content: "hello" }], stream: true,
+      } });
+      assert.equal(response.statusCode, 200, response.body);
+      assert.ok(response.body.includes("paid-visible"));
+      assert.equal(response.body.includes("unusable-thinking"), false);
+      assert.equal(response.headers["x-open-hax-upstream-model"], "deepinfra/google/gemma-4-31B-it");
+      assert.deepEqual(observed, ["google/gemma-4-31b-it", "deepinfra/google/gemma-4-31B-it"]);
+      assert.equal(reservations, 1);
+      assert.equal(transportFailures.mock.callCount(),0,"policy cutoff is not a provider transport failure");
+      const logs=await app.inject({method:"GET",url:"/api/v1/request-logs?limit=10"});
+      assert.equal(logs.statusCode,200,logs.body);
+      const cutoff=logs.json().entries.find((entry:any)=>entry.upstreamModel==="google/gemma-4-31b-it" && entry.error);
+      assert.ok(cutoff,"free cutoff has an attempt receipt");
+      assert.equal(cutoff.status,504);
+    } finally { setActiveCljsRuntime(runtime); }
+  });
+});
+
+test("both silent routes terminate at the total deadline without releasing paid hold", async () => {
+  let reservations = 0;
+  let settlements = 0;
+  const observed: string[] = [];
+  await withProxyApp({
+    keys: [], keysPayload: { providers: { requesty: { auth: "api_key", accounts: ["test-requesty-key"] } } },
+    configOverrides: { upstreamProviderId: "requesty" },
+    upstreamHandler: async (_req, body) => {
+      observed.push(JSON.parse(body).model as string);
+      return { status: 200, headers: { "content-type": "text/event-stream" },
+        streamBody: async (res) => { res.write(": heartbeat\n\n"); await once(res, "close"); } };
+    },
+  }, async ({ app }) => {
+    const runtime = getActiveCljsRuntime()!;
+    setActiveCljsRuntime({ ...runtime,
+      resolveBudgetRoutePlan: (path, auth, model) => {
+        const plan = runtime.resolveBudgetRoutePlan!(path, auth, model);
+        return plan?.orderedRoutes ? { ...plan, totalFirstUsableMs: 2000,
+          orderedRoutes: plan.orderedRoutes.map((route) => ({ ...route, firstUsableOffsetMs: route.firstUsableOffsetMs / 10 })) } : plan;
+      },
+      reservePaidBudget: async () => { reservations++; return { status: "admitted", reservationId: "hold" }; },
+      settlePaidBudget: async () => { settlements++; return { status: "settled" }; },
+    });
+    app.addHook("preHandler", async (request) => {
+      request.openHaxAuth = { kind: "tenant_api_key", keyId: "71a0813f-dbe3-45ad-a7ae-16555463e716", tenantId: "default", source: "bearer" };
+    });
+    try {
+      const response = await app.inject({ method: "POST", url: "/v1/chat/completions", payload: {
+        model: "gemma4:31b", messages: [{ role: "user", content: "hello" }], stream: true,
+      } });
+      assert.equal(response.statusCode, 504, response.body);
+      assert.equal(response.json().error.code, "first_usable_timeout");
+      assert.deepEqual(observed, ["google/gemma-4-31b-it", "deepinfra/google/gemma-4-31B-it"]);
+      assert.equal(reservations, 1);
+      assert.equal(settlements, 0);
+    } finally { setActiveCljsRuntime(runtime); }
+  });
+});
+
+test("free cutoff followed by prompt paid refusal returns route exhaustion before total deadline", async () => {
+  let reservations = 0;
+  let settlements = 0;
+  const observed: string[] = [];
+  await withProxyApp({
+    keys: [], keysPayload: { providers: { requesty: { auth: "api_key", accounts: ["test-requesty-key"] } } },
+    configOverrides: { upstreamProviderId: "requesty" },
+    upstreamHandler: async (_req, body) => {
+      const model = JSON.parse(body).model as string;
+      observed.push(model);
+      if (model === "deepinfra/google/gemma-4-31B-it") return { status: 402, headers: { "content-type": "application/json" }, body: JSON.stringify({ error: { message: "Insufficient balance" } }) };
+      return { status: 200, headers: { "content-type": "text/event-stream" },
+        streamBody: async (res) => { res.write(": heartbeat\n\n"); await once(res, "close"); } };
+    },
+  }, async ({ app }) => {
+    const runtime = getActiveCljsRuntime()!;
+    setActiveCljsRuntime({ ...runtime,
+      resolveBudgetRoutePlan: (path, auth, model) => {
+        const plan = runtime.resolveBudgetRoutePlan!(path, auth, model);
+        return plan?.orderedRoutes ? { ...plan, totalFirstUsableMs: 5000,
+          orderedRoutes: plan.orderedRoutes.map((route) => ({ ...route, firstUsableOffsetMs: route.firstUsableOffsetMs / 10 })) } : plan;
+      },
+      reservePaidBudget: async () => { reservations++; return { status: "admitted", reservationId: "hold" }; },
+      settlePaidBudget: async () => { settlements++; return { status: "settled" }; },
+    });
+    app.addHook("preHandler", async (request) => {
+      request.openHaxAuth = { kind: "tenant_api_key", keyId: "71a0813f-dbe3-45ad-a7ae-16555463e716", tenantId: "default", source: "bearer" };
+    });
+    try {
+      const response = await app.inject({ method: "POST", url: "/v1/chat/completions", payload: {
+        model: "gemma4:31b", messages: [{ role: "user", content: "hello" }], stream: true,
+      } });
+      assert.equal(response.statusCode, 503, response.body);
+      assert.equal(response.json().error.code, "budget_routes_exhausted");
+      assert.deepEqual(observed, ["google/gemma-4-31b-it", "deepinfra/google/gemma-4-31B-it"]);
+      assert.equal(reservations, 1);
+      assert.equal(settlements, 1, "complete nonbillable refusal releases its hold");
+    } finally { setActiveCljsRuntime(runtime); }
+  });
+});
+
+test("time before routing counts against first usable deadline", async () => {
+  let calls = 0;
+  await withProxyApp({
+    keys: [], keysPayload: { providers: { requesty: { auth: "api_key", accounts: ["test-requesty-key"] } } },
+    configOverrides: { upstreamProviderId: "requesty" },
+    upstreamHandler: async () => { calls++; return { status: 200, body: "{}" }; },
+  }, async ({ app }) => {
+    app.addHook("preHandler", async (request) => {
+      request.openHaxAuth = { kind: "tenant_api_key", keyId: "71a0813f-dbe3-45ad-a7ae-16555463e716", tenantId: "default", source: "bearer" };
+      request._proxxAdmittedAt = Date.now() - 20001;
+    });
+    for (const model of ["gemma4:31b", "gemma4:e4b", "gemma4:e4b-128k"]) {
+    const response = await app.inject({ method: "POST", url: "/v1/chat/completions", payload: {
+      model, messages: [{ role: "user", content: "hello" }], stream: false,
+    } });
+    assert.equal(response.statusCode, 504, response.body);
+    assert.equal(calls, 0);
+    }
+  });
+});
+
+
+test("records fallback affinity after the preferred route becomes model-unavailable", async (t) => {
+  const successes = t.mock.method(SqlPromptAffinityStore.prototype, "noteSuccess");
+  let preferredAttempts = 0;
+  await withProxyApp({
+    keys: [],
+    keysPayload: { providers: { openrouter: ["preferred-key"], requesty: ["fallback-key"] } },
+    configOverrides: { upstreamProviderId: "openrouter", localOllamaEnabled: false },
+    upstreamHandler: async (request) => {
+      if (request.headers.authorization === "Bearer preferred-key" && ++preferredAttempts > 1) {
+        return { status: 404, headers: { "content-type": "application/json" },
+          body: JSON.stringify({ error: { message: "No allowed providers are available" } }) };
+      }
+      return { status: 200, headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: "affinity-fallback", object: "chat.completion", model: "test-model",
+          choices: [{ index: 0, message: { role: "assistant", content: "OK" }, finish_reason: "stop" }] }) };
+    },
+  }, async ({ app }) => {
+    const payload = { model: "test-model", messages: [{ role: "user", content: "hello" }],
+      prompt_cache_key: "unavailable-affinity", stream: false };
+    for (let i = 0; i < 2; i += 1) {
+      assert.equal((await app.inject({ method: "POST", url: "/v1/chat/completions",
+        headers: { "content-type": "application/json" }, payload })).statusCode, 200);
+    }
+    assert.equal(preferredAttempts, 2);
+    assert.ok(successes.mock.calls.some(({ arguments: args }) =>
+      args[0] === "unavailable-affinity" && args[1] === "requesty"),
+      "successful fallback must enter the provisional affinity state machine");
+  });
+});
+
+
+test("paid budget snapshots deny anonymous callers and distinguish missing ledger from zero spend", async () => {
+  await withProxyApp({ keys: ["key-a"], proxyAuthToken: "budget-owner",
+    upstreamHandler: async () => ({ status: 500 }) }, async ({ app }) => {
+    const anonymous = await app.inject({ method: "GET", url: "/api/v1/paid-budgets" });
+    assert.equal(anonymous.statusCode, 401);
+    const owner = await app.inject({ method: "GET", url: "/api/v1/paid-budgets",
+      headers: { authorization: "Bearer budget-owner" } });
+    assert.equal(owner.statusCode, 200);
+    const result = owner.json();
+    assert.equal(result.budgets.length, 1);
+    assert.equal(result.budgets[0].status, "unavailable");
+    assert.equal(result.budgets[0].dailyMicrousd, 500000);
+    assert.equal(result.budgets[0].monthlyMicrousd, 5000000);
+    assert.equal(result.budgets[0].dailyRemainingMicrousd, undefined);
+  });
+});
+
+
+test("unmanaged traffic keeps serving without the optional CLJS budget runtime", async () => {
+  await withProxyApp({ keys: ["key-a"], upstreamHandler: async () => ({status:200,
+    headers:{"content-type":"application/json"},body:JSON.stringify({id:"no-runtime",object:"chat.completion",
+      choices:[{index:0,message:{role:"assistant",content:"OK"},finish_reason:"stop"}]})}) }, async ({app}) => {
+    const runtime=getActiveCljsRuntime()!;setActiveCljsRuntime({...runtime,inspectBudgetAttempt:undefined,resolveBudgetRoutePlan:undefined});
+    try {const response=await app.inject({method:"POST",url:"/v1/chat/completions",payload:{model:"test-model",messages:[{role:"user",content:"hello"}],stream:false}});
+      assert.equal(response.statusCode,200,response.body);
+    } finally {setActiveCljsRuntime(runtime);}
+  });
+});
+
+test("budget-marked auth fails closed if the budget interpreter disappears", async () => {
+  let calls=0;
+  await withProxyApp({keys:["key-a"],upstreamHandler:async()=>{calls++;return {status:200,body:"{}"};}},async({app})=>{
+    const runtime=getActiveCljsRuntime()!;setActiveCljsRuntime({...runtime,inspectBudgetAttempt:undefined,resolveBudgetRoutePlan:undefined});
+    app.addHook("preHandler",async request=>{request.openHaxAuth={kind:"tenant_api_key",keyId:"71a0813f-dbe3-45ad-a7ae-16555463e716",tenantId:"default",source:"bearer",scopes:["proxy:use","budget:required"]};});
+    try {const response=await app.inject({method:"POST",url:"/v1/chat/completions",payload:{model:"test-model",messages:[{role:"user",content:"hello"}],stream:false}});
+      assert.equal(response.statusCode,503,response.body);assert.equal(calls,0);
+    } finally {setActiveCljsRuntime(runtime);}
+  });
+});
+
+test("a definitive paid refusal settles its reservation to zero", async () => {
+  const settled:number[]=[];let paid=0;
+  await withProxyApp({keys:[],keysPayload:{providers:{requesty:["refusal-key"]}},configOverrides:{upstreamProviderId:"requesty"},
+    upstreamHandler:async(_req,body)=>{const free=JSON.parse(body).model==="google/gemma-4-31b-it";if(!free)paid++;
+      return {status:free?429:402,headers:{"content-type":"application/json"},body:JSON.stringify({error:{message:free?"Rate limit exceeded":"Insufficient balance"}})};}},async({app})=>{
+    const runtime=getActiveCljsRuntime()!;setActiveCljsRuntime({...runtime,reservePaidBudget:async()=>({status:"admitted",reservationId:"rejected-hold"}),
+      settlePaidBudget:async(_sql,_queries,_scope,_id,amount)=>{settled.push(amount!);return {status:"settled"};}});
+    app.addHook("preHandler",async request=>{request.openHaxAuth={kind:"tenant_api_key",keyId:"71a0813f-dbe3-45ad-a7ae-16555463e716",tenantId:"default",source:"bearer",scopes:["proxy:use","budget:required"]};});
+    try {const response=await app.inject({method:"POST",url:"/v1/chat/completions",payload:{model:"gemma4:31b",messages:[{role:"user",content:"hello"}],stream:false}});
+      assert.notEqual(response.statusCode,200);assert.equal(paid,1);assert.deepEqual(settled,[0]);
+    } finally {setActiveCljsRuntime(runtime);}
+  });
+});
+
+test("model unavailability marks and skips the actual upstream alias identity", async (t) => {
+  const marked=t.mock.method(KeyPool.prototype,"markModelUnsupported");const observed:string[]=[];
+  await withProxyApp({keys:[],keysPayload:{providers:{requesty:["alias-key"]}},configOverrides:{upstreamProviderId:"requesty"},
+    upstreamHandler:async(_req,body)=>{const model=JSON.parse(body).model;observed.push(model);
+      return model==="google/gemma-4-31b-it"?{status:404,headers:{"content-type":"application/json"},body:JSON.stringify({error:{message:"No allowed providers"}})}:
+        {status:200,headers:{"content-type":"application/json"},body:JSON.stringify({id:"alias-fallback",object:"chat.completion",choices:[{index:0,message:{role:"assistant",content:"OK"},finish_reason:"stop"}],usage:{prompt_tokens:10,completion_tokens:2}})};}},async({app})=>{
+    const runtime=getActiveCljsRuntime()!;setActiveCljsRuntime({...runtime,
+      classifyCredentialFailure:(manifest,provider,status,message)=>status===404?{status:"ok",result:"model-unavailable",cooldownMs:60000}:runtime.classifyCredentialFailure!(manifest,provider,status,message),
+      reservePaidBudget:async()=>({status:"admitted",reservationId:crypto.randomUUID()}),settlePaidBudget:async()=>({status:"settled"})});
+    app.addHook("preHandler",async request=>{request.openHaxAuth={kind:"tenant_api_key",keyId:"71a0813f-dbe3-45ad-a7ae-16555463e716",tenantId:"default",source:"bearer"};});
+    try {for(let n=0;n<2;n++){const response=await app.inject({method:"POST",url:"/v1/chat/completions",payload:{model:"gemma4:31b",messages:[{role:"user",content:"hello"}],stream:false}});assert.equal(response.statusCode,200,response.body);}
+      assert.equal(marked.mock.calls[0]?.arguments[1],"google/gemma-4-31b-it");
+      assert.deepEqual(observed,["google/gemma-4-31b-it","deepinfra/google/gemma-4-31B-it","deepinfra/google/gemma-4-31B-it"]);
+    } finally {setActiveCljsRuntime(runtime);}
+  });
+});
+
+for (const model of ["google/gemma-4-31b-it", "deepinfra/google/gemma-4-31B-it"]) {
+  test(`Requesty native Gemma model ${model} normalizes minimal reasoning`, async () => {
+    const observed:unknown[]=[];
+    await withProxyApp({keys:[],keysPayload:{providers:{requesty:["native-gemma-key"]}},configOverrides:{upstreamProviderId:"requesty"},
+      upstreamHandler:async(request,body)=>{const parsed=JSON.parse(body);observed.push({model:parsed.model,effort:parsed.reasoning_effort,auth:request.headers.authorization});
+        return parsed.reasoning_effort==="low"?{status:200,headers:{"content-type":"application/json"},body:JSON.stringify({id:"native-reasoning",object:"chat.completion",choices:[{index:0,message:{role:"assistant",content:"OK"},finish_reason:"stop"}]})}:
+          {status:400,headers:{"content-type":"application/json"},body:JSON.stringify({error:{message:"invalid reasoning value: minimal"}})};}},async({app})=>{
+      const response=await app.inject({method:"POST",url:"/v1/chat/completions",payload:{model,reasoning_effort:"minimal",messages:[{role:"user",content:"hello"}],stream:false}});
+      assert.equal(response.statusCode,200,response.body);
+      assert.deepEqual(observed,[{model,effort:"low",auth:"Bearer native-gemma-key"}]);
+    });
+  });
+}
+
+
+test("required budget identity cannot bypass admission via embeddings or missing binding", async () => {
+  let calls=0;let keyId="71a0813f-dbe3-45ad-a7ae-16555463e716";
+  await withProxyApp({keys:["key-a"],upstreamHandler:async()=>{calls++;return {status:200,body:"{}"};}},async({app})=>{
+    app.addHook("onRequest",async request=>{request.openHaxAuth={kind:"tenant_api_key",keyId,tenantId:"default",source:"bearer",scopes:["proxy:use","budget:required"]};});
+    const blocked=await app.inject({method:"POST",url:"/v1/embeddings",payload:{model:"gemma4:31b",input:"hello"}});
+    assert.equal(blocked.statusCode,403,blocked.body);assert.equal(calls,0);
+    keyId="not-provisioned-in-policy";
+    const unbound=await app.inject({method:"POST",url:"/v1/chat/completions",payload:{model:"gemma4:31b",messages:[{role:"user",content:"hello"}]}});
+    assert.equal(unbound.statusCode,503,unbound.body);assert.equal(calls,0);
+  });
+});
+
+test("paid streamed requests override disabled usage reporting before transport", async () => {
+  let paidCalls=0, settlements=0;
+  await withProxyApp({keys:[],keysPayload:{providers:{requesty:{auth:"api_key",accounts:["test-key"]}}},configOverrides:{upstreamProviderId:"requesty"},
+    upstreamHandler:async(_request,text)=>{
+      const body=JSON.parse(text);
+      if(body.model==="google/gemma-4-31b-it") return {status:503,body:"{}"};
+      paidCalls++;assert.equal(body.stream_options?.include_usage,true);
+      return {status:200,headers:{"content-type":"application/json"},body:JSON.stringify({id:"usage",object:"chat.completion",model:body.model,
+        choices:[{index:0,message:{role:"assistant",content:"OK"},finish_reason:"stop"}],usage:{prompt_tokens:10,completion_tokens:1,total_tokens:11}})};
+    }},async({app})=>{
+      const runtime=getActiveCljsRuntime()!;
+      setActiveCljsRuntime({...runtime,reservePaidBudget:async()=>({status:"admitted",reservationId:"usage-hold"}),settlePaidBudget:async()=>{settlements++;return {status:"settled"};}});
+      app.addHook("preHandler",async request=>{request.openHaxAuth={kind:"tenant_api_key",keyId:"71a0813f-dbe3-45ad-a7ae-16555463e716",tenantId:"default",source:"bearer"};});
+      try {
+        const response=await app.inject({method:"POST",url:"/v1/chat/completions",payload:{model:"gemma4:31b",stream:true,stream_options:{include_usage:false},messages:[{role:"user",content:"hello"}]}});
+        assert.equal(response.statusCode,200,response.body);assert.equal(paidCalls,1);assert.equal(settlements,1);
+      } finally {setActiveCljsRuntime(runtime);}
+    });
+});
+
+
+test("budget-managed direct execution is denied before SDK effects", async (t) => {
+  let directCalls=0, keyId="71a0813f-dbe3-45ad-a7ae-16555463e716";
+  const prototype=ChatCompletionsProviderStrategy.prototype;
+  const previous=Object.getOwnPropertyDescriptor(prototype,"executeDirect");
+  Object.defineProperty(prototype,"executeDirect",{configurable:true,value:async(reply:FastifyReply)=>{directCalls++;reply.send({direct:true});return {kind:"handled"};}});
+  t.after(()=>{if(previous)Object.defineProperty(prototype,"executeDirect",previous);else Reflect.deleteProperty(prototype,"executeDirect");});
+  await withProxyApp({keys:[],keysPayload:{providers:{requesty:{auth:"api_key",accounts:["test-key"]}}},configOverrides:{upstreamProviderId:"requesty"},
+    upstreamHandler:async()=>{throw Error("wrapped provider transport should not run");}},async({app})=>{
+      app.addHook("preHandler",async request=>{request.openHaxAuth={kind:"tenant_api_key",keyId,tenantId:"default",source:"bearer"};});
+      const payload={model:"google/gemma-4-31b-it",stream:false,messages:[{role:"user",content:"hello"}]};
+      const managed=await app.inject({method:"POST",url:"/v1/chat/completions",payload});
+      assert.equal(managed.statusCode,403,managed.body);assert.equal(directCalls,0);
+      keyId="unrelated-unmanaged-key";
+      const unmanaged=await app.inject({method:"POST",url:"/v1/chat/completions",payload});
+      assert.equal(unmanaged.statusCode,200,unmanaged.body);assert.equal(directCalls,1);
+    });
+});
+
+
+test("unmanaged transport preserves non-JSON strategy bodies", async (t) => {
+  const prototype = ChatCompletionsProviderStrategy.prototype;
+  const original = prototype.buildPayload;
+  prototype.buildPayload = function(context) { return { ...original.call(this, context), bodyText: "prompt=hello&format=custom" }; };
+  t.after(() => { prototype.buildPayload = original; });
+  let calls = 0;
+  await withProxyApp({ keys: [], keysPayload: {providers:{requesty:{auth:"api_key",accounts:["test-key"]}}},
+    configOverrides:{upstreamProviderId:"requesty"}, upstreamHandler:async (_request,body) => {
+      calls++; assert.equal(body,"prompt=hello&format=custom");
+      return {status:200,body:JSON.stringify({id:"raw",object:"chat.completion",choices:[{index:0,message:{role:"assistant",content:"ok"},finish_reason:"stop"}]})};
+    }}, async ({app}) => {
+      const response = await app.inject({method:"POST",url:"/v1/chat/completions",payload:{model:"vendor/custom",stream:false,messages:[{role:"user",content:"hello"}]}});
+      assert.equal(response.statusCode,200,response.body); assert.equal(calls,1);
+    });
+});
+
+
+test("managed transport rejects non-JSON wire bytes before any upstream send", async (t) => {
+  const prototype = ChatCompletionsProviderStrategy.prototype;
+  const original = prototype.buildPayload;
+  prototype.buildPayload = function(context) { return { ...original.call(this, context), bodyText: "prompt=hello" }; };
+  t.after(() => { prototype.buildPayload = original; });
+  let calls = 0, reservations = 0;
+  await withProxyApp({keys:[],keysPayload:{providers:{requesty:{auth:"api_key",accounts:["test-key"]}}},configOverrides:{upstreamProviderId:"requesty"},
+    upstreamHandler:async()=>{calls++;return {status:500,body:"{}"};}},async({app})=>{
+      const runtime=getActiveCljsRuntime()!;
+      setActiveCljsRuntime({...runtime,
+        resolveBudgetRoutePlan:(path,auth,model)=>{
+          const plan=runtime.resolveBudgetRoutePlan!(path,auth,model);
+          return plan ? {...plan,orderedRoutes:[{providerId:"requesty",upstreamModel:"",firstUsableOffsetMs:20000}]} : null;
+        },
+        reservePaidBudget:async()=>{reservations++;return {status:"unavailable"};}});
+      app.addHook("preHandler",async request=>{request.openHaxAuth={kind:"tenant_api_key",keyId:"71a0813f-dbe3-45ad-a7ae-16555463e716",tenantId:"default",source:"bearer"};});
+      try {
+        const response=await app.inject({method:"POST",url:"/v1/chat/completions",payload:{model:"google/gemma-4-31b-it",stream:false,messages:[{role:"user",content:"hello"}]}});
+        assert.equal(response.statusCode,403,response.body);
+        assert.equal(response.json().error.code,"budget_route_denied");
+        assert.equal(calls,0);assert.equal(reservations,0);
+      } finally {setActiveCljsRuntime(runtime);}
+    });
+});
+
+test("managed callers cannot escape through undeclared local model strategies", async () => {
+  let calls=0;
+  await withProxyApp({keys:["test-key"],upstreamHandler:async()=>{calls++;return {status:200,body:'{"message":{"content":"bypassed"},"done":true}'};}},async({app})=>{
+    app.addHook("preHandler",async request=>{request.openHaxAuth={kind:"tenant_api_key",keyId:"71a0813f-dbe3-45ad-a7ae-16555463e716",tenantId:"default",source:"bearer"};});
+    for(const model of ["llama3:8b","ollama/gemma4:e4b"]){
+      const response=await app.inject({method:"POST",url:"/v1/chat/completions",payload:{model,stream:false,messages:[{role:"user",content:"hello"}]}});
+      assert.equal(response.statusCode,403,response.body);
+      assert.equal(calls,0,`${model}: no local or remote transport may execute`);
+    }
+  });
+});
+
+test("budgeted free and paid wire bodies preserve slash-separated schema and metadata keys", async () => {
+  const parameters={type:"object",properties:{"a/b":{type:"string"},"x/y/z":{type:"integer"}},required:["a/b"],patternProperties:{"^prefix/suffix$":{type:"string"}}};
+  const tools=[{type:"function",function:{name:"lookup",description:"fixture",parameters}}];
+  const metadata={"tenant/project":"fixture"};
+  for(const paid of [false,true]){
+    let completed=0;let observed: Record<string,unknown> | undefined;
+    await withProxyApp({keys:[],keysPayload:{providers:{requesty:{auth:"api_key",accounts:["test-key"]}}},configOverrides:{upstreamProviderId:"requesty"},
+      upstreamHandler:async(_request,text)=>{
+        const body=JSON.parse(text);
+        if(paid&&body.model==="google/gemma-4-31b-it")return {status:503,body:"{}"};
+        observed=body;completed++;
+        return {status:200,body:JSON.stringify({id:"wire",object:"chat.completion",model:body.model,choices:[{index:0,message:{role:"assistant",content:"ok"},finish_reason:"stop"}],usage:{prompt_tokens:1,completion_tokens:1,total_tokens:2}})};
+      }},async({app})=>{
+        const runtime=getActiveCljsRuntime()!;
+        setActiveCljsRuntime({...runtime,reservePaidBudget:async()=>({status:"admitted",reservationId:"wire"}),settlePaidBudget:async()=>({status:"settled"})});
+        app.addHook("preHandler",async request=>{request.openHaxAuth={kind:"tenant_api_key",keyId:"71a0813f-dbe3-45ad-a7ae-16555463e716",tenantId:"default",source:"bearer"};});
+        try{
+          const response=await app.inject({method:"POST",url:"/v1/chat/completions",payload:{model:"gemma4:31b",stream:false,messages:[{role:"user",content:"hello"}],tools,metadata}});
+          assert.equal(response.statusCode,200,response.body);assert.equal(completed,1);
+          assert.deepEqual(observed?.tools,tools);assert.deepEqual(observed?.metadata,metadata);
+        }finally{setActiveCljsRuntime(runtime);}
+      });
+  }
+});
+
+
+test("managed non-streaming bodies must end before clearing first usable deadline", async () => {
+  for (const paidEnds of [true, false]) {
+    let reservations = 0, settlements = 0, freeClosed = false;
+    const observed: string[] = [];
+    await withProxyApp({
+      keys: [], keysPayload: { providers: { requesty: { auth: "api_key", accounts: ["test-requesty-key"] } } },
+      configOverrides: { upstreamProviderId: "requesty" },
+      upstreamHandler: async (_req, body) => {
+        const model = JSON.parse(body).model as string; observed.push(model);
+        const payload = JSON.stringify({id:"complete-json-without-eof",object:"chat.completion",model,
+          choices:[{index:0,message:{role:"assistant",content:"visible only after nonstream completion"},finish_reason:"stop"}],
+          usage:{prompt_tokens:100,completion_tokens:10,total_tokens:110}});
+        if (model === "google/gemma-4-31b-it" || !paidEnds) return {
+          status:200,headers:{"content-type":"application/json"},
+          streamBody:async res => {res.write(payload);await once(res,"close");if(model === "google/gemma-4-31b-it")freeClosed=true;},
+        };
+        return {status:200,headers:{"content-type":"application/json"},body:payload};
+      },
+    }, async ({app}) => {
+      const runtime=getActiveCljsRuntime()!;
+      setActiveCljsRuntime({...runtime,
+        resolveBudgetRoutePlan:(path,auth,model)=>{
+          const plan=runtime.resolveBudgetRoutePlan!(path,auth,model);
+          return plan?.orderedRoutes?{...plan,totalFirstUsableMs:2000,
+            orderedRoutes:plan.orderedRoutes.map(route=>({...route,firstUsableOffsetMs:route.firstUsableOffsetMs/10}))}:plan;
+        },
+        reservePaidBudget:async()=>{reservations++;return {status:"admitted",reservationId:"nonstream-hold"};},
+        settlePaidBudget:async()=>{settlements++;return {status:"settled"};},
+      });
+      app.addHook("preHandler",async request=>{request.openHaxAuth={kind:"tenant_api_key",keyId:"71a0813f-dbe3-45ad-a7ae-16555463e716",tenantId:"default",source:"bearer"};});
+      try {
+        const began=Date.now();
+        const response=await app.inject({method:"POST",url:"/v1/chat/completions",payload:{
+          model:"gemma4:31b",messages:[{role:"user",content:"hello"}],stream:false,
+        }});
+        assert.equal(response.statusCode,paidEnds?200:504,response.body);
+        assert.ok(Date.now()-began<3000,"scaled first-usable deadline must bound the client response");
+        assert.deepEqual(observed,["google/gemma-4-31b-it","deepinfra/google/gemma-4-31B-it"]);
+        assert.equal(reservations,1);
+        if(paidEnds)assert.equal(response.headers["x-open-hax-upstream-model"],"deepinfra/google/gemma-4-31B-it");
+        else {assert.equal(response.json().error.code,"first_usable_timeout");assert.equal(settlements,0,"unknown paid completion must retain its hold");}
+        await new Promise(resolve=>setImmediate(resolve));
+        assert.equal(freeClosed,true,"free response is aborted before fallback completes");
+      } finally {setActiveCljsRuntime(runtime);}
+    });
+  }
+});
+
+test("zero-retry budget forbids an OAuth refresh resend and retains an uncertain paid hold", async () => {
+  let refreshes=0, sends=0, reservations=0, settlements=0;
+  await withPatchedFetch(async (input,init,originalFetch)=>{
+    const url=typeof input==='string'?input:input instanceof URL?input.toString():input.url;
+    if(url==='https://auth.openai.com/oauth/token') {
+      refreshes++;
+      return new Response(JSON.stringify({access_token:makeJwt({chatgpt_account_id:'budget-refresh',chatgpt_plan_type:'team'}),refresh_token:'replacement',expires_in:3600}),{status:200,headers:{'content-type':'application/json'}});
+    }
+    return originalFetch(input,init);
+  },async()=>{
+    await withProxyApp({keys:[],keysPayload:{providers:{openai:{auth:'oauth_bearer',accounts:[{id:'budget-oauth',access_token:'old-budget-token',refresh_token:'budget-refresh-token',expires_at:Date.now()+86400000,chatgpt_account_id:'budget-old',plan_type:'team'}]}}},
+      configOverrides:{upstreamProviderId:'openai'},upstreamHandler:async()=>{sends++;return {status:401,headers:{'content-type':'application/json'},body:JSON.stringify({error:{message:'Unauthorized',type:'invalid_request_error'}})};}},async({app})=>{
+      const runtime=getActiveCljsRuntime()!;
+      // Exercise a managed OAuth transport without changing the shipped API-key-only budget routes.
+      setActiveCljsRuntime({...runtime,
+        resolveBudgetRoutePlan:()=>({managed:true,maxRetries:0,totalFirstUsableMs:20000,maxBootstrapBytes:65536,orderedRoutes:[{providerId:'openai',upstreamModel:'gpt-5.4',firstUsableOffsetMs:20000}]}),
+        inspectBudgetAttempt:(_manifest,_auth,attempt)=>{assert.ok(isRecord(attempt));assert.ok(isRecord(attempt.payload));return {status:'paid',policy:{scopeId:'fixture',dailyMicrousd:500000,monthlyMicrousd:5000000},inputBound:100,outputBound:100,payload:attempt.payload};},
+        reservePaidBudget:async()=>{reservations++;return {status:'admitted',reservationId:crypto.randomUUID()};},
+        settlePaidBudget:async()=>{settlements++;return {status:'settled'};},zeroChargeBudgetRefusal:()=>false});
+      app.addHook('preHandler',async request=>{request.openHaxAuth={kind:'tenant_api_key',keyId:'71a0813f-dbe3-45ad-a7ae-16555463e716',tenantId:'default',source:'bearer'};});
+      try {
+        const response=await app.inject({method:'POST',url:'/v1/chat/completions',payload:{model:'gpt-5.4',messages:[{role:'user',content:'fixture'}],stream:false}});
+        assert.notEqual(response.statusCode,200);
+        assert.equal(refreshes,0);assert.equal(sends,1);assert.equal(reservations,1);assert.equal(settlements,0);
+      } finally {setActiveCljsRuntime(runtime);}
+    });
+  });
+});
+
+for (const retries of [0, 1]) {
+  test(`paid budget concurrency retry limit ${retries} settles declared refusals before a fresh reservation`, async () => {
+    let paidSends=0, reservations=0;
+    const settlements:number[]=[];
+    await withProxyApp({keys:[],keysPayload:{providers:{requesty:['throttle-fixture']}},
+      configOverrides:{upstreamProviderId:'requesty',concurrencyThrottleMaxRetries:3},
+      upstreamHandler:async(_req,text):Promise<{status:number;headers?:Record<string,string>;body:string}>=>{
+        const model=JSON.parse(text).model;
+        if(model==='google/gemma-4-31b-it')return {status:503,body:'{}'};
+        paidSends++;
+        if(paidSends===1)return {status:429,headers:{'content-type':'application/json','retry-after':'0.001'},body:JSON.stringify({error:{message:'concurrent request limit'}})};
+        return {status:200,headers:{'content-type':'application/json'},body:JSON.stringify({id:'retry',object:'chat.completion',model,
+          choices:[{index:0,message:{role:'assistant',content:'OK'},finish_reason:'stop'}],usage:{prompt_tokens:10,completion_tokens:2,total_tokens:12}})};
+      }},async({app})=>{
+        const runtime=getActiveCljsRuntime()!;
+        setActiveCljsRuntime({...runtime,
+          resolveBudgetRoutePlan:(manifest,auth,model)=>{const plan=runtime.resolveBudgetRoutePlan!(manifest,auth,model);return plan?{...plan,maxRetries:retries}:plan;},
+          reservePaidBudget:async()=>{if(reservations)assert.deepEqual(settlements,[0],'first refusal must settle before retry admission');reservations++;return {status:'admitted',reservationId:crypto.randomUUID()};},
+          settlePaidBudget:async(_sql,_queries,_scope,_id,amount)=>{settlements.push(amount!);return {status:'settled'};}});
+        app.addHook('preHandler',async request=>{request.openHaxAuth={kind:'tenant_api_key',keyId:'71a0813f-dbe3-45ad-a7ae-16555463e716',tenantId:'default',source:'bearer'};});
+        try {
+          const response=await app.inject({method:'POST',url:'/v1/chat/completions',payload:{model:'gemma4:31b',messages:[{role:'user',content:'fixture'}],stream:false}});
+          assert.equal(response.statusCode===200,retries===1,response.body);
+          assert.equal(paidSends,1+retries);assert.equal(reservations,1+retries);
+          assert.equal(settlements[0],0);assert.equal(settlements.length,1+retries);
+          if(retries)assert.ok(settlements[1]!>0);
+        } finally {setActiveCljsRuntime(runtime);}
+      });
+  });
+}
+
+
+test("staged absolute deadlines rearm an early timer instead of timing out before admission cutoff", async t => {
+  const {stageResponse}=await import('../lib/http/fetch-utils.js');
+  const realSetTimeout=globalThis.setTimeout;
+  let now=1000, callbacks=0;
+  t.mock.method(Date,'now',()=>now);
+  t.mock.method(globalThis,'setTimeout',(callback:()=>void)=>realSetTimeout(()=>{now++;callbacks++;callback();},0));
+  try {
+    await assert.rejects(stageResponse(new Response(new ReadableStream({start(){}})),1002,100,()=>({ready:false,fatal:false}),()=>{}),/deadline exceeded/);
+    assert.equal(now,1002);assert.equal(callbacks,2);
+  } finally {t.mock.restoreAll();}
+});
+
+test("response-header policy deadline rearms early callbacks and retains its typed cause", async t => {
+  const {fetchWithResponseTimeout, FirstUsableDeadlineError}=await import('../lib/http/fetch-utils.js');
+  const realSetTimeout=globalThis.setTimeout;
+  let now=1000, callbacks=0;
+  t.mock.method(Date,'now',()=>now);
+  t.mock.method(globalThis,'setTimeout',(callback:()=>void)=>realSetTimeout(()=>{now++;callbacks++;callback();},0));
+  t.mock.method(globalThis,'fetch',async (_url:unknown, init:RequestInit)=>new Promise<Response>((_resolve,reject)=>{
+    const signal=init.signal!;
+    if(signal.aborted) reject(signal.reason);
+    else signal.addEventListener('abort',()=>reject(signal.reason),{once:true});
+  }));
+  try {
+    await assert.rejects(fetchWithResponseTimeout('https://fixture.invalid',{},2,1002), FirstUsableDeadlineError);
+    assert.equal(now,1002);
+    assert.equal(callbacks,2,"early callback must rearm without aborting the request");
+  } finally {t.mock.restoreAll();}
+});
+
+test("JSON-to-SSE conversion preserves native payload failover and releases converted bodies", async () => {
+  await withProxyApp({keys:["fixture"],upstreamHandler:async()=>({status:200,body:"{}"})},async()=>{
+    const strategy = new ChatCompletionsProviderStrategy();
+    const context = {config:{},providerId:"ollama",routedModel:"fixture",clientWantsStream:true,
+      upstreamAttemptTimeoutMs:1000,hasMoreCandidates:true} as any;
+    for (const payload of [{message:{role:"assistant",content:"native answer"},done:true},{id:"not-a-chat-completion"}]) {
+      let sent=false;
+      const reply = {header(){return this;},code(){return this;},removeHeader(){return this;},send(){sent=true;return this;}} as unknown as FastifyReply;
+      const outcome=await strategy.handleProviderAttempt(reply,Response.json(payload),context);
+      assert.equal(outcome.kind,"continue","native/other JSON cannot become an empty successful SSE response");
+      assert.equal(sent,false);
+    }
+    let sent: unknown;
+    const reply = {header(){return this;},code(){return this;},removeHeader(){return this;},send(value:unknown){sent=value;return this;}} as unknown as FastifyReply;
+    const response=Response.json({id:"chat",choices:[{index:0,message:{role:"assistant",content:"visible answer"},finish_reason:"stop"}]});
+    const outcome=await strategy.handleProviderAttempt(reply,response,context);
+    assert.equal(outcome.kind,"handled");
+    assert.equal(response.bodyUsed,true,"converted original response body is released");
+    assert.ok(sent);
+    let wire="";
+    for await (const chunk of sent as AsyncIterable<Buffer | string>) wire+=chunk.toString();
+    assert.match(wire,/visible answer/);
+    assert.match(wire,/\[DONE\]/);
+  });
+});
+
+test("first-output staging probes only new SSE text and defers JSON until EOF", async () => {
+  const {stageResponse}=await import("../lib/http/fetch-utils.js");
+  const encoder=new TextEncoder();
+  const pieces=[...Array.from({length:200},()=>"data: reasoning\n\n"),"data: answer\n\n","data: [DONE]\n\n"];
+  const source=new Response(new ReadableStream({start(c){for(const piece of pieces)c.enqueue(encoder.encode(piece));c.close();}}),{headers:{"content-type":"text/event-stream"}});
+  const seen:string[]=[];
+  const staged=await stageResponse(source,Date.now()+5000,100000,(text)=>{seen.push(text);return {ready:text.includes("answer"),fatal:false};},()=>{});
+  assert.equal(seen.length,201);
+  assert.equal(seen.join(""),pieces.slice(0,201).join(""));
+  assert.equal(await staged.text(),pieces.join(""));
+  const jsonPieces=['{"choices":','[{"message":{"content":"answer"}}]', '}'];
+  const json=new Response(new ReadableStream({start(c){for(const piece of jsonPieces)c.enqueue(encoder.encode(piece));c.close();}}),{headers:{"content-type":"application/json"}});
+  const jsonSeen:string[]=[];
+  const jsonStaged=await stageResponse(json,Date.now()+5000,100000,(text,_format,ended)=>{assert.equal(ended,true);jsonSeen.push(text);return {ready:true,fatal:false};},()=>{});
+  assert.deepEqual(jsonSeen,[jsonPieces.join("")]);
+  assert.equal(await jsonStaged.text(),jsonPieces.join(""));
 });

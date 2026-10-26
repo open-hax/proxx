@@ -9,7 +9,18 @@
  {:runtime
   {:target    :esm
    :output-dir "dist/cljs"
-   :modules   {:proxx-runtime {:exports {normalizeKeys proxx.runtime/normalize-keys-js
+   :modules   {:proxx-runtime {:exports {authorizeBudgetHttpRequest proxx.runtime/authorize-budget-http-request-js
+                                          resolveBudgetRoutePlan proxx.runtime/resolve-budget-route-plan-js
+                                          probeFirstUsable proxx.runtime/probe-first-usable-js
+                                          advanceFirstUsable proxx.runtime/advance-first-usable-js
+                                          inspectBudgetAttempt proxx.runtime/inspect-budget-attempt-js
+                                          zeroChargeBudgetRefusal proxx.runtime/zero-charge-budget-refusal-js
+                                          quotePaidBudget proxx.runtime/quote-paid-budget-js
+                                          readPaidBudgets proxx.runtime/read-paid-budgets-js
+                                          loadPaidBudgetPolicy proxx.runtime/load-paid-budget-policy-js
+                                          reservePaidBudget proxx.runtime/reserve-paid-budget-js
+                                          settlePaidBudget proxx.runtime/settle-paid-budget-js
+                                          normalizeKeys proxx.runtime/normalize-keys-js
                                           validateEntity proxx.runtime/validate-entity-js
                                           projectPheromone proxx.runtime/project-pheromone-js
                                           routePolicy proxx.runtime/route-policy-js
@@ -19,6 +30,7 @@
                                            previewPolicyDecision proxx.runtime/preview-policy-decision-js
                                            executePolicyTree proxx.runtime/execute-policy-tree-js
                                            normalizeReasoningRequest proxx.runtime/normalize-reasoning-request-js
+                                            providerResponseFormatAllowed proxx.runtime/provider-response-format-allowed-js
                                             resolveModelAlias proxx.runtime/resolve-model-alias-js
                                              getProviderRoutes proxx.runtime/get-provider-routes-js
                                               filterProviderRoutes proxx.runtime/filter-provider-routes-js
@@ -27,7 +39,8 @@
                                              runModelCandidates proxx.runtime/run-model-candidates-js
                                             resolveQueuePolicy proxx.runtime/resolve-queue-policy-js
                                             runQueued proxx.runtime/run-queued-js
-                                            classifyRateLimit proxx.runtime/classify-rate-limit-js}}}
+                                            classifyRateLimit proxx.runtime/classify-rate-limit-js
+                                            classifyCredentialFailure proxx.runtime/classify-credential-failure-js}}}
    :js-options {:js-provider :import
                 :keep-as-import #{"node:fs" "node:path"}}
    :compiler-options {:output-feature-set :es-next

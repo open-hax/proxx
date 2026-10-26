@@ -6,6 +6,14 @@
   :prefer/strategies [:ollama-chat :chat-completions]
   :account/order :account-order/prefer-free}
 
+ {:contract/id :route/requesty-gemma4-31b
+  :contract/kind :routing-clause
+  :match/family :model-family/requesty-gemma4-31b
+  :prefer/providers :provider-order/requesty-gemma4-31b
+  :prefer/providers-strict? true
+  :prefer/strategies [:chat-completions]
+  :account/order :account-order/prefer-free}
+
  {:contract/id :route/gemma4
   :contract/kind :routing-clause
   :match/family :model-family/gemma4

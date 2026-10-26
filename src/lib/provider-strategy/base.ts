@@ -2,6 +2,8 @@ import { Readable } from "node:stream";
 
 import type { FastifyReply } from "fastify";
 
+import { providerResponseFormatAllowedWithCljs } from "../cljs-runtime.js";
+
 import { copyUpstreamHeaders } from "../proxy.js";
 import { chatCompletionToSse } from "../responses-compat.js";
 import {
@@ -29,6 +31,7 @@ import {
 
 function appendUpstreamIdentityHeaders(reply: FastifyReply, context: ProviderAttemptContext): void {
   reply.header("x-open-hax-upstream-provider", context.providerId);
+  if (context.upstreamModel) reply.header("x-open-hax-upstream-model", context.upstreamModel);
 
   // Only expose the selected account identity to legacy admin callers.
   // This keeps tenant traffic from learning internal account IDs while still
@@ -273,7 +276,12 @@ export abstract class BaseProviderStrategy implements ProviderStrategy {
           const looksLikeImagesPayload = context.imagesPassthrough === true
             && isRecord(parsed)
             && Array.isArray(parsed["data"]);
-          const looksLikeNativeOllamaPayload = context.providerId === "ollama"
+          const looksLikeNativeOllamaPayload = providerResponseFormatAllowedWithCljs({
+            manifestPath: context.config.cljsPolicyManifestPath,
+            providerId: context.providerId,
+            requestKind: "chat",
+            responseFormat: "ollama-chat",
+          })
             && isRecord(parsed)
             && (isRecord(parsed["message"]) || typeof parsed["response"] === "string");
           if (
@@ -477,6 +485,21 @@ export abstract class BaseProviderStrategy implements ProviderStrategy {
       reply.header("content-type", "application/json");
       reply.send(upstreamJson);
       return { kind: "handled" };
+    }
+
+    if (context.clientWantsStream && (upstreamResponse.headers.get("content-type") ?? "").toLowerCase().includes("application/json")) {
+      let completion: unknown;
+      try { completion = await upstreamResponse.clone().json(); } catch { /* A validated SSE body may have a misleading JSON content type. */ }
+      if (isRecord(completion) && Array.isArray(completion["choices"])) {
+        appendUpstreamIdentityHeaders(reply, context);
+        reply.code(upstreamResponse.status);
+        reply.removeHeader("content-length");
+        reply.header("content-type", "text/event-stream; charset=utf-8");
+        reply.header("cache-control", "no-cache");
+        await upstreamResponse.body?.cancel();
+        reply.send(chatCompletionToSse(completion));
+        return { kind: "handled" };
+      }
     }
 
     if (context.clientWantsStream) {
