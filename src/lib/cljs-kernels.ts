@@ -887,6 +887,23 @@ export interface CljsKernels {
   readonly pheromoneGet: (records: readonly object[], providerId: string, model: string) => number;
   readonly pheromoneNoteSuccess: (records: readonly object[], providerId: string, model: string, quality: number) => object[];
   readonly pheromoneNoteFailure: (records: readonly object[], providerId: string, model: string) => object[];
+  // w3:proxy proxy forwarding / rate-limit decisions (proxx.http.proxy)
+  readonly buildForwardHeaders: (clientHeaders: object) => Record<string, string>;
+  readonly buildUpstreamHeaders: (clientHeaders: object, apiKey: string) => Record<string, string>;
+  readonly buildUpstreamHeadersForCredential: (
+    clientHeaders: object,
+    credential: { readonly token: string; readonly chatgptAccountId?: string },
+    options?: { readonly useOpenAiCodexHeaderProfile?: boolean },
+  ) => Record<string, string>;
+  readonly forwardableResponseHeaders: (pairs: readonly (readonly [string, string])[]) => [string, string][];
+  readonly parseRetryAfterMs: (value: string | null) => number | undefined;
+  readonly classifyRateLimitKind: (errorBody: unknown, retryAfterMs: number | undefined, thresholdMs?: number) => "quota_exhausted" | "concurrency_throttle";
+  readonly detectOllamaLimitKind: (errorBody: unknown) => "session" | "weekly" | "unknown";
+  readonly parseWaitTimeFromMessage: (message: string) => number | undefined;
+  readonly extractRateLimitCooldownMs: (response: Response) => Promise<number | undefined>;
+  readonly openAiError: (message: string, type: string, code?: string) => {
+    readonly error: { readonly message: string; readonly type: string; readonly code?: string; readonly param: null };
+  };
 }
 
 export interface ChromaSearchRow {

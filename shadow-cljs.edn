@@ -385,7 +385,17 @@
                                            createEnsureFreshAccounts proxx.runtime.token-refresh/create-ensure-fresh-accounts-js
                                            tokenRefreshDefaultConfig proxx.runtime.token-refresh/token-refresh-default-config-js
                                            loadConfig proxx.runtime.config/load-config-js
-                                           defaultModels proxx.runtime.config/default-models-js}}}
+                                           defaultModels proxx.runtime.config/default-models-js
+                                           buildForwardHeaders proxx.runtime.proxy/forward-headers-js
+                                           buildUpstreamHeaders proxx.runtime.proxy/upstream-headers-js
+                                           buildUpstreamHeadersForCredential proxx.runtime.proxy/upstream-headers-for-credential-js
+                                           forwardableResponseHeaders proxx.runtime.proxy/forwardable-response-headers-js
+                                           parseRetryAfterMs proxx.runtime.proxy/parse-retry-after-ms-js
+                                           classifyRateLimitKind proxx.runtime.proxy/classify-rate-limit-kind-js
+                                           detectOllamaLimitKind proxx.runtime.proxy/detect-ollama-limit-kind-js
+                                           parseWaitTimeFromMessage proxx.runtime.proxy/parse-wait-time-from-message-js
+                                           extractRateLimitCooldownMs proxx.runtime.proxy/extract-rate-limit-cooldown-ms-js
+                                           openAiError proxx.runtime.proxy/openai-error-js}}}
    :js-options {:js-provider :import
                 :keep-as-import #{"node:fs" "node:path"}}
    :compiler-options {:output-feature-set :es-next
