@@ -90,9 +90,6 @@
 ;; Payloads
 ;; ---------------------------------------------------------------------------
 
-(defn- js-truthy? [v]
-  (not (or (nil? v) (false? v) (= v "") (= v 0) (and (number? v) (not= v v)))))
-
 (def ^:private scope {"name" "proxx"})
 
 (defn- resource [resource-alist service-name]
@@ -108,7 +105,7 @@
                         "startTimeUnixNano" start-nano "endTimeUnixNano" end-nano
                         "attributes" (otlp-attributes attributes)
                         "status" {"code" (if (= status "error") 2 1)
-                                  "message" (if (js-truthy? status-message) status-message "")}})
+                                  "message" (if (j/truthy? status-message) status-message "")}})
                      records)}]}]})
 
 (defn log-payload [records resource-alist service-name]

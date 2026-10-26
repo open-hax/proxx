@@ -10,6 +10,13 @@ import type { ServerResponse } from "node:http";
 import { loadCljsRuntime } from "./cljs-runtime.js";
 import type { CredentialStoreLike } from "./credential-store.js";
 import type { Sql } from "./db/index.js";
+import type { EnsureFreshAccountsDeps, FactoryRefreshDeps, OpenAiRefreshDeps, TokenRefreshDeps } from "./token-refresh-handlers.js";
+import type {
+  Logger as TokenRefreshLogger,
+  RefreshFn,
+  TokenRefreshManagerApi,
+  TokenRefreshManagerConfig,
+} from "./token-refresh-manager.js";
 import type { TelemetryClient } from "./telemetry/otel.js";
 import type { ProxySettingsStoreApi } from "./proxy-settings-store.js";
 import type { HostDashboardRouteSummary, HostDashboardSnapshot, HostDashboardTarget } from "./host-dashboard.js";
@@ -372,6 +379,17 @@ export interface CljsKernels {
     cooldownController: QuotaCooldownController | undefined,
   ) => QuotaMonitorApi;
   readonly quotaMonitorDefaultConfig: () => QuotaMonitorConfig;
+  // token refresh
+  readonly tokenRefreshDefaultConfig: () => TokenRefreshManagerConfig;
+  readonly createTokenRefreshManager: (
+    doRefresh: RefreshFn,
+    logger: TokenRefreshLogger,
+    config: Partial<TokenRefreshManagerConfig>,
+  ) => TokenRefreshManagerApi;
+  readonly createOpenAiRefreshHandler: (deps: OpenAiRefreshDeps, hooks: unknown) => RefreshFn;
+  readonly createFactoryRefreshHandler: (deps: FactoryRefreshDeps, hooks: unknown) => RefreshFn;
+  readonly createRefreshDispatcher: (deps: TokenRefreshDeps, hooks: unknown) => RefreshFn;
+  readonly createEnsureFreshAccounts: (deps: EnsureFreshAccountsDeps, hooks: unknown) => (providerId: string) => Promise<void>;
   // telemetry
   readonly initTelemetry: (env: NodeJS.ProcessEnv) => TelemetryClient;
   readonly getTelemetry: () => TelemetryClient;

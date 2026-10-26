@@ -341,7 +341,13 @@
                                            createProxySettingsStore proxx.runtime.settings/create-proxy-settings-store-js
                                            initTelemetry proxx.runtime.telemetry/init-telemetry-js
                                            getTelemetry proxx.runtime.telemetry/get-telemetry-js
-                                           shutdownTelemetry proxx.runtime.telemetry/shutdown-telemetry-js}}}
+                                           shutdownTelemetry proxx.runtime.telemetry/shutdown-telemetry-js
+                                           createTokenRefreshManager proxx.runtime.token-refresh/create-token-refresh-manager-js
+                                           createOpenAiRefreshHandler proxx.runtime.token-refresh/create-openai-refresh-handler-js
+                                           createFactoryRefreshHandler proxx.runtime.token-refresh/create-factory-refresh-handler-js
+                                           createRefreshDispatcher proxx.runtime.token-refresh/create-refresh-dispatcher-js
+                                           createEnsureFreshAccounts proxx.runtime.token-refresh/create-ensure-fresh-accounts-js
+                                           tokenRefreshDefaultConfig proxx.runtime.token-refresh/token-refresh-default-config-js}}}
    :js-options {:js-provider :import
                 :keep-as-import #{"node:fs" "node:path"}}
    :compiler-options {:output-feature-set :es-next
