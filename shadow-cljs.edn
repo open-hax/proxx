@@ -413,7 +413,8 @@
                                            embedWithOllama proxx.runtime.embeddings/embed-with-ollama-js
                                            embedWithHFCloud proxx.runtime.embeddings/embed-with-hf-cloud-js
                                            embedWithTEI proxx.runtime.embeddings/embed-with-tei-js
-                                           embedWithOvmNpu proxx.runtime.embeddings/embed-with-ovm-npu-js}}}
+                                           embedWithOvmNpu proxx.runtime.embeddings/embed-with-ovm-npu-js
+                                           probeOllamaCloudAccount proxx.runtime.ollama-cloud-probe/probe-ollama-cloud-account-js}}}
    :js-options {:js-provider :import
                 :keep-as-import #{"node:fs" "node:path"}}
    :compiler-options {:output-feature-set :es-next

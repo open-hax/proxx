@@ -888,12 +888,11 @@ export interface CljsKernels {
   readonly pheromoneGet: (records: readonly object[], providerId: string, model: string) => number;
   readonly pheromoneNoteSuccess: (records: readonly object[], providerId: string, model: string, quality: number) => object[];
   readonly pheromoneNoteFailure: (records: readonly object[], providerId: string, model: string) => object[];
-  // w3:embproviders embedding backends (proxx.embeddings.providers)
-  readonly loadEmbeddingsConfig: () => object;
-  readonly embedWithOllama: (cfg: object, req: object) => Promise<import("./embeddings-strategy.js").EmbeddingResponse>;
-  readonly embedWithHFCloud: (cfg: object, req: object) => Promise<import("./embeddings-strategy.js").EmbeddingResponse>;
-  readonly embedWithTEI: (cfg: object, req: object) => Promise<import("./embeddings-strategy.js").EmbeddingResponse>;
-  readonly embedWithOvmNpu: (cfg: object, req: object) => Promise<import("./embeddings-strategy.js").EmbeddingResponse>;
+  // w3:cloudprobe ollama cloud probe (proxx.ollama.cloud-probe)
+  readonly probeOllamaCloudAccount: (
+    credentialStore: object,
+    options: { readonly providerId: string; readonly accountId: string; readonly baseUrl: string; readonly model?: string; readonly fetchFn?: typeof fetch },
+  ) => Promise<import("./ollama-cloud-probe.js").CredentialAccountProbeResult>;
 }
 
 export interface ChromaSearchRow {
