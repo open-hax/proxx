@@ -1,3 +1,4 @@
+import { kernels } from "../lib/cljs-kernels.js";
 import type { ProxyConfig } from "../lib/config.js";
 import type { CredentialStoreLike } from "../lib/credential-store.js";
 import type { KeyPool } from "../lib/key-pool.js";
@@ -40,8 +41,4 @@ export interface PrefixedRouteOptions {
   readonly prefix: string;
 }
 
-export function joinRoutePath(prefix: string, suffix: string): string {
-  const normalizedPrefix = prefix.endsWith("/") ? prefix.slice(0, -1) : prefix;
-  const normalizedSuffix = suffix.startsWith("/") ? suffix : `/${suffix}`;
-  return `${normalizedPrefix}${normalizedSuffix}`;
-}
+export const joinRoutePath = (prefix: string, suffix: string): string => kernels.joinRoutePath(prefix, suffix);

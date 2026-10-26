@@ -826,8 +826,9 @@
     {
       "path": "src/routes/credentials/account-management-ui.ts",
       "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed"
+      "disposition": "removed",
+      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed",
+      "removed": true
     },
     {
       "path": "src/routes/credentials/context.ts",
@@ -838,20 +839,23 @@
     {
       "path": "src/routes/credentials/factory-browser-oauth-ui.ts",
       "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed"
+      "disposition": "removed",
+      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed",
+      "removed": true
     },
     {
       "path": "src/routes/credentials/factory-device-oauth-ui.ts",
       "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed"
+      "disposition": "removed",
+      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed",
+      "removed": true
     },
     {
       "path": "src/routes/credentials/get-credentials-ui.ts",
       "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed"
+      "disposition": "removed",
+      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed",
+      "removed": true
     },
     {
       "path": "src/routes/credentials/index.ts",
@@ -862,44 +866,51 @@
     {
       "path": "src/routes/credentials/ollama-cloud-probe-ui.ts",
       "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed"
+      "disposition": "removed",
+      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed",
+      "removed": true
     },
     {
       "path": "src/routes/credentials/openai-browser-oauth-ui.ts",
       "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed"
+      "disposition": "removed",
+      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed",
+      "removed": true
     },
     {
       "path": "src/routes/credentials/openai-device-oauth-ui.ts",
       "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed"
+      "disposition": "removed",
+      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed",
+      "removed": true
     },
     {
       "path": "src/routes/credentials/openai-probe-ui.ts",
       "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed"
+      "disposition": "removed",
+      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed",
+      "removed": true
     },
     {
       "path": "src/routes/credentials/openai-prompt-cache-audit-ui.ts",
       "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed"
+      "disposition": "removed",
+      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed",
+      "removed": true
     },
     {
       "path": "src/routes/credentials/openai-quota-ui.ts",
       "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed"
+      "disposition": "removed",
+      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed",
+      "removed": true
     },
     {
       "path": "src/routes/credentials/openai-refresh-ui.ts",
       "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed"
+      "disposition": "removed",
+      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed",
+      "removed": true
     },
     {
       "path": "src/routes/credentials/prefix.ts",
@@ -916,8 +927,9 @@
     {
       "path": "src/routes/credentials/visible-accounts.ts",
       "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed"
+      "disposition": "removed",
+      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed",
+      "removed": true
     },
     {
       "path": "src/routes/embeddings.ts",

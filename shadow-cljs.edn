@@ -103,6 +103,8 @@
                                            authCanManageFederation proxx.runtime.ui-auth/auth-can-manage-federation-js
                                            toVisibleTenants proxx.runtime.ui-auth/to-visible-tenants-js
                                            registerSettingsRoutes proxx.runtime.routes.settings/register-settings-routes-js
+                                           registerCredentialRoutes proxx.runtime.routes.credentials/register-credential-routes-js
+                                           joinRoutePath proxx.http.route-path/join
                                            ;; w2-analytics exports
                                            createRequestLogFanout proxx.runtime.observability/create-request-log-fanout-js
                                            createSessionStore proxx.runtime.session/create-session-store-js

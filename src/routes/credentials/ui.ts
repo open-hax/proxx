@@ -1,20 +1,17 @@
 import type { FastifyInstance } from "fastify";
 
+import { kernels } from "../../lib/cljs-kernels.js";
+import { fetchOpenAiQuotaSnapshots, probeOpenAiAccount } from "../../lib/openai-quota.js";
+import { probeOllamaCloudAccount } from "../../lib/ollama-cloud-probe.js";
 import type { UiRouteDependencies } from "../types.js";
 import { createCredentialRouteContext } from "./context.js";
-import { registerCredentialAccountManagementUiRoutes } from "./account-management-ui.js";
-import { registerFactoryBrowserOAuthUiRoutes } from "./factory-browser-oauth-ui.js";
-import { registerFactoryDeviceOAuthUiRoutes } from "./factory-device-oauth-ui.js";
-import { registerGetCredentialsUiRoute } from "./get-credentials-ui.js";
-import { registerOllamaCloudProbeUiRoute } from "./ollama-cloud-probe-ui.js";
-import { registerOpenAiBrowserOAuthUiRoutes } from "./openai-browser-oauth-ui.js";
-import { registerOpenAiDeviceOAuthUiRoutes } from "./openai-device-oauth-ui.js";
-import { registerOpenAiPromptCacheAuditUiRoute } from "./openai-prompt-cache-audit-ui.js";
-import { registerOpenAiProbeUiRoute } from "./openai-probe-ui.js";
-import { registerOpenAiQuotaUiRoute } from "./openai-quota-ui.js";
-import { registerOpenAiRefreshUiRoute } from "./openai-refresh-ui.js";
-import type { CredentialRouteOptions } from "./prefix.js";
+import { resolveCredentialRoutePath, type CredentialRouteOptions } from "./prefix.js";
 
+/**
+ * Credential routes (listing, probes, account management, OAuth flows). The
+ * routes and their decisions are CLJS (`proxx.runtime.routes.credentials`,
+ * `proxx.http.credentials`); this hands the host's collaborators to them.
+ */
 export async function registerCredentialUiRoutes(
   app: FastifyInstance,
   deps: UiRouteDependencies,
@@ -22,15 +19,25 @@ export async function registerCredentialUiRoutes(
 ): Promise<void> {
   const context = createCredentialRouteContext(deps);
 
-  await registerGetCredentialsUiRoute(app, deps, context, options);
-  await registerOpenAiQuotaUiRoute(app, deps, context, options);
-  await registerOpenAiPromptCacheAuditUiRoute(app, deps, context, options);
-  await registerOpenAiProbeUiRoute(app, deps, context, options);
-  await registerOllamaCloudProbeUiRoute(app, deps, context, options);
-  await registerOpenAiRefreshUiRoute(app, deps, context, options);
-  await registerCredentialAccountManagementUiRoutes(app, deps, context, options);
-  await registerOpenAiBrowserOAuthUiRoutes(app, deps, context, options);
-  await registerOpenAiDeviceOAuthUiRoutes(app, deps, context, options);
-  await registerFactoryDeviceOAuthUiRoutes(app, deps, context, options);
-  await registerFactoryBrowserOAuthUiRoutes(app, deps, context, options);
+  kernels.registerCredentialRoutes(
+    app,
+    {
+      config: deps.config,
+      keyPool: deps.keyPool,
+      credentialStore: context.credentialStore,
+      requestLogStore: deps.requestLogStore,
+      sqlCredentialStore: deps.sqlCredentialStore,
+      sqlRequestUsageStore: deps.sqlRequestUsageStore,
+      refreshOpenAiOauthAccounts: deps.refreshOpenAiOauthAccounts,
+      openAiOAuthManager: context.openAiOAuthManager,
+      factoryOAuthManager: context.factoryOAuthManager,
+      pendingOpenAiBrowserReauthTargets: context.pendingOpenAiBrowserReauthTargets,
+      fetchOpenAiQuotaSnapshots,
+      probeOpenAiAccount,
+      probeOllamaCloudAccount,
+      log: app.log,
+    },
+    resolveCredentialRoutePath("", options),
+    options?.registerSharedAuthCallbacks !== false,
+  );
 }
