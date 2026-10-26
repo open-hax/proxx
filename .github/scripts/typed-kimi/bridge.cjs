@@ -29,4 +29,6 @@ async function schema(expected) { return (await runtime()).schema(expected); }
 async function publicationIntent(expected, response) {
   return (await runtime()).publicationIntent(expected, response);
 }
-module.exports = { schema, publicationIntent };
+async function structuredRequest() { throw new Error('typed-kimi:submission-not-implemented'); }
+async function parseSubmission() { throw new Error('typed-kimi:submission-not-implemented'); }
+module.exports = { schema, publicationIntent, structuredRequest, parseSubmission };

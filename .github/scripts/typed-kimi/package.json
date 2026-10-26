@@ -4,7 +4,7 @@
   "private": true,
   "license": "GPL-3.0-or-later",
   "scripts": {
-    "test": "node --test bridge.test.cjs",
+    "test": "node --test bridge.test.cjs submission.test.cjs",
     "test:owner": "nbb -cp src test/test_kimi_verdict.cljs"
   },
   "dependencies": {
