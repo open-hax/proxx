@@ -888,16 +888,8 @@ export interface CljsKernels {
   readonly pheromoneGet: (records: readonly object[], providerId: string, model: string) => number;
   readonly pheromoneNoteSuccess: (records: readonly object[], providerId: string, model: string, quality: number) => object[];
   readonly pheromoneNoteFailure: (records: readonly object[], providerId: string, model: string) => object[];
-  // w3:candidates routing-candidate facts (proxx.strategy.candidates)
-  readonly forcedCredentialSelection: (authKind: string | undefined, headers: Record<string, unknown>) => {
-    readonly providerId?: string;
-    readonly accountId?: string;
-  };
-  readonly noAuthAccount: (providerId: string) => ProviderCredential;
-  readonly affinitiesFromRecord: (record: unknown) => {
-    readonly preferred?: { readonly providerId: string; readonly accountId: string };
-    readonly provisional?: { readonly providerId: string; readonly accountId: string };
-  };
+  // w3:media media generation routes (proxx.http.media)
+  readonly registerMediaRoutes: (app: unknown, deps: unknown, collaborators: unknown) => void;
 }
 
 export interface ChromaSearchRow {

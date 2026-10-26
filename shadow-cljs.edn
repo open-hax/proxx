@@ -414,6 +414,7 @@
                                            embedWithHFCloud proxx.runtime.embeddings/embed-with-hf-cloud-js
                                            embedWithTEI proxx.runtime.embeddings/embed-with-tei-js
                                            embedWithOvmNpu proxx.runtime.embeddings/embed-with-ovm-npu-js
+                                           registerMediaRoutes proxx.runtime.routes.media/register-media-routes-js
                                            probeOllamaCloudAccount proxx.runtime.ollama-cloud-probe/probe-ollama-cloud-account-js
                                            forcedCredentialSelection proxx.runtime.candidates/forced-credential-selection-js
                                            noAuthAccount proxx.runtime.candidates/no-auth-account-js
