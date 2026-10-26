@@ -1,0 +1,101 @@
+;; Persisted SQL contract of the Proxx database (formerly src/lib/db/schema.ts).
+;; Statement texts are byte-for-byte the originals: changing one changes what runs
+;; against deployed databases. Add a migration to :migrations and bump :schema-version.
+;; Read by proxx.db.schema (pure) and proxx.runtime.db-schema (edge).
+{:schema-version 8
+ :statements
+ {"CREATE_ACCOUNT_HEALTH_TABLE" "\nCREATE TABLE IF NOT EXISTS account_health (\n  provider_id TEXT NOT NULL,\n  account_id TEXT NOT NULL,\n  success_count BIGINT NOT NULL DEFAULT 0,\n  failure_count BIGINT NOT NULL DEFAULT 0,\n  last_success_at BIGINT,\n  last_failure_at BIGINT,\n  last_error TEXT,\n  last_status INTEGER,\n  updated_at BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT,\n  PRIMARY KEY (provider_id, account_id)\n);\n"
+  "CREATE_ACCOUNT_HEALTH_INDEX" "\nCREATE INDEX IF NOT EXISTS idx_account_health_score ON account_health(\n  (success_count::FLOAT / NULLIF(success_count + failure_count, 0)) DESC NULLS LAST\n);\n"
+  "CREATE_TENANTS_TABLE" "\nCREATE TABLE IF NOT EXISTS tenants (\n  id TEXT PRIMARY KEY,\n  name TEXT NOT NULL,\n  status TEXT NOT NULL DEFAULT 'active',\n  settings JSONB,\n  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),\n  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()\n);\n"
+  "CREATE_USERS_TABLE" "\nCREATE TABLE IF NOT EXISTS users (\n  id TEXT PRIMARY KEY,\n  provider TEXT NOT NULL,\n  subject TEXT NOT NULL UNIQUE,\n  login TEXT,\n  email TEXT,\n  name TEXT,\n  avatar_url TEXT,\n  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),\n  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),\n  last_login_at TIMESTAMPTZ\n);\n"
+  "CREATE_TENANT_MEMBERSHIPS_TABLE" "\nCREATE TABLE IF NOT EXISTS tenant_memberships (\n  tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,\n  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,\n  role TEXT NOT NULL,\n  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),\n  PRIMARY KEY (tenant_id, user_id)\n);\n"
+  "CREATE_TENANT_API_KEYS_TABLE" "\nCREATE TABLE IF NOT EXISTS tenant_api_keys (\n  id TEXT PRIMARY KEY,\n  tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,\n  label TEXT NOT NULL,\n  prefix TEXT NOT NULL,\n  token_hash TEXT NOT NULL,\n  scopes JSONB NOT NULL DEFAULT '[\"proxy:use\"]',\n  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),\n  last_used_at TIMESTAMPTZ,\n  revoked_at TIMESTAMPTZ\n);\n"
+  "CREATE_TENANT_API_KEYS_TENANT_INDEX" "\nCREATE INDEX IF NOT EXISTS idx_tenant_api_keys_tenant ON tenant_api_keys(tenant_id);\n"
+  "CREATE_TENANT_API_KEYS_HASH_INDEX" "\nCREATE INDEX IF NOT EXISTS idx_tenant_api_keys_hash ON tenant_api_keys(token_hash);\n"
+  "CREATE_TENANT_PROVIDER_POLICIES_TABLE" "\nCREATE TABLE IF NOT EXISTS tenant_provider_policies (\n  subject_did TEXT NOT NULL,\n  provider_id TEXT NOT NULL,\n  provider_kind TEXT NOT NULL DEFAULT 'local_upstream',\n  owner_subject TEXT NOT NULL,\n  share_mode TEXT NOT NULL DEFAULT 'deny',\n  trust_tier TEXT NOT NULL DEFAULT 'less_trusted',\n  allowed_models JSONB NOT NULL DEFAULT '[]'::jsonb,\n  max_requests_per_minute INTEGER,\n  max_concurrent_requests INTEGER,\n  encrypted_channel_required BOOLEAN NOT NULL DEFAULT FALSE,\n  warm_import_threshold INTEGER,\n  notes TEXT,\n  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),\n  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),\n  PRIMARY KEY (subject_did, provider_id)\n);\n"
+  "CREATE_TENANT_PROVIDER_POLICIES_OWNER_INDEX" "\nCREATE INDEX IF NOT EXISTS idx_tenant_provider_policies_owner_subject ON tenant_provider_policies(owner_subject, subject_did);\n"
+  "CREATE_PROVIDERS_TABLE" "\nCREATE TABLE IF NOT EXISTS providers (\n  id TEXT PRIMARY KEY,\n  auth_type TEXT NOT NULL DEFAULT 'api_key',\n  base_url TEXT,\n  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),\n  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()\n);\n"
+  "CREATE_ACCOUNTS_TABLE" "\nCREATE TABLE IF NOT EXISTS accounts (\n  id TEXT NOT NULL,\n  provider_id TEXT NOT NULL REFERENCES providers(id) ON DELETE CASCADE,\n  token TEXT NOT NULL,\n  refresh_token TEXT,\n  expires_at BIGINT,\n  chatgpt_account_id TEXT,\n  plan_type TEXT,\n  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),\n  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),\n  PRIMARY KEY (id, provider_id)\n);\n"
+  "CREATE_ACCOUNTS_INDEX" "\nCREATE INDEX IF NOT EXISTS idx_accounts_provider_id ON accounts(provider_id);\n"
+  "CREATE_COOLDOWN_TABLE" "\nCREATE TABLE IF NOT EXISTS account_cooldown (\n  provider_id TEXT NOT NULL,\n  account_id TEXT NOT NULL,\n  cooldown_until BIGINT NOT NULL,\n  PRIMARY KEY (provider_id, account_id)\n);\n"
+  "CREATE_PROMPT_AFFINITY_TABLE" "\nCREATE TABLE IF NOT EXISTS prompt_affinity (\n  prompt_cache_key TEXT PRIMARY KEY,\n  provider_id TEXT NOT NULL,\n  account_id TEXT NOT NULL,\n  provisional_provider_id TEXT,\n  provisional_account_id TEXT,\n  provisional_success_count INTEGER NOT NULL DEFAULT 0,\n  updated_at BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT\n);\n"
+  "CREATE_SESSIONS_TABLE" "\nCREATE TABLE IF NOT EXISTS sessions (\n  id TEXT PRIMARY KEY,\n  subject TEXT NOT NULL,\n  client_id TEXT NOT NULL,\n  scopes JSONB NOT NULL DEFAULT '[]',\n  resource TEXT,\n  extra JSONB,\n  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),\n  expires_at BIGINT NOT NULL\n);\n"
+  "CREATE_ACCESS_TOKENS_TABLE" "\nCREATE TABLE IF NOT EXISTS access_tokens (\n  token TEXT PRIMARY KEY,\n  client_id TEXT NOT NULL,\n  subject TEXT NOT NULL,\n  scopes JSONB NOT NULL DEFAULT '[]',\n  resource TEXT,\n  extra JSONB,\n  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),\n  expires_at BIGINT NOT NULL\n);\n"
+  "CREATE_REFRESH_TOKENS_TABLE" "\nCREATE TABLE IF NOT EXISTS refresh_tokens (\n  token TEXT PRIMARY KEY,\n  client_id TEXT NOT NULL,\n  subject TEXT NOT NULL,\n  scopes JSONB NOT NULL DEFAULT '[]',\n  resource TEXT,\n  extra JSONB,\n  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),\n  expires_at BIGINT NOT NULL\n);\n"
+  "CREATE_GITHUB_ALLOWLIST_TABLE" "\nCREATE TABLE IF NOT EXISTS github_allowlist (\n  login TEXT PRIMARY KEY,\n  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()\n);\n"
+  "CREATE_CLIENTS_TABLE" "\nCREATE TABLE IF NOT EXISTS clients (\n  client_id TEXT PRIMARY KEY,\n  client_secret TEXT NOT NULL,\n  client_name TEXT NOT NULL,\n  redirect_uris JSONB NOT NULL,\n  token_endpoint_auth_method TEXT NOT NULL DEFAULT 'client_secret_basic',\n  grant_types JSONB NOT NULL DEFAULT '[\"authorization_code\",\"refresh_token\"]',\n  response_types JSONB NOT NULL DEFAULT '[\"code\"]',\n  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()\n);\n"
+  "CREATE_VERSION_TABLE" "\nCREATE TABLE IF NOT EXISTS schema_version (\n  version INTEGER PRIMARY KEY,\n  applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()\n);\n"
+  "INSERT_VERSION" "\nINSERT INTO schema_version (version) VALUES ($1)\nON CONFLICT (version) DO NOTHING;\n"
+  "CHECK_VERSION_EXISTS" "\nSELECT 1 FROM schema_version WHERE version = $1;\n"
+  "CREATE_MODELS_TABLE" "\nCREATE TABLE IF NOT EXISTS models (\n  id TEXT PRIMARY KEY,\n  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()\n);\n"
+  "CREATE_CONFIG_TABLE" "\nCREATE TABLE IF NOT EXISTS config (\n  key TEXT PRIMARY KEY,\n  value JSONB NOT NULL,\n  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()\n);\n"
+  "UPSERT_TENANT" "\nINSERT INTO tenants (id, name, status, updated_at)\nVALUES ($1, $2, $3, NOW())\nON CONFLICT (id) DO UPDATE SET\n  name = EXCLUDED.name,\n  status = EXCLUDED.status,\n  updated_at = NOW();\n"
+  "SELECT_ALL_TENANTS" "\nSELECT id, name, status\nFROM tenants\nORDER BY id;\n"
+  "UPSERT_USER" "\nINSERT INTO users (id, provider, subject, login, email, name, avatar_url, last_login_at, updated_at)\nVALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())\nON CONFLICT (subject) DO UPDATE SET\n  provider = EXCLUDED.provider,\n  login = EXCLUDED.login,\n  email = EXCLUDED.email,\n  name = EXCLUDED.name,\n  avatar_url = EXCLUDED.avatar_url,\n  last_login_at = NOW(),\n  updated_at = NOW()\nRETURNING id, provider, subject, login, email, name, avatar_url;\n"
+  "SELECT_USER_BY_SUBJECT" "\nSELECT id, provider, subject, login, email, name, avatar_url\nFROM users\nWHERE subject = $1\nLIMIT 1;\n"
+  "UPSERT_TENANT_MEMBERSHIP" "\nINSERT INTO tenant_memberships (tenant_id, user_id, role)\nVALUES ($1, $2, $3)\nON CONFLICT (tenant_id, user_id) DO UPDATE SET\n  role = EXCLUDED.role;\n"
+  "SELECT_TENANT_MEMBERSHIPS_BY_USER" "\nSELECT tm.tenant_id, tm.role, t.name AS tenant_name, t.status AS tenant_status\nFROM tenant_memberships tm\nJOIN tenants t ON t.id = tm.tenant_id\nWHERE tm.user_id = $1\nORDER BY tm.tenant_id ASC;\n"
+  "COUNT_TENANT_MEMBERSHIPS_FOR_TENANT" "\nSELECT COUNT(*)::BIGINT AS count\nFROM tenant_memberships\nWHERE tenant_id = $1;\n"
+  "SELECT_ACTIVE_TENANT_API_KEY_BY_HASH" "\nSELECT id, tenant_id, label, prefix, scopes, revoked_at\nFROM tenant_api_keys\nWHERE token_hash = $1 AND revoked_at IS NULL\nLIMIT 1;\n"
+  "INSERT_TENANT_API_KEY" "\nINSERT INTO tenant_api_keys (id, tenant_id, label, prefix, token_hash, scopes)\nVALUES ($1, $2, $3, $4, $5, $6::jsonb);\n"
+  "SELECT_TENANT_API_KEYS_BY_TENANT" "\nSELECT id, tenant_id, label, prefix, scopes, created_at, last_used_at, revoked_at\nFROM tenant_api_keys\nWHERE tenant_id = $1\nORDER BY created_at DESC, id ASC;\n"
+  "REVOKE_TENANT_API_KEY" "\nUPDATE tenant_api_keys\nSET revoked_at = NOW()\nWHERE tenant_id = $1 AND id = $2 AND revoked_at IS NULL\n"
+  "TOUCH_TENANT_API_KEY_LAST_USED" "\nUPDATE tenant_api_keys\nSET last_used_at = NOW()\nWHERE tenant_id = $1 AND id = $2 AND revoked_at IS NULL;\n"
+  "UPSERT_TENANT_PROVIDER_POLICY" "\nINSERT INTO tenant_provider_policies (\n  subject_did,\n  provider_id,\n  provider_kind,\n  owner_subject,\n  share_mode,\n  trust_tier,\n  allowed_models,\n  max_requests_per_minute,\n  max_concurrent_requests,\n  encrypted_channel_required,\n  warm_import_threshold,\n  notes,\n  updated_at\n) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, NOW())\nON CONFLICT (subject_did, provider_id) DO UPDATE SET\n  provider_kind = EXCLUDED.provider_kind,\n  owner_subject = EXCLUDED.owner_subject,\n  share_mode = EXCLUDED.share_mode,\n  trust_tier = EXCLUDED.trust_tier,\n  allowed_models = EXCLUDED.allowed_models,\n  max_requests_per_minute = EXCLUDED.max_requests_per_minute,\n  max_concurrent_requests = EXCLUDED.max_concurrent_requests,\n  encrypted_channel_required = EXCLUDED.encrypted_channel_required,\n  warm_import_threshold = EXCLUDED.warm_import_threshold,\n  notes = EXCLUDED.notes,\n  updated_at = NOW()\nRETURNING *;\n"
+  "SELECT_TENANT_PROVIDER_POLICY" "\nSELECT *\nFROM tenant_provider_policies\nWHERE subject_did = $1 AND provider_id = $2\nLIMIT 1;\n"
+  "SELECT_TENANT_PROVIDER_POLICIES" "\nSELECT *\nFROM tenant_provider_policies\nORDER BY owner_subject, subject_did, provider_id;\n"
+  "UPSERT_PROVIDER" "\nINSERT INTO providers (id, auth_type, base_url, updated_at)\nVALUES ($1, $2, $3, NOW())\nON CONFLICT (id) DO UPDATE SET\n  auth_type = EXCLUDED.auth_type,\n  base_url = COALESCE(EXCLUDED.base_url, providers.base_url),\n  updated_at = NOW();\n"
+  "UPSERT_PROVIDER_WITH_BASE_URL" "\nINSERT INTO providers (id, auth_type, base_url, updated_at)\nVALUES ($1, $2, $3, NOW())\nON CONFLICT (id) DO UPDATE SET\n  auth_type = COALESCE(EXCLUDED.auth_type, providers.auth_type),\n  base_url = COALESCE(EXCLUDED.base_url, providers.base_url),\n  updated_at = NOW();\n"
+  "SELECT_PROVIDER_BY_ID" "\nSELECT id, auth_type, base_url FROM providers WHERE id = $1;\n"
+  "INSERT_ACCOUNT" "\nINSERT INTO accounts (id, provider_id, token, refresh_token, expires_at, chatgpt_account_id, plan_type, updated_at)\nVALUES ($1, $2, $3, $4, $5, $6, $7, NOW())\nON CONFLICT (id, provider_id) DO UPDATE SET\n  token = EXCLUDED.token,\n  refresh_token = EXCLUDED.refresh_token,\n  expires_at = EXCLUDED.expires_at,\n  chatgpt_account_id = EXCLUDED.chatgpt_account_id,\n  plan_type = EXCLUDED.plan_type,\n  updated_at = NOW();\n"
+  "SELECT_ALL_PROVIDERS" "\nSELECT id, auth_type, base_url FROM providers ORDER BY id;\n"
+  "SELECT_ACCOUNTS_BY_PROVIDER" "\nSELECT id, provider_id, token, refresh_token, expires_at, chatgpt_account_id, plan_type, disabled\nFROM accounts\nWHERE provider_id = $1\nORDER BY id;\n"
+  "SELECT_ALL_ACCOUNTS" "\nSELECT id, provider_id, token, refresh_token, expires_at, chatgpt_account_id, plan_type, disabled\nFROM accounts\nORDER BY provider_id, id;\n"
+  "DELETE_ACCOUNT" "\nDELETE FROM accounts WHERE id = $1 AND provider_id = $2;\n"
+  "SET_ACCOUNT_DISABLED" "\nUPDATE accounts SET disabled = $3, updated_at = NOW()\nWHERE id = $1 AND provider_id = $2;\n"
+  "SELECT_ALL_DISABLED_ACCOUNTS" "\nSELECT id, provider_id FROM accounts WHERE disabled = TRUE;\n"
+  "SET_COOLDOWN" "\nINSERT INTO account_cooldown (provider_id, account_id, cooldown_until)\nVALUES ($1, $2, $3)\nON CONFLICT (provider_id, account_id) DO UPDATE SET\n  cooldown_until = EXCLUDED.cooldown_until;\n"
+  "GET_COOLDOWN" "\nSELECT cooldown_until FROM account_cooldown\nWHERE provider_id = $1 AND account_id = $2;\n"
+  "CLEAR_EXPIRED_COOLDOWNS" "\nDELETE FROM account_cooldown WHERE cooldown_until < $1;\n"
+  "SELECT_ALL_ACTIVE_COOLDOWNS" "\nSELECT provider_id, account_id, cooldown_until FROM account_cooldown\nWHERE cooldown_until > $1;\n"
+  "UPSERT_GITHUB_USER" "\nINSERT INTO github_allowlist (login) VALUES ($1)\nON CONFLICT (login) DO NOTHING;\n"
+  "DELETE_GITHUB_USER" "\nDELETE FROM github_allowlist WHERE login = $1;\n"
+  "SELECT_GITHUB_ALLOWLIST" "\nSELECT login FROM github_allowlist ORDER BY login;\n"
+  "IS_GITHUB_USER_ALLOWED" "\nSELECT 1 FROM github_allowlist WHERE login = $1;\n"
+  "SELECT_ALL_ACCOUNT_HEALTH" "\nSELECT provider_id, account_id, success_count, failure_count, last_success_at, last_failure_at, last_error, last_status\nFROM account_health;\n"
+  "SELECT_ACCOUNT_HEALTH" "\nSELECT provider_id, account_id, success_count, failure_count, last_success_at, last_failure_at, last_error, last_status\nFROM account_health\nWHERE provider_id = $1 AND account_id = $2;\n"
+  "UPSERT_ACCOUNT_HEALTH_SUCCESS" "\nINSERT INTO account_health (provider_id, account_id, success_count, last_success_at, last_status, updated_at)\nVALUES ($1, $2, 1, $3, $4, $5)\nON CONFLICT (provider_id, account_id) DO UPDATE SET\n  success_count = account_health.success_count + 1,\n  last_success_at = EXCLUDED.last_success_at,\n  last_status = EXCLUDED.last_status,\n  updated_at = EXCLUDED.updated_at;\n"
+  "UPSERT_ACCOUNT_HEALTH_FAILURE" "\nINSERT INTO account_health (provider_id, account_id, failure_count, last_failure_at, last_error, last_status, updated_at)\nVALUES ($1, $2, 1, $3, $4, $5, $6)\nON CONFLICT (provider_id, account_id) DO UPDATE SET\n  failure_count = account_health.failure_count + 1,\n  last_failure_at = EXCLUDED.last_failure_at,\n  last_error = EXCLUDED.last_error,\n  last_status = EXCLUDED.last_status,\n  updated_at = EXCLUDED.updated_at;\n"
+  "SELECT_ACCOUNT_HEALTH_SCORES" "\nSELECT \n  provider_id, \n  account_id, \n  success_count, \n  failure_count,\n  CASE \n    WHEN success_count + failure_count = 0 THEN 0.5\n    ELSE success_count::FLOAT / (success_count + failure_count)\n  END as health_score\nFROM account_health\nORDER BY health_score DESC;\n"
+  "SELECT_PROMPT_AFFINITY" "\nSELECT prompt_cache_key, provider_id, account_id, provisional_provider_id, provisional_account_id, provisional_success_count, updated_at\nFROM prompt_affinity\nWHERE prompt_cache_key = $1;\n"
+  "SELECT_ALL_PROMPT_AFFINITY" "\nSELECT prompt_cache_key, provider_id, account_id, provisional_provider_id, provisional_account_id, provisional_success_count, updated_at\nFROM prompt_affinity;\n"
+  "UPSERT_PROMPT_AFFINITY" "\nINSERT INTO prompt_affinity (prompt_cache_key, provider_id, account_id, provisional_provider_id, provisional_account_id, provisional_success_count, updated_at)\nVALUES ($1, $2, $3, $4, $5, $6, $7)\nON CONFLICT (prompt_cache_key) DO UPDATE SET\n  provider_id = EXCLUDED.provider_id,\n  account_id = EXCLUDED.account_id,\n  provisional_provider_id = EXCLUDED.provisional_provider_id,\n  provisional_account_id = EXCLUDED.provisional_account_id,\n  provisional_success_count = EXCLUDED.provisional_success_count,\n  updated_at = EXCLUDED.updated_at;\n"
+  "DELETE_PROMPT_AFFINITY" "\nDELETE FROM prompt_affinity WHERE prompt_cache_key = $1;\n"
+  "UPSERT_PROMPT_AFFINITY_PROVISIONAL" "\nINSERT INTO prompt_affinity (prompt_cache_key, provider_id, account_id, provisional_provider_id, provisional_account_id, provisional_success_count, updated_at)\nVALUES ($1, $2, $3, $4, $5, $6, $7)\nON CONFLICT (prompt_cache_key) DO UPDATE SET\n  provisional_provider_id = EXCLUDED.provisional_provider_id,\n  provisional_account_id = EXCLUDED.provisional_account_id,\n  provisional_success_count = EXCLUDED.provisional_success_count,\n  updated_at = EXCLUDED.updated_at;\n"
+  "UPSERT_PROMPT_AFFINITY_PROMOTE_PROVISIONAL" "\nINSERT INTO prompt_affinity (prompt_cache_key, provider_id, account_id, provisional_provider_id, provisional_account_id, provisional_success_count, updated_at)\nVALUES ($1, $2, $3, NULL, NULL, 0, $4)\nON CONFLICT (prompt_cache_key) DO UPDATE SET\n  provider_id = EXCLUDED.provider_id,\n  account_id = EXCLUDED.account_id,\n  provisional_provider_id = NULL,\n  provisional_account_id = NULL,\n  provisional_success_count = 0,\n  updated_at = EXCLUDED.updated_at;\n"}
+ :migrations
+ [{:version 1 :statement "CREATE_PROVIDERS_TABLE"}
+  {:version 1 :statement "CREATE_ACCOUNTS_TABLE"}
+  {:version 1 :statement "CREATE_ACCOUNTS_INDEX"}
+  {:version 1 :statement "CREATE_COOLDOWN_TABLE"}
+  {:version 1 :statement "CREATE_SESSIONS_TABLE"}
+  {:version 1 :statement "CREATE_ACCESS_TOKENS_TABLE"}
+  {:version 1 :statement "CREATE_REFRESH_TOKENS_TABLE"}
+  {:version 1 :statement "CREATE_GITHUB_ALLOWLIST_TABLE"}
+  {:version 1 :statement "CREATE_CLIENTS_TABLE"}
+  {:version 1 :statement "CREATE_VERSION_TABLE"}
+  {:version 2 :statement "CREATE_ACCOUNT_HEALTH_TABLE"}
+  {:version 2 :statement "CREATE_ACCOUNT_HEALTH_INDEX"}
+  {:version 3 :statement "CREATE_MODELS_TABLE"}
+  {:version 3 :statement "CREATE_CONFIG_TABLE"}
+  {:version 4 :statement "CREATE_TENANTS_TABLE"}
+  {:version 4 :statement "CREATE_USERS_TABLE"}
+  {:version 4 :statement "CREATE_TENANT_MEMBERSHIPS_TABLE"}
+  {:version 4 :statement "CREATE_TENANT_API_KEYS_TABLE"}
+  {:version 4 :statement "CREATE_TENANT_API_KEYS_TENANT_INDEX"}
+  {:version 4 :statement "CREATE_TENANT_API_KEYS_HASH_INDEX"}
+  {:version 5 :statement "CREATE_TENANT_PROVIDER_POLICIES_TABLE"}
+  {:version 5 :statement "CREATE_TENANT_PROVIDER_POLICIES_OWNER_INDEX"}
+  {:version 6 :sql "ALTER TABLE providers ADD COLUMN IF NOT EXISTS base_url TEXT;"}
+  {:version 7 :sql "ALTER TABLE accounts ADD COLUMN IF NOT EXISTS disabled BOOLEAN NOT NULL DEFAULT FALSE;"}
+  {:version 8 :statement "CREATE_PROMPT_AFFINITY_TABLE"}]}

@@ -1032,6 +1032,26 @@ export interface CljsKernels {
       readonly requestyModelProvider: (model: string) => string;
     },
   ) => Promise<import("./provider-strategy/shared.js").ProviderRoutingExecutionResult>;
+  readonly executeLocalStrategy: (
+    strategy: unknown, reply: unknown, requestLogStore: unknown, context: unknown, payload: unknown,
+    queueSignal: AbortSignal | undefined,
+    host: { readonly estimateRequestCost: (providerId: string, model: string, promptTokens: number, completionTokens: number) => unknown },
+  ) => Promise<void>;
+  // w4host database schema as data (proxx.db.schema, resources/db/schema.edn) and the Postgres client
+  readonly sqlStatement: (id: string) => string;
+  readonly schemaVersion: () => number;
+  readonly allMigrations: () => ReadonlyArray<{ readonly version: number; readonly sql: string }>;
+  readonly pendingMigrations: (currentVersion: number) => ReadonlyArray<{ readonly version: number; readonly sql: string }>;
+  readonly runMigrations: (sql: unknown) => Promise<void>;
+  readonly createSqlConnection: (config: object) => unknown;
+  readonly closeSqlConnection: (sql: unknown) => Promise<void>;
+  readonly createGithubAllowlist: (sql: unknown) => {
+    readonly init: () => Promise<void>;
+    readonly allowsUser: (login: string) => Promise<boolean>;
+    readonly addAllowedUser: (login: string) => Promise<void>;
+    readonly removeAllowedUser: (login: string) => Promise<void>;
+    readonly getAllowedUsers: () => Promise<string[]>;
+  };
   readonly inspectProviderAvailability: (
     keyPool: unknown, providerRoutes: unknown, promptCacheKey: string | undefined,
   ) => Promise<import("./provider-strategy/shared.js").ProviderAvailabilitySummary>;

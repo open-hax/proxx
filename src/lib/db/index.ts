@@ -1,4 +1,6 @@
-import postgres from "postgres";
+import type postgres from "postgres";
+
+import { kernels } from "../cljs-kernels.js";
 
 export type Sql = postgres.Sql;
 
@@ -10,15 +12,11 @@ export interface DbConfig {
   readonly prepare?: boolean;
 }
 
+/** The Postgres client factory is CLJS (proxx.runtime.db-schema). */
 export function createSqlConnection(config: DbConfig): Sql {
-  return postgres(config.connectionString, {
-    max: config.maxConnections ?? 10,
-    idle_timeout: config.idleTimeoutSeconds ?? 30,
-    connect_timeout: config.connectionTimeoutSeconds ?? 10,
-    prepare: config.prepare ?? false,
-  });
+  return kernels.createSqlConnection(config) as Sql;
 }
 
 export async function closeConnection(sql: Sql): Promise<void> {
-  await sql.end();
+  await kernels.closeSqlConnection(sql);
 }

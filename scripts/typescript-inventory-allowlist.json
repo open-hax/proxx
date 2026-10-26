@@ -45,14 +45,16 @@
     {
       "path": "src/lib/auth/github-allowlist.ts",
       "owner": "T1-storage-auth-cljs-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "storage/auth runtime is implemented in CLJS with existing DB semantics preserved"
+      "disposition": "removed",
+      "removalCondition": "Removed: ported to CLJS or unreferenced (proxx.runtime.github-allowlist, proxx.runtime.db-schema).",
+      "removed": true
     },
     {
       "path": "src/lib/auth/index.ts",
       "owner": "T1-storage-auth-cljs-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "storage/auth runtime is implemented in CLJS with existing DB semantics preserved"
+      "disposition": "removed",
+      "removalCondition": "Removed: ported to CLJS or unreferenced (proxx.runtime.github-allowlist, proxx.runtime.db-schema).",
+      "removed": true
     },
     {
       "path": "src/lib/auth/sql-persistence.ts",
@@ -400,8 +402,9 @@
     {
       "path": "src/lib/oauth-routes.ts",
       "owner": "T1-core-proxx-cljs-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "core Proxx runtime starts and serves from CLJS with TS shims removed"
+      "disposition": "removed",
+      "removalCondition": "Removed: ported to CLJS or unreferenced (proxx.runtime.github-allowlist, proxx.runtime.db-schema).",
+      "removed": true
     },
     {
       "path": "src/lib/observability/request-log-sse-hub.ts",

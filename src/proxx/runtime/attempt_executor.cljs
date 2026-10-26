@@ -824,3 +824,65 @@
       #js {"sawConfiguredProvider" configured?
            "sawOnlyDisabledProviders" (and configured? (not enabled?))
            "prompt_cache_key" prompt-cache-key})))
+
+;; ---------------------------------------------------------------------------
+;; The local Ollama attempt (src/lib/provider-strategy/local.ts)
+;; ---------------------------------------------------------------------------
+
+(defn ^:async execute-local-strategy-js
+  "One request to the local Ollama upstream; the strategy answers the client.
+  `host`: {estimateRequestCost}."
+  [^js strategy ^js reply ^js request-log-store ^js context ^js payload queue-signal ^js host]
+  (.header reply "x-open-hax-upstream-provider" "local-ollama")
+  (let [^js config (.-config context)
+        upstream-path (.getUpstreamPath strategy context)
+        upstream-url (url/join-url (.-ollamaBaseUrl config) upstream-path)
+        headers (js/Headers. (if (.-ollamaApiKey config)
+                               (proxy/upstream-headers-js (.-clientHeaders context) (.-ollamaApiKey config))
+                               (proxy/forward-headers-js (.-clientHeaders context))))
+        started (js/Date.now)
+        mode (.-mode strategy)
+        ^js span (.startSpan ^js (telemetry/get-telemetry-js) "proxy.upstream_attempt"
+                             #js {"proxy.provider_id" "ollama" "proxy.account_id" "local" "proxy.auth_type" "local"
+                                  "proxy.upstream_mode" mode "proxy.upstream_path" upstream-path
+                                  "proxy.model" (.-routedModel context) "proxy.requested_model" (.-requestedModelInput context)})
+        _ (.setAttributes span #js {"proxy.service_tier" (.-serviceTier payload)
+                                    "proxy.service_tier_source" (.-serviceTierSource payload)})
+        attempt-context (js/Object.assign #js {} context #js {"baseUrl" (.-ollamaBaseUrl config)})
+        record! (fn [status latency error]
+                  (let [^js v #js {"providerId" "ollama" "accountId" "local" "authType" "local" "upstreamPath" upstream-path
+                                   "status" status "latencyMs" latency
+                                   "serviceTier" (.-serviceTier payload) "serviceTierSource" (.-serviceTierSource payload)}]
+                    (when error (aset v "error" error))
+                    (record-attempt! request-log-store attempt-context v mode host)))
+        fetched (try (await (http/fetch-with-response-timeout-js
+                             upstream-url
+                             #js {"method" "POST" "headers" headers "body" (.-bodyText payload) "signal" queue-signal}
+                             (.-upstreamAttemptTimeoutMs context)))
+                     (catch :default error {:error error}))]
+    (if (and (map? fetched) (contains? fetched :error))
+      (let [error (:error fetched) latency (- (js/Date.now) started)]
+        (.setAttribute span "proxy.latency_ms" latency)
+        (.setAttribute span "proxy.status" 0)
+        (.recordError span error)
+        (.end span)
+        (record! 0 latency (error-message error))
+        (.header reply "x-open-hax-error-code" "ollama_upstream_unavailable")
+        (.send (.code reply 502)
+               (proxy/openai-error-js "Ollama upstream request failed due to a network or transport error."
+                                      "server_error" "ollama_upstream_unavailable"))
+        js/undefined)
+      (let [^js response fetched
+            latency (- (js/Date.now) started)]
+        (.setAttribute span "proxy.status" (.-status response))
+        (.setAttribute span "proxy.latency_ms" latency)
+        (if (.-ok response)
+          (.setStatus span "ok")
+          (.setStatus span "error" (str "HTTP " (.-status response))))
+        (.end span)
+        (let [log-id (record! (.-status response) latency nil)]
+          (when-not (and (strat/response-looks-like-event-stream-js response mode) (.-clientWantsStream context))
+            (await (strat/update-usage-counts-from-response-js request-log-store log-id response mode (.-routedModel context)
+                                                              "ollama" config started (.-estimateRequestCost host))))
+          (await (.handleLocalAttempt strategy reply response attempt-context))
+          js/undefined)))))
