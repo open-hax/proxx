@@ -1,33 +1,11 @@
 import type { ProviderCredential } from "../../key-pool.js";
 import { kernels } from "../../cljs-kernels.js";
-import type { StrategyRequestContext } from "../shared.js";
 import {
   providerAccountsForRequest,
   reorderAccountsForLatency,
   reorderCandidatesForAffinities,
 } from "./credential-selector.js";
 import type { RoutingCandidate, RoutingDeps } from "./types.js";
-
-function resolveForcedCredentialSelection(context: StrategyRequestContext): {
-  readonly providerId?: string;
-  readonly accountId?: string;
-} {
-  if (context.requestAuth?.kind !== "legacy_admin") {
-    return {};
-  }
-
-  const providerId = readHeaderValue(context.clientHeaders, "x-open-hax-forced-provider")?.trim().toLowerCase();
-  const accountId = readHeaderValue(context.clientHeaders, "x-open-hax-forced-account-id")?.trim();
-  return {
-    providerId: providerId && providerId.length > 0 ? providerId : undefined,
-    accountId: accountId && accountId.length > 0 ? accountId : undefined,
-  };
-}
-
-function readHeaderValue(headers: Record<string, unknown>, name: string): string | undefined {
-  const value = headers[name] ?? headers[name.toLowerCase()] ?? headers[name.toUpperCase()];
-  return typeof value === "string" ? value : undefined;
-}
 
 export interface BuildCandidatesResult {
   readonly candidates: readonly RoutingCandidate[];
@@ -41,7 +19,7 @@ export async function buildRoutingCandidates(
   const { keyPool, providerRoutes, context, promptAffinityStore, promptCacheKey, quotaMonitor, strategy, requestLogStore } = deps;
 
   const candidatesByProvider: Record<string, RoutingCandidate[]> = {};
-  const forcedCredentialSelection = resolveForcedCredentialSelection(context);
+  const forcedCredentialSelection = kernels.forcedCredentialSelection(context.requestAuth?.kind, context.clientHeaders);
 
   for (const route of providerRoutes) {
     if (forcedCredentialSelection.providerId && route.providerId !== forcedCredentialSelection.providerId) {
@@ -60,13 +38,7 @@ export async function buildRoutingCandidates(
     }
 
     if (route.authRequired === false) {
-      routeAccounts = [{
-        providerId: route.providerId,
-        accountId: `${route.providerId}-no-auth`,
-        token: "",
-        authType: "api_key",
-        planType: "free",
-      }];
+      routeAccounts = [kernels.noAuthAccount(route.providerId)];
     }
 
     if (quotaMonitor?.tracksProvider(route.providerId)) {
@@ -94,12 +66,7 @@ export async function buildRoutingCandidates(
   const affinityRecord = promptCacheKey
     ? await promptAffinityStore.get(promptCacheKey)
     : undefined;
-  const preferredAffinity = affinityRecord
-    ? { providerId: affinityRecord.providerId, accountId: affinityRecord.accountId }
-    : undefined;
-  const provisionalAffinity = affinityRecord?.provisionalProviderId && affinityRecord?.provisionalAccountId
-    ? { providerId: affinityRecord.provisionalProviderId, accountId: affinityRecord.provisionalAccountId }
-    : undefined;
+  const { preferred: preferredAffinity, provisional: provisionalAffinity } = kernels.affinitiesFromRecord(affinityRecord);
 
   const allCandidates = providerRoutes.flatMap((route) => candidatesByProvider[route.providerId] ?? []);
 

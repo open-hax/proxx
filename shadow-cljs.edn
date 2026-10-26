@@ -409,7 +409,43 @@
                                            registerRequestLogSseRoutes proxx.runtime.routes.streams/register-request-log-sse-routes-js
                                            registerBridgeSseRoutes proxx.runtime.routes.streams/register-bridge-sse-routes-js
                                            registerWebSocketRoutes proxx.runtime.routes.ws/register-web-socket-routes-js
-                                           registerFederationRoutes proxx.runtime.routes.federation/register-federation-routes-js}}}
+                                           registerFederationRoutes proxx.runtime.routes.federation/register-federation-routes-js
+                                           buildForwardHeaders proxx.runtime.proxy/forward-headers-js
+                                           buildUpstreamHeaders proxx.runtime.proxy/upstream-headers-js
+                                           buildUpstreamHeadersForCredential proxx.runtime.proxy/upstream-headers-for-credential-js
+                                           forwardableResponseHeaders proxx.runtime.proxy/forwardable-response-headers-js
+                                           parseRetryAfterMs proxx.runtime.proxy/parse-retry-after-ms-js
+                                           classifyRateLimitKind proxx.runtime.proxy/classify-rate-limit-kind-js
+                                           detectOllamaLimitKind proxx.runtime.proxy/detect-ollama-limit-kind-js
+                                           parseWaitTimeFromMessage proxx.runtime.proxy/parse-wait-time-from-message-js
+                                           extractRateLimitCooldownMs proxx.runtime.proxy/extract-rate-limit-cooldown-ms-js
+                                           openAiError proxx.runtime.proxy/openai-error-js
+                                           nativeChatToOpenAiRequest proxx.runtime.ollama-native/native-chat-to-openai-request-js
+                                           nativeGenerateToChatRequest proxx.runtime.ollama-native/native-generate-to-chat-request-js
+                                           chatCompletionToNativeChat proxx.runtime.ollama-native/chat-completion-to-native-chat-js
+                                           chatCompletionToNativeGenerate proxx.runtime.ollama-native/chat-completion-to-native-generate-js
+                                           nativeEmbedToOpenAiRequest proxx.runtime.ollama-native/native-embed-to-openai-request-js
+                                           nativeEmbedToOllamaRequest proxx.runtime.ollama-native/native-embed-to-ollama-request-js
+                                           openAiEmbeddingsToNativeEmbed proxx.runtime.ollama-native/openai-embeddings-to-native-embed-js
+                                           openAiEmbeddingsToNativeEmbeddings proxx.runtime.ollama-native/openai-embeddings-to-native-embeddings-js
+                                           nativeEmbedResponseToOpenAiEmbeddings proxx.runtime.ollama-native/native-embed-response-to-openai-embeddings-js
+                                           modelIdsToNativeTags proxx.runtime.ollama-native/model-ids-to-native-tags-js
+                                           registerWebsearchRoutes proxx.runtime.routes.websearch/register-websearch-routes-js
+                                           registerNativeOllamaRoutes proxx.runtime.routes.native-ollama/register-native-ollama-routes-js
+                                           registerEmbeddingsRoutes proxx.runtime.routes.embeddings/register-embeddings-routes-js
+                                           loadEmbeddingsConfig proxx.runtime.embeddings/load-embeddings-config-js
+                                           embedWithOllama proxx.runtime.embeddings/embed-with-ollama-js
+                                           embedWithHFCloud proxx.runtime.embeddings/embed-with-hf-cloud-js
+                                           embedWithTEI proxx.runtime.embeddings/embed-with-tei-js
+                                           embedWithOvmNpu proxx.runtime.embeddings/embed-with-ovm-npu-js
+                                           registerImagesRoutes proxx.runtime.routes.v1/register-images-routes-js
+                                           registerChatRoutes proxx.runtime.routes.v1/register-chat-routes-js
+                                           registerResponsesRoutes proxx.runtime.routes.v1/register-responses-routes-js
+                                           registerMediaRoutes proxx.runtime.routes.media/register-media-routes-js
+                                           probeOllamaCloudAccount proxx.runtime.ollama-cloud-probe/probe-ollama-cloud-account-js
+                                           forcedCredentialSelection proxx.runtime.candidates/forced-credential-selection-js
+                                           noAuthAccount proxx.runtime.candidates/no-auth-account-js
+                                           affinitiesFromRecord proxx.runtime.candidates/affinities-from-record-js}}}
    :js-options {:js-provider :import
                 :keep-as-import #{"node:fs" "node:path"}}
    :compiler-options {:output-feature-set :es-next

@@ -47,6 +47,7 @@ import type { BridgeSendChannel } from "./federation/bridge-send-channel.js";
 import type { FederationBridgeAgentOptions } from "./federation/bridge-agent.js";
 import type { BridgeMessage } from "./federation/bridge-protocol.js";
 import type { BridgeLeaseAccountSummary, BridgeLeaseExportedAccount } from "../routes/federation/bridge-lease-parsers.js";
+import type { ProviderCredential } from "./key-pool.js";
 import type { FederationOwnerCredential } from "./federation/owner-credential.js";
 
 type JsRecord = Record<string, unknown>;
@@ -949,6 +950,72 @@ export interface CljsKernels {
   readonly registerBridgeSseRoutes: (app: unknown, deps: object, relay: object) => void;
   readonly registerWebSocketRoutes: (app: unknown, deps: object) => unknown;
   readonly registerFederationRoutes: (app: unknown, deps: object, prefix: string) => void;
+  // w3:proxy proxy forwarding / rate-limit decisions (proxx.http.proxy)
+  readonly buildForwardHeaders: (clientHeaders: object) => Record<string, string>;
+  readonly buildUpstreamHeaders: (clientHeaders: object, apiKey: string) => Record<string, string>;
+  readonly buildUpstreamHeadersForCredential: (
+    clientHeaders: object,
+    credential: { readonly token: string; readonly chatgptAccountId?: string },
+    options?: { readonly useOpenAiCodexHeaderProfile?: boolean },
+  ) => Record<string, string>;
+  readonly forwardableResponseHeaders: (pairs: readonly (readonly [string, string])[]) => [string, string][];
+  readonly parseRetryAfterMs: (value: string | null) => number | undefined;
+  readonly classifyRateLimitKind: (errorBody: unknown, retryAfterMs: number | undefined, thresholdMs?: number) => "quota_exhausted" | "concurrency_throttle";
+  readonly detectOllamaLimitKind: (errorBody: unknown) => "session" | "weekly" | "unknown";
+  readonly parseWaitTimeFromMessage: (message: string) => number | undefined;
+  readonly extractRateLimitCooldownMs: (response: Response) => Promise<number | undefined>;
+  readonly openAiError: (message: string, type: string, code?: string) => {
+    readonly error: { readonly message: string; readonly type: string; readonly code?: string; readonly param: null };
+  };
+  // w3:onative ollama native API translation (proxx.compat.ollama-native)
+  readonly nativeChatToOpenAiRequest: (body: JsRecord) => JsRecord;
+  readonly nativeGenerateToChatRequest: (body: JsRecord) => JsRecord;
+  readonly chatCompletionToNativeChat: (response: JsRecord) => JsRecord;
+  readonly chatCompletionToNativeGenerate: (response: JsRecord) => JsRecord;
+  readonly nativeEmbedToOpenAiRequest: (body: JsRecord) => {
+    readonly model: string;
+    readonly input: string | readonly string[];
+    readonly num_ctx?: number;
+    readonly ollama_num_ctx?: number;
+  };
+  readonly nativeEmbedToOllamaRequest: (body: JsRecord, defaultNumCtx?: number) => JsRecord;
+  readonly openAiEmbeddingsToNativeEmbed: (response: JsRecord) => JsRecord;
+  readonly openAiEmbeddingsToNativeEmbeddings: (response: JsRecord) => JsRecord;
+  readonly nativeEmbedResponseToOpenAiEmbeddings: (response: JsRecord, model: string) => JsRecord;
+  readonly modelIdsToNativeTags: (modelIds: readonly string[], newDigest: () => string) => JsRecord;
+  // w3:websearch websearch route (proxx.http.websearch)
+  readonly registerWebsearchRoutes: (app: unknown, deps: unknown) => void;
+  // w3:nativeollama ollama-native routes (proxx.http.native-ollama)
+  readonly registerNativeOllamaRoutes: (app: unknown, deps: unknown) => void;
+  // w3:embeddings embeddings route (proxx.http.embeddings)
+  readonly registerEmbeddingsRoutes: (app: unknown, deps: unknown, collaborators: unknown) => void;
+  // w3:embproviders embedding backends (proxx.embeddings.providers)
+  readonly loadEmbeddingsConfig: () => object;
+  readonly embedWithOllama: (cfg: object, req: object) => Promise<import("./embeddings-strategy.js").EmbeddingResponse>;
+  readonly embedWithHFCloud: (cfg: object, req: object) => Promise<import("./embeddings-strategy.js").EmbeddingResponse>;
+  readonly embedWithTEI: (cfg: object, req: object) => Promise<import("./embeddings-strategy.js").EmbeddingResponse>;
+  readonly embedWithOvmNpu: (cfg: object, req: object) => Promise<import("./embeddings-strategy.js").EmbeddingResponse>;
+  // w3:v1 inference routes (proxx.http.v1)
+  readonly registerImagesRoutes: (app: unknown, deps: unknown, collaborators: unknown) => void;
+  readonly registerChatRoutes: (app: unknown, deps: unknown, collaborators: unknown) => void;
+  readonly registerResponsesRoutes: (app: unknown, deps: unknown, collaborators: unknown) => void;
+  // w3:media media generation routes (proxx.http.media)
+  readonly registerMediaRoutes: (app: unknown, deps: unknown, collaborators: unknown) => void;
+  // w3:cloudprobe ollama cloud probe (proxx.ollama.cloud-probe)
+  readonly probeOllamaCloudAccount: (
+    credentialStore: object,
+    options: { readonly providerId: string; readonly accountId: string; readonly baseUrl: string; readonly model?: string; readonly fetchFn?: typeof fetch },
+  ) => Promise<import("./ollama-cloud-probe.js").CredentialAccountProbeResult>;
+  // w3:candidates routing-candidate facts (proxx.strategy.candidates)
+  readonly forcedCredentialSelection: (authKind: string | undefined, headers: Record<string, unknown>) => {
+    readonly providerId?: string;
+    readonly accountId?: string;
+  };
+  readonly noAuthAccount: (providerId: string) => ProviderCredential;
+  readonly affinitiesFromRecord: (record: unknown) => {
+    readonly preferred?: { readonly providerId: string; readonly accountId: string };
+    readonly provisional?: { readonly providerId: string; readonly accountId: string };
+  };
 }
 
 export interface ChromaSearchRow {
