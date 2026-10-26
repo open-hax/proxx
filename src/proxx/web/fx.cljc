@@ -15,6 +15,10 @@
   `[:interval/stop id]`
   `[:nav/push path]`               history.pushState
   `[:clipboard/write text on-ok on-err]`
+  `[:window/open-watch id url on-opened on-blocked on-closed]`
+                                   open `url` in a new tab and dispatch `on-closed` once it closes
+  `[:window/close-watch id]`
+  `[:confirm message on-yes]`      `window.confirm`, dispatching `on-yes` when accepted
   `[:ws/open id path on-event]`    open a WebSocket to `path` on the API origin; each
                                    JSON message dispatches `(conj on-event data)`
   `[:ws/close id]`")
@@ -24,6 +28,11 @@
   ([request on-ok on-err] [:http request on-ok on-err]))
 
 (defn http-all [requests on-ok on-err] [:http-all requests on-ok on-err])
+
+(defn open-watch [id url on-opened on-blocked on-closed] [:window/open-watch id url on-opened on-blocked on-closed])
+(defn close-watch [id] [:window/close-watch id])
+(defn confirm [message on-yes] [:confirm message on-yes])
+(defn clipboard-write [text on-ok on-err] [:clipboard/write text on-ok on-err])
 
 (defn ws-open [id path on-event] [:ws/open id path on-event])
 (defn ws-close [id] [:ws/close id])

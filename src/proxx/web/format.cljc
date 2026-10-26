@@ -109,3 +109,22 @@
   [ts]
   #?(:cljs (let [d (js/Date. ts)] (if (js/isNaN (.getTime d)) (str ts) (.toLocaleTimeString d)))
      :clj (str ts)))
+
+(defn parse-time-ms
+  "Epoch ms of an ISO string, nil when unparsable."
+  [s]
+  #?(:cljs (let [t (.getTime (js/Date. s))] (when-not (js/isNaN t) t))
+     :clj nil))
+
+(defn format-expiry-badge
+  "Short locale date+time (\"Mar 5, 2:30 PM\") of an epoch-ms expiry."
+  [ms]
+  #?(:cljs (.toLocaleDateString (js/Date. ms) js/undefined
+                                #js {:month "short" :day "numeric" :hour "numeric" :minute "2-digit"})
+     :clj (str ms)))
+
+(defn locale-number [n]
+  #?(:cljs (.toLocaleString (js/Number. n)) :clj (str n)))
+
+(defn iso-from-ms [ms]
+  #?(:cljs (.toISOString (js/Date. ms)) :clj (str ms)))

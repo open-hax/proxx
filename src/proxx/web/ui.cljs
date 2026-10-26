@@ -25,6 +25,7 @@
 (def tabs (r/adapt-react-class (.-Tabs ^js uxx)))
 (def metric-tile (r/adapt-react-class (.-MetricTile ^js uxx)))
 (def metric-tile-grid (r/adapt-react-class (.-MetricTileGrid ^js uxx)))
+(def status-chip-stack (r/adapt-react-class (.-StatusChipStack ^js uxx)))
 (def action-strip (r/adapt-react-class (.-ActionStrip ^js uxx)))
 (def filter-toolbar (r/adapt-react-class (.-FilterToolbar ^js uxx)))
 

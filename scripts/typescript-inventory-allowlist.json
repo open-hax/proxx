@@ -1595,8 +1595,9 @@
     {
       "path": "web/src/pages/CredentialsPage.tsx",
       "owner": "T3-web-ui-tsx-retirement",
-      "disposition": "port-to-cljs-or-replace",
-      "removalCondition": "web UI builds from CLJS or is replaced by a CLJS UI surface"
+      "disposition": "removed",
+      "removalCondition": "Removed: ported to ClojureScript (proxx.web.credentials, proxx.web.pages.credentials, proxx.web.views.credentials).",
+      "removed": true
     },
     {
       "path": "web/src/pages/DashboardPage.tsx",

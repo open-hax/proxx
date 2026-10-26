@@ -122,6 +122,29 @@
       (catch :default _ nil))))
 
 ;; ---------------------------------------------------------------------------
+;; popup windows watched until closed (OAuth browser flows)
+
+(defonce ^:private watches (atom {}))
+
+(defn- clear-watch! [id]
+  (when-let [timer (get @watches id)]
+    (js/clearInterval timer)
+    (swap! watches dissoc id)))
+
+(defn- open-watch! [id url on-opened on-blocked on-closed]
+  (let [^js w (js/window.open url "_blank")]
+    (if-not w
+      (dispatch! on-blocked)
+      (do (clear-watch! id)
+          (swap! watches assoc id
+                 (js/setInterval (fn []
+                                   (when (.-closed w)
+                                     (clear-watch! id)
+                                     (dispatch! on-closed)))
+                                 750))
+          (dispatch! on-opened)))))
+
+;; ---------------------------------------------------------------------------
 ;; effects
 
 (defn- run-fx! [[kind & args]]
@@ -143,6 +166,9 @@
                        (-> (.writeText (.-clipboard js/navigator) text)
                            (.then (fn [_] (dispatch! on-ok))
                                   (fn [e] (dispatch! (conj on-err (error-text e)))))))
+    :window/open-watch (let [[id url on-opened on-blocked on-closed] args] (open-watch! id url on-opened on-blocked on-closed))
+    :window/close-watch (clear-watch! (first args))
+    :confirm (let [[message on-yes] args] (when (js/confirm message) (dispatch! on-yes)))
     :ws/open (let [[id path on-event] args]
                (close-socket! id)
                (open-socket! id path on-event))
@@ -152,15 +178,17 @@
 (defn dispatch!
   "Apply the pure handler to the current db, then interpret its effects."
   [event]
-  (let [[db' effects] (upd/handle @db event)]
-    (reset! db db')
+  ;; time is an explicit input of the pure handlers (`:now-ms`), never stored
+  (let [[db' effects] (upd/handle (assoc @db :now-ms (js/Date.now)) event)]
+    (reset! db (dissoc db' :now-ms))
     (doseq [e effects] (run-fx! e))
     (r/flush)))
 
 (defn init-db! []
   (reset! db (upd/init-db {:stored (read-stored)
                            :token (read-auth-token)
-                           :path (.-pathname (.-location js/window))})))
+                           :path (.-pathname (.-location js/window))
+                           :api-origin (api-origin)})))
 
 (defn listen-popstate! []
   (.addEventListener js/window "popstate"

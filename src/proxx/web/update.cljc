@@ -5,6 +5,7 @@
   namespaces); the root merges their handler tables. Entering a page resets its
   slice (like a React remount), preserving persisted preferences in `:stored`."
   (:require [proxx.web.pages.analytics :as analytics]
+            [proxx.web.pages.credentials :as credentials]
             [proxx.web.pages.dashboard :as dashboard]
             [proxx.web.pages.federation :as federation]
             [proxx.web.pages.chat :as chat]
@@ -23,15 +24,17 @@
    :chat chat/page
    :analytics analytics/page
    :federation federation/page
-   :dashboard dashboard/page})
+   :dashboard dashboard/page
+   :credentials credentials/page})
 
 (def handlers
   (into shell/handlers (mapcat (comp :handlers val)) pages))
 
 (defn init-db
-  "Initial db from edge facts: `:stored` (localStorage mirror), `:token`, `:path`."
-  [{:keys [stored token path]}]
+  "Initial db from edge facts: `:stored` (localStorage mirror), `:token`, `:path`, `:api-origin`."
+  [{:keys [stored token path api-origin]}]
   {:stored (or stored {})
+   :env {:api-origin (or api-origin "")}
    :route {:path path :page (router/match-page path)}
    :shell (shell/init stored token)
    :pages (into {} (map (fn [[id p]] [id ((:init p))])) pages)})
