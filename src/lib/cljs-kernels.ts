@@ -32,6 +32,7 @@ import type {
   RequestCostEstimate,
 } from "./model-pricing.js";
 import type { BridgeSendChannel } from "./federation/bridge-send-channel.js";
+import type { FederationBridgeAgentOptions } from "./federation/bridge-agent.js";
 import type { BridgeMessage } from "./federation/bridge-protocol.js";
 import type { BridgeLeaseAccountSummary, BridgeLeaseExportedAccount } from "../routes/federation/bridge-lease-parsers.js";
 import type { FederationOwnerCredential } from "./federation/owner-credential.js";
@@ -464,6 +465,7 @@ export interface CljsKernels {
   readonly createSseBridgeSendChannel: (res: ServerResponse) => BridgeSendChannel;
   readonly formatSseEvent: (event: string, data: unknown) => string;
   readonly createBridgeAgent: (options: unknown) => unknown;
+  readonly createEnvFederationBridgeAgentOptions: (deps: unknown) => FederationBridgeAgentOptions | undefined;
   // provider-strategy (proxx.strategy.*)
   readonly normalizeGeminiReasoningEffort: (value: unknown) => string | undefined;
   readonly openAiMessagesToGeminiContents: (messages: unknown[]) => Array<{ role: string; parts: Array<Record<string, unknown>> }>;
