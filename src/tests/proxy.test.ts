@@ -12,6 +12,7 @@ import { ChatCompletionsProviderStrategy } from "../lib/provider-strategy/strate
 
 import { createApp } from "../app.js";
 import { KeyPool } from "../lib/key-pool.js";
+import { ProviderRoutePheromoneStore } from "../lib/provider-route-pheromone-store.js";
 import { SqlPromptAffinityStore } from "../lib/db/sql-prompt-affinity-store.js";
 import { getActiveCljsRuntime, loadCljsRuntime, setActiveCljsRuntime } from "../lib/cljs-runtime.js";
 import type { ProxyConfig } from "../lib/config.js";
@@ -13683,7 +13684,8 @@ test("free model quota leaves the paid route available on later requests", async
   });
 });
 
-test("reasoning-only free stream falls back before any downstream output", async () => {
+test("reasoning-only free stream falls back before any downstream output", async (t) => {
+  const transportFailures=t.mock.method(ProviderRoutePheromoneStore.prototype,"noteFailure",async()=>{});
   let reservations = 0;
   const observed: string[] = [];
   await withProxyApp({
@@ -13724,6 +13726,12 @@ test("reasoning-only free stream falls back before any downstream output", async
       assert.equal(response.headers["x-open-hax-upstream-model"], "deepinfra/google/gemma-4-31B-it");
       assert.deepEqual(observed, ["google/gemma-4-31b-it", "deepinfra/google/gemma-4-31B-it"]);
       assert.equal(reservations, 1);
+      assert.equal(transportFailures.mock.callCount(),0,"policy cutoff is not a provider transport failure");
+      const logs=await app.inject({method:"GET",url:"/api/v1/request-logs?limit=10"});
+      assert.equal(logs.statusCode,200,logs.body);
+      const cutoff=logs.json().entries.find((entry:any)=>entry.upstreamModel==="google/gemma-4-31b-it" && entry.error);
+      assert.ok(cutoff,"free cutoff has an attempt receipt");
+      assert.equal(cutoff.status,504);
     } finally { setActiveCljsRuntime(runtime); }
   });
 });
@@ -13763,6 +13771,47 @@ test("both silent routes terminate at the total deadline without releasing paid 
       assert.deepEqual(observed, ["google/gemma-4-31b-it", "deepinfra/google/gemma-4-31B-it"]);
       assert.equal(reservations, 1);
       assert.equal(settlements, 0);
+    } finally { setActiveCljsRuntime(runtime); }
+  });
+});
+
+test("free cutoff followed by prompt paid refusal returns route exhaustion before total deadline", async () => {
+  let reservations = 0;
+  let settlements = 0;
+  const observed: string[] = [];
+  await withProxyApp({
+    keys: [], keysPayload: { providers: { requesty: { auth: "api_key", accounts: ["test-requesty-key"] } } },
+    configOverrides: { upstreamProviderId: "requesty" },
+    upstreamHandler: async (_req, body) => {
+      const model = JSON.parse(body).model as string;
+      observed.push(model);
+      if (model === "deepinfra/google/gemma-4-31B-it") return { status: 402, headers: { "content-type": "application/json" }, body: JSON.stringify({ error: { message: "Insufficient balance" } }) };
+      return { status: 200, headers: { "content-type": "text/event-stream" },
+        streamBody: async (res) => { res.write(": heartbeat\n\n"); await once(res, "close"); } };
+    },
+  }, async ({ app }) => {
+    const runtime = getActiveCljsRuntime()!;
+    setActiveCljsRuntime({ ...runtime,
+      resolveBudgetRoutePlan: (path, auth, model) => {
+        const plan = runtime.resolveBudgetRoutePlan!(path, auth, model);
+        return plan?.orderedRoutes ? { ...plan, totalFirstUsableMs: 5000,
+          orderedRoutes: plan.orderedRoutes.map((route) => ({ ...route, firstUsableOffsetMs: route.firstUsableOffsetMs / 10 })) } : plan;
+      },
+      reservePaidBudget: async () => { reservations++; return { status: "admitted", reservationId: "hold" }; },
+      settlePaidBudget: async () => { settlements++; return { status: "settled" }; },
+    });
+    app.addHook("preHandler", async (request) => {
+      request.openHaxAuth = { kind: "tenant_api_key", keyId: "71a0813f-dbe3-45ad-a7ae-16555463e716", tenantId: "default", source: "bearer" };
+    });
+    try {
+      const response = await app.inject({ method: "POST", url: "/v1/chat/completions", payload: {
+        model: "gemma4:31b", messages: [{ role: "user", content: "hello" }], stream: true,
+      } });
+      assert.equal(response.statusCode, 503, response.body);
+      assert.equal(response.json().error.code, "budget_routes_exhausted");
+      assert.deepEqual(observed, ["google/gemma-4-31b-it", "deepinfra/google/gemma-4-31B-it"]);
+      assert.equal(reservations, 1);
+      assert.equal(settlements, 1, "complete nonbillable refusal releases its hold");
     } finally { setActiveCljsRuntime(runtime); }
   });
 });
@@ -14156,6 +14205,24 @@ test("staged absolute deadlines rearm an early timer instead of timing out befor
   try {
     await assert.rejects(stageResponse(new Response(new ReadableStream({start(){}})),1002,100,()=>({ready:false,fatal:false}),()=>{}),/deadline exceeded/);
     assert.equal(now,1002);assert.equal(callbacks,2);
+  } finally {t.mock.restoreAll();}
+});
+
+test("response-header policy deadline rearms early callbacks and retains its typed cause", async t => {
+  const {fetchWithResponseTimeout, FirstUsableDeadlineError}=await import('../lib/http/fetch-utils.js');
+  const realSetTimeout=globalThis.setTimeout;
+  let now=1000, callbacks=0;
+  t.mock.method(Date,'now',()=>now);
+  t.mock.method(globalThis,'setTimeout',(callback:()=>void)=>realSetTimeout(()=>{now++;callbacks++;callback();},0));
+  t.mock.method(globalThis,'fetch',async (_url:unknown, init:RequestInit)=>new Promise<Response>((_resolve,reject)=>{
+    const signal=init.signal!;
+    if(signal.aborted) reject(signal.reason);
+    else signal.addEventListener('abort',()=>reject(signal.reason),{once:true});
+  }));
+  try {
+    await assert.rejects(fetchWithResponseTimeout('https://fixture.invalid',{},2,1002), FirstUsableDeadlineError);
+    assert.equal(now,1002);
+    assert.equal(callbacks,2,"early callback must rearm without aborting the request");
   } finally {t.mock.restoreAll();}
 });
 

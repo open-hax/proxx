@@ -24,7 +24,7 @@ import {
   responsesEventStreamToErrorPayload,
 } from "../../responses-compat.js";
 import type { ProviderRoute } from "../../provider-routing.js";
-import { fetchWithResponseTimeout, isResponseBodyComplete, stageResponse } from "../../http/index.js";
+import { FirstUsableDeadlineError, fetchWithResponseTimeout, isResponseBodyComplete, stageResponse } from "../../http/index.js";
 import {
   readUpstreamErrorMessage,
   responseIndicatesQuotaError,
@@ -255,12 +255,12 @@ export async function executeProviderRoutingPlan(
         // No upstream send happened: this is a known zero charge, unlike a
         // timeout after transport began. A failed settlement retains the hold.
         if (ticket) void budgetRuntime?.settlePaidBudget?.(context.budgetSql, PAID_BUDGET_QUERIES, ticket.scopeId, ticket.id, 0).catch(() => {});
-        throw context.firstOutputLease?.signal.reason ?? new Error("First usable output deadline exceeded");
+        throw context.firstOutputLease?.signal.reason ?? (deadlineAt !== undefined ? new FirstUsableDeadlineError() : new Error("First usable output deadline exceeded"));
       }
       let response = await fetchWithResponseTimeout(url, {
         ...init,
         ...(inspection.payload ? { body: JSON.stringify(inspection.payload) } : {}),
-      }, remaining);
+      }, remaining, deadlineAt);
       if (deadlineAt !== undefined) {
         if (!budgetRuntime?.advanceFirstUsable) throw new Error("First output probe unavailable");
         let probeState: unknown;
@@ -480,19 +480,22 @@ export async function executeProviderRoutingPlan(
           }, context.upstreamAttemptTimeoutMs);
         } catch (error) {
           if (error instanceof OpenAiHttpError) { upstreamSpan.recordError(error); upstreamSpan.end(); releaseInFlight(); throw error; }
+          const policyCutoff = error instanceof FirstUsableDeadlineError;
+          const failureStatus = policyCutoff ? 504 : 0;
           const latencyMs = Date.now() - attemptStartedAt;
           upstreamSpan.setAttribute("proxy.latency_ms", latencyMs);
-          upstreamSpan.setAttribute("proxy.status", 0);
+          upstreamSpan.setAttribute("proxy.status", failureStatus);
+          upstreamSpan.setAttribute("proxy.failure_kind", policyCutoff ? "first_usable_cutoff" : "transport");
           upstreamSpan.recordError(error);
           upstreamSpan.end();
           accumulator.sawRequestError = true;
-          await providerRoutePheromoneStore.noteFailure(candidate.providerId, context.routedModel);
+          if (!policyCutoff) await providerRoutePheromoneStore.noteFailure(candidate.providerId, context.routedModel);
           const logEntryId = recordAttempt(requestLogStore, providerContext, {
             providerId: candidate.providerId,
             accountId: candidate.account.accountId,
             authType: candidate.account.authType,
             upstreamPath,
-            status: 0,
+            status: failureStatus,
             latencyMs,
             serviceTier: candidatePayload.serviceTier,
             serviceTierSource: candidatePayload.serviceTierSource,
@@ -501,12 +504,12 @@ export async function executeProviderRoutingPlan(
           }, candidateStrategy.mode);
 
           if (eventStore) {
-            eventStore.emitError(attemptEntryId, candidate.providerId, candidate.account.accountId, context.routedModel, 0, {
+            eventStore.emitError(attemptEntryId, candidate.providerId, candidate.account.accountId, context.routedModel, failureStatus, {
               error: transportErrorMessage(error),
               logEntryId,
             }, { latencyMs });
           }
-          if (hasStickyAffinity) {
+          if (hasStickyAffinity && !policyCutoff) {
             stickyTransportFailureCandidates += 1;
             if (stickyTransportFailureCandidates >= MAX_STICKY_TRANSPORT_FAILURE_CANDIDATES) {
               abortRemainingCandidatesForStickyTransportFailure = true;

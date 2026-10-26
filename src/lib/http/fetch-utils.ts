@@ -2,6 +2,11 @@
  * HTTP fetch utilities with timeout and abort signal support.
  */
 
+/** A declared first-usable bound expired, rather than the transport failing. */
+export class FirstUsableDeadlineError extends Error {
+  constructor() { super("First usable output deadline exceeded"); this.name = "FirstUsableDeadlineError"; }
+}
+
 const truncatedErrorResponses = new WeakSet<Response>();
 
 /** Transport fact: a bounded error prefix is not a complete billing response. */
@@ -29,11 +34,16 @@ export async function fetchWithResponseTimeout(
   url: string,
   init: RequestInit,
   timeoutMs: number,
+  firstUsableDeadlineAt?: number,
 ): Promise<Response> {
   const controller = new AbortController();
-  const timeoutHandle = setTimeout(() => {
+  const policyBound = firstUsableDeadlineAt !== undefined && firstUsableDeadlineAt <= Date.now() + timeoutMs;
+  const timeoutHandle = policyBound ? undefined : setTimeout(() => {
     controller.abort(new DOMException("The operation was aborted due to timeout", "TimeoutError"));
   }, timeoutMs);
+  const cancelDeadline = policyBound
+    ? armDeadline(firstUsableDeadlineAt!, () => controller.abort(new FirstUsableDeadlineError()))
+    : () => clearTimeout(timeoutHandle);
 
   const mergedSignal = init.signal
     ? AbortSignal.any([init.signal, controller.signal])
@@ -47,7 +57,7 @@ export async function fetchWithResponseTimeout(
     responseAbortControllers.set(response, controller);
     return response;
   } finally {
-    clearTimeout(timeoutHandle);
+    cancelDeadline();
   }
 }
 
@@ -118,12 +128,12 @@ export async function stageResponse(
   try {
     while (true) {
       const remaining = deadlineAt - Date.now();
-      if (remaining <= 0) throw new Error("First usable output deadline exceeded");
+      if (remaining <= 0) throw new FirstUsableDeadlineError();
       let cancelDeadline: (() => void) | undefined;
       let chunk: ReadableStreamReadResult<Uint8Array>;
       try {
         chunk = await Promise.race([reader.read(), new Promise<never>((_resolve, reject) => {
-          cancelDeadline = armDeadline(deadlineAt, () => reject(new Error("First usable output deadline exceeded")));
+          cancelDeadline = armDeadline(deadlineAt, () => reject(new FirstUsableDeadlineError()));
         })]);
       } finally { cancelDeadline?.(); }
       ended = chunk.done === true;
