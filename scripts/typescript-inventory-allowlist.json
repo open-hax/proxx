@@ -1000,8 +1000,9 @@
     {
       "path": "src/routes/mcp/index.ts",
       "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed"
+      "disposition": "removed",
+      "removalCondition": "Removed: registerMcpRoutes registered nothing (empty body); the /mcp-servers route lives in observability.",
+      "removed": true
     },
     {
       "path": "src/routes/media-generations.ts",
@@ -1054,14 +1055,16 @@
     {
       "path": "src/routes/sessions/prefix.ts",
       "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed"
+      "disposition": "removed",
+      "removalCondition": "Removed: session routes, message validation and search decisions are CLJS (proxx.runtime.routes.sessions, proxx.http.sessions); sessions/index.ts is the shim.",
+      "removed": true
     },
     {
       "path": "src/routes/sessions/ui.ts",
       "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed"
+      "disposition": "removed",
+      "removalCondition": "Removed: session routes, message validation and search decisions are CLJS (proxx.runtime.routes.sessions, proxx.http.sessions); sessions/index.ts is the shim.",
+      "removed": true
     },
     {
       "path": "src/routes/settings/delete-tenant-api-key-ui.ts",

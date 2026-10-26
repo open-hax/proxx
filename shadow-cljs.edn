@@ -385,7 +385,11 @@
                                            createEnsureFreshAccounts proxx.runtime.token-refresh/create-ensure-fresh-accounts-js
                                            tokenRefreshDefaultConfig proxx.runtime.token-refresh/token-refresh-default-config-js
                                            loadConfig proxx.runtime.config/load-config-js
-                                           defaultModels proxx.runtime.config/default-models-js}}}
+                                           defaultModels proxx.runtime.config/default-models-js
+                                           ;; w3-routes-ui exports
+                                           registerHostRoutes proxx.runtime.routes.hosts/register-host-routes-js
+                                           registerEventRoutes proxx.runtime.routes.events/register-event-routes-js
+                                           registerSessionRoutes proxx.runtime.routes.sessions/register-session-routes-js}}}
    :js-options {:js-provider :import
                 :keep-as-import #{"node:fs" "node:path"}}
    :compiler-options {:output-feature-set :es-next

@@ -9,15 +9,14 @@ export interface CreateSessionUiRouteContextOptions {
   readonly chromaUrl?: string;
   readonly chromaCollectionName?: string;
   readonly chromaEmbeddingModel?: string;
-  readonly warn?: (error: unknown) => void;
 }
 
 export interface SessionUiRouteContext {
   readonly sessionStore: SessionStore;
   readonly sessionIndex: ChromaSessionIndex;
-  readonly ensureInitialSemanticIndexSync: () => Promise<void>;
 }
 
+/** The session store and semantic index the session routes serve (env-configured). */
 export function createSessionUiRouteContext(
   options: CreateSessionUiRouteContextOptions,
 ): SessionUiRouteContext {
@@ -29,27 +28,5 @@ export function createSessionUiRouteContext(
     embeddingModel: options.chromaEmbeddingModel ?? process.env.CHROMA_EMBED_MODEL ?? "nomic-embed-text:latest",
   });
 
-  let initialSemanticIndexSync: Promise<void> | undefined;
-  const ensureInitialSemanticIndexSync = async (): Promise<void> => {
-    if (!initialSemanticIndexSync) {
-      initialSemanticIndexSync = (async () => {
-        try {
-          const existingDocuments = await sessionStore.collectSearchDocuments();
-          for (const message of existingDocuments) {
-            await sessionIndex.indexMessage(message);
-          }
-        } catch (error) {
-          options.warn?.(error);
-        }
-      })();
-    }
-
-    await initialSemanticIndexSync;
-  };
-
-  return {
-    sessionStore,
-    sessionIndex,
-    ensureInitialSemanticIndexSync,
-  };
+  return { sessionStore, sessionIndex };
 }

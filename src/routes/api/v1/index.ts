@@ -19,7 +19,6 @@ export async function registerApiV1Routes(
     (await import("../../credentials/index.js")).registerCredentialsRoutes,
     (await import("../../hosts/index.js")).registerHostRoutes,
     (await import("../../events/index.js")).registerEventRoutes,
-    (await import("../../mcp/index.js")).registerMcpRoutes,
     (await import("../../observability/index.js")).registerCanonicalObservabilityRoutes,
   ] as const;
 
