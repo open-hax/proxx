@@ -4,14 +4,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-Proxx is an OpenAI-compatible proxy server (`@open-hax/proxx`) with provider-scoped account rotation, multi-provider routing, federation, and a WebSocket bridge. It exposes `POST /v1/chat/completions`, `/v1/responses`, `/v1/models`, and a React/Vite web console.
+Proxx is an OpenAI-compatible proxy server (`@open-hax/proxx`) with provider-scoped account rotation, multi-provider routing, federation, and a WebSocket bridge. It exposes `POST /v1/chat/completions`, `/v1/responses`, `/v1/models`, and a ClojureScript (Reagent) web console bundled with Vite.
 
 ## Commands
 
 ### Development
 ```bash
 pnpm dev                    # build CLJS then run TypeScript server via tsx
-pnpm web:dev                # Vite dev server for the web console
+pnpm web:dev                # build the CLJS bundle, then Vite dev server for the web console
+pnpm web:watch              # shadow-cljs watch for the web console (:web build)
 ```
 
 ### Build
@@ -19,7 +20,7 @@ pnpm web:dev                # Vite dev server for the web console
 pnpm build                  # full build: TS + CLJS
 pnpm build:ts               # TypeScript only
 pnpm build:cljs             # shadow-cljs only
-pnpm web:build              # build React web console
+pnpm web:build              # shadow-cljs release (:web) + Vite (CSS, index.html) -> web/dist
 ```
 
 ### Type checking and linting
@@ -36,7 +37,7 @@ pnpm test                             # build then run all unit tests
 npx tsx --test src/tests/<file>.test.ts  # run a single TS test file
 pnpm test:cljs                        # compile and run CLJS unit tests
 npx tsx --test src/tests/schema-migration.test.ts  # migration-specific tests
-pnpm web:test                         # Vitest frontend unit tests
+pnpm web:test                         # shadow-cljs :web-test (cljs.test view smoke tests under jsdom)
 pnpm web:test:e2e                     # frontend browser smoke tests
 PROXY_AUTH_TOKEN=<token> npx tsx --test src/tests/proxy.test.ts  # live proxy test (requires running instance)
 ```
@@ -99,6 +100,8 @@ More-specific clauses must precede catch-alls. EDN changes take effect on server
 
 - `:runtime` — ESM module output to `dist/cljs/proxx-runtime.js`, consumed by the TypeScript server
 - `:node-test` — CJS test runner to `target/node-test.cjs`
+- `:web` — browser bundle for the console, `web/public/js/main.js` (Vite copies `public/` into `web/dist`)
+- `:web-test` — view smoke tests (`proxx.web.*-smoke`), run with `web/test/jsdom-setup.cjs` preloaded
 
 ## Mandatory Completion Checks
 

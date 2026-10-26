@@ -195,7 +195,7 @@ For any CLJS change:
 2. Verify the compiled output in `dist/` or `target/`
 
 ### Notes
-- `pnpm web:test` is the fast render-smoke layer.
+- `pnpm web:test` is the fast render-smoke layer (cljs.test over jsdom; pure console logic is tested by `pnpm test:cljs`).
 - `pnpm web:test:e2e` is the browser smoke layer that locks the frontend surfaces being migrated to `@open-hax/uxx`.
 - If a touched surface has no test yet, add at least a smoke test before calling the work complete.
 

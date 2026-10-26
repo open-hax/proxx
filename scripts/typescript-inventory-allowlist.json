@@ -1548,14 +1548,16 @@
     {
       "path": "web/src/lib/api.ts",
       "owner": "T3-web-ui-tsx-retirement",
-      "disposition": "port-to-cljs-or-replace",
-      "removalCondition": "web UI builds from CLJS or is replaced by a CLJS UI surface"
+      "disposition": "removed",
+      "removalCondition": "Removed: ported to ClojureScript (proxx.web.api request descriptions, proxx.web.format).",
+      "removed": true
     },
     {
       "path": "web/src/lib/format.ts",
       "owner": "T3-web-ui-tsx-retirement",
-      "disposition": "port-to-cljs-or-replace",
-      "removalCondition": "web UI builds from CLJS or is replaced by a CLJS UI surface"
+      "disposition": "removed",
+      "removalCondition": "Removed: ported to ClojureScript (proxx.web.api request descriptions, proxx.web.format).",
+      "removed": true
     },
     {
       "path": "web/src/lib/local-storage.ts",
@@ -1659,13 +1661,13 @@
       "path": "web/test/e2e/tools.smoke.ts",
       "owner": "T3-web-ui-tsx-retirement",
       "disposition": "port-to-cljs-or-replace",
-      "removalCondition": "web UI builds from CLJS or is replaced by a CLJS UI surface"
+      "removalCondition": "Playwright browser smoke driving the CLJS bundle; port to a cljs/Node playwright runner (or .mjs) when one is accepted. Runs unchanged apart from env knobs (PROXX_WEB_E2E_PORT, PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH)."
     },
     {
       "path": "web/vite.config.ts",
       "owner": "T3-web-ui-tsx-retirement",
       "disposition": "port-to-cljs-or-replace",
-      "removalCondition": "web UI builds from CLJS or is replaced by a CLJS UI surface"
+      "removalCondition": "Vite remains only as the static asset/CSS bundler plus dev/preview server (proxy to :8789, SPA fallback, allowedHosts) used by the container; replace with a CLJS-owned static server or a vite.config.js/mjs when the TS-family ban extends to configs."
     }
   ]
 }

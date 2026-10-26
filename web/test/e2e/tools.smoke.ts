@@ -5,7 +5,9 @@ import { fileURLToPath } from "node:url";
 
 import { chromium } from "playwright";
 
-const BASE_URL = "http://127.0.0.1:5174";
+// Override to avoid attaching to an unrelated console already listening on 5174.
+const E2E_PORT = Number.parseInt(process.env.PROXX_WEB_E2E_PORT ?? "5174", 10);
+const BASE_URL = `http://127.0.0.1:${E2E_PORT}`;
 const NOW = new Date("2026-04-03T00:00:00Z").toISOString();
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 
@@ -44,6 +46,7 @@ async function ensureFrontendServer(): Promise<{ child: ChildProcess | null }> {
 
   const child = spawn("pnpm", ["web:dev"], {
     cwd: REPO_ROOT,
+    env: { ...process.env, VITE_DEV_PORT: String(E2E_PORT) },
     stdio: "ignore",
     detached: false,
   });
@@ -51,7 +54,7 @@ async function ensureFrontendServer(): Promise<{ child: ChildProcess | null }> {
   const ready = await waitForServer(BASE_URL, 30_000);
   if (!ready) {
     child.kill("SIGTERM");
-    throw new Error("Frontend dev server did not become ready on http://127.0.0.1:5174");
+    throw new Error(`Frontend dev server did not become ready on ${BASE_URL}`);
   }
 
   return { child };
@@ -60,8 +63,15 @@ async function ensureFrontendServer(): Promise<{ child: ChildProcess | null }> {
 async function main(): Promise<void> {
   const { child } = await ensureFrontendServer();
 
-  const browser = await chromium.launch({ headless: true });
+  const browser = await chromium.launch({
+    headless: true,
+    executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || undefined,
+  });
   const page = await browser.newPage();
+  // The onboarding modal (shown when no token is stored) would intercept clicks.
+  await page.addInitScript(() => {
+    window.localStorage.setItem("open-hax-proxy.ui.onboarded", "true");
+  });
   const chatSession = {
     id: "session-1",
     title: "Local smoke session",
@@ -625,7 +635,7 @@ async function main(): Promise<void> {
   try {
     await page.goto(`${BASE_URL}/`, { waitUntil: "networkidle" });
     let content = await page.textContent("body");
-    assert.ok(content?.includes("Single Proxy Control Tower"));
+    assert.ok(content?.includes("Account Health"));
     assert.ok(content?.includes("Primary OpenAI"));
     assert.ok(content?.includes("Recent Request Log"));
 
@@ -639,8 +649,10 @@ async function main(): Promise<void> {
     await page.getByRole("link", { name: /Credentials/i }).click();
     await page.waitForURL("**/credentials");
     await page.getByRole("heading", { name: /Credentials Manager/i }).waitFor();
-    await page.getByText("Primary OpenAI").waitFor();
+    // Provider sections render collapsed; expand them so account tiles are visible.
     await page.getByRole("button", { name: /Refresh Codex quotas/i }).waitFor();
+    await page.evaluate(() => document.querySelectorAll("details.credentials-section-details").forEach((d) => { d.open = true; }));
+    await page.getByText("Primary OpenAI").first().waitFor();
 
     const searchInput = page.getByPlaceholder("Search accounts, emails, plans, workspace IDs");
     await searchInput.fill("alice@example.com");
