@@ -22,6 +22,10 @@
 (def surface-hero (r/adapt-react-class (.-SurfaceHero ^js uxx)))
 (def data-table-shell (r/adapt-react-class (.-DataTableShell ^js uxx)))
 (def chat (r/adapt-react-class (.-Chat ^js uxx)))
+(def tabs (r/adapt-react-class (.-Tabs ^js uxx)))
+(def metric-tile (r/adapt-react-class (.-MetricTile ^js uxx)))
+(def metric-tile-grid (r/adapt-react-class (.-MetricTileGrid ^js uxx)))
+(def filter-toolbar (r/adapt-react-class (.-FilterToolbar ^js uxx)))
 
 (defn element
   "Hiccup -> React element (for props that take nodes)."

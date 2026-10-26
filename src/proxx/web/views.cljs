@@ -4,6 +4,7 @@
             [proxx.web.runtime :as rt]
             [proxx.web.shell :as shell]
             [proxx.web.ui :as ui]
+            [proxx.web.views.analytics :as analytics-view]
             [proxx.web.views.chat :as chat-view]
             [proxx.web.views.events :as events-view]
             [proxx.web.views.hosts :as hosts-view]
@@ -61,7 +62,8 @@
    :images images-view/view
    :hosts hosts-view/view
    :events events-view/view
-   :chat chat-view/view})
+   :chat chat-view/view
+   :analytics analytics-view/view})
 
 (defn- placeholder [page]
   [:p.status-text (str "The " (name page) " page is being ported.")])

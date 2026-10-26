@@ -71,3 +71,35 @@
   ([value limit]
    (let [text #?(:cljs (or (js/JSON.stringify (clj->js value) nil 2) "undefined") :clj (pr-str value))]
      (if (<= (count text) limit) text (str (subs text 0 limit) "\n…")))))
+
+;; ---------------------------------------------------------------------------
+;; Numbers (en-US, as the console has always shown them)
+
+(defn- intl [opts v]
+  #?(:cljs (.format (js/Intl.NumberFormat. "en-US" (clj->js opts)) v)
+     :clj (str v)))
+
+(defn compact-number [v]
+  (intl {:notation (if (>= v 1000) "compact" "standard")
+         :maximumFractionDigits (if (>= v 1000) 1 0)}
+        v))
+
+(defn usd [v]
+  (let [digits (if (>= v 1) 2 4)]
+    (intl {:style "currency" :currency "USD" :minimumFractionDigits digits :maximumFractionDigits digits} v)))
+
+(defn percent [v] (str (fixed v (if (>= v 10) 0 1)) "%"))
+
+(defn water [ml]
+  (cond
+    (>= ml 1000) (str (fixed (/ ml 1000) 2) " L")
+    (>= ml 1) (str (fixed ml 1) " mL")
+    (>= ml 0.001) (str (fixed (* ml 1000) 1) " uL")
+    :else (str (fixed ml 4) " mL")))
+
+(defn round-half-up [v] #?(:cljs (js/Math.round v) :clj (long (Math/round (double v)))))
+
+(defn maybe-ms [v] (if (finite-number? v) (str (round-half-up v) " ms") "-"))
+(defn maybe-tps [v] (if (finite-number? v) (str (fixed v (if (>= v 10) 0 1)) " t/s") "-"))
+(defn maybe-fraction-percent [v] (if (finite-number? v) (str (round-half-up (* v 100)) "%") "-"))
+(defn format-date-or-dash [v] (if v (format-datetime v) "-"))
