@@ -47,6 +47,7 @@ import type { BridgeSendChannel } from "./federation/bridge-send-channel.js";
 import type { FederationBridgeAgentOptions } from "./federation/bridge-agent.js";
 import type { BridgeMessage } from "./federation/bridge-protocol.js";
 import type { BridgeLeaseAccountSummary, BridgeLeaseExportedAccount } from "../routes/federation/bridge-lease-parsers.js";
+import type { ProviderCredential } from "./key-pool.js";
 import type { FederationOwnerCredential } from "./federation/owner-credential.js";
 
 type JsRecord = Record<string, unknown>;
@@ -887,12 +888,12 @@ export interface CljsKernels {
   readonly pheromoneGet: (records: readonly object[], providerId: string, model: string) => number;
   readonly pheromoneNoteSuccess: (records: readonly object[], providerId: string, model: string, quality: number) => object[];
   readonly pheromoneNoteFailure: (records: readonly object[], providerId: string, model: string) => object[];
-  // w3:websearch websearch route (proxx.http.websearch)
-  readonly registerWebsearchRoutes: (app: unknown, deps: unknown) => void;
-  // w3:nativeollama ollama-native routes (proxx.http.native-ollama)
-  readonly registerNativeOllamaRoutes: (app: unknown, deps: unknown) => void;
-  // w3:embeddings embeddings route (proxx.http.embeddings)
-  readonly registerEmbeddingsRoutes: (app: unknown, deps: unknown, collaborators: unknown) => void;
+  // w3:embproviders embedding backends (proxx.embeddings.providers)
+  readonly loadEmbeddingsConfig: () => object;
+  readonly embedWithOllama: (cfg: object, req: object) => Promise<import("./embeddings-strategy.js").EmbeddingResponse>;
+  readonly embedWithHFCloud: (cfg: object, req: object) => Promise<import("./embeddings-strategy.js").EmbeddingResponse>;
+  readonly embedWithTEI: (cfg: object, req: object) => Promise<import("./embeddings-strategy.js").EmbeddingResponse>;
+  readonly embedWithOvmNpu: (cfg: object, req: object) => Promise<import("./embeddings-strategy.js").EmbeddingResponse>;
 }
 
 export interface ChromaSearchRow {

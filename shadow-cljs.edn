@@ -408,7 +408,12 @@
                                            modelIdsToNativeTags proxx.runtime.ollama-native/model-ids-to-native-tags-js
                                            registerWebsearchRoutes proxx.runtime.routes.websearch/register-websearch-routes-js
                                            registerNativeOllamaRoutes proxx.runtime.routes.native-ollama/register-native-ollama-routes-js
-                                           registerEmbeddingsRoutes proxx.runtime.routes.embeddings/register-embeddings-routes-js}}}
+                                           registerEmbeddingsRoutes proxx.runtime.routes.embeddings/register-embeddings-routes-js
+                                           loadEmbeddingsConfig proxx.runtime.embeddings/load-embeddings-config-js
+                                           embedWithOllama proxx.runtime.embeddings/embed-with-ollama-js
+                                           embedWithHFCloud proxx.runtime.embeddings/embed-with-hf-cloud-js
+                                           embedWithTEI proxx.runtime.embeddings/embed-with-tei-js
+                                           embedWithOvmNpu proxx.runtime.embeddings/embed-with-ovm-npu-js}}}
    :js-options {:js-provider :import
                 :keep-as-import #{"node:fs" "node:path"}}
    :compiler-options {:output-feature-set :es-next

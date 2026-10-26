@@ -19,6 +19,8 @@
  *       The /v1/embeddings OpenAI-compat route on HF is chat-only at this time.
  */
 
+import { kernels } from './cljs-kernels.js';
+
 export type EmbeddingProvider =
   | 'ollama'
   | 'llamacpp-embed'
@@ -67,43 +69,5 @@ export interface EmbeddingsConfig {
 }
 
 export function loadEmbeddingsConfig(): EmbeddingsConfig {
-  return {
-    ollama: {
-      endpoint: process.env.OLLAMA_ENDPOINT ?? 'http://localhost:11434',
-      defaultModel: process.env.OLLAMA_EMBED_MODEL ?? 'nomic-embed-text',
-    },
-    'llamacpp-embed': {
-      endpoint: process.env.LLAMACPP_EMBED_BASE_URL ?? 'http://llamacpp-embed:8081',
-      defaultModel: process.env.LLAMACPP_EMBED_MODEL ?? 'qwen3-embedding-0.6b',
-      defaultDimensions: process.env.LLAMACPP_EMBED_DIMENSIONS
-        ? parseInt(process.env.LLAMACPP_EMBED_DIMENSIONS, 10)
-        : 1024,
-    },
-    'huggingface-cloud': {
-      endpoint: process.env.HF_INFERENCE_ENDPOINT ?? 'https://api-inference.huggingface.co',
-      apiKey: process.env.HF_API_KEY,
-      defaultModel: process.env.HF_EMBED_MODEL ?? 'Qwen/Qwen3-Embedding-4B',
-      defaultDimensions: process.env.HF_EMBED_DIMENSIONS
-        ? parseInt(process.env.HF_EMBED_DIMENSIONS, 10)
-        : undefined,
-    },
-    tei: {
-      endpoint: process.env.TEI_ENDPOINT ?? 'http://localhost:8080',
-      apiKey: process.env.TEI_API_KEY,
-      defaultModel: process.env.TEI_EMBED_MODEL ?? 'Qwen/Qwen3-Embedding-4B',
-      defaultDimensions: process.env.TEI_EMBED_DIMENSIONS
-        ? parseInt(process.env.TEI_EMBED_DIMENSIONS, 10)
-        : undefined,
-    },
-    'ovm-npu': {
-      endpoint: process.env.OVM_NPU_ENDPOINT ?? 'http://localhost:9000',
-      apiKey: process.env.OVM_NPU_API_KEY,
-      defaultModel:
-        process.env.OVM_NPU_EMBED_MODEL ?? 'OpenVINO/Qwen3-Embedding-0.6B-int8-ov',
-      defaultDimensions: process.env.OVM_NPU_EMBED_DIMENSIONS
-        ? parseInt(process.env.OVM_NPU_EMBED_DIMENSIONS, 10)
-        : undefined,
-    },
-    defaultProvider: (process.env.EMBED_DEFAULT_PROVIDER as EmbeddingProvider) ?? 'ollama',
-  };
+  return kernels.loadEmbeddingsConfig() as unknown as EmbeddingsConfig;
 }
