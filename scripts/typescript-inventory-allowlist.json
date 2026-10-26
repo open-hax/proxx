@@ -760,8 +760,9 @@
     {
       "path": "src/routes/api/ui/analytics/usage.ts",
       "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed"
+      "disposition": "removed",
+      "removalCondition": "Removed: observability routes, scoping decisions and usage data sourcing are CLJS (proxx.runtime.routes.observability, proxx.http.observability); observability/index.ts is the shim.",
+      "removed": true
     },
     {
       "path": "src/routes/api/ui/assets.ts",
@@ -1031,8 +1032,9 @@
     {
       "path": "src/routes/observability/prefix.ts",
       "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed"
+      "disposition": "removed",
+      "removalCondition": "Removed: observability routes, scoping decisions and usage data sourcing are CLJS (proxx.runtime.routes.observability, proxx.http.observability); observability/index.ts is the shim.",
+      "removed": true
     },
     {
       "path": "src/routes/responses.ts",

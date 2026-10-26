@@ -891,6 +891,10 @@ export interface CljsKernels {
   readonly registerHostRoutes: (app: unknown, env: object, prefix: string) => void;
   readonly registerEventRoutes: (app: unknown, eventStore: object | undefined) => void;
   readonly registerSessionRoutes: (app: unknown, deps: object, prefix: string) => void;
+  readonly registerObservabilityRoutes: (app: unknown, deps: object, options?: object) => void;
+  readonly registerRequestLogSseRoutes: (app: unknown, deps: object, hub: object) => void;
+  readonly registerBridgeSseRoutes: (app: unknown, deps: object, relay: object) => void;
+  readonly registerWebSocketRoutes: (app: unknown, deps: object) => unknown;
 }
 
 export interface ChromaSearchRow {

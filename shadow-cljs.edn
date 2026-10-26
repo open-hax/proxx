@@ -389,7 +389,11 @@
                                            ;; w3-routes-ui exports
                                            registerHostRoutes proxx.runtime.routes.hosts/register-host-routes-js
                                            registerEventRoutes proxx.runtime.routes.events/register-event-routes-js
-                                           registerSessionRoutes proxx.runtime.routes.sessions/register-session-routes-js}}}
+                                           registerSessionRoutes proxx.runtime.routes.sessions/register-session-routes-js
+                                           registerObservabilityRoutes proxx.runtime.routes.observability/register-observability-routes-js
+                                           registerRequestLogSseRoutes proxx.runtime.routes.streams/register-request-log-sse-routes-js
+                                           registerBridgeSseRoutes proxx.runtime.routes.streams/register-bridge-sse-routes-js
+                                           registerWebSocketRoutes proxx.runtime.routes.ws/register-web-socket-routes-js}}}
    :js-options {:js-provider :import
                 :keep-as-import #{"node:fs" "node:path"}}
    :compiler-options {:output-feature-set :es-next
