@@ -14184,3 +14184,21 @@ test("JSON-to-SSE conversion preserves native payload failover and releases conv
     assert.match(wire,/\[DONE\]/);
   });
 });
+
+test("first-output staging probes only new SSE text and defers JSON until EOF", async () => {
+  const {stageResponse}=await import("../lib/http/fetch-utils.js");
+  const encoder=new TextEncoder();
+  const pieces=[...Array.from({length:200},()=>"data: reasoning\n\n"),"data: answer\n\n","data: [DONE]\n\n"];
+  const source=new Response(new ReadableStream({start(c){for(const piece of pieces)c.enqueue(encoder.encode(piece));c.close();}}),{headers:{"content-type":"text/event-stream"}});
+  const seen:string[]=[];
+  const staged=await stageResponse(source,Date.now()+5000,100000,(text)=>{seen.push(text);return {ready:text.includes("answer"),fatal:false};},()=>{});
+  assert.equal(seen.length,201);
+  assert.equal(seen.join(""),pieces.slice(0,201).join(""));
+  assert.equal(await staged.text(),pieces.join(""));
+  const jsonPieces=['{"choices":','[{"message":{"content":"answer"}}]', '}'];
+  const json=new Response(new ReadableStream({start(c){for(const piece of jsonPieces)c.enqueue(encoder.encode(piece));c.close();}}),{headers:{"content-type":"application/json"}});
+  const jsonSeen:string[]=[];
+  const jsonStaged=await stageResponse(json,Date.now()+5000,100000,(text,_format,ended)=>{assert.equal(ended,true);jsonSeen.push(text);return {ready:true,fatal:false};},()=>{});
+  assert.deepEqual(jsonSeen,[jsonPieces.join("")]);
+  assert.equal(await jsonStaged.text(),jsonPieces.join(""));
+});

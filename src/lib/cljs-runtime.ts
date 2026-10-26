@@ -115,6 +115,7 @@ export interface ProxxCljsRuntime {
   readonly authorizeBudgetHttpRequest?: (manifestPath: string, auth: unknown, method: string, path: string) => { readonly status: string };
   readonly readPaidBudgets?: (sql: unknown, queries: Record<string, string>, manifestPath: string, auth: unknown, keyId?: string) => Promise<{ readonly status: string; readonly budgets?: readonly unknown[]; readonly observedAt?: string }>;
   readonly resolveBudgetRoutePlan?: (manifestPath: string, auth: unknown, model: string) => BudgetRoutePlan | null;
+  readonly advanceFirstUsable?: (text: string, format: string, tools: unknown, state: unknown, ended: boolean) => { readonly ready: boolean; readonly fatal: boolean; readonly state: unknown };
   readonly probeFirstUsable?: (text: string, format: string, tools: unknown) => { readonly ready: boolean; readonly fatal: boolean };
   readonly inspectBudgetAttempt?: (manifestPath: string, auth: unknown, attempt: unknown) => BudgetAttemptInspection;
   readonly zeroChargeBudgetRefusal?: (manifestPath: string, auth: unknown, response: unknown) => boolean;

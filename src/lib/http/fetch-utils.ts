@@ -92,12 +92,13 @@ export async function withResponseDeadline<T>(
 }
 
 /** Buffer bytes before downstream commitment. The CLJS policy supplies the
- * readiness probe; this adapter only enforces byte/time bounds and replays IO. */
+ * readiness probe; this adapter only enforces byte/time bounds and replays IO.
+ * SSE probes receive only new decoded text; JSON is supplied once at body end. */
 export async function stageResponse(
   response: Response,
   deadlineAt: number,
   maxBytes: number,
-  probe: (text: string, format: string) => { readonly ready: boolean; readonly fatal: boolean },
+  probe: (text: string, format: string, ended: boolean) => { readonly ready: boolean; readonly fatal: boolean },
   onReady: () => void,
   awaitEnd = false,
 ): Promise<Response> {
@@ -140,10 +141,11 @@ export async function stageResponse(
         }
         chunks.push(chunk.value);
         bytes += chunk.value.byteLength;
-        text += decoder.decode(chunk.value, { stream: true });
-      }
+        const decoded = decoder.decode(chunk.value, { stream: true });
+        text = format === "sse" ? decoded : text + decoded;
+      } else if (format === "sse") text = "";
       if (ended) text += decoder.decode();
-      const result = response.ok ? probe(text, format) : { ready: false, fatal: false };
+      const result = response.ok && (format === "sse" || ended) ? probe(text, format, ended) : { ready: false, fatal: false };
       if (result.fatal) { cancel(); ended = true; break; }
       if (result.ready && (ended || (format === "sse" && !awaitEnd))) { onReady(); break; }
       if (ended) {

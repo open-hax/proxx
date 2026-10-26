@@ -12,6 +12,7 @@
    :modules   {:proxx-runtime {:exports {authorizeBudgetHttpRequest proxx.runtime/authorize-budget-http-request-js
                                           resolveBudgetRoutePlan proxx.runtime/resolve-budget-route-plan-js
                                           probeFirstUsable proxx.runtime/probe-first-usable-js
+                                          advanceFirstUsable proxx.runtime/advance-first-usable-js
                                           inspectBudgetAttempt proxx.runtime/inspect-budget-attempt-js
                                           zeroChargeBudgetRefusal proxx.runtime/zero-charge-budget-refusal-js
                                           quotePaidBudget proxx.runtime/quote-paid-budget-js

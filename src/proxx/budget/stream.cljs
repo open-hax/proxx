@@ -55,3 +55,22 @@
         state (reduce #(consume %1 %2 allowed-names)
                       {:ready false :fatal false :tools {}} payloads)]
     (select-keys state [:ready :fatal])))
+
+(defn advance
+  "Consume new transport text exactly once; retain only an unfinished line and
+   immutable tool/readiness state. JSON is interpreted only at end-of-body."
+  [state text format tools ended?]
+  (let [state (or state {:ready false :fatal false :tools {} :pending ""})
+        buffer (str (:pending state) text)
+        allowed-names (set (keep #(get-in % [:function :name]) tools))]
+    (if (= "sse" format)
+      (let [lines (str/split buffer #"\n" -1)
+            complete (if ended? lines (butlast lines))
+            payloads (keep (fn [line]
+                             (when (str/starts-with? line "data:")
+                               (parse-json (str/trim (subs line 5))))) complete)]
+        (assoc (reduce #(consume %1 %2 allowed-names) state payloads)
+               :pending (if ended? "" (last lines))))
+      (if ended?
+        (assoc (consume state (parse-json buffer) allowed-names) :pending "")
+        (assoc state :pending buffer)))))

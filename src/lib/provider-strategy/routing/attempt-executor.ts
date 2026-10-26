@@ -262,9 +262,14 @@ export async function executeProviderRoutingPlan(
         ...(inspection.payload ? { body: JSON.stringify(inspection.payload) } : {}),
       }, remaining);
       if (deadlineAt !== undefined) {
-        if (!budgetRuntime?.probeFirstUsable) throw new Error("First output probe unavailable");
+        if (!budgetRuntime?.advanceFirstUsable) throw new Error("First output probe unavailable");
+        let probeState: unknown;
         response = await stageResponse(response, deadlineAt, context.budgetRoutePlan?.maxBootstrapBytes ?? 0,
-          (text, format) => budgetRuntime.probeFirstUsable!(text, format, body.tools ?? []),
+          (text, format, ended) => {
+            const result = budgetRuntime.advanceFirstUsable!(text, format, body.tools ?? [], probeState, ended);
+            probeState = result.state;
+            return result;
+          },
           () => {
             if (context.firstOutputLease?.signal.aborted) throw context.firstOutputLease.signal.reason;
             context.firstOutputLease?.markReady();

@@ -379,6 +379,11 @@
 (defn probe-first-usable-js [text format tools]
   (clj->js (budget-stream/probe text format (js->clj tools :keywordize-keys true))))
 
+(defn advance-first-usable-js [text format tools state ended?]
+  (let [next-state (budget-stream/advance state text format (js->clj tools :keywordize-keys true) ended?)]
+    ;; State is opaque to the HTTP adapter; do not repeatedly serialize tools.
+    #js {:ready (boolean (:ready next-state)) :fatal (boolean (:fatal next-state)) :state next-state}))
+
 (defn inspect-budget-attempt-js [manifest-path auth attempt]
   (let [compiled (compiled-policy-for-manifest manifest-path)]
     ;; This payload becomes wire JSON. Preserve the namespace of arbitrary
@@ -452,6 +457,7 @@
        :readPaidBudgets read-paid-budgets-js
        :resolveBudgetRoutePlan resolve-budget-route-plan-js
        :probeFirstUsable probe-first-usable-js
+       :advanceFirstUsable advance-first-usable-js
        :inspectBudgetAttempt inspect-budget-attempt-js
        :quotePaidBudget quote-paid-budget-js
        :loadPaidBudgetPolicy load-paid-budget-policy-js
