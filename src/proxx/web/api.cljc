@@ -260,3 +260,16 @@
 (defn list-federation-bridges [] (req :get "/api/v1/federation/bridges" {:decode (kw-then :sessions)}))
 
 (def federation-ws-path "/api/v1/federation/observability/ws")
+
+(defn ws-origin
+  "http(s) origin -> ws(s) origin; anything else unchanged."
+  [origin]
+  (cond
+    (str/starts-with? origin "https://") (str "wss:" (subs origin 6))
+    (str/starts-with? origin "http://") (str "ws:" (subs origin 5))
+    :else origin))
+
+(defn federation-observability-path
+  "WebSocket path+query streaming routed request-log records for an owner."
+  [owner-subject]
+  (str federation-ws-path (query-string [["ownerSubject" (str/trim owner-subject)] ["routeKind" "routed"]])))

@@ -7,6 +7,7 @@
             [proxx.web.views.analytics :as analytics-view]
             [proxx.web.views.chat :as chat-view]
             [proxx.web.views.events :as events-view]
+            [proxx.web.views.federation :as federation-view]
             [proxx.web.views.hosts :as hosts-view]
             [proxx.web.views.images :as images-view]
             [proxx.web.views.tools :as tools-view]))
@@ -63,7 +64,8 @@
    :hosts hosts-view/view
    :events events-view/view
    :chat chat-view/view
-   :analytics analytics-view/view})
+   :analytics analytics-view/view
+   :federation federation-view/view})
 
 (defn- placeholder [page]
   [:p.status-text (str "The " (name page) " page is being ported.")])

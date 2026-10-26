@@ -103,6 +103,25 @@
              (fn [e] (dispatch! (conj on-err (error-text e)))))))
 
 ;; ---------------------------------------------------------------------------
+;; websockets (live streams); messages that are not JSON are ignored
+
+(defn- close-socket! [id]
+  (when-let [^js sock (get @sockets id)]
+    (swap! sockets dissoc id)
+    (try (.close sock) (catch :default _ nil))))
+
+(defn- open-socket! [id path on-event]
+  (let [url (str (api/ws-origin (api-origin)) path)]
+    (try
+      (let [sock (js/WebSocket. url)]
+        (swap! sockets assoc id sock)
+        (aset sock "onmessage"
+              (fn [^js e]
+                (when-let [data (try (json/parse (let [d (.-data e)] (if (string? d) d (str d)))) (catch :default _ nil))]
+                  (dispatch! (conj on-event data))))))
+      (catch :default _ nil))))
+
+;; ---------------------------------------------------------------------------
 ;; effects
 
 (defn- run-fx! [[kind & args]]
@@ -124,6 +143,10 @@
                        (-> (.writeText (.-clipboard js/navigator) text)
                            (.then (fn [_] (dispatch! on-ok))
                                   (fn [e] (dispatch! (conj on-err (error-text e)))))))
+    :ws/open (let [[id path on-event] args]
+               (close-socket! id)
+               (open-socket! id path on-event))
+    :ws/close (close-socket! (first args))
     nil))
 
 (defn dispatch!

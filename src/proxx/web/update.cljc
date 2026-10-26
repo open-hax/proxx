@@ -5,6 +5,7 @@
   namespaces); the root merges their handler tables. Entering a page resets its
   slice (like a React remount), preserving persisted preferences in `:stored`."
   (:require [proxx.web.pages.analytics :as analytics]
+            [proxx.web.pages.federation :as federation]
             [proxx.web.pages.chat :as chat]
             [proxx.web.pages.events :as events]
             [proxx.web.pages.hosts :as hosts]
@@ -19,7 +20,8 @@
    :hosts hosts/page
    :events events/page
    :chat chat/page
-   :analytics analytics/page})
+   :analytics analytics/page
+   :federation federation/page})
 
 (def handlers
   (into shell/handlers (mapcat (comp :handlers val)) pages))
