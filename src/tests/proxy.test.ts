@@ -14080,3 +14080,63 @@ test("managed non-streaming bodies must end before clearing first usable deadlin
     });
   }
 });
+
+test("zero-retry budget forbids an OAuth refresh resend and retains an uncertain paid hold", async () => {
+  let refreshes=0, sends=0, reservations=0, settlements=0;
+  await withPatchedFetch(async (input,init,originalFetch)=>{
+    const url=typeof input==='string'?input:input instanceof URL?input.toString():input.url;
+    if(url==='https://auth.openai.com/oauth/token') {
+      refreshes++;
+      return new Response(JSON.stringify({access_token:makeJwt({chatgpt_account_id:'budget-refresh',chatgpt_plan_type:'team'}),refresh_token:'replacement',expires_in:3600}),{status:200,headers:{'content-type':'application/json'}});
+    }
+    return originalFetch(input,init);
+  },async()=>{
+    await withProxyApp({keys:[],keysPayload:{providers:{openai:{auth:'oauth_bearer',accounts:[{id:'budget-oauth',access_token:'old-budget-token',refresh_token:'budget-refresh-token',expires_at:Date.now()+86400000,chatgpt_account_id:'budget-old',plan_type:'team'}]}}},
+      configOverrides:{upstreamProviderId:'openai'},upstreamHandler:async()=>{sends++;return {status:401,headers:{'content-type':'application/json'},body:JSON.stringify({error:{message:'Unauthorized',type:'invalid_request_error'}})};}},async({app})=>{
+      const runtime=getActiveCljsRuntime()!;
+      // Exercise a managed OAuth transport without changing the shipped API-key-only budget routes.
+      setActiveCljsRuntime({...runtime,
+        resolveBudgetRoutePlan:()=>({managed:true,maxRetries:0,totalFirstUsableMs:20000,maxBootstrapBytes:65536,orderedRoutes:[{providerId:'openai',upstreamModel:'gpt-5.4',firstUsableOffsetMs:20000}]}),
+        inspectBudgetAttempt:(_manifest,_auth,attempt)=>{assert.ok(isRecord(attempt));assert.ok(isRecord(attempt.payload));return {status:'paid',policy:{scopeId:'fixture',dailyMicrousd:500000,monthlyMicrousd:5000000},inputBound:100,outputBound:100,payload:attempt.payload};},
+        reservePaidBudget:async()=>{reservations++;return {status:'admitted',reservationId:crypto.randomUUID()};},
+        settlePaidBudget:async()=>{settlements++;return {status:'settled'};},zeroChargeBudgetRefusal:()=>false});
+      app.addHook('preHandler',async request=>{request.openHaxAuth={kind:'tenant_api_key',keyId:'71a0813f-dbe3-45ad-a7ae-16555463e716',tenantId:'default',source:'bearer'};});
+      try {
+        const response=await app.inject({method:'POST',url:'/v1/chat/completions',payload:{model:'gpt-5.4',messages:[{role:'user',content:'fixture'}],stream:false}});
+        assert.notEqual(response.statusCode,200);
+        assert.equal(refreshes,0);assert.equal(sends,1);assert.equal(reservations,1);assert.equal(settlements,0);
+      } finally {setActiveCljsRuntime(runtime);}
+    });
+  });
+});
+
+for (const retries of [0, 1]) {
+  test(`paid budget concurrency retry limit ${retries} settles declared refusals before a fresh reservation`, async () => {
+    let paidSends=0, reservations=0;
+    const settlements:number[]=[];
+    await withProxyApp({keys:[],keysPayload:{providers:{requesty:['throttle-fixture']}},
+      configOverrides:{upstreamProviderId:'requesty',concurrencyThrottleMaxRetries:3},
+      upstreamHandler:async(_req,text):Promise<{status:number;headers?:Record<string,string>;body:string}>=>{
+        const model=JSON.parse(text).model;
+        if(model==='google/gemma-4-31b-it')return {status:503,body:'{}'};
+        paidSends++;
+        if(paidSends===1)return {status:429,headers:{'content-type':'application/json','retry-after':'0.001'},body:JSON.stringify({error:{message:'concurrent request limit'}})};
+        return {status:200,headers:{'content-type':'application/json'},body:JSON.stringify({id:'retry',object:'chat.completion',model,
+          choices:[{index:0,message:{role:'assistant',content:'OK'},finish_reason:'stop'}],usage:{prompt_tokens:10,completion_tokens:2,total_tokens:12}})};
+      }},async({app})=>{
+        const runtime=getActiveCljsRuntime()!;
+        setActiveCljsRuntime({...runtime,
+          resolveBudgetRoutePlan:(manifest,auth,model)=>{const plan=runtime.resolveBudgetRoutePlan!(manifest,auth,model);return plan?{...plan,maxRetries:retries}:plan;},
+          reservePaidBudget:async()=>{if(reservations)assert.deepEqual(settlements,[0],'first refusal must settle before retry admission');reservations++;return {status:'admitted',reservationId:crypto.randomUUID()};},
+          settlePaidBudget:async(_sql,_queries,_scope,_id,amount)=>{settlements.push(amount!);return {status:'settled'};}});
+        app.addHook('preHandler',async request=>{request.openHaxAuth={kind:'tenant_api_key',keyId:'71a0813f-dbe3-45ad-a7ae-16555463e716',tenantId:'default',source:'bearer'};});
+        try {
+          const response=await app.inject({method:'POST',url:'/v1/chat/completions',payload:{model:'gemma4:31b',messages:[{role:'user',content:'fixture'}],stream:false}});
+          assert.equal(response.statusCode===200,retries===1,response.body);
+          assert.equal(paidSends,1+retries);assert.equal(reservations,1+retries);
+          assert.equal(settlements[0],0);assert.equal(settlements.length,1+retries);
+          if(retries)assert.ok(settlements[1]!>0);
+        } finally {setActiveCljsRuntime(runtime);}
+      });
+  });
+}

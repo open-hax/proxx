@@ -1110,7 +1110,7 @@ export async function executeProviderRoutingPlan(
           accumulator.lastUpstreamAuthError = outcome.upstreamAuthError;
         }
 
-        if (!upstreamResponse.ok && outcome.requestError === true && upstreamResponse.status === 401 && candidate.account.authType === "oauth_bearer" && candidate.account.refreshToken && refreshExpiredToken) {
+        if (!upstreamResponse.ok && outcome.requestError === true && upstreamResponse.status === 401 && candidate.account.authType === "oauth_bearer" && candidate.account.refreshToken && refreshExpiredToken && (context.budgetRoutePlan?.maxRetries ?? 1) > 0) {
           const refreshedCredential = await refreshExpiredToken(candidate.account);
           if (refreshedCredential) {
             const refreshedProviderContext: ProviderAttemptContext = { ...providerContext, account: refreshedCredential };
