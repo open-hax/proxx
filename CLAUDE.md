@@ -67,7 +67,8 @@ HTTP Edge (TypeScript) → CLJS Runtime Boundary → Declarative Policy Engine (
 
 | What | Where |
 |------|-------|
-| HTTP routes, request parsing, response serialization | `src/routes/`, `src/app.ts` |
+| HTTP routes, request parsing, response serialization | `src/proxx/runtime/routes/`, `src/proxx/http/` (Ring on Fastify) |
+| Application composition, server entry (`node dist/cljs/main.js`), shutdown | `src/proxx/app/main.cljs`, `src/proxx/app/entry.cljs`; host factories in `src/app.ts` |
 | Database queries (postgres.js) | `src/lib/db/` |
 | Routing decisions, provider selection, account ordering | `resources/policies/runtime/*.edn` + `src/proxx/**/*.cljs` |
 | CLJS→TypeScript interop boundary | `src/lib/cljs-runtime.ts` (loads `dist/cljs/proxx-runtime.js`) |
@@ -115,8 +116,8 @@ More-specific clauses must precede catch-alls. EDN changes take effect on server
 3. `pnpm web:test:e2e`
 
 ### Schema migrations
-1. Add SQL to `ALL_MIGRATIONS` in `src/lib/db/schema.ts` (single source of truth). Use `IF NOT EXISTS`.
-2. Bump `SCHEMA_VERSION`.
+1. Add SQL to `:migrations` in `resources/db/schema.edn` (single source of truth; planned by `proxx.db.schema`). Use `IF NOT EXISTS`. Never edit an existing statement (`pnpm test:cljs` pins digests).
+2. Bump `:schema-version`.
 3. `npx tsx --test src/tests/schema-migration.test.ts`
 4. Apply SQL directly to the running DB before restarting.
 

@@ -22,7 +22,7 @@
     "registry": "https://registry.npmjs.org"
   },
   "scripts": {
-    "dev": "pnpm build:cljs && node --env-file-if-exists=.env --import tsx src/main.ts",
+    "dev": "pnpm build:cljs && PROXX_HOST_MODULE=src/app.ts node --env-file-if-exists=.env --import tsx dist/cljs/main.js",
     "clean": "rm -rf dist",
     "build:ts": "tsc -p tsconfig.json",
     "build:cljs": "npx shadow-cljs release runtime",
@@ -31,9 +31,9 @@
     "pricing:update": "node scripts/update-models-dev-pricing.mjs",
     "check:no-new-typescript": "node scripts/check-no-new-typescript.mjs && node scripts/check-policy-boundary.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "start": "node --env-file-if-exists=.env dist/main.js",
+    "start": "node --env-file-if-exists=.env dist/cljs/main.js",
     "test": "pnpm run build && node --test --test-concurrency=1 'dist/tests/**/*.test.js'",
-    "test:coverage": "pnpm run build && c8 --reporter=text --reporter=json-summary --exclude 'src/**/*.test.ts' --exclude 'src/**/*.d.ts' --exclude 'src/**/types.ts' --exclude 'src/data/**' --exclude 'src/main.ts' --exclude 'src/routes/**' --exclude 'src/lib/oauth-routes.ts' --exclude 'src/lib/native-auth.ts' --exclude 'src/lib/telemetry/**' --exclude 'src/lib/observability/**' --exclude 'src/lib/chroma-*.ts' node --test --test-concurrency=1 'dist/tests/**/*.test.js'",
+    "test:coverage": "pnpm run build && c8 --reporter=text --reporter=json-summary --exclude 'src/**/*.test.ts' --exclude 'src/**/*.d.ts' --exclude 'src/**/types.ts' --exclude 'src/data/**' --exclude 'src/routes/**' --exclude 'src/lib/oauth-routes.ts' --exclude 'src/lib/native-auth.ts' --exclude 'src/lib/telemetry/**' --exclude 'src/lib/observability/**' --exclude 'src/lib/chroma-*.ts' node --test --test-concurrency=1 'dist/tests/**/*.test.js'",
     "test:cljs": "npx shadow-cljs compile node-test && node target/node-test.cjs",
     "test:cljs:coverage": "npx shadow-cljs compile node-test && c8 node target/node-test.cjs",
     "test:cljs-runtime": "pnpm build:runtime && node --input-type=module -e \"import('./dist/lib/cljs-runtime.js').then(async m => { const loaded = await m.loadCljsRuntime({ required: true }); await m.assertCljsRuntimeReady(loaded.runtime); console.log('cljs-runtime-ok'); })\"",

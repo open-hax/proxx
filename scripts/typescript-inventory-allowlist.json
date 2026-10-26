@@ -39,20 +39,23 @@
     {
       "path": "src/lib/app-deps.ts",
       "owner": "T1-core-proxx-cljs-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "core Proxx runtime starts and serves from CLJS with TS shims removed"
+      "disposition": "removed",
+      "removalCondition": "Removed: nothing imports it; its behaviour is CLJS (proxx.*).",
+      "removed": true
     },
     {
       "path": "src/lib/auth/github-allowlist.ts",
       "owner": "T1-storage-auth-cljs-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "storage/auth runtime is implemented in CLJS with existing DB semantics preserved"
+      "disposition": "removed",
+      "removalCondition": "Removed: the server entry is CLJS (proxx.app.entry, dist/cljs/main.js).",
+      "removed": true
     },
     {
       "path": "src/lib/auth/index.ts",
       "owner": "T1-storage-auth-cljs-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "storage/auth runtime is implemented in CLJS with existing DB semantics preserved"
+      "disposition": "removed",
+      "removalCondition": "Removed: the server entry is CLJS (proxx.app.entry, dist/cljs/main.js).",
+      "removed": true
     },
     {
       "path": "src/lib/auth/sql-persistence.ts",
@@ -202,8 +205,9 @@
     {
       "path": "src/lib/embeddings-providers/index.ts",
       "owner": "T1-core-proxx-cljs-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "core Proxx runtime starts and serves from CLJS with TS shims removed"
+      "disposition": "removed",
+      "removalCondition": "Removed: nothing imports it; its behaviour is CLJS (proxx.*).",
+      "removed": true
     },
     {
       "path": "src/lib/embeddings-strategy.ts",
@@ -214,8 +218,9 @@
     {
       "path": "src/lib/epoch.ts",
       "owner": "T1-core-proxx-cljs-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "core Proxx runtime starts and serves from CLJS with TS shims removed"
+      "disposition": "removed",
+      "removalCondition": "Removed: nothing imports it; its behaviour is CLJS (proxx.*).",
+      "removed": true
     },
     {
       "path": "src/lib/errors/classification.ts",
@@ -280,8 +285,9 @@
     {
       "path": "src/lib/federation/bridge-request-helpers.ts",
       "owner": "T1-provider-routing-federation-cljs-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "provider routing and federation runtime are implemented in CLJS policy modules"
+      "disposition": "removed",
+      "removalCondition": "Removed: nothing imports it; its behaviour is CLJS (proxx.*).",
+      "removed": true
     },
     {
       "path": "src/lib/federation/bridge-routing.ts",
@@ -322,8 +328,9 @@
     {
       "path": "src/lib/federation/sse-bridge-channel.ts",
       "owner": "T1-provider-routing-federation-cljs-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "provider routing and federation runtime are implemented in CLJS policy modules"
+      "disposition": "removed",
+      "removalCondition": "Removed: nothing imports it; its behaviour is CLJS (proxx.*).",
+      "removed": true
     },
     {
       "path": "src/lib/glm-compat.ts",
@@ -400,8 +407,9 @@
     {
       "path": "src/lib/oauth-routes.ts",
       "owner": "T1-core-proxx-cljs-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "core Proxx runtime starts and serves from CLJS with TS shims removed"
+      "disposition": "removed",
+      "removalCondition": "Removed: nothing imports it; its behaviour is CLJS (proxx.*).",
+      "removed": true
     },
     {
       "path": "src/lib/observability/request-log-sse-hub.ts",
@@ -532,8 +540,9 @@
     {
       "path": "src/lib/provider-strategy/routing/candidate-builder.ts",
       "owner": "T1-provider-routing-federation-cljs-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "provider routing and federation runtime are implemented in CLJS policy modules"
+      "disposition": "removed",
+      "removalCondition": "Removed: the routing loop and its candidate builder are CLJS (proxx.runtime.attempt-executor).",
+      "removed": true
     },
     {
       "path": "src/lib/provider-strategy/routing/credential-selector.ts",
@@ -550,14 +559,16 @@
     {
       "path": "src/lib/provider-strategy/routing/index.ts",
       "owner": "T1-provider-routing-federation-cljs-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "provider routing and federation runtime are implemented in CLJS policy modules"
+      "disposition": "removed",
+      "removalCondition": "Removed: the routing loop and its candidate builder are CLJS (proxx.runtime.attempt-executor).",
+      "removed": true
     },
     {
       "path": "src/lib/provider-strategy/routing/types.ts",
       "owner": "T1-provider-routing-federation-cljs-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "provider routing and federation runtime are implemented in CLJS policy modules"
+      "disposition": "removed",
+      "removalCondition": "Removed: the routing loop and its candidate builder are CLJS (proxx.runtime.attempt-executor).",
+      "removed": true
     },
     {
       "path": "src/lib/provider-strategy/shared.ts",
@@ -622,8 +633,9 @@
     {
       "path": "src/lib/provider-strategy/strategies/responses-event-stream.ts",
       "owner": "T1-provider-routing-federation-cljs-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "provider routing and federation runtime are implemented in CLJS policy modules"
+      "disposition": "removed",
+      "removalCondition": "Removed: the provider reply plumbing is CLJS (proxx.runtime.provider-reply).",
+      "removed": true
     },
     {
       "path": "src/lib/provider-strategy/strategies/standard.ts",
@@ -682,8 +694,9 @@
     {
       "path": "src/lib/response-utils.ts",
       "owner": "T1-core-proxx-cljs-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "core Proxx runtime starts and serves from CLJS with TS shims removed"
+      "disposition": "removed",
+      "removalCondition": "Removed: nothing imports it; its behaviour is CLJS (proxx.*).",
+      "removed": true
     },
     {
       "path": "src/lib/responses-compat.ts",
@@ -754,8 +767,9 @@
     {
       "path": "src/main.ts",
       "owner": "T1-core-proxx-cljs-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "core Proxx runtime starts and serves from CLJS with TS shims removed"
+      "disposition": "removed",
+      "removalCondition": "Removed: the server entry is CLJS (proxx.app.entry, dist/cljs/main.js).",
+      "removed": true
     },
     {
       "path": "src/routes/api/ui/analytics/usage.ts",
@@ -989,8 +1003,9 @@
     {
       "path": "src/routes/health.ts",
       "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed"
+      "disposition": "removed",
+      "removalCondition": "Removed: the server entry is CLJS (proxx.app.entry, dist/cljs/main.js).",
+      "removed": true
     },
     {
       "path": "src/routes/hosts/index.ts",
@@ -1001,8 +1016,9 @@
     {
       "path": "src/routes/images.ts",
       "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed"
+      "disposition": "removed",
+      "removalCondition": "Removed: the server entry is CLJS (proxx.app.entry, dist/cljs/main.js).",
+      "removed": true
     },
     {
       "path": "src/routes/index.ts",
@@ -1027,14 +1043,16 @@
     {
       "path": "src/routes/models.ts",
       "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed"
+      "disposition": "removed",
+      "removalCondition": "Removed: the server entry is CLJS (proxx.app.entry, dist/cljs/main.js).",
+      "removed": true
     },
     {
       "path": "src/routes/native-ollama.ts",
       "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed"
+      "disposition": "removed",
+      "removalCondition": "Removed: the server entry is CLJS (proxx.app.entry, dist/cljs/main.js).",
+      "removed": true
     },
     {
       "path": "src/routes/observability/index.ts",
@@ -1052,8 +1070,9 @@
     {
       "path": "src/routes/responses.ts",
       "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed"
+      "disposition": "removed",
+      "removalCondition": "Removed: the server entry is CLJS (proxx.app.entry, dist/cljs/main.js).",
+      "removed": true
     },
     {
       "path": "src/routes/sessions/context.ts",
@@ -1159,8 +1178,9 @@
     {
       "path": "src/routes/shared/ui-auth.ts",
       "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed"
+      "disposition": "removed",
+      "removalCondition": "Removed: nothing imports it; its behaviour is CLJS (proxx.*).",
+      "removed": true
     },
     {
       "path": "src/routes/types.ts",
@@ -1178,8 +1198,9 @@
     {
       "path": "src/routes/websearch.ts",
       "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed"
+      "disposition": "removed",
+      "removalCondition": "Removed: the server entry is CLJS (proxx.app.entry, dist/cljs/main.js).",
+      "removed": true
     },
     {
       "path": "src/tests/account-health-store.test.ts",

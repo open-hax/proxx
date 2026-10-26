@@ -232,15 +232,15 @@ Example:
 
 ## Database Migrations
 
-Schema changes use a version-tracked, idempotent migration system. **All migration SQL lives in one place** — the `ALL_MIGRATIONS` array in `src/lib/db/schema.ts`. The migration runner in `src/lib/db/sql-credential-store.ts` iterates this array on every startup; no SQL is hardcoded in the runner.
+Schema changes use a version-tracked, idempotent migration system. **All migration SQL lives in one place** — the `:migrations` vector of `resources/db/schema.edn` (re-exported as `ALL_MIGRATIONS` by `src/lib/db/schema.ts`). The runner (`proxx.runtime.db-schema/run-migrations-js`, called by `src/lib/db/sql-credential-store.ts`) re-runs this list on every startup; no SQL is hardcoded in the runner.
 
 ### How to add a migration
 
-1. **Bump `SCHEMA_VERSION`** in `src/lib/db/schema.ts` to the new version number.
-2. **Append to `ALL_MIGRATIONS`** with your SQL. Every statement must be idempotent:
+1. **Bump `:schema-version`** in `resources/db/schema.edn` to the new version number.
+2. **Append to `:migrations`** with your SQL (`{:version n :sql "..."}`). Every statement must be idempotent:
    - `CREATE TABLE IF NOT EXISTS ...`
    - `ALTER TABLE ... ADD COLUMN IF NOT EXISTS ...`
-3. **Run the schema migration tests**: `npx tsx --test src/tests/schema-migration.test.ts`
+3. **Run the schema migration tests**: `pnpm test:cljs` and `npx tsx --test src/tests/schema-migration.test.ts`
 4. **Build**: `pnpm build`
 5. **Apply to running instances**: run the `ALTER TABLE` / `CREATE TABLE` SQL directly against the database before restarting the container. The migration runner re-runs all entries idempotently on boot, but a fresh column must exist before the app queries it.
 

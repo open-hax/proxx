@@ -7,8 +7,6 @@ import { kernels } from "../cljs-kernels.js";
 import { DEFAULT_TENANT_ID, buildTenantApiKeyPrefix, generateTenantApiKey, hashTenantApiKey, normalizeTenantId } from "../tenant-api-key.js";
 import type { CredentialProviderView } from "../credential-store.js";
 import {
-  INSERT_VERSION,
-  CHECK_VERSION_EXISTS,
   UPSERT_PROVIDER,
   UPSERT_PROVIDER_WITH_BASE_URL,
   SELECT_PROVIDER_BY_ID,
@@ -34,8 +32,6 @@ import {
   SELECT_ALL_ACTIVE_COOLDOWNS,
   SET_ACCOUNT_DISABLED,
   SELECT_ALL_DISABLED_ACCOUNTS,
-  SCHEMA_VERSION,
-  ALL_MIGRATIONS,
 } from "./schema.js";
 
 interface ProviderRow {
@@ -200,20 +196,11 @@ export class SqlCredentialStore {
   }
 
   private async runMigrations(): Promise<void> {
-    // ALL_MIGRATIONS in schema.ts is the single source of truth for schema changes.
-    // Every migration SQL is idempotent (CREATE TABLE IF NOT EXISTS / ALTER TABLE ADD COLUMN IF NOT EXISTS),
-    // so we can safely re-run all of them on every startup.
-    for (const migration of ALL_MIGRATIONS) {
-      await this.sql.unsafe(migration.sql);
-    }
-
-    const versionExists = await this.sql.unsafe<Array<{ "?column?": number }>>(
-      CHECK_VERSION_EXISTS,
-      [SCHEMA_VERSION]
-    );
-    if (versionExists.length === 0) {
-      await this.sql.unsafe(INSERT_VERSION, [SCHEMA_VERSION]);
-    }
+    // The migrations are data (resources/db/schema.edn); proxx.db.schema plans them and
+    // proxx.runtime.db-schema runs them. Every one is idempotent (CREATE TABLE IF NOT EXISTS /
+    // ALTER TABLE ADD COLUMN IF NOT EXISTS), so all of them re-run on every startup, then the
+    // declared schema version is recorded if absent.
+    await kernels.runMigrations(this.sql);
 
     await this.ensureDefaultTenant();
   }

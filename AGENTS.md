@@ -145,9 +145,9 @@ Custom logic is handled via **contract kinds** registered in `proxx.policy` (e.g
 
 **Before rebuilding or restarting after any schema change**, you must:
 
-1. Add the migration SQL to `ALL_MIGRATIONS` in `src/lib/db/schema.ts` (the single source of truth).
-2. Bump `SCHEMA_VERSION` to match the new highest version in `ALL_MIGRATIONS`.
-3. Run `npx tsx --test src/tests/schema-migration.test.ts` — this catches version drift, missing `IF NOT EXISTS`, and ordering errors.
+1. Add the migration SQL to `:migrations` in `resources/db/schema.edn` (the single source of truth; `src/lib/db/schema.ts` only re-exports it). Never edit an existing statement: `test/proxx/db/schema_test.cljs` pins every text by digest.
+2. Bump `:schema-version` to match the new highest version in `:migrations`.
+3. Run `pnpm test:cljs` and `npx tsx --test src/tests/schema-migration.test.ts` — they catch version drift, missing `IF NOT EXISTS`, and ordering errors.
 4. Build with `pnpm build`.
 5. Apply the SQL directly to any running database before restarting the container.
 

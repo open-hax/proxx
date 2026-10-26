@@ -1,3 +1,8 @@
+import type { kernels } from "../cljs-kernels.js";
+
+/** The GitHub login allowlist (proxx.runtime.github-allowlist). */
+export type SqlGitHubAllowlist = ReturnType<typeof kernels.createGithubAllowlist>;
+
 export type PlanType = "free" | "plus" | "pro" | "team" | "business" | "enterprise" | "unknown";
 
 export interface AccountInfo {

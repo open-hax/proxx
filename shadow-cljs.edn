@@ -446,7 +446,27 @@
                                            probeOllamaCloudAccount proxx.runtime.ollama-cloud-probe/probe-ollama-cloud-account-js
                                            forcedCredentialSelection proxx.runtime.candidates/forced-credential-selection-js
                                            noAuthAccount proxx.runtime.candidates/no-auth-account-js
-                                           affinitiesFromRecord proxx.runtime.candidates/affinities-from-record-js}}}
+                                           affinitiesFromRecord proxx.runtime.candidates/affinities-from-record-js
+                                           ;; w4-host exports
+                                           handleProviderAttempt proxx.runtime.provider-reply/handle-provider-attempt-js
+                                           handleLocalAttempt proxx.runtime.provider-reply/handle-local-attempt-js
+                                           handleStandardProviderAttempt proxx.runtime.provider-reply/handle-standard-provider-attempt-js
+                                           handleStandardLocalAttempt proxx.runtime.provider-reply/handle-standard-local-attempt-js
+                                           executeProviderRoutingPlan proxx.runtime.attempt-executor/execute-provider-routing-plan-js
+                                           inspectProviderAvailability proxx.runtime.attempt-executor/inspect-provider-availability-js
+                                           executeLocalStrategy proxx.runtime.attempt-executor/execute-local-strategy-js
+                                           createApp proxx.app.main/create-app-js
+                                           sqlStatement proxx.runtime.db-schema/sql-statement-js
+                                           schemaVersion proxx.runtime.db-schema/schema-version-js
+                                           allMigrations proxx.runtime.db-schema/all-migrations-js
+                                           pendingMigrations proxx.runtime.db-schema/pending-migrations-js
+                                           runMigrations proxx.runtime.db-schema/run-migrations-js
+                                           createSqlConnection proxx.runtime.db-schema/create-sql-connection-js
+                                           closeSqlConnection proxx.runtime.db-schema/close-connection-js
+                                           createGithubAllowlist proxx.runtime.github-allowlist/create-github-allowlist-js}}
+              ;; The Node entry (`node dist/cljs/main.js`): shares the runtime module's code.
+              :main {:depends-on #{:proxx-runtime}
+                     :init-fn proxx.app.entry/start!}}
    :js-options {:js-provider :import
                 :keep-as-import #{"node:fs" "node:path"}}
    :compiler-options {:output-feature-set :es-next

@@ -3,7 +3,7 @@ module.exports = {
     {
       name: "open-hax-openai-proxy",
       script: "node",
-      args: ["dist/main.js"],
+      args: ["dist/cljs/main.js"],
       cwd: "/app",
       env: {
         NODE_ENV: "production",
