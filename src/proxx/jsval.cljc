@@ -33,6 +33,11 @@
   [& xs]
   (reduce (fn [_ x] (when (some? x) (reduced x))) nil xs))
 
+(defn truthy?
+  "JavaScript truthiness (empty string, 0 and NaN are falsy, unlike in Clojure)."
+  [v]
+  (not (or (nil? v) (false? v) (= v "") (= v 0) (and (number? v) (not= v v)))))
+
 (defn nes "`x` when it is a non-empty string." [x] (when (and (string? x) (seq x)) x))
 
 (defn round "Math.round (ties toward +infinity)." [x] #?(:cljs (js/Math.round x) :clj (Math/round (double x))))

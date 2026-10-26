@@ -9,6 +9,18 @@ import type { ServerResponse } from "node:http";
 
 import { loadCljsRuntime } from "./cljs-runtime.js";
 import type { CredentialStoreLike } from "./credential-store.js";
+import type { ProxyConfig } from "./config.js";
+import type { Sql } from "./db/index.js";
+import type { EnsureFreshAccountsDeps, FactoryRefreshDeps, OpenAiRefreshDeps, TokenRefreshDeps } from "./token-refresh-handlers.js";
+import type {
+  Logger as TokenRefreshLogger,
+  RefreshFn,
+  TokenRefreshManagerApi,
+  TokenRefreshManagerConfig,
+} from "./token-refresh-manager.js";
+import type { TelemetryClient } from "./telemetry/otel.js";
+import type { ProxySettingsStoreApi } from "./proxy-settings-store.js";
+import type { HostDashboardRouteSummary, HostDashboardSnapshot, HostDashboardTarget } from "./host-dashboard.js";
 import type { AccountHealthStore } from "./db/account-health-store.js";
 import type {
   QuotaCooldownController,
@@ -457,6 +469,46 @@ export interface CljsKernels {
     cooldownController: QuotaCooldownController | undefined,
   ) => QuotaMonitorApi;
   readonly quotaMonitorDefaultConfig: () => QuotaMonitorConfig;
+  // config
+  readonly loadConfig: (env: NodeJS.ProcessEnv, cwd: string, manifestPath: string) => ProxyConfig;
+  readonly defaultModels: (manifestPath: string) => readonly string[];
+  // token refresh
+  readonly tokenRefreshDefaultConfig: () => TokenRefreshManagerConfig;
+  readonly createTokenRefreshManager: (
+    doRefresh: RefreshFn,
+    logger: TokenRefreshLogger,
+    config: Partial<TokenRefreshManagerConfig>,
+  ) => TokenRefreshManagerApi;
+  readonly createOpenAiRefreshHandler: (deps: OpenAiRefreshDeps, hooks: unknown) => RefreshFn;
+  readonly createFactoryRefreshHandler: (deps: FactoryRefreshDeps, hooks: unknown) => RefreshFn;
+  readonly createRefreshDispatcher: (deps: TokenRefreshDeps, hooks: unknown) => RefreshFn;
+  readonly createEnsureFreshAccounts: (deps: EnsureFreshAccountsDeps, hooks: unknown) => (providerId: string) => Promise<void>;
+  // telemetry
+  readonly initTelemetry: (env: NodeJS.ProcessEnv) => TelemetryClient;
+  readonly getTelemetry: () => TelemetryClient;
+  readonly shutdownTelemetry: () => Promise<void>;
+  // proxy settings
+  readonly createProxySettingsStore: (filePath: string, sql?: Sql) => ProxySettingsStoreApi;
+  // host dashboard
+  readonly loadHostDashboardTargetsFromEnv: (env: NodeJS.ProcessEnv) => readonly HostDashboardTarget[];
+  readonly resolveHostDashboardTargetToken: (target: HostDashboardTarget, env: NodeJS.ProcessEnv) => string | undefined;
+  readonly inferSelfHostDashboardTargetId: (input: {
+    readonly targets: readonly HostDashboardTarget[];
+    readonly explicitSelfId?: string;
+    readonly requestBaseUrl?: string;
+    readonly requestHost?: string;
+  }) => string | undefined;
+  readonly parseCaddyRoutes: (source: string) => readonly HostDashboardRouteSummary[];
+  readonly collectLocalHostDashboardSnapshot: (input: {
+    readonly target: HostDashboardTarget;
+    readonly dockerSocketPath?: string;
+    readonly runtimeRoot?: string;
+  }) => Promise<HostDashboardSnapshot>;
+  readonly fetchRemoteHostDashboardSnapshot: (input: {
+    readonly target: HostDashboardTarget;
+    readonly authToken?: string;
+    readonly timeoutMs: number;
+  }) => Promise<HostDashboardSnapshot>;
   // w2-routing kernels
   readonly bridgeCapabilitySupportsPath: (manifestPath: string, capability: object, normalizedPath: string) => boolean;
   readonly bridgeCapabilitySupportsModel: (capability: object, requestedModel: string | undefined) => boolean;

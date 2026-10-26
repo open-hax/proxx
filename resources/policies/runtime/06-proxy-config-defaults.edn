@@ -1,0 +1,158 @@
+;; Facts behind proxy configuration (src/proxx/config/proxy.cljc): upstream base
+;; URLs with their environment overrides, default prefixes, paths, OAuth defaults
+;; and the default model catalogue advertised by /v1/models.
+;; Environment variables always win; these are only the fall-backs.
+[{:contract/id :proxy-config-defaults/proxx
+  :contract/kind :proxy-config-defaults
+  :defaults/openai-base-url "https://chatgpt.com/backend-api"
+  :defaults/openai-api-base-url "https://api.openai.com"
+  :defaults/openai-provider-id "openai"
+  :defaults/ollama-base-url "http://ollama:11434"
+  :defaults/chat-completions-path "/v1/chat/completions"
+  :defaults/openai-chat-completions-path "/codex/responses/compact"
+  :defaults/messages-path "/v1/messages"
+  :defaults/responses-path "/v1/responses"
+  :defaults/openai-responses-path "/codex/responses"
+  :defaults/ollama-chat-path "/api/chat"
+  :defaults/ollama-v1-chat-path "/v1/chat/completions"
+  :defaults/images-generations-path "/v1/images/generations"
+  :defaults/openai-images-generations-paths ["/v1/images/generations" "/images/generations" "/codex/images/generations"]
+  :defaults/messages-model-prefixes ["claude-"]
+  :defaults/responses-model-prefixes ["gpt-"]
+  :defaults/messages-interleaved-thinking-beta "interleaved-thinking-2025-05-14"
+  :defaults/factory-model-prefixes ["factory/" "factory:"]
+  :defaults/openai-model-prefixes ["openai/" "openai:"]
+  :defaults/ollama-model-prefixes ["ollama/" "ollama:" "ollama-lan/" "ollama-lan:"]
+  :defaults/llamacpp-model-prefixes ["llamacpp/" "llamacpp:" "llamacpp-embed/" "llamacpp-embed:"]
+  :defaults/local-ollama-model-patterns [":2b" ":2b-" ":3b" ":3b-" ":4b" ":4b-" ":7b" ":7b-" ":8b" ":8b-" "mini" "small"]
+  :defaults/github-oauth-callback-path "/auth/github/callback"
+  :defaults/openai-oauth-scopes "openid profile email offline_access"
+  :defaults/openai-oauth-client-id "app_EMoamEEZ73f0CkXaXp7hrann"
+  :defaults/openai-oauth-issuer "https://auth.openai.com"
+  :defaults/session-secret "default-session-secret-change-in-production"
+  :defaults/policy-manifest "./resources/policies/runtime/00-manifest.edn"
+  :defaults/models ["gpt-5.4"
+                         "gpt-5.4-mini"
+                         "gpt-5.4-nano"
+                         "gpt-5.2-codex"
+                         "gpt-5.1-codex"
+                         "gpt-5.1-codex-max"
+                         "claude-opus-4-5"
+                         "claude-opus-4-6"
+                         "gpt-5.3-codex"
+                         "gemini-3-flash-preview"
+                         "gpt-5.2"
+                         "DeepSeek-V3.2"
+                         "gemini-3-pro-preview"
+                         "gpt-5.1"
+                         "gpt-5"
+                         "gpt-5-mini"
+                         "gemini-2.5-flash"
+                         "gemini-2.5-pro"
+                         "glm-5v-turbo"
+                         "glm-5"
+                         "Kimi-K2.5"
+                         "gemini-3.1-pro-preview"
+                         "qwen3.5:4b-q8_0"
+                         "qwen3.5:2b-bf16"
+                         "auto:vision"
+                         "auto:cheapest"
+                         "auto:fastest"
+                         "auto:smartest"
+                         "auto:healthiest"
+                         "auto:cephalon"
+                         "auto:cephalon:cheapest"
+                         "auto:cephalon:fastest"
+                         "auto:cephalon:smartest"]}
+
+ ;; Upstream providers the proxy knows a base URL for, in config order. A provider
+ ;; with no env names has a fixed URL; unknown providers get the vivgrid URL.
+ {:contract/id :provider-base-url/vivgrid
+  :contract/kind :provider-base-url
+  :provider/id "vivgrid"
+  :provider/base-url-env-names []
+  :provider/default-base-url "https://api.vivgrid.com"}
+
+ {:contract/id :provider-base-url/ollama-cloud
+  :contract/kind :provider-base-url
+  :provider/id "ollama-cloud"
+  :provider/base-url-env-names []
+  :provider/default-base-url "https://ollama.com"}
+
+ {:contract/id :provider-base-url/ob1
+  :contract/kind :provider-base-url
+  :provider/id "ob1"
+  :provider/base-url-env-names ["OB1_BASE_URL"]
+  :provider/default-base-url "https://dashboard.openblocklabs.com/api"}
+
+ {:contract/id :provider-base-url/openrouter
+  :contract/kind :provider-base-url
+  :provider/id "openrouter"
+  :provider/base-url-env-names ["OPENROUTER_BASE_URL"]
+  :provider/default-base-url "https://openrouter.ai/api/v1"}
+
+ {:contract/id :provider-base-url/requesty
+  :contract/kind :provider-base-url
+  :provider/id "requesty"
+  :provider/base-url-env-names ["REQUESTY_BASE_URL"]
+  :provider/default-base-url "https://router.requesty.ai/v1"}
+
+ {:contract/id :provider-base-url/zen
+  :contract/kind :provider-base-url
+  :provider/id "zen"
+  :provider/base-url-env-names ["ZEN_BASE_URL" "ZENMUX_BASE_URL"]
+  :provider/default-base-url "https://opencode.ai/zen/v1"}
+
+ {:contract/id :provider-base-url/gemini
+  :contract/kind :provider-base-url
+  :provider/id "gemini"
+  :provider/base-url-env-names ["GEMINI_BASE_URL"]
+  :provider/default-base-url "https://generativelanguage.googleapis.com/v1beta"}
+
+ {:contract/id :provider-base-url/zai
+  :contract/kind :provider-base-url
+  :provider/id "zai"
+  :provider/base-url-env-names ["ZAI_BASE_URL" "ZHIPU_BASE_URL"]
+  :provider/default-base-url "https://api.z.ai/api/paas/v4"}
+
+ {:contract/id :provider-base-url/rotussy
+  :contract/kind :provider-base-url
+  :provider/id "rotussy"
+  :provider/base-url-env-names ["ROTUSSY_BASE_URL"]
+  :provider/default-base-url "https://api.ussyco.de/v1"}
+
+ {:contract/id :provider-base-url/mistral
+  :contract/kind :provider-base-url
+  :provider/id "mistral"
+  :provider/base-url-env-names ["MISTRAL_BASE_URL"]
+  :provider/default-base-url "https://api.mistral.ai/v1"}
+
+ {:contract/id :provider-base-url/xiaomi
+  :contract/kind :provider-base-url
+  :provider/id "xiaomi"
+  :provider/base-url-env-names ["XIAOMI_BASE_URL" "MIMO_BASE_URL"]
+  :provider/default-base-url "https://api.xiaomimimo.com/v1"}
+
+ {:contract/id :provider-base-url/blaze
+  :contract/kind :provider-base-url
+  :provider/id "blaze"
+  :provider/base-url-env-names ["BLAZE_BASE_URL" "BLAZEAI_BASE_URL"]
+  :provider/default-base-url "https://blazeai.boxu.dev/api"}
+
+ {:contract/id :provider-base-url/factory
+  :contract/kind :provider-base-url
+  :provider/id "factory"
+  :provider/base-url-env-names ["FACTORY_BASE_URL"]
+  :provider/default-base-url "https://api.factory.ai"}
+
+ {:contract/id :provider-base-url/ollama-stealth
+  :contract/kind :provider-base-url
+  :provider/id "ollama-stealth"
+  :provider/base-url-env-names ["OLLAMA_STEALTH_BASE_URL" "OLLAMA_LAPTOP_BASE_URL"]
+  :provider/default-base-url "http://127.0.0.1:11434"}
+
+ {:contract/id :provider-base-url/ollama-big-ussy
+  :contract/kind :provider-base-url
+  :provider/id "ollama-big-ussy"
+  :provider/base-url-env-names ["OLLAMA_BIG_USSY_BASE_URL"]
+  :provider/default-base-url "http://10.0.0.2:11434"}]

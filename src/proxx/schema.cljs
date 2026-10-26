@@ -576,6 +576,88 @@
     [:quota/probe-model [:string {:min 1}]]
     [:quota/probe-expected-text [:string {:min 1}]]]])
 
+(def ProxyConfigDefaultsContract
+  "Fall-back values for proxy configuration (environment variables win)."
+  (vec
+   (concat
+    [:and ContractBase
+         [:map
+          [:contract/kind [:enum :proxy-config-defaults]]
+          [:defaults/openai-base-url [:string {:min 1}]]
+          [:defaults/openai-api-base-url [:string {:min 1}]]
+          [:defaults/openai-provider-id [:string {:min 1}]]
+          [:defaults/ollama-base-url [:string {:min 1}]]
+          [:defaults/openai-oauth-scopes [:string {:min 1}]]
+          [:defaults/openai-oauth-client-id [:string {:min 1}]]
+          [:defaults/openai-oauth-issuer [:string {:min 1}]]
+          [:defaults/session-secret [:string {:min 1}]]
+          [:defaults/policy-manifest [:string {:min 1}]]
+          [:defaults/messages-interleaved-thinking-beta [:string {:min 1}]]
+          [:defaults/github-oauth-callback-path [:string {:min 1}]]
+          [:defaults/models [:vector {:min 1} [:string {:min 1}]]]]]
+        (map (fn [k] [:map [k [:string {:min 1}]]])
+             [:defaults/chat-completions-path :defaults/openai-chat-completions-path :defaults/messages-path
+              :defaults/responses-path :defaults/openai-responses-path :defaults/ollama-chat-path
+              :defaults/ollama-v1-chat-path :defaults/images-generations-path])
+        (map (fn [k] [:map [k [:vector [:string {:min 1}]]]])
+             [:defaults/openai-images-generations-paths :defaults/messages-model-prefixes
+              :defaults/responses-model-prefixes :defaults/factory-model-prefixes :defaults/openai-model-prefixes
+              :defaults/ollama-model-prefixes :defaults/llamacpp-model-prefixes :defaults/local-ollama-model-patterns]))))
+
+(def ProviderBaseUrlContract
+  "An upstream provider's default base URL and the environment variables that override it."
+  [:and
+   ContractBase
+   [:map
+    [:contract/kind [:enum :provider-base-url]]
+    [:provider/id [:string {:min 1}]]
+    [:provider/base-url-env-names [:vector [:string {:min 1}]]]
+    [:provider/default-base-url [:string {:min 1}]]]])
+
+(def ProxyConfig
+  "The configuration the proxy runs with, as built by proxx.config.proxy (string-keyed).
+  Optional settings may be nil."
+  (let [str* [:string]
+        strs [:vector :string]
+        num number?
+        bool :boolean
+        req (fn [fields] (mapv (fn [[k t]] [k t]) fields))
+        opt (fn [fields] (mapv (fn [[k t]] [k {:optional true} [:maybe t]]) fields))]
+    (into [:map {:closed false}]
+          (concat
+           (req [["host" str*] ["port" num] ["upstreamProviderId" str*] ["disabledProviderIds" strs]
+                 ["upstreamProviderBaseUrls" [:map-of :string :string]] ["upstreamBaseUrl" str*]
+                 ["openaiProviderId" [:string {:min 1}]] ["openaiBaseUrl" str*] ["openaiApiBaseUrl" str*]
+                 ["openaiImagesUpstreamMode" [:enum "platform" "chatgpt" "auto"]] ["ollamaBaseUrl" str*]
+                 ["localOllamaEnabled" bool] ["localOllamaModelPatterns" strs]
+                 ["chatCompletionsPath" str*] ["openaiChatCompletionsPath" str*] ["messagesPath" str*]
+                 ["messagesModelPrefixes" strs] ["responsesPath" str*] ["openaiResponsesPath" str*]
+                 ["openaiImagesGenerationsPaths" strs] ["imageCostUsdDefault" [:and num [:>= 0]]]
+                 ["imageCostUsdByProvider" [:map-of :string num]] ["imagesGenerationsPath" str*]
+                 ["responsesModelPrefixes" strs] ["ollamaChatPath" str*] ["ollamaV1ChatPath" str*]
+                 ["factoryModelPrefixes" strs] ["openaiModelPrefixes" strs] ["ollamaModelPrefixes" strs]
+                 ["llamacppModelPrefixes" strs] ["keysFilePath" str*] ["modelsFilePath" str*]
+                 ["requestLogsFilePath" str*] ["requestLogsMaxEntries" [:and num [:> 0]]]
+                 ["requestLogsFlushMs" [:and num [:>= 0]]] ["promptAffinityFilePath" str*]
+                 ["promptAffinityFlushMs" [:and num [:>= 0]]] ["settingsFilePath" str*]
+                 ["keyReloadMs" [:and num [:> 0]]] ["keyCooldownMs" [:and num [:> 0]]]
+                 ["keyCooldownJitterFactor" [:and num [:> 0]]] ["enableKeyRandomWalk" bool]
+                 ["ollamaWeeklyCooldownMultiplier" [:and num [:> 0]]] ["requestTimeoutMs" [:and num [:> 0]]]
+                 ["streamBootstrapTimeoutMs" [:and num [:> 0]]] ["embedMaxContextTokens" [:and num [:> 0]]]
+                 ["embedMaxBatchItems" [:and num [:> 0]]] ["embedMaxInputChars" [:and num [:> 0]]]
+                 ["upstreamTransientRetryCount" [:and num [:>= 0]]] ["upstreamTransientRetryBackoffMs" [:and num [:> 0]]]
+                 ["concurrencyThrottleMaxRetries" [:and num [:>= 0]]] ["concurrencyThrottleThresholdMs" [:and num [:> 0]]]
+                 ["proxyTokenPepper" str*] ["allowUnauthenticated" bool] ["cljsPolicyManifestPath" str*]
+                 ["cljsPolicyShadowMode" bool] ["cljsPolicyAuthoritative" bool]
+                 ["githubOAuthCallbackPath" str*] ["githubAllowedUsers" strs] ["sessionSecret" str*]
+                 ["openaiOauthScopes" [:string {:min 1}]] ["openaiOauthClientId" [:string {:min 1}]]
+                 ["openaiOauthIssuer" str*] ["openaiOauthAllowHostRoutedCallbacks" bool]
+                 ["oauthRefreshMaxConcurrency" [:and num [:> 0]]] ["oauthRefreshBackgroundIntervalMs" [:and num [:> 0]]]
+                 ["oauthRefreshProactiveWindowMs" [:and num [:> 0]]]])
+           (opt [["ollamaApiKey" str*] ["messagesInterleavedThinkingBeta" str*] ["proxyAuthToken" str*]
+                 ["policyConfigPath" str*] ["databaseUrl" str*] ["githubOAuthClientId" str*]
+                 ["githubOAuthClientSecret" str*] ["openaiOauthClientSecret" str*]])))))
+
 (def ModelAliasContract
   [:and
    ContractBase
@@ -710,6 +792,8 @@
     [:model-pricing-provider-rule ModelPricingProviderRuleContract]
     [:model-pricing-vendor-fallback ModelPricingVendorFallbackContract]
     [:model-energy-profile ModelEnergyProfileContract]
+    [:proxy-config-defaults ProxyConfigDefaultsContract]
+    [:provider-base-url ProviderBaseUrlContract]
     [:provider-quota-profile ProviderQuotaProfileContract]
     [:model-alias ModelAliasContract]
     [:reasoning-normalization ReasoningNormalizationContract]
@@ -742,6 +826,7 @@
    :proxx/policy          Policy
    :proxx/policy-manifest PolicyManifest
    :proxx/models-dev-pricing-snapshot ModelsDevPricingSnapshot
+   :proxx/proxy-config ProxyConfig
    :proxx/contract-base ContractBase
    :proxx/contract-enum DomainEnumContract
    :proxx/contract-set DomainSetContract
@@ -770,6 +855,8 @@
     :proxx/contract-model-pricing-provider-rule ModelPricingProviderRuleContract
     :proxx/contract-model-pricing-vendor-fallback ModelPricingVendorFallbackContract
     :proxx/contract-model-energy-profile ModelEnergyProfileContract
+    :proxx/contract-proxy-config-defaults ProxyConfigDefaultsContract
+    :proxx/contract-provider-base-url ProviderBaseUrlContract
     :proxx/contract-provider-quota-profile ProviderQuotaProfileContract
     :proxx/contract-model-alias ModelAliasContract
     :proxx/contract-reasoning-normalization ReasoningNormalizationContract
