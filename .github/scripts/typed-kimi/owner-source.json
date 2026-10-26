@@ -1,0 +1,16 @@
+{
+  "repository": "riatzukiza/.agents",
+  "commit": "e4b39ad9c48faed3205dc08c474dd1a57dfd32e2",
+  "files": [
+    {
+      "ownerPath": "skills/pr-flow/scripts/pr_flow/kimi_verdict.cljc",
+      "path": "src/pr_flow/kimi_verdict.cljc",
+      "sha256": "eebbbe575813d35da926e39fd6fb565d718d32428cdd6be9db0f5d786fc8ed7e"
+    },
+    {
+      "ownerPath": "skills/pr-flow/scripts/test_kimi_verdict.cljs",
+      "path": "test/test_kimi_verdict.cljs",
+      "sha256": "dd203c124135606e19ea463989193b3748633414dce2fae7400ca7e673962ae1"
+    }
+  ]
+}
