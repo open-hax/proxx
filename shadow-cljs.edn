@@ -1,7 +1,8 @@
 {:source-paths ["src" "test"]
 
  :dependencies
- [[metosin/malli "0.16.4"]]
+ [[metosin/malli "0.16.4"]
+  [reagent/reagent "1.2.0"]]
 
  :js-options {:js-provider :import}
 
@@ -462,4 +463,26 @@
   {:target      :node-test
    :output-to   "target/node-e2e.cjs"
    :ns-regexp   "proxx\\.e2e\\..*-test$"
+   :compiler-options {:source-map true}}
+
+  ;; Web console (browser). Output is picked up by Vite (web/public) so the
+  ;; served layout stays index.html + assets/*.css + js/main.js.
+  :web
+  {:target     :browser
+   :output-dir "web/public/js"
+   :asset-path "/js"
+   :modules    {:main {:init-fn proxx.web.main/init}}
+   :js-options {:js-provider :shadow
+                :js-package-dirs ["node_modules" "node_modules/.pnpm/node_modules"]}
+   :compiler-options {:infer-externs :auto
+                      :output-feature-set :es-next}}
+
+  ;; View smoke tests (need react + a DOM): namespaces named `*-smoke` so the
+  ;; plain `node-test` regexp does not load them.
+  :web-test
+  {:target      :node-test
+   :output-to   "target/web-test.cjs"
+   :ns-regexp   "proxx\\.web\\..*-smoke$"
+   :js-options  {:js-provider :shadow
+                 :js-package-dirs ["node_modules" "node_modules/.pnpm/node_modules"]}
    :compiler-options {:source-map true}}}}

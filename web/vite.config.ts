@@ -1,8 +1,7 @@
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import react from "@vitejs/plugin-react";
-import { defineConfig } from "vitest/config";
+import { defineConfig } from "vite";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const devPort = Number.parseInt(process.env.VITE_DEV_PORT ?? process.env.PROXX_WEB_PORT ?? "5174", 10);
@@ -21,15 +20,6 @@ const allowedHosts = Array.from(new Set([
 
 export default defineConfig({
   root: currentDir,
-  plugins: [react()],
-  test: {
-    environment: "jsdom",
-    setupFiles: ["./src/test/setup.ts"],
-    include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
-    globals: true,
-    clearMocks: true,
-    restoreMocks: true,
-  },
   server: {
     host: "127.0.0.1",
     port: devPort,

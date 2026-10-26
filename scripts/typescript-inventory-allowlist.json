@@ -1527,20 +1527,23 @@
     {
       "path": "web/src/App.tsx",
       "owner": "T3-web-ui-tsx-retirement",
-      "disposition": "port-to-cljs-or-replace",
-      "removalCondition": "web UI builds from CLJS or is replaced by a CLJS UI surface"
+      "disposition": "removed",
+      "removalCondition": "Removed: ported to ClojureScript (proxx.web.* shell, runtime, storage; smoke tests in test/proxx/web).",
+      "removed": true
     },
     {
       "path": "web/src/__tests__/app.test.tsx",
       "owner": "T3-web-ui-tsx-retirement",
-      "disposition": "port-to-cljs-or-replace",
-      "removalCondition": "web UI builds from CLJS or is replaced by a CLJS UI surface"
+      "disposition": "removed",
+      "removalCondition": "Removed: ported to ClojureScript (proxx.web.* shell, runtime, storage; smoke tests in test/proxx/web).",
+      "removed": true
     },
     {
       "path": "web/src/components/index.ts",
       "owner": "T3-web-ui-tsx-retirement",
-      "disposition": "port-to-cljs-or-replace",
-      "removalCondition": "web UI builds from CLJS or is replaced by a CLJS UI surface"
+      "disposition": "removed",
+      "removalCondition": "Removed: ported to ClojureScript (proxx.web.* shell, runtime, storage; smoke tests in test/proxx/web).",
+      "removed": true
     },
     {
       "path": "web/src/lib/api.ts",
@@ -1557,20 +1560,23 @@
     {
       "path": "web/src/lib/local-storage.ts",
       "owner": "T3-web-ui-tsx-retirement",
-      "disposition": "port-to-cljs-or-replace",
-      "removalCondition": "web UI builds from CLJS or is replaced by a CLJS UI surface"
+      "disposition": "removed",
+      "removalCondition": "Removed: ported to ClojureScript (proxx.web.* shell, runtime, storage; smoke tests in test/proxx/web).",
+      "removed": true
     },
     {
       "path": "web/src/lib/use-stored-state.ts",
       "owner": "T3-web-ui-tsx-retirement",
-      "disposition": "port-to-cljs-or-replace",
-      "removalCondition": "web UI builds from CLJS or is replaced by a CLJS UI surface"
+      "disposition": "removed",
+      "removalCondition": "Removed: ported to ClojureScript (proxx.web.* shell, runtime, storage; smoke tests in test/proxx/web).",
+      "removed": true
     },
     {
       "path": "web/src/main.tsx",
       "owner": "T3-web-ui-tsx-retirement",
-      "disposition": "port-to-cljs-or-replace",
-      "removalCondition": "web UI builds from CLJS or is replaced by a CLJS UI surface"
+      "disposition": "removed",
+      "removalCondition": "Removed: ported to ClojureScript (proxx.web.* shell, runtime, storage; smoke tests in test/proxx/web).",
+      "removed": true
     },
     {
       "path": "web/src/pages/AnalyticsPage.tsx",
@@ -1623,20 +1629,23 @@
     {
       "path": "web/src/pages/ToolsPage.tsx",
       "owner": "T3-web-ui-tsx-retirement",
-      "disposition": "port-to-cljs-or-replace",
-      "removalCondition": "web UI builds from CLJS or is replaced by a CLJS UI surface"
+      "disposition": "removed",
+      "removalCondition": "Removed: ported to ClojureScript (proxx.web.pages.tools, proxx.web.views.tools).",
+      "removed": true
     },
     {
       "path": "web/src/test/setup.ts",
       "owner": "T3-web-ui-tsx-retirement",
-      "disposition": "port-to-cljs-or-replace",
-      "removalCondition": "web UI builds from CLJS or is replaced by a CLJS UI surface"
+      "disposition": "removed",
+      "removalCondition": "Removed: ported to ClojureScript (proxx.web.* shell, runtime, storage; smoke tests in test/proxx/web).",
+      "removed": true
     },
     {
       "path": "web/test/ToolsPage.smoke.test.tsx",
       "owner": "T3-web-ui-tsx-retirement",
-      "disposition": "port-to-cljs-or-replace",
-      "removalCondition": "web UI builds from CLJS or is replaced by a CLJS UI surface"
+      "disposition": "removed",
+      "removalCondition": "Removed: ported to ClojureScript (proxx.web.pages.tools, proxx.web.views.tools).",
+      "removed": true
     },
     {
       "path": "web/test/e2e/tools.smoke.ts",
