@@ -18,9 +18,9 @@ import {
   resolveFederationHopCount,
   resolveFederationOwnerSubject,
 } from "./federation-helpers.js";
-import { isAtDid } from "./owner-credential.js";
 import type { TenantProviderPolicyRecord } from "../db/sql-tenant-provider-policy-store.js";
 import { getActiveCljsRuntime } from "../cljs-runtime.js";
+import { kernels } from "../cljs-kernels.js";
 import { applyNativeOllamaAuth } from "../native-auth.js";
 import type { SqlTenantProviderPolicyStore } from "../db/sql-tenant-provider-policy-store.js";
 import type { RuntimeCredentialStore } from "../runtime-credential-store.js";
@@ -28,26 +28,19 @@ import type { KeyPool } from "../key-pool.js";
 import type { FederationBridgeRelay } from "./bridge-relay.js";
 import type { BridgeRequestHandlerResult } from "./bridge-agent.js";
 
-export const FEDERATION_HOP_HEADER = "x-open-hax-federation-hop";
-export const FEDERATION_OWNER_SUBJECT_HEADER = "x-open-hax-federation-owner-subject";
-export const FEDERATION_BRIDGE_TENANT_HEADER = "x-open-hax-bridge-tenant-id";
-export const FEDERATION_FORCED_PROVIDER_HEADER = "x-open-hax-forced-provider";
-export const FEDERATION_FORCED_ACCOUNT_ID_HEADER = "x-open-hax-forced-account-id";
-export const FEDERATION_ROUTED_PEER_HEADER = "x-open-hax-federation-routed-peer";
-export const FEDERATION_ROUTED_PROVIDER_HEADER = "x-open-hax-federation-routed-provider";
-export const FEDERATION_ROUTED_ACCOUNT_HEADER = "x-open-hax-federation-routed-account";
-export const FEDERATION_IMPORTED_HEADER = "x-open-hax-federation-imported";
-export const FEDERATION_BLOCKED_RESPONSE_HEADERS = new Set([
-  "set-cookie",
-  "x-open-hax-federation-hop",
-  "x-open-hax-federation-owner-subject",
-  "x-open-hax-federation-routed-peer",
-  "x-open-hax-federation-routed-provider",
-  "x-open-hax-federation-routed-account",
-  "x-open-hax-federation-imported",
-  "x-open-hax-forced-provider",
-  "x-open-hax-forced-account-id",
-]);
+const routing = kernels.federationRouting;
+const headerNames = kernels.federationHeaders;
+
+export const FEDERATION_HOP_HEADER = headerNames.hop;
+export const FEDERATION_OWNER_SUBJECT_HEADER = headerNames.ownerSubject;
+export const FEDERATION_BRIDGE_TENANT_HEADER = headerNames.bridgeTenant;
+export const FEDERATION_FORCED_PROVIDER_HEADER = headerNames.forcedProvider;
+export const FEDERATION_FORCED_ACCOUNT_ID_HEADER = headerNames.forcedAccountId;
+export const FEDERATION_ROUTED_PEER_HEADER = headerNames.routedPeer;
+export const FEDERATION_ROUTED_PROVIDER_HEADER = headerNames.routedProvider;
+export const FEDERATION_ROUTED_ACCOUNT_HEADER = headerNames.routedAccount;
+export const FEDERATION_IMPORTED_HEADER = headerNames.imported;
+export const FEDERATION_BLOCKED_RESPONSE_HEADERS = new Set(headerNames.blockedResponseHeaders);
 
 export interface BridgeRoutingDeps {
   readonly bridgeRelay: FederationBridgeRelay | undefined;
@@ -98,7 +91,7 @@ export async function executeBridgeRequestRouting(
 
   // Reject multi-hop bridge routing to prevent request loops
   const hopCount = resolveFederationHopCount(input.requestHeaders);
-  if (hopCount >= 1) {
+  if (routing.hopLimitExceeded(hopCount)) {
     app.log.warn({ hopCount, upstreamPath: input.upstreamPath }, "bridge request rejected: hop limit exceeded");
     return false;
   }
@@ -112,19 +105,13 @@ export async function executeBridgeRequestRouting(
     return false;
   }
 
-  const DEFAULT_TENANT_ID = "default";
-  const tenantId = input.requestAuth?.tenantId
-    ?? (input.requestAuth?.kind === "legacy_admin" ? DEFAULT_TENANT_ID : undefined);
+  const tenantId = routing.bridgeTenantId(input.requestAuth);
   if (!tenantId) {
     return false;
   }
 
   const requestedModel = normalizeRequestedModel(input.requestBody.model);
-  const subjectDid = typeof input.requestAuth?.subject === "string" && isAtDid(input.requestAuth.subject)
-    ? input.requestAuth.subject.trim()
-    : typeof input.requestAuth?.tenantId === "string" && isAtDid(input.requestAuth.tenantId)
-      ? input.requestAuth.tenantId.trim()
-      : undefined;
+  const subjectDid = routing.subjectDid(input.requestAuth);
 
   const resolveBridgePolicy = async (providerId: string): Promise<TenantProviderPolicyRecord | null | undefined> => {
     if (!subjectDid || !sqlTenantProviderPolicyStore) {
@@ -150,19 +137,13 @@ export async function executeBridgeRequestRouting(
   };
 
   // Filter connected sessions by advertised capability for the requested path
-  const normalizedPath = input.upstreamPath.split("?")[0]!;
-  const allowedProviderIds = new Set((input.allowedProviderIds ?? []).map((providerId) => providerId.trim().toLowerCase()).filter((providerId) => providerId.length > 0));
+  const normalizedPath = routing.normalizedPath(input.upstreamPath);
+  const allowedProviderIds = routing.allowedProviderIds(input.allowedProviderIds ?? []);
   const connectedSessions = (await Promise.all(bridgeRelay.listSessions()
-    .filter((session) => session.state === "connected")
-    .filter((session) => session.ownerSubject === ownerSubject)
-    .filter((session) => session.tenantId === tenantId)
-    .filter((session) => session.health === undefined
-      || (session.health.upstreamHealthy === true && session.health.availableAccountCount > 0))
+    .filter((session) => routing.sessionEligible(session, ownerSubject, tenantId))
     .map(async (session) => {
       for (const capability of session.capabilities) {
-        const capabilityProviderId = capability.providerId.trim().toLowerCase();
-        if ((allowedProviderIds.size > 0 && !allowedProviderIds.has(capabilityProviderId))
-          || capability.availableAccountCount <= 0
+        if (!routing.capabilityAdmissible(capability, allowedProviderIds)
           || !bridgeCapabilitySupportsPath(capability, normalizedPath)
           || !bridgeCapabilitySupportsModel(capability, requestedModel)) {
           continue;
@@ -215,11 +196,10 @@ export async function executeBridgeRequestRouting(
             responseHeaders = event.headers;
             appendBridgeResponseHeaders(input.reply, event.headers);
             input.reply.header(FEDERATION_OWNER_SUBJECT_HEADER, ownerSubject);
-            input.reply.header(FEDERATION_ROUTED_PEER_HEADER, `bridge:${session.clusterId}:${session.agentId}`);
+            input.reply.header(FEDERATION_ROUTED_PEER_HEADER, routing.routedPeerLabel(session.clusterId, session.agentId));
             input.reply.code(event.status);
 
-            const contentType = event.headers["content-type"] ?? event.headers["Content-Type"] ?? "";
-            isStreaming = typeof contentType === "string" && contentType.toLowerCase().includes("text/event-stream");
+            isStreaming = routing.eventStreamContentType(routing.responseContentType(event.headers));
             if (isStreaming) {
               input.reply.removeHeader("content-length");
               input.reply.header("cache-control", "no-cache");
@@ -242,7 +222,7 @@ export async function executeBridgeRequestRouting(
               sawHead = true;
               responseStarted = true;
               input.reply.header(FEDERATION_OWNER_SUBJECT_HEADER, ownerSubject);
-              input.reply.header(FEDERATION_ROUTED_PEER_HEADER, `bridge:${session.clusterId}:${session.agentId}`);
+              input.reply.header(FEDERATION_ROUTED_PEER_HEADER, routing.routedPeerLabel(session.clusterId, session.agentId));
               input.reply.code(200);
             }
 
@@ -269,8 +249,7 @@ export async function executeBridgeRequestRouting(
       }
 
       const responseBody = Buffer.concat(bufferedChunks).toString("utf8");
-      const contentType = responseHeaders["content-type"] ?? responseHeaders["Content-Type"] ?? "";
-      const parsed = typeof contentType === "string" && contentType.toLowerCase().includes("application/json")
+      const parsed = routing.jsonContentType(routing.responseContentType(responseHeaders))
         ? parseJsonIfPossible(responseBody)
         : undefined;
       if (parsed !== undefined) {
@@ -306,46 +285,26 @@ export const handleBridgeRequest = async (
 ): Promise<BridgeRequestHandlerResult> => {
   const { app } = deps;
 
-  // Security: restrict bridge requests to allowed API paths only.
-  // This prevents the bridge from acting as a privileged generic proxy
-  // that could access internal routes like /api/ui/federation/accounts.
-  const allowedBridgePaths = [
-    "/v1/chat/completions",
-    "/v1/models",
-    "/v1/responses",
-    "/v1/embeddings",
-    "/v1/images/generations",
-    "/api/bridge/credentials/accounts",
-    "/api/bridge/credentials/providers",
-    "/api/bridge/credentials/export",
-  ];
-  const normalizedPath = new URL(input.path.split("?")[0]!, "http://x").pathname;
-  if (!allowedBridgePaths.includes(normalizedPath)) {
+  // Security: restrict bridge requests to allowed API paths only, so the bridge cannot act as a
+  // privileged generic proxy onto internal routes (e.g. /api/ui/federation/accounts).
+  if (!routing.bridgePathAllowed(input.path)) {
     app.log.warn({ path: input.path, ownerSubject: input.ownerSubject }, "bridge request rejected: path not in allowed list");
     return {
       status: 403,
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ error: { message: "Bridge requests are restricted to model API paths", type: "invalid_request_error" } }),
+      body: JSON.stringify(routing.bridgeForbiddenBody()),
       servedByClusterId: process.env.FEDERATION_SELF_CLUSTER_ID?.trim(),
       servedByGroupId: process.env.FEDERATION_SELF_GROUP_ID?.trim(),
       servedByNodeId: process.env.FEDERATION_SELF_NODE_ID?.trim(),
     };
   }
 
-  const headers: Record<string, string> = {
-    accept: input.headers.accept ?? "application/json",
-    // Use a dedicated bridge identity header instead of the global admin token.
-    // This prevents the bridge from becoming a privileged proxy with admin access.
-    "x-open-hax-bridge-auth": "internal",
-    [FEDERATION_HOP_HEADER]: "1",
-    [FEDERATION_OWNER_SUBJECT_HEADER]: input.ownerSubject,
-  };
-  if (typeof input.tenantId === "string" && input.tenantId.trim().length > 0) {
-    headers[FEDERATION_BRIDGE_TENANT_HEADER] = input.tenantId.trim();
-  }
-  if (typeof input.headers["content-type"] === "string") {
-    headers["content-type"] = input.headers["content-type"];
-  }
+  const headers = routing.bridgeRequestHeaders({
+    accept: input.headers.accept,
+    contentType: input.headers["content-type"],
+    ownerSubject: input.ownerSubject,
+    tenantId: input.tenantId,
+  });
 
   const appAddress = app.server.address();
   if (appAddress && typeof appAddress !== "string") {
@@ -387,13 +346,7 @@ export const handleBridgeRequest = async (
         return;
       }
 
-      const contentType = (response.headers.get("content-type") ?? "").trim().toLowerCase();
-      const encodeAsUtf8 = contentType.length === 0
-        || contentType.startsWith("text/")
-        || contentType.includes("json")
-        || contentType.includes("xml")
-        || contentType.includes("javascript")
-        || contentType.includes("event-stream");
+      const encodeAsUtf8 = routing.utf8ChunkEncoding(response.headers.get("content-type") ?? "");
       const decoder = encodeAsUtf8 ? new TextDecoder("utf8") : undefined;
       const reader = response.body.getReader();
 

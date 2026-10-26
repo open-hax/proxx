@@ -32,7 +32,7 @@
   (or (not-empty (trimmed (get auth "credential")))
       (not-empty (trimmed (get auth "bearer")))))
 
-(defn- parse-int-prefix
+(defn parse-int
   "JavaScript's parseInt(s, 10): optional sign and leading digits, NaN otherwise."
   [s]
   #?(:cljs (js/parseInt s 10)
@@ -42,7 +42,7 @@
   "Hops already travelled, from the raw hop header; 0 for absent, malformed or negative."
   [raw-header]
   (let [raw (not-empty (trimmed (request/single-header-value raw-header)))
-        n (when raw (parse-int-prefix raw))]
+        n (when raw (parse-int raw))]
     (if (and n (== n n) (< n ##Inf) (>= n 0)) n 0)))
 
 (defn- tenant-api-key-bound-owner

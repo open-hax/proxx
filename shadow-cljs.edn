@@ -255,6 +255,11 @@
                                            createBridgeRelay proxx.runtime.federation-relay/create-relay-js
                                            createSseBridgeSendChannel proxx.runtime.federation/create-sse-bridge-send-channel-js
                                            formatSseEvent proxx.runtime.federation/format-sse-event-js
+                                           createBridgeAgent proxx.runtime.federation-agent/create-agent-js
+                                           createEnvFederationBridgeAgentOptions proxx.runtime.federation-autostart/create-env-agent-options-js
+                                           ensureFederationProjectedAccountsFresh proxx.runtime.federation-projections/ensure-projected-accounts-fresh-js
+                                           resolveOnDemandPullTtlMs proxx.runtime.federation-projections/resolve-on-demand-pull-ttl-ms-js
+                                           federationRouting proxx.runtime.federation/federation-routing
                                            normalizeGeminiReasoningEffort proxx.runtime.strategy/normalize-gemini-reasoning-effort-js
                                            openAiMessagesToGeminiContents proxx.runtime.strategy/open-ai-messages-to-gemini-contents-js
                                            extractSystemInstructions proxx.runtime.strategy/extract-system-instructions-js

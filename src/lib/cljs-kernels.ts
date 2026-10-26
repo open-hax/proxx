@@ -32,6 +32,7 @@ import type {
   RequestCostEstimate,
 } from "./model-pricing.js";
 import type { BridgeSendChannel } from "./federation/bridge-send-channel.js";
+import type { FederationBridgeAgentOptions } from "./federation/bridge-agent.js";
 import type { BridgeMessage } from "./federation/bridge-protocol.js";
 import type { BridgeLeaseAccountSummary, BridgeLeaseExportedAccount } from "../routes/federation/bridge-lease-parsers.js";
 import type { FederationOwnerCredential } from "./federation/owner-credential.js";
@@ -79,6 +80,47 @@ export interface StrategySelectionFacts {
 
 /** Method bag returned by the CLJS OAuth manager factories (typed per manager by its TS class). */
 export type OAuthManagerFacade = Record<string, (...args: never[]) => unknown>;
+
+type RequestAuthLike = { readonly kind?: string; readonly subject?: string; readonly tenantId?: string } | undefined;
+
+/** Decisions behind bridge and federated routing (proxx.federation.routing). */
+export interface FederationRoutingKernel {
+  readonly bridgeTenantId: (requestAuth: RequestAuthLike) => string | undefined;
+  readonly subjectDid: (requestAuth: RequestAuthLike) => string | undefined;
+  readonly hopLimitExceeded: (hopCount: number) => boolean;
+  readonly normalizedPath: (upstreamPath: string) => string;
+  readonly allowedProviderIds: (providerIds: readonly string[]) => string[];
+  readonly sessionEligible: (session: object, ownerSubject: string, tenantId: string) => boolean;
+  readonly capabilityAdmissible: (capability: object, allowedProviderIds: readonly string[]) => boolean;
+  readonly eventStreamContentType: (contentType: unknown) => boolean;
+  readonly jsonContentType: (contentType: unknown) => boolean;
+  readonly responseContentType: (headers: Readonly<Record<string, string>>) => string;
+  readonly routedPeerLabel: (clusterId: string, agentId: string) => string;
+  readonly bridgePathAllowed: (path: string) => boolean;
+  readonly bridgeForbiddenBody: () => Record<string, unknown>;
+  readonly bridgeRequestHeaders: (input: {
+    readonly accept?: string;
+    readonly contentType?: string;
+    readonly ownerSubject: string;
+    readonly tenantId?: string;
+  }) => Record<string, string>;
+  readonly utf8ChunkEncoding: (contentType: string | undefined) => boolean;
+  readonly localProviderIds: (providerIds: readonly string[]) => string[];
+  readonly localAccountKey: (providerId: string, accountId: string) => string;
+  readonly isActivePeer: (peer: object) => boolean;
+  readonly forwardedRequestOverrides: (credential: string, hopCount: number, ownerSubject: string, projectedAccount: object) => Record<string, string>;
+  readonly copyableResponseHeader: (name: string) => boolean;
+  readonly routedResponseHeaders: (ownerSubject: string, peerId: string, projectedAccount: object, imported: boolean) => Record<string, string>;
+  readonly warmImportAllowed: (policyPresent: boolean, policyAuthorizes: boolean) => boolean;
+  readonly exportUrls: (peer: object) => [string, string];
+  readonly routedDiffEvent: (projectedAccount: object, imported: boolean) => {
+    readonly ownerSubject: string;
+    readonly entityType: string;
+    readonly entityKey: string;
+    readonly op: string;
+    readonly payload: Record<string, unknown>;
+  };
+}
 
 export interface CljsKernels {
   // errors/classification
@@ -510,6 +552,11 @@ export interface CljsKernels {
   readonly createBridgeRelay: () => unknown;
   readonly createSseBridgeSendChannel: (res: ServerResponse) => BridgeSendChannel;
   readonly formatSseEvent: (event: string, data: unknown) => string;
+  readonly createBridgeAgent: (options: unknown) => unknown;
+  readonly ensureFederationProjectedAccountsFresh: (input: unknown, deps: unknown) => Promise<{ readonly pulledPeerIds: readonly string[] } | undefined>;
+  readonly resolveOnDemandPullTtlMs: (raw: string | undefined) => number;
+  readonly federationRouting: FederationRoutingKernel;
+  readonly createEnvFederationBridgeAgentOptions: (deps: unknown) => FederationBridgeAgentOptions | undefined;
   // provider-strategy (proxx.strategy.*)
   readonly normalizeGeminiReasoningEffort: (value: unknown) => string | undefined;
   readonly openAiMessagesToGeminiContents: (messages: unknown[]) => Array<{ role: string; parts: Array<Record<string, unknown>> }>;
