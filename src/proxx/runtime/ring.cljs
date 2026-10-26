@@ -30,15 +30,16 @@
     :else x))
 
 (defn request->map
-  "Plain-data view of a Fastify request."
-  [^js req]
+  "Plain-data view of a Fastify request. `opaque-body?` leaves `:body` as the
+  parsed JS value (for handlers that forward it untouched and read facts from it)."
+  [^js req opaque-body?]
   {:method (keyword (str/lower-case (.-method req)))
    :url (.-url req)
    :path (first (str/split (.-url req) #"\?" 2))
    :query (obj->clj (.-query req))
    :params (obj->clj (.-params req))
    :headers (obj->clj (.-headers req))
-   :body (obj->clj (.-body req))
+   :body (if opaque-body? (.-body req) (obj->clj (.-body req)))
    :ip (.-ip req)
    :auth (obj->clj (.-openHaxAuth req))
    :raw req})
@@ -46,7 +47,7 @@
 (defn- send-response!
   [^js reply {:keys [status headers body]}]
   (.code reply (or status 200))
-  (doseq [[k v] headers] (.header reply (name k) v))
+  (doseq [[k v] headers] (.header reply (name k) (if (sequential? v) (clj->js v) v)))
   (.send reply (cond (nil? body) js/undefined
                      (string? body) body
                      :else (clj->js body)))
@@ -60,17 +61,19 @@
 
 (defn- http-error? [e] (some? (:http/status (ex-data e))))
 
-(defn- adapt [handler]
+(defn- adapt [handler opaque-body?]
   (fn ^:async fastify-handler [^js req ^js reply]
-    (let [response (try (await (handler (request->map req)))
+    (let [response (try (await (handler (assoc (request->map req opaque-body?) :reply reply)))
                         (catch :default e
                           (if (http-error? e) (http-error-response e) (throw e))))]
-      (send-response! reply response))))
+      (if (:handled? response)
+        reply
+        (send-response! reply response)))))
 
 (defn register!
   "Register `routes` (a seq of route maps) on a Fastify instance."
   [^js app routes]
-  (doseq [{:keys [method path handler]} routes]
+  (doseq [{:keys [method path handler opaque-body?]} routes]
     (.route app #js {:method (str/upper-case (name method))
                      :url path
-                     :handler (adapt handler)})))
+                     :handler (adapt handler opaque-body?)})))

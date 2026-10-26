@@ -887,22 +887,8 @@ export interface CljsKernels {
   readonly pheromoneGet: (records: readonly object[], providerId: string, model: string) => number;
   readonly pheromoneNoteSuccess: (records: readonly object[], providerId: string, model: string, quality: number) => object[];
   readonly pheromoneNoteFailure: (records: readonly object[], providerId: string, model: string) => object[];
-  // w3:onative ollama native API translation (proxx.compat.ollama-native)
-  readonly nativeChatToOpenAiRequest: (body: JsRecord) => JsRecord;
-  readonly nativeGenerateToChatRequest: (body: JsRecord) => JsRecord;
-  readonly chatCompletionToNativeChat: (response: JsRecord) => JsRecord;
-  readonly chatCompletionToNativeGenerate: (response: JsRecord) => JsRecord;
-  readonly nativeEmbedToOpenAiRequest: (body: JsRecord) => {
-    readonly model: string;
-    readonly input: string | readonly string[];
-    readonly num_ctx?: number;
-    readonly ollama_num_ctx?: number;
-  };
-  readonly nativeEmbedToOllamaRequest: (body: JsRecord, defaultNumCtx?: number) => JsRecord;
-  readonly openAiEmbeddingsToNativeEmbed: (response: JsRecord) => JsRecord;
-  readonly openAiEmbeddingsToNativeEmbeddings: (response: JsRecord) => JsRecord;
-  readonly nativeEmbedResponseToOpenAiEmbeddings: (response: JsRecord, model: string) => JsRecord;
-  readonly modelIdsToNativeTags: (modelIds: readonly string[], newDigest: () => string) => JsRecord;
+  // w3:websearch websearch route (proxx.http.websearch)
+  readonly registerWebsearchRoutes: (app: unknown, deps: unknown) => void;
 }
 
 export interface ChromaSearchRow {

@@ -405,7 +405,8 @@
                                            openAiEmbeddingsToNativeEmbed proxx.runtime.ollama-native/openai-embeddings-to-native-embed-js
                                            openAiEmbeddingsToNativeEmbeddings proxx.runtime.ollama-native/openai-embeddings-to-native-embeddings-js
                                            nativeEmbedResponseToOpenAiEmbeddings proxx.runtime.ollama-native/native-embed-response-to-openai-embeddings-js
-                                           modelIdsToNativeTags proxx.runtime.ollama-native/model-ids-to-native-tags-js}}}
+                                           modelIdsToNativeTags proxx.runtime.ollama-native/model-ids-to-native-tags-js
+                                           registerWebsearchRoutes proxx.runtime.routes.websearch/register-websearch-routes-js}}}
    :js-options {:js-provider :import
                 :keep-as-import #{"node:fs" "node:path"}}
    :compiler-options {:output-feature-set :es-next
