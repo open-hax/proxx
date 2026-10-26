@@ -13,7 +13,6 @@ import {
   resolveFederationHopCount,
   resolveFederationOwnerSubject,
 } from "./federation-helpers.js";
-import { isAtDid } from "./owner-credential.js";
 import {
   shouldWarmImportProjectedAccount,
   type FederationPeerRecord,
@@ -28,21 +27,9 @@ import type { FederationCredentialExport } from "../../routes/federation/account
 
 import { ensureFederationProjectedAccountsFresh } from "./on-demand-projections.js";
 import { getActiveCljsRuntime } from "../cljs-runtime.js";
+import { kernels } from "../cljs-kernels.js";
 
-const FEDERATION_HOP_HEADER = "x-open-hax-federation-hop";
-const FEDERATION_OWNER_SUBJECT_HEADER = "x-open-hax-federation-owner-subject";
-const FEDERATION_FORCED_PROVIDER_HEADER = "x-open-hax-forced-provider";
-const FEDERATION_FORCED_ACCOUNT_ID_HEADER = "x-open-hax-forced-account-id";
-const FEDERATION_ROUTED_PEER_HEADER = "x-open-hax-federation-routed-peer";
-const FEDERATION_ROUTED_PROVIDER_HEADER = "x-open-hax-federation-routed-provider";
-const FEDERATION_ROUTED_ACCOUNT_HEADER = "x-open-hax-federation-routed-account";
-const FEDERATION_IMPORTED_HEADER = "x-open-hax-federation-imported";
-const FEDERATION_BLOCKED_RESPONSE_HEADERS = new Set([
-  "set-cookie", "x-open-hax-federation-hop", "x-open-hax-federation-owner-subject",
-  "x-open-hax-federation-routed-peer", "x-open-hax-federation-routed-provider",
-  "x-open-hax-federation-routed-account", "x-open-hax-federation-imported",
-  "x-open-hax-forced-provider", "x-open-hax-forced-account-id",
-]);
+const routing = kernels.federationRouting;
 
 export interface FederatedRoutingDeps {
   readonly app: FastifyInstance;
@@ -94,16 +81,17 @@ export async function noteFederatedProjectedAccountRouted(
   }) ?? input.projectedAccount;
 
   let importedCredential = false;
-  const warmImportAllowed = input.policy
-    ? authorizeTenantProviderPolicy(deps, input.policy, {
+  // Legacy federation behavior: projected accounts may warm-import unless a
+  // tenant-provider policy is present and does not authorize it.
+  const warmImportAllowed = routing.warmImportAllowed(
+    input.policy !== undefined,
+    input.policy !== undefined && authorizeTenantProviderPolicy(deps, input.policy, {
       ownerSubject: input.policy.ownerSubject,
       providerKind: input.policy.providerKind,
       requestKind: input.requestKind,
       requiredShareMode: "warm_import",
-    })
-    // Preserve legacy federation behavior: projected accounts may warm-import
-    // unless a tenant-provider policy explicitly constrains share mode.
-    : true;
+    }),
+  );
   const warmImportThreshold = input.policy?.warmImportThreshold;
   if (warmImportAllowed && shouldWarmImportProjectedAccount(projectedAccount.warmRequestCount, warmImportThreshold)) {
     const importResult = await sqlFederationStore.withProjectedAccountImportLock({
@@ -135,10 +123,11 @@ export async function noteFederatedProjectedAccountRouted(
           accountId: latest.accountId,
         };
 
+        const [exportUrl, legacyExportUrl] = routing.exportUrls(peer);
         let remoteExport: { readonly account: FederationCredentialExport };
         try {
           remoteExport = await fetchFederationJson<{ readonly account: FederationCredentialExport }>({
-            url: `${peer.controlBaseUrl ?? peer.baseUrl}/api/v1/federation/accounts/export`,
+            url: exportUrl,
             credential,
             timeoutMs: input.timeoutMs,
             method: "POST",
@@ -147,7 +136,7 @@ export async function noteFederatedProjectedAccountRouted(
         } catch {
           // Back-compat retry for peers still exposing the UI export path.
           remoteExport = await fetchFederationJson<{ readonly account: FederationCredentialExport }>({
-            url: `${peer.controlBaseUrl ?? peer.baseUrl}/api/ui/federation/accounts/export`,
+            url: legacyExportUrl,
             credential,
             timeoutMs: input.timeoutMs,
             method: "POST",
@@ -213,19 +202,7 @@ export async function noteFederatedProjectedAccountRouted(
     }
   }
 
-  await sqlFederationStore.appendDiffEvent({
-    ownerSubject: projectedAccount.ownerSubject,
-    entityType: "projected_account",
-    entityKey: `${projectedAccount.sourcePeerId}:${projectedAccount.providerId}:${projectedAccount.accountId}`,
-    op: "note_routed",
-    payload: {
-      providerId: projectedAccount.providerId,
-      accountId: projectedAccount.accountId,
-      availabilityState: projectedAccount.availabilityState,
-      warmRequestCount: projectedAccount.warmRequestCount,
-      importedCredential,
-    },
-  });
+  await sqlFederationStore.appendDiffEvent(routing.routedDiffEvent(projectedAccount, importedCredential));
 
   return { importedCredential, projectedAccount };
 }
@@ -251,7 +228,7 @@ export async function executeFederatedRequestRouting(
   }
 
   const hopCount = resolveFederationHopCount(input.requestHeaders);
-  if (hopCount >= 1) {
+  if (routing.hopLimitExceeded(hopCount)) {
     return false;
   }
 
@@ -264,17 +241,13 @@ export async function executeFederatedRequestRouting(
     return false;
   }
 
-  const localProviderIds = new Set(input.providerRoutes.map((route) => route.providerId.trim().toLowerCase()));
+  const localProviderIds = new Set(routing.localProviderIds(input.providerRoutes.map((route) => route.providerId)));
   if (localProviderIds.size === 0) {
     return false;
   }
 
   const requestedModel = normalizeRequestedModel(input.requestBody.model);
-  const subjectDid = typeof input.requestAuth?.subject === "string" && isAtDid(input.requestAuth.subject)
-    ? input.requestAuth.subject.trim()
-    : typeof input.requestAuth?.tenantId === "string" && isAtDid(input.requestAuth.tenantId)
-      ? input.requestAuth.tenantId.trim()
-      : undefined;
+  const subjectDid = routing.subjectDid(input.requestAuth);
 
   const resolveRelayPolicy = async (providerId: string): Promise<TenantProviderPolicyRecord | null | undefined> => {
     if (!subjectDid || !sqlTenantProviderPolicyStore) {
@@ -301,12 +274,12 @@ export async function executeFederatedRequestRouting(
 
   const peers = await sqlFederationStore.listPeers(ownerSubject);
   const peersById = new Map(peers
-    .filter((peer) => peer.status.trim().toLowerCase() === "active")
+    .filter((peer) => routing.isActivePeer(peer))
     .map((peer) => [peer.id, peer] as const));
 
   const localProviderAccountKeys = new Set(
     (await runtimeCredentialStore.listProviders(false).catch(() => []))
-      .flatMap((provider) => provider.accounts.map((account) => `${provider.id.trim().toLowerCase()}\0${account.id}`)),
+      .flatMap((provider) => provider.accounts.map((account) => routing.localAccountKey(provider.id, account.id))),
   );
 
   type FederatedProjectedCandidate = {
@@ -386,11 +359,11 @@ export async function executeFederatedRequestRouting(
 
   for (const candidate of projectedCandidates) {
     const headers = buildForwardHeaders(input.requestHeaders as never);
-    headers.set("authorization", `Bearer ${candidate.credential}`);
-    headers.set(FEDERATION_HOP_HEADER, String(hopCount + 1));
-    headers.set(FEDERATION_OWNER_SUBJECT_HEADER, ownerSubject);
-    headers.set(FEDERATION_FORCED_PROVIDER_HEADER, candidate.projectedAccount.providerId);
-    headers.set(FEDERATION_FORCED_ACCOUNT_ID_HEADER, candidate.projectedAccount.accountId);
+    for (const [name, value] of Object.entries(
+      routing.forwardedRequestOverrides(candidate.credential, hopCount, ownerSubject, candidate.projectedAccount),
+    )) {
+      headers.set(name, value);
+    }
 
     let remoteResponse: Response;
     try {
@@ -438,22 +411,20 @@ export async function executeFederatedRequestRouting(
     });
 
     for (const [name, value] of remoteResponse.headers.entries()) {
-      if (FEDERATION_BLOCKED_RESPONSE_HEADERS.has(name.toLowerCase())) {
+      if (!routing.copyableResponseHeader(name)) {
         continue;
       }
       input.reply.header(name, value);
     }
-    input.reply.header(FEDERATION_OWNER_SUBJECT_HEADER, ownerSubject);
-    input.reply.header(FEDERATION_ROUTED_PEER_HEADER, candidate.peer.id);
-    input.reply.header(FEDERATION_ROUTED_PROVIDER_HEADER, candidate.projectedAccount.providerId);
-    input.reply.header(FEDERATION_ROUTED_ACCOUNT_HEADER, candidate.projectedAccount.accountId);
-    if (routed.importedCredential) {
-      input.reply.header(FEDERATION_IMPORTED_HEADER, "true");
+    for (const [name, value] of Object.entries(
+      routing.routedResponseHeaders(ownerSubject, candidate.peer.id, candidate.projectedAccount, routed.importedCredential),
+    )) {
+      input.reply.header(name, value);
     }
 
     input.reply.code(remoteResponse.status);
     const contentType = remoteResponse.headers.get("content-type") ?? "";
-    const isEventStream = contentType.toLowerCase().includes("text/event-stream");
+    const isEventStream = routing.eventStreamContentType(contentType);
 
     if (!remoteResponse.body) {
       input.reply.send(await remoteResponse.text());
