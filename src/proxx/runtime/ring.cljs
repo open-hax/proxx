@@ -5,9 +5,10 @@
   `(fn [request] response)` — it may return a Promise (or be `^:async`), and
   request/response are plain maps:
 
-    request   {:method :get :url :path :query :params :headers :body :ip :auth :raw}
+    request   {:method :get :url :path :query :params :headers :body :ip :auth :raw :reply}
               (`:auth` is the identity resolved by the host's auth hook, or nil)
-              (`:raw` is the Fastify request, for handlers that must stream)
+              (`:raw` is the Fastify request and `:reply` the Fastify reply, for
+               handlers that must stream)
     response  {:status 200 :headers {\"x\" \"y\"} :body <map|vector|string|nil>}
 
   Maps and vectors are sent as JSON, strings as given. The only code that
@@ -15,7 +16,11 @@
 
   A handler that throws `(ex-info msg {:http/status n ...})` becomes a JSON
   `{\"error\": {\"message\": msg}}` response with that status; any other throw
-  propagates to the application's Fastify error handler unchanged."
+  propagates to the application's Fastify error handler unchanged.
+
+  A handler that has taken over the connection (SSE: it wrote the head and
+  keeps writing to `(.-raw reply)`) returns `{:streamed? true}`; the adapter then
+  sends nothing, exactly as a Fastify handler that resolves after `writeHead`."
   (:require [clojure.string :as str]))
 
 ;; Fastify hands us params/query/headers objects whose prototype is not
@@ -62,10 +67,12 @@
 
 (defn- adapt [handler]
   (fn ^:async fastify-handler [^js req ^js reply]
-    (let [response (try (await (handler (request->map req)))
+    (let [response (try (await (handler (assoc (request->map req) :reply reply)))
                         (catch :default e
                           (if (http-error? e) (http-error-response e) (throw e))))]
-      (send-response! reply response))))
+      (if (:streamed? response)
+        js/undefined ;; not null: Fastify sends a resolved non-undefined payload
+        (send-response! reply response)))))
 
 (defn register!
   "Register `routes` (a seq of route maps) on a Fastify instance."

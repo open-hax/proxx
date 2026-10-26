@@ -760,14 +760,16 @@
     {
       "path": "src/routes/api/ui/analytics/usage.ts",
       "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed"
+      "disposition": "removed",
+      "removalCondition": "Removed: observability routes, scoping decisions and usage data sourcing are CLJS (proxx.runtime.routes.observability, proxx.http.observability); observability/index.ts is the shim.",
+      "removed": true
     },
     {
       "path": "src/routes/api/ui/assets.ts",
       "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed"
+      "disposition": "removed",
+      "removalCondition": "Removed: nothing imports it (dead legacy /api/ui registration; the live surface is registered through routes/api/v1/index.ts).",
+      "removed": true
     },
     {
       "path": "src/routes/api/ui/bridge-sse.ts",
@@ -778,20 +780,23 @@
     {
       "path": "src/routes/api/ui/events/index.ts",
       "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed"
+      "disposition": "removed",
+      "removalCondition": "Removed: nothing imports it (dead legacy /api/ui registration; the live surface is registered through routes/api/v1/index.ts).",
+      "removed": true
     },
     {
       "path": "src/routes/api/ui/hosts/index.ts",
       "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed"
+      "disposition": "removed",
+      "removalCondition": "Removed: nothing imports it (dead legacy /api/ui registration; the live surface is registered through routes/api/v1/index.ts).",
+      "removed": true
     },
     {
       "path": "src/routes/api/ui/mcp/index.ts",
       "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed"
+      "disposition": "removed",
+      "removalCondition": "Removed: nothing imports it (dead legacy /api/ui registration; the live surface is registered through routes/api/v1/index.ts).",
+      "removed": true
     },
     {
       "path": "src/routes/api/ui/request-log-sse.ts",
@@ -814,8 +819,9 @@
     {
       "path": "src/routes/bridge/lease.ts",
       "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed"
+      "disposition": "removed",
+      "removalCondition": "Removed: nothing imports it (dead legacy /api/ui registration; the live surface is registered through routes/api/v1/index.ts).",
+      "removed": true
     },
     {
       "path": "src/routes/chat.ts",
@@ -970,8 +976,9 @@
     {
       "path": "src/routes/federation/remote.ts",
       "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed"
+      "disposition": "removed",
+      "removalCondition": "Removed: federation routes and decisions are CLJS (proxx.runtime.routes.federation, proxx.http.federation); the peer fetch lives in the CLJS edge.",
+      "removed": true
     },
     {
       "path": "src/routes/federation/ui.ts",
@@ -1000,14 +1007,16 @@
     {
       "path": "src/routes/index.ts",
       "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed"
+      "disposition": "removed",
+      "removalCondition": "Removed: nothing imports it (dead legacy /api/ui registration; the live surface is registered through routes/api/v1/index.ts).",
+      "removed": true
     },
     {
       "path": "src/routes/mcp/index.ts",
       "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed"
+      "disposition": "removed",
+      "removalCondition": "Removed: registerMcpRoutes registered nothing (empty body); the /mcp-servers route lives in observability.",
+      "removed": true
     },
     {
       "path": "src/routes/media-generations.ts",
@@ -1036,8 +1045,9 @@
     {
       "path": "src/routes/observability/prefix.ts",
       "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed"
+      "disposition": "removed",
+      "removalCondition": "Removed: observability routes, scoping decisions and usage data sourcing are CLJS (proxx.runtime.routes.observability, proxx.http.observability); observability/index.ts is the shim.",
+      "removed": true
     },
     {
       "path": "src/routes/responses.ts",
@@ -1060,14 +1070,16 @@
     {
       "path": "src/routes/sessions/prefix.ts",
       "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed"
+      "disposition": "removed",
+      "removalCondition": "Removed: session routes, message validation and search decisions are CLJS (proxx.runtime.routes.sessions, proxx.http.sessions); sessions/index.ts is the shim.",
+      "removed": true
     },
     {
       "path": "src/routes/sessions/ui.ts",
       "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed"
+      "disposition": "removed",
+      "removalCondition": "Removed: session routes, message validation and search decisions are CLJS (proxx.runtime.routes.sessions, proxx.http.sessions); sessions/index.ts is the shim.",
+      "removed": true
     },
     {
       "path": "src/routes/settings/delete-tenant-api-key-ui.ts",
@@ -1159,8 +1171,9 @@
     {
       "path": "src/routes/ui/index.ts",
       "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed"
+      "disposition": "removed",
+      "removalCondition": "Removed: nothing imports it (dead legacy /api/ui registration; the live surface is registered through routes/api/v1/index.ts).",
+      "removed": true
     },
     {
       "path": "src/routes/websearch.ts",

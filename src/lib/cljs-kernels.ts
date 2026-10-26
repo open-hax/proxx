@@ -940,6 +940,15 @@ export interface CljsKernels {
   readonly pheromoneGet: (records: readonly object[], providerId: string, model: string) => number;
   readonly pheromoneNoteSuccess: (records: readonly object[], providerId: string, model: string, quality: number) => object[];
   readonly pheromoneNoteFailure: (records: readonly object[], providerId: string, model: string) => object[];
+  // w3 routes-ui
+  readonly registerHostRoutes: (app: unknown, env: object, prefix: string) => void;
+  readonly registerEventRoutes: (app: unknown, eventStore: object | undefined) => void;
+  readonly registerSessionRoutes: (app: unknown, deps: object, prefix: string) => void;
+  readonly registerObservabilityRoutes: (app: unknown, deps: object, options?: object) => void;
+  readonly registerRequestLogSseRoutes: (app: unknown, deps: object, hub: object) => void;
+  readonly registerBridgeSseRoutes: (app: unknown, deps: object, relay: object) => void;
+  readonly registerWebSocketRoutes: (app: unknown, deps: object) => unknown;
+  readonly registerFederationRoutes: (app: unknown, deps: object, prefix: string) => void;
 }
 
 export interface ChromaSearchRow {
