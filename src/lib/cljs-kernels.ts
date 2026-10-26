@@ -887,23 +887,22 @@ export interface CljsKernels {
   readonly pheromoneGet: (records: readonly object[], providerId: string, model: string) => number;
   readonly pheromoneNoteSuccess: (records: readonly object[], providerId: string, model: string, quality: number) => object[];
   readonly pheromoneNoteFailure: (records: readonly object[], providerId: string, model: string) => object[];
-  // w3:proxy proxy forwarding / rate-limit decisions (proxx.http.proxy)
-  readonly buildForwardHeaders: (clientHeaders: object) => Record<string, string>;
-  readonly buildUpstreamHeaders: (clientHeaders: object, apiKey: string) => Record<string, string>;
-  readonly buildUpstreamHeadersForCredential: (
-    clientHeaders: object,
-    credential: { readonly token: string; readonly chatgptAccountId?: string },
-    options?: { readonly useOpenAiCodexHeaderProfile?: boolean },
-  ) => Record<string, string>;
-  readonly forwardableResponseHeaders: (pairs: readonly (readonly [string, string])[]) => [string, string][];
-  readonly parseRetryAfterMs: (value: string | null) => number | undefined;
-  readonly classifyRateLimitKind: (errorBody: unknown, retryAfterMs: number | undefined, thresholdMs?: number) => "quota_exhausted" | "concurrency_throttle";
-  readonly detectOllamaLimitKind: (errorBody: unknown) => "session" | "weekly" | "unknown";
-  readonly parseWaitTimeFromMessage: (message: string) => number | undefined;
-  readonly extractRateLimitCooldownMs: (response: Response) => Promise<number | undefined>;
-  readonly openAiError: (message: string, type: string, code?: string) => {
-    readonly error: { readonly message: string; readonly type: string; readonly code?: string; readonly param: null };
+  // w3:onative ollama native API translation (proxx.compat.ollama-native)
+  readonly nativeChatToOpenAiRequest: (body: JsRecord) => JsRecord;
+  readonly nativeGenerateToChatRequest: (body: JsRecord) => JsRecord;
+  readonly chatCompletionToNativeChat: (response: JsRecord) => JsRecord;
+  readonly chatCompletionToNativeGenerate: (response: JsRecord) => JsRecord;
+  readonly nativeEmbedToOpenAiRequest: (body: JsRecord) => {
+    readonly model: string;
+    readonly input: string | readonly string[];
+    readonly num_ctx?: number;
+    readonly ollama_num_ctx?: number;
   };
+  readonly nativeEmbedToOllamaRequest: (body: JsRecord, defaultNumCtx?: number) => JsRecord;
+  readonly openAiEmbeddingsToNativeEmbed: (response: JsRecord) => JsRecord;
+  readonly openAiEmbeddingsToNativeEmbeddings: (response: JsRecord) => JsRecord;
+  readonly nativeEmbedResponseToOpenAiEmbeddings: (response: JsRecord, model: string) => JsRecord;
+  readonly modelIdsToNativeTags: (modelIds: readonly string[], newDigest: () => string) => JsRecord;
 }
 
 export interface ChromaSearchRow {

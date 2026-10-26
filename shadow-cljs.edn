@@ -395,7 +395,17 @@
                                            detectOllamaLimitKind proxx.runtime.proxy/detect-ollama-limit-kind-js
                                            parseWaitTimeFromMessage proxx.runtime.proxy/parse-wait-time-from-message-js
                                            extractRateLimitCooldownMs proxx.runtime.proxy/extract-rate-limit-cooldown-ms-js
-                                           openAiError proxx.runtime.proxy/openai-error-js}}}
+                                           openAiError proxx.runtime.proxy/openai-error-js
+                                           nativeChatToOpenAiRequest proxx.runtime.ollama-native/native-chat-to-openai-request-js
+                                           nativeGenerateToChatRequest proxx.runtime.ollama-native/native-generate-to-chat-request-js
+                                           chatCompletionToNativeChat proxx.runtime.ollama-native/chat-completion-to-native-chat-js
+                                           chatCompletionToNativeGenerate proxx.runtime.ollama-native/chat-completion-to-native-generate-js
+                                           nativeEmbedToOpenAiRequest proxx.runtime.ollama-native/native-embed-to-openai-request-js
+                                           nativeEmbedToOllamaRequest proxx.runtime.ollama-native/native-embed-to-ollama-request-js
+                                           openAiEmbeddingsToNativeEmbed proxx.runtime.ollama-native/openai-embeddings-to-native-embed-js
+                                           openAiEmbeddingsToNativeEmbeddings proxx.runtime.ollama-native/openai-embeddings-to-native-embeddings-js
+                                           nativeEmbedResponseToOpenAiEmbeddings proxx.runtime.ollama-native/native-embed-response-to-openai-embeddings-js
+                                           modelIdsToNativeTags proxx.runtime.ollama-native/model-ids-to-native-tags-js}}}
    :js-options {:js-provider :import
                 :keep-as-import #{"node:fs" "node:path"}}
    :compiler-options {:output-feature-set :es-next
