@@ -1,6 +1,3 @@
-import type { FastifyInstance } from "fastify";
-
-import { kernels } from "../lib/cljs-kernels.js";
 import { extractPromptCacheKey } from "../lib/openai/index.js";
 import { OpenAiHttpError, isOpenAiHttpError, runCljsQueued, sendQueueError } from "../lib/provider-utils.js";
 import { resolveModelRouting } from "../lib/model-routing-pipeline.js";
@@ -35,7 +32,6 @@ import {
   responsesRequestToChatRequest,
   shouldUseResponsesUpstream,
 } from "../lib/responses-compat.js";
-import type { AppDeps } from "../lib/app-deps.js";
 
 /**
  * Host collaborators the CLJS /v1 routes (proxx.runtime.routes.v1) sequence:
@@ -78,8 +74,4 @@ export function v1RouteCollaborators(): Record<string, unknown> {
     isOpenAiHttpError,
     makeOpenAiHttpError: (input: ConstructorParameters<typeof OpenAiHttpError>[0]) => new OpenAiHttpError(input),
   };
-}
-
-export function registerChatRoutes(deps: AppDeps, app: FastifyInstance): void {
-  kernels.registerChatRoutes(app, deps, v1RouteCollaborators());
 }

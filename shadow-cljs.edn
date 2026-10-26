@@ -454,6 +454,7 @@
                                            executeProviderRoutingPlan proxx.runtime.attempt-executor/execute-provider-routing-plan-js
                                            inspectProviderAvailability proxx.runtime.attempt-executor/inspect-provider-availability-js
                                            executeLocalStrategy proxx.runtime.attempt-executor/execute-local-strategy-js
+                                           createApp proxx.app.main/create-app-js
                                            sqlStatement proxx.runtime.db-schema/sql-statement-js
                                            schemaVersion proxx.runtime.db-schema/schema-version-js
                                            allMigrations proxx.runtime.db-schema/all-migrations-js
@@ -461,7 +462,10 @@
                                            runMigrations proxx.runtime.db-schema/run-migrations-js
                                            createSqlConnection proxx.runtime.db-schema/create-sql-connection-js
                                            closeSqlConnection proxx.runtime.db-schema/close-connection-js
-                                           createGithubAllowlist proxx.runtime.github-allowlist/create-github-allowlist-js}}}
+                                           createGithubAllowlist proxx.runtime.github-allowlist/create-github-allowlist-js}}
+              ;; The Node entry (`node dist/cljs/main.js`): shares the runtime module's code.
+              :main {:depends-on #{:proxx-runtime}
+                     :init-fn proxx.app.entry/start!}}
    :js-options {:js-provider :import
                 :keep-as-import #{"node:fs" "node:path"}}
    :compiler-options {:output-feature-set :es-next

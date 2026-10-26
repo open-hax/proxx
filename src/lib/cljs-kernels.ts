@@ -1052,6 +1052,8 @@ export interface CljsKernels {
     readonly removeAllowedUser: (login: string) => Promise<void>;
     readonly getAllowedUsers: () => Promise<string[]>;
   };
+  // w4host application (proxx.app.main)
+  readonly createApp: (config: object, host: object) => Promise<import("fastify").FastifyInstance>;
   readonly inspectProviderAvailability: (
     keyPool: unknown, providerRoutes: unknown, promptCacheKey: string | undefined,
   ) => Promise<import("./provider-strategy/shared.js").ProviderAvailabilitySummary>;

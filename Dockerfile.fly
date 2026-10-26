@@ -20,4 +20,4 @@ ENV PROXY_HOST=0.0.0.0
 
 EXPOSE 8789
 
-CMD ["node", "dist/main.js"]
+CMD ["node", "dist/cljs/main.js"]

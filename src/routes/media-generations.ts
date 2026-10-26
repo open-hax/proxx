@@ -3,12 +3,9 @@ import { request as httpsRequest } from "node:https";
 import { URL } from "node:url";
 import { mkdir, writeFile } from "node:fs/promises";
 import type { IncomingHttpHeaders } from "node:http";
-import type { FastifyInstance } from "fastify";
-import type { AppDeps } from "../lib/app-deps.js";
 import { joinUrl } from "../lib/http/index.js";
 import { buildUpstreamHeadersForCredential, copyUpstreamHeaders } from "../lib/proxy.js";
 import { getActiveCljsRuntime } from "../lib/cljs-runtime.js";
-import { kernels } from "../lib/cljs-kernels.js";
 import { toErrorMessage } from "../lib/errors/index.js";
 import type { ProviderCredential } from "../lib/key-pool.js";
 
@@ -107,8 +104,8 @@ async function saveGeneratedAudio(input: {
   return audioBytes.length;
 }
 
-export function registerMediaGenerationRoutes(deps: AppDeps, app: FastifyInstance): void {
-  kernels.registerMediaRoutes(app, deps, {
+export function mediaRouteCollaborators(): Record<string, unknown> {
+  return {
     postMediaJson,
     saveGeneratedAudio,
     buildCredentialHeaders: (clientHeaders: IncomingHttpHeaders, account: ProviderCredential) =>
@@ -117,5 +114,5 @@ export function registerMediaGenerationRoutes(deps: AppDeps, app: FastifyInstanc
     toErrorMessage,
     joinUrl,
     getActiveCljsRuntime,
-  });
+  };
 }
