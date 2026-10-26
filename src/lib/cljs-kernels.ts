@@ -291,6 +291,38 @@ export interface CljsKernels {
     readonly sourceFile: string;
     readonly running: false;
   }>>;
+  // application composition (src/app.ts)
+  readonly installRequestHook: (app: unknown, deps: unknown) => void;
+  readonly installErrorHandler: (app: unknown, deps: { readonly isOpenAiHttpError: (error: unknown) => boolean }) => void;
+  readonly installNotFoundHandler: (app: unknown) => void;
+  readonly installPublicRoutes: (app: unknown, webPort: string) => void;
+  readonly createRefreshOpenAiOauthAccounts: (keyPool: unknown, refreshManager: unknown, providerId: string) => (accountId?: string) => Promise<{
+    readonly totalAccounts: number;
+    readonly refreshedCount: number;
+    readonly failedCount: number;
+  }>;
+  readonly mergeModelIds: (local: readonly string[], bridged: readonly string[]) => string[];
+  readonly advertisedModelIds: (sessions: readonly unknown[]) => string[];
+  readonly appWiringPlan: (config: unknown) => {
+    readonly database: boolean;
+    readonly storeInit: readonly { readonly id: string; readonly required: boolean; readonly started: string; readonly failed?: string }[];
+    readonly preferAccountStoreProviders: boolean;
+    readonly tokenRefresh: {
+      readonly maxConcurrency: number;
+      readonly backgroundIntervalMs: number;
+      readonly expiryBufferMs: number;
+      readonly proactiveRefreshWindowMs: number;
+      readonly maxConsecutiveFailures: number;
+    };
+    readonly quotaMonitor: {
+      readonly checkIntervalMs: number;
+      readonly providerId: string;
+      readonly quotaWarningThreshold: number;
+      readonly quotaCriticalThreshold: number;
+    };
+    readonly includeFactoryCatalogRoutes: boolean;
+    readonly pheromoneFileName: string;
+  };
   readonly createRuntimeCredentialStore: (fileStore: unknown, sqlStore: unknown) => {
     readonly listProviders: (revealSecrets: boolean) => Promise<unknown[]>;
     readonly upsertApiKeyAccount: (providerId: string, accountId: string, apiKey: string) => Promise<void>;

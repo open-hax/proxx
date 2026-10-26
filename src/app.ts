@@ -1,6 +1,6 @@
 import { dirname, join } from "node:path";
 
-import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
+import Fastify, { type FastifyInstance } from "fastify";
 import fastifySwagger from "@fastify/swagger";
 import fastifySwaggerUi from "@fastify/swagger-ui";
 
@@ -8,17 +8,10 @@ import "./lib/fastify-types.js";
 
 import type { ProxyConfig } from "./lib/config.js";
 import { getActiveCljsRuntime } from "./lib/cljs-runtime.js";
-import {
-  PROXY_AUTH_COOKIE_NAME,
-  readCookieToken,
-  readSingleHeader,
-  escapeHtml,
-  isTrustedLocalBridgeAddress,
-  SUPPORTED_V1_ENDPOINTS,
-  SUPPORTED_NATIVE_OLLAMA_ENDPOINTS,
-} from "./lib/request-utils.js";
+import { kernels } from "./lib/cljs-kernels.js";
+import { PROXY_AUTH_COOKIE_NAME } from "./lib/request-utils.js";
 
-import { KeyPool, type ProviderCredential } from "./lib/key-pool.js";
+import { KeyPool } from "./lib/key-pool.js";
 import { CredentialStore } from "./lib/credential-store.js";
 import { OpenAiOAuthManager } from "./lib/openai-oauth.js";
 import { ProviderCatalogStore } from "./lib/provider-catalog.js";
@@ -29,11 +22,7 @@ import {
   createDynamicProviderBaseUrlGetter,
   getDeclaredProviderRoutes,
 } from "./lib/provider-routing.js";
-import {
-  isOpenAiHttpError,
-  sendOpenAiError,
-} from "./lib/provider-utils.js";
-import { openAiError } from "./lib/proxy.js";
+import { isOpenAiHttpError } from "./lib/provider-utils.js";
 import { toErrorMessage } from "./lib/errors/index.js";
 import { getTelemetry } from "./lib/telemetry/otel.js";
 import { RequestLogStore } from "./lib/request-log-store.js";
@@ -62,7 +51,6 @@ import {
   createTokenRefreshRuntime,
 } from "./lib/token-refresh-handlers.js";
 import { DEFAULT_TENANT_ID } from "./lib/tenant-api-key.js";
-import { resolveRequestAuth, type ResolvedRequestAuth } from "./lib/request-auth.js";
 import { createEnvFederationBridgeAgent } from "./lib/federation/bridge-agent-autostart.js";
 import type { FederationBridgeRelay } from "./lib/federation/bridge-relay.js";
 import { type AppDeps } from "./lib/app-deps.js";
@@ -89,28 +77,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     bodyLimit: 300 * 1024 * 1024
   });
 
-  app.setErrorHandler(async (error, request, reply) => {
-    if (isOpenAiHttpError(error)) {
-      request.log.warn({
-        err: error,
-        code: error.code,
-        type: error.type,
-        meta: error.meta,
-        tenantId: request.openHaxAuth?.tenantId,
-      }, "request failed with typed OpenAI error");
-      if (error.code) {
-        reply.header("x-open-hax-error-code", error.code);
-      }
-      reply.code(error.statusCode).send(openAiError(error.message, error.type, error.code));
-      return;
-    }
-
-    request.log.error({
-      err: error,
-      tenantId: request.openHaxAuth?.tenantId,
-    }, "request failed with unhandled error");
-    reply.code(500).send(openAiError("Internal server error", "server_error", "internal_error"));
-  });
+  kernels.installErrorHandler(app, { isOpenAiHttpError });
 
   await app.register(fastifySwagger, {
     openapi: {
@@ -146,55 +113,81 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
   let sqlFederationStore: SqlFederationStore | undefined;
   let sqlTenantProviderPolicyStore: SqlTenantProviderPolicyStore | undefined;
 
-  if (config.databaseUrl) {
+  const plan = kernels.appWiringPlan(config);
+
+  if (plan.database) {
     try {
-      sql = createSqlConnection({ connectionString: config.databaseUrl });
+      sql = createSqlConnection({ connectionString: config.databaseUrl! });
       app.log.info("connecting to database");
 
-      sqlCredentialStore = new SqlCredentialStore(sql, { defaultTenantId: DEFAULT_TENANT_ID });
-      await sqlCredentialStore.init();
-      app.log.info("credential store initialized");
+      const connection = sql;
+      const storeInitializers: Record<string, { readonly init: () => Promise<void>; readonly reset?: () => void }> = {
+        credential: {
+          init: async () => {
+            sqlCredentialStore = new SqlCredentialStore(connection, { defaultTenantId: DEFAULT_TENANT_ID });
+            await sqlCredentialStore.init();
+          },
+        },
+        accountHealth: {
+          init: async () => {
+            accountHealthStore = new AccountHealthStore(connection);
+            await accountHealthStore.init();
+          },
+        },
+        event: {
+          init: async () => {
+            eventStore = new EventStore(connection);
+            await eventStore.init();
+            for (const labeler of createDefaultLabelers()) {
+              eventStore.registerLabeler(labeler);
+            }
+          },
+        },
+        requestUsage: {
+          init: async () => {
+            sqlRequestUsageStore = new SqlRequestUsageStore(connection);
+            await sqlRequestUsageStore.init();
+          },
+        },
+        federation: {
+          init: async () => {
+            sqlFederationStore = new SqlFederationStore(connection);
+            await sqlFederationStore.init();
+          },
+          reset: () => { sqlFederationStore = undefined; },
+        },
+        tenantProviderPolicy: {
+          init: async () => {
+            sqlTenantProviderPolicyStore = new SqlTenantProviderPolicyStore(connection);
+            await sqlTenantProviderPolicyStore.init();
+          },
+          reset: () => { sqlTenantProviderPolicyStore = undefined; },
+        },
+        authPersistence: {
+          init: async () => {
+            sqlAuthPersistence = new SqlAuthPersistence(connection);
+            await sqlAuthPersistence.init();
+          },
+        },
+      };
 
-      accountHealthStore = new AccountHealthStore(sql);
-      await accountHealthStore.init();
-      app.log.info("account health store initialized");
-
-      eventStore = new EventStore(sql);
-      await eventStore.init();
-      for (const labeler of createDefaultLabelers()) {
-        eventStore.registerLabeler(labeler);
+      for (const store of plan.storeInit) {
+        const initializer = storeInitializers[store.id]!;
+        if (store.required) {
+          await initializer.init();
+          app.log.info(store.started);
+          continue;
+        }
+        try {
+          await initializer.init();
+          app.log.info(store.started);
+        } catch (error) {
+          initializer.reset?.();
+          app.log.warn({ error: toErrorMessage(error) }, store.failed!);
+        }
       }
-      app.log.info("event store initialized");
 
-      sqlRequestUsageStore = new SqlRequestUsageStore(sql);
-      await sqlRequestUsageStore.init();
-      app.log.info("request usage store initialized");
-
-      try {
-        sqlFederationStore = new SqlFederationStore(sql);
-        await sqlFederationStore.init();
-        app.log.info("federation store initialized");
-      } catch (error) {
-        sqlFederationStore = undefined;
-        app.log.warn({ error: toErrorMessage(error) }, "failed to initialize federation store; continuing with federation disabled");
-      }
-
-      try {
-        sqlTenantProviderPolicyStore = new SqlTenantProviderPolicyStore(sql);
-        await sqlTenantProviderPolicyStore.init();
-        app.log.info("tenant provider policy store initialized");
-      } catch (error) {
-        sqlTenantProviderPolicyStore = undefined;
-        app.log.warn({ error: toErrorMessage(error) }, "failed to initialize tenant provider policy store; continuing with policy store disabled");
-      }
-
-      sqlAuthPersistence = new SqlAuthPersistence(sql);
-      await sqlAuthPersistence.init();
-      app.log.info("auth persistence initialized");
-
-
-
-      const removedLegacyOpenAiAccounts = await sqlCredentialStore.cleanupLegacyOpenAiDuplicates();
+      const removedLegacyOpenAiAccounts = await sqlCredentialStore!.cleanupLegacyOpenAiDuplicates();
       if (removedLegacyOpenAiAccounts > 0) {
         app.log.warn({ count: removedLegacyOpenAiAccounts }, "removed legacy duplicate OpenAI account rows after seeding");
       }
@@ -216,7 +209,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     accountStore: sqlCredentialStore,
     cooldownStore: sqlCredentialStore,
     disabledStore: sqlCredentialStore,
-    preferAccountStoreProviders: sqlCredentialStore !== undefined,
+    preferAccountStoreProviders: plan.preferAccountStoreProviders,
     cooldownJitterFactor: config.keyCooldownJitterFactor,
     enableRandomWalk: config.enableKeyRandomWalk,
   });
@@ -236,7 +229,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
   const promptAffinityStore = new SqlPromptAffinityStore(sql);
   await promptAffinityStore.init();
   const providerRoutePheromoneStore = new ProviderRoutePheromoneStore(
-    join(dirname(config.requestLogsFilePath), "provider-route-pheromones.json"),
+    join(dirname(config.requestLogsFilePath), plan.pheromoneFileName),
     config.promptAffinityFlushMs,
   );
   await providerRoutePheromoneStore.warmup();
@@ -267,17 +260,8 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     oauthManager,
     sqlCredentialStore,
     log: app.log,
-    config: {
-      maxConcurrency: config.oauthRefreshMaxConcurrency,
-      backgroundIntervalMs: config.oauthRefreshBackgroundIntervalMs,
-      expiryBufferMs: 60_000,
-      proactiveRefreshWindowMs: config.oauthRefreshProactiveWindowMs,
-      maxConsecutiveFailures: 3,
-    },
+    config: plan.tokenRefresh,
   });
-
-  const FEDERATION_OWNER_SUBJECT_HEADER = "x-open-hax-federation-owner-subject";
-  const FEDERATION_BRIDGE_TENANT_HEADER = "x-open-hax-bridge-tenant-id";
 
   tokenRefreshManager.startBackgroundRefresh(() => {
     const expiring = keyPool.getExpiringAccounts(config.oauthRefreshProactiveWindowMs);
@@ -285,95 +269,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     return [...expired, ...expiring];
   });
 
-  function inferWebConsoleUrl(request: FastifyRequest): string {
-    const forwardedHost = readSingleHeader(request.headers as Record<string, unknown>, "x-forwarded-host")?.trim();
-    const host = forwardedHost
-      || readSingleHeader(request.headers as Record<string, unknown>, "host")?.trim()
-      || "localhost";
-    const forwardedProto = readSingleHeader(request.headers as Record<string, unknown>, "x-forwarded-proto")?.trim();
-    const protocol = forwardedProto || request.protocol || "http";
-    const webPort = (process.env.PROXY_WEB_PORT ?? "5174").trim() || "5174";
-
-    let hostname = "localhost";
-    try {
-      hostname = new URL(`http://${host}`).hostname || "localhost";
-    } catch {
-      hostname = host.split(":", 1)[0] || "localhost";
-    }
-
-    return `${protocol}://${hostname}:${webPort}`;
-  }
-
-  function renderPublicLandingPage(request: FastifyRequest): string {
-    const consoleUrl = inferWebConsoleUrl(request);
-    const safeConsoleUrl = escapeHtml(consoleUrl);
-    return `<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Open Hax Proxy</title>
-    <style>
-      body { font-family: "IBM Plex Sans", "Fira Sans", sans-serif; background: radial-gradient(circle at top, #12313b 0%, #0b161c 60%); color: #e9f7fb; margin: 0; min-height: 100vh; display: grid; place-items: center; }
-      .card { background: rgba(17, 33, 42, 0.9); border: 1px solid rgba(145, 212, 232, 0.35); padding: 28px; border-radius: 14px; width: min(680px, 92vw); box-shadow: 0 20px 48px rgba(0, 0, 0, 0.33); }
-      h1 { margin: 0 0 12px 0; font-size: 1.4rem; }
-      p { margin: 0 0 10px 0; color: #bce2ec; line-height: 1.5; }
-      code { background: rgba(255,255,255,0.08); padding: 2px 6px; border-radius: 6px; }
-      a { color: #9be7ff; }
-      .actions { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 18px; }
-      .button { display: inline-flex; align-items: center; justify-content: center; padding: 10px 14px; border-radius: 10px; background: #10313d; border: 1px solid rgba(145, 212, 232, 0.35); color: #e9f7fb; text-decoration: none; }
-      .button.secondary { background: transparent; }
-    </style>
-  </head>
-  <body>
-    <section class="card">
-      <h1>Open Hax OpenAI Proxy</h1>
-      <p>This port serves the proxy API and OAuth callback surface. The operator web console lives on a separate port.</p>
-      <p>You can open the console without an API token, then paste the frontend bearer token into the <code>Proxy Token</code> field there.</p>
-      <div class="actions">
-        <a class="button" href="${safeConsoleUrl}">Open web console</a>
-        <a class="button secondary" href="/health">View health</a>
-      </div>
-    </section>
-  </body>
-</html>`;
-  }
-
-  async function refreshOpenAiOauthAccounts(accountId?: string): Promise<{
-    readonly totalAccounts: number;
-    readonly refreshedCount: number;
-    readonly failedCount: number;
-  }> {
-    const allOpenAiAccounts = await keyPool.getAllAccounts(config.openaiProviderId).catch(() => [] as ProviderCredential[]);
-    const normalizedAccountId = typeof accountId === "string" && accountId.trim().length > 0
-      ? accountId.trim()
-      : undefined;
-
-    const candidates = allOpenAiAccounts.filter((account) => {
-      if (account.authType !== "oauth_bearer") {
-        return false;
-      }
-
-      if (typeof account.refreshToken !== "string" || account.refreshToken.trim().length === 0) {
-        return false;
-      }
-
-      return normalizedAccountId === undefined || account.accountId === normalizedAccountId;
-    });
-
-    for (const account of candidates) {
-      tokenRefreshManager.clearFailures(account);
-    }
-
-    const results = await tokenRefreshManager.refreshBatch(candidates);
-    const refreshedCount = results.filter((result): result is ProviderCredential => result !== null).length;
-
-    return {
-      totalAccounts: candidates.length,
-      refreshedCount,
-      failedCount: candidates.length - refreshedCount,
-    };
-  }
+  const refreshOpenAiOauthAccounts = kernels.createRefreshOpenAiOauthAccounts(keyPool, tokenRefreshManager, config.openaiProviderId);
 
   const quotaMonitor = new QuotaMonitor(
     runtimeCredentialStore,
@@ -382,12 +278,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
       warn: (obj, msg) => app.log.warn(obj, msg),
       error: (obj, msg) => app.log.error(obj, msg),
     },
-    {
-      checkIntervalMs: 20 * 60 * 1000,
-      providerId: config.openaiProviderId.trim() || "openai",
-      quotaWarningThreshold: 90,
-      quotaCriticalThreshold: 98,
-    },
+    plan.quotaMonitor,
     accountHealthStore,
     keyPool,
   );
@@ -395,7 +286,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
 
   const ollamaCatalogRoutes = buildOllamaCatalogRoutes(config);
   const providerCatalogRoutes = getDeclaredProviderRoutes(config).filter(
-    (route) => route.providerId !== "factory" || !config.disabledProviderIds.includes("factory"),
+    (route) => route.providerId !== "factory" || plan.includeFactoryCatalogRoutes,
   );
   const providerCatalogStore = new ProviderCatalogStore(
     config,
@@ -425,20 +316,11 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
 
     // Prefer advertised capabilities when available (avoids fan-out overhead).
     // Fall back to /v1/models fan-out when capabilities are not yet advertised.
-    const advertisedModels = new Set<string>();
-    for (const session of connectedSessions) {
-      for (const capability of session.capabilities) {
-        for (const model of capability.models) {
-          advertisedModels.add(model);
-        }
-      }
+    const advertisedModels = kernels.advertisedModelIds(connectedSessions);
+    if (advertisedModels.length > 0) {
+      return advertisedModels;
     }
 
-    if (advertisedModels.size > 0) {
-      return [...advertisedModels];
-    }
-
-    // Fallback: fan-out /v1/models to each connected session when capabilities not advertised
     const remoteModelLists = await Promise.all(connectedSessions.map(async (session) => {
       try {
         const response = await bridgeRelay!.requestJson(session.sessionId, {
@@ -459,7 +341,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
   async function getMergedModelIds(forceRefresh = false): Promise<string[]> {
     const localCatalog = await getResolvedModelCatalog(forceRefresh);
     const bridgedModels = await getBridgeAdvertisedModelIds();
-    return [...new Set([...localCatalog.modelIds, ...bridgedModels])];
+    return kernels.mergeModelIds(localCatalog.modelIds, bridgedModels);
   }
   const fedDeps = { app, cljsPolicyManifestPath: config.cljsPolicyManifestPath, sqlFederationStore, runtimeCredentialStore, keyPool, sqlTenantProviderPolicyStore };
   const getBridgeDeps = () => ({ bridgeRelay, app, config, runtimeCredentialStore, keyPool, sqlTenantProviderPolicyStore });
@@ -477,121 +359,14 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     app.log.warn("proxy auth disabled via PROXY_ALLOW_UNAUTHENTICATED=true");
   }
 
-  app.decorateRequest("openHaxAuth", null);
-
-  app.addHook("onRequest", async (request, reply) => {
-    const origin = request.headers.origin;
-    reply.header("Access-Control-Allow-Origin", origin ?? "*");
-    reply.header("Vary", "Origin");
-    reply.header("Access-Control-Allow-Headers", "Authorization, Content-Type, Accept, X-Requested-With, Cookie");
-    reply.header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
-
-    if (request.method === "OPTIONS") {
-      return;
-    }
-
-    const rawPath = (request.raw.url ?? request.url).split("?", 1)[0] ?? request.url;
-    const allowUnauthenticatedRoute = rawPath === "/" || rawPath === "/favicon.ico" || rawPath === "/health" || rawPath === "/api/ui/credentials/openai/oauth/browser/callback" || rawPath === "/api/v1/credentials/openai/oauth/browser/callback"
-      || rawPath === "/auth/callback" || rawPath === "/auth/factory/callback"
-      || rawPath === config.githubOAuthCallbackPath || rawPath === "/auth/login"
-      || rawPath === "/auth/refresh" || rawPath === "/auth/logout";
-    const allowUiSessionAuth = rawPath.startsWith("/api/ui/") || rawPath === "/api/v1" || rawPath.startsWith("/api/v1/") || rawPath.startsWith("/auth/");
-
-    if (allowUnauthenticatedRoute) {
-      return;
-    }
-
-    let bridgeResolvedAuth: ResolvedRequestAuth | undefined;
-    const bridgeAuthHeader = request.headers["x-open-hax-bridge-auth"];
-    const internalOwnerSubject = typeof request.headers[FEDERATION_OWNER_SUBJECT_HEADER] === "string"
-      ? request.headers[FEDERATION_OWNER_SUBJECT_HEADER].trim()
-      : undefined;
-    const internalTenantId = typeof request.headers[FEDERATION_BRIDGE_TENANT_HEADER] === "string"
-      ? request.headers[FEDERATION_BRIDGE_TENANT_HEADER].trim()
-      : undefined;
-    if (
-      bridgeAuthHeader === "internal"
-      && rawPath.startsWith("/v1/")
-      && internalOwnerSubject
-      && isTrustedLocalBridgeAddress(request.raw.socket.remoteAddress)
-    ) {
-      bridgeResolvedAuth = {
-        kind: "legacy_admin",
-        tenantId: internalTenantId || DEFAULT_TENANT_ID,
-        role: "owner",
-        source: "none",
-        subject: internalOwnerSubject,
-      };
-    }
-
-    const resolvedAuth = bridgeResolvedAuth ?? await resolveRequestAuth({
-      allowUnauthenticated: config.allowUnauthenticated,
-      proxyAuthToken: config.proxyAuthToken,
-      authorization: request.headers.authorization,
-      cookieToken: readCookieToken(request.headers.cookie, PROXY_AUTH_COOKIE_NAME),
-      oauthAccessToken: allowUiSessionAuth ? readCookieToken(request.headers.cookie, "proxy_auth") : undefined,
-      resolveTenantApiKey: sqlCredentialStore
-        ? async (token) => sqlCredentialStore!.resolveTenantApiKey(token, config.proxyTokenPepper)
-        : undefined,
-      resolveUiSession: allowUiSessionAuth && sqlCredentialStore && sqlAuthPersistence
-        ? async (token) => {
-          const accessToken = await sqlAuthPersistence.getAccessToken(token);
-          if (!accessToken) {
-            return undefined;
-          }
-
-          const activeTenantId = typeof accessToken.extra?.activeTenantId === "string"
-            ? accessToken.extra.activeTenantId
-            : undefined;
-          return sqlCredentialStore.resolveUiSession(accessToken.subject, activeTenantId);
-        }
-        : undefined,
-    });
-
-    if (!resolvedAuth) {
-      sendOpenAiError(reply, 401, "Unauthorized", "invalid_request_error", "unauthorized");
-      return;
-    }
-
-    request.openHaxAuth = resolvedAuth;
-
-    const enforceTenantQuotaRoute = request.method === "POST" && (
-      rawPath === "/v1/chat/completions"
-      || rawPath === "/v1/responses"
-      || rawPath === "/v1/images/generations"
-      || rawPath === "/v1/embeddings"
-    );
-
-    if (enforceTenantQuotaRoute && resolvedAuth.kind !== "unauthenticated") {
-      const tenantId = resolvedAuth.tenantId ?? DEFAULT_TENANT_ID;
-      const tenantSettings = await proxySettingsStore.getForTenant(tenantId);
-      if (typeof tenantSettings.requestsPerMinute === "number" && tenantSettings.requestsPerMinute > 0) {
-        const now = Date.now();
-        const recentRequestCount = requestLogStore.countRequestsSince(now - 60_000, { tenantId });
-        if (recentRequestCount >= tenantSettings.requestsPerMinute) {
-          reply.header("retry-after", 60);
-          sendOpenAiError(
-            reply,
-            429,
-            `Tenant request quota exceeded for ${tenantId}. Allowed requests per minute: ${tenantSettings.requestsPerMinute}.`,
-            "rate_limit_error",
-            "tenant_quota_exceeded",
-          );
-          return;
-        }
-      }
-    }
-
-    if (
-      resolvedAuth.kind === "tenant_api_key"
-      && sqlCredentialStore
-      && request.method === "POST"
-      && rawPath.startsWith("/v1/")
-      && resolvedAuth.tenantId
-      && resolvedAuth.keyId
-    ) {
-      await sqlCredentialStore.touchTenantApiKeyLastUsed(resolvedAuth.tenantId, resolvedAuth.keyId);
-    }
+  kernels.installRequestHook(app, {
+    config,
+    sqlCredentialStore,
+    sqlAuthPersistence,
+    proxySettingsStore,
+    requestLogStore,
+    defaultTenantId: DEFAULT_TENANT_ID,
+    cookieName: PROXY_AUTH_COOKIE_NAME,
   });
 
   // Attach a telemetry span to each request
@@ -615,37 +390,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     span.end();
   });
 
-  const OPTIONS_PATHS = [
-    "/",
-    "/health",
-    "/v1/chat/completions",
-    "/v1/responses",
-    "/v1/images/generations",
-    "/v1/embeddings",
-    "/v1/models",
-    "/v1/models/:model",
-    "/api/chat",
-    "/api/generate",
-    "/api/embed",
-    "/api/embeddings",
-    "/api/tags",
-    "/api/ui",
-    "/api/ui/*",
-    "/api/v1",
-    "/api/v1/*",
-  ];
-  for (const path of OPTIONS_PATHS) {
-    app.options(path, async (_request, reply) => { reply.code(204).send(); });
-  }
-
-  app.get("/", async (request, reply) => {
-    reply.header("content-type", "text/html; charset=utf-8");
-    reply.send(renderPublicLandingPage(request));
-  });
-
-  app.get("/favicon.ico", async (_request, reply) => {
-    reply.code(204).send();
-  });
+  kernels.installPublicRoutes(app, (process.env.PROXY_WEB_PORT ?? "5174").trim() || "5174");
 
   const deps: AppDeps = {
     app, config, keyPool, credentialStore, runtimeCredentialStore,
@@ -782,41 +527,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     }
   });
 
-  app.setNotFoundHandler(async (request, reply) => {
-    const rawUrl = request.raw.url ?? request.url;
-    const path = rawUrl.split("?", 1)[0] ?? rawUrl;
-
-    if (path.startsWith("/v1/")) {
-      sendOpenAiError(
-        reply,
-        404,
-        `Unsupported endpoint: ${request.method} ${path}. Supported endpoints: ${SUPPORTED_V1_ENDPOINTS.join(", ")}`,
-        "invalid_request_error",
-        "unsupported_endpoint"
-      );
-      return;
-    }
-
-    if (path.startsWith("/api/v1/")) {
-      sendOpenAiError(
-        reply,
-        404,
-        `Unsupported endpoint: ${request.method} ${path}. Supported API v1 endpoints begin with /api/v1 and are routed through the canonical control surface.`,
-        "invalid_request_error",
-        "unsupported_endpoint"
-      );
-      return;
-    }
-
-    if (path.startsWith("/api/")) {
-      reply.code(404).send({
-        error: `Unsupported endpoint: ${request.method} ${path}. Supported native endpoints: ${SUPPORTED_NATIVE_OLLAMA_ENDPOINTS.join(", ")}`
-      });
-      return;
-    }
-
-    reply.code(404).send({ ok: false, error: "Not Found" });
-  });
+  kernels.installNotFoundHandler(app);
 
   if (bridgeAgent) {
     await bridgeAgent.start();

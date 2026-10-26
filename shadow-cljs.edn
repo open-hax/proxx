@@ -110,6 +110,14 @@
                                            getToolSeedForModel proxx.runtime.mcp-seed/get-tool-seed-for-model-js
                                            loadMcpSeeds proxx.runtime.mcp-seed/load-mcp-seeds-js
                                            createRuntimeCredentialStore proxx.runtime.runtime-credential-store/create-runtime-credential-store-js
+                                           installRequestHook proxx.runtime.app/install-request-hook-js
+                                           installErrorHandler proxx.runtime.app/install-error-handler-js
+                                           installNotFoundHandler proxx.runtime.app/install-not-found-handler-js
+                                           installPublicRoutes proxx.runtime.app/install-public-routes-js
+                                           createRefreshOpenAiOauthAccounts proxx.runtime.app/create-refresh-openai-oauth-accounts-js
+                                           mergeModelIds proxx.runtime.app/merge-model-ids-js
+                                           advertisedModelIds proxx.runtime.app/advertised-model-ids-js
+                                           appWiringPlan proxx.runtime.app/wiring-plan-js
                                            ;; w2-analytics exports
                                            createRequestLogFanout proxx.runtime.observability/create-request-log-fanout-js
                                            createSessionStore proxx.runtime.session/create-session-store-js

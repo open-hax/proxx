@@ -30,23 +30,6 @@ export function copyInjectedResponseHeaders(reply: FastifyReply, headers: Record
   }
 }
 
-export const SUPPORTED_V1_ENDPOINTS = [
-  "POST /v1/chat/completions",
-  "POST /v1/responses",
-  "POST /v1/images/generations",
-  "POST /v1/embeddings",
-  "GET /v1/models",
-  "GET /v1/models/:model"
-] as const;
-
-export const SUPPORTED_NATIVE_OLLAMA_ENDPOINTS = [
-  "POST /api/chat",
-  "POST /api/generate",
-  "POST /api/embed",
-  "POST /api/embeddings",
-  "GET /api/tags"
-] as const;
-
 export interface ChatCompletionRequest {
   readonly model?: string;
   readonly messages?: unknown;
