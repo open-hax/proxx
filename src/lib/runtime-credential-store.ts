@@ -1,30 +1,27 @@
-import { CredentialStore, type CredentialProviderView, type CredentialStoreLike } from "./credential-store.js";
-import { SqlCredentialStore } from "./db/sql-credential-store.js";
+import { kernels } from "./cljs-kernels.js";
+import type { CredentialProviderView, CredentialStore, CredentialStoreLike } from "./credential-store.js";
+import type { SqlCredentialStore } from "./db/sql-credential-store.js";
 
+/**
+ * The credential store the host runs on: the SQL store when there is one, else
+ * the file-backed one. The delegation is CLJS (`proxx.runtime.runtime-credential-store`).
+ */
 export class RuntimeCredentialStore implements CredentialStoreLike {
-  public constructor(
-    private readonly fileStore: CredentialStore,
-    private readonly sqlStore?: SqlCredentialStore,
-  ) {}
+  private readonly impl: ReturnType<typeof kernels.createRuntimeCredentialStore>;
 
-  public async listProviders(revealSecrets: boolean): Promise<CredentialProviderView[]> {
-    if (!this.sqlStore) {
-      return this.fileStore.listProviders(revealSecrets);
-    }
-
-    return this.sqlStore.listProviders(revealSecrets);
+  public constructor(fileStore: CredentialStore, sqlStore?: SqlCredentialStore) {
+    this.impl = kernels.createRuntimeCredentialStore(fileStore, sqlStore);
   }
 
-  public async upsertApiKeyAccount(providerId: string, accountId: string, apiKey: string): Promise<void> {
-    if (this.sqlStore) {
-      await this.sqlStore.upsertApiKeyAccount(providerId, accountId, apiKey);
-      return;
-    }
-
-    await this.fileStore.upsertApiKeyAccount(providerId, accountId, apiKey);
+  public listProviders(revealSecrets: boolean): Promise<CredentialProviderView[]> {
+    return this.impl.listProviders(revealSecrets) as Promise<CredentialProviderView[]>;
   }
 
-  public async upsertOAuthAccount(
+  public upsertApiKeyAccount(providerId: string, accountId: string, apiKey: string): Promise<void> {
+    return this.impl.upsertApiKeyAccount(providerId, accountId, apiKey);
+  }
+
+  public upsertOAuthAccount(
     providerId: string,
     accountId: string,
     accessToken: string,
@@ -35,47 +32,16 @@ export class RuntimeCredentialStore implements CredentialStoreLike {
     subject?: string,
     planType?: string,
   ): Promise<void> {
-    if (this.sqlStore) {
-      await this.sqlStore.upsertOAuthAccount(
-        providerId,
-        accountId,
-        accessToken,
-        refreshToken,
-        expiresAt,
-        chatgptAccountId,
-        email,
-        subject,
-        planType,
-      );
-      return;
-    }
-
-    await this.fileStore.upsertOAuthAccount(
-      providerId,
-      accountId,
-      accessToken,
-      refreshToken,
-      expiresAt,
-      chatgptAccountId,
-      email,
-      subject,
-      planType,
+    return this.impl.upsertOAuthAccount(
+      providerId, accountId, accessToken, refreshToken, expiresAt, chatgptAccountId, email, subject, planType,
     );
   }
 
-  public async flush(): Promise<void> {
-    if (this.sqlStore) {
-      return;
-    }
-
-    await this.fileStore.flush();
+  public flush(): Promise<void> {
+    return this.impl.flush();
   }
 
-  public async removeAccount(providerId: string, accountId: string): Promise<boolean> {
-    if (this.sqlStore) {
-      return this.sqlStore.removeAccount(providerId, accountId);
-    }
-
-    return this.fileStore.removeAccount(providerId, accountId);
+  public removeAccount(providerId: string, accountId: string): Promise<boolean> {
+    return this.impl.removeAccount(providerId, accountId);
   }
 }

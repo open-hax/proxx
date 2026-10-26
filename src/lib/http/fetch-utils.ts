@@ -1,33 +1,8 @@
-/**
- * HTTP fetch utilities with timeout and abort signal support.
- */
+import { kernels } from "../cljs-kernels.js";
 
 /**
- * Fetch with a response timeout.
- *
- * If the response doesn't arrive within the specified timeout, the request
- * is aborted with a TimeoutError.
+ * Fetch with a response timeout: if the response does not arrive in time the
+ * request is aborted with a TimeoutError. The logic is CLJS (`proxx.runtime.http`).
  */
-export async function fetchWithResponseTimeout(
-  url: string,
-  init: RequestInit,
-  timeoutMs: number,
-): Promise<Response> {
-  const controller = new AbortController();
-  const timeoutHandle = setTimeout(() => {
-    controller.abort(new DOMException("The operation was aborted due to timeout", "TimeoutError"));
-  }, timeoutMs);
-
-  const mergedSignal = init.signal
-    ? AbortSignal.any([init.signal, controller.signal])
-    : controller.signal;
-
-  try {
-    return await fetch(url, {
-      ...init,
-      signal: mergedSignal,
-    });
-  } finally {
-    clearTimeout(timeoutHandle);
-  }
-}
+export const fetchWithResponseTimeout = (url: string, init: RequestInit, timeoutMs: number): Promise<Response> =>
+  kernels.fetchWithResponseTimeout(url, init, timeoutMs);

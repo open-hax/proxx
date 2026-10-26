@@ -43,3 +43,18 @@
       (clj->js (cond-> {:statusCode status :message message :type type :code code}
                  retry-after-seconds (assoc :retryAfterSeconds retry-after-seconds)))
       js/undefined)))
+
+(defn ^:async fetch-with-response-timeout-js
+  "`fetch` that aborts with a TimeoutError when no response arrives within
+  `timeout-ms` (src/lib/http/fetch-utils.ts). A caller's own signal also aborts it."
+  [url ^js init timeout-ms]
+  (let [controller (js/AbortController.)
+        handle (js/setTimeout
+                #(.abort controller (js/DOMException. "The operation was aborted due to timeout" "TimeoutError"))
+                timeout-ms)
+        signal (if (.-signal init)
+                 (.any js/AbortSignal #js [(.-signal init) (.-signal controller)])
+                 (.-signal controller))]
+    (try
+      (await (js/fetch url (js/Object.assign #js {} init #js {:signal signal})))
+      (finally (js/clearTimeout handle)))))

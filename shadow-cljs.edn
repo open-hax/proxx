@@ -105,6 +105,11 @@
                                            registerSettingsRoutes proxx.runtime.routes.settings/register-settings-routes-js
                                            registerCredentialRoutes proxx.runtime.routes.credentials/register-credential-routes-js
                                            joinRoutePath proxx.http.route-path/join
+                                           joinUrl proxx.http.url/join-url
+                                           fetchWithResponseTimeout proxx.runtime.http/fetch-with-response-timeout-js
+                                           getToolSeedForModel proxx.runtime.mcp-seed/get-tool-seed-for-model-js
+                                           loadMcpSeeds proxx.runtime.mcp-seed/load-mcp-seeds-js
+                                           createRuntimeCredentialStore proxx.runtime.runtime-credential-store/create-runtime-credential-store-js
                                            ;; w2-analytics exports
                                            createRequestLogFanout proxx.runtime.observability/create-request-log-fanout-js
                                            createSessionStore proxx.runtime.session/create-session-store-js

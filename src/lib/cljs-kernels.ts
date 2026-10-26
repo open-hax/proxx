@@ -279,6 +279,25 @@ export interface CljsKernels {
   readonly registerSettingsRoutes: (app: unknown, deps: unknown, prefix: string) => void;
   readonly registerCredentialRoutes: (app: unknown, deps: unknown, prefix: string, sharedCallbacks: boolean) => void;
   readonly joinRoutePath: (prefix: string, suffix: string) => string;
+  readonly joinUrl: (baseUrl: string, path: string) => string;
+  readonly fetchWithResponseTimeout: (url: string, init: RequestInit, timeoutMs: number) => Promise<Response>;
+  readonly getToolSeedForModel: (modelId: string) => Array<{ readonly id: string; readonly description: string; readonly enabled: boolean }>;
+  readonly loadMcpSeeds: (ecosystemsDir: string) => Promise<Array<{
+    readonly id: string;
+    readonly script: string;
+    readonly cwd?: string;
+    readonly args: readonly string[];
+    readonly port?: number;
+    readonly sourceFile: string;
+    readonly running: false;
+  }>>;
+  readonly createRuntimeCredentialStore: (fileStore: unknown, sqlStore: unknown) => {
+    readonly listProviders: (revealSecrets: boolean) => Promise<unknown[]>;
+    readonly upsertApiKeyAccount: (providerId: string, accountId: string, apiKey: string) => Promise<void>;
+    readonly upsertOAuthAccount: (...args: unknown[]) => Promise<void>;
+    readonly flush: () => Promise<void>;
+    readonly removeAccount: (providerId: string, accountId: string) => Promise<boolean>;
+  };
   // key pool
   readonly loadProviderSeedSpecs: (manifestPath: string) => readonly {
     readonly providerIdEnvNames: readonly string[];
