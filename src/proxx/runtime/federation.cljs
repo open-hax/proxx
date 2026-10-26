@@ -13,6 +13,7 @@
             [proxx.federation.lease :as lease]
             [proxx.federation.owner :as owner]
             [proxx.federation.protocol :as protocol]
+            [proxx.federation.routing :as routing]
             [proxx.federation.sse-channel :as sse]))
 
 (defn js->wire
@@ -176,3 +177,48 @@
                                   (step)))))
                      (.catch reject)))]
          (step))))))
+
+;; ---------------------------------------------------------------------------
+;; bridge-routing.ts / federated-routing.ts decisions
+;; ---------------------------------------------------------------------------
+
+(defn- result->js [r]
+  (cond (nil? r) js/undefined
+        (set? r) (to-array r)
+        :else (clj->js r)))
+
+(defn- wired
+  "A JS-callable wrapper: arguments become wire data, the result goes back as JS."
+  [f]
+  (fn [& args] (result->js (apply f (map js->wire args)))))
+
+(def federation-routing
+  (let [o (js-obj)]
+    (doseq [[k f] {"bridgeTenantId" routing/bridge-tenant-id
+                   "subjectDid" routing/subject-did
+                   "hopLimitExceeded" routing/hop-limit-exceeded?
+                   "normalizedPath" routing/normalized-path
+                   "allowedProviderIds" routing/allowed-provider-ids
+                   "sessionEligible" routing/session-eligible?
+                   "capabilityAdmissible" (fn [capability allowed] (routing/capability-admissible? capability (set allowed)))
+                   "eventStreamContentType" routing/event-stream-content-type?
+                   "jsonContentType" routing/json-content-type?
+                   "responseContentType" routing/response-content-type
+                   "routedPeerLabel" routing/routed-peer-label
+                   "bridgePathAllowed" routing/bridge-path-allowed?
+                   "bridgeForbiddenBody" (fn [] routing/bridge-forbidden-body)
+                   "bridgeRequestHeaders" (fn [m] (routing/bridge-request-headers
+                                                   {:accept (get m "accept") :content-type (get m "contentType")
+                                                    :owner-subject (get m "ownerSubject") :tenant-id (get m "tenantId")}))
+                   "utf8ChunkEncoding" routing/utf8-chunk-encoding?
+                   "localProviderIds" routing/local-provider-ids
+                   "localAccountKey" routing/local-account-key
+                   "isActivePeer" routing/active-peer?
+                   "forwardedRequestOverrides" routing/forwarded-request-overrides
+                   "copyableResponseHeader" routing/copyable-response-header?
+                   "routedResponseHeaders" routing/routed-response-headers
+                   "warmImportAllowed" routing/warm-import-allowed?
+                   "exportUrls" routing/export-urls
+                   "routedDiffEvent" routing/routed-diff-event}]
+      (aset o k (wired f)))
+    o))
