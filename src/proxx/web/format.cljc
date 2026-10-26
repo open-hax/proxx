@@ -103,3 +103,9 @@
 (defn maybe-tps [v] (if (finite-number? v) (str (fixed v (if (>= v 10) 0 1)) " t/s") "-"))
 (defn maybe-fraction-percent [v] (if (finite-number? v) (str (round-half-up (* v 100)) "%") "-"))
 (defn format-date-or-dash [v] (if v (format-datetime v) "-"))
+
+(defn format-time
+  "Locale time of day of an epoch-ms / ISO value."
+  [ts]
+  #?(:cljs (let [d (js/Date. ts)] (if (js/isNaN (.getTime d)) (str ts) (.toLocaleTimeString d)))
+     :clj (str ts)))

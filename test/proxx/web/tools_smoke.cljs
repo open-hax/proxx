@@ -15,6 +15,7 @@
 (deftest ^:async tools-page-renders-both-managers
   (s/stub-fetch! routes)
   (await (s/mount-app! "/tools"))
+  (await (s/wait-text "social-publisher"))
   (let [t (s/body-text)]
     (is (str/includes? t "Tool Manager"))
     (is (str/includes? t "MCP Manager"))

@@ -12,6 +12,7 @@
                               "routes" [{"host" "proxx.local" "matchPaths" ["/api"] "upstreams" ["http://127.0.0.1:8789"]}]
                               "summary" {"containerCount" 1 "runningCount" 1 "healthyCount" 1 "routeCount" 1}}]}]])
   (await (s/mount-app! "/hosts"))
+  (await (s/wait-text "proxx:latest"))
   (let [t (s/body-text)]
     (is (str/includes? t "Promethean ussy host dashboard"))
     (is (str/includes? t "Host A"))

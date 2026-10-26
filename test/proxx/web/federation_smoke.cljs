@@ -16,6 +16,7 @@
     [#"GET .*/api/v1/request-logs" {"entries" [{"id" "r1" "timestamp" 0 "routeKind" "federated" "routedPeerLabel" "Peer A" "providerId" "openai" "accountId" "a" "model" "gpt" "status" 200 "latencyMs" 12}]}]])
   (set! js/WebSocket (fn [_url] #js {:close (fn [])}))
   (await (s/mount-app! "/federation"))
+  (await (s/wait-text "federated → Peer A"))
   (let [t (s/body-text)]
     (is (str/includes? t "Brethren control surface"))
     (is (str/includes? t "Peer A"))

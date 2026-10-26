@@ -16,6 +16,7 @@
                     "models" [(r {"model" "gpt-5.3-codex"})] "providers" [(r {"providerId" "openai"})]
                     "providerModels" [(r {"providerId" "openai" "model" "gpt-5.3-codex"})]}]])
   (await (s/mount-app! "/analytics"))
+  (await (s/wait-text "Top model: gpt-5.3-codex"))
   (let [t (s/body-text)]
     (is (str/includes? t "Provider + model analytics"))
     (is (str/includes? t "Controls"))

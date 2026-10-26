@@ -68,7 +68,8 @@
         [db fx*] (step db [:route/navigate "/tools"])]
     (is (= :tools (get-in db [:route :page])))
     (is (= [:nav/push "/tools"] (first fx*)))
-    (is (= :http-all (first (second fx*)))))
+    (is (some #(= [:interval/stop :dashboard] %) fx*) "leaving the dashboard stops its poll")
+    (is (some #(= :http-all (first %)) fx*)))
   (testing "popstate does not push"
     (let [[_ fx*] (step (boot) [:route/changed "/tools"])]
       (is (not-any? #(= :nav/push (first %)) fx*)))))

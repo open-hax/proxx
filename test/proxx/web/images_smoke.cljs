@@ -9,7 +9,7 @@
   (await (s/mount-app! "/images"))
   (is (str/includes? (s/body-text) "Raw response"))
   (.click (.querySelector js/document ".chat-input-form button[type=submit]"))
-  (await (s/settle))
+  (await (s/wait-for #(some? (.querySelector js/document "img[alt=generated]"))))
   (let [img (.querySelector js/document "img[alt=generated]")]
     (is (some? img))
     (is (= "https://example.invalid/generated-cat.png" (.getAttribute img "src"))))

@@ -50,3 +50,14 @@
     container))
 
 (defn ^:async settle [] (await (sleep 60)) (r/flush))
+
+(defn ^:async wait-for
+  "Poll `pred` until true (5s cap) so slow machines do not make timing-based flakes."
+  [pred]
+  (loop [n 0]
+    (when (and (not (pred)) (< n 250))
+      (await (sleep 20))
+      (recur (inc n)))))
+
+(defn ^:async wait-text [text]
+  (await (wait-for #(str/includes? (body-text) text))))

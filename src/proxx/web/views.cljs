@@ -6,6 +6,7 @@
             [proxx.web.ui :as ui]
             [proxx.web.views.analytics :as analytics-view]
             [proxx.web.views.chat :as chat-view]
+            [proxx.web.views.dashboard :as dashboard-view]
             [proxx.web.views.events :as events-view]
             [proxx.web.views.federation :as federation-view]
             [proxx.web.views.hosts :as hosts-view]
@@ -65,7 +66,8 @@
    :events events-view/view
    :chat chat-view/view
    :analytics analytics-view/view
-   :federation federation-view/view})
+   :federation federation-view/view
+   :dashboard dashboard-view/view})
 
 (defn- placeholder [page]
   [:p.status-text (str "The " (name page) " page is being ported.")])

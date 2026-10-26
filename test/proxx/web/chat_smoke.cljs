@@ -26,6 +26,7 @@
     [#"GET .*/v1/models" {"data" [{"id" "gpt-5.3-codex"} {"id" "gpt-image-1"}]}]
     [#"POST .*/v1/chat/completions" {"choices" [{"message" {"content" "Hello from the mocked assistant." "reasoning_content" "Brief."}}]}]])
   (await (s/mount-app! "/chat"))
+  (await (s/wait-text "Welcome to the smoke session."))
   (let [t (s/body-text)]
     (is (str/includes? t "Sessions"))
     (is (str/includes? t "Local smoke session"))
@@ -37,8 +38,7 @@
     (let [btn (some #(when (= "Send" (str/trim (.-textContent %))) %) (array-seq (.querySelectorAll js/document "button")))]
       (is (some? btn))
       (.click btn)))
-  (await (s/settle))
-  (await (s/settle))
+  (await (s/wait-text "Hello from the mocked assistant."))
   (is (str/includes? (s/body-text) "Hello from the mocked assistant."))
   (let [completion (some #(when (str/ends-with? (:url %) "/v1/chat/completions") %) @s/calls)]
     (is (= "smoke-cache-key" (get (:body completion) "prompt_cache_key")))

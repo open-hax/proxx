@@ -12,6 +12,7 @@
                                                          "providerId" "openai" "model" "gpt-x" "status" 500 "tags" ["label:train"] "meta" {} "payload" nil}]
                                               "count" 1 "totalCount" 1}]])
   (await (s/mount-app! "/events"))
+  (await (s/wait-text "Tag counts"))
   (let [t (s/body-text)]
     (is (str/includes? t "openai/-"))
     (is (str/includes? t "gpt-x"))
@@ -19,7 +20,7 @@
     (is (str/includes? t "offset 0 · limit 50 · total 1"))
     (is (str/includes? t "Select an event to inspect its payload.")))
   (.click (.querySelector js/document ".events-row"))
-  (await (s/settle))
+  (await (s/wait-text "en-1"))
   (let [t (s/body-text)]
     (is (str/includes? t "en-1"))
     (is (str/includes? t "\"hello\": \"world\""))))
