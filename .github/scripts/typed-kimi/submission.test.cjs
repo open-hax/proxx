@@ -13,7 +13,7 @@ function native(value = decision) {
   return { info: { role: 'assistant', id: binding.assistantID, sessionID: binding.sessionID,
     providerID: 'kimi-code-plan-global', modelID: 'kimi-for-coding', variant: 'low',
     time: { completed: 123 }, structured: structuredClone(value) },
-  parts: [{ type: 'tool', tool: 'StructuredOutput', state: { status: 'completed', input: structuredClone(value) } }] };
+  parts: [{ sessionID: binding.sessionID, messageID: binding.assistantID, type: 'tool', tool: 'StructuredOutput', state: { status: 'completed', input: structuredClone(value) } }] };
 }
 test('v2 request uses owner schema with the existing explicit low route', async () => {
   const request = await structuredRequest(expected, 'Review the full immutable input.');
@@ -67,4 +67,12 @@ test('owner source/decision refusals and v1 incompatibility survive the native w
   const value = { ...decision, verdict: 'comment', summary: 'Approved. LGTM. No findings.' };
   assert.equal((await parseSubmission(expected, binding, native(value))).proposal.event, 'COMMENT');
   assert.equal((await parseSubmission(expected, binding, native({ ...decision, coverage: 'incomplete' }))).proposal.event, 'COMMENT');
+});
+
+test('StructuredOutput part belongs to the exact caller-bound native message', async () => {
+  for (const patch of [{ sessionID: 'ses_other' }, { messageID: 'msg_other' },
+    { sessionID: undefined }, { messageID: undefined }]) {
+    const response = native(); Object.assign(response.parts[0], patch);
+    await assert.rejects(parseSubmission(expected, binding, response), /typed-kimi:invalid-structured-evidence/);
+  }
 });
