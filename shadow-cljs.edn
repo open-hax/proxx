@@ -414,7 +414,10 @@
                                            embedWithHFCloud proxx.runtime.embeddings/embed-with-hf-cloud-js
                                            embedWithTEI proxx.runtime.embeddings/embed-with-tei-js
                                            embedWithOvmNpu proxx.runtime.embeddings/embed-with-ovm-npu-js
-                                           probeOllamaCloudAccount proxx.runtime.ollama-cloud-probe/probe-ollama-cloud-account-js}}}
+                                           probeOllamaCloudAccount proxx.runtime.ollama-cloud-probe/probe-ollama-cloud-account-js
+                                           forcedCredentialSelection proxx.runtime.candidates/forced-credential-selection-js
+                                           noAuthAccount proxx.runtime.candidates/no-auth-account-js
+                                           affinitiesFromRecord proxx.runtime.candidates/affinities-from-record-js}}}
    :js-options {:js-provider :import
                 :keep-as-import #{"node:fs" "node:path"}}
    :compiler-options {:output-feature-set :es-next

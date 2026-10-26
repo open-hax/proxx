@@ -888,11 +888,16 @@ export interface CljsKernels {
   readonly pheromoneGet: (records: readonly object[], providerId: string, model: string) => number;
   readonly pheromoneNoteSuccess: (records: readonly object[], providerId: string, model: string, quality: number) => object[];
   readonly pheromoneNoteFailure: (records: readonly object[], providerId: string, model: string) => object[];
-  // w3:cloudprobe ollama cloud probe (proxx.ollama.cloud-probe)
-  readonly probeOllamaCloudAccount: (
-    credentialStore: object,
-    options: { readonly providerId: string; readonly accountId: string; readonly baseUrl: string; readonly model?: string; readonly fetchFn?: typeof fetch },
-  ) => Promise<import("./ollama-cloud-probe.js").CredentialAccountProbeResult>;
+  // w3:candidates routing-candidate facts (proxx.strategy.candidates)
+  readonly forcedCredentialSelection: (authKind: string | undefined, headers: Record<string, unknown>) => {
+    readonly providerId?: string;
+    readonly accountId?: string;
+  };
+  readonly noAuthAccount: (providerId: string) => ProviderCredential;
+  readonly affinitiesFromRecord: (record: unknown) => {
+    readonly preferred?: { readonly providerId: string; readonly accountId: string };
+    readonly provisional?: { readonly providerId: string; readonly accountId: string };
+  };
 }
 
 export interface ChromaSearchRow {
