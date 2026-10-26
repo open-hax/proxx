@@ -964,8 +964,9 @@
     {
       "path": "src/routes/federation/remote.ts",
       "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed"
+      "disposition": "removed",
+      "removalCondition": "Removed: federation routes and decisions are CLJS (proxx.runtime.routes.federation, proxx.http.federation); the peer fetch lives in the CLJS edge.",
+      "removed": true
     },
     {
       "path": "src/routes/federation/ui.ts",

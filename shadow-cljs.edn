@@ -393,7 +393,8 @@
                                            registerObservabilityRoutes proxx.runtime.routes.observability/register-observability-routes-js
                                            registerRequestLogSseRoutes proxx.runtime.routes.streams/register-request-log-sse-routes-js
                                            registerBridgeSseRoutes proxx.runtime.routes.streams/register-bridge-sse-routes-js
-                                           registerWebSocketRoutes proxx.runtime.routes.ws/register-web-socket-routes-js}}}
+                                           registerWebSocketRoutes proxx.runtime.routes.ws/register-web-socket-routes-js
+                                           registerFederationRoutes proxx.runtime.routes.federation/register-federation-routes-js}}}
    :js-options {:js-provider :import
                 :keep-as-import #{"node:fs" "node:path"}}
    :compiler-options {:output-feature-set :es-next

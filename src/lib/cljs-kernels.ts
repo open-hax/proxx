@@ -895,6 +895,7 @@ export interface CljsKernels {
   readonly registerRequestLogSseRoutes: (app: unknown, deps: object, hub: object) => void;
   readonly registerBridgeSseRoutes: (app: unknown, deps: object, relay: object) => void;
   readonly registerWebSocketRoutes: (app: unknown, deps: object) => unknown;
+  readonly registerFederationRoutes: (app: unknown, deps: object, prefix: string) => void;
 }
 
 export interface ChromaSearchRow {
