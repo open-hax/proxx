@@ -29,4 +29,8 @@ async function schema(expected) { return (await runtime()).schema(expected); }
 async function publicationIntent(expected, response) {
   return (await runtime()).publicationIntent(expected, response);
 }
-module.exports = { schema, publicationIntent };
+async function structuredRequest(expected, prompt) { return (await runtime()).structuredRequest(expected, prompt); }
+async function parseSubmission(expected, binding, response) {
+  return (await runtime()).parseSubmission(expected, binding, response);
+}
+module.exports = { schema, publicationIntent, structuredRequest, parseSubmission };
