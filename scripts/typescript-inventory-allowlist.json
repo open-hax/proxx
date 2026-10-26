@@ -1623,8 +1623,9 @@
     {
       "path": "web/src/pages/ImagesPage.tsx",
       "owner": "T3-web-ui-tsx-retirement",
-      "disposition": "port-to-cljs-or-replace",
-      "removalCondition": "web UI builds from CLJS or is replaced by a CLJS UI surface"
+      "disposition": "removed",
+      "removalCondition": "Removed: ported to ClojureScript (proxx.web.pages.images, proxx.web.views.images).",
+      "removed": true
     },
     {
       "path": "web/src/pages/ToolsPage.tsx",

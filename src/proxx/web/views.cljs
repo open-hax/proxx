@@ -4,6 +4,7 @@
             [proxx.web.runtime :as rt]
             [proxx.web.shell :as shell]
             [proxx.web.ui :as ui]
+            [proxx.web.views.images :as images-view]
             [proxx.web.views.tools :as tools-view]))
 
 (defn nav-link [path-now {:keys [path label] :as route}]
@@ -53,7 +54,8 @@
      onboarding-cta]]])
 
 (def ^:private page-views
-  {:tools tools-view/view})
+  {:tools tools-view/view
+   :images images-view/view})
 
 (defn- placeholder [page]
   [:p.status-text (str "The " (name page) " page is being ported.")])

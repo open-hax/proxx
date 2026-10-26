@@ -4,12 +4,14 @@
   Pages are descriptors `{:init :enter :leave :handlers}` (see the page
   namespaces); the root merges their handler tables. Entering a page resets its
   slice (like a React remount), preserving persisted preferences in `:stored`."
-  (:require [proxx.web.pages.tools :as tools]
+  (:require [proxx.web.pages.images :as images]
+            [proxx.web.pages.tools :as tools]
             [proxx.web.router :as router]
             [proxx.web.shell :as shell]))
 
 (def pages
-  {:tools tools/page})
+  {:tools tools/page
+   :images images/page})
 
 (def handlers
   (into shell/handlers (mapcat (comp :handlers val)) pages))
