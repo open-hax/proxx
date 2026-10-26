@@ -490,12 +490,13 @@ export abstract class BaseProviderStrategy implements ProviderStrategy {
     if (context.clientWantsStream && (upstreamResponse.headers.get("content-type") ?? "").toLowerCase().includes("application/json")) {
       let completion: unknown;
       try { completion = await upstreamResponse.clone().json(); } catch { /* A validated SSE body may have a misleading JSON content type. */ }
-      if (isRecord(completion)) {
+      if (isRecord(completion) && Array.isArray(completion["choices"])) {
         appendUpstreamIdentityHeaders(reply, context);
         reply.code(upstreamResponse.status);
         reply.removeHeader("content-length");
         reply.header("content-type", "text/event-stream; charset=utf-8");
         reply.header("cache-control", "no-cache");
+        await upstreamResponse.body?.cancel();
         reply.send(chatCompletionToSse(completion));
         return { kind: "handled" };
       }

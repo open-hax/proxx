@@ -14158,3 +14158,29 @@ test("staged absolute deadlines rearm an early timer instead of timing out befor
     assert.equal(now,1002);assert.equal(callbacks,2);
   } finally {t.mock.restoreAll();}
 });
+
+test("JSON-to-SSE conversion preserves native payload failover and releases converted bodies", async () => {
+  await withProxyApp({keys:["fixture"],upstreamHandler:async()=>({status:200,body:"{}"})},async()=>{
+    const strategy = new ChatCompletionsProviderStrategy();
+    const context = {config:{},providerId:"ollama",routedModel:"fixture",clientWantsStream:true,
+      upstreamAttemptTimeoutMs:1000,hasMoreCandidates:true} as any;
+    for (const payload of [{message:{role:"assistant",content:"native answer"},done:true},{id:"not-a-chat-completion"}]) {
+      let sent=false;
+      const reply = {header(){return this;},code(){return this;},removeHeader(){return this;},send(){sent=true;return this;}} as unknown as FastifyReply;
+      const outcome=await strategy.handleProviderAttempt(reply,Response.json(payload),context);
+      assert.equal(outcome.kind,"continue","native/other JSON cannot become an empty successful SSE response");
+      assert.equal(sent,false);
+    }
+    let sent: unknown;
+    const reply = {header(){return this;},code(){return this;},removeHeader(){return this;},send(value:unknown){sent=value;return this;}} as unknown as FastifyReply;
+    const response=Response.json({id:"chat",choices:[{index:0,message:{role:"assistant",content:"visible answer"},finish_reason:"stop"}]});
+    const outcome=await strategy.handleProviderAttempt(reply,response,context);
+    assert.equal(outcome.kind,"handled");
+    assert.equal(response.bodyUsed,true,"converted original response body is released");
+    assert.ok(sent);
+    let wire="";
+    for await (const chunk of sent as AsyncIterable<Buffer | string>) wire+=chunk.toString();
+    assert.match(wire,/visible answer/);
+    assert.match(wire,/\[DONE\]/);
+  });
+});
