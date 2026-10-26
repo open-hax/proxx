@@ -66,8 +66,11 @@
     (let [response (try (await (handler (assoc (request->map req opaque-body?) :reply reply)))
                         (catch :default e
                           (if (http-error? e) (http-error-response e) (throw e))))]
+      ;; A handler that already replied resolves with `undefined`, exactly like a
+      ;; plain async Fastify handler that returned after `reply.send`/`hijack`
+      ;; (returning `reply` instead would change when Fastify finishes a streamed send).
       (if (:handled? response)
-        reply
+        js/undefined
         (send-response! reply response)))))
 
 (defn register!
