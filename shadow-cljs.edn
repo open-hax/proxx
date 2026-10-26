@@ -347,7 +347,9 @@
                                            createFactoryRefreshHandler proxx.runtime.token-refresh/create-factory-refresh-handler-js
                                            createRefreshDispatcher proxx.runtime.token-refresh/create-refresh-dispatcher-js
                                            createEnsureFreshAccounts proxx.runtime.token-refresh/create-ensure-fresh-accounts-js
-                                           tokenRefreshDefaultConfig proxx.runtime.token-refresh/token-refresh-default-config-js}}}
+                                           tokenRefreshDefaultConfig proxx.runtime.token-refresh/token-refresh-default-config-js
+                                           loadConfig proxx.runtime.config/load-config-js
+                                           defaultModels proxx.runtime.config/default-models-js}}}
    :js-options {:js-provider :import
                 :keep-as-import #{"node:fs" "node:path"}}
    :compiler-options {:output-feature-set :es-next

@@ -9,6 +9,7 @@ import type { ServerResponse } from "node:http";
 
 import { loadCljsRuntime } from "./cljs-runtime.js";
 import type { CredentialStoreLike } from "./credential-store.js";
+import type { ProxyConfig } from "./config.js";
 import type { Sql } from "./db/index.js";
 import type { EnsureFreshAccountsDeps, FactoryRefreshDeps, OpenAiRefreshDeps, TokenRefreshDeps } from "./token-refresh-handlers.js";
 import type {
@@ -379,6 +380,9 @@ export interface CljsKernels {
     cooldownController: QuotaCooldownController | undefined,
   ) => QuotaMonitorApi;
   readonly quotaMonitorDefaultConfig: () => QuotaMonitorConfig;
+  // config
+  readonly loadConfig: (env: NodeJS.ProcessEnv, cwd: string, manifestPath: string) => ProxyConfig;
+  readonly defaultModels: (manifestPath: string) => readonly string[];
   // token refresh
   readonly tokenRefreshDefaultConfig: () => TokenRefreshManagerConfig;
   readonly createTokenRefreshManager: (

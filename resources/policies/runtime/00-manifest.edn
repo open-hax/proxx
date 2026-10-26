@@ -5,6 +5,7 @@
  :policy.loader/order
  ["00-domain.edn"
   "05-provider-seed.edn"
+  "06-proxy-config-defaults.edn"
   "10-model-families.edn"
   "15-model-pricing-overrides.edn"
   "16-model-pricing-resolution.edn"
