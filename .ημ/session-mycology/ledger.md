@@ -87,3 +87,12 @@
   spore: none
   receipt-refs: Proxx451 correction of prior native settlement UTF8 claims;Proxx451 auth-suite gate and malformed-UTF8 transport repair
   note: A byte budget does not imply valid decoding. Real malformed HTTP bytes proved replacement decoding could admit a valid-looking catalog and overwrite the last-good baseline; fatal decoding now refuses it while retaining valid split Unicode. Preserve old evidence and append the attribution correction rather than rewriting history. Keep new async fixture bindings bounded to avoid SCI expansion limits. Local App/OIDC tests use mocks only; native COMMENTED and pending enrollment do not qualify approval. Parent owns publication and native correction.
+
+- ts: 2026-10-26T03:54:18.386083+00:00
+  agent: codex
+  p-efficiency: 0.87
+  p-friction: 0.23
+  p-skill-candidate: 0.30
+  spore: none
+  receipt-refs: typed-kimi-owner-bridge;6544696
+  note: NBB loadFile did not honor the assumed classpath option. Actual JS boundary tests exposed missing namespace loading; the documented addClassPath API repaired it. Exact accepted owner bytes and normative tests remain unchanged. Hash checks detect drift relative to trusted reviewed source, not arbitrary manifest authenticity. This component is proposal-only and does not qualify model execution, publication or approval.
