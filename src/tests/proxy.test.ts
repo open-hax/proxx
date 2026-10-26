@@ -13530,6 +13530,7 @@ test(`budget ${reservationStatus} stops the paid HTTP attempt before provider tr
 test("budgeted HTTP request caps output and settles completed usage", async () => {
   let observedMax: unknown;
   let settlements = 0;
+  let edgeAdmission: number | undefined;
   await withProxyApp({
     keys: [],
     keysPayload: { providers: { requesty: { auth: "api_key", accounts: ["test-requesty-key"] } } },
@@ -13546,13 +13547,17 @@ test("budgeted HTTP request caps output and settles completed usage", async () =
   }, async ({ app }) => {
     const runtime = getActiveCljsRuntime()!;
     setActiveCljsRuntime({ ...runtime,
-      reservePaidBudget: async () => ({ status: "admitted", reservationId: "test-hold" }),
+      reservePaidBudget: async (_sql, _queries, _policy, _id, _amount, admittedAt) => {
+        assert.ok(Number.isSafeInteger(admittedAt)); assert.equal(admittedAt, edgeAdmission);
+        return { status: "admitted", reservationId: "test-hold" };
+      },
       settlePaidBudget: async (_sql, _queries, scope, id, amount) => {
         assert.equal(scope, "knoxx-social-deepinfra"); assert.equal(id, "test-hold"); assert.equal(amount, 17);
         settlements += 1; return { status: "settled" };
       },
     });
     app.addHook("preHandler", async (request) => {
+      edgeAdmission = request._proxxAdmittedAt;
       request.openHaxAuth = { kind: "tenant_api_key", keyId: "71a0813f-dbe3-45ad-a7ae-16555463e716", tenantId: "default", source: "bearer" };
     });
     try {
@@ -14140,3 +14145,16 @@ for (const retries of [0, 1]) {
       });
   });
 }
+
+
+test("staged absolute deadlines rearm an early timer instead of timing out before admission cutoff", async t => {
+  const {stageResponse}=await import('../lib/http/fetch-utils.js');
+  const realSetTimeout=globalThis.setTimeout;
+  let now=1000, callbacks=0;
+  t.mock.method(Date,'now',()=>now);
+  t.mock.method(globalThis,'setTimeout',(callback:()=>void)=>realSetTimeout(()=>{now++;callbacks++;callback();},0));
+  try {
+    await assert.rejects(stageResponse(new Response(new ReadableStream({start(){}})),1002,100,()=>({ready:false,fatal:false}),()=>{}),/deadline exceeded/);
+    assert.equal(now,1002);assert.equal(callbacks,2);
+  } finally {t.mock.restoreAll();}
+});

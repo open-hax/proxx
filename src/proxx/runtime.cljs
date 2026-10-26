@@ -409,12 +409,13 @@
                 :calendar "utc"}))))
 
 (defn ^:async reserve-paid-budget-js
-  [sql queries ^js policy reservation-id amount]
+  [sql queries ^js policy reservation-id amount admitted-at]
   (let [result (await (budget-store/reserve!
                        sql (js->clj queries :keywordize-keys true)
                        (when policy (.-scopeId policy)) reservation-id
                        {:daily-microusd (when policy (.-dailyMicrousd policy))
-                        :monthly-microusd (when policy (.-monthlyMicrousd policy))} amount))]
+                        :monthly-microusd (when policy (.-monthlyMicrousd policy))} amount
+                       (if (some? admitted-at) admitted-at (.now js/Date))))]
     (clj->js (cond-> {:status (:status result)}
                (:reservation-id result)
                (assoc :reservationId (:reservation-id result)

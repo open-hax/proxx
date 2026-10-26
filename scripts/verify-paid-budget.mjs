@@ -41,6 +41,26 @@ try {
     insert: schema.INSERT_PAID_BUDGET_RESERVATION,
     settle: schema.SETTLE_PAID_BUDGET_RESERVATION,
   };
+  // The owner date is edge admission, even if DB/queue work happens later.
+  const edgePolicy = { ...policy, scopeId: 'edge-admission-owner' };
+  const edgeAt = Date.UTC(2000, 0, 31, 23, 59, 59, 900);
+  const edgeId = randomUUID();
+  assert.equal((await runtime.reservePaidBudget(sql, queries, edgePolicy, edgeId, 100000, edgeAt)).status, 'admitted');
+  const [edgeRow] = await sql.unsafe('SELECT day_utc::text AS day, month_utc::text AS month FROM paid_budget_reservations WHERE id=$1', [edgeId]);
+  assert.deepEqual(edgeRow, {day:'2000-01-31', month:'2000-01-01'});
+  await runtime.settlePaidBudget(sql, queries, edgePolicy.scopeId, edgeId, 100000);
+  assert.equal((await runtime.reservePaidBudget(sql, queries, edgePolicy, randomUUID(), 450000, edgeAt)).status, 'daily-limit', 'late reservations still enforce the admission-day cap');
+  assert.equal((await runtime.reservePaidBudget(sql, queries, edgePolicy, randomUUID(), 500000)).status, 'admitted', 'settled old charge does not consume current-day capacity');
+  assert.equal((await runtime.reservePaidBudget(sql, queries, edgePolicy, randomUUID(), 1, edgeAt)).status, 'daily-limit', 'current unresolved holds also constrain late admission');
+  assert.equal((await runtime.reservePaidBudget(sql, queries, {...edgePolicy,scopeId:'invalid-edge'}, randomUUID(), 1, NaN)).status, 'unavailable');
+  const edgeMonthly = {...edgePolicy,scopeId:'edge-month-owner',dailyMicrousd:10000000};
+  const monthId=randomUUID();
+  assert.equal((await runtime.reservePaidBudget(sql,queries,edgeMonthly,monthId,4000000,edgeAt)).status,'admitted');
+  await runtime.settlePaidBudget(sql,queries,edgeMonthly.scopeId,monthId,4000000);
+  assert.equal((await runtime.reservePaidBudget(sql,queries,edgeMonthly,randomUUID(),2000000,edgeAt)).status,'monthly-limit','late reservations enforce the original month as well as the current month');
+  assert.equal((await runtime.reservePaidBudget(sql,queries,edgeMonthly,randomUUID(),1000000)).status,'admitted');
+
+
   const attempts = await Promise.all(Array.from({ length: 40 }, () =>
     runtime.reservePaidBudget(sql, queries, policy, randomUUID(), 50000)));
   const admitted = attempts.filter(x => x.status === 'admitted');
@@ -113,7 +133,7 @@ try {
     'resources/policies/runtime/00-manifest.edn', {kind: 'tenant_api_key', keyId: '71a0813f-dbe3-45ad-a7ae-16555463e716'});
   assert.equal(unavailable.budgets[0].status, 'unavailable');
   assert.equal(unavailable.budgets[0].dailyRemainingMicrousd, undefined);
-  console.log('paid-budget-postgres-ok: concurrent daily/monthly caps, restart durability, daily/monthly rollover, late/unknown settlement, duplicate-ID boundaries and SQL upstream model readback');
+  console.log('paid-budget-postgres-ok: edge-admission day/month ownership, concurrent daily/monthly caps, restart durability, daily/monthly rollover, late/unknown settlement, duplicate-ID boundaries and SQL upstream model readback');
 } finally {
   await sql?.end();
   await reopened?.end();

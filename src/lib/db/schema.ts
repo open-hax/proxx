@@ -268,15 +268,27 @@ export const LOCK_PAID_BUDGET_SCOPE = `
 SELECT pg_advisory_xact_lock(hashtextextended($1, 0));
 `;
 export const SELECT_PAID_BUDGET_USAGE = `
+-- Late admissions must fit both their owner period and today's live allowance.
+-- Unsettled holds count in both views until authoritative settlement.
+WITH periods AS (
+  SELECT timezone('UTC', clock_timestamp()) AS current_utc,
+         timezone('UTC', to_timestamp($2::double precision / 1000.0)) AS admitted_utc
+)
 SELECT
-  COALESCE(SUM(COALESCE(charged_microusd, reserved_microusd)) FILTER
-    (WHERE day_utc = timezone('UTC', CURRENT_TIMESTAMP)::date OR charged_microusd IS NULL), 0) AS daily_microusd,
-  COALESCE(SUM(COALESCE(charged_microusd, reserved_microusd)) FILTER
-    (WHERE month_utc = date_trunc('month', timezone('UTC', CURRENT_TIMESTAMP))::date
-      OR charged_microusd IS NULL), 0) AS monthly_microusd
-FROM paid_budget_reservations
+  GREATEST(
+    COALESCE(SUM(COALESCE(charged_microusd, reserved_microusd)) FILTER
+      (WHERE day_utc = admitted_utc::date OR charged_microusd IS NULL), 0),
+    COALESCE(SUM(COALESCE(charged_microusd, reserved_microusd)) FILTER
+      (WHERE day_utc = current_utc::date OR charged_microusd IS NULL), 0)) AS daily_microusd,
+  GREATEST(
+    COALESCE(SUM(COALESCE(charged_microusd, reserved_microusd)) FILTER
+      (WHERE month_utc = date_trunc('month', admitted_utc)::date OR charged_microusd IS NULL), 0),
+    COALESCE(SUM(COALESCE(charged_microusd, reserved_microusd)) FILTER
+      (WHERE month_utc = date_trunc('month', current_utc)::date OR charged_microusd IS NULL), 0)) AS monthly_microusd
+FROM paid_budget_reservations CROSS JOIN periods
 WHERE scope_id = $1
-  AND (month_utc = date_trunc('month', timezone('UTC', CURRENT_TIMESTAMP))::date
+  AND (month_utc = date_trunc('month', admitted_utc)::date
+    OR month_utc = date_trunc('month', current_utc)::date
     OR charged_microusd IS NULL);
 `;
 export const SELECT_PAID_BUDGET_SNAPSHOT = `
@@ -299,8 +311,8 @@ WHERE scope_id = $1;
 `;
 export const INSERT_PAID_BUDGET_RESERVATION = `
 INSERT INTO paid_budget_reservations (id, scope_id, day_utc, month_utc, reserved_microusd)
-VALUES ($1, $2, timezone('UTC', CURRENT_TIMESTAMP)::date,
-  date_trunc('month', timezone('UTC', CURRENT_TIMESTAMP))::date, $3)
+VALUES ($1, $2, timezone('UTC', to_timestamp($4::double precision / 1000.0))::date,
+  date_trunc('month', timezone('UTC', to_timestamp($4::double precision / 1000.0)))::date, $3)
 RETURNING id, reserved_microusd;
 `;
 export const SETTLE_PAID_BUDGET_RESERVATION = `

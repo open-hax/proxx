@@ -240,7 +240,7 @@ export async function executeProviderRoutingPlan(
         if (amount == null || !inspection.policy || !budgetRuntime?.reservePaidBudget || !budgetRuntime.settlePaidBudget) {
           throw new OpenAiHttpError({ statusCode: 503, message: "Cannot establish a paid request cost bound.", type: "server_error", code: "budget_unavailable" });
         }
-        const reservation = await budgetRuntime.reservePaidBudget(context.budgetSql, PAID_BUDGET_QUERIES, inspection.policy, crypto.randomUUID(), amount);
+        const reservation = await budgetRuntime.reservePaidBudget(context.budgetSql, PAID_BUDGET_QUERIES, inspection.policy, crypto.randomUUID(), amount, context.requestAdmittedAt);
         if (reservation.status !== "admitted" || !reservation.reservationId) {
           if (reservation.status !== "daily-limit" && reservation.status !== "monthly-limit") {
             throw new OpenAiHttpError({ statusCode: 503, message: "Paid budget storage unavailable.", type: "server_error", code: "budget_unavailable" });

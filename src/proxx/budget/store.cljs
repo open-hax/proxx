@@ -5,9 +5,9 @@
   (and (string? value) (not (empty? value))))
 
 (defn ^:async reserve-transaction!
-  [^js tx queries scope-id request-id limits amount]
+  [^js tx queries scope-id request-id limits amount admitted-at]
   (await (.unsafe tx (:lock queries) #js [scope-id]))
-  (let [rows (await (.unsafe tx (:usage queries) #js [scope-id]))
+  (let [rows (await (.unsafe tx (:usage queries) #js [scope-id admitted-at]))
         ^js row (aget rows 0)
         usage (when row
                 {:daily-microusd (js/Number (.-daily_microusd row))
@@ -15,7 +15,7 @@
         decision (law/admission limits usage amount)]
     (if (= :admit decision)
       (do
-        (await (.unsafe tx (:insert queries) #js [request-id scope-id amount]))
+        (await (.unsafe tx (:insert queries) #js [request-id scope-id amount admitted-at]))
         {:status :admitted :reservation-id request-id :reserved-microusd amount})
       {:status decision})))
 
@@ -23,17 +23,22 @@
   "READ COMMITTED ensures a fresh usage snapshot after waiting for the scope
    lock, even when the connection defaults to REPEATABLE READ.
    SQL scope lock serializes usage read and reservation across all processes.
-   Reused IDs fail their primary-key constraint instead of admitting twice."
-  [^js sql queries scope-id request-id limits amount]
+   Calendar ownership uses the caller's edge admission instant, not the lock
+   acquisition time. Reused IDs fail their primary-key constraint instead of
+   admitting twice."
+  ([sql queries scope-id request-id limits amount]
+   (reserve! sql queries scope-id request-id limits amount (.now js/Date)))
+  ([^js sql queries scope-id request-id limits amount admitted-at]
   (if-not (and sql
                (every? nonempty-string? [scope-id request-id])
-               (law/nonnegative-integer? amount))
+               (law/nonnegative-integer? amount)
+               (law/nonnegative-integer? admitted-at))
     {:status :unavailable}
     (try
       (await (.begin sql "isolation level read committed"
                      (fn [tx]
-                       (reserve-transaction! tx queries scope-id request-id limits amount))))
-      (catch :default _ {:status :unavailable}))))
+                       (reserve-transaction! tx queries scope-id request-id limits amount admitted-at))))
+      (catch :default _ {:status :unavailable})))))
 
 (defn ^:async settle!
   "Only authoritative usage settles an admission. Unknown usage retains the

@@ -57,6 +57,19 @@ export interface ResponseDeadlineLease {
 }
 
 /** An absolute deadline covers queueing and setup, and ends at usable output. */
+// Timers may wake before their absolute cutoff (clock granularity or clock adjustment).
+// Recheck the cutoff rather than turning that early wake-up into a failed route.
+function armDeadline(deadlineAt: number, expire: () => void): () => void {
+  let timer: ReturnType<typeof setTimeout>;
+  const check = () => {
+    const remaining = deadlineAt - Date.now();
+    if (remaining > 0) timer = setTimeout(check, remaining);
+    else expire();
+  };
+  timer = setTimeout(check, Math.max(0, deadlineAt - Date.now()));
+  return () => clearTimeout(timer);
+}
+
 export async function withResponseDeadline<T>(
   deadlineAt: number,
   timeoutError: () => Error,
@@ -65,15 +78,15 @@ export async function withResponseDeadline<T>(
   const controller = new AbortController();
   const remaining = deadlineAt - Date.now();
   if (remaining <= 0) throw timeoutError();
-  let timer: ReturnType<typeof setTimeout> | undefined;
+  let cancelDeadline: (() => void) | undefined;
   const timeout = new Promise<never>((_resolve, reject) => {
-    timer = setTimeout(() => {
+    cancelDeadline = armDeadline(deadlineAt, () => {
       const error = timeoutError();
       controller.abort(error);
       reject(error);
-    }, remaining);
+    });
   });
-  const markReady = () => { if (timer) clearTimeout(timer); timer = undefined; };
+  const markReady = () => { cancelDeadline?.(); cancelDeadline = undefined; };
   try { return await Promise.race([task({ signal: controller.signal, markReady }), timeout]); }
   finally { markReady(); }
 }
@@ -105,13 +118,13 @@ export async function stageResponse(
     while (true) {
       const remaining = deadlineAt - Date.now();
       if (remaining <= 0) throw new Error("First usable output deadline exceeded");
-      let timer: ReturnType<typeof setTimeout> | undefined;
+      let cancelDeadline: (() => void) | undefined;
       let chunk: ReadableStreamReadResult<Uint8Array>;
       try {
         chunk = await Promise.race([reader.read(), new Promise<never>((_resolve, reject) => {
-          timer = setTimeout(() => reject(new Error("First usable output deadline exceeded")), remaining);
+          cancelDeadline = armDeadline(deadlineAt, () => reject(new Error("First usable output deadline exceeded")));
         })]);
-      } finally { if (timer) clearTimeout(timer); }
+      } finally { cancelDeadline?.(); }
       ended = chunk.done === true;
       if (chunk.value) {
         if (bytes + chunk.value.byteLength > maxBytes) {
