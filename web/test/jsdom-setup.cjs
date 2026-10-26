@@ -28,3 +28,6 @@ window.IntersectionObserver = window.IntersectionObserver || Noop;
 define("matchMedia", window.matchMedia);
 define("ResizeObserver", window.ResizeObserver);
 define("IntersectionObserver", window.IntersectionObserver);
+
+// jsdom has no layout: stub what the chat widget calls.
+window.HTMLElement.prototype.scrollIntoView = window.HTMLElement.prototype.scrollIntoView || function () {};
