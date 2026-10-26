@@ -1,6 +1,6 @@
 export { selectProviderStrategy } from "./provider-strategy/contexts.js";
 export { executeLocalStrategy } from "./provider-strategy/local.js";
-export { executeProviderRoutingPlan, inspectProviderAvailability } from "./provider-strategy/routing/index.js";
+export { executeProviderRoutingPlan, inspectProviderAvailability } from "./provider-strategy/routing/attempt-executor.js";
 export { extractUsageCountsFromSseText } from "./provider-strategy/shared.js";
 export type {
   BuildPayloadResult,

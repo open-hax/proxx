@@ -1016,6 +1016,25 @@ export interface CljsKernels {
     readonly preferred?: { readonly providerId: string; readonly accountId: string };
     readonly provisional?: { readonly providerId: string; readonly accountId: string };
   };
+  // w4host provider replies (proxx.runtime.provider-reply): a strategy's answer to an upstream response
+  readonly handleProviderAttempt: (id: string, reply: unknown, response: Response, context: unknown) => Promise<import("./provider-strategy/shared.js").ProviderAttemptOutcome>;
+  readonly handleLocalAttempt: (id: string, reply: unknown, response: Response, context: unknown) => Promise<void>;
+  readonly handleStandardProviderAttempt: (reply: unknown, response: Response, context: unknown) => Promise<import("./provider-strategy/shared.js").ProviderAttemptOutcome>;
+  readonly handleStandardLocalAttempt: (reply: unknown, response: Response, context: unknown) => Promise<void>;
+  // w4host provider routing loop (proxx.runtime.attempt-executor)
+  readonly executeProviderRoutingPlan: (
+    strategy: unknown, reply: unknown, requestLogStore: unknown, promptAffinityStore: unknown, pheromoneStore: unknown,
+    keyPool: unknown, providerRoutes: unknown, context: unknown, payload: unknown, promptCacheKey: string | undefined,
+    refreshExpiredToken: unknown, healthStore: unknown, eventStore: unknown, quotaMonitor: unknown, queueSignal: AbortSignal | undefined,
+    host: {
+      readonly selectRemoteStrategy: (context: unknown, providerId: string) => unknown;
+      readonly estimateRequestCost: (providerId: string, model: string, promptTokens: number, completionTokens: number) => unknown;
+      readonly requestyModelProvider: (model: string) => string;
+    },
+  ) => Promise<import("./provider-strategy/shared.js").ProviderRoutingExecutionResult>;
+  readonly inspectProviderAvailability: (
+    keyPool: unknown, providerRoutes: unknown, promptCacheKey: string | undefined,
+  ) => Promise<import("./provider-strategy/shared.js").ProviderAvailabilitySummary>;
 }
 
 export interface ChromaSearchRow {

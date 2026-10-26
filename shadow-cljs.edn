@@ -445,7 +445,14 @@
                                            probeOllamaCloudAccount proxx.runtime.ollama-cloud-probe/probe-ollama-cloud-account-js
                                            forcedCredentialSelection proxx.runtime.candidates/forced-credential-selection-js
                                            noAuthAccount proxx.runtime.candidates/no-auth-account-js
-                                           affinitiesFromRecord proxx.runtime.candidates/affinities-from-record-js}}}
+                                           affinitiesFromRecord proxx.runtime.candidates/affinities-from-record-js
+                                           ;; w4-host exports
+                                           handleProviderAttempt proxx.runtime.provider-reply/handle-provider-attempt-js
+                                           handleLocalAttempt proxx.runtime.provider-reply/handle-local-attempt-js
+                                           handleStandardProviderAttempt proxx.runtime.provider-reply/handle-standard-provider-attempt-js
+                                           handleStandardLocalAttempt proxx.runtime.provider-reply/handle-standard-local-attempt-js
+                                           executeProviderRoutingPlan proxx.runtime.attempt-executor/execute-provider-routing-plan-js
+                                           inspectProviderAvailability proxx.runtime.attempt-executor/inspect-provider-availability-js}}}
    :js-options {:js-provider :import
                 :keep-as-import #{"node:fs" "node:path"}}
    :compiler-options {:output-feature-set :es-next
