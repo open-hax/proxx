@@ -4,6 +4,7 @@
             [proxx.web.runtime :as rt]
             [proxx.web.shell :as shell]
             [proxx.web.ui :as ui]
+            [proxx.web.views.events :as events-view]
             [proxx.web.views.hosts :as hosts-view]
             [proxx.web.views.images :as images-view]
             [proxx.web.views.tools :as tools-view]))
@@ -57,7 +58,8 @@
 (def ^:private page-views
   {:tools tools-view/view
    :images images-view/view
-   :hosts hosts-view/view})
+   :hosts hosts-view/view
+   :events events-view/view})
 
 (defn- placeholder [page]
   [:p.status-text (str "The " (name page) " page is being ported.")])
