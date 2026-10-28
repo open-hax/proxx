@@ -156,6 +156,9 @@ export async function registerCredentialAccountManagementUiRoutes(
     }
 
     deps.keyPool.enableAccount(providerId, accountId);
+    // An explicit re-enable makes the account usable now: drop any persisted
+    // cooldown, including one left by a former permanent disable.
+    deps.keyPool.clearAccountCooldown(providerId, accountId);
     app.log.info({ providerId, accountId }, "enabled credential account");
     reply.send({ ok: true, providerId, accountId, disabled: false });
   });

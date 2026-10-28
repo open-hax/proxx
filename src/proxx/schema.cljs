@@ -474,6 +474,22 @@
    [:fn {:error/message "strategy-binding requires :strategy/mode, :match/strategy, or :policy/strategy"}
     (fn [m] (boolean (or (:strategy/mode m) (:match/strategy m) (:policy/strategy m))))]])
 
+;; Maps an upstream failure (provider, status, message) to its credential meaning.
+;; :credential/quota-exhausted cools the account down instead of disabling it, so
+;; quota windows and topped-up balances recover; :credential/model-unavailable
+;; skips only the requested model for that account.
+(def CredentialFailureClassificationContract
+  [:and
+   ContractBase
+   [:map
+    [:contract/kind [:enum :credential-failure-classification]]
+    [:match/provider-pattern [:string {:min 1}]]
+    [:match/status {:optional true} [:int {:min 100 :max 599}]]
+    [:match/message-pattern {:optional true} [:string {:min 1}]]
+    [:classify/result [:enum :credential/quota-exhausted :credential/model-unavailable]]
+    [:classify/cooldown-ms {:optional true} [:int {:min 0}]]
+    [:classify/disable? {:optional true} :boolean]]])
+
 (def PolicyContract
   [:multi {:dispatch :contract/kind}
    [:enum DomainEnumContract]
@@ -498,6 +514,7 @@
    [:request-queue-template RequestQueueTemplateContract]
     [:request-queue-instance RequestQueueInstanceContract]
     [:rate-limit-classification RateLimitClassificationContract]
+    [:credential-failure-classification CredentialFailureClassificationContract]
     [:policy-program PolicyProgramContract]
    [:strategy-binding StrategyBindingContract]
    [:policy Policy]
@@ -543,6 +560,7 @@
    :proxx/contract-authorization-clause AuthorizationClauseContract
     :proxx/contract-model-pricing-override ModelPricingOverrideContract
     :proxx/contract-model-alias ModelAliasContract
+    :proxx/contract-credential-failure-classification CredentialFailureClassificationContract
     :proxx/contract-reasoning-normalization ReasoningNormalizationContract
    :proxx/retry-backoff RetryBackoff
    :proxx/queue-status QueueStatus

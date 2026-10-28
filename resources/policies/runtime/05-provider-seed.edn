@@ -82,6 +82,15 @@
   :provider/base-url "http://192.168.12.68:11434"
   :key-env-names ["OLLAMA_LAN_API_KEY"]}
 
+ ;; Kimi Code membership (kimi.com/code): flat-rate, rolling usage windows, separate
+ ;; from the pay-as-you-go Open Platform seeded above as moonshotai.
+ {:contract/id :provider-seed/kimi-for-coding
+  :contract/kind :provider-seed
+  :provider-id-env-names ["KIMI_FOR_CODING_PROVIDER_ID"]
+  :provider-id-fallback "kimi-for-coding"
+  :provider/base-url "https://api.kimi.com/coding/v1"
+  :key-env-names ["KIMI_FOR_CODING_API_KEY" "KIMI_CODE_API_KEY"]}
+
  {:contract/id :provider-seed/zen
   :contract/kind :provider-seed
   :provider-id-env-names ["ZEN_PROVIDER_ID"]

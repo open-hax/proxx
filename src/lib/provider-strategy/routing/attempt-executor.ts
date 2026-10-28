@@ -9,6 +9,7 @@ import type { RequestLogStore } from "../../request-log-store.js";
 import type { QuotaMonitor } from "../../quota-monitor.js";
 import {
   buildUpstreamHeadersForCredential,
+  classifyCredentialFailureByPolicy,
   classifyRateLimitKind,
   detectOllamaLimitKind,
   extractRateLimitCooldownMs,
@@ -20,6 +21,7 @@ import {
 import type { ProviderRoute } from "../../provider-routing.js";
 import { fetchWithResponseTimeout } from "../../http/index.js";
 import {
+  readUpstreamErrorMessage,
   responseIndicatesQuotaError,
   summarizeUpstreamError,
   toErrorMessage,
@@ -699,14 +701,46 @@ export async function executeProviderRoutingPlan(
           break;
         }
 
-        if (await responseIndicatesQuotaError(upstreamResponse)) {
+        // Provider-specific failure meanings (quota windows, spend limits, model
+        // availability) are declared as :credential-failure-classification contracts.
+        const policyFailure = upstreamResponse.ok
+          ? undefined
+          : classifyCredentialFailureByPolicy(
+            candidate.providerId,
+            upstreamResponse.status,
+            await readUpstreamErrorMessage(upstreamResponse),
+            context.config.cljsPolicyManifestPath,
+          );
+
+        if (policyFailure?.kind === "model_unavailable") {
+          accumulator.sawModelNotSupportedForAccount = true;
+          keyPool.markModelUnsupported?.(
+            candidate.account,
+            context.routedModel,
+            policyFailure.cooldownMs ?? Math.min(context.config.keyCooldownMs, 60_000),
+          );
+          await providerRoutePheromoneStore.noteFailure(candidate.providerId, context.routedModel);
+          try {
+            await upstreamResponse.arrayBuffer();
+          } catch {
+            // Ignore body read failures while failing over.
+          }
+          upstreamSpan.setStatus("error", "model_unavailable");
+          upstreamSpan.end();
+          break;
+        }
+
+        if (policyFailure?.kind === "quota_exhausted" || await responseIndicatesQuotaError(upstreamResponse)) {
           accumulator.sawRateLimit = true;
-          const permanentlyDisable = shouldPermanentlyDisableCredential(candidate.account, upstreamResponse.status);
+          const permanentlyDisable = policyFailure
+            ? policyFailure.disable
+            : shouldPermanentlyDisableCredential(candidate.account, upstreamResponse.status);
           const baseCooldownMs = permanentlyDisable
             ? PERMANENT_DISABLE_COOLDOWN_MS
-            : upstreamResponse.status === 402
-              ? 24 * 60 * 60 * 1000
-              : Math.min(context.config.keyCooldownMs, 60_000);
+            : policyFailure?.cooldownMs
+              ?? (upstreamResponse.status === 402
+                ? 24 * 60 * 60 * 1000
+                : Math.min(context.config.keyCooldownMs, 60_000));
           let quotaCooldownMs: number | undefined;
           if (quotaMonitor?.tracksProvider(candidate.account.providerId)) {
             quotaCooldownMs = quotaMonitor.getCooldownMs(candidate.account.accountId);

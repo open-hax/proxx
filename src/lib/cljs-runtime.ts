@@ -116,6 +116,18 @@ export interface ProxxCljsRuntime {
     status: number,
     retryAfterMs: number | undefined,
   ) => { readonly status: string; readonly result?: string | null };
+  readonly classifyCredentialFailure?: (
+    manifestPath: string,
+    providerId: string,
+    status: number,
+    message: string,
+  ) => {
+    readonly status: string;
+    readonly result?: string | null;
+    readonly cooldownMs?: number | null;
+    readonly disable?: boolean | null;
+    readonly contractId?: string | null;
+  };
 }
 
 export type CljsRuntimeLoadResult =
@@ -161,7 +173,8 @@ export function isProxxCljsRuntime(value: Record<string, unknown>): value is Rec
     (value.resolveQueuePolicy === undefined || typeof value.resolveQueuePolicy === "function") &&
     (value.getProviderRoutes === undefined || typeof value.getProviderRoutes === "function") &&
     (value.runQueued === undefined || typeof value.runQueued === "function") &&
-    (value.classifyRateLimit === undefined || typeof value.classifyRateLimit === "function")
+    (value.classifyRateLimit === undefined || typeof value.classifyRateLimit === "function") &&
+    (value.classifyCredentialFailure === undefined || typeof value.classifyCredentialFailure === "function")
   );
 }
 
