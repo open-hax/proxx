@@ -463,7 +463,14 @@
                                            runMigrations proxx.runtime.db-schema/run-migrations-js
                                            createSqlConnection proxx.runtime.db-schema/create-sql-connection-js
                                            closeSqlConnection proxx.runtime.db-schema/close-connection-js
-                                           createGithubAllowlist proxx.runtime.github-allowlist/create-github-allowlist-js}}
+                                           createGithubAllowlist proxx.runtime.github-allowlist/create-github-allowlist-js
+                                           ;; w5-stores exports
+                                           createKeyPoolDefault proxx.runtime.keypool/create-key-pool-default-js
+                                           createTokenRefreshRuntime proxx.runtime.token-refresh/create-token-refresh-runtime-js
+                                           OpenAiOAuthRefreshError proxx.runtime.oauth/OpenAiOAuthRefreshError
+                                           createOpenAiOAuthManagerDefault proxx.runtime.oauth/create-openai-oauth-manager-default-js
+                                           isTerminalOpenAiRefreshError proxx.runtime.oauth/terminal-openai-refresh-error?
+                                           }}
               ;; The Node entry (`node dist/cljs/main.js`): shares the runtime module's code.
               :main {:depends-on #{:proxx-runtime}
                      :init-fn proxx.app.entry/start!}}

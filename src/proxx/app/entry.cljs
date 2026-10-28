@@ -8,25 +8,16 @@
   `src/app.ts` under `node --import tsx`)."
   (:require ["node:path" :as path]
             ["node:url" :as url]
-            [clojure.string :as str]
             [proxx.app.main :as app-main]
             [proxx.runtime :as runtime]
             [proxx.runtime.config :as config]
+            [proxx.runtime.policy-manifest :refer [policy-manifest-path]]
             [proxx.runtime.pricing :as pricing]
             [proxx.runtime.telemetry :as telemetry]))
 
 (def ^:private default-host-module "dist/app.js")
-(def ^:private default-manifest "./resources/policies/runtime/00-manifest.edn")
 
 (defn- env [k] (aget js/process.env k))
-
-(defn policy-manifest-path
-  "Absolute path of the runtime policy manifest (the PROXX_/PROXY_CLJS_POLICY_MANIFEST
-  aliases, else the default)."
-  []
-  (let [configured (some (fn [k] (let [v (env k)] (when (and (string? v) (seq (str/trim v))) (str/trim v))))
-                         ["PROXX_CLJS_POLICY_MANIFEST" "PROXY_CLJS_POLICY_MANIFEST"])]
-    (.resolve path (js/process.cwd) (or configured default-manifest))))
 
 (def ^:private import-module
   "Dynamic `import()`: Closure cannot transpile the expression, so it is spelled

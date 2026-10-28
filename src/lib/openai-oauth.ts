@@ -8,8 +8,6 @@ import { kernels } from "./cljs-kernels.js";
  * (`proxx.runtime.oauth`). This module keeps the public types and class names.
  */
 
-const OPENAI_BROWSER_CALLBACK_PORT = kernels.resolveOpenAiCallbackPort(process.env.OPENAI_OAUTH_CALLBACK_PORT);
-
 export interface BrowserAuthStartResponse {
   readonly authorizeUrl: string;
   readonly state: string;
@@ -34,45 +32,18 @@ export interface OAuthTokens {
   readonly planType?: string;
 }
 
-export class OpenAiOAuthRefreshError extends Error {
-  public readonly status: number;
-
-  public readonly code?: string;
-
-  public readonly type?: string;
-
-  public readonly responseBody?: string;
-
-  public constructor(
-    status: number,
-    message: string,
-    options?: {
-      readonly code?: string;
-      readonly type?: string;
-      readonly responseBody?: string;
-    },
-  ) {
-    super(message);
-    this.name = "OpenAiOAuthRefreshError";
-    this.status = status;
-    this.code = options?.code;
-    this.type = options?.type;
-    this.responseBody = options?.responseBody;
-  }
+export interface OpenAiOAuthRefreshError extends Error {
+  readonly status: number;
+  readonly code?: string;
+  readonly type?: string;
+  readonly responseBody?: string;
 }
 
-export function isTerminalOpenAiRefreshError(error: unknown): error is OpenAiOAuthRefreshError {
-  if (!(error instanceof OpenAiOAuthRefreshError)) {
-    return false;
-  }
+/** The refresh failure class is CLJS (`proxx.runtime.oauth`), so `instanceof` agrees across hosts. */
+export const OpenAiOAuthRefreshError = kernels.OpenAiOAuthRefreshError;
 
-  return kernels.isTerminalOpenAiRefreshErrorFacts({
-    status: error.status,
-    code: error.code,
-    type: error.type,
-    message: error.message,
-    responseBody: error.responseBody,
-  });
+export function isTerminalOpenAiRefreshError(error: unknown): error is OpenAiOAuthRefreshError {
+  return kernels.isTerminalOpenAiRefreshError(error);
 }
 
 export type DevicePollResult =
@@ -112,17 +83,7 @@ export class OpenAiOAuthManager {
   private readonly impl: OpenAiManagerFacade;
 
   public constructor(options: OpenAiOAuthManagerOptions = {}) {
-    this.impl = kernels.createOpenAiOAuthManager(options, {
-      fetchFn: options.fetchFn ?? fetch,
-      now: options.now ?? (() => Date.now()),
-      callbackPort: OPENAI_BROWSER_CALLBACK_PORT,
-      randomBytes: (length: number): Uint8Array => crypto.getRandomValues(new Uint8Array(length)),
-      makeRefreshError: (
-        status: number,
-        message: string,
-        details: { readonly code?: string; readonly type?: string; readonly responseBody?: string },
-      ): OpenAiOAuthRefreshError => new OpenAiOAuthRefreshError(status, message, details),
-    }) as unknown as OpenAiManagerFacade;
+    this.impl = kernels.createOpenAiOAuthManagerDefault(options) as unknown as OpenAiManagerFacade;
   }
 
   public startBrowserFlow(redirectBaseUrl: string): Promise<BrowserAuthStartResponse> {

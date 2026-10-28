@@ -3,6 +3,7 @@
   Rows are plain objects from the postgres driver; results are plain JS
   objects/arrays. Statement execution and transactions stay in TypeScript."
   (:require [proxx.auth.persistence :as ap]
+            [proxx.runtime.db-schema :as schema]
             [proxx.credentials.federation :as fed]
             [proxx.credentials.sql :as sql]
             [proxx.credentials.tenant-policy :as tp]))
@@ -123,3 +124,34 @@
                                             (js/Math.floor (/ (.getTime (js/Date. (aget row "created_at"))) 1000))))))
 
 (defn auth-client-view-js [row] (clj->js (ap/client-view (in row) parse-or-nil)))
+
+(defn create-sql-tenant-provider-policy-store-js
+  "The tenant provider policy store over postgres.js handle `sql`
+  (formerly SqlTenantProviderPolicyStore)."
+  [^js sql]
+  (let [stmt schema/sql-statement-js]
+    #js {:init (fn ^:async init []
+                 (await (.unsafe sql (stmt "CREATE_TENANT_PROVIDER_POLICIES_TABLE")))
+                 (await (.unsafe sql (stmt "CREATE_TENANT_PROVIDER_POLICIES_OWNER_INDEX")))
+                 js/undefined)
+         :upsertPolicy (fn ^:async upsert-policy [input]
+                         (let [^js normalized (tenant-policy-normalize-input-js input)
+                               params (tenant-policy-upsert-params-js normalized)]
+                           (aset params 6 (js/JSON.stringify (.-allowedModels normalized)))
+                           (let [rs (await (.unsafe sql (stmt "UPSERT_TENANT_PROVIDER_POLICY") params))]
+                             (when-not (aget rs 0) (throw (js/Error. "failed to upsert tenant provider policy")))
+                             (tenant-policy-record-js (aget rs 0)))))
+         :getPolicy (fn ^:async get-policy [subject-did provider-id]
+                      (let [^js normalized (tenant-policy-normalize-input-js #js {"subjectDid" subject-did "providerId" provider-id
+                                                                                  "ownerSubject" "placeholder"})
+                            rs (await (.unsafe sql (stmt "SELECT_TENANT_PROVIDER_POLICY") #js [(.-subjectDid normalized) (.-providerId normalized)]))]
+                        (if (aget rs 0) (tenant-policy-record-js (aget rs 0)) js/undefined)))
+         :listPolicies (fn ^:async list-policies [filters]
+                         (let [^js f (tenant-policy-list-filters-js (if (nil? filters) #js {} filters))
+                               clauses (.-clauses f)
+                               base (stmt "SELECT_TENANT_PROVIDER_POLICIES")
+                               query (if (pos? (.-length clauses))
+                                       (str (.replace base (js/RegExp. ";$") "") " WHERE " (.join clauses " AND ") " ORDER BY owner_subject, subject_did, provider_id")
+                                       base)
+                               rs (await (.unsafe sql query (.-values f)))]
+                           (.map rs (fn [row] (tenant-policy-record-js row)))))}))

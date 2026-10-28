@@ -1,9 +1,4 @@
-import { createHash } from "node:crypto";
-
 import { kernels } from "./cljs-kernels.js";
-import { loadFactoryAuthV2, parseJwtExpiry } from "./factory-auth.js";
-import { policyManifestPath } from "./policy-manifest.js";
-import { getTelemetry } from "./telemetry/otel.js";
 
 export type ProviderAuthType = "api_key" | "oauth_bearer";
 
@@ -111,42 +106,13 @@ export interface KeyPoolApi {
   getDisabledAccounts(): Array<{ providerId: string; accountId: string }>;
 }
 
-async function loadFactoryAuth(): Promise<{
-  readonly accessToken: string;
-  readonly refreshToken: string;
-  readonly expiresAt: number | undefined;
-} | null> {
-  const credentials = await loadFactoryAuthV2();
-  if (!credentials) {
-    return null;
-  }
-  return {
-    accessToken: credentials.accessToken,
-    refreshToken: credentials.refreshToken,
-    expiresAt: parseJwtExpiry(credentials.accessToken) ?? undefined,
-  };
-}
-
 export type KeyPool = KeyPoolApi;
 
-function createKeyPool(config: KeyPoolConfig, rng?: () => number): KeyPoolApi {
-  return kernels.createKeyPool(config, {
-    seedSpecs: kernels.loadProviderSeedSpecs(config.policyManifestPath ?? policyManifestPath()),
-    sha256Hex: (value: string) => createHash("sha256").update(value).digest("hex"),
-    env: process.env,
-    rng,
-    telemetry: {
-      recordMetric: (name: string, value: number, attributes?: Record<string, string | number | boolean | null | undefined>) =>
-        getTelemetry().recordMetric(name, value, attributes),
-    },
-    loadFactoryAuth,
-  }) as KeyPoolApi;
-}
-
 /**
- * `new KeyPool(config, rng?)` builds the pool; a constructor that returns an
- * object yields that object, so callers keep the class-style API.
+ * `new KeyPool(config, rng?)` builds the CLJS pool (`proxx.runtime.keypool`, which
+ * owns the policy seeds, hashing, telemetry and Factory auth defaults); a
+ * constructor that returns an object yields that object.
  */
 export const KeyPool = function KeyPool(config: KeyPoolConfig, rng?: () => number): KeyPoolApi {
-  return createKeyPool(config, rng);
+  return kernels.createKeyPoolDefault(config, rng) as KeyPoolApi;
 } as unknown as new (config: KeyPoolConfig, rng?: () => number) => KeyPoolApi;

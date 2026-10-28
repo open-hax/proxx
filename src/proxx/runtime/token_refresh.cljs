@@ -8,7 +8,9 @@
   objects; the TypeScript-only helpers the handlers need (terminal-error test,
   Factory token refresh/persistence, JWT expiry) arrive in `hooks`."
   (:require [proxx.auth.refresh :as refresh]
-            [proxx.jsval :as j]))
+            [proxx.jsval :as j]
+            [proxx.runtime.factory-auth :as factory-auth]
+            [proxx.runtime.oauth :as oauth]))
 
 (defn- now [] (js/Date.now))
 (defn- undef [x] (if (nil? x) js/undefined x))
@@ -22,6 +24,8 @@
     o))
 
 (defn- js->credential [c] (js->clj c))
+
+(declare default-hooks)
 
 (defn- log! [^js logger level obj msg]
   (.call (aget logger level) logger obj msg))
@@ -132,8 +136,9 @@
 (defn create-openai-refresh-handler-js
   "RefreshFn for OpenAI OAuth accounts. deps: {keyPool, runtimeCredentialStore, oauthManager, log};
   hooks: {isTerminalOpenAiRefreshError}."
-  [^js deps ^js hooks]
-  (let [key-pool (.-keyPool deps) store (.-runtimeCredentialStore deps) oauth (.-oauthManager deps) logger (.-log deps)]
+  [^js deps ^js hooks*]
+  (let [hooks (or hooks* default-hooks)
+        key-pool (.-keyPool deps) store (.-runtimeCredentialStore deps) oauth (.-oauthManager deps) logger (.-log deps)]
     (fn ^:async openai-refresh [^js credential]
       (if-not (j/truthy? (.-refreshToken credential))
         nil
@@ -165,8 +170,9 @@
 (defn create-factory-refresh-handler-js
   "RefreshFn for Factory OAuth accounts. deps: {keyPool, runtimeCredentialStore, sqlCredentialStore?, log};
   hooks: {refreshFactoryOAuthToken, parseJwtExpiry, persistFactoryAuthV2, toErrorMessage}."
-  [^js deps ^js hooks]
-  (let [key-pool (.-keyPool deps) store (.-runtimeCredentialStore deps) logger (.-log deps) sql-store (.-sqlCredentialStore deps)]
+  [^js deps ^js hooks*]
+  (let [hooks (or hooks* default-hooks)
+        key-pool (.-keyPool deps) store (.-runtimeCredentialStore deps) logger (.-log deps) sql-store (.-sqlCredentialStore deps)]
     (fn ^:async factory-refresh [^js credential]
       (if-not (j/truthy? (.-refreshToken credential))
         nil
@@ -200,8 +206,9 @@
   "providerId => Promise<void> refreshing expired accounts (and, for Factory, those
   due for a proactive refresh). deps: {keyPool, tokenRefreshManager, shouldRefreshFactoryAccount?};
   hooks: {factoryCredentialNeedsRefresh}."
-  [^js deps ^js hooks]
-  (let [key-pool (.-keyPool deps) manager (.-tokenRefreshManager deps)
+  [^js deps ^js hooks*]
+  (let [hooks (or hooks* default-hooks)
+        key-pool (.-keyPool deps) manager (.-tokenRefreshManager deps)
         should-refresh (or (.-shouldRefreshFactoryAccount deps) (.-factoryCredentialNeedsRefresh hooks))]
     (fn ^:async ensure-fresh [provider-id]
       (let [expired (.getExpiredAccountsWithRefreshTokens key-pool provider-id)]
@@ -212,3 +219,27 @@
             (doseq [account (refresh/factory-accounts-to-refresh (array-seq accounts) should-refresh)]
               (await (.refresh manager account)))))
         js/undefined))))
+
+;; ---------------------------------------------------------------------------
+;; Runtime
+;; ---------------------------------------------------------------------------
+
+(def default-hooks
+  "The host helpers the handlers need, over their CLJS implementations."
+  #js {"isTerminalOpenAiRefreshError" oauth/terminal-openai-refresh-error?
+       "refreshFactoryOAuthToken" (fn [refresh-token] (factory-auth/refresh-factory-oauth-token-js refresh-token (.-fetch js/globalThis)))
+       "parseJwtExpiry" factory-auth/parse-jwt-expiry-js
+       "persistFactoryAuthV2" factory-auth/persist-factory-auth-v2-js
+       "factoryCredentialNeedsRefresh" factory-auth/factory-credential-needs-refresh-js
+       "toErrorMessage" (fn [error] (if (instance? js/Error error) (.-message error) (js/String error)))})
+
+(defn create-token-refresh-runtime-js
+  "{tokenRefreshManager, refreshExpiredOAuthAccount, refreshFactoryAccount, ensureFreshAccounts}
+  for deps {keyPool, runtimeCredentialStore, oauthManager, sqlCredentialStore?, log, config}."
+  [^js deps]
+  (let [manager (create-token-refresh-manager-js (create-refresh-dispatcher-js deps default-hooks) (.-log deps) (.-config deps))]
+    #js {"tokenRefreshManager" manager
+         "refreshExpiredOAuthAccount" (create-openai-refresh-handler-js deps default-hooks)
+         "refreshFactoryAccount" (create-factory-refresh-handler-js deps default-hooks)
+         "ensureFreshAccounts" (create-ensure-fresh-accounts-js
+                                #js {"keyPool" (.-keyPool deps) "tokenRefreshManager" manager} default-hooks)}))

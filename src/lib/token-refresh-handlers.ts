@@ -1,9 +1,6 @@
 import type { ProviderCredential } from "./key-pool.js";
 import type { RuntimeCredentialStore } from "./runtime-credential-store.js";
 import type { OpenAiOAuthManager } from "./openai-oauth.js";
-import { isTerminalOpenAiRefreshError } from "./openai-oauth.js";
-import { refreshFactoryOAuthToken, parseJwtExpiry, persistFactoryAuthV2, factoryCredentialNeedsRefresh } from "./factory-auth.js";
-import { toErrorMessage } from "./errors/index.js";
 import { kernels } from "./cljs-kernels.js";
 import { TokenRefreshManager, type TokenRefreshManagerConfig, type Logger, type RefreshFn } from "./token-refresh-manager.js";
 
@@ -52,49 +49,25 @@ export interface TokenRefreshRuntime {
 }
 
 /**
- * Token refresh handlers. What a credential becomes after a refresh (or a terminal
- * refresh failure), which accounts need refreshing and the Factory/OpenAI dispatch
- * are CLJS (`proxx.auth.refresh`, `proxx.runtime.token-refresh`); the host helpers
- * below (OAuth/WorkOS calls, JWT expiry, persistence) are handed in as hooks.
+ * Token refresh handlers: CLJS (`proxx.auth.refresh`, `proxx.runtime.token-refresh`),
+ * which also supplies the OpenAI/Factory/JWT helpers they use. These are the typed entries.
  */
-const hooks = {
-  isTerminalOpenAiRefreshError,
-  refreshFactoryOAuthToken,
-  parseJwtExpiry,
-  persistFactoryAuthV2,
-  factoryCredentialNeedsRefresh,
-  toErrorMessage,
-};
-
 export function createOpenAiRefreshHandler(deps: OpenAiRefreshDeps): RefreshFn {
-  return kernels.createOpenAiRefreshHandler(deps, hooks);
+  return kernels.createOpenAiRefreshHandler(deps);
 }
 
 export function createFactoryRefreshHandler(deps: FactoryRefreshDeps): RefreshFn {
-  return kernels.createFactoryRefreshHandler(deps, hooks);
+  return kernels.createFactoryRefreshHandler(deps);
 }
 
 export function createEnsureFreshAccounts(deps: EnsureFreshAccountsDeps): (providerId: string) => Promise<void> {
-  return kernels.createEnsureFreshAccounts(deps, hooks);
+  return kernels.createEnsureFreshAccounts(deps);
 }
 
 export function createTokenRefreshManager(deps: TokenRefreshDeps): TokenRefreshManager {
-  return new TokenRefreshManager(kernels.createRefreshDispatcher(deps, hooks), deps.log, deps.config);
+  return new TokenRefreshManager(kernels.createRefreshDispatcher(deps), deps.log, deps.config);
 }
 
 export function createTokenRefreshRuntime(deps: TokenRefreshDeps): TokenRefreshRuntime {
-  const refreshExpiredOAuthAccount = createOpenAiRefreshHandler(deps);
-  const refreshFactoryAccount = createFactoryRefreshHandler(deps);
-  const tokenRefreshManager = createTokenRefreshManager(deps);
-  const ensureFreshAccounts = createEnsureFreshAccounts({
-    keyPool: deps.keyPool,
-    tokenRefreshManager,
-  });
-
-  return {
-    tokenRefreshManager,
-    refreshExpiredOAuthAccount,
-    refreshFactoryAccount,
-    ensureFreshAccounts,
-  };
+  return kernels.createTokenRefreshRuntime(deps);
 }

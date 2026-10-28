@@ -16,7 +16,12 @@
   (:require ["node:fs" :as fs]
             [clojure.string :as str]
             [proxx.keypool.credentials :as cr]
-            [proxx.keypool.pool :as pool]))
+            [proxx.keypool.pool :as pool]
+            [proxx.runtime :as runtime]
+            [proxx.runtime.factory-auth :as factory-auth]
+            [proxx.runtime.oauth :as oauth]
+            [proxx.runtime.policy-manifest :as policy-manifest]
+            [proxx.runtime.telemetry :as telemetry]))
 
 ;; ---------------------------------------------------------------------------
 ;; JS <-> domain conversion (the only place camelCase exists)
@@ -364,3 +369,26 @@
 
          :getDisabledAccounts
          (fn [] (to-array (map (fn [[p a]] #js {:providerId p :accountId a}) (:disabled @state))))}))
+
+
+(defn- ^:async load-factory-auth []
+  (when-let [^js credentials (await (factory-auth/load-factory-auth-v2-js))]
+    (let [expires (factory-auth/parse-jwt-expiry-js (.-accessToken credentials))]
+      #js {"accessToken" (.-accessToken credentials) "refreshToken" (.-refreshToken credentials)
+           "expiresAt" (if (nil? expires) js/undefined expires)})))
+
+(defn create-key-pool-default-js
+  "A key pool over the process defaults: the policy manifest's provider seeds,
+  SHA-256 from node:crypto, process.env, the active telemetry client and the
+  Factory auth files. `rng` is an optional () => number in [0,1)."
+  [config rng]
+  (create-key-pool-js
+   config
+   #js {"seedSpecs" (runtime/load-provider-seed-specs-js
+                     (or (when config (.-policyManifestPath ^js config)) (policy-manifest/policy-manifest-path)))
+        "sha256Hex" oauth/sha256-hex
+        "env" js/process.env
+        "rng" rng
+        "telemetry" #js {"recordMetric" (fn [name value attributes]
+                                          (.recordMetric ^js (telemetry/get-telemetry-js) name value attributes))}
+        "loadFactoryAuth" load-factory-auth}))

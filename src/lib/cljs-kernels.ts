@@ -11,7 +11,7 @@ import { loadCljsRuntime } from "./cljs-runtime.js";
 import type { CredentialStoreLike } from "./credential-store.js";
 import type { ProxyConfig } from "./config.js";
 import type { Sql } from "./db/index.js";
-import type { EnsureFreshAccountsDeps, FactoryRefreshDeps, OpenAiRefreshDeps, TokenRefreshDeps } from "./token-refresh-handlers.js";
+import type { EnsureFreshAccountsDeps, FactoryRefreshDeps, OpenAiRefreshDeps, TokenRefreshDeps, TokenRefreshRuntime } from "./token-refresh-handlers.js";
 import type {
   Logger as TokenRefreshLogger,
   RefreshFn,
@@ -338,6 +338,16 @@ export interface CljsKernels {
     readonly keyEnvNames: readonly string[];
   }[];
   readonly createKeyPool: (config: unknown, deps: unknown) => unknown;
+  // w5-stores
+  readonly createKeyPoolDefault: (config: unknown, rng: (() => number) | undefined) => unknown;
+  readonly createTokenRefreshRuntime: (deps: TokenRefreshDeps) => TokenRefreshRuntime;
+  readonly OpenAiOAuthRefreshError: new (
+    status: number,
+    message: string,
+    details?: { readonly code?: string; readonly type?: string; readonly responseBody?: string },
+  ) => Error & { readonly status: number; readonly code?: string; readonly type?: string; readonly responseBody?: string };
+  readonly createOpenAiOAuthManagerDefault: (options: unknown) => OAuthManagerFacade;
+  readonly isTerminalOpenAiRefreshError: (error: unknown) => boolean;
   // w2-analytics
   readonly createRequestLogFanout: () => RequestLogFanout;
   readonly ollamaBatchVectors: (payload: unknown, expectedCount: number) => number[][];
@@ -533,10 +543,10 @@ export interface CljsKernels {
     logger: TokenRefreshLogger,
     config: Partial<TokenRefreshManagerConfig>,
   ) => TokenRefreshManagerApi;
-  readonly createOpenAiRefreshHandler: (deps: OpenAiRefreshDeps, hooks: unknown) => RefreshFn;
-  readonly createFactoryRefreshHandler: (deps: FactoryRefreshDeps, hooks: unknown) => RefreshFn;
-  readonly createRefreshDispatcher: (deps: TokenRefreshDeps, hooks: unknown) => RefreshFn;
-  readonly createEnsureFreshAccounts: (deps: EnsureFreshAccountsDeps, hooks: unknown) => (providerId: string) => Promise<void>;
+  readonly createOpenAiRefreshHandler: (deps: OpenAiRefreshDeps, hooks?: unknown) => RefreshFn;
+  readonly createFactoryRefreshHandler: (deps: FactoryRefreshDeps, hooks?: unknown) => RefreshFn;
+  readonly createRefreshDispatcher: (deps: TokenRefreshDeps, hooks?: unknown) => RefreshFn;
+  readonly createEnsureFreshAccounts: (deps: EnsureFreshAccountsDeps, hooks?: unknown) => (providerId: string) => Promise<void>;
   // telemetry
   readonly initTelemetry: (env: NodeJS.ProcessEnv) => TelemetryClient;
   readonly getTelemetry: () => TelemetryClient;

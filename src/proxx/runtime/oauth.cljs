@@ -230,6 +230,31 @@
    {:status (.-status facts) :code (.-code facts) :type (.-type facts)
     :message (.-message facts) :response-body (.-responseBody facts)}))
 
+(defn OpenAiOAuthRefreshError
+  "Constructor of the refresh failure (an Error subclass): `new (status, message, {code, type, responseBody})`.
+  Returns an object whose prototype is this constructor's, so `instanceof` holds."
+  [status message details]
+  (let [this (js/Object.create (.-prototype OpenAiOAuthRefreshError))]
+    (aset this "name" "OpenAiOAuthRefreshError")
+    (aset this "message" message)
+    (aset this "stack" (.-stack (js/Error. message)))
+    (aset this "status" status)
+    (aset this "code" (if details (.-code ^js details) js/undefined))
+    (aset this "type" (if details (.-type ^js details) js/undefined))
+    (aset this "responseBody" (if details (.-responseBody ^js details) js/undefined))
+    this))
+
+(set! (.-prototype OpenAiOAuthRefreshError) (js/Object.create (.-prototype js/Error)))
+(aset (.-prototype OpenAiOAuthRefreshError) "constructor" OpenAiOAuthRefreshError)
+
+(defn terminal-openai-refresh-error?
+  "True for an OpenAiOAuthRefreshError whose facts say the refresh token is unusable."
+  [error]
+  (and (instance? OpenAiOAuthRefreshError error)
+       (is-terminal-openai-refresh-error-facts-js
+        #js {"status" (.-status ^js error) "code" (.-code ^js error) "type" (.-type ^js error)
+             "message" (.-message ^js error) "responseBody" (.-responseBody ^js error)})))
+
 ;; ---------------------------------------------------------------------------
 ;; Factory (WorkOS)
 ;; ---------------------------------------------------------------------------
@@ -337,3 +362,18 @@
                                (.finally (fn [] (swap! browser-in-flight dissoc state))))]
                      (swap! browser-in-flight assoc state p)
                      (await p))))))}))
+
+
+(defn create-openai-oauth-manager-default-js
+  "An OpenAI OAuth manager over the process defaults (global fetch, Date.now, crypto
+  randomness, OPENAI_OAUTH_CALLBACK_PORT). `options` as for create-openai-oauth-manager-js,
+  plus optional fetchFn / now overrides."
+  [^js options]
+  (let [options (or options #js {})]
+    (create-openai-oauth-manager-js
+     options
+     #js {"fetchFn" (or (.-fetchFn options) (.-fetch js/globalThis))
+          "now" (or (.-now options) (fn [] (js/Date.now)))
+          "callbackPort" (resolve-openai-callback-port-js (aget js/process.env "OPENAI_OAUTH_CALLBACK_PORT"))
+          "randomBytes" (fn [length] (.getRandomValues js/crypto (js/Uint8Array. length)))
+          "makeRefreshError" (fn [status message details] (new OpenAiOAuthRefreshError status message details))})))

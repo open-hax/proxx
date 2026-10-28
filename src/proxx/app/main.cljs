@@ -16,10 +16,8 @@
     createSqlConnection(config)         closeConnection(sql)
     createDefaultLabelers()             sql: {credential, accountHealth, event, requestUsage,
                                               federation, tenantProviderPolicy, authPersistence}(connection)
-    keyPool(opts) credentialStore(path, providerId) runtimeCredentialStore(credentialStore, sqlStore)
-    oauthManager(opts) quotaMonitor(...) providerCatalogStore(...) requestLogStore(...)
-    requestLogSseHub(store) promptAffinityStore(sql) pheromoneStore(path, flushMs) proxySettingsStore(path, sql)
-    createTokenRefreshRuntime(deps)     createEnvFederationBridgeAgent(deps)
+    requestLogStore(...) requestLogSseHub(store) promptAffinityStore(sql) pheromoneStore(path, flushMs)
+    createEnvFederationBridgeAgent(deps)
     handleBridgeRequest(deps, input)    injectNativeBridge(deps, url, payload, headers)
     executeFederatedRequestRouting(deps, input)
     getDeclaredProviderRoutes(config)   buildOllamaCatalogRoutes(config)   modelIdsToNativeTags(ids)
@@ -32,7 +30,28 @@
             ["fastify" :as fastify]
             ["node:path" :as path]
             [proxx.app.wiring :as wiring]
+            [proxx.http.url :as url]
             [proxx.runtime :as runtime]
+            [proxx.runtime.account-health :as account-health]
+            [proxx.runtime.account-identity :as account-identity]
+            [proxx.runtime.auth-persistence :as auth-persistence]
+            [proxx.runtime.db-schema :as db-schema]
+            [proxx.runtime.event-store :as event-store]
+            [proxx.runtime.sql :as sql-stores]
+            [proxx.runtime.sql-credential-store :as sql-credential-store]
+            [proxx.runtime.sql-federation-store :as sql-federation-store]
+            [proxx.runtime.tenant-key :as tenant-key]
+            [proxx.runtime.usage :as usage]
+            [proxx.runtime.catalog :as catalog]
+            [proxx.runtime.credentials :as credentials]
+            [proxx.runtime.http :as http]
+            [proxx.runtime.keypool :as keypool]
+            [proxx.runtime.oauth :as oauth]
+            [proxx.runtime.policy-manifest :as policy-manifest]
+            [proxx.runtime.quota-monitor :as quota-monitor]
+            [proxx.runtime.runtime-credential-store :as runtime-credential-store]
+            [proxx.runtime.settings :as settings]
+            [proxx.runtime.token-refresh :as token-refresh]
             [proxx.runtime.app :as app-edge]
             [proxx.runtime.models :as models]
             [proxx.runtime.proxy :as proxy]
@@ -50,6 +69,46 @@
   "nil as JS `undefined`: the host classes take optional collaborators as `undefined`."
   [x]
   (if (nil? x) js/undefined x))
+
+(def ^:private default-sql-stores
+  "The SQL-backed stores by their id in the wiring plan (proxx.app.wiring)."
+  {"credential" (fn [connection] (sql-credential-store/create-sql-credential-store-js
+                                  connection #js {"defaultTenantId" (.-defaultTenantId (tenant-key/tenant-api-key-constants-js))}))
+   "accountHealth" (fn [connection] (account-health/create-account-health-store-js
+                                     connection 5000 (db-schema/sql-statement-js "SELECT_ALL_ACCOUNT_HEALTH")))
+   "event" (fn [connection] (event-store/create-event-store-js connection js/undefined js/undefined))
+   "requestUsage" usage/create-sql-request-usage-store-js
+   "federation" sql-federation-store/create-sql-federation-store-js
+   "tenantProviderPolicy" sql-stores/create-sql-tenant-provider-policy-store-js
+   "authPersistence" auth-persistence/create-sql-auth-persistence-js})
+
+(def ^:private default-components
+  "The stores, pools and managers this namespace constructs itself, by the name a
+  `host` may override (tests inject fakes there). Same arguments as the override."
+  {"createSqlConnection" db-schema/create-sql-connection-js
+   "closeConnection" db-schema/close-connection-js
+   "createDefaultLabelers" event-store/create-default-labelers-js
+   "keyPool" (fn [opts] (keypool/create-key-pool-default-js opts js/undefined))
+   "proxySettingsStore" settings/create-proxy-settings-store-js
+   "credentialStore" (fn [file-path provider-id]
+                       (credentials/create-credential-store-js
+                        file-path provider-id
+                        #js {"deriveOAuthMetadata" account-identity/derive-oauth-metadata-from-token-js}))
+   "runtimeCredentialStore" runtime-credential-store/create-runtime-credential-store-js
+   "oauthManager" oauth/create-openai-oauth-manager-default-js
+   "createTokenRefreshRuntime" token-refresh/create-token-refresh-runtime-js
+   "quotaMonitor" (fn [credential-store log config health-store key-pool]
+                    (quota-monitor/create-quota-monitor-js (policy-manifest/policy-manifest-path)
+                                                           credential-store log config health-store key-pool))
+   "providerCatalogStore" (fn [config key-pool routes ollama-routes]
+                            (catalog/create-provider-catalog-store-js
+                             (policy-manifest/policy-manifest-path) config key-pool routes ollama-routes
+                             #js {"fetchWithResponseTimeout" http/fetch-with-response-timeout-js "joinUrl" url/join-url}))})
+
+(defn- make
+  "Construct component `k`: the host's override when it supplies one, else the default."
+  [^js host k & args]
+  (apply (or (aget host k) (get default-components k)) args))
 
 (defn- plugin [m] (or (aget m "default") m))
 
@@ -107,16 +166,16 @@
   A required store failing aborts startup; an optional one is left out."
   [^js app ^js config ^js plan ^js host]
   (.info (.-log app) "connecting to database")
-  (let [^js connection ((.-createSqlConnection host) #js {"connectionString" (.-databaseUrl config)})
+  (let [^js connection (make host "createSqlConnection" #js {"connectionString" (.-databaseUrl config)})
         stores (atom {})]
     (try
       (doseq [^js entry (array-seq (.-storeInit plan))]
         (let [id (.-id entry)
-              ^js store ((aget ^js (.-sql host) id) connection)
+              ^js store ((or (some-> ^js (.-sql host) (aget id)) (get default-sql-stores id)) connection)
               init! (fn ^:async init-store []
                       (await (.init store))
                       (when (= "event" id)
-                        (doseq [labeler (array-seq ((.-createDefaultLabelers host)))]
+                        (doseq [labeler (array-seq (make host "createDefaultLabelers"))]
                           (.registerLabeler store labeler)))
                       (swap! stores assoc id store))]
           (if (.-required entry)
@@ -240,7 +299,7 @@
           ^js sql-tenant-provider-policy-store (u (get stores "tenantProviderPolicy"))
           ^js sql-auth-persistence (u (get stores "authPersistence"))
           dynamic-base-url-getter (routing/create-dynamic-provider-base-url-getter-js sql-credential-store)
-          ^js key-pool ((.-keyPool host)
+          ^js key-pool (make host "keyPool"
                         #js {"keysFilePath" (.-keysFilePath config)
                              "reloadIntervalMs" (.-keyReloadMs config)
                              "defaultCooldownMs" (.-keyCooldownMs config)
@@ -264,16 +323,16 @@
             ^js pheromone-store ((.-pheromoneStore host) (.join path (.dirname path (.-requestLogsFilePath config)) (.-pheromoneFileName plan))
                                                          (.-promptAffinityFlushMs config))
             _ (await (.warmup pheromone-store))
-            ^js proxy-settings-store ((.-proxySettingsStore host) (.-settingsFilePath config) sql)
+            ^js proxy-settings-store (make host "proxySettingsStore" (.-settingsFilePath config) sql)
             _ (await (.warmup proxy-settings-store))
             _ (.info (.-log app) "CLJS policy router runtime boundary available")
-            ^js credential-store ((.-credentialStore host) (.-keysFilePath config) (.-upstreamProviderId config))
-            ^js runtime-credential-store ((.-runtimeCredentialStore host) credential-store sql-credential-store)
-            ^js oauth-manager ((.-oauthManager host) #js {"oauthScopes" (.-openaiOauthScopes config)
+            ^js credential-store (make host "credentialStore" (.-keysFilePath config) (.-upstreamProviderId config))
+            ^js runtime-credential-store (make host "runtimeCredentialStore" credential-store sql-credential-store)
+            ^js oauth-manager (make host "oauthManager" #js {"oauthScopes" (.-openaiOauthScopes config)
                                                           "clientId" (.-openaiOauthClientId config)
                                                           "issuer" (.-openaiOauthIssuer config)
                                                           "clientSecret" (.-openaiOauthClientSecret config)})
-            ^js refresh ((.-createTokenRefreshRuntime host)
+            ^js refresh (make host "createTokenRefreshRuntime"
                          #js {"keyPool" key-pool "runtimeCredentialStore" runtime-credential-store "oauthManager" oauth-manager
                               "sqlCredentialStore" sql-credential-store "log" (.-log app) "config" (.-tokenRefresh plan)})
             ^js token-refresh-manager (.-tokenRefreshManager refresh)
@@ -284,7 +343,7 @@
             refresh-openai-oauth-accounts (app-edge/create-refresh-openai-oauth-accounts-js
                                            key-pool token-refresh-manager (.-openaiProviderId config))
             ^js log (.-log app)
-            ^js quota-monitor ((.-quotaMonitor host) runtime-credential-store
+            ^js quota-monitor (make host "quotaMonitor" runtime-credential-store
                                                      #js {"info" (fn [obj msg] (.info log obj msg))
                                                           "warn" (fn [obj msg] (.warn log obj msg))
                                                           "error" (fn [obj msg] (.error log obj msg))}
@@ -293,7 +352,7 @@
             ollama-catalog-routes ((.-buildOllamaCatalogRoutes host) config)
             provider-catalog-routes (.filter ((.-getDeclaredProviderRoutes host) config)
                                              (fn [^js route] (or (not= "factory" (.-providerId route)) (.-includeFactoryCatalogRoutes plan))))
-            ^js provider-catalog-store ((.-providerCatalogStore host) config key-pool provider-catalog-routes ollama-catalog-routes)
+            ^js provider-catalog-store (make host "providerCatalogStore" config key-pool provider-catalog-routes ollama-catalog-routes)
             get-resolved-model-catalog (fn ^:async resolved-catalog [force-refresh]
                                          (let [^js resolved (await (.getCatalog provider-catalog-store (boolean force-refresh)))]
                                            (.-catalog resolved)))
@@ -317,7 +376,7 @@
         (app-edge/install-request-hook-js
          app #js {"config" config "sqlCredentialStore" sql-credential-store "sqlAuthPersistence" sql-auth-persistence
                   "proxySettingsStore" proxy-settings-store "requestLogStore" request-log-store
-                  "defaultTenantId" (.-defaultTenantId host) "cookieName" (.-proxyAuthCookieName host)})
+                  "defaultTenantId" (or (.-defaultTenantId host) (.-defaultTenantId (tenant-key/tenant-api-key-constants-js))) "cookieName" (or (.-proxyAuthCookieName host) "open_hax_proxy_auth_token")})
         (install-telemetry-hooks! app)
         (app-edge/install-public-routes-js app (let [port (.trim (or (aget js/process.env "PROXY_WEB_PORT") "5174"))]
                                                  (if (seq port) port "5174")))
@@ -383,7 +442,7 @@
                       (await (.close pheromone-store))
                       (await (.close request-log-store))
                       (await (.close credential-store))
-                      (when sql (await ((.-closeConnection host) sql)))))
+                      (when sql (await (make host "closeConnection" sql)))))
           (app-edge/install-not-found-handler-js app)
           (when bridge-agent (await (.start bridge-agent)))
           app)))))

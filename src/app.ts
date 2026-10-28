@@ -15,17 +15,11 @@ import type { ProxyConfig } from "./lib/config.js";
 import { assertCljsRuntimeReady, loadCljsRuntime, setActiveCljsRuntime } from "./lib/cljs-runtime.js";
 import { kernels } from "./lib/cljs-kernels.js";
 import { PROXY_AUTH_COOKIE_NAME } from "./lib/request-utils.js";
-import { KeyPool } from "./lib/key-pool.js";
-import { CredentialStore } from "./lib/credential-store.js";
-import { OpenAiOAuthManager } from "./lib/openai-oauth.js";
-import { ProviderCatalogStore } from "./lib/provider-catalog.js";
 import { buildOllamaCatalogRoutes, getDeclaredProviderRoutes } from "./lib/provider-routing.js";
 import { isOpenAiHttpError } from "./lib/provider-utils.js";
 import { RequestLogStore } from "./lib/request-log-store.js";
 import { SqlPromptAffinityStore } from "./lib/db/sql-prompt-affinity-store.js";
 import { ProviderRoutePheromoneStore } from "./lib/provider-route-pheromone-store.js";
-import { ProxySettingsStore } from "./lib/proxy-settings-store.js";
-import { QuotaMonitor } from "./lib/quota-monitor.js";
 import { RequestLogSseHub } from "./lib/observability/request-log-sse-hub.js";
 import { registerWebSocketRoutes } from "./routes/api/ui/ws.js";
 import { registerBridgeSseRoutes } from "./routes/api/ui/bridge-sse.js";
@@ -42,8 +36,6 @@ import { SqlRequestUsageStore } from "./lib/db/sql-request-usage-store.js";
 import { SqlFederationStore } from "./lib/db/sql-federation-store.js";
 import { SqlTenantProviderPolicyStore } from "./lib/db/sql-tenant-provider-policy-store.js";
 import { SqlAuthPersistence } from "./lib/auth/sql-persistence.js";
-import { RuntimeCredentialStore } from "./lib/runtime-credential-store.js";
-import { createTokenRefreshRuntime } from "./lib/token-refresh-handlers.js";
 import { DEFAULT_TENANT_ID } from "./lib/tenant-api-key.js";
 import { createEnvFederationBridgeAgent } from "./lib/federation/bridge-agent-autostart.js";
 import { executeFederatedRequestRouting } from "./lib/federation/federated-routing.js";
@@ -71,18 +63,10 @@ export const host = {
     tenantProviderPolicy: (connection: Sql) => new SqlTenantProviderPolicyStore(connection),
     authPersistence: (connection: Sql) => new SqlAuthPersistence(connection),
   },
-  keyPool: (...args: Args<typeof KeyPool>) => new KeyPool(...args),
-  credentialStore: (...args: Args<typeof CredentialStore>) => new CredentialStore(...args),
-  runtimeCredentialStore: (...args: Args<typeof RuntimeCredentialStore>) => new RuntimeCredentialStore(...args),
-  oauthManager: (...args: Args<typeof OpenAiOAuthManager>) => new OpenAiOAuthManager(...args),
-  quotaMonitor: (...args: Args<typeof QuotaMonitor>) => new QuotaMonitor(...args),
-  providerCatalogStore: (...args: Args<typeof ProviderCatalogStore>) => new ProviderCatalogStore(...args),
   requestLogStore: (...args: Args<typeof RequestLogStore>) => new RequestLogStore(...args),
   requestLogSseHub: (...args: Args<typeof RequestLogSseHub>) => new RequestLogSseHub(...args),
   promptAffinityStore: (...args: Args<typeof SqlPromptAffinityStore>) => new SqlPromptAffinityStore(...args),
   pheromoneStore: (...args: Args<typeof ProviderRoutePheromoneStore>) => new ProviderRoutePheromoneStore(...args),
-  proxySettingsStore: (...args: Args<typeof ProxySettingsStore>) => new ProxySettingsStore(...args),
-  createTokenRefreshRuntime,
   createEnvFederationBridgeAgent,
   handleBridgeRequest,
   injectNativeBridge,

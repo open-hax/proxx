@@ -72,3 +72,33 @@
 
 (defn usage-to-cursor-js [row]
   (rethrow #(let [c (sql/row->cursor (shallow row))] #js {:timestampMs (get c "timestampMs") :id (get c "id")})))
+
+(defn create-sql-request-usage-store-js
+  "The request-usage mirror over postgres.js handle `sql` (formerly SqlRequestUsageStore).
+  The statements, parameters and row mapping above are the persisted contract;
+  this only executes them."
+  [^js sql]
+  (let [run (fn [^js q] (.unsafe sql (.-text q) (.-values q)))]
+    #js {:init (fn ^:async init []
+                 (doseq [statement (array-seq (usage-ddl-js))] (await (.unsafe sql statement)))
+                 js/undefined)
+         :upsertEntry (fn ^:async upsert-entry [entry]
+                        (let [^js q (usage-upsert-js entry)]
+                          (await (.apply sql nil (.concat #js [(.-strings q)] (.-values q))))
+                          js/undefined))
+         :listEntriesSince (fn ^:async list-since [since-ms filters limit after]
+                             (let [rs (await (run (usage-list-since-query-js since-ms filters limit after)))]
+                               (.map rs (fn [row] (usage-to-entry-js row)))))
+         :listEntries (fn ^:async list-entries [filters]
+                        (let [filters (if (nil? filters) #js {} filters)
+                              before (.-before ^js filters)
+                              cursor-rows (when (and (string? before) (pos? (.-length before)))
+                                            (await (.unsafe sql (usage-cursor-query-js) #js [before])))]
+                          (if (and cursor-rows (not (aget cursor-rows 0)))
+                            #js []
+                            (let [cursor (when cursor-rows (usage-to-cursor-js (aget cursor-rows 0)))
+                                  rs (await (run (usage-list-query-js filters cursor)))]
+                              (.map rs (fn [row] (usage-to-entry-js row)))))))
+         :getCoverage (fn ^:async get-coverage [filters]
+                        (let [rs (await (run (usage-coverage-query-js filters)))]
+                          (usage-coverage-js (aget rs 0))))}))

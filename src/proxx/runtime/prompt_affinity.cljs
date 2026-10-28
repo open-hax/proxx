@@ -3,7 +3,8 @@
   database persistence (`sql` may be undefined: memory only), and the JS
   facade of `SqlPromptAffinityStore`. Statement texts come from db/schema.ts."
   (:require [clojure.string :as str]
-            [proxx.credentials.affinity :as aff]))
+            [proxx.credentials.affinity :as aff]
+            [proxx.runtime.db-schema :as schema]))
 
 (defn- record->js [{:keys [prompt-cache-key provider-id account-id updated-at
                            provisional-provider-id provisional-account-id provisional-success-count]}]
@@ -40,7 +41,7 @@
          "get"
          (fn ^:async get-record [prompt-cache-key]
            (let [key (str/trim prompt-cache-key)]
-             (when (seq key) (some-> (get @cache key) record->js))))
+             (if (seq key) (if-let [r (get @cache key)] (record->js r) js/undefined) js/undefined)))
 
          "upsert"
          (fn ^:async upsert-record [prompt-cache-key provider-id account-id]
@@ -67,3 +68,12 @@
                (await (run! delete [key]))
                (swap! cache dissoc key)))
            js/undefined)}))
+
+(defn create-prompt-affinity-store-default-js
+  "The store over the schema's prompt-affinity statements (`sql` may be undefined: memory only)."
+  [sql]
+  (create-prompt-affinity-store-js
+   sql #js {"selectAll" (schema/sql-statement-js "SELECT_ALL_PROMPT_AFFINITY")
+            "upsert" (schema/sql-statement-js "UPSERT_PROMPT_AFFINITY")
+            "delete" (schema/sql-statement-js "DELETE_PROMPT_AFFINITY")
+            "promote" (schema/sql-statement-js "UPSERT_PROMPT_AFFINITY_PROMOTE_PROVISIONAL")}))
