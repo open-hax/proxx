@@ -332,6 +332,25 @@
       (clj->js {:status "error"
                 :error (.-message e)}))))
 
+(defn classify-credential-failure-js
+  "Classify an upstream credential failure using :credential-failure-classification
+   EDN contracts. Returns a JS object {status, result, cooldownMs, disable, contractId}
+   where result is 'quota-exhausted', 'model-unavailable', or null when no contract matches."
+  [manifest-path provider-id status message]
+  (try
+    (let [compiled (compiled-policy-for-manifest manifest-path)
+          contract (policy-contracts/classify-credential-failure
+                    compiled
+                    {:provider-id provider-id :status status :message message})]
+      (clj->js {:status "ok"
+                :result (some-> (:classify/result contract) name)
+                :cooldownMs (:classify/cooldown-ms contract)
+                :disable (true? (:classify/disable? contract))
+                :contractId (some-> (:contract/id contract) str)}))
+    (catch :default e
+      (clj->js {:status "error"
+                :error (.-message e)}))))
+
 (def exports
   #js {:normalizeKeys normalize-keys-js
        :validateEntity validate-entity-js
@@ -352,4 +371,5 @@
         :runModelCandidates run-model-candidates-js
        :resolveQueuePolicy resolve-queue-policy-js
        :runQueued run-queued-js
-       :classifyRateLimit classify-rate-limit-js})
+       :classifyRateLimit classify-rate-limit-js
+       :classifyCredentialFailure classify-credential-failure-js})

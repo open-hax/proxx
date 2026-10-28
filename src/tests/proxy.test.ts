@@ -10,6 +10,7 @@ import test from "node:test";
 import type { FastifyInstance } from "fastify";
 
 import { createApp } from "../app.js";
+import { SqlPromptAffinityStore } from "../lib/db/sql-prompt-affinity-store.js";
 import { getActiveCljsRuntime, loadCljsRuntime, setActiveCljsRuntime } from "../lib/cljs-runtime.js";
 import type { ProxyConfig } from "../lib/config.js";
 
@@ -4047,6 +4048,96 @@ test("permanently disables api_key accounts on 403 (forbidden/suspended)", async
 
       assert.equal(requestCount, firstCount, "second request must not reach upstream — account is permanently disabled");
     }
+  );
+});
+
+test("policy-classified openrouter key-limit 403 cools the key down and fails over instead of disabling it", async () => {
+  const chatAuth: string[] = [];
+
+  await withProxyApp(
+    {
+      keys: [],
+      keysPayload: {
+        providers: {
+          openrouter: [{ id: "openrouter-main", api_key: "openrouter-limited-key" }],
+          requesty: ["requesty-working-key"],
+        },
+      },
+      configOverrides: {
+        upstreamProviderId: "openrouter",
+      },
+      upstreamHandler: async (request) => {
+        const auth = typeof request.headers.authorization === "string" ? request.headers.authorization : "";
+        if (request.method === "POST" && (request.url ?? "").includes("chat/completions")) {
+          chatAuth.push(auth.replace(/^Bearer\s+/i, ""));
+        }
+
+        if (auth === "Bearer openrouter-limited-key") {
+          return {
+            status: 403,
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ error: { code: 403, message: "Key limit exceeded (total limit). Manage it in your OpenRouter settings." } }),
+          };
+        }
+
+        return {
+          status: 200,
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            id: "chatcmpl-credential-policy",
+            object: "chat.completion",
+            model: "acme-coder-1",
+            choices: [
+              {
+                index: 0,
+                message: { role: "assistant", content: "credential-policy-ok" },
+                finish_reason: "stop",
+              },
+            ],
+          }),
+        };
+      },
+    },
+    async ({ app }) => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: { "content-type": "application/json" },
+        payload: {
+          model: "acme-coder-1",
+          messages: [{ role: "user", content: "hello" }],
+          stream: false,
+        },
+      });
+
+      assert.equal(response.statusCode, 200);
+      assert.match(response.body, /credential-policy-ok/);
+      assert.deepEqual(chatAuth, ["openrouter-limited-key", "requesty-working-key"]);
+
+      const credentials = await app.inject({ method: "GET", url: "/api/v1/credentials" });
+      assert.equal(credentials.statusCode, 200);
+      const payload: unknown = credentials.json();
+      assert.ok(isRecord(payload) && isRecord(payload.keyPoolStatuses));
+      const openrouter = payload.keyPoolStatuses.openrouter;
+      assert.ok(isRecord(openrouter));
+      assert.equal(openrouter.disabledAccounts, 0, "a spend limit must not disable the key");
+      assert.equal(openrouter.cooldownAccounts, 1, "the limited key cools down until the limit resets");
+
+      const enable = await app.inject({
+        method: "POST",
+        url: "/api/v1/credentials/account/enable",
+        headers: { "content-type": "application/json" },
+        payload: { providerId: "openrouter", accountId: "openrouter-main" },
+      });
+      assert.equal(enable.statusCode, 200);
+
+      const afterEnable: unknown = (await app.inject({ method: "GET", url: "/api/v1/credentials" })).json();
+      assert.ok(isRecord(afterEnable) && isRecord(afterEnable.keyPoolStatuses));
+      const reenabled = afterEnable.keyPoolStatuses.openrouter;
+      assert.ok(isRecord(reenabled));
+      assert.equal(reenabled.cooldownAccounts, 0, "an explicit re-enable clears the cooldown");
+      assert.equal(reenabled.availableAccounts, 1);
+    },
   );
 });
 
@@ -13397,4 +13488,35 @@ test("rewrites largest-model alias requests for ollama catalog models", async ()
       assert.equal(payload.choices[0].message.content, "alias-ok");
     }
   );
+});
+
+
+test("records fallback affinity after the preferred route becomes model-unavailable", async (t) => {
+  const successes = t.mock.method(SqlPromptAffinityStore.prototype, "noteSuccess");
+  let preferredAttempts = 0;
+  await withProxyApp({
+    keys: [],
+    keysPayload: { providers: { openrouter: ["preferred-key"], requesty: ["fallback-key"] } },
+    configOverrides: { upstreamProviderId: "openrouter", localOllamaEnabled: false },
+    upstreamHandler: async (request) => {
+      if (request.headers.authorization === "Bearer preferred-key" && ++preferredAttempts > 1) {
+        return { status: 404, headers: { "content-type": "application/json" },
+          body: JSON.stringify({ error: { message: "No allowed providers are available" } }) };
+      }
+      return { status: 200, headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: "affinity-fallback", object: "chat.completion", model: "test-model",
+          choices: [{ index: 0, message: { role: "assistant", content: "OK" }, finish_reason: "stop" }] }) };
+    },
+  }, async ({ app }) => {
+    const payload = { model: "test-model", messages: [{ role: "user", content: "hello" }],
+      prompt_cache_key: "unavailable-affinity", stream: false };
+    for (let i = 0; i < 2; i += 1) {
+      assert.equal((await app.inject({ method: "POST", url: "/v1/chat/completions",
+        headers: { "content-type": "application/json" }, payload })).statusCode, 200);
+    }
+    assert.equal(preferredAttempts, 2);
+    assert.ok(successes.mock.calls.some(({ arguments: args }) =>
+      args[0] === "unavailable-affinity" && args[1] === "requesty"),
+      "successful fallback must enter the provisional affinity state machine");
+  });
 });

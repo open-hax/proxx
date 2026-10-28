@@ -23,6 +23,13 @@
    :match/request-kind :chat
    :queue/attempt-timeout-ms 120000}
 
+ {:contract/id :queue/ollama-host-chat
+   :contract/kind :request-queue-instance
+   :queue/template-id :queue/default
+   :queue/provider-id "ollama-host"
+   :match/request-kind :chat
+   :queue/attempt-timeout-ms 120000}
+
  {:contract/id :queue/ollama-chat
    :contract/kind :request-queue-instance
    :queue/template-id :queue/default

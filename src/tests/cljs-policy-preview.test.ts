@@ -1,7 +1,37 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { assertCljsRuntimeReady, loadCljsRuntime } from "../lib/cljs-runtime.js";
+import { assertCljsRuntimeReady, loadCljsRuntime, setActiveCljsRuntime } from "../lib/cljs-runtime.js";
+import { classifyCredentialFailureByPolicy } from "../lib/proxy.js";
+
+test("CLJS runtime classifies credential failures from manifest contracts", async (t) => {
+  const loaded = await loadCljsRuntime({ required: false });
+  if (!loaded.loaded) {
+    t.skip(`CLJS runtime artifact not built: ${loaded.reason}`);
+    return;
+  }
+  const manifest = "resources/policies/runtime/00-manifest.edn";
+  setActiveCljsRuntime(loaded.runtime);
+  try {
+    assert.deepEqual(
+      classifyCredentialFailureByPolicy("kimi-for-coding", 403, "You've reached your 5-hour usage limit.", manifest),
+      {
+        kind: "quota_exhausted",
+        cooldownMs: 1_800_000,
+        disable: false,
+        contractId: ":credential-failure/kimi-for-coding-usage-window",
+      },
+    );
+    assert.equal(
+      classifyCredentialFailureByPolicy("openrouter", 404, "No allowed providers are available for the selected model.", manifest)?.kind,
+      "model_unavailable",
+    );
+    assert.equal(classifyCredentialFailureByPolicy("kimi-for-coding", 401, "Invalid Authentication", manifest), undefined);
+    assert.equal(classifyCredentialFailureByPolicy("vivgrid", 402, "Payment required", manifest), undefined);
+  } finally {
+    setActiveCljsRuntime(undefined);
+  }
+});
 
 test("CLJS runtime previews declarative policy decisions from manifest", async (t) => {
   const loaded = await loadCljsRuntime({ required: false });

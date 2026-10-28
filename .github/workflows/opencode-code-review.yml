@@ -8,41 +8,272 @@ concurrency:
   group: opencode-kimi-review-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
+env:
+  # PR451 merged as d4d52a39ff1db65ad36e9a429e03489c1208e32d; selected helper bytes match that reviewed tree.
+  # This integration is not native App canary, Kimi enrollment or accepted low-review execution evidence.
+  # Each executable job independently requires this commit in the immutable PR base ancestry.
+  # Workflow YAML retains the existing same-repo contributor trust boundary.
+  KIMI_RUNTIME_SHA: 2810f4515424a146fe37390fb0baf532cca31236
+
 jobs:
-  review:
-    name: Review pull request with OpenCode
-    if: ${{ github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository }}
+  runner-tests:
+    name: Review runner regression tests
     runs-on: ubuntu-latest
     permissions:
-      id-token: write
       contents: read
-      pull-requests: write
-      issues: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - run: node --test .github/scripts/kimi-review.test.cjs
+
+  review:
+    needs: runner-tests
+    timeout-minutes: 30
+    name: Produce exact-head Kimi review
+    if: ${{ github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    outputs:
+      artifact-name: ${{ steps.provenance.outputs.artifact-name }}
+    permissions:
+      contents: read
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
 
-      - name: Configure review git identity
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-      - name: Run OpenCode review
-        # v1.15.13 pinned by commit SHA for reproducible review behavior.
-        uses: anomalyco/opencode/github@385cb694419f98103af0e8fc6187ddcbcbb6eecb
+      - name: Install verified OpenCode CLI
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OPENCODE_VERSION: 1.18.34
+          OPENCODE_SHA256: 0f22479647226d1d2dd99595d20082ee7bda3870b62dc6a90b41efc1a71d7e9a
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/opencode.tar.gz"
+          curl --fail --silent --show-error --location \
+            "https://github.com/anomalyco/opencode/releases/download/v${OPENCODE_VERSION}/opencode-linux-x64.tar.gz" \
+            --output "$archive"
+          echo "${OPENCODE_SHA256}  $archive" | sha256sum --check --strict
+          mkdir -p "$RUNNER_TEMP/opencode-bin"
+          tar -xzf "$archive" -C "$RUNNER_TEMP/opencode-bin"
+          echo "$RUNNER_TEMP/opencode-bin" >> "$GITHUB_PATH"
+          test "$("$RUNNER_TEMP/opencode-bin/opencode" --version)" = "$OPENCODE_VERSION"
+
+      - name: Prepare immutable review runtime
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$KIMI_RUNTIME_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$PR_BASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          git merge-base --is-ancestor "$KIMI_RUNTIME_SHA" "$PR_BASE_SHA"
+          git show "${KIMI_RUNTIME_SHA}:.github/scripts/kimi-review.cjs" > "$RUNNER_TEMP/kimi-review.cjs"
+          git show "${KIMI_RUNTIME_SHA}:.github/scripts/opencode-app-auth.cjs" > "$RUNNER_TEMP/opencode-app-auth.cjs"
+          node --check "$RUNNER_TEMP/kimi-review.cjs"
+          node --check "$RUNNER_TEMP/opencode-app-auth.cjs"
+
+      - name: Run exact-head Kimi review without publication credentials
+        run: node "$RUNNER_TEMP/kimi-review.cjs"
+        env:
           KIMI_API_KEY: ${{ secrets.KIMI_FOR_CODING_API_KEY }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          KIMI_REVIEW_FILE: ${{ runner.temp }}/kimi-review.json
+
+      - name: Record native execution provenance
+        id: provenance
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REVIEW_WORKFLOW_SHA: ${{ github.workflow_sha }}
+          REVIEW_WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs'), crypto = require('node:crypto');
+          const { execFileSync } = require('node:child_process');
+          const e = process.env, sha = value => /^[0-9a-f]{40}$/.test(value || '');
+          if (![e.KIMI_RUNTIME_SHA, e.PR_HEAD_SHA, e.PR_BASE_SHA, e.REVIEW_WORKFLOW_SHA].every(sha) ||
+              !/^[1-9][0-9]*$/.test(e.GITHUB_RUN_ID || '') ||
+              ![e.PR_NUMBER, e.GITHUB_RUN_ATTEMPT].every(value => /^[1-9][0-9]*$/.test(value || '') && Number.isSafeInteger(Number(value))) ||
+              e.REVIEW_WORKFLOW_REF !== `${e.GITHUB_REPOSITORY}/.github/workflows/opencode-code-review.yml@refs/pull/${e.PR_NUMBER}/merge`) throw new Error('Invalid execution provenance');
+          execFileSync('git', ['merge-base', '--is-ancestor', e.KIMI_RUNTIME_SHA, e.PR_BASE_SHA]);
+          const runtimePath = `${e.RUNNER_TEMP}/kimi-review.cjs`;
+          const runtime = fs.readFileSync(runtimePath), expected = execFileSync('git', ['show', `${e.KIMI_RUNTIME_SHA}:.github/scripts/kimi-review.cjs`]);
+          if (!runtime.equals(expected)) throw new Error('Runtime bytes differ from immutable source');
+          const auth = fs.readFileSync(`${e.RUNNER_TEMP}/opencode-app-auth.cjs`);
+          if (!auth.equals(execFileSync('git', ['show', `${e.KIMI_RUNTIME_SHA}:.github/scripts/opencode-app-auth.cjs`]))) throw new Error('Auth bytes differ from immutable source');
+          const reviewBytes = fs.readFileSync(`${e.RUNNER_TEMP}/kimi-review.json`);
+          const review = JSON.parse(reviewBytes);
+          const helper = require(runtimePath);
+          helper.assertHead(e.PR_HEAD_SHA, review.head);
+          const model = helper.structuredRequest('', review.head, review).model;
+          if (model.providerID !== 'kimi-code-plan-global' || model.modelID !== 'kimi-for-coding') throw new Error('Unexpected requested model');
+          const version = execFileSync('opencode', ['--version'], { encoding: 'utf8' }).trim();
+          const archiveSha256 = crypto.createHash('sha256').update(fs.readFileSync(`${e.RUNNER_TEMP}/opencode.tar.gz`)).digest('hex');
+          if (version !== '1.18.34' || archiveSha256 !== '0f22479647226d1d2dd99595d20082ee7bda3870b62dc6a90b41efc1a71d7e9a') throw new Error('Toolchain provenance mismatch');
+          const artifactName = `kimi-native-${e.GITHUB_RUN_ID}-${e.PR_NUMBER}-${review.head}-${e.GITHUB_RUN_ATTEMPT}`;
+          const provenance = {
+            origin: 'github-actions-native-execution', repository: e.GITHUB_REPOSITORY,
+            prNumber: Number(e.PR_NUMBER), artifactName,
+            head: review.head, base: e.PR_BASE_SHA, runtimeSha: e.KIMI_RUNTIME_SHA,
+            runtimeBlobSha256: crypto.createHash('sha256').update(runtime).digest('hex'), runtimeBaseAncestorVerified: true,
+            authBlobSha256: crypto.createHash('sha256').update(auth).digest('hex'),
+            reviewBlobSha256: crypto.createHash('sha256').update(reviewBytes).digest('hex'), executionControl: review.executionControl,
+            requestedModel: model, executedModel: model,
+            executedModelBinding: 'Successful immutable parseStructured requires assistant providerID/modelID to equal requested Kimi identities',
+            runID: e.GITHUB_RUN_ID, runAttempt: Number(e.GITHUB_RUN_ATTEMPT),
+            runURL: `${e.GITHUB_SERVER_URL}/${e.GITHUB_REPOSITORY}/actions/runs/${e.GITHUB_RUN_ID}`,
+            workflowSha: e.REVIEW_WORKFLOW_SHA, workflowRef: e.REVIEW_WORKFLOW_REF,
+            opencodeVersion: version, archiveSha256, diffSha256: review.diffSha256, coveredFiles: review.coveredFiles,
+          };
+          fs.writeFileSync(`${e.RUNNER_TEMP}/kimi-provenance.json`, JSON.stringify(provenance, null, 2));
+          fs.appendFileSync(e.GITHUB_OUTPUT, `artifact-name=${artifactName}\n`);
+          NODE
+
+      - name: Preserve native submission and its execution provenance
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          model: kimi-for-coding/k2p5
-          use_github_token: true
-          prompt: |
-            Review this pull request as a senior maintainer.
-            Focus on correctness, security, maintainability, tests, and repo-specific conventions.
-            Check linked GitHub issues and any synced Kanban markers (`openhax-kanban-sync`) to understand the task intent.
-            If this repository has a kanban/ directory or docs/agent-workflows.md, use it as planning context and keep status/priority labels in mind.
-            Submit concrete findings as GitHub PR inline review comments on the exact changed lines whenever GitHub can attach them.
-            If there are no actionable findings, leave a short passing review summary instead of inventing comments.
-            Do not request cosmetic churn unless it prevents confusion or future defects.
+          name: ${{ steps.provenance.outputs.artifact-name }}
+          path: |
+            ${{ runner.temp }}/kimi-review.json
+            ${{ runner.temp }}/kimi-provenance.json
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    needs: [runner-tests, review]
+    timeout-minutes: 30
+    # Preserve the existing provider check as the complete publication boundary.
+    name: Review pull request with OpenCode
+    if: ${{ github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout immutable source as Git data only
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Prepare immutable publication runtime
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$KIMI_RUNTIME_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$PR_BASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          git merge-base --is-ancestor "$KIMI_RUNTIME_SHA" "$PR_BASE_SHA"
+          git show "${KIMI_RUNTIME_SHA}:.github/scripts/kimi-review.cjs" > "$RUNNER_TEMP/kimi-review.cjs"
+          git show "${KIMI_RUNTIME_SHA}:.github/scripts/opencode-app-auth.cjs" > "$RUNNER_TEMP/opencode-app-auth.cjs"
+          node --check "$RUNNER_TEMP/kimi-review.cjs"
+          node --check "$RUNNER_TEMP/opencode-app-auth.cjs"
+
+      - name: Download only the retained successful producer artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ needs.review.outputs.artifact-name }}
+          path: ${{ runner.temp }}/kimi-native
+
+      - name: Publish exact-head review and its own bounded Discord notifications
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+        env:
+          KIMI_REVIEW_FILE: ${{ runner.temp }}/kimi-native/kimi-review.json
+          ARTIFACT_NAME: ${{ needs.review.outputs.artifact-name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          REVIEW_WORKFLOW_SHA: ${{ github.workflow_sha }}
+          REVIEW_WORKFLOW_REF: ${{ github.workflow_ref }}
+          DISCORD_REVIEW_WEBHOOK_URL: ${{ secrets.DISCORD_REVIEW_WEBHOOK_URL }}
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const fs = require('node:fs'), crypto = require('node:crypto'), { isDeepStrictEqual } = require('node:util');
+            const { execFileSync } = require('node:child_process');
+            const e = process.env, sha = value => /^[0-9a-f]{40}$/.test(value || '');
+            const positive = value => /^[1-9][0-9]*$/.test(value || '') && Number.isSafeInteger(Number(value));
+            const digest = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
+            if (![e.PR_HEAD_SHA, e.PR_BASE_SHA, e.KIMI_RUNTIME_SHA, e.REVIEW_WORKFLOW_SHA].every(sha) ||
+                !positive(e.PR_NUMBER) || !positive(e.GITHUB_RUN_ATTEMPT) || !/^[1-9][0-9]*$/.test(e.GITHUB_RUN_ID || '') ||
+                e.REVIEW_WORKFLOW_REF !== `${e.GITHUB_REPOSITORY}/.github/workflows/opencode-code-review.yml@refs/pull/${e.PR_NUMBER}/merge`) throw Error('Invalid publication context');
+            if (context.repo.owner + '/' + context.repo.repo !== e.GITHUB_REPOSITORY ||
+                context.payload.pull_request?.number !== Number(e.PR_NUMBER) ||
+                context.payload.pull_request?.head.sha !== e.PR_HEAD_SHA || context.payload.pull_request?.base.sha !== e.PR_BASE_SHA) throw Error('Publication event mismatch');
+            execFileSync('git', ['merge-base', '--is-ancestor', e.KIMI_RUNTIME_SHA, e.PR_BASE_SHA]);
+            const runtimePath = `${e.RUNNER_TEMP}/kimi-review.cjs`, authPath = `${e.RUNNER_TEMP}/opencode-app-auth.cjs`;
+            const runtime = fs.readFileSync(runtimePath), auth = fs.readFileSync(authPath);
+            if (!runtime.equals(execFileSync('git', ['show', `${e.KIMI_RUNTIME_SHA}:.github/scripts/kimi-review.cjs`])) ||
+                !auth.equals(execFileSync('git', ['show', `${e.KIMI_RUNTIME_SHA}:.github/scripts/opencode-app-auth.cjs`]))) throw Error('Publication runtime bytes mismatch');
+            const read = path => {
+              if (fs.statSync(path).size > 10 * 1024 * 1024) throw Error('Native artifact exceeds byte bound');
+              return fs.readFileSync(path);
+            };
+            const reviewBytes = read(e.KIMI_REVIEW_FILE), review = JSON.parse(reviewBytes);
+            const provenance = JSON.parse(read(`${e.RUNNER_TEMP}/kimi-native/kimi-provenance.json`));
+            // A failed publisher rerun may retain the successful producer from an earlier
+            // attempt of this same run. Never relabel it as the consumer attempt.
+            const artifactName = `kimi-native-${e.GITHUB_RUN_ID}-${e.PR_NUMBER}-${e.PR_HEAD_SHA}-${provenance.runAttempt}`;
+            if (provenance.origin !== 'github-actions-native-execution' || provenance.repository !== e.GITHUB_REPOSITORY ||
+                provenance.prNumber !== Number(e.PR_NUMBER) || provenance.head !== e.PR_HEAD_SHA || provenance.base !== e.PR_BASE_SHA ||
+                provenance.runtimeSha !== e.KIMI_RUNTIME_SHA || provenance.runtimeBaseAncestorVerified !== true ||
+                provenance.runtimeBlobSha256 !== digest(runtime) || provenance.authBlobSha256 !== digest(auth) ||
+                provenance.reviewBlobSha256 !== digest(reviewBytes) || provenance.runID !== e.GITHUB_RUN_ID ||
+                !Number.isSafeInteger(provenance.runAttempt) || provenance.runAttempt < 1 || provenance.runAttempt > Number(e.GITHUB_RUN_ATTEMPT) ||
+                provenance.artifactName !== artifactName || e.ARTIFACT_NAME !== artifactName ||
+                provenance.runURL !== `${e.GITHUB_SERVER_URL}/${e.GITHUB_REPOSITORY}/actions/runs/${e.GITHUB_RUN_ID}` ||
+                provenance.workflowSha !== e.REVIEW_WORKFLOW_SHA || provenance.workflowRef !== e.REVIEW_WORKFLOW_REF ||
+                provenance.opencodeVersion !== '1.18.34' || provenance.archiveSha256 !== '0f22479647226d1d2dd99595d20082ee7bda3870b62dc6a90b41efc1a71d7e9a') throw Error('Native execution provenance mismatch');
+            const helper = require(runtimePath);
+            helper.assertHead(e.PR_HEAD_SHA, review.head, execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim());
+            const coverage = helper.diffCoverage(e.PR_BASE_SHA, e.PR_HEAD_SHA);
+            helper.assertReviewablePaths(coverage.coveredFiles);
+            const { executionControl, ...modelReview } = review;
+            if (Object.keys(modelReview).some(key => !['head', 'diffSha256', 'coveredFiles', 'summary', 'comments'].includes(key)) ||
+                review.diffSha256 !== coverage.diffSha256 || !isDeepStrictEqual(review.coveredFiles, coverage.coveredFiles) ||
+                provenance.diffSha256 !== coverage.diffSha256 || !isDeepStrictEqual(provenance.coveredFiles, coverage.coveredFiles)) throw Error('Native artifact does not cover immutable full diff');
+            helper.validateReview(modelReview);
+            const request = helper.structuredRequest('', review.head, coverage);
+            const expectedControl = {
+              requested: { variant: 'low' }, advertisedNativeControl: { apiNpm: '@ai-sdk/openai-compatible', reasoningEffort: 'low' },
+              opencodeVersion: '1.18.34', observedAssistantVariant: 'low',
+              executedIdentity: { providerID: 'kimi-code-plan-global', modelID: 'kimi-for-coding' }, underlyingProviderModel: null,
+              binding: 'Pinned OpenCode catalog low mapping and assistant variant; not a provider reasoning-budget attestation',
+            };
+            if (request.variant !== 'low' || !isDeepStrictEqual(request.model, expectedControl.executedIdentity) ||
+                !isDeepStrictEqual(provenance.requestedModel, request.model) || !isDeepStrictEqual(provenance.executedModel, request.model) ||
+                !isDeepStrictEqual(executionControl, expectedControl) || !isDeepStrictEqual(provenance.executionControl, executionControl) ||
+                provenance.executedModelBinding !== 'Successful immutable parseStructured requires assistant providerID/modelID to equal requested Kimi identities') throw Error('Native model/control provenance mismatch');
+            // Keep complete coverage in the artifact; body metadata has a fixed field set.
+            const bodyProvenance = {
+              origin: provenance.origin, repository: provenance.repository,
+              head: provenance.head, base: provenance.base, runtimeSha: provenance.runtimeSha,
+              runtimeBlobSha256: provenance.runtimeBlobSha256,
+              authBlobSha256: provenance.authBlobSha256, reviewBlobSha256: provenance.reviewBlobSha256,
+              runtimeBaseAncestorVerified: provenance.runtimeBaseAncestorVerified,
+              requestedModel: provenance.requestedModel, executedModel: provenance.executedModel,
+              runID: provenance.runID, runAttempt: provenance.runAttempt,
+              artifactName: provenance.artifactName, prNumber: provenance.prNumber,
+              workflowSha: provenance.workflowSha, opencodeVersion: provenance.opencodeVersion,
+              archiveSha256: provenance.archiveSha256, diffSha256: provenance.diffSha256,
+              coveredFileCount: provenance.coveredFiles.length,
+              executionControl,
+            };
+            const bodyMetadata = JSON.stringify(bodyProvenance, null, 2);
+            // The qualified helper owns final-body and receipt preflight before creation.
+            const publicationFooter = `\n\nNative execution provenance (runtime observations, not provider attestation or reviewer quorum):\n\`\`\`json\n${bodyMetadata}\n\`\`\``;
+            // Only trusted code selects the owner. App exchange happens after every
+            // local provenance check; the helper owns native readback/dedup/body receipts.
+            const { withOpenCodeAppToken } = require(authPath);
+            await withOpenCodeAppToken({ core }, async token => {
+              const appGithub = new github.constructor({ auth: token });
+              await helper.publish({ github: appGithub, context, file: e.KIMI_REVIEW_FILE,
+                webhookUrl: e.DISCORD_REVIEW_WEBHOOK_URL, publicationFooter, publisher: 'opencode-agent' });
+            });
