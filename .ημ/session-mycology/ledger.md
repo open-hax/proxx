@@ -96,3 +96,12 @@
   spore: none
   receipt-refs: typed-kimi-owner-bridge;6544696
   note: NBB loadFile did not honor the assumed classpath option. Actual JS boundary tests exposed missing namespace loading; the documented addClassPath API repaired it. Exact accepted owner bytes and normative tests remain unchanged. Hash checks detect drift relative to trusted reviewed source, not arbitrary manifest authenticity. This component is proposal-only and does not qualify model execution, publication or approval.
+
+- ts: 2026-10-26T04:21:10.790490+00:00
+  agent: codex
+  p-efficiency: 0.89
+  p-friction: 0.16
+  p-skill-candidate: 0.22
+  spore: none
+  receipt-refs: typed-kimi-native-submission;623aef8
+  note: Native structured input must bind both enclosing assistant identity and tool-part session/message coordinates. Actual pinned SDK source confirms both fields. A red negative control proved that merely matching structured values did not bind the part; fixed in pure CLJC before any operational adoption. Parsed observations are not authenticated execution provenance or native approval. Initial missing package dependency was setup failure only, followed by actual stub-driven RED.
