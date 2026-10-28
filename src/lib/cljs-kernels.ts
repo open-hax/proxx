@@ -5,7 +5,8 @@
  * this one can call the kernels synchronously. The compiled artifact is
  * required: these functions are the implementation, not an optimization.
  */
-import type { ServerResponse } from "node:http";
+import type { IncomingMessage, ServerResponse } from "node:http";
+import type { Duplex } from "node:stream";
 
 import { loadCljsRuntime } from "./cljs-runtime.js";
 import type { CredentialStoreLike } from "./credential-store.js";
@@ -43,9 +44,6 @@ import type {
   ModelsDevPricingSnapshot,
   RequestCostEstimate,
 } from "./model-pricing.js";
-import type { BridgeSendChannel } from "./federation/bridge-send-channel.js";
-import type { FederationBridgeAgentOptions } from "./federation/bridge-agent.js";
-import type { BridgeMessage } from "./federation/bridge-protocol.js";
 import type { BridgeLeaseAccountSummary, BridgeLeaseExportedAccount } from "../routes/federation/bridge-lease-parsers.js";
 import type { ProviderCredential } from "./key-pool.js";
 import type { FederationOwnerCredential } from "./federation/owner-credential.js";
@@ -1077,6 +1075,365 @@ export interface RequestLogFanout {
   readonly clear: () => void;
   readonly eventType: (type: string) => string;
 }
+
+// ---------------------------------------------------------------------------
+// Federation bridge types (the relay, agent and protocol are CLJS: proxx.federation.*)
+// ---------------------------------------------------------------------------
+export type BridgeProtocolVersion = "bridge-ws-v0";
+export type BridgeAuthMode = "admin_key" | "at_did" | "did_signed_challenge";
+export type BridgeAccountAuthType = "api_key" | "oauth_bearer" | "local" | "none";
+export type BridgeCredentialMobility = "local_only" | "descriptor_only" | "importable" | "non_exportable" | "access_token_only";
+export type BridgeChunkEncoding = "utf8" | "base64";
+export type BridgeDefaultExecutionPolicy = "cluster_default" | "group_affinity" | "node_affinity";
+
+export interface BridgeTopologyGroupSummary {
+  readonly groupId: string;
+  readonly nodeIds: readonly string[];
+}
+
+export interface BridgeTopologyNodeSummary {
+  readonly groupId: string;
+  readonly nodeId: string;
+  readonly labels: readonly string[];
+}
+
+export interface BridgeTopologySummary {
+  readonly groups: readonly BridgeTopologyGroupSummary[];
+  readonly nodes: readonly BridgeTopologyNodeSummary[];
+  readonly defaultExecutionPolicy?: BridgeDefaultExecutionPolicy;
+}
+
+export interface BridgeExecutionTarget {
+  readonly groupId: string;
+  readonly nodeId: string;
+}
+
+export interface BridgeCapabilityAdvertisement {
+  readonly providerId: string;
+  readonly modelPrefixes: readonly string[];
+  readonly models: readonly string[];
+  readonly paths?: readonly string[];
+  readonly routes?: readonly string[];
+  readonly authType: BridgeAccountAuthType;
+  readonly accountCount: number;
+  readonly availableAccountCount: number;
+  readonly supportsModelsList: boolean;
+  readonly supportsChatCompletions: boolean;
+  readonly supportsResponses: boolean;
+  readonly supportsStreaming: boolean;
+  readonly supportsWarmImport: boolean;
+  readonly credentialMobility: BridgeCredentialMobility;
+  readonly credentialOrigin: string;
+  readonly lastHealthyAt?: string;
+  readonly lastFailureAt?: string;
+  readonly failureClass?: string;
+  readonly topologyTargets: readonly BridgeExecutionTarget[];
+}
+
+export interface BridgeNodeHealthSummary {
+  readonly groupId: string;
+  readonly nodeId: string;
+  readonly reachable: boolean;
+  readonly lastHealthyAt?: string;
+  readonly lastFailureAt?: string;
+  readonly failureClass?: string;
+}
+
+export interface BridgeHealthReportPayload {
+  readonly processHealthy: boolean;
+  readonly upstreamHealthy: boolean;
+  readonly availableAccountCount: number;
+  readonly localOauthBootstrapReady: boolean;
+  readonly queuedRequests?: number;
+  readonly nodes: readonly BridgeNodeHealthSummary[];
+}
+
+export interface BridgeRequestContext {
+  readonly tenantId?: string;
+  readonly issuer?: string;
+  readonly keyId?: string;
+}
+
+export interface BridgeRoutingIntent {
+  readonly providerId?: string;
+  readonly model?: string;
+  readonly accountId?: string;
+}
+
+export interface BridgeUsageSummary {
+  readonly requestCount?: number;
+  readonly promptTokens?: number;
+  readonly completionTokens?: number;
+  readonly totalTokens?: number;
+}
+
+export interface BridgeBaseEnvelope {
+  readonly type: string;
+  readonly protocolVersion: BridgeProtocolVersion;
+  readonly sessionId?: string;
+  readonly streamId?: string;
+  readonly sentAt: string;
+  readonly traceId: string;
+  readonly ownerSubject: string;
+  readonly clusterId: string;
+  readonly agentId: string;
+  readonly groupId?: string;
+  readonly nodeId?: string;
+}
+
+export interface BridgeHelloMessage extends BridgeBaseEnvelope {
+  readonly type: "hello";
+  readonly peerDid: string;
+  readonly environment: string;
+  readonly bridgeAgentVersion: string;
+  readonly authMode: BridgeAuthMode;
+  readonly capabilitiesHash?: string;
+  readonly labels: readonly string[];
+  readonly topology?: BridgeTopologySummary;
+}
+
+export interface BridgeHelloAckMessage extends BridgeBaseEnvelope {
+  readonly type: "hello_ack";
+  readonly sessionId: string;
+  readonly heartbeatIntervalMs: number;
+  readonly maxConcurrentStreams: number;
+  readonly maxFrameBytes: number;
+  readonly resumeToken?: string;
+}
+
+export interface BridgeHeartbeatMessage extends BridgeBaseEnvelope {
+  readonly type: "heartbeat";
+  readonly sequence: number;
+  readonly activeStreams?: number;
+  readonly queuedRequests?: number;
+}
+
+export interface BridgeCapabilitiesMessage extends BridgeBaseEnvelope {
+  readonly type: "capabilities";
+  readonly capabilities: readonly BridgeCapabilityAdvertisement[];
+}
+
+export interface BridgeHealthReportMessage extends BridgeBaseEnvelope {
+  readonly type: "health_report";
+  readonly health: BridgeHealthReportPayload;
+}
+
+export interface BridgeRequestOpenMessage extends BridgeBaseEnvelope {
+  readonly type: "request_open";
+  readonly streamId: string;
+  readonly method: string;
+  readonly path: string;
+  readonly headers: Readonly<Record<string, string>>;
+  readonly requestContext?: BridgeRequestContext;
+  readonly routingIntent?: BridgeRoutingIntent;
+  readonly originClusterId?: string;
+  readonly originNodeId?: string;
+  readonly hopCount: number;
+}
+
+export interface BridgeRequestChunkMessage extends BridgeBaseEnvelope {
+  readonly type: "request_chunk";
+  readonly streamId: string;
+  readonly chunk: string;
+  readonly encoding: BridgeChunkEncoding;
+  readonly final: boolean;
+}
+
+export interface BridgeResponseHeadMessage extends BridgeBaseEnvelope {
+  readonly type: "response_head";
+  readonly streamId: string;
+  readonly status: number;
+  readonly headers: Readonly<Record<string, string>>;
+  readonly servedByClusterId?: string;
+  readonly servedByGroupId?: string;
+  readonly servedByNodeId?: string;
+  readonly providerId?: string;
+  readonly accountId?: string;
+}
+
+export interface BridgeResponseChunkMessage extends BridgeBaseEnvelope {
+  readonly type: "response_chunk";
+  readonly streamId: string;
+  readonly chunk: string;
+  readonly encoding: BridgeChunkEncoding;
+  readonly final: boolean;
+  readonly servedByClusterId?: string;
+  readonly servedByGroupId?: string;
+  readonly servedByNodeId?: string;
+  readonly providerId?: string;
+  readonly accountId?: string;
+}
+
+export interface BridgeResponseEndMessage extends BridgeBaseEnvelope {
+  readonly type: "response_end";
+  readonly streamId: string;
+  readonly usage?: BridgeUsageSummary;
+  readonly servedByClusterId?: string;
+  readonly servedByGroupId?: string;
+  readonly servedByNodeId?: string;
+  readonly providerId?: string;
+  readonly accountId?: string;
+}
+
+export interface BridgeErrorMessage extends BridgeBaseEnvelope {
+  readonly type: "error";
+  readonly streamId?: string;
+  readonly code: string;
+  readonly message: string;
+  readonly retryable: boolean;
+}
+
+export type BridgeMessage =
+  | BridgeHelloMessage
+  | BridgeHelloAckMessage
+  | BridgeHeartbeatMessage
+  | BridgeCapabilitiesMessage
+  | BridgeHealthReportMessage
+  | BridgeRequestOpenMessage
+  | BridgeRequestChunkMessage
+  | BridgeResponseHeadMessage
+  | BridgeResponseChunkMessage
+  | BridgeResponseEndMessage
+  | BridgeErrorMessage;
+
+
+export interface BridgeSendChannel {
+  send(data: string): void;
+  close(code?: number, reason?: string): void;
+  readonly isOpen: boolean;
+}
+export interface FederationBridgeAuthorizedIdentity {
+  readonly authKind: "legacy_admin" | "ui_session";
+  readonly subject?: string;
+  readonly tenantId?: string;
+}
+
+export interface FederationBridgeSessionRecord {
+  readonly sessionId: string;
+  readonly state: "connected" | "disconnected";
+  readonly connectedAt: string;
+  readonly lastSeenAt: string;
+  readonly disconnectedAt?: string;
+  readonly peerDid: string;
+  readonly ownerSubject: string;
+  readonly clusterId: string;
+  readonly agentId: string;
+  readonly environment: string;
+  readonly bridgeAgentVersion: string;
+  readonly authMode: string;
+  readonly authKind: FederationBridgeAuthorizedIdentity["authKind"];
+  readonly authSubject?: string;
+  readonly tenantId?: string;
+  readonly labels: readonly string[];
+  readonly topology?: BridgeTopologySummary;
+  readonly capabilities: readonly BridgeCapabilityAdvertisement[];
+  readonly health?: BridgeHealthReportPayload;
+  readonly recentError?: {
+    readonly at: string;
+    readonly code: string;
+    readonly message: string;
+    readonly retryable: boolean;
+  };
+  readonly activeStreams?: number;
+  readonly queuedRequests?: number;
+  readonly lastHeartbeatSequence?: number;
+}
+
+export type BridgeRelayResponseEvent = BridgeResponseHeadMessage | BridgeResponseChunkMessage | BridgeResponseEndMessage;
+
+export interface FederationBridgeRelay {
+  listSessions(): FederationBridgeSessionRecord[];
+  getSession(sessionId: string): FederationBridgeSessionRecord | undefined;
+  rejectUpgrade(socket: Duplex, statusCode: 401 | 403 | 404, payload: Record<string, unknown>): void;
+  handleAuthorizedUpgrade(request: IncomingMessage, socket: Duplex, head: Buffer, identity: FederationBridgeAuthorizedIdentity): void;
+  close(): Promise<void>;
+  requestStream(sessionId: string, input: BridgeRequestInput): AsyncIterable<BridgeRelayResponseEvent>;
+  requestJson(sessionId: string, input: BridgeRequestInput): Promise<BridgeRequestJsonResult>;
+  registerSseChannel(sessionId: string, channel: BridgeSendChannel): void;
+  unregisterChannel(sessionId: string, channel: BridgeSendChannel): void;
+  getChannel(sessionId: string): BridgeSendChannel | undefined;
+  completeSseHello(hello: BridgeHelloMessage, identity: FederationBridgeAuthorizedIdentity, sseChannel: BridgeSendChannel): BridgeHelloAckMessage;
+  handleChannelMessage(sessionId: string, messageText: string, channel: BridgeSendChannel): void;
+  acceptHello(hello: BridgeHelloMessage, identity: FederationBridgeAuthorizedIdentity): BridgeHelloAckMessage;
+}
+
+export interface BridgeRequestInput {
+  readonly method?: "GET" | "POST";
+  readonly path: string;
+  readonly timeoutMs: number;
+  readonly headers?: Readonly<Record<string, string>>;
+  readonly body?: string;
+  readonly requestContext?: BridgeRequestOpenMessage["requestContext"];
+  readonly routingIntent?: BridgeRequestOpenMessage["routingIntent"];
+}
+
+export interface BridgeRequestJsonResult {
+  readonly status: number;
+  readonly headers: Readonly<Record<string, string>>;
+  readonly body: string;
+  readonly json: unknown;
+}
+
+
+export interface FederationBridgeAgentOptions {
+  readonly relayUrl: string;
+  readonly authorization?: string;
+  readonly ownerSubject: string;
+  readonly peerDid: string;
+  readonly clusterId: string;
+  readonly agentId: string;
+  readonly environment: string;
+  readonly bridgeAgentVersion: string;
+  readonly authMode: BridgeHelloMessage["authMode"];
+  readonly labels?: readonly string[];
+  readonly topology?: BridgeTopologySummary;
+  readonly capabilitiesHash?: string;
+  readonly getCapabilities?: () => Promise<readonly BridgeCapabilityAdvertisement[]> | readonly BridgeCapabilityAdvertisement[];
+  readonly getHealth?: () => Promise<BridgeHealthReportPayload> | BridgeHealthReportPayload;
+  readonly handleRequest?: (input: { readonly request: BridgeRequestOpenMessage; readonly bodyText: string }) => Promise<BridgeRequestHandlerResult>;
+  readonly handshakeDeadlineMs?: number;
+  readonly reconnectMinMs?: number;
+  readonly reconnectMaxMs?: number;
+}
+
+export type BridgeResponseProvenance = Pick<BridgeResponseEndMessage, "servedByClusterId" | "servedByGroupId" | "servedByNodeId" | "providerId" | "accountId">;
+
+export type BridgeBufferedRequestResponse = BridgeResponseProvenance & {
+  readonly status: number;
+  readonly headers?: Readonly<Record<string, string>>;
+  readonly body?: string;
+  readonly encoding?: BridgeChunkEncoding;
+  readonly usage?: BridgeResponseEndMessage["usage"];
+};
+
+export type BridgeRequestHandlerStreamEvent =
+  | ({ readonly type: "response_head"; readonly status: number; readonly headers?: Readonly<Record<string, string>> } & BridgeResponseProvenance)
+  | ({ readonly type: "response_chunk"; readonly chunk: string; readonly encoding?: BridgeChunkEncoding; readonly final?: boolean } & BridgeResponseProvenance)
+  | ({ readonly type: "response_end"; readonly usage?: BridgeResponseEndMessage["usage"] } & BridgeResponseProvenance);
+
+export type BridgeRequestHandlerResult = BridgeBufferedRequestResponse | AsyncIterable<BridgeRequestHandlerStreamEvent>;
+
+export interface FederationBridgeAgentSnapshot {
+  readonly state: "idle" | "connecting" | "connected" | "reconnecting" | "stopped";
+  readonly sessionId?: string;
+  readonly connectedAt?: string;
+  readonly lastSentAt?: string;
+  readonly lastReceivedAt?: string;
+  readonly lastError?: {
+    readonly code: string;
+    readonly message: string;
+    readonly retryable: boolean;
+    readonly at: string;
+  };
+  readonly reconnectAttempt: number;
+}
+
+export interface FederationBridgeAgent {
+  snapshot(): FederationBridgeAgentSnapshot;
+  start(): Promise<void>;
+  stop(): Promise<void>;
+}
+
 
 const loaded = await loadCljsRuntime({ required: true });
 if (!loaded.loaded) {

@@ -19,12 +19,10 @@
     keyPool(opts) credentialStore(path, providerId) runtimeCredentialStore(credentialStore, sqlStore)
     oauthManager(opts) quotaMonitor(...) providerCatalogStore(...) requestLogStore(...)
     requestLogSseHub(store) promptAffinityStore(sql) pheromoneStore(path, flushMs) proxySettingsStore(path, sql)
-    createTokenRefreshRuntime(deps)     createEnvFederationBridgeAgent(deps)
-    handleBridgeRequest(deps, input)    injectNativeBridge(deps, url, payload, headers)
-    executeFederatedRequestRouting(deps, input)
+    createTokenRefreshRuntime(deps)
     getDeclaredProviderRoutes(config)   buildOllamaCatalogRoutes(config)   modelIdsToNativeTags(ids)
     routes: {v1Collaborators() embeddingsCollaborators() mediaCollaborators()
-             registerWebSocketRoutes(app, deps) registerBridgeSseRoutes(app, deps, relay)
+             createRequestLogWsHub(store) registerBridgeSseRoutes(app, deps, relay)
              registerRequestLogSseRoutes(app, deps, hub) registerApiV1Routes(app, deps)
              registerObservabilityRoutes(app, deps)}"
   (:require ["@fastify/swagger" :as swagger]
@@ -34,6 +32,10 @@
             [proxx.app.wiring :as wiring]
             [proxx.runtime :as runtime]
             [proxx.runtime.app :as app-edge]
+            [proxx.runtime.federation-agent :as federation-agent]
+            [proxx.runtime.federation-autostart :as federation-autostart]
+            [proxx.runtime.federation-relay :as federation-relay]
+            [proxx.runtime.federation-routing :as federation-routing]
             [proxx.runtime.models :as models]
             [proxx.runtime.proxy :as proxy]
             [proxx.runtime.ring :as ring]
@@ -42,6 +44,7 @@
             [proxx.runtime.routes.media :as media-routes]
             [proxx.runtime.routes.native-ollama :as native-ollama-routes]
             [proxx.runtime.routes.v1 :as v1-routes]
+            [proxx.runtime.routes.ws :as ws-routes]
             [proxx.runtime.routes.websearch :as websearch-routes]
             [proxx.runtime.routing :as routing]
             [proxx.runtime.telemetry :as telemetry]))
@@ -297,7 +300,7 @@
             get-resolved-model-catalog (fn ^:async resolved-catalog [force-refresh]
                                          (let [^js resolved (await (.getCatalog provider-catalog-store (boolean force-refresh)))]
                                            (.-catalog resolved)))
-            relay (atom nil)
+            relay (atom (federation-relay/create-relay-js))
             get-bridge-advertised (bridge-model-ids-fn app config relay)
             get-merged-model-ids (fn ^:async merged-model-ids [force-refresh]
                                    (let [^js local (await (get-resolved-model-catalog force-refresh))
@@ -308,10 +311,11 @@
                           "sqlTenantProviderPolicyStore" sql-tenant-provider-policy-store}
             bridge-deps (fn [] #js {"bridgeRelay" (u @relay) "app" app "config" config "runtimeCredentialStore" runtime-credential-store
                                     "keyPool" key-pool "sqlTenantProviderPolicyStore" sql-tenant-provider-policy-store})
-            ^js bridge-agent ((.-createEnvFederationBridgeAgent host)
-                              #js {"config" config "keyPool" key-pool "credentialStore" runtime-credential-store "logger" log
-                                   "getResolvedModelCatalog" (fn [] (get-resolved-model-catalog false))
-                                   "handleBridgeRequest" (fn [input] ((.-handleBridgeRequest host) (bridge-deps) input))})]
+            ^js bridge-agent (when-let [options (federation-autostart/create-env-agent-options-js
+                                                 #js {"config" config "keyPool" key-pool "credentialStore" runtime-credential-store "logger" log
+                                                      "getResolvedModelCatalog" (fn [] (get-resolved-model-catalog false))
+                                                      "handleBridgeRequest" (fn [input] (federation-routing/handle-bridge-request (bridge-deps) input))})]
+                               (federation-agent/create-agent-js options))]
         (when (.-allowUnauthenticated config)
           (.warn log "proxy auth disabled via PROXY_ALLOW_UNAUTHENTICATED=true"))
         (app-edge/install-request-hook-js
@@ -333,15 +337,15 @@
                                                                (let [url (await (dynamic-base-url-getter id))]
                                                                  (if (nil? url) js/undefined url)))
                                                              (fn ^:async no-base-url [_] js/undefined))
-                            "bridgeRelay" js/undefined "quotaMonitor" quota-monitor
+                            "bridgeRelay" @relay "quotaMonitor" quota-monitor
                             "refreshExpiredOAuthAccount" (.-refreshExpiredOAuthAccount refresh)
                             "refreshFactoryAccount" (.-refreshFactoryAccount refresh)
                             "ensureFreshAccounts" (.-ensureFreshAccounts refresh)
                             "getMergedModelIds" get-merged-model-ids
                             "executeFederatedRequestRouting" (fn ^:async execute-federated [input]
-                                                               (await ((.-executeFederatedRequestRouting host) fed-deps input)))
+                                                               (await (federation-routing/execute-federated-request-routing fed-deps input)))
                             "injectNativeBridge" (fn ^:async inject-native-bridge [url payload headers]
-                                                   (await ((.-injectNativeBridge host) (bridge-deps) url payload headers)))}
+                                                   (await (federation-routing/inject-native-bridge (bridge-deps) url payload headers)))}
               ui-deps (fn [] #js {"config" config "keyPool" key-pool "requestLogStore" request-log-store
                                   "credentialStore" runtime-credential-store "sqlCredentialStore" sql-credential-store
                                   "sqlFederationStore" sql-federation-store
@@ -358,10 +362,13 @@
           (media-routes/register-media-routes-js app deps ((.-mediaCollaborators routes-host)))
           (embeddings-routes/register-embeddings-routes-js app deps ((.-embeddingsCollaborators routes-host)))
           (native-ollama-routes/register-native-ollama-routes-js app deps)
-          (let [^js ws (await ((.-registerWebSocketRoutes routes-host) app (ui-deps)))
-                ^js ws-relay (.-bridgeRelay ws)]
-            (reset! relay ws-relay)
-            (aset deps "bridgeRelay" ws-relay)
+          (let [^js ws-relay @relay]
+            (ws-routes/register-web-socket-routes-js
+             app #js {"proxyAuthToken" (.-proxyAuthToken config) "sqlCredentialStore" sql-credential-store
+                      "authPersistence" sql-auth-persistence "proxyTokenPepper" (.-proxyTokenPepper config)
+                      "defaultTenantId" (.-defaultTenantId host) "requestLogStore" request-log-store
+                      "createBridgeRelay" (fn [] ws-relay)
+                      "createRequestLogWsHub" (.-createRequestLogWsHub routes-host)})
             (await ((.-registerBridgeSseRoutes routes-host) app (ui-deps) ws-relay))
             (await ((.-registerRequestLogSseRoutes routes-host) app (ui-deps) request-log-sse-hub))
             (let [^js v1-deps (ui-deps)]

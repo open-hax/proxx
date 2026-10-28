@@ -19,7 +19,6 @@ import { toErrorMessage } from "../lib/errors/index.js";
 import { handleRoutingOutcome } from "../lib/routing-outcome-handler.js";
 import { requestHasExplicitNumCtx } from "../lib/ollama-compat.js";
 import { ensureOllamaContextFits } from "../lib/ollama-context.js";
-import { executeBridgeRequestRouting } from "../lib/federation/bridge-routing.js";
 import { DEFAULT_TENANT_ID } from "../lib/tenant-api-key.js";
 import { resolveCatalogAndAlias } from "../lib/catalog-alias-resolver.js";
 import { resolvableConcreteModelIdsForProviders } from "../lib/catalog-resolution.js";
@@ -49,7 +48,6 @@ export function v1RouteCollaborators(): Record<string, unknown> {
     executeProviderRoutingPlan,
     inspectProviderAvailability,
     executeLocalStrategy,
-    executeBridgeRequestRouting,
     handleRoutingOutcome,
     getDeclaredProviderRoutes,
     filterDeclaredProviderRoutes,

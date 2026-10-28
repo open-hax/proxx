@@ -78,8 +78,9 @@
     {
       "path": "src/lib/bridge-helpers.ts",
       "owner": "T1-core-proxx-cljs-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "core Proxx runtime starts and serves from CLJS with TS shims removed"
+      "disposition": "removed",
+      "removalCondition": "Removed: bridge capability/path decisions are CLJS (proxx.routing.bridge); reply plumbing is proxx.runtime.federation-routing.",
+      "removed": true
     },
     {
       "path": "src/lib/catalog-alias-resolver.ts",
@@ -261,26 +262,27 @@
     {
       "path": "src/lib/federation/bridge-agent-autostart.ts",
       "owner": "T1-provider-routing-federation-cljs-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "provider routing and federation runtime are implemented in CLJS policy modules"
+      "disposition": "removed",
+      "removalCondition": "Removed: bridge/federated routing and the bridge agent autostart are CLJS (proxx.runtime.federation-routing, proxx.runtime.federation-autostart), constructed by proxx.app.main.",
+      "removed": true
     },
     {
       "path": "src/lib/federation/bridge-agent.ts",
       "owner": "T1-provider-routing-federation-cljs-runtime",
       "disposition": "port-to-cljs",
-      "removalCondition": "provider routing and federation runtime are implemented in CLJS policy modules"
+      "removalCondition": "Test shim (<=30 lines) for src/tests/federation-bridge-agent.test.ts; the agent is proxx.runtime.federation-agent. Remove with the TS tests."
     },
     {
       "path": "src/lib/federation/bridge-protocol.ts",
       "owner": "T1-provider-routing-federation-cljs-runtime",
       "disposition": "port-to-cljs",
-      "removalCondition": "provider routing and federation runtime are implemented in CLJS policy modules"
+      "removalCondition": "Test shim (<=30 lines) for src/tests/federation-bridge-protocol.test.ts; the protocol is proxx.federation.protocol and its types live in src/lib/cljs-kernels.ts. Remove with the TS tests."
     },
     {
       "path": "src/lib/federation/bridge-relay.ts",
       "owner": "T1-provider-routing-federation-cljs-runtime",
       "disposition": "port-to-cljs",
-      "removalCondition": "provider routing and federation runtime are implemented in CLJS policy modules"
+      "removalCondition": "Test shim (<=30 lines) for src/tests/federation-bridge-agent.test.ts; the relay is proxx.runtime.federation-relay. Remove with the TS tests."
     },
     {
       "path": "src/lib/federation/bridge-request-helpers.ts",
@@ -292,20 +294,23 @@
     {
       "path": "src/lib/federation/bridge-routing.ts",
       "owner": "T1-provider-routing-federation-cljs-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "provider routing and federation runtime are implemented in CLJS policy modules"
+      "disposition": "removed",
+      "removalCondition": "Removed: bridge/federated routing and the bridge agent autostart are CLJS (proxx.runtime.federation-routing, proxx.runtime.federation-autostart), constructed by proxx.app.main.",
+      "removed": true
     },
     {
       "path": "src/lib/federation/bridge-send-channel.ts",
       "owner": "T1-provider-routing-federation-cljs-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "provider routing and federation runtime are implemented in CLJS policy modules"
+      "disposition": "removed",
+      "removalCondition": "Removed: bridge/federated routing and the bridge agent autostart are CLJS (proxx.runtime.federation-routing, proxx.runtime.federation-autostart), constructed by proxx.app.main.",
+      "removed": true
     },
     {
       "path": "src/lib/federation/federated-routing.ts",
       "owner": "T1-provider-routing-federation-cljs-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "provider routing and federation runtime are implemented in CLJS policy modules"
+      "disposition": "removed",
+      "removalCondition": "Removed: bridge/federated routing and the bridge agent autostart are CLJS (proxx.runtime.federation-routing, proxx.runtime.federation-autostart), constructed by proxx.app.main.",
+      "removed": true
     },
     {
       "path": "src/lib/federation/federation-helpers.ts",
@@ -401,8 +406,9 @@
     {
       "path": "src/lib/native-auth.ts",
       "owner": "T1-core-proxx-cljs-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "core Proxx runtime starts and serves from CLJS with TS shims removed"
+      "disposition": "removed",
+      "removalCondition": "Removed: only the bridge routing used it; native-Ollama bridge auth headers are proxx.runtime.federation-routing/native-ollama-headers.",
+      "removed": true
     },
     {
       "path": "src/lib/oauth-routes.ts",

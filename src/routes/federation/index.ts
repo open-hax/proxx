@@ -4,7 +4,7 @@ import type { UiRouteDependencies } from "../types.js";
 export { registerFederationUiRoutes } from "./ui.js";
 export type { FederationUiRouteContext } from "./ui.js";
 import { API_V1_FEDERATION_ROUTE_PREFIX } from "./prefix.js";
-import type { FederationBridgeRelay } from "../../lib/federation/bridge-relay.js";
+import type { FederationBridgeRelay } from "../../lib/cljs-kernels.js";
 import { registerFederationUiRoutes } from "./ui.js";
 
 export interface FederationRouteDependencies extends UiRouteDependencies {

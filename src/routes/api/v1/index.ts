@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import type { UiRouteDependencies } from "../../types.js";
-import type { FederationBridgeRelay } from "../../../lib/federation/bridge-relay.js";
+import type { FederationBridgeRelay } from "../../../lib/cljs-kernels.js";
 import { kernels } from "../../../lib/cljs-kernels.js";
 
 export interface ApiV1RouteDependencies extends UiRouteDependencies {

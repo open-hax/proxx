@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 
 import type { UiRouteDependencies } from "../../types.js";
 import { kernels } from "../../../lib/cljs-kernels.js";
-import { createFederationBridgeRelay, type FederationBridgeRelay } from "../../../lib/federation/bridge-relay.js";
+import type { FederationBridgeRelay } from "../../../lib/cljs-kernels.js";
 import { RequestLogWsHub } from "../../../lib/observability/request-log-ws-hub.js";
 import { DEFAULT_TENANT_ID } from "../../../lib/tenant-api-key.js";
 
@@ -22,7 +22,7 @@ export async function registerWebSocketRoutes(
     proxyTokenPepper: deps.config.proxyTokenPepper,
     defaultTenantId: DEFAULT_TENANT_ID,
     requestLogStore: deps.requestLogStore,
-    createBridgeRelay: createFederationBridgeRelay,
+    createBridgeRelay: kernels.createBridgeRelay,
     createRequestLogWsHub: (store: UiRouteDependencies["requestLogStore"]) => new RequestLogWsHub(store),
   }) as { bridgeRelay: FederationBridgeRelay; requestLogWsHub: RequestLogWsHub };
 }

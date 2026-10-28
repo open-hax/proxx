@@ -11,6 +11,7 @@
   read per request (its `bridgeRelay` is assigned after registration)."
   (:require [proxx.http.v1 :as v1]
             [proxx.jsval :as jv]
+            [proxx.runtime.federation-routing :as fed-routing]
             [proxx.runtime.interop :as interop]
             [proxx.runtime.ring :as ring]))
 
@@ -82,7 +83,7 @@
   [^js c ^js deps ^js raw ^js reply request-kind routes ^js context upstream-path body]
   (await (queued c deps raw (first (provider-ids routes)) request-kind
                  (fn ^:async bridge []
-                   (await ((.-executeBridgeRequestRouting c)
+                   (await (fed-routing/execute-bridge-request-routing
                            #js {:bridgeRelay (.-bridgeRelay deps) :app (.-app deps) :config (.-config deps)
                                 :sqlTenantProviderPolicyStore (.-sqlTenantProviderPolicyStore deps)
                                 :runtimeCredentialStore (.-runtimeCredentialStore deps) :keyPool (.-keyPool deps)}

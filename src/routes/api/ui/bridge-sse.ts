@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 
-import type { FederationBridgeRelay } from "../../../lib/federation/bridge-relay.js";
+import type { FederationBridgeRelay } from "../../../lib/cljs-kernels.js";
 import { kernels } from "../../../lib/cljs-kernels.js";
 import { DEFAULT_TENANT_ID } from "../../../lib/tenant-api-key.js";
 import type { UiRouteDependencies } from "../../types.js";

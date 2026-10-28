@@ -27,7 +27,7 @@ import { ProviderRoutePheromoneStore } from "./lib/provider-route-pheromone-stor
 import { ProxySettingsStore } from "./lib/proxy-settings-store.js";
 import { QuotaMonitor } from "./lib/quota-monitor.js";
 import { RequestLogSseHub } from "./lib/observability/request-log-sse-hub.js";
-import { registerWebSocketRoutes } from "./routes/api/ui/ws.js";
+import { RequestLogWsHub } from "./lib/observability/request-log-ws-hub.js";
 import { registerBridgeSseRoutes } from "./routes/api/ui/bridge-sse.js";
 import { registerRequestLogSseRoutes } from "./routes/api/ui/request-log-sse.js";
 import { registerApiV1Routes } from "./routes/api/v1/index.js";
@@ -45,9 +45,6 @@ import { SqlAuthPersistence } from "./lib/auth/sql-persistence.js";
 import { RuntimeCredentialStore } from "./lib/runtime-credential-store.js";
 import { createTokenRefreshRuntime } from "./lib/token-refresh-handlers.js";
 import { DEFAULT_TENANT_ID } from "./lib/tenant-api-key.js";
-import { createEnvFederationBridgeAgent } from "./lib/federation/bridge-agent-autostart.js";
-import { executeFederatedRequestRouting } from "./lib/federation/federated-routing.js";
-import { handleBridgeRequest, injectNativeBridge } from "./lib/federation/bridge-routing.js";
 import { v1RouteCollaborators } from "./routes/chat.js";
 import { embeddingsRouteCollaborators } from "./routes/embeddings.js";
 import { mediaRouteCollaborators } from "./routes/media-generations.js";
@@ -83,10 +80,6 @@ export const host = {
   pheromoneStore: (...args: Args<typeof ProviderRoutePheromoneStore>) => new ProviderRoutePheromoneStore(...args),
   proxySettingsStore: (...args: Args<typeof ProxySettingsStore>) => new ProxySettingsStore(...args),
   createTokenRefreshRuntime,
-  createEnvFederationBridgeAgent,
-  handleBridgeRequest,
-  injectNativeBridge,
-  executeFederatedRequestRouting,
   getDeclaredProviderRoutes,
   buildOllamaCatalogRoutes,
   modelIdsToNativeTags,
@@ -94,7 +87,7 @@ export const host = {
     v1Collaborators: v1RouteCollaborators,
     embeddingsCollaborators: embeddingsRouteCollaborators,
     mediaCollaborators: mediaRouteCollaborators,
-    registerWebSocketRoutes,
+    createRequestLogWsHub: (store: RequestLogStore) => new RequestLogWsHub(store),
     registerBridgeSseRoutes,
     registerRequestLogSseRoutes,
     registerApiV1Routes,

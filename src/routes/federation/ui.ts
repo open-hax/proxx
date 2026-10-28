@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import type { FederationBridgeRelay } from "../../lib/federation/bridge-relay.js";
+import type { FederationBridgeRelay } from "../../lib/cljs-kernels.js";
 
 import { kernels } from "../../lib/cljs-kernels.js";
 import { shouldWarmImportProjectedAccount } from "../../lib/db/sql-federation-store.js";

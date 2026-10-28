@@ -463,7 +463,12 @@
                                            runMigrations proxx.runtime.db-schema/run-migrations-js
                                            createSqlConnection proxx.runtime.db-schema/create-sql-connection-js
                                            closeSqlConnection proxx.runtime.db-schema/close-connection-js
-                                           createGithubAllowlist proxx.runtime.github-allowlist/create-github-allowlist-js}}
+                                           createGithubAllowlist proxx.runtime.github-allowlist/create-github-allowlist-js
+                                           ;; w5 exports
+                                           executeBridgeRequestRouting proxx.runtime.federation-routing/execute-bridge-request-routing
+                                           handleBridgeRequest proxx.runtime.federation-routing/handle-bridge-request
+                                           executeFederatedRequestRouting proxx.runtime.federation-routing/execute-federated-request-routing
+                                           injectNativeBridge proxx.runtime.federation-routing/inject-native-bridge}}
               ;; The Node entry (`node dist/cljs/main.js`): shares the runtime module's code.
               :main {:depends-on #{:proxx-runtime}
                      :init-fn proxx.app.entry/start!}}
