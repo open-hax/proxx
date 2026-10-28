@@ -82,7 +82,44 @@ export interface CljsModelCandidatesRunResult {
   readonly [key: string]: unknown;
 }
 
+export interface PaidBudgetPolicy {
+  readonly scopeId: string;
+  readonly dailyMicrousd: number;
+  readonly monthlyMicrousd: number;
+}
+export interface BudgetAttemptInspection {
+  readonly status: "unmanaged" | "free" | "paid" | "denied";
+  readonly quotaScope?: "model" | "credential";
+  readonly quotaDisable?: boolean;
+  readonly policy?: PaidBudgetPolicy;
+  readonly payload?: Record<string, unknown>;
+  readonly inputBound?: number;
+  readonly outputBound?: number;
+}
+export interface PaidBudgetReservation {
+  readonly status: string;
+  readonly reservationId?: string;
+  readonly reservedMicrousd?: number;
+}
+
+export interface BudgetRoutePlan {
+  readonly managed: boolean;
+  readonly totalFirstUsableMs?: number;
+  readonly maxBootstrapBytes?: number;
+  readonly maxRetries?: number;
+  readonly needsReasoningTrace?: boolean;
+  readonly orderedRoutes?: readonly { readonly providerId: string; readonly upstreamModel: string; readonly firstUsableOffsetMs: number }[];
+}
+
 export interface ProxxCljsRuntime {
+  readonly readPaidBudgets?: (sql: unknown, queries: Record<string, string>, manifestPath: string, auth: unknown, keyId?: string) => Promise<{ readonly status: string; readonly budgets?: readonly unknown[]; readonly observedAt?: string }>;
+  readonly resolveBudgetRoutePlan?: (manifestPath: string, auth: unknown, model: string) => BudgetRoutePlan | null;
+  readonly probeFirstUsable?: (text: string, format: string, tools: unknown) => { readonly ready: boolean; readonly fatal: boolean };
+  readonly inspectBudgetAttempt?: (manifestPath: string, auth: unknown, attempt: unknown) => BudgetAttemptInspection;
+  readonly zeroChargeBudgetRefusal?: (manifestPath: string, auth: unknown, response: unknown) => boolean;
+  readonly quotePaidBudget?: (inputBound: number, outputBound: number, inputPrice: number, outputPrice: number) => number | null;
+  readonly reservePaidBudget?: (sql: unknown, queries: Record<string, string>, policy: PaidBudgetPolicy, id: string, amount: number) => Promise<PaidBudgetReservation>;
+  readonly settlePaidBudget?: (sql: unknown, queries: Record<string, string>, scopeId: string, id: string, amount: number | null) => Promise<{ readonly status: string }>;
   readonly normalizeKeys: (value: unknown) => unknown;
   readonly validateEntity: (entityType: string, value: unknown) => CljsValidationResult;
   readonly projectPheromone: (events: readonly unknown[], opts?: unknown) => number;
@@ -116,6 +153,18 @@ export interface ProxxCljsRuntime {
     status: number,
     retryAfterMs: number | undefined,
   ) => { readonly status: string; readonly result?: string | null };
+  readonly classifyCredentialFailure?: (
+    manifestPath: string,
+    providerId: string,
+    status: number,
+    message: string,
+  ) => {
+    readonly status: string;
+    readonly result?: string | null;
+    readonly cooldownMs?: number | null;
+    readonly disable?: boolean | null;
+    readonly contractId?: string | null;
+  };
 }
 
 export type CljsRuntimeLoadResult =
@@ -161,7 +210,8 @@ export function isProxxCljsRuntime(value: Record<string, unknown>): value is Rec
     (value.resolveQueuePolicy === undefined || typeof value.resolveQueuePolicy === "function") &&
     (value.getProviderRoutes === undefined || typeof value.getProviderRoutes === "function") &&
     (value.runQueued === undefined || typeof value.runQueued === "function") &&
-    (value.classifyRateLimit === undefined || typeof value.classifyRateLimit === "function")
+    (value.classifyRateLimit === undefined || typeof value.classifyRateLimit === "function") &&
+    (value.classifyCredentialFailure === undefined || typeof value.classifyCredentialFailure === "function")
   );
 }
 

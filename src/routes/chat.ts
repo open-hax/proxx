@@ -1,3 +1,4 @@
+import { withResponseDeadline } from "../lib/http/index.js";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 
 import type { ChatCompletionRequest } from "../lib/request-utils.js";
@@ -108,6 +109,10 @@ async function executeChatCandidate(input: ChatCandidateInput): Promise<CljsMode
     providerRoutes = getDeclaredProviderRoutes(deps.config);
   }
 
+  if (request._budgetRoutePlan?.orderedRoutes) {
+    const ids = request._budgetRoutePlan.orderedRoutes.map((route) => route.providerId);
+    providerRoutes = providerRoutes.filter((route) => ids.includes(route.providerId));
+  }
   const cljsPolicyResult = filterDeclaredProviderRoutes(deps.config.cljsPolicyManifestPath, {
     config: deps.config,
     modelId: context.routedModel || context.requestedModelInput,
@@ -117,7 +122,10 @@ async function executeChatCandidate(input: ChatCandidateInput): Promise<CljsMode
   });
   providerRoutes = prioritizeOpenAiRouteForPrefixedModel(cljsPolicyResult.providerRoutes, context);
 
-  let executionContext = applyPolicyStrategyContext(context, cljsPolicyResult);
+  let executionContext: StrategyRequestContext = { ...applyPolicyStrategyContext(context, cljsPolicyResult), budgetSql: deps.budgetSql, budgetRoutePlan: request._budgetRoutePlan,
+    requestAdmittedAt: request._proxxAdmittedAt, firstOutputLease: request._firstOutputLease,
+    ...(request._budgetRoutePlan?.orderedRoutes ? { needsReasoningTrace: request._budgetRoutePlan.needsReasoningTrace ?? context.needsReasoningTrace } : {}),
+  };
   let executionStrategy = selectExecutionStrategyForProviderRoutes(
     executionContext,
     strategy,
@@ -259,7 +267,7 @@ async function executeChatCandidate(input: ChatCandidateInput): Promise<CljsMode
         deps.accountHealthStore,
         deps.eventStore,
         deps.quotaMonitor,
-        controller.signal,
+        request._firstOutputLease ? AbortSignal.any([controller.signal, request._firstOutputLease.signal]) : controller.signal,
       ),
     );
   } catch (error) {
@@ -271,6 +279,10 @@ async function executeChatCandidate(input: ChatCandidateInput): Promise<CljsMode
 
   if (execution.handled) {
     return { status: "handled" };
+  }
+
+  if (request._budgetRoutePlan?.managed) {
+    throw openAiRouteError(503, "No allowed budget route produced usable output.", "server_error", "budget_routes_exhausted");
   }
 
   const federatedChatHandled = await runCljsQueued(
@@ -363,6 +375,11 @@ async function runChatCandidates(input: Omit<ChatCandidateInput, "candidateRouti
 
 export function registerChatRoutes(deps: AppDeps, app: FastifyInstance): void {
   app.post<{ Body: ChatCompletionRequest }>("/v1/chat/completions", async (request, reply) => {
+    const runtime = getActiveCljsRuntime();
+    const model = isRecord(request.body) && typeof request.body.model === "string" ? request.body.model : "";
+    const plan = runtime?.resolveBudgetRoutePlan?.(deps.config.cljsPolicyManifestPath ?? "resources/policies/runtime/00-manifest.edn", request.openHaxAuth, model);
+    request._budgetRoutePlan = plan ?? undefined;
+    const execute = async () => {
     if (!isRecord(request.body)) {
       throw openAiRouteError(400, "Request body must be a JSON object", "invalid_request_error", "invalid_body");
     }
@@ -420,5 +437,14 @@ export function registerChatRoutes(deps: AppDeps, app: FastifyInstance): void {
     throw openAiRouteError(502, "All allowed providers rejected the request.", "server_error", "provider_unavailable", {
       requestedModel: modelRouting.requestedModelInput,
     });
+    };
+    if (plan?.totalFirstUsableMs !== undefined) {
+      return await withResponseDeadline(
+        (request._proxxAdmittedAt ?? Date.now()) + plan.totalFirstUsableMs,
+        () => openAiRouteError(504, "No usable output within the request deadline.", "server_error", "first_usable_timeout"),
+        async (lease) => { request._firstOutputLease = lease; return await execute(); },
+      );
+    }
+    return await execute();
   });
 }

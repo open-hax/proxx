@@ -1,3 +1,4 @@
+import type { Sql } from "../lib/db/index.js";
 import type { ProxyConfig } from "../lib/config.js";
 import type { CredentialStoreLike } from "../lib/credential-store.js";
 import type { KeyPool } from "../lib/key-pool.js";
@@ -18,6 +19,7 @@ import type { SqlAuthPersistence } from "../lib/auth/sql-persistence.js";
  * canonical `/api/v1/*` control-plane routes.
  */
 export interface UiRouteDependencies {
+  readonly budgetSql?: Sql;
   readonly config: ProxyConfig;
   readonly keyPool: KeyPool;
   readonly requestLogStore: RequestLogStore;

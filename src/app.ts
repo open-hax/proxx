@@ -89,6 +89,9 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
     bodyLimit: 300 * 1024 * 1024
   });
 
+  app.decorateRequest("_proxxAdmittedAt", 0);
+  app.addHook("onRequest", async (request) => { request._proxxAdmittedAt = Date.now(); });
+
   app.setErrorHandler(async (error, request, reply) => {
     if (isOpenAiHttpError(error)) {
       request.log.warn({
@@ -648,7 +651,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
   });
 
   const deps: AppDeps = {
-    app, config, keyPool, credentialStore, runtimeCredentialStore,
+    app, config, keyPool, credentialStore, runtimeCredentialStore, budgetSql: sql,
     sqlCredentialStore, sqlFederationStore, sqlTenantProviderPolicyStore,
     accountHealthStore, eventStore, requestLogStore, promptAffinityStore, providerRoutePheromoneStore,
     proxySettingsStore,  providerCatalogStore, tokenRefreshManager,
@@ -719,6 +722,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
   }, requestLogSseHub);
 
   await registerApiV1Routes(app, {
+    budgetSql: sql,
     config,
     keyPool,
     requestLogStore,
@@ -737,6 +741,7 @@ export async function createApp(config: ProxyConfig): Promise<FastifyInstance> {
   // Legacy /api/ui analytics + request logs used by Knoxx admin.
   // NOTE: These routes are auth-gated by Proxx request auth middleware.
   await registerObservabilityRoutes(app, {
+    budgetSql: sql,
     config,
     keyPool,
     requestLogStore,

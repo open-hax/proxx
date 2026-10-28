@@ -51,6 +51,8 @@ export interface RoutingDeps {
 }
 
 export interface RoutingCandidate {
+  readonly upstreamModel?: string;
+  readonly firstUsableOffsetMs?: number;
   readonly providerId: string;
   readonly baseUrl: string;
   readonly account: ProviderCredential;

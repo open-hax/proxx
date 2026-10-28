@@ -63,3 +63,22 @@ test("gemma4:31b pricing is found for gemini provider", async (t) => {
   assert.equal(pricing.inputPer1MTokens, 0.134);
   assert.equal(pricing.outputPer1MTokens, 0.395);
 });
+
+test("manifest preserves distinct Requesty free and paid Gemma route prices", async (t) => {
+  const loaded = await loadCljsRuntime({ required: true });
+  assert.ok(loaded.loaded);
+  setPolicyModelPricingOverrides(loaded.runtime.loadModelPricingOverrides("resources/policies/runtime/00-manifest.edn"));
+  t.after(() => setPolicyModelPricingOverrides([]));
+
+  const free = getModelPricing("requesty", "google/gemma-4-31b-it");
+  const paid = getModelPricing("requesty", "deepinfra/google/gemma-4-31B-it");
+  assert.equal(free.pricingFound, true);
+  assert.equal(free.pricingSource, "policy");
+  assert.equal(free.inputPer1MTokens, 0);
+  assert.equal(free.outputPer1MTokens, 0);
+  assert.equal(paid.pricingSource, "policy");
+  assert.equal(paid.inputPer1MTokens, 0.13);
+  assert.equal(paid.outputPer1MTokens, 0.38);
+  assert.equal(estimateRequestCost("requesty", "deepinfra/google/gemma-4-31B-it", 1_000_000, 1_000_000).costUsd, 0.51);
+  assert.equal(estimateRequestCost("requesty", "google/gemma-4-31b-it", 1_000_000, 1_000_000).costUsd, 0);
+});

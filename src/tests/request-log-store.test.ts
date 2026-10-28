@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { refreshModelsDevPricingIndex } from "../lib/model-pricing.js";
+import { refreshModelsDevPricingIndex, setPolicyModelPricingOverrides } from "../lib/model-pricing.js";
 import { RequestLogStore } from "../lib/request-log-store.js";
 
 function parseJsonlEntries(contents: string): unknown[] {
@@ -676,4 +676,31 @@ test("request log store can reprice token usage after live pricing refresh", asy
 
     await store.close();
   });
+});
+
+
+test("reloaded and refreshed costs use upstream route while retaining requested alias", async () => {
+  setPolicyModelPricingOverrides([
+    { modelPattern: "^test/paid-route$", providerPattern: "^test-router$", mode: "force", inputPer1MTokens: 0.13, outputPer1MTokens: 0.38 },
+    { modelPattern: "^requested-alias$", providerPattern: "^test-router$", mode: "force", inputPer1MTokens: 0, outputPer1MTokens: 0 },
+  ]);
+  try {
+    await withTempDir(async (tempDir) => {
+      const filePath = path.join(tempDir, "request-logs.jsonl");
+      const store = new RequestLogStore(filePath, 100);
+      await store.warmup();
+      store.record({ providerId: "test-router", accountId: "test-account", authType: "api_key", model: "requested-alias",
+        upstreamModel: "test/paid-route", upstreamMode: "chat_completions", upstreamPath: "/v1/chat/completions",
+        status: 200, latencyMs: 10, promptTokens: 1_000_000, completionTokens: 1_000_000, costUsd: 0 });
+      assert.equal(store.refreshDerivedEstimates(), 1);
+      assert.equal(store.snapshot()[0]?.costUsd, 0.51);
+      await store.close();
+      const reloaded = new RequestLogStore(filePath, 100);
+      await reloaded.warmup();
+      assert.equal(reloaded.snapshot()[0]?.model, "requested-alias");
+      assert.equal(reloaded.snapshot()[0]?.upstreamModel, "test/paid-route");
+      assert.equal(reloaded.snapshot()[0]?.costUsd, 0.51);
+      await reloaded.close();
+    });
+  } finally { setPolicyModelPricingOverrides([]); }
 });

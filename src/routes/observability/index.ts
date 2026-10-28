@@ -1,3 +1,5 @@
+import { getActiveCljsRuntime } from "../../lib/cljs-runtime.js";
+import { PAID_BUDGET_QUERIES } from "../../lib/db/schema.js";
 import { resolve } from "node:path";
 import type { FastifyInstance } from "fastify";
 
@@ -73,6 +75,18 @@ export async function registerObservabilityRoutes(
   deps: UiRouteDependencies,
   options?: ObservabilityRouteOptions,
 ): Promise<void> {
+  app.get<{ Querystring: { readonly keyId?: string } }>(
+    resolveObservabilityRoutePath("/paid-budgets", options), async (request, reply) => {
+      const auth = getResolvedAuth(request);
+      if (!auth) return reply.code(401).send({ error: "unauthorized" });
+      const read = getActiveCljsRuntime()?.readPaidBudgets;
+      if (!read) return reply.code(503).send({ error: "budget_runtime_unavailable" });
+      const result = await read(deps.budgetSql, PAID_BUDGET_QUERIES,
+        deps.config.cljsPolicyManifestPath ?? "resources/policies/runtime/00-manifest.edn", auth, request.query.keyId);
+      if (result.status === "forbidden") return reply.code(403).send({ error: "forbidden" });
+      return reply.send(result);
+    });
+
   if (options?.includeRequestLogs !== false) {
     app.get<{
       Querystring: {
