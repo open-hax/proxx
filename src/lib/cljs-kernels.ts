@@ -256,6 +256,29 @@ export interface CljsKernels {
     readonly availableContextTokens: number;
     readonly recommendedNumCtx: number;
   } | null | undefined;
+  readonly fetchOllamaModelContextLength: (
+    manifestPath: string,
+    baseUrl: string,
+    model: string,
+    timeoutMs: number,
+    signal?: AbortSignal,
+  ) => Promise<number | null>;
+  readonly ensureOllamaContextFits: (
+    manifestPath: string,
+    kind: "chat" | "nativeChat" | "embed",
+    baseUrl: string,
+    requestBody: JsRecord,
+    timeoutMs: number,
+    signal?: AbortSignal,
+  ) => Promise<{
+    readonly model: string;
+    readonly contextLength: number;
+    readonly estimatedInputTokens: number;
+    readonly requestedOutputTokens: number;
+    readonly requiredContextTokens: number;
+    readonly availableContextTokens: number;
+    readonly recommendedNumCtx: number;
+  } | null | undefined>;
   // requesty
   readonly requestyModelProvider: (manifestPath: string, model: string) => string;
   // http routes (Ring-style handlers registered on Fastify)
