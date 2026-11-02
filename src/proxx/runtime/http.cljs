@@ -2,9 +2,35 @@
   "JS edge for request helpers (src/lib/request-utils.ts, provider-utils.ts).
   Parsed JSON is returned as the original JS value, never round-tripped through
   Clojure data, so key order and nulls are untouched."
-  (:require [proxx.http.request :as request]))
+  (:require ["node:crypto" :as crypto]
+            [proxx.http.request :as request]
+            [proxx.http.request-facts :as facts]))
 
 (defn- or-undefined [x] (if (nil? x) js/undefined x))
+
+;; Request facts (src/lib/openai/request-handling.ts)
+
+(defn- sha256-hex [text]
+  (-> (.createHash crypto "sha256") (.update text) (.digest "hex")))
+
+(defn extract-prompt-cache-key-js [body]
+  (or-undefined (facts/prompt-cache-key (js->clj body))))
+
+(defn hash-prompt-cache-key-js [prompt-cache-key]
+  (facts/hash-prompt-cache-key sha256-hex prompt-cache-key))
+
+(defn append-csv-header-value-js
+  "Make `value` part of the CSV header `name` of the web `Headers`, once."
+  [^js headers name value]
+  (when-some [updated (facts/csv-header-with (.get headers name) value)]
+    (.set headers name updated))
+  nil)
+
+(defn should-enable-interleaved-thinking-header-js [upstream-payload]
+  (facts/interleaved-thinking? (js->clj upstream-payload)))
+
+(defn summarize-responses-request-body-js [body]
+  (clj->js (facts/summarize-responses-request (js->clj body))))
 
 (defn read-cookie-token-js [cookie-header name]
   (or-undefined (request/read-cookie-token cookie-header name)))

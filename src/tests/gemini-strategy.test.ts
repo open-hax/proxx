@@ -1,13 +1,13 @@
 import assert from "node:assert";
 import { describe, test } from "node:test";
 import {
-  GeminiChatProviderStrategy,
   geminiPayloadToSdkRequest,
   geminiResponseToChatCompletion,
   openAiMessagesToGeminiContents,
   extractSystemInstructions,
   normalizeGeminiReasoningEffort,
 } from "../lib/provider-strategy/strategies/gemini.js";
+import { strategyForId } from "../lib/provider-strategy/registry.js";
 import { isRecord, type StrategyRequestContext } from "../lib/provider-strategy/shared.js";
 
 function getChoices(completion: Record<string, unknown>): Array<Record<string, unknown>> {
@@ -150,7 +150,7 @@ describe("Gemini strategy request transformation", () => {
 
 describe("Gemini strategy tool request transformation", () => {
   test("transforms OpenAI tools to Gemini functionDeclarations", () => {
-    const strategy = new GeminiChatProviderStrategy();
+    const strategy = strategyForId("gemini-chat");
     const context = {
       routeProviderId: "gemini",
       config: {
@@ -256,7 +256,7 @@ describe("Gemini strategy tool request transformation", () => {
   });
 
   test("transforms OpenAI tool_choice: none to Gemini NONE mode", () => {
-    const strategy = new GeminiChatProviderStrategy();
+    const strategy = strategyForId("gemini-chat");
     const context = {
       routeProviderId: "gemini",
       config: {
@@ -298,7 +298,7 @@ describe("Gemini strategy tool request transformation", () => {
   });
 
   test("transforms OpenAI specific tool_choice to Gemini ANY mode with allowedFunctionNames", () => {
-    const strategy = new GeminiChatProviderStrategy();
+    const strategy = strategyForId("gemini-chat");
     const context = {
       routeProviderId: "gemini",
       config: {
@@ -680,7 +680,7 @@ describe("Gemini reasoning effort normalization", () => {
 
 describe("Gemini strategy end-to-end", () => {
   test("strategy builds correct payload", () => {
-    const strategy = new GeminiChatProviderStrategy();
+    const strategy = strategyForId("gemini-chat");
     const context = {
       routeProviderId: "gemini",
       config: {
@@ -728,7 +728,7 @@ describe("Gemini strategy end-to-end", () => {
   });
 
   test("strategy matches gemini provider", () => {
-    const strategy = new GeminiChatProviderStrategy();
+    const strategy = strategyForId("gemini-chat");
 
     assert.equal(
       strategy.matches({

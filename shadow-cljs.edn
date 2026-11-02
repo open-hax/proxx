@@ -82,6 +82,16 @@
                                            normalizeRequestedModel proxx.runtime.http/normalize-requested-model-js
                                            isTrustedLocalBridgeAddress proxx.runtime.http/is-trusted-local-bridge-address-js
                                            hasBearerToken proxx.runtime.http/has-bearer-token-js
+                                           strategyForId proxx.runtime.strategies/strategy-for-id-js
+                                           allStrategies proxx.runtime.strategies/strategies-js
+                                           allStrategyInfos proxx.runtime.strategy/strategy-infos-js
+                                           selectionFacts proxx.runtime.strategies/selection-facts-js
+                                           executionProvider proxx.runtime.strategy/execution-provider-js
+                                           extractPromptCacheKey proxx.runtime.http/extract-prompt-cache-key-js
+                                           hashPromptCacheKey proxx.runtime.http/hash-prompt-cache-key-js
+                                           appendCsvHeaderValue proxx.runtime.http/append-csv-header-value-js
+                                           shouldEnableInterleavedThinkingHeader proxx.runtime.http/should-enable-interleaved-thinking-header-js
+                                           summarizeResponsesRequestBody proxx.runtime.http/summarize-responses-request-body-js
                                            queueErrorResponse proxx.runtime.http/queue-error-response-js
                                            shouldUseOllamaUpstream proxx.runtime.ollama/should-use-ollama-upstream-js
                                            chatRequestToOllamaRequest proxx.runtime.ollama/chat-request-to-ollama-request-js

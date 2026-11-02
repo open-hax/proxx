@@ -192,6 +192,24 @@ export interface CljsKernels {
   readonly normalizeRequestedModel: (value: unknown) => string | undefined | null;
   readonly isTrustedLocalBridgeAddress: (remoteAddress: string | undefined) => boolean;
   readonly hasBearerToken: (header: string | undefined, expectedToken: string) => boolean;
+  readonly queueErrorResponse: (error: unknown) => {
+    readonly statusCode: number;
+    readonly message: string;
+    readonly type: string;
+    readonly code: string;
+    readonly retryAfterSeconds?: number;
+  } | undefined;
+  readonly strategyForId: (id: string) => import("./provider-strategy/shared.js").ProviderStrategy;
+  readonly allStrategies: () => import("./provider-strategy/shared.js").ProviderStrategy[];
+  readonly allStrategyInfos: (manifestPath?: string) => Array<{ readonly mode: string; readonly isLocal: boolean; readonly priority: number }>;
+  readonly selectionFacts: (context: unknown, policyPreferredMode?: string) => StrategySelectionFacts;
+  readonly executionProvider: (providerIds: readonly string[]) => string | undefined;
+  // request facts (proxx.http.request-facts)
+  readonly extractPromptCacheKey: (body: JsRecord) => string | undefined;
+  readonly hashPromptCacheKey: (promptCacheKey: string) => string;
+  readonly appendCsvHeaderValue: (headers: Headers, name: string, value: string) => void;
+  readonly shouldEnableInterleavedThinkingHeader: (upstreamPayload: JsRecord) => boolean;
+  readonly summarizeResponsesRequestBody: (body: JsRecord) => JsRecord;
   // ollama
   readonly shouldUseOllamaUpstream: (model: unknown, prefixes: readonly string[]) => boolean;
   readonly chatRequestToOllamaRequest: (body: JsRecord, modelPrefixes: readonly string[]) => JsRecord;

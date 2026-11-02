@@ -1,166 +1,35 @@
 /**
- * OpenAI-specific request and response handling utilities.
+ * OpenAI-specific request and response handling utilities. The facts read off a
+ * request (prompt cache key, interleaved thinking, the Responses summary for
+ * the logs, CSV header merging) are pure CLJS (proxx.http.request-facts).
  */
 
-import { createHash } from "node:crypto";
-import type { FastifyReply } from "fastify";
 import { kernels } from "../cljs-kernels.js";
-import { isRecord, asString } from "../provider-utils.js";
-import { openAiError } from "../proxy.js";
+import { sendOpenAiError } from "../provider-utils.js";
 
-/**
- * Extract a prompt cache key from a request body.
- */
-export function extractPromptCacheKey(body: Record<string, unknown>): string | undefined {
-  const raw = typeof body.prompt_cache_key === "string"
-    ? body.prompt_cache_key
-    : typeof body.promptCacheKey === "string"
-      ? body.promptCacheKey
-      : undefined;
-  const normalized = raw?.trim();
-  return normalized && normalized.length > 0 ? normalized : undefined;
-}
+/** The one OpenAI-shaped error sender (provider-utils). */
+export { sendOpenAiError };
 
-/**
- * Hash a prompt cache key for safe logging.
- */
-export function hashPromptCacheKey(promptCacheKey: string): string {
-  const trimmed = promptCacheKey.trim();
-  if (trimmed.length === 0) {
-    return "<REDACTED>";
-  }
+/** The trimmed, non-empty prompt cache key of a request body. */
+export const extractPromptCacheKey = (body: Record<string, unknown>): string | undefined =>
+  kernels.extractPromptCacheKey(body);
 
-  const digest = createHash("sha256").update(trimmed).digest("hex").slice(0, 12);
-  return `sha256:${digest}`;
-}
+/** A prompt cache key safe for logging (`sha256:<12 hex>`). */
+export const hashPromptCacheKey = (promptCacheKey: string): string =>
+  kernels.hashPromptCacheKey(promptCacheKey);
 
-/**
- * Append a value to a CSV-style header, avoiding duplicates.
- */
-export function appendCsvHeaderValue(headers: Headers, name: string, value: string): void {
-  const existing = headers.get(name);
-  if (!existing) {
-    headers.set(name, value);
-    return;
-  }
+/** Add a value to a CSV-style header unless it is already listed. */
+export const appendCsvHeaderValue = (headers: Headers, name: string, value: string): void =>
+  kernels.appendCsvHeaderValue(headers, name, value);
 
-  const existingTokens = existing
-    .split(",")
-    .map((entry) => entry.trim())
-    .filter((entry) => entry.length > 0);
+/** Does the upstream payload ask for extended thinking? */
+export const shouldEnableInterleavedThinkingHeader = (upstreamPayload: Record<string, unknown>): boolean =>
+  kernels.shouldEnableInterleavedThinkingHeader(upstreamPayload);
 
-  if (existingTokens.includes(value)) {
-    return;
-  }
-
-  headers.set(name, `${existing}, ${value}`);
-}
-
-/**
- * Check if interleaved thinking header should be enabled.
- */
-export function shouldEnableInterleavedThinkingHeader(upstreamPayload: Record<string, unknown>): boolean {
-  const thinking = isRecord(upstreamPayload["thinking"]) ? upstreamPayload["thinking"] : null;
-  if (!thinking) {
-    return false;
-  }
-
-  return asString(thinking["type"]) === "enabled";
-}
-
-/**
- * Check if a request wants reasoning trace in the response.
- */
+/** Does the request want the reasoning trace in the response? */
 export const requestWantsReasoningTrace = (body: Record<string, unknown>): boolean =>
   kernels.requestWantsReasoningTrace(body);
 
-/**
- * Send an OpenAI-formatted error response.
- */
-export function sendOpenAiError(
-  reply: FastifyReply,
-  statusCode: number,
-  message: string,
-  type: string,
-  code?: string
-): void {
-  if (code) {
-    reply.header("x-open-hax-error-code", code);
-  }
-  reply.code(statusCode).send(openAiError(message, type, code));
-}
-
-/**
- * Summarize a Responses API request body for logging.
- */
-export function summarizeResponsesRequestBody(body: Record<string, unknown>): Record<string, unknown> {
-  const summary: Record<string, unknown> = {};
-
-  if (typeof body.model === "string" && body.model.trim().length > 0) {
-    summary.model = body.model;
-  }
-
-  if (typeof body.stream === "boolean") {
-    summary.stream = body.stream;
-  }
-
-  if (typeof body.max_output_tokens === "number" && Number.isFinite(body.max_output_tokens)) {
-    summary.max_output_tokens = body.max_output_tokens;
-  }
-
-  const input = body.input;
-  if (typeof input === "string") {
-    summary.input = { kind: "text", length: input.length };
-    return summary;
-  }
-
-  if (!Array.isArray(input)) {
-    summary.input = { kind: typeof input };
-    return summary;
-  }
-
-  let textChars = 0;
-  let imageCount = 0;
-
-  for (const item of input) {
-    if (!isRecord(item)) {
-      continue;
-    }
-
-    const content = item.content;
-    if (typeof content === "string") {
-      textChars += content.length;
-      continue;
-    }
-
-    if (!Array.isArray(content)) {
-      continue;
-    }
-
-    for (const part of content) {
-      if (!isRecord(part)) {
-        continue;
-      }
-
-      const partType = typeof part.type === "string" ? part.type.toLowerCase() : "";
-      const text = typeof part.text === "string" ? part.text : undefined;
-
-      if (text) {
-        textChars += text.length;
-      }
-
-      if (partType.includes("image") || part.image_url !== undefined || part.imageUrl !== undefined) {
-        imageCount += 1;
-      }
-    }
-  }
-
-  summary.input = {
-    kind: "structured",
-    itemCount: input.length,
-    textChars,
-    imageCount,
-  };
-
-  return summary;
-}
+/** A log-safe summary of a Responses API request body. */
+export const summarizeResponsesRequestBody = (body: Record<string, unknown>): Record<string, unknown> =>
+  kernels.summarizeResponsesRequestBody(body);

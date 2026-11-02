@@ -31,14 +31,6 @@ export function isOpenAiHttpError(error: unknown): error is OpenAiHttpError {
   return error instanceof OpenAiHttpError;
 }
 
-export function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
-export function asString(value: unknown): string | undefined {
-  return typeof value === "string" ? value : undefined;
-}
-
 export const hasBearerToken = (header: string | undefined, expectedToken: string): boolean =>
   kernels.hasBearerToken(header, expectedToken);
 
@@ -68,9 +60,9 @@ export async function runCljsQueued<T>(
 }
 
 /**
- * Answer a queue failure (full / dropped / timed out) with its OpenAI-shaped
- * error; false when `error` is not one. The verdict is CLJS
- * (`proxx.http.request/queue-error-response`).
+ * Answer a queue failure (full, dropped, timed out) with its OpenAI-shaped error.
+ * Which failures those are, and what they answer, is decided by
+ * proxx.http.request/queue-error-response; this only sends the verdict.
  */
 export function sendQueueError(reply: FastifyReply, error: unknown): boolean {
   const response = kernels.queueErrorResponse(error);

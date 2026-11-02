@@ -500,6 +500,43 @@
 ;; Entry points
 ;; ---------------------------------------------------------------------------
 
+;; ---------------------------------------------------------------------------
+;; Embedding servers with their own wire (HF, TEI, OVM): the JSON is relayed as is
+;; ---------------------------------------------------------------------------
+
+(defn- ^:async relay-native-embedding!
+  [^js reply ^js response]
+  (edge/play! reply (conj (frames/relay-prefix {:status (.-status response) :lead [] :upstream-headers (header-pairs response)})
+                          [:header "content-type" (or (.get (.-headers response) "content-type") "application/json")]
+                          [:send (await (.text response))])))
+
+(defn- ^:async handle-native-embedding [^js reply ^js response]
+  (if-not (.-ok response)
+    (request-error)
+    (do (await (relay-native-embedding! reply response)) (handled))))
+
+;; ---------------------------------------------------------------------------
+;; Gemini over fetch (a local Gemini-compatible server; the SDK path is in
+;; proxx.runtime.strategies)
+;; ---------------------------------------------------------------------------
+
+(defn- ^:async handle-gemini [^js reply ^js response ^js ctx]
+  (if-not (.-ok response)
+    (await (handle-standard-provider-attempt-js reply response ctx))
+    (let [json (await (json-or-bad response))]
+      (if (= ::bad json)
+        (request-error)
+        (let [completion (strategy/gemini-response-to-chat-completion-js json (.-routedModel ctx))
+              has-reasoning (runtime/chat-completion-has-reasoning-content-js completion)]
+          (if (strategy/missing-reasoning-skips-js ctx has-reasoning)
+            (request-error)
+            (do (edge/play! reply
+                            (into (frames/provider-frames (.-providerId ctx))
+                                  (if (.-clientWantsStream ctx)
+                                    (frames/sse-text-frames (sse-from completion))
+                                    (frames/json-frames (.-status response) completion))))
+                (handled))))))))
+
 (defn ^:async handle-provider-attempt-js
   "Answer a provider attempt for the strategy registered as `id`. Resolves to
   {kind:\"handled\"} or a `continue` outcome."
@@ -513,13 +550,16 @@
     :passthrough (await (handle-passthrough reply response ctx))
     :openai-passthrough (await (handle-openai-passthrough reply response ctx))
     :responses-via-chat (await (handle-responses-via-chat reply response ctx))
-    :ollama-cloud (await (handle-ollama-cloud reply response ctx))))
+    :ollama-cloud (await (handle-ollama-cloud reply response ctx))
+    :gemini (await (handle-gemini reply response ctx))
+    :native-embedding (await (handle-native-embedding reply response))))
 
 (defn ^:async handle-local-attempt-js
   "Answer a local attempt for the strategy registered as `id`."
   [id ^js reply ^js response ^js ctx]
   (case (plan/local-handler id)
     :standard (await (handle-standard-local-attempt-js reply response ctx))
+    :native-embedding (await (relay-native-embedding! reply response))
     :local-ollama (await (handle-local-ollama reply response ctx))
     :ollama (await (handle-ollama reply response ctx)))
   js/undefined)

@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { LlamacppChatCompletionsProviderStrategy } from "../lib/provider-strategy/strategies/llamacpp.js";
+import { strategyForId } from "../lib/provider-strategy/registry.js";
 
 test("llamacpp chat strategy preserves OpenAI input_audio content parts", () => {
-  const strategy = new LlamacppChatCompletionsProviderStrategy();
+  const strategy = strategyForId("llamacpp-chat");
   const context = {
     routeProviderId: "llamacpp",
     requestedModelInput: "gemma4:e4b",

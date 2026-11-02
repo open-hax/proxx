@@ -19,6 +19,10 @@
    "openai-responses" :responses
    "openai-chat" :responses})
 
+(def native-embedding-ids
+  "Embedding servers whose own JSON is relayed as it is (no translation)."
+  #{"hf-embeddings" "tei-embeddings" "ovm-embeddings"})
+
 (def local-ollama-ids #{"local-ollama"})
 (def ollama-ids #{"ollama" "remote-ollama"})
 
@@ -33,12 +37,15 @@
     "openai-responses-passthrough" :openai-passthrough
     "responses-via-chat" :responses-via-chat
     "ollama-cloud" :ollama-cloud
+    "gemini-chat" :gemini
+    ("hf-embeddings" "tei-embeddings" "ovm-embeddings") :native-embedding
     (if (contains? transformed-ids id) :transformed :standard)))
 
 (defn local-handler
   "Which handler answers a local attempt for the strategy registered as `id`."
   [id]
-  (cond (contains? local-ollama-ids id) :local-ollama
+  (cond (contains? native-embedding-ids id) :native-embedding
+        (contains? local-ollama-ids id) :local-ollama
         (contains? ollama-ids id) :ollama
         :else :standard))
 
