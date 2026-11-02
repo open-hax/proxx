@@ -465,7 +465,8 @@
                                            closeSqlConnection proxx.runtime.db-schema/close-connection-js
                                            createGithubAllowlist proxx.runtime.github-allowlist/create-github-allowlist-js
                                            ;; w6-stores exports
-                                           createProviderRoutePheromoneStore proxx.runtime.pheromone-store/create-provider-route-pheromone-store-js}}
+                                           createProviderRoutePheromoneStore proxx.runtime.pheromone-store/create-provider-route-pheromone-store-js
+                                           createSqlAuthPersistence proxx.runtime.auth-persistence/create-sql-auth-persistence-js}}
               ;; The Node entry (`node dist/cljs/main.js`): shares the runtime module's code.
               :main {:depends-on #{:proxx-runtime}
                      :init-fn proxx.app.entry/start!}}

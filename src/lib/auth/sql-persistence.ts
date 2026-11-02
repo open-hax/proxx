@@ -1,222 +1,94 @@
 import type { Sql } from "../db/index.js";
 import { kernels } from "../cljs-kernels.js";
-import {
-  CREATE_SESSIONS_TABLE,
-  CREATE_ACCESS_TOKENS_TABLE,
-  CREATE_REFRESH_TOKENS_TABLE,
-  CREATE_CLIENTS_TABLE,
-} from "../db/schema.js";
 import type { AuthSession, AccessToken, RefreshToken, OAuthClient } from "./types.js";
 
-interface SessionRow {
-  id: string;
-  subject: string;
-  client_id: string;
-  scopes: string;
-  resource: string | null;
-  extra: string | null;
-  created_at: string;
-  expires_at: string;
+interface SqlAuthPersistenceKernel {
+  init(): Promise<void>;
+  getSession(id: string): Promise<AuthSession | undefined>;
+  setSession(session: AuthSession): Promise<void>;
+  deleteSession(id: string): Promise<void>;
+  getAccessToken(token: string): Promise<AccessToken | undefined>;
+  setAccessToken(token: AccessToken): Promise<void>;
+  deleteAccessToken(token: string): Promise<void>;
+  updateAccessTokenExtra(token: string, extra?: Record<string, unknown>): Promise<boolean>;
+  getRefreshToken(token: string): Promise<RefreshToken | undefined>;
+  setRefreshToken(token: RefreshToken): Promise<void>;
+  deleteRefreshToken(token: string): Promise<void>;
+  updateRefreshTokenExtra(token: string, extra?: Record<string, unknown>): Promise<boolean>;
+  getClient(clientId: string): Promise<OAuthClient | undefined>;
+  setClient(client: OAuthClient): Promise<void>;
+  cleanup(): Promise<number>;
 }
 
-interface AccessTokenRow {
-  token: string;
-  client_id: string;
-  subject: string;
-  scopes: string;
-  resource: string | null;
-  extra: string | null;
-  created_at: string;
-  expires_at: string;
-}
-
-interface RefreshTokenRow {
-  token: string;
-  client_id: string;
-  subject: string;
-  scopes: string;
-  resource: string | null;
-  extra: string | null;
-  created_at: string;
-  expires_at: string;
-}
-
-interface ClientRow {
-  client_id: string;
-  client_secret: string;
-  client_name: string;
-  redirect_uris: string;
-  token_endpoint_auth_method: string;
-  grant_types: string;
-  response_types: string;
-}
-
-function toAuthSession(row: SessionRow): AuthSession {
-  return kernels.authSessionView(row) as unknown as AuthSession;
-}
-
-function toAccessToken(row: AccessTokenRow): AccessToken {
-  return kernels.authTokenView(row) as unknown as AccessToken;
-}
-
-function toRefreshToken(row: RefreshTokenRow): RefreshToken {
-  return kernels.authTokenView(row) as unknown as RefreshToken;
-}
-
-function toOAuthClient(row: ClientRow): OAuthClient {
-  return kernels.authClientView(row) as unknown as OAuthClient;
-}
-
+/**
+ * OAuth sessions, tokens and clients in Postgres. The statements and the row
+ * views are proxx.auth.persistence; proxx.runtime.auth-persistence runs them.
+ * This class keeps the names and types callers already use.
+ */
 export class SqlAuthPersistence {
-  public constructor(private readonly sql: Sql) {}
+  private readonly impl: SqlAuthPersistenceKernel;
 
-  public async init(): Promise<void> {
-    await this.sql.unsafe(CREATE_SESSIONS_TABLE);
-    await this.sql.unsafe(CREATE_ACCESS_TOKENS_TABLE);
-    await this.sql.unsafe(CREATE_REFRESH_TOKENS_TABLE);
-    await this.sql.unsafe(CREATE_CLIENTS_TABLE);
+  public constructor(sql: Sql) {
+    this.impl = kernels.createSqlAuthPersistence(sql) as SqlAuthPersistenceKernel;
   }
 
-  public async getSession(id: string): Promise<AuthSession | undefined> {
-    const now = Math.floor(Date.now() / 1000);
-    const rows = await this.sql<SessionRow[]>`
-      SELECT * FROM sessions WHERE id = ${id} AND expires_at > ${now}
-    `;
-    return rows[0] ? toAuthSession(rows[0]) : undefined;
+  public init(): Promise<void> {
+    return this.impl.init();
   }
 
-  public async setSession(session: AuthSession): Promise<void> {
-    await this.sql`
-      INSERT INTO sessions (id, subject, client_id, scopes, resource, extra, expires_at)
-      VALUES (
-        ${session.id},
-        ${session.subject},
-        ${session.clientId},
-        ${JSON.stringify(session.scopes)},
-        ${session.resource ?? null},
-        ${session.extra ? JSON.stringify(session.extra) : null},
-        ${session.expiresAt}
-      )
-      ON CONFLICT (id) DO UPDATE SET
-        subject = EXCLUDED.subject,
-        client_id = EXCLUDED.client_id,
-        scopes = EXCLUDED.scopes,
-        resource = EXCLUDED.resource,
-        extra = EXCLUDED.extra,
-        expires_at = EXCLUDED.expires_at
-    `;
+  public getSession(id: string): Promise<AuthSession | undefined> {
+    return this.impl.getSession(id);
   }
 
-  public async deleteSession(id: string): Promise<void> {
-    await this.sql`DELETE FROM sessions WHERE id = ${id}`;
+  public setSession(session: AuthSession): Promise<void> {
+    return this.impl.setSession(session);
   }
 
-  public async getAccessToken(token: string): Promise<AccessToken | undefined> {
-    const now = Math.floor(Date.now() / 1000);
-    const rows = await this.sql<AccessTokenRow[]>`
-      SELECT * FROM access_tokens WHERE token = ${token} AND expires_at > ${now}
-    `;
-    return rows[0] ? toAccessToken(rows[0]) : undefined;
+  public deleteSession(id: string): Promise<void> {
+    return this.impl.deleteSession(id);
   }
 
-  public async setAccessToken(token: AccessToken): Promise<void> {
-    await this.sql`
-      INSERT INTO access_tokens (token, client_id, subject, scopes, resource, extra, expires_at)
-      VALUES (
-        ${token.token},
-        ${token.clientId},
-        ${token.subject},
-        ${JSON.stringify(token.scopes)},
-        ${token.resource ?? null},
-        ${token.extra ? JSON.stringify(token.extra) : null},
-        ${token.expiresAt}
-      )
-    `;
+  public getAccessToken(token: string): Promise<AccessToken | undefined> {
+    return this.impl.getAccessToken(token);
   }
 
-  public async deleteAccessToken(token: string): Promise<void> {
-    await this.sql`DELETE FROM access_tokens WHERE token = ${token}`;
+  public setAccessToken(token: AccessToken): Promise<void> {
+    return this.impl.setAccessToken(token);
   }
 
-  public async updateAccessTokenExtra(token: string, extra?: Record<string, unknown>): Promise<boolean> {
-    const rows = await this.sql.unsafe<Array<{ token: string }>>(
-      "UPDATE access_tokens SET extra = $2::jsonb WHERE token = $1 RETURNING token",
-      [token, extra ? JSON.stringify(extra) : null],
-    );
-    return rows.length > 0;
+  public deleteAccessToken(token: string): Promise<void> {
+    return this.impl.deleteAccessToken(token);
   }
 
-  public async getRefreshToken(token: string): Promise<RefreshToken | undefined> {
-    const now = Math.floor(Date.now() / 1000);
-    const rows = await this.sql<RefreshTokenRow[]>`
-      SELECT * FROM refresh_tokens WHERE token = ${token} AND expires_at > ${now}
-    `;
-    return rows[0] ? toRefreshToken(rows[0]) : undefined;
+  public updateAccessTokenExtra(token: string, extra?: Record<string, unknown>): Promise<boolean> {
+    return this.impl.updateAccessTokenExtra(token, extra);
   }
 
-  public async setRefreshToken(token: RefreshToken): Promise<void> {
-    await this.sql`
-      INSERT INTO refresh_tokens (token, client_id, subject, scopes, resource, extra, expires_at)
-      VALUES (
-        ${token.token},
-        ${token.clientId},
-        ${token.subject},
-        ${JSON.stringify(token.scopes)},
-        ${token.resource ?? null},
-        ${token.extra ? JSON.stringify(token.extra) : null},
-        ${token.expiresAt}
-      )
-    `;
+  public getRefreshToken(token: string): Promise<RefreshToken | undefined> {
+    return this.impl.getRefreshToken(token);
   }
 
-  public async deleteRefreshToken(token: string): Promise<void> {
-    await this.sql`DELETE FROM refresh_tokens WHERE token = ${token}`;
+  public setRefreshToken(token: RefreshToken): Promise<void> {
+    return this.impl.setRefreshToken(token);
   }
 
-  public async updateRefreshTokenExtra(token: string, extra?: Record<string, unknown>): Promise<boolean> {
-    const rows = await this.sql.unsafe<Array<{ token: string }>>(
-      "UPDATE refresh_tokens SET extra = $2::jsonb WHERE token = $1 RETURNING token",
-      [token, extra ? JSON.stringify(extra) : null],
-    );
-    return rows.length > 0;
+  public deleteRefreshToken(token: string): Promise<void> {
+    return this.impl.deleteRefreshToken(token);
   }
 
-  public async getClient(clientId: string): Promise<OAuthClient | undefined> {
-    const rows = await this.sql<ClientRow[]>`
-      SELECT * FROM clients WHERE client_id = ${clientId}
-    `;
-    return rows[0] ? toOAuthClient(rows[0]) : undefined;
+  public updateRefreshTokenExtra(token: string, extra?: Record<string, unknown>): Promise<boolean> {
+    return this.impl.updateRefreshTokenExtra(token, extra);
   }
 
-  public async setClient(client: OAuthClient): Promise<void> {
-    await this.sql`
-      INSERT INTO clients (client_id, client_secret, client_name, redirect_uris, token_endpoint_auth_method, grant_types, response_types)
-      VALUES (
-        ${client.clientId},
-        ${client.clientSecret},
-        ${client.clientName},
-        ${JSON.stringify(client.redirectUris)},
-        ${client.tokenEndpointAuthMethod},
-        ${JSON.stringify(client.grantTypes)},
-        ${JSON.stringify(client.responseTypes)}
-      )
-      ON CONFLICT (client_id) DO UPDATE SET
-        client_secret = EXCLUDED.client_secret,
-        client_name = EXCLUDED.client_name,
-        redirect_uris = EXCLUDED.redirect_uris,
-        token_endpoint_auth_method = EXCLUDED.token_endpoint_auth_method,
-        grant_types = EXCLUDED.grant_types,
-        response_types = EXCLUDED.response_types
-    `;
+  public getClient(clientId: string): Promise<OAuthClient | undefined> {
+    return this.impl.getClient(clientId);
   }
 
-  public async cleanup(): Promise<number> {
-    const now = Math.floor(Date.now() / 1000);
+  public setClient(client: OAuthClient): Promise<void> {
+    return this.impl.setClient(client);
+  }
 
-    const sessions = await this.sql`DELETE FROM sessions WHERE expires_at <= ${now}`;
-    const accessTokens = await this.sql`DELETE FROM access_tokens WHERE expires_at <= ${now}`;
-    const refreshTokens = await this.sql`DELETE FROM refresh_tokens WHERE expires_at <= ${now}`;
-
-    return sessions.count + accessTokens.count + refreshTokens.count;
+  public cleanup(): Promise<number> {
+    return this.impl.cleanup();
   }
 }
