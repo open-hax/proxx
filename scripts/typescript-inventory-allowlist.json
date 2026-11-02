@@ -508,12 +508,6 @@
       "removalCondition": "core Proxx runtime starts and serves from CLJS with TS shims removed"
     },
     {
-      "path": "src/lib/provider-strategy/base.ts",
-      "owner": "T1-provider-routing-federation-cljs-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "provider routing and federation runtime are implemented in CLJS policy modules"
-    },
-    {
       "path": "src/lib/provider-strategy/contexts.ts",
       "owner": "T1-provider-routing-federation-cljs-runtime",
       "disposition": "port-to-cljs",
@@ -595,12 +589,6 @@
       "removalCondition": "provider routing and federation runtime are implemented in CLJS policy modules"
     },
     {
-      "path": "src/lib/provider-strategy/strategies/factory.ts",
-      "owner": "T1-provider-routing-federation-cljs-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "provider routing and federation runtime are implemented in CLJS policy modules"
-    },
-    {
       "path": "src/lib/provider-strategy/strategies/gemini.ts",
       "owner": "T1-provider-routing-federation-cljs-runtime",
       "disposition": "port-to-cljs",
@@ -613,35 +601,11 @@
       "removalCondition": "provider routing and federation runtime are implemented in CLJS policy modules"
     },
     {
-      "path": "src/lib/provider-strategy/strategies/ollama-cloud.ts",
-      "owner": "T1-provider-routing-federation-cljs-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "provider routing and federation runtime are implemented in CLJS policy modules"
-    },
-    {
-      "path": "src/lib/provider-strategy/strategies/ollama.ts",
-      "owner": "T1-provider-routing-federation-cljs-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "provider routing and federation runtime are implemented in CLJS policy modules"
-    },
-    {
-      "path": "src/lib/provider-strategy/strategies/openai.ts",
-      "owner": "T1-provider-routing-federation-cljs-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "provider routing and federation runtime are implemented in CLJS policy modules"
-    },
-    {
       "path": "src/lib/provider-strategy/strategies/responses-event-stream.ts",
       "owner": "T1-provider-routing-federation-cljs-runtime",
       "disposition": "removed",
       "removalCondition": "Removed: the provider reply plumbing is CLJS (proxx.runtime.provider-reply).",
       "removed": true
-    },
-    {
-      "path": "src/lib/provider-strategy/strategies/standard.ts",
-      "owner": "T1-provider-routing-federation-cljs-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "provider routing and federation runtime are implemented in CLJS policy modules"
     },
     {
       "path": "src/lib/provider-strategy/strategies/vision.ts",

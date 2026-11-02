@@ -7,11 +7,7 @@
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import {
-  HuggingFaceEmbeddingStrategy,
-  TEIEmbeddingStrategy,
-  OvmNpuEmbeddingStrategy,
-} from '../lib/provider-strategy/strategies/embeddings.js';
+import { strategyForId } from '../lib/provider-strategy/registry.js';
 import type { StrategyRequestContext } from '../lib/provider-strategy/shared.js';
 
 // ---------------------------------------------------------------------------
@@ -48,7 +44,7 @@ function embedCtx(provider: string, extra?: Partial<StrategyRequestContext>): St
 // HuggingFaceEmbeddingStrategy
 // ---------------------------------------------------------------------------
 describe('HuggingFaceEmbeddingStrategy', () => {
-  const s = new HuggingFaceEmbeddingStrategy();
+  const s = strategyForId("hf-embeddings");
 
   it('has mode hf_embeddings', () => assert.equal(s.mode, 'hf_embeddings'));
   it('is not local', () => assert.equal(s.isLocal, false));
@@ -88,7 +84,7 @@ describe('HuggingFaceEmbeddingStrategy', () => {
 // TEIEmbeddingStrategy
 // ---------------------------------------------------------------------------
 describe('TEIEmbeddingStrategy', () => {
-  const s = new TEIEmbeddingStrategy();
+  const s = strategyForId("tei-embeddings");
 
   it('has mode tei_embeddings', () => assert.equal(s.mode, 'tei_embeddings'));
   it('is not local', () => assert.equal(s.isLocal, false));
@@ -115,7 +111,7 @@ describe('TEIEmbeddingStrategy', () => {
 // OvmNpuEmbeddingStrategy
 // ---------------------------------------------------------------------------
 describe('OvmNpuEmbeddingStrategy', () => {
-  const s = new OvmNpuEmbeddingStrategy();
+  const s = strategyForId("ovm-embeddings");
 
   it('has mode ovm_embeddings', () => assert.equal(s.mode, 'ovm_embeddings'));
   it('is not local', () => assert.equal(s.isLocal, false));
@@ -148,9 +144,9 @@ describe('OvmNpuEmbeddingStrategy', () => {
 // ---------------------------------------------------------------------------
 describe('embedding strategies do not match chat requests', () => {
   const strategies = [
-    new HuggingFaceEmbeddingStrategy(),
-    new TEIEmbeddingStrategy(),
-    new OvmNpuEmbeddingStrategy(),
+    strategyForId("hf-embeddings"),
+    strategyForId("tei-embeddings"),
+    strategyForId("ovm-embeddings"),
   ];
 
   it('none match a plain chat request body', () => {

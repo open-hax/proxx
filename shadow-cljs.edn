@@ -82,6 +82,10 @@
                                            normalizeRequestedModel proxx.runtime.http/normalize-requested-model-js
                                            isTrustedLocalBridgeAddress proxx.runtime.http/is-trusted-local-bridge-address-js
                                            hasBearerToken proxx.runtime.http/has-bearer-token-js
+                                           strategyForId proxx.runtime.strategies/strategy-for-id-js
+                                           allStrategies proxx.runtime.strategies/strategies-js
+                                           allStrategyInfos proxx.runtime.strategy/strategy-infos-js
+                                           selectionFacts proxx.runtime.strategies/selection-facts-js
                                            executionProvider proxx.runtime.strategy/execution-provider-js
                                            extractPromptCacheKey proxx.runtime.http/extract-prompt-cache-key-js
                                            hashPromptCacheKey proxx.runtime.http/hash-prompt-cache-key-js

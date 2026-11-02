@@ -238,6 +238,10 @@ export interface CljsKernels {
     readonly code: string;
     readonly retryAfterSeconds?: number;
   } | undefined;
+  readonly strategyForId: (id: string) => import("./provider-strategy/shared.js").ProviderStrategy;
+  readonly allStrategies: () => import("./provider-strategy/shared.js").ProviderStrategy[];
+  readonly allStrategyInfos: (manifestPath?: string) => Array<{ readonly mode: string; readonly isLocal: boolean; readonly priority: number }>;
+  readonly selectionFacts: (context: unknown, policyPreferredMode?: string) => StrategySelectionFacts;
   readonly executionProvider: (providerIds: readonly string[]) => string | undefined;
   // request facts (proxx.http.request-facts)
   readonly extractPromptCacheKey: (body: JsRecord) => string | undefined;

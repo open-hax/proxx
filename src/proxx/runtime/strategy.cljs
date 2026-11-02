@@ -595,6 +595,23 @@
   [provider-ids]
   (undefined-if-nil (select/execution-provider (vec (array-seq provider-ids)))))
 
+(defn strategy-ids-js
+  "The registered strategy ids, highest priority first."
+  [manifest-path]
+  (to-array (map (comp name :strategy/id) (:registry/entries (registry manifest-path)))))
+
+(defn strategy-facts-js
+  "`{mode, isLocal}` of the registry entry `id`."
+  [id manifest-path]
+  (let [e (select/entry (registry manifest-path) (keyword id))]
+    #js {"mode" (:strategy/mode e) "isLocal" (boolean (:strategy/local? e))}))
+
+(defn strategy-infos-js
+  "`{mode, isLocal, priority}` per strategy, highest priority first."
+  [manifest-path]
+  (to-array (map (fn [{:keys [mode local? priority]}] #js {"mode" mode "isLocal" local? "priority" priority})
+                 (select/infos (registry manifest-path)))))
+
 (defn is-compat-embedding-provider-js [provider-id manifest-path]
   (select/compat-embedding-provider? (registry manifest-path) provider-id))
 
