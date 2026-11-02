@@ -378,6 +378,7 @@ export interface CljsKernels {
   readonly usageCoverageQuery: (filters: object) => { readonly text: string; readonly values: unknown[] };
   readonly usageCursorQuery: () => string;
   readonly usageToCursor: (row: object) => { readonly timestampMs: number; readonly id: string };
+  readonly createRequestLogStore: (opts: object) => unknown;
   readonly createRequestLogCore: (maxEntries: number, deps?: { now?: () => number; uuid?: () => string }) => unknown;
   readonly usageToWindow: (value: unknown) => string;
   readonly usageToSafeLimit: (value: unknown, fallback: number, max: number) => number;

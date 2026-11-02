@@ -354,6 +354,7 @@
                                            cephalonChoice proxx.runtime.strategy/cephalon-choice-js
                                            deriveStrategyContextFacts proxx.runtime.strategy/derive-strategy-context-facts-js
                                            createRequestLogCore proxx.runtime.request-log/create-request-log-core-js
+                                           createRequestLogStore proxx.runtime.request-log/create-request-log-store-js
                                            usageToWindow proxx.runtime.usage-analytics/usage-to-window-js
                                            usageToSafeLimit proxx.runtime.usage-analytics/usage-to-safe-limit-js
                                            usageWindowConfig proxx.runtime.usage-analytics/usage-window-config-js
