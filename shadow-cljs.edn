@@ -395,13 +395,8 @@
                                            routingCandidateSource proxx.runtime.routing/routing-candidate-source-js
                                            finishModelRouting proxx.runtime.routing/finish-model-routing-js
                                            createProviderCatalogStore proxx.runtime.catalog/create-provider-catalog-store-js
-                                           ;; w2-routing exports (aco/pheromone)
+                                           ;; w2-routing exports (aco)
                                            rankProviderRoutesWithAco proxx.runtime.aco/rank-provider-routes-with-aco-js
-                                           pheromoneHydrateDb proxx.runtime.aco/pheromone-hydrate-db-js
-                                           pheromoneKeyValid proxx.runtime.aco/pheromone-key-valid-js
-                                           pheromoneGet proxx.runtime.aco/pheromone-get-js
-                                           pheromoneNoteSuccess proxx.runtime.aco/pheromone-note-success-js
-                                           pheromoneNoteFailure proxx.runtime.aco/pheromone-note-failure-js
                                            loadHostDashboardTargetsFromEnv proxx.runtime.host-dashboard/load-host-dashboard-targets-from-env-js
                                            resolveHostDashboardTargetToken proxx.runtime.host-dashboard/resolve-host-dashboard-target-token-js
                                            inferSelfHostDashboardTargetId proxx.runtime.host-dashboard/infer-self-host-dashboard-target-id-js
@@ -489,6 +484,21 @@
                                            createSqlRequestUsageStore proxx.runtime.usage-store/create-sql-request-usage-store-js
                                            createEventStore proxx.runtime.event-store/create-event-store-js
                                            createSqlFederationStore proxx.runtime.federation-store/create-sql-federation-store-js
+                                           ;; w7-leftovers exports (strategy ordering / auto-model glue)
+                                           reorderCandidatesForAffinities proxx.runtime.strategy-routes/reorder-candidates-for-affinities-js
+                                           providerAccountsForRequest proxx.runtime.strategy-routes/provider-accounts-for-request-js
+                                           reorderAccountsForLatency proxx.runtime.strategy-routes/reorder-accounts-for-latency-js
+                                           resolveAutoModelWith proxx.runtime.strategy-routes/resolve-auto-model-js
+                                           autoModelCandidatesWith proxx.runtime.strategy-routes/auto-model-candidates-js
+                                           resolveCephalonAutoModelWith proxx.runtime.strategy-routes/resolve-cephalon-auto-model-js
+                                           cephalonModelCandidatesWith proxx.runtime.strategy-routes/cephalon-model-candidates-js
+                                           visionModelCandidatesFor proxx.runtime.strategy-routes/vision-model-candidates-for-js
+                                           reorderVisionProviderRoutes proxx.runtime.strategy-routes/reorder-vision-provider-routes-js
+                                           shouldAdvanceModelCandidate proxx.runtime.strategy-routes/should-advance-model-candidate-js
+                                           getDeclaredProviderRoutes proxx.runtime.provider-routes/get-declared-provider-routes-js
+                                           filterDeclaredProviderRoutes proxx.runtime.provider-routes/filter-declared-provider-routes-js
+                                           sendOpenAiError proxx.runtime.proxy/send-open-ai-error-js
+                                           sendQueueError proxx.runtime.proxy/send-queue-error-js
                                            createSqlCredentialStore proxx.runtime.sql-credential-store/create-sql-credential-store-js}}
               ;; The Node entry (`node dist/cljs/main.js`): shares the runtime module's code.
               :main {:depends-on #{:proxx-runtime}

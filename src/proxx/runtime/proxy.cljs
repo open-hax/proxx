@@ -2,6 +2,7 @@
   "JS edge for src/lib/proxy.ts. Headers cross as plain objects (the TS shim wraps
   them in `Headers`); decisions live in proxx.http.proxy."
   (:require [proxx.http.proxy :as proxy]
+            [proxx.runtime.http :as http]
             [proxx.runtime.interop :as interop]))
 
 (defn- or-undefined [x] (if (nil? x) js/undefined x))
@@ -54,3 +55,22 @@
 
 (defn openai-error-js [message type code]
   (clj->js (proxy/openai-error message type (when (some? code) code))))
+
+(defn send-open-ai-error-js
+  "Answer a Fastify reply with an OpenAI-shaped error (src/lib/provider-utils.ts)."
+  [^js reply status-code message type code]
+  (when (some? code) (.header reply "x-open-hax-error-code" code))
+  (.send (.code reply status-code) (openai-error-js message type code)))
+
+(defn send-queue-error-js
+  "Answer a queue failure (full, dropped, timed out) with its OpenAI-shaped error;
+  false when `error` is not one. Which failures those are is
+  proxx.http.request/queue-error-response."
+  [^js reply error]
+  (let [^js response (http/queue-error-response-js error)]
+    (if (nil? response)
+      false
+      (do (when (some? (.-retryAfterSeconds response))
+            (.header reply "retry-after" (str (.-retryAfterSeconds response))))
+          (send-open-ai-error-js reply (.-statusCode response) (.-message response) (.-type response) (.-code response))
+          true))))
