@@ -1,6 +1,7 @@
 (ns proxx.dashboard.host-test
   (:require [cljs.test :refer [deftest is testing]]
             [proxx.dashboard.host :as h]
+            [proxx.runtime.host-dashboard :as hd]
             [proxx.json :as json]))
 
 (deftest caddy-routes
@@ -70,3 +71,79 @@ a.test, b.test __PUBLIC_HOST__ {
     (is (false? (get (h/local-snapshot t "t" ["docker socket not configured"] [] []) "reachable")))
     (is (true? (get (h/local-snapshot t "t" ["docker socket not configured"] [] [{"host" "h"}]) "reachable"))
         "an error is forgiven when something else was learned")))
+
+;; ---- src/tests/host-dashboard.test.ts: the JS-facing entry points the TypeScript module delegates to ----
+
+(deftest ts-parse-caddy-routes-extracts-hosts-path-matchers-and-upstreams
+  (let [routes (js->clj (hd/parse-caddy-routes-js "
+ussy.promethean.rest {
+  @api path /v1* /api* /auth* /health
+  reverse_proxy @api host.docker.internal:8789
+  reverse_proxy host.docker.internal:5174
+}
+
+battlebussy.ussy.promethean.rest {
+  @backend path /api* /ws*
+  reverse_proxy @backend battlebussy-backend:8080
+  reverse_proxy battlebussy-site:3000
+}
+"))]
+    (is (= 4 (count routes)))
+    (is (= {"host" "battlebussy.ussy.promethean.rest" "matcher" "@backend" "matchPaths" ["/api*" "/ws*"]
+            "upstreams" ["battlebussy-backend:8080"]}
+           (first (filter #(and (= "battlebussy.ussy.promethean.rest" (get % "host")) (= "@backend" (get % "matcher"))) routes))))
+    (is (= {"host" "ussy.promethean.rest" "matcher" nil "matchPaths" [] "upstreams" ["host.docker.internal:5174"]}
+           (first (filter #(and (= "ussy.promethean.rest" (get % "host"))
+                                (some #{"host.docker.internal:5174"} (get % "upstreams")))
+                          routes))))))
+
+(deftest ts-parse-caddy-routes-ignores-block-form-reverse-proxy-directives
+  (is (= [] (js->clj (hd/parse-caddy-routes-js "
+ussy.promethean.rest {
+  @api path /api*
+  reverse_proxy @api {
+    to host.docker.internal:8789
+  }
+}
+")))))
+
+(deftest ts-load-targets-returns-empty-array-when-unconfigured
+  ;; empty when unconfigured to avoid implicit outbound traffic to external hosts
+  (is (= 0 (.-length (hd/load-host-dashboard-targets-from-env-js #js {})))))
+
+(deftest ts-load-targets-accepts-configured-json-targets
+  (let [targets (hd/load-host-dashboard-targets-from-env-js
+                 #js {"HOST_DASHBOARD_TARGETS_JSON"
+                      (js/JSON.stringify
+                       #js [#js {"id" "prod" "label" "Prod" "baseUrl" "https://ussy.promethean.rest" "authTokenEnv" "HOST_TOKEN_PROD"}
+                            #js {"id" "stage" "label" "Stage" "baseUrl" "https://ussy3.promethean.rest" "notes" "staging"}])})]
+    (is (= [{"id" "prod" "label" "Prod" "baseUrl" "https://ussy.promethean.rest" "publicHost" nil "authToken" nil
+             "authTokenEnv" "HOST_TOKEN_PROD" "notes" nil}
+            {"id" "stage" "label" "Stage" "baseUrl" "https://ussy3.promethean.rest" "publicHost" nil "authToken" nil
+             "authTokenEnv" nil "notes" "staging"}]
+           (js->clj targets)))))
+
+(deftest ts-resolve-token-prefers-target-env-token-and-does-not-fall-back-to-proxy-token
+  (is (= "stage-secret"
+         (hd/resolve-host-dashboard-target-token-js #js {"id" "stage" "label" "Stage" "authTokenEnv" "HOST_TOKEN_STAGE"}
+                                                    #js {"HOST_TOKEN_STAGE" "stage-secret" "PROXY_AUTH_TOKEN" "proxy-secret"})))
+  (is (undefined? (hd/resolve-host-dashboard-target-token-js #js {"id" "stage" "label" "Stage"}
+                                                             #js {"PROXY_AUTH_TOKEN" "proxy-secret"}))))
+
+(deftest ts-resolve-token-prioritizes-inline-auth-token-over-env-values
+  (is (= "inline-secret"
+         (hd/resolve-host-dashboard-target-token-js
+          #js {"id" "stage" "label" "Stage" "authToken" "inline-secret" "authTokenEnv" "HOST_TOKEN_STAGE"}
+          #js {"HOST_TOKEN_STAGE" "env-secret" "PROXY_AUTH_TOKEN" "proxy-secret"}))))
+
+(deftest ts-infer-self-target-id-matches-request-host-to-configured-target
+  (is (= "ussy3"
+         (hd/infer-self-host-dashboard-target-id-js
+          #js {"targets" #js [#js {"id" "ussy" "label" "Prod" "baseUrl" "https://ussy.promethean.rest"}
+                              #js {"id" "ussy3" "label" "Stage" "baseUrl" "https://ussy3.promethean.rest"}]
+               "requestBaseUrl" "https://ussy3.promethean.rest"}))))
+
+(deftest ts-infer-self-target-id-returns-undefined-when-no-target-matches
+  (is (undefined? (hd/infer-self-host-dashboard-target-id-js
+                   #js {"targets" #js [#js {"id" "ussy" "label" "Prod" "baseUrl" "https://ussy.promethean.rest"}]
+                        "requestBaseUrl" "https://unknown.promethean.rest"}))))

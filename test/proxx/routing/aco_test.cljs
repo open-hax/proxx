@@ -101,3 +101,50 @@
     (is (= ["ollama-a" "ollama-b" "openai" "zai"] (mapv #(.-providerId %) (array-seq (.-orderedRoutes out)))))
     (is (= 2 @draws) "one draw per ordered candidate")
     (is (= 2 (.-length (.-signals out))))))
+
+;; ---- src/tests/provider-route-aco.test.ts ---------------------------------------
+
+(defn- ollama-input [routes health perf pher rng]
+  (let [accounts (fn [id] #js [#js {:providerId id :accountId (str id "-1") :token "t" :authType "api_key"}])]
+    #js {:providerRoutes (to-array (map #(clj->js %) routes))
+         :model "qwen3.5:2b-bf16" :upstreamMode "local_ollama_chat"
+         :keyPool #js {:getRequestOrder (fn [id] (js/Promise.resolve (accounts id)))}
+         :requestLogStore #js {:getModelPerfSummary perf}
+         :healthStore #js {:getHealthScore health :isQuotaExhausted (fn [] false)}
+         :pheromoneStore #js {:getPheromone pher}
+         :rng rng}))
+
+(deftest ^:async rank-filters-unhealthy-dedicated-ollama-routes
+  (let [^js out (await (edge/rank-provider-routes-with-aco-js
+                    manifest
+                    (ollama-input [{:providerId "ollama-a" :baseUrl "http://ollama-a:11434"}
+                                   {:providerId "ollama-b" :baseUrl "http://ollama-b:11434"}
+                                   {:providerId "openai" :baseUrl "https://chatgpt.com/backend-api"}]
+                                  (fn [id] (if (= id "ollama-a") 0.91 0.12))
+                                  (fn [] js/undefined)
+                                  (fn [] 0.5)
+                                  (fn [] 0))))]
+    (is (= [{"providerId" "ollama-a" "baseUrl" "http://ollama-a:11434"}
+            {"providerId" "openai" "baseUrl" "https://chatgpt.com/backend-api"}]
+           (js->clj (.-orderedRoutes out))))
+    (is (= ["ollama-a"] (mapv #(.-providerId ^js %) (array-seq (.-signals out)))))))
+
+(deftest ^:async rank-prefers-healthier-faster-routes-under-weighted-selection
+  (let [model "qwen3.5:2b-bf16"
+        perf (fn [id]
+               (if (= id "ollama-a")
+                 #js {:providerId id :accountId "*" :model model :upstreamMode "local_ollama_chat" :sampleCount 2
+                      :ewmaTtftMs 4500 :ewmaTps nil :ewmaEndToEndTps nil :updatedAt (- (js/Date.now) (* 5 60 60 1000))}
+                 #js {:providerId id :accountId "*" :model model :upstreamMode "local_ollama_chat" :sampleCount 20
+                      :ewmaTtftMs 120 :ewmaTps nil :ewmaEndToEndTps nil :updatedAt (- (js/Date.now) 60000)}))
+        ^js out (await (edge/rank-provider-routes-with-aco-js
+                    manifest
+                    (ollama-input [{:providerId "ollama-a" :baseUrl "http://ollama-a:11434"}
+                                   {:providerId "ollama-b" :baseUrl "http://ollama-b:11434"}]
+                                  (fn [id] (if (= id "ollama-a") 0.55 0.97))
+                                  perf
+                                  (fn [id] (if (= id "ollama-a") 0.2 0.95))
+                                  (fn [] 0.8))))
+        by (into {} (map (fn [^js s] [(.-providerId s) s])) (array-seq (.-signals out)))]
+    (is (= "ollama-b" (let [^js first-route (aget (.-orderedRoutes out) 0)] (.-providerId first-route))))
+    (is (> (.-combinedScore ^js (by "ollama-b")) (.-combinedScore ^js (by "ollama-a"))))))

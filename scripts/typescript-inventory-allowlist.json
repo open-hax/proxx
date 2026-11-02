@@ -1177,26 +1177,30 @@
     {
       "path": "src/tests/big-ussy-bootstrap-contract.test.ts",
       "owner": "T4-test-harness-cljs-migration",
-      "disposition": "port-test-to-cljs",
-      "removalCondition": "test coverage runs from CLJS/node-test or an accepted non-TS harness"
+      "disposition": "removed",
+      "removalCondition": "Removed: ported to cljs.test as proxx.deploy.big-ussy-bootstrap-contract-test.",
+      "removed": true
     },
     {
       "path": "src/tests/cljs-policy-preview.test.ts",
       "owner": "T4-test-harness-cljs-migration",
-      "disposition": "port-test-to-cljs",
-      "removalCondition": "test coverage runs from CLJS/node-test or an accepted non-TS harness"
+      "disposition": "removed",
+      "removalCondition": "Removed: ported to cljs.test as proxx.policy-preview-test.",
+      "removed": true
     },
     {
       "path": "src/tests/config.test.ts",
       "owner": "T4-test-harness-cljs-migration",
-      "disposition": "port-test-to-cljs",
-      "removalCondition": "test coverage runs from CLJS/node-test or an accepted non-TS harness"
+      "disposition": "removed",
+      "removalCondition": "Removed: ported to cljs.test as proxx.runtime.config-test.",
+      "removed": true
     },
     {
       "path": "src/tests/credential-selector.test.ts",
       "owner": "T4-test-harness-cljs-migration",
-      "disposition": "port-test-to-cljs",
-      "removalCondition": "test coverage runs from CLJS/node-test or an accepted non-TS harness"
+      "disposition": "removed",
+      "removalCondition": "Removed: ported to cljs.test as proxx.strategy.credential-selector-test.",
+      "removed": true
     },
     {
       "path": "src/tests/dynamic-ollama-routes.test.ts",
@@ -1308,8 +1312,9 @@
     {
       "path": "src/tests/host-dashboard.test.ts",
       "owner": "T4-test-harness-cljs-migration",
-      "disposition": "port-test-to-cljs",
-      "removalCondition": "test coverage runs from CLJS/node-test or an accepted non-TS harness"
+      "disposition": "removed",
+      "removalCondition": "Removed: ported to cljs.test as proxx.dashboard.host-test.",
+      "removed": true
     },
     {
       "path": "src/tests/key-pool.test.ts",
@@ -1383,8 +1388,9 @@
     {
       "path": "src/tests/provider-route-aco.test.ts",
       "owner": "T4-test-harness-cljs-migration",
-      "disposition": "port-test-to-cljs",
-      "removalCondition": "test coverage runs from CLJS/node-test or an accepted non-TS harness"
+      "disposition": "removed",
+      "removalCondition": "Removed: ported to cljs.test as proxx.routing.aco-test.",
+      "removed": true
     },
     {
       "path": "src/tests/provider-route-pheromone-store.test.ts",
