@@ -1150,18 +1150,6 @@
       "removed": true
     },
     {
-      "path": "src/tests/account-health-store.test.ts",
-      "owner": "T4-test-harness-cljs-migration",
-      "disposition": "port-test-to-cljs",
-      "removalCondition": "test coverage runs from CLJS/node-test or an accepted non-TS harness"
-    },
-    {
-      "path": "src/tests/account-identity.test.ts",
-      "owner": "T4-test-harness-cljs-migration",
-      "disposition": "port-test-to-cljs",
-      "removalCondition": "test coverage runs from CLJS/node-test or an accepted non-TS harness"
-    },
-    {
       "path": "src/tests/anthropic-messages-compat.test.ts",
       "owner": "T4-test-harness-cljs-migration",
       "disposition": "port-test-to-cljs",
@@ -1187,12 +1175,6 @@
     },
     {
       "path": "src/tests/config.test.ts",
-      "owner": "T4-test-harness-cljs-migration",
-      "disposition": "port-test-to-cljs",
-      "removalCondition": "test coverage runs from CLJS/node-test or an accepted non-TS harness"
-    },
-    {
-      "path": "src/tests/credential-selector.test.ts",
       "owner": "T4-test-harness-cljs-migration",
       "disposition": "port-test-to-cljs",
       "removalCondition": "test coverage runs from CLJS/node-test or an accepted non-TS harness"
@@ -1325,12 +1307,6 @@
       "removalCondition": "test coverage runs from CLJS/node-test or an accepted non-TS harness"
     },
     {
-      "path": "src/tests/openai-oauth.test.ts",
-      "owner": "T4-test-harness-cljs-migration",
-      "disposition": "port-test-to-cljs",
-      "removalCondition": "test coverage runs from CLJS/node-test or an accepted non-TS harness"
-    },
-    {
       "path": "src/tests/prompt-affinity-store.test.ts",
       "owner": "T4-test-harness-cljs-migration",
       "disposition": "port-test-to-cljs",
@@ -1403,12 +1379,6 @@
       "removalCondition": "test coverage runs from CLJS/node-test or an accepted non-TS harness"
     },
     {
-      "path": "src/tests/request-auth.test.ts",
-      "owner": "T4-test-harness-cljs-migration",
-      "disposition": "port-test-to-cljs",
-      "removalCondition": "test coverage runs from CLJS/node-test or an accepted non-TS harness"
-    },
-    {
       "path": "src/tests/request-log-store.test.ts",
       "owner": "T4-test-harness-cljs-migration",
       "disposition": "port-test-to-cljs",
@@ -1434,18 +1404,6 @@
     },
     {
       "path": "src/tests/sse-usage.test.ts",
-      "owner": "T4-test-harness-cljs-migration",
-      "disposition": "port-test-to-cljs",
-      "removalCondition": "test coverage runs from CLJS/node-test or an accepted non-TS harness"
-    },
-    {
-      "path": "src/tests/tenant-api-key.test.ts",
-      "owner": "T4-test-harness-cljs-migration",
-      "disposition": "port-test-to-cljs",
-      "removalCondition": "test coverage runs from CLJS/node-test or an accepted non-TS harness"
-    },
-    {
-      "path": "src/tests/token-refresh-handlers.test.ts",
       "owner": "T4-test-harness-cljs-migration",
       "disposition": "port-test-to-cljs",
       "removalCondition": "test coverage runs from CLJS/node-test or an accepted non-TS harness"

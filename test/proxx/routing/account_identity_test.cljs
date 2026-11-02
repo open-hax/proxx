@@ -56,3 +56,35 @@
   (is (= "w" (edge/account-display-name-js #js {:chatgptAccountId "w" :id "i"})))
   (is (= "e" (edge/account-display-name-js #js {:email "e" :id "i"})))
   (is (edge/open-ai-reauth-identity-matches-js #js {:email "A@b"} #js {:email "a@B"})))
+
+;; --- Ported from src/tests/account-identity.test.ts ----------------------------
+
+(deftest derive-oauth-metadata-from-token-extracts-email-subject-workspace-and-plan
+  (let [token (jwt {"sub" "user-123"
+                    profile {"email" "Test.User@example.com"}
+                    auth {"chatgpt_account_id" "workspace-123" "chatgpt_plan_type" "pro"}})]
+    (is (= {"email" "test.user@example.com"
+            "subject" "user-123"
+            "chatgptAccountId" "workspace-123"
+            "planType" "pro"}
+           (js->clj (edge/derive-oauth-metadata-from-token-js token))))))
+
+(deftest account-display-name-prefers-email-then-workspace-then-id
+  (is (= "person@example.com"
+         (edge/account-display-name-js #js {:id "acct-1" :email "person@example.com" :chatgptAccountId "workspace-1"})))
+  (is (= "workspace-2" (edge/account-display-name-js #js {:id "acct-2" :chatgptAccountId "workspace-2"})))
+  (is (= "acct-3" (edge/account-display-name-js #js {:id "acct-3"}))))
+
+(deftest open-ai-reauth-identity-matches-prefers-subject-and-email-and-falls-back-to-sparse-workspace-matches
+  (is (true? (edge/open-ai-reauth-identity-matches-js
+              #js {:subject "user-a" :chatgptAccountId "workspace-1"}
+              #js {:subject "user-a" :email "different@example.com" :chatgptAccountId "workspace-2"})))
+  (is (true? (edge/open-ai-reauth-identity-matches-js
+              #js {:email "person@example.com" :chatgptAccountId "workspace-1"}
+              #js {:email "PERSON@example.com" :chatgptAccountId "workspace-9"})))
+  (is (true? (edge/open-ai-reauth-identity-matches-js
+              #js {:chatgptAccountId "workspace-sparse"}
+              #js {:chatgptAccountId "workspace-sparse"})))
+  (is (false? (edge/open-ai-reauth-identity-matches-js
+               #js {:subject "user-a" :chatgptAccountId "workspace-1"}
+               #js {:subject "user-b" :chatgptAccountId "workspace-1"}))))
