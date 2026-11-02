@@ -1,4 +1,4 @@
-import { ChromaClient, IncludeEnum, type Collection } from "chromadb";
+import { ChromaClient, IncludeEnum } from "chromadb";
 
 import { kernels } from "./cljs-kernels.js";
 import { OllamaEmbeddingFunction, registerOllamaEmbeddingFunction } from "./chroma-ollama-embedding.js";
@@ -31,122 +31,34 @@ export interface ChromaSearchResult {
   readonly distance: number;
 }
 
-type ChromaConnectionOptions = {
-  readonly host: string;
-  readonly ssl: boolean;
-  readonly port?: number;
-};
-
-function parseChromaConnectionOptions(rawUrl: string): ChromaConnectionOptions {
-  return kernels.chromaConnectionOptions(new URL(rawUrl));
-}
-
+/**
+ * Chroma session index. Sequencing, the disabled-after-first-failure latch and
+ * result mapping are CLJS (`proxx.runtime.chroma`, `proxx.chroma.index`); the
+ * `chromadb` classes are handed in so the runtime bundle never imports them.
+ */
 export class ChromaSessionIndex {
-  private readonly client: ChromaClient;
-  private readonly embeddingFunction: OllamaEmbeddingFunction;
-  private collectionPromise: Promise<Collection> | null = null;
-  private disabled = false;
+  private readonly impl: {
+    readonly indexMessage: (message: ChromaIndexedMessage) => Promise<void>;
+    readonly search: (query: string, limit: number) => Promise<ChromaSearchResult[]>;
+  };
 
-  public constructor(private readonly config: ChromaSessionIndexConfig) {
+  public constructor(config: ChromaSessionIndexConfig) {
     registerOllamaEmbeddingFunction();
-    this.client = new ChromaClient(parseChromaConnectionOptions(config.url));
-    this.embeddingFunction = new OllamaEmbeddingFunction({
-      url: this.config.ollamaBaseUrl,
-      model: this.config.embeddingModel,
-    });
+    this.impl = kernels.createChromaSessionIndex(config, {
+      ChromaClient,
+      IncludeEnum,
+      embeddingFunction: new OllamaEmbeddingFunction({
+        url: config.ollamaBaseUrl,
+        model: config.embeddingModel,
+      }),
+    }) as unknown as typeof this.impl;
   }
 
-  public async indexMessage(message: ChromaIndexedMessage): Promise<void> {
-    if (this.disabled || message.content.trim().length === 0) {
-      return;
-    }
-
-    const collection = await this.ensureCollection();
-    if (!collection) {
-      return;
-    }
-
-    try {
-      const embedding = await this.embedText(message.content);
-      await collection.upsert({
-        ids: [message.messageId],
-        documents: [message.content],
-        embeddings: [embedding],
-        metadatas: [
-          {
-            sessionId: message.sessionId,
-            sessionTitle: message.sessionTitle,
-            messageId: message.messageId,
-            role: message.role,
-            createdAt: message.createdAt,
-          },
-        ],
-      });
-    } catch {
-      this.disabled = true;
-    }
+  public indexMessage(message: ChromaIndexedMessage): Promise<void> {
+    return this.impl.indexMessage(message);
   }
 
-  public async search(query: string, limit: number): Promise<ChromaSearchResult[]> {
-    if (this.disabled || query.trim().length === 0) {
-      return [];
-    }
-
-    const collection = await this.ensureCollection();
-    if (!collection) {
-      return [];
-    }
-
-    try {
-      const embedding = await this.embedText(query);
-      const results = await collection.query({
-        queryEmbeddings: [embedding],
-        nResults: Math.max(1, Math.min(limit, 50)),
-        include: [IncludeEnum.documents, IncludeEnum.metadatas, IncludeEnum.distances],
-      });
-
-      return kernels.chromaSearchResults(
-        results.ids[0] ?? [],
-        results.documents?.[0] ?? [],
-        results.metadatas?.[0] ?? [],
-        results.distances?.[0] ?? [],
-        Date.now(),
-      ) as ChromaSearchResult[];
-    } catch {
-      this.disabled = true;
-      return [];
-    }
-  }
-
-  private async ensureCollection(): Promise<Collection | null> {
-    if (this.disabled) {
-      return null;
-    }
-
-    if (!this.collectionPromise) {
-      this.collectionPromise = this.client.getOrCreateCollection({
-        name: this.config.collectionName,
-        embeddingFunction: this.embeddingFunction,
-        metadata: {
-          source: "open-hax-openai-proxy",
-        },
-      });
-    }
-
-    try {
-      return await this.collectionPromise;
-    } catch {
-      this.disabled = true;
-      return null;
-    }
-  }
-
-  private async embedText(text: string): Promise<number[]> {
-    const [embedding] = await this.embeddingFunction.generate([text]);
-    if (!embedding || embedding.length === 0) {
-      throw new Error("Embedding response had empty vector");
-    }
-
-    return embedding;
+  public search(query: string, limit: number): Promise<ChromaSearchResult[]> {
+    return this.impl.search(query, limit);
   }
 }

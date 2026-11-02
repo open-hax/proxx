@@ -130,6 +130,8 @@
                                            ollamaBuildConfig proxx.runtime.chroma/ollama-build-config-js
                                            chromaConnectionOptions proxx.runtime.chroma/chroma-connection-options-js
                                            chromaSearchResults proxx.runtime.chroma/chroma-search-results-js
+                                           ollamaGenerate proxx.runtime.chroma/ollama-generate-js
+                                           createChromaSessionIndex proxx.runtime.chroma/create-chroma-session-index-js
                                            eventLabelerApplies proxx.runtime.events/event-labeler-applies-js
                                            eventLabelerLabel proxx.runtime.events/event-labeler-label-js
                                            eventDdl proxx.runtime.events/event-ddl-js

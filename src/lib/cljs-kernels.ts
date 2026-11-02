@@ -375,6 +375,14 @@ export interface CljsKernels {
     distances: readonly unknown[],
     now: number,
   ) => ChromaSearchRow[];
+  readonly ollamaGenerate: (baseUrl: string, model: string, texts: readonly string[]) => Promise<number[][]>;
+  readonly createChromaSessionIndex: (
+    config: { readonly url: string; readonly collectionName: string },
+    deps: { readonly ChromaClient: unknown; readonly IncludeEnum: unknown; readonly embeddingFunction: unknown },
+  ) => {
+    readonly indexMessage: (message: object) => Promise<void>;
+    readonly search: (query: string, limit: number) => Promise<ChromaSearchRow[]>;
+  };
   readonly eventLabelerApplies: (id: string, event: object) => boolean;
   readonly eventLabelerLabel: (id: string, event: object) => string[];
   readonly eventDdl: () => string[];
