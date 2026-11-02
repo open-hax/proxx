@@ -1057,6 +1057,8 @@ export interface CljsKernels {
   readonly inspectProviderAvailability: (
     keyPool: unknown, providerRoutes: unknown, promptCacheKey: string | undefined,
   ) => Promise<import("./provider-strategy/shared.js").ProviderAvailabilitySummary>;
+  // w6 stores (stateful edges; each returns the facade its TS class forwards to)
+  readonly createProviderRoutePheromoneStore: (filePath: string, persistIntervalMs: number) => unknown;
 }
 
 export interface ChromaSearchRow {
