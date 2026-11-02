@@ -1,5 +1,6 @@
 (ns proxx.compat.ollama-test
   (:require [cljs.test :refer [deftest is testing async]]
+            [clojure.string :as str]
             [proxx.compat.ollama :as o]
             [proxx.compat.reasoning :as r]
             [proxx.runtime.ollama :as edge]))
@@ -164,3 +165,41 @@
     (is (= o/done-event (last @out)))
     (is (= 1 (count (filter #{o/done-event} @out))))
     (is (= 5 (count @out)) "reasoning A, content B, content C, finish chunk, [DONE]")))
+
+;; ---- ported from src/tests/ollama-compat.test.ts (2 tests) ---------------
+;; The TS shim called the JS edge, so these drive it.
+
+(deftest ts-chat-request-preserves-policy-normalized-reasoning-effort-while-enabling-think
+  (let [^js payload (edge/chat-request-to-ollama-request-js
+                     (clj->js {"model" "ollama/gemma4:31b" "stream" false
+                               "messages" [{"role" "user" "content" "Reply with exactly OK."}]
+                               "reasoning_effort" "max"
+                               "include" ["reasoning.encrypted_content"]})
+                     (clj->js ["ollama/" "ollama:"]))]
+    (is (= "gemma4:31b" (.-model payload)))
+    (is (true? (.-think payload)))
+    (is (= "max" (.-reasoning_effort payload)))))
+
+(deftest ^:async ts-ndjson-cumulative-thinking-streams-incremental-deltas
+  (let [encoder (js/TextEncoder.)
+        line (fn [thinking done]
+               (js/JSON.stringify
+                (clj->js (cond-> {"model" "gemma4:31b" "created_at" "2025-01-01T00:00:00Z"
+                                  "message" {"role" "assistant" "content" "" "thinking" thinking}
+                                  "done" done}
+                           done (assoc "done_reason" "stop")))))
+        ndjson (str (str/join "\n" [(line "The" false) (line "The user" false) (line "The user wants" true)]) "\n")
+        body (js/ReadableStream. #js {:start (fn [c] (.enqueue c (.encode encoder ndjson)) (.close c))})
+        sse (atom [])]
+    (await (edge/stream-ollama-ndjson-to-chat-completion-sse-js body "gemma4:31b" #(swap! sse conj %)))
+    (let [payloads (->> @sse
+                        (filter #(str/starts-with? % "data: "))
+                        (map #(str/trim (subs % (count "data: "))))
+                        (remove #(= % "[DONE]"))
+                        (map #(js->clj (js/JSON.parse %))))
+          reasoning-deltas (->> payloads
+                                (mapcat #(let [c (get % "choices")] (if (sequential? c) c [])))
+                                (map #(let [d (when (map? %) (get % "delta"))] (if (map? d) d {})))
+                                (map #(let [r (get % "reasoning_content")] (if (string? r) r "")))
+                                (filter #(pos? (count %))))]
+      (is (= ["The" " user" " wants"] (vec reasoning-deltas))))))

