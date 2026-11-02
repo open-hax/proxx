@@ -1,6 +1,9 @@
 (ns proxx.federation.projections-test
   (:require [cljs.test :refer [deftest is testing]]
-            [proxx.federation.projections :as p]))
+            [proxx.federation.projections :as p]
+            [proxx.http.route-path :as route-path]
+            [proxx.runtime.federation-projections :as ed]
+            [proxx.runtime.federation-routing :as fed-routing]))
 
 (deftest pull-switches
   (is (p/pull-enabled? nil))
@@ -60,3 +63,61 @@
   (testing "intentional divergence: an entry that is not an object fails the whole reply up front"
     (is (some? (try (p/projection-upserts "p" "o" {"localAccounts" [{"providerId" "a" "accountId" "b"} nil] "projectedAccounts" []})
                     (catch :default e (ex-message e)))))))
+
+;; ---- src/tests/on-demand-projections.test.ts: the edge over a stubbed global fetch ------
+
+(deftest ^:async ensure-fresh-pulls-remote-api-v1-federation-accounts-when-stale
+  (let [seen-urls (atom [])
+        upserts (atom [])
+        sync-updates (atom [])
+        original-fetch (.-fetch js/globalThis)
+        body (js/JSON.stringify
+              (clj->js {:localAccounts [{:providerId "openai" :accountId "acct-a" :authType "oauth_bearer"
+                                         :hasCredentials true :knowledgeSources ["local_credential"]
+                                         :cooldownUntilMs 1780632049684}]
+                        :projectedAccounts [{:sourcePeerId "peer-b" :ownerSubject "did:web:example.com"
+                                             :providerId "openai" :accountId "acct-a"
+                                             :availabilityState "remote_route" :warmRequestCount 0
+                                             :metadata {:hasCredentials false :knowledgeSources ["projected:remote_route"]}}]}))
+        now-iso (.toISOString (js/Date.))
+        store #js {:listPeers (fn [_owner] (js/Promise.resolve
+                                            #js [#js {:id "peer-a" :ownerSubject "did:web:example.com" :label "Peer A"
+                                                      :baseUrl "http://peer-a:8789" :controlBaseUrl "http://peer-a:8789"
+                                                      :authMode "admin_key" :auth #js {:credential "peer-token"}
+                                                      :status "active" :capabilities #js {}
+                                                      :createdAt now-iso :updatedAt now-iso}]))
+                   :getSyncState (fn [_] (js/Promise.resolve js/undefined))
+                   :upsertProjectedAccount (fn [record] (swap! upserts conj (js->clj record)) (js/Promise.resolve record))
+                   :upsertSyncState (fn [record] (swap! sync-updates conj (js->clj record)) (js/Promise.resolve record))}
+        deps #js {:fetchFederationJson fed-routing/fetch-federation-json
+                  :resolveFederationRoutePath (fn [suffix options]
+                                                (route-path/join (if (some? options) (.-prefix ^js options) "/api/ui") suffix))}]
+    (aset js/globalThis "fetch"
+          (fn [input init]
+            (swap! seen-urls conj (str input))
+            (is (= "GET" (or (some-> init (.-method)) "GET")))
+            (let [auth (some-> init (.-headers) (js/Headers.) (.get "authorization"))]
+              (is (or (nil? auth) (.startsWith auth "Bearer "))))
+            (js/Promise.resolve (js/Response. body #js {:status 200 :headers #js {"content-type" "application/json"}}))))
+    (try
+      (let [^js result (await (ed/ensure-projected-accounts-fresh-js
+                               #js {:sqlFederationStore store :ownerSubject "did:web:example.com" :timeoutMs 1000} deps))]
+        (is (= ["peer-a"] (vec (.-pulledPeerIds result))))
+        (is (= 1 (count @seen-urls)))
+        (is (.includes (first @seen-urls) "/api/v1/federation/accounts"))
+        (is (.includes (first @seen-urls) "ownerSubject=did%3Aweb%3Aexample.com"))
+        ;; local account upserted first, then projected account from peer-b (different source: not filtered)
+        (is (= 2 (count @upserts)))
+        (let [[u0 u1] @upserts]
+          (is (= "peer-a" (get u0 "sourcePeerId")))
+          (is (= "remote_route" (get u0 "availabilityState")))
+          (is (= "openai" (get u0 "providerId")))
+          (is (= "acct-a" (get u0 "accountId")))
+          (is (= 1780632049684 (get-in u0 ["metadata" "cooldownUntilMs"])))
+          (is (= "peer-a" (get u1 "sourcePeerId")))
+          (is (= "openai" (get u1 "providerId")))
+          (is (= "acct-a" (get u1 "accountId")))
+          (is (= "remote_route" (get u1 "availabilityState"))))
+        (is (= 1 (count @sync-updates)))
+        (is (= "peer-a" (get (first @sync-updates) "peerId"))))
+      (finally (aset js/globalThis "fetch" original-fetch)))))

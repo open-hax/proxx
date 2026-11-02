@@ -1250,26 +1250,30 @@
     {
       "path": "src/tests/federation-bridge-agent.test.ts",
       "owner": "T4-test-harness-cljs-migration",
-      "disposition": "port-test-to-cljs",
-      "removalCondition": "test coverage runs from CLJS/node-test or an accepted non-TS harness"
+      "disposition": "removed",
+      "removalCondition": "Removed: ported to cljs.test as proxx.federation.bridge-agent-ws-test.",
+      "removed": true
     },
     {
       "path": "src/tests/federation-bridge-autostart.test.ts",
       "owner": "T4-test-harness-cljs-migration",
-      "disposition": "port-test-to-cljs",
-      "removalCondition": "test coverage runs from CLJS/node-test or an accepted non-TS harness"
+      "disposition": "removed",
+      "removalCondition": "Removed: ported to cljs.test as proxx.federation.bridge-autostart-app-test.",
+      "removed": true
     },
     {
       "path": "src/tests/federation-bridge-protocol.test.ts",
       "owner": "T4-test-harness-cljs-migration",
-      "disposition": "port-test-to-cljs",
-      "removalCondition": "test coverage runs from CLJS/node-test or an accepted non-TS harness"
+      "disposition": "removed",
+      "removalCondition": "Removed: ported to cljs.test as proxx.federation.protocol-test.",
+      "removed": true
     },
     {
       "path": "src/tests/federation-bridge-relay.test.ts",
       "owner": "T4-test-harness-cljs-migration",
-      "disposition": "port-test-to-cljs",
-      "removalCondition": "test coverage runs from CLJS/node-test or an accepted non-TS harness"
+      "disposition": "removed",
+      "removalCondition": "Removed: ported to cljs.test as proxx.federation.bridge-relay-ws-test.",
+      "removed": true
     },
     {
       "path": "src/tests/federation-owner-credential.test.ts",
@@ -1340,8 +1344,9 @@
     {
       "path": "src/tests/observability-routes.test.ts",
       "owner": "T4-test-harness-cljs-migration",
-      "disposition": "port-test-to-cljs",
-      "removalCondition": "test coverage runs from CLJS/node-test or an accepted non-TS harness"
+      "disposition": "removed",
+      "removalCondition": "Removed: ported to cljs.test as proxx.http.observability-app-test.",
+      "removed": true
     },
     {
       "path": "src/tests/ollama-compat.test.ts",
@@ -1352,8 +1357,9 @@
     {
       "path": "src/tests/on-demand-projections.test.ts",
       "owner": "T4-test-harness-cljs-migration",
-      "disposition": "port-test-to-cljs",
-      "removalCondition": "test coverage runs from CLJS/node-test or an accepted non-TS harness"
+      "disposition": "removed",
+      "removalCondition": "Removed: ported to cljs.test as proxx.federation.projections-test.",
+      "removed": true
     },
     {
       "path": "src/tests/openai-oauth.test.ts",
