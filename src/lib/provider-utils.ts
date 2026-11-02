@@ -31,14 +31,6 @@ export function isOpenAiHttpError(error: unknown): error is OpenAiHttpError {
   return error instanceof OpenAiHttpError;
 }
 
-export function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
-export function asString(value: unknown): string | undefined {
-  return typeof value === "string" ? value : undefined;
-}
-
 export const hasBearerToken = (header: string | undefined, expectedToken: string): boolean =>
   kernels.hasBearerToken(header, expectedToken);
 
@@ -55,24 +47,6 @@ export function sendOpenAiError(
   reply.code(statusCode).send(openAiError(message, type, code));
 }
 
-function errorData(error: unknown): Record<string, unknown> | undefined {
-  if (!isRecord(error)) {
-    return undefined;
-  }
-  return isRecord(error.data) ? error.data : undefined;
-}
-
-function keywordName(value: unknown): string | undefined {
-  if (typeof value === "string") {
-    return value.replace(/^:/, "");
-  }
-  if (isRecord(value) && typeof value.name === "string") {
-    const namespace = typeof value.ns === "string" ? `${value.ns}/` : "";
-    return `${namespace}${value.name}`;
-  }
-  return value === undefined || value === null ? undefined : String(value).replace(/^:/, "");
-}
-
 export async function runCljsQueued<T>(
   manifestPath: string | undefined,
   queueContext: Record<string, unknown>,
@@ -85,20 +59,19 @@ export async function runCljsQueued<T>(
   return await task(new AbortController());
 }
 
+/**
+ * Answer a queue failure (full, dropped, timed out) with its OpenAI-shaped error.
+ * Which failures those are, and what they answer, is decided by
+ * proxx.http.request/queue-error-response; this only sends the verdict.
+ */
 export function sendQueueError(reply: FastifyReply, error: unknown): boolean {
-  const data = errorData(error);
-  const code = keywordName(data?.code);
-  if (code === "queue/full") {
-    const retryAfterMs = data?.["retry-after-ms"] ?? data?.retryAfterMs;
-    if (typeof retryAfterMs === "number" && Number.isFinite(retryAfterMs)) {
-      reply.header("retry-after", String(Math.max(1, Math.ceil(retryAfterMs / 1000))));
-    }
-    sendOpenAiError(reply, 429, "Request queue full", "server_error", "queue_full");
-    return true;
+  const response = kernels.queueErrorResponse(error);
+  if (!response) {
+    return false;
   }
-  if (code === "queue/dropped" || code === "queue/total-timeout" || code === "queue/exhausted") {
-    sendOpenAiError(reply, 503, "Request queue dropped or timed out", "server_error", "queue_dropped");
-    return true;
+  if (response.retryAfterSeconds !== undefined) {
+    reply.header("retry-after", String(response.retryAfterSeconds));
   }
-  return false;
+  sendOpenAiError(reply, response.statusCode, response.message, response.type, response.code);
+  return true;
 }

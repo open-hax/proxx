@@ -231,6 +231,19 @@ export interface CljsKernels {
   readonly normalizeRequestedModel: (value: unknown) => string | undefined | null;
   readonly isTrustedLocalBridgeAddress: (remoteAddress: string | undefined) => boolean;
   readonly hasBearerToken: (header: string | undefined, expectedToken: string) => boolean;
+  readonly queueErrorResponse: (error: unknown) => {
+    readonly statusCode: number;
+    readonly message: string;
+    readonly type: string;
+    readonly code: string;
+    readonly retryAfterSeconds?: number;
+  } | undefined;
+  // request facts (proxx.http.request-facts)
+  readonly extractPromptCacheKey: (body: JsRecord) => string | undefined;
+  readonly hashPromptCacheKey: (promptCacheKey: string) => string;
+  readonly appendCsvHeaderValue: (headers: Headers, name: string, value: string) => void;
+  readonly shouldEnableInterleavedThinkingHeader: (upstreamPayload: JsRecord) => boolean;
+  readonly summarizeResponsesRequestBody: (body: JsRecord) => JsRecord;
   // ollama
   readonly shouldUseOllamaUpstream: (model: unknown, prefixes: readonly string[]) => boolean;
   readonly chatRequestToOllamaRequest: (body: JsRecord, modelPrefixes: readonly string[]) => JsRecord;
