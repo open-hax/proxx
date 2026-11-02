@@ -8,8 +8,8 @@ import type { ProviderRoutingExecutionResult } from "../shared.js";
 /*
  * auto:cephalon picks among ranked candidates by preference lists declared in
  * 79-auto-model-chains.edn (proxx.strategy.chains). The ranking itself needs the
- * request log and account health, so it is requested here and handed back to the
- * kernel for the choice.
+ * request log and account health, so it is a callback the kernel calls between
+ * planning and choosing (proxx.runtime.strategy-routes).
  */
 export function isCephalonAutoModel(model: string): boolean {
   return kernels.isCephalonAutoModel(model);
@@ -23,21 +23,9 @@ export function resolveCephalonAutoModel(
   requestLogStore?: RequestLogStore,
   accountHealthStore?: AccountHealthStore,
 ): string | null {
-  if (!isCephalonAutoModel(model)) {
-    return null;
-  }
-
-  const plan = kernels.cephalonPlan(model, availableModels);
-  const ranked = rankAutoModels(
-    plan.innerModel,
-    requestBody,
-    plan.candidates,
-    providerId,
-    requestLogStore,
-    accountHealthStore,
-  );
-
-  return kernels.cephalonChoice(model, ranked.map((entry) => entry.modelId));
+  return kernels.resolveCephalonAutoModelWith(model, availableModels, (innerModel, candidates) =>
+    rankAutoModels(innerModel, requestBody, candidates, providerId, requestLogStore, accountHealthStore)
+      .map((entry) => entry.modelId));
 }
 
 export function buildCephalonModelCandidates(input: {
@@ -49,20 +37,9 @@ export function buildCephalonModelCandidates(input: {
   readonly requestLogStore?: RequestLogStore;
   readonly accountHealthStore?: AccountHealthStore;
 }): string[] {
-  if (!isCephalonAutoModel(input.routingModelInput)) {
-    return [input.routingModelInput];
-  }
-
-  const resolved = resolveCephalonAutoModel(
-    input.routingModelInput,
-    input.requestBody,
-    input.availableModels,
-    input.providerId,
-    input.requestLogStore,
-    input.accountHealthStore,
-  );
-
-  return resolved ? [resolved] : [];
+  return kernels.cephalonModelCandidatesWith(input.routingModelInput, input.availableModels, (innerModel, candidates) =>
+    rankAutoModels(innerModel, input.requestBody, candidates, input.providerId, input.requestLogStore, input.accountHealthStore)
+      .map((entry) => entry.modelId));
 }
 
 export function shouldAdvanceCephalonProviderCandidate(input: {
@@ -70,10 +47,7 @@ export function shouldAdvanceCephalonProviderCandidate(input: {
   readonly hasMoreProviderCandidates: boolean;
   readonly execution: ProviderRoutingExecutionResult;
 }): boolean {
-  return kernels.shouldAdvanceAutoCandidate(
-    { hasMore: input.hasMoreProviderCandidates, autoModel: isCephalonAutoModel(input.routingModelInput) },
-    input.execution.summary,
-  );
+  return kernels.shouldAdvanceModelCandidate("cephalon", input.routingModelInput, input.hasMoreProviderCandidates, input.execution.summary);
 }
 
 export const CEPHALON_AUTO_MODEL_TYPES: readonly string[] = [

@@ -7,15 +7,15 @@ import type { ProviderRoutingExecutionResult } from "../shared.js";
 /*
  * The auto:vision fallback chain (glm-5v-turbo, Kimi-K2.5, gpt-5.4-mini, local qwen)
  * and its provider ordering are facts in 79-auto-model-chains.edn, interpreted by
- * proxx.strategy.chains.
+ * proxx.strategy.chains; the kernels (proxx.runtime.strategy-routes) do the work.
  */
 export function isVisionAutoModel(model: string): boolean {
   return kernels.isVisionAutoModel(model);
 }
 
 /**
- * Build candidate model list for auto:vision requests.
- * Returns the configured routing chain in order, filtered by catalog availability when possible.
+ * Candidate models for auto:vision requests: the configured chain in order,
+ * filtered by catalog availability when possible; any other model is itself.
  */
 export function buildVisionModelCandidates(input: {
   readonly routingModelInput: string;
@@ -26,40 +26,27 @@ export function buildVisionModelCandidates(input: {
   readonly requestLogStore?: RequestLogStore;
   readonly accountHealthStore?: AccountHealthStore;
 }): string[] {
-  if (!isVisionAutoModel(input.routingModelInput)) {
-    return [input.routingModelInput];
-  }
-
-  return kernels.visionModelCandidates(input.availableModels ?? input.catalog?.modelIds ?? []);
+  return kernels.visionModelCandidatesFor(input.routingModelInput, input.availableModels ?? input.catalog?.modelIds ?? []);
 }
 
-/**
- * Check if we should advance to the next model candidate.
- * For auto:vision, we advance on rate limits, server errors, and model-not-found.
- */
+/** Advance on rate limits, server errors and model-not-found (the chain's `advance-on`). */
 export function shouldAdvanceVisionModelCandidate(input: {
   readonly routingModelInput: string;
   readonly hasMoreModelCandidates: boolean;
   readonly execution: ProviderRoutingExecutionResult;
 }): boolean {
-  return kernels.shouldAdvanceAutoCandidate(
-    { hasMore: input.hasMoreModelCandidates, autoModel: isVisionAutoModel(input.routingModelInput) },
-    input.execution.summary,
-  );
+  return kernels.shouldAdvanceModelCandidate("vision", input.routingModelInput, input.hasMoreModelCandidates, input.execution.summary);
 }
 
 /**
- * Reorder provider routes for vision requests: providers favoured for the routed
- * model (zai for GLM vision models, ollama-cloud for Kimi, ollama for local models)
- * go first.
+ * Provider routes for vision requests: providers favoured for the routed model
+ * (zai for GLM vision models, ollama-cloud for Kimi, ollama for local models) first.
  */
 export function reorderVisionProviderRoutes(
   routes: readonly { readonly providerId: string; readonly baseUrl: string }[],
   routedModel: string,
 ): { readonly providerId: string; readonly baseUrl: string }[] {
-  return kernels
-    .visionRouteOrder(routedModel, routes.map((route) => route.providerId))
-    .map((index) => routes[index]!);
+  return kernels.reorderVisionProviderRoutes(routes, routedModel);
 }
 
 export const VISION_AUTO_MODEL_TYPES: readonly string[] = [

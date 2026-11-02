@@ -1,5 +1,5 @@
 (ns proxx.web.credentials-smoke
-  "Credentials flow from web/test/e2e/tools.smoke.ts against the real views."
+  "Credentials flow from web/test/e2e/tools.smoke.mjs against the real views."
   (:require [clojure.string :as str]
             [cljs.test :refer [deftest is]]
             [proxx.web.support :as s]))

@@ -3,7 +3,6 @@ import { getActiveCljsRuntime } from "./cljs-runtime.js";
 import { kernels } from "./cljs-kernels.js";
 import { policyManifestPath } from "./policy-manifest.js";
 import type { KeyPool } from "./key-pool.js";
-import { allProviderStrategyInfos } from "./provider-strategy/registry.js";
 import type { UpstreamMode } from "./provider-strategy/shared.js";
 
 export interface ProviderRoute {
@@ -38,22 +37,16 @@ export interface RequestRoutingState {
   readonly routedModel: string;
 }
 
-const PROVIDER_STRATEGY_INFOS = allProviderStrategyInfos();
-const UPSTREAM_MODES = PROVIDER_STRATEGY_INFOS.map((strategy) => strategy.mode);
-
-const DEFAULT_MANIFEST = "resources/policies/runtime/00-manifest.edn";
-
 export const providerRoutesFromRaw = (rawRoutes: unknown): ProviderRoute[] | undefined =>
   kernels.providerRoutesFromRaw(rawRoutes) as ProviderRoute[] | undefined;
 
 type ProviderRouteRuntimeConfig = Pick<ProxyConfig, "cljsPolicyManifestPath" | "openaiProviderId" | "openaiBaseUrl" | "upstreamProviderBaseUrls"> & Partial<Pick<ProxyConfig, "ollamaBaseUrl">>;
 
 export function getDeclaredProviderRoutes(configOrManifestPath?: ProviderRouteRuntimeConfig | string): ProviderRoute[] {
-  const config = typeof configOrManifestPath === "object" ? configOrManifestPath : undefined;
-  const manifestPath = typeof configOrManifestPath === "string" ? configOrManifestPath : configOrManifestPath?.cljsPolicyManifestPath;
-  const resolvedManifest = manifestPath ?? DEFAULT_MANIFEST;
-  const result = getActiveCljsRuntime()?.getProviderRoutes?.(resolvedManifest);
-  return kernels.declaredProviderRoutes(policyManifestPath(), result, config) as ProviderRoute[];
+  if (!getActiveCljsRuntime()?.getProviderRoutes) {
+    return [];
+  }
+  return kernels.getDeclaredProviderRoutes(policyManifestPath(), configOrManifestPath) as ProviderRoute[];
 }
 
 export function filterDeclaredProviderRoutes(manifestPath: string | undefined, input: {
@@ -66,36 +59,10 @@ export function filterDeclaredProviderRoutes(manifestPath: string | undefined, i
   readonly catalogBundle?: unknown;
   readonly catalogAvailability?: boolean;
 }): ProviderRoutesFilterResult {
-  const runtime = getActiveCljsRuntime();
-  if (!runtime?.filterProviderRoutes) {
+  if (!getActiveCljsRuntime()?.filterProviderRoutes) {
     return { providerRoutes: [...input.providerRoutes] };
   }
-
-  const resolvedManifest = manifestPath ?? DEFAULT_MANIFEST;
-  const result = runtime.filterProviderRoutes(resolvedManifest, input);
-  if (result.status !== "ok") {
-    return { providerRoutes: [...input.providerRoutes] };
-  }
-
-  const filteredRoutes = kernels.filteredProviderRoutes(result, input.providerRoutes) as ProviderRoute[];
-  const preview = runtime.previewPolicyDecision(resolvedManifest, {
-    modelId: input.modelId,
-    requestKind: input.requestKind,
-    tenantSettings: input.tenantSettings,
-    providerIds: filteredRoutes.map((route) => route.providerId),
-    ...(input.requestedProviderIds ? { requestedProviderIds: input.requestedProviderIds } : {}),
-    strategies: PROVIDER_STRATEGY_INFOS,
-  });
-  const decided = kernels.applyProviderRouteDecision(preview, filteredRoutes, UPSTREAM_MODES);
-
-  return {
-    providerRoutes: decided.providerRoutes as ProviderRoute[],
-    ...(decided.strategyMode ? { strategyMode: decided.strategyMode as UpstreamMode } : {}),
-    ...(decided.strategyModeByProvider
-      ? { strategyModeByProvider: decided.strategyModeByProvider as Readonly<Record<string, UpstreamMode>> }
-      : {}),
-    catalog: result.catalog,
-  };
+  return kernels.filterDeclaredProviderRoutes(manifestPath, input) as ProviderRoutesFilterResult;
 }
 
 export const looksLikeHostedOpenAiFamily = (model: string): boolean =>

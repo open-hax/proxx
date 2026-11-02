@@ -10,11 +10,21 @@
   (:require ["node:fs" :as fs]
             ["node:path" :as path]
             [proxx.routing.pheromone :as pheromone]
-            [proxx.runtime.aco :as aco]
             [proxx.runtime.interop :as interop]))
 
+(defn- record->js
+  "A record as the persisted object: keys in the order the file has always had."
+  [r]
+  (let [o #js {}]
+    (doseq [k ["providerId" "model" "pheromone" "successCount" "failureCount" "updatedAt"]] (aset o k (get r k)))
+    o))
+
+(defn- records->js
+  "Pheromone records as the persisted array of objects."
+  [records] (to-array (map record->js records)))
+
 (defn- file-text [records]
-  (str (js/JSON.stringify #js {"records" (aco/records->js records)} nil 2) "\n"))
+  (str (js/JSON.stringify #js {"records" (records->js records)} nil 2) "\n"))
 
 (defn- write-file! [file-path records]
   (let [p (.-promises fs)

@@ -81,12 +81,6 @@
     (is (= 0 (ph/next-on-failure 0.1)) "floored at 0")
     (is (= 1 (ph/next-on-success 1 5)) "quality is clamped and the result capped")))
 
-(deftest edge-records-keep-persisted-key-order
-  (let [records (edge/pheromone-note-success-js #js [] "p" "m" 1)]
-    (is (= ["providerId" "model" "pheromone" "successCount" "failureCount" "updatedAt"] (vec (js/Object.keys (aget records 0)))))
-    (is (= 0.5 (edge/pheromone-get-js #js [] "x" "y")))
-    (is (false? (edge/pheromone-key-valid-js "" "m")))))
-
 (deftest ^:async edge-ranking-keeps-passthrough-and-draws-lazily
   (let [creds {"ollama-a" [#js {:providerId "ollama-a" :accountId "1"}] "ollama-b" [#js {:providerId "ollama-b" :accountId "1"}]}
         draws (atom 0)

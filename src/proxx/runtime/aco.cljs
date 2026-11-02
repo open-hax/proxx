@@ -1,14 +1,10 @@
 (ns proxx.runtime.aco
   "JS edge for ant-colony route ordering (src/lib/provider-route-aco.ts) and the
-  pheromone records behind it (src/lib/provider-route-pheromone-store.ts).
+  pheromone store behind it (proxx.runtime.pheromone-store).
 
   The edge reads the environment, asks the stores what they know, draws the random
-  numbers, and hands plain data to proxx.routing.aco / proxx.routing.pheromone. The
-  pheromone store's persistence (file, write scheduling) is
-  proxx.runtime.pheromone-store; the kernels below remain for callers that hold
-  records as JS arrays."
+  numbers, and hands plain data to proxx.routing.aco."
   (:require [proxx.routing.aco :as aco]
-            [proxx.routing.pheromone :as pheromone]
             [proxx.runtime.interop :as interop]
             [proxx.runtime.routing :as routing]))
 
@@ -108,32 +104,3 @@
                                                  :draws (vec (repeatedly (count candidates) rng))})]
                                   #js {:orderedRoutes (to-array (concat (map #(nth dedicated %) order) passthrough))
                                        :signals (to-array (map signal->js signals))})))))))))))))
-
-;; ---------------------------------------------------------------------------
-;; pheromone records
-;; ---------------------------------------------------------------------------
-
-(defn- record->js
-  "A record as the persisted object: keys in the order the file has always had."
-  [r]
-  (let [o #js {}]
-    (doseq [k ["providerId" "model" "pheromone" "successCount" "failureCount" "updatedAt"]] (aset o k (get r k)))
-    o))
-
-(defn records->js
-  "Pheromone records as the persisted array of objects."
-  [records] (to-array (map record->js records)))
-
-(defn pheromone-hydrate-db-js [raw]
-  (records->js (pheromone/hydrate-db (interop/js->data raw) (js/Date.now))))
-
-(defn pheromone-key-valid-js [provider-id model] (boolean (pheromone/key-valid? provider-id model)))
-
-(defn pheromone-get-js [records provider-id model]
-  (pheromone/pheromone (interop/js->data records) provider-id model))
-
-(defn pheromone-note-success-js [records provider-id model quality]
-  (records->js (pheromone/note-success (interop/js->data records) provider-id model quality (js/Date.now))))
-
-(defn pheromone-note-failure-js [records provider-id model]
-  (records->js (pheromone/note-failure (interop/js->data records) provider-id model (js/Date.now))))

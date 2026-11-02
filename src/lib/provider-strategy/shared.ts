@@ -44,11 +44,7 @@ export function reorderCandidatesForAffinities<T extends { readonly providerId: 
   candidates: readonly T[],
   preferred: readonly { readonly providerId: string; readonly accountId: string }[],
 ): T[] {
-  const order = kernels.candidateOrderForAffinities(
-    candidates.map((candidate) => [candidate.providerId, candidate.account.accountId] as const),
-    preferred.map((entry) => [entry.providerId, entry.accountId] as const),
-  );
-  return order.map((index) => candidates[index]!);
+  return kernels.reorderCandidatesForAffinities(candidates, preferred);
 }
 
 type UpstreamMode =
@@ -173,9 +169,7 @@ function providerAccountsForRequest(
   providerId: string,
   routedModel: string,
 ): ProviderCredential[] {
-  return kernels
-    .accountOrderForRequest(providerId, routedModel, accounts.map((account) => account.planType))
-    .map((index) => accounts[index]!);
+  return kernels.providerAccountsForRequest(accounts, providerId, routedModel);
 }
 
 function reorderAccountsForLatency(
@@ -185,11 +179,7 @@ function reorderAccountsForLatency(
   routedModel: string,
   upstreamMode: string,
 ): ProviderCredential[] {
-  const facts = accounts.map((account) => {
-    const perf = requestLogStore.getPerfSummary(providerId, account.accountId, routedModel, upstreamMode);
-    return { planType: account.planType, ttft: perf?.ewmaTtftMs ?? undefined, tps: perf?.ewmaTps ?? undefined };
-  });
-  return kernels.accountOrderForLatency(facts).map((index) => accounts[index]!);
+  return kernels.reorderAccountsForLatency(requestLogStore, providerId, accounts, routedModel, upstreamMode);
 }
 
 export interface UsageCounts {

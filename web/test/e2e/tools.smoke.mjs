@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn } from "node:child_process";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -11,19 +11,11 @@ const BASE_URL = `http://127.0.0.1:${E2E_PORT}`;
 const NOW = new Date("2026-04-03T00:00:00Z").toISOString();
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 
-type ChatMessage = {
-  readonly id: string;
-  readonly role: "user" | "assistant";
-  readonly content: string;
-  readonly reasoningContent?: string;
-  readonly model?: string;
-};
-
-async function sleep(ms: number): Promise<void> {
+async function sleep(ms) {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function waitForServer(url: string, timeoutMs: number): Promise<boolean> {
+async function waitForServer(url, timeoutMs) {
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
     try {
@@ -39,7 +31,7 @@ async function waitForServer(url: string, timeoutMs: number): Promise<boolean> {
   return false;
 }
 
-async function ensureFrontendServer(): Promise<{ child: ChildProcess | null }> {
+async function ensureFrontendServer() {
   if (await waitForServer(BASE_URL, 2_000)) {
     return { child: null };
   }
@@ -60,7 +52,7 @@ async function ensureFrontendServer(): Promise<{ child: ChildProcess | null }> {
   return { child };
 }
 
-async function main(): Promise<void> {
+async function main() {
   const { child } = await ensureFrontendServer();
 
   const browser = await chromium.launch({
@@ -83,7 +75,7 @@ async function main(): Promise<void> {
         content: "Welcome to the smoke session.",
         model: "gpt-5.3-codex",
       },
-    ] as ChatMessage[],
+    ],
   };
 
   await page.route("**/api/v1/settings", async (route) => {
@@ -113,7 +105,7 @@ async function main(): Promise<void> {
   await page.route("**/api/v1/sessions/*/messages", async (route) => {
     const request = route.request();
     const body = JSON.parse(request.postData() ?? "{}");
-    const nextMessage: ChatMessage = {
+    const nextMessage = {
       id: `msg-${chatSession.messages.length + 1}`,
       role: body.role === "assistant" ? "assistant" : "user",
       content: typeof body.content === "string" ? body.content : "",
@@ -710,7 +702,7 @@ async function main(): Promise<void> {
   }
 }
 
-void main().catch((error: unknown) => {
+void main().catch((error) => {
   const message = error instanceof Error ? error.stack ?? error.message : String(error);
   console.error(message);
   process.exitCode = 1;

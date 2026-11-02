@@ -110,7 +110,7 @@
       "path": "src/lib/cljs-kernels.ts",
       "owner": "T1-storage-auth-cljs-runtime",
       "disposition": "delete-with-ts-host",
-      "removalCondition": "no TypeScript module imports the CLJS kernels: the HTTP edge itself runs on the CLJS runtime"
+      "removalCondition": "Typed handle (interface only, plus the top-level await that loads the runtime). Split into cljs-kernels.ts, cljs-kernels-core.ts, cljs-kernels-stores.ts and cljs-kernels-strategy.ts so each stays under the 500-line limit; removed when no TypeScript module imports the CLJS kernels (the HTTP edge itself runs on the CLJS runtime)."
     },
     {
       "path": "src/lib/cljs-runtime.ts",
@@ -481,8 +481,8 @@
     {
       "path": "src/lib/provider-routing.ts",
       "owner": "T1-core-proxx-cljs-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "core Proxx runtime starts and serves from CLJS with TS shims removed"
+      "disposition": "delete-with-ts-host",
+      "removalCondition": "Stays TypeScript for exported interfaces (ProviderRoute, ResolvedModelCatalog, RequestRoutingState, ...) and one-line shims over kernels.* (proxx.runtime.provider-routes, proxx.runtime.routing). Removed with the TS host."
     },
     {
       "path": "src/lib/provider-strategy.ts",
@@ -550,20 +550,20 @@
     {
       "path": "src/lib/provider-strategy/shared.ts",
       "owner": "T1-provider-routing-federation-cljs-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "provider routing and federation runtime are implemented in CLJS policy modules"
+      "disposition": "delete-with-ts-host",
+      "removalCondition": "Stays TypeScript only for exported types (UpstreamMode, StrategyRequestContext, ProviderAttemptContext, ProviderStrategy, ...) that the TS strategy classes and registry import, plus one-line shims over kernels.*. Every decision (usage extraction, credential judgement, ordering, selection facts) is CLJS (proxx.strategy.*, proxx.runtime.strategy-routes); removed with the TS host once the strategy classes are CLJS."
     },
     {
       "path": "src/lib/provider-strategy/strategies/auto.ts",
       "owner": "T1-provider-routing-federation-cljs-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "provider routing and federation runtime are implemented in CLJS policy modules"
+      "disposition": "delete-with-ts-host",
+      "removalCondition": "Host glue only: auto:* selection, candidate cap and advance policy are CLJS (proxx.runtime.strategy-routes, proxx.strategy.chains). The ranking callback needs src/lib/auto-model-selector.ts (request log, account health, pricing), which is still TypeScript; removed when auto-model-selector.ts is ported."
     },
     {
       "path": "src/lib/provider-strategy/strategies/cephalon.ts",
       "owner": "T1-provider-routing-federation-cljs-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "provider routing and federation runtime are implemented in CLJS policy modules"
+      "disposition": "delete-with-ts-host",
+      "removalCondition": "Host glue only: cephalon plan/choose/advance are CLJS (proxx.runtime.strategy-routes, proxx.strategy.chains). The ranking callback needs src/lib/auto-model-selector.ts, which is still TypeScript; removed when it is ported."
     },
     {
       "path": "src/lib/provider-strategy/strategies/embeddings.ts",
@@ -593,14 +593,14 @@
     {
       "path": "src/lib/provider-strategy/strategies/vision.ts",
       "owner": "T1-provider-routing-federation-cljs-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "provider routing and federation runtime are implemented in CLJS policy modules"
+      "disposition": "delete-with-ts-host",
+      "removalCondition": "Pure delegation to kernels.* (proxx.runtime.strategy-routes, 79-auto-model-chains.edn); kept because TS callers import its named exports and its unused-parameter-compatible signatures. Removed with the TS host."
     },
     {
       "path": "src/lib/provider-utils.ts",
       "owner": "T1-core-proxx-cljs-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "core Proxx runtime starts and serves from CLJS with TS shims removed"
+      "disposition": "delete-with-ts-host",
+      "removalCondition": "Stays TypeScript for the OpenAiHttpError class (instanceof is used across TS routes and tests; its identity cannot cross the CLJS boundary), isOpenAiHttpError, and shims over kernels.* (sendOpenAiError, sendQueueError, hasBearerToken, runCljsQueued host glue). Removed with the TS host."
     },
     {
       "path": "src/lib/proxy-settings-store.ts",
@@ -1394,8 +1394,9 @@
     {
       "path": "web/test/e2e/tools.smoke.ts",
       "owner": "T3-web-ui-tsx-retirement",
-      "disposition": "port-to-cljs-or-replace",
-      "removalCondition": "Playwright browser smoke driving the CLJS bundle; port to a cljs/Node playwright runner (or .mjs) when one is accepted. Runs unchanged apart from env knobs (PROXX_WEB_E2E_PORT, PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH)."
+      "disposition": "removed",
+      "removalCondition": "Removed: now plain ESM (web/test/e2e/tools.smoke.mjs), no TypeScript dependency; run with `node` (pnpm web:test:e2e).",
+      "removed": true
     },
     {
       "path": "web/vite.config.ts",
@@ -1403,6 +1404,24 @@
       "disposition": "removed",
       "removalCondition": "Removed: the Vite config is plain ESM (web/vite.config.mjs).",
       "removed": true
+    },
+    {
+      "path": "src/lib/cljs-kernels-core.ts",
+      "owner": "T1-storage-auth-cljs-runtime",
+      "disposition": "delete-with-ts-host",
+      "removalCondition": "Type-only slice of CljsKernels (application, request and provider-shape kernels), split out of cljs-kernels.ts to stay under the 500-line limit; removed with cljs-kernels.ts when no TypeScript module imports the CLJS kernels."
+    },
+    {
+      "path": "src/lib/cljs-kernels-stores.ts",
+      "owner": "T1-storage-auth-cljs-runtime",
+      "disposition": "delete-with-ts-host",
+      "removalCondition": "Type-only slice of CljsKernels (analytics, auth, storage, pricing, quota, federation and routing kernels), split out of cljs-kernels.ts to stay under the 500-line limit; removed with cljs-kernels.ts when no TypeScript module imports the CLJS kernels."
+    },
+    {
+      "path": "src/lib/cljs-kernels-strategy.ts",
+      "owner": "T1-storage-auth-cljs-runtime",
+      "disposition": "delete-with-ts-host",
+      "removalCondition": "Type-only slice of CljsKernels (provider-strategy, route-surface and store-edge kernels), split out of cljs-kernels.ts to stay under the 500-line limit; removed with cljs-kernels.ts when no TypeScript module imports the CLJS kernels."
     }
   ]
 }
