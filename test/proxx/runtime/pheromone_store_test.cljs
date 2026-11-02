@@ -43,3 +43,18 @@
                      (is (= 0.5 (.getPheromone store "a" "b")))
                      (.close store)))
             (.then (fn [_] (done))))))))
+
+(deftest a-mutation-does-not-wait-for-the-write
+  ;; Regression: the promise of the write-behind leaked out as the mutation's value, so every
+  ;; `noteSuccess` (awaited in the attempt executor before the affinity note) waited for the disk.
+  (async done
+    (let [file (tmp-file)
+          ^js store (ps/create-provider-route-pheromone-store-js file 0)]
+      (-> (.warmup store)
+          (.then (fn [_] (.noteSuccess store "p" "m" 1)))
+          (.then (fn [_]
+                   (is (not (.existsSync fs file)) "resolved before the file was written")
+                   (.close store)))
+          (.then (fn [_]
+                   (is (.existsSync fs file) "close persists what is pending")
+                   (done)))))))

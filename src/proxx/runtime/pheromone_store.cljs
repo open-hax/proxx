@@ -61,7 +61,10 @@
                  (queue-persist! false)
                  (let [t (js/setTimeout (fn [] (reset! timer nil) (queue-persist! false)) persist-interval-ms)]
                    (some-> ^js t .unref)
-                   (reset! timer t))))))
+                   (reset! timer t)))))
+           ;; Fire and forget: a mutation never waits for the write (the promise `queue-persist!`
+           ;; returns must not leak out as this function's value).
+           nil)
          mutate!
          (fn [f]
            (let [result (.then @mutation-chain
