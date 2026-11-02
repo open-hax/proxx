@@ -147,7 +147,7 @@ Custom logic is handled via **contract kinds** registered in `proxx.policy` (e.g
 
 1. Add the migration SQL to `:migrations` in `resources/db/schema.edn` (the single source of truth; `src/lib/db/schema.ts` only re-exports it). Never edit an existing statement: `test/proxx/db/schema_test.cljs` pins every text by digest.
 2. Bump `:schema-version` to match the new highest version in `:migrations`.
-3. Run `pnpm test:cljs` and `npx tsx --test src/tests/schema-migration.test.ts` — they catch version drift, missing `IF NOT EXISTS`, and ordering errors.
+3. Run `pnpm test:cljs` — it catches version drift, missing `IF NOT EXISTS`, and ordering errors.
 4. Build with `pnpm build`.
 5. Apply the SQL directly to any running database before restarting the container.
 
@@ -175,7 +175,7 @@ Run these for any `web/` change:
 ### Migrations
 For schema changes, also run:
 
-1. `npx tsx --test src/tests/schema-migration.test.ts`
+1. `pnpm test:cljs` (migration invariants live in `test/proxx/db/schema_test.cljs`)
 2. Rebuild/recreate the container after applying SQL to the running DB
 
 ### Container / packaging changes

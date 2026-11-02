@@ -36,7 +36,7 @@ pnpm lint:errors            # eslint --quiet (errors only)
 pnpm test                             # build then run all unit tests
 npx tsx --test src/tests/<file>.test.ts  # run a single TS test file
 pnpm test:cljs                        # compile and run CLJS unit tests
-npx tsx --test src/tests/schema-migration.test.ts  # migration-specific tests
+npx shadow-cljs compile node-test && node target/node-test.cjs  # includes the migration tests (test/proxx/db/schema_test.cljs)
 pnpm web:test                         # shadow-cljs :web-test (cljs.test view smoke tests under jsdom)
 pnpm web:test:e2e                     # frontend browser smoke tests
 PROXY_AUTH_TOKEN=<token> npx tsx --test src/tests/proxy.test.ts  # live proxy test (requires running instance)
@@ -118,7 +118,7 @@ More-specific clauses must precede catch-alls. EDN changes take effect on server
 ### Schema migrations
 1. Add SQL to `:migrations` in `resources/db/schema.edn` (single source of truth; planned by `proxx.db.schema`). Use `IF NOT EXISTS`. Never edit an existing statement (`pnpm test:cljs` pins digests).
 2. Bump `:schema-version`.
-3. `npx tsx --test src/tests/schema-migration.test.ts`
+3. `pnpm test:cljs` (migration invariants: `test/proxx/db/schema_test.cljs`)
 4. Apply SQL directly to the running DB before restarting.
 
 ### CLJS changes

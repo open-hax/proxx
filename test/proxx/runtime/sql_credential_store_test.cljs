@@ -1,6 +1,8 @@
 (ns proxx.runtime.sql-credential-store-test
   (:require [cljs.test :refer [deftest is async]]
             [proxx.credentials.sql :as sql]
+            [proxx.runtime.db-schema :as schema]
+            [proxx.runtime.sql :as sql-edge]
             [proxx.runtime.sql-credential-store :as store]))
 
 (defn- fake-sql
@@ -63,3 +65,29 @@
                    (is (nil? (ex-data e)))
                    (is (empty? @calls) "nothing was written")
                    (done)))))))
+
+;; --- Ported from src/tests/sql-credential-store.test.ts ------------------------
+
+(deftest select-legacy-open-ai-duplicate-ids-removes-only-legacy-openai-ids-with-current-siblings
+  (let [ids-to-delete (sql-edge/legacy-openai-duplicate-ids-js
+                       #js [#js {:id "chatgpt-acct-legacy_1a2b3c4d" :provider_id "openai" :chatgpt_account_id "chatgpt-acct-legacy"}
+                            #js {:id "chatgpt-acct-legacy-1234abcdef56" :provider_id "openai" :chatgpt_account_id "chatgpt-acct-legacy"}
+                            #js {:id "chatgpt-acct-current-abcdef123456" :provider_id "openai" :chatgpt_account_id "chatgpt-acct-current"}
+                            #js {:id "chatgpt-acct-other_89abcdef" :provider_id "openai" :chatgpt_account_id "chatgpt-acct-other"}
+                            #js {:id "chatgpt-acct-api_01020304" :provider_id "requesty" :chatgpt_account_id "chatgpt-acct-api"}])]
+    (is (= ["chatgpt-acct-legacy_1a2b3c4d"] (vec (array-seq ids-to-delete))))))
+
+(deftest upsert-provider-preserves-an-existing-base-url-when-no-replacement-is-provided
+  (is (re-find #"base_url = COALESCE\(EXCLUDED\.base_url, providers\.base_url\)"
+               (schema/sql-statement-js "UPSERT_PROVIDER"))))
+
+(deftest ^:async sql-credential-store-load-cooldowns-normalizes-bigint-string-cooldowns
+  (let [^js s (store/create-sql-credential-store-js
+               #js {:unsafe (fn [query]
+                              (js/Promise.resolve
+                               (if (.includes query "SELECT provider_id, account_id, cooldown_until FROM account_cooldown")
+                                 #js [#js {:provider_id "openai" :account_id "acct-1" :cooldown_until "1780632049684"}]
+                                 #js [])))})
+        cooldowns (await (.loadCooldowns s))]
+    (is (= 1780632049684 (.get cooldowns "openai\u0000acct-1")))
+    (is (= 1780632049684 (.getCooldown s "openai" "acct-1")))))

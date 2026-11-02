@@ -4,8 +4,8 @@ import { kernels } from "../cljs-kernels.js";
  * The SQL contract of the Proxx database is data: resources/db/schema.edn,
  * read by proxx.db.schema / proxx.runtime.db-schema. These are the stable
  * TypeScript names the SQL stores import; every statement is byte-for-byte the
- * original text (pinned by test/proxx/db/schema_test.cljs and
- * src/tests/schema-migration.test.ts).
+ * original text (pinned by test/proxx/db/schema_test.cljs, which also holds the
+ * migration invariants).
  */
 const statement = (id: string): string => kernels.sqlStatement(id);
 

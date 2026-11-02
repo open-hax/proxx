@@ -2,7 +2,8 @@
   (:require [cljs.test :refer [deftest is testing]]
             [proxx.federation.bridge-request :as req]
             [proxx.federation.helpers :as h]
-            [proxx.federation.lease :as lease]))
+            [proxx.federation.lease :as lease]
+            [proxx.runtime.federation :as fed]))
 
 (deftest peer-credential
   (is (= "c" (h/extract-peer-credential {"credential" " c " "bearer" "b"})))
@@ -61,3 +62,29 @@
   (is (nil? (lease/parse-export {"account" ["secret"]})))
   (is (= {"authType" "api_key" "secret" "s" "email" "e"}
          (lease/parse-export {"account" {"secret" "s" "email" "e" "subject" 1}}))))
+
+;; --- Ported from src/tests/federation-owner-subject.test.ts --------------------
+;; Through the kernel entry point the TypeScript shim calls; the default owner
+;; subject (FEDERATION_DEFAULT_OWNER_SUBJECT) is passed explicitly as unset.
+
+(defn- resolve-owner [headers request-auth]
+  (fed/resolve-federation-owner-subject-js
+   (clj->js {:headers headers :requestAuth request-auth :hopCount 0})
+   js/undefined))
+
+(deftest resolve-federation-owner-subject-accepts-explicit-owner-header-for-tenant-api-keys-bound-to-the-same-owner-subject
+  (is (= "did:web:big.ussy.promethean.rest"
+         (resolve-owner {"x-open-hax-federation-owner-subject" "did:web:big.ussy.promethean.rest"}
+                        {:kind "tenant_api_key"
+                         :tenantId "did:web:big.ussy.promethean.rest"
+                         :subject "tenant_api_key:did:web:big.ussy.promethean.rest"}))))
+
+(deftest resolve-federation-owner-subject-rejects-explicit-owner-header-for-tenant-api-keys-bound-to-a-different-owner-subject
+  (is (undefined? (resolve-owner {"x-open-hax-federation-owner-subject" "did:web:tenant-b.promethean.rest"}
+                                 {:kind "tenant_api_key"
+                                  :tenantId "did:web:tenant-a.promethean.rest"
+                                  :subject "tenant_api_key:did:web:tenant-a.promethean.rest"}))))
+
+(deftest resolve-federation-owner-subject-still-rejects-explicit-owner-header-for-unauthenticated-requests
+  (is (undefined? (resolve-owner {"x-open-hax-federation-owner-subject" "did:web:big.ussy.promethean.rest"}
+                                 {:kind "unauthenticated"}))))
