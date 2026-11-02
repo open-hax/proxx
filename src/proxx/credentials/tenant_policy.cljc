@@ -103,3 +103,18 @@
                 [clauses values])))
           [[] []]
           [["subjectDid" "subject_did"] ["ownerSubject" "owner_subject"]]))
+
+(defn statement-params
+  "`upsert-params` as the statement takes them: allowed models are a JSON text
+  (`write-json` serializes string-keyed data)."
+  [n write-json]
+  (assoc (vec (upsert-params n)) 6 (write-json (get n "allowedModels"))))
+
+(defn list-query
+  "The listing statement: `base` (SELECT_TENANT_PROVIDER_POLICIES) untouched when
+  there are no filters, else its trailing `;` replaced by the WHERE and ORDER BY."
+  [base clauses]
+  (if (seq clauses)
+    (str (str/replace base #";$" "") " WHERE " (str/join " AND " clauses)
+         " ORDER BY owner_subject, subject_did, provider_id")
+    base))

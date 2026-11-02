@@ -1060,6 +1060,7 @@ export interface CljsKernels {
   // w6 stores (stateful edges; each returns the facade its TS class forwards to)
   readonly createProviderRoutePheromoneStore: (filePath: string, persistIntervalMs: number) => unknown;
   readonly createSqlAuthPersistence: (sql: unknown) => unknown;
+  readonly createSqlTenantProviderPolicyStore: (sql: unknown) => unknown;
 }
 
 export interface ChromaSearchRow {
