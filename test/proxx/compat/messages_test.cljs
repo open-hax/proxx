@@ -1,6 +1,7 @@
 (ns proxx.compat.messages-test
   (:require [cljs.test :refer [deftest is testing]]
-            [proxx.compat.messages :as m]))
+            [proxx.compat.messages :as m]
+            [proxx.runtime :as rt]))
 
 (defn- req [body] (m/chat-request->messages-request body))
 (defn- thrown-message [f] (try (f) nil (catch :default e (ex-message e))))
@@ -212,3 +213,230 @@
   (testing "non-object bodies are rejected"
     (doseq [bad [nil "x" 5 []]]
       (is (= "Invalid /v1/messages response payload" (thrown-message #(completion bad))) (pr-str bad)))))
+
+;; ---- ported from src/tests/messages-compat.test.ts (5 tests) -------------
+;; The TS shim called the JS edge (js->clj in, clj->js out), so these drive it.
+
+(defn- payload [overrides]
+  (rt/chat-request-to-messages-request-js
+   (clj->js (merge {"model" "claude-opus-4-5" "messages" [{"role" "user" "content" "hello"}]} overrides))))
+
+(defn- thinking [^js p] (js->clj (.-thinking p)))
+
+(deftest ts-gpt-reasoning-brackets-map-to-claude-thinking-budgets
+  (doseq [[effort budget] [["low" 4096] ["medium" 12288] ["high" 24576] ["xhigh" 32768]]]
+    (is (= {"type" "enabled" "budget_tokens" budget} (thinking (payload {"reasoning_effort" effort}))) effort)))
+
+(deftest ts-none-reasoning-effort-maps-to-disabled-thinking
+  (is (= {"type" "disabled"} (thinking (payload {"reasoning_effort" "none"})))))
+
+(deftest ts-enabled-thinking-budgets-clamp-below-max-tokens
+  (is (= {"type" "enabled" "budget_tokens" 4095}
+         (thinking (payload {"reasoning_effort" "high" "max_tokens" 4096}))))
+  (is (= {"type" "enabled" "budget_tokens" 2047}
+         (thinking (payload {"thinking" {"type" "enabled" "budget_tokens" 5000} "max_completion_tokens" 2048})))))
+
+(deftest ts-enabled-thinking-rejected-when-max-tokens-too-small
+  (is (thrown-with-msg? js/Error #"Extended thinking requires max_tokens greater than 1024"
+                        (payload {"reasoning_effort" "low" "max_tokens" 1024}))))
+
+(deftest ts-thinking-budgets-renormalize-when-max-tokens-changes-later
+  (let [^js p (rt/normalize-messages-thinking-budget-js
+               (clj->js {"model" "claude-opus-4-5" "messages" [{"role" "user" "content" "hello"}]
+                         "max_tokens" 4096 "thinking" {"type" "enabled" "budget_tokens" 24576}}))]
+    (is (= {"type" "enabled" "budget_tokens" 4095} (thinking p)))))
+
+;; ---- ported from src/tests/anthropic-messages-compat.test.ts (19 tests) ---
+;; The TS shim called the JS edge, so these drive proxx.runtime/messages-to-chat-completion-js.
+
+(def ^:private sonnet "claude-3-5-sonnet-20241022")
+
+(defn- complete [response fallback]
+  (js->clj (rt/messages-to-chat-completion-js (clj->js response) fallback)))
+
+(defn- choice [completion] (first (get completion "choices")))
+(defn- message-of [completion] (let [m (get (choice completion) "message")] (if (map? m) m {})))
+(defn- usage-of [completion] (let [u (get completion "usage")] (when (map? u) u)))
+
+(defn- anthropic [id content stop usage & [extra]]
+  (merge {"id" id "type" "message" "role" "assistant" "model" sonnet
+          "content" content "stop_reason" stop}
+         (when usage {"usage" usage})
+         extra))
+
+(deftest anthropic-basic-text-response
+  (let [c (complete (anthropic "msg_01Example" [{"type" "text" "text" "Hello! How can I help you today?"}] "end_turn"
+                               {"input_tokens" 15 "output_tokens" 9})
+                    "claude-3-5-sonnet")
+        message (message-of c)
+        usage (usage-of c)]
+    (is (= "chat.completion" (get c "object")))
+    (is (= sonnet (get c "model")))
+    (is (= 1 (count (get c "choices"))))
+    (is (= "assistant" (get message "role")))
+    (is (= "Hello! How can I help you today?" (get message "content")))
+    (is (= "stop" (get (choice c) "finish_reason")))
+    (is (not (get message "tool_calls")))
+    (is (not (get message "reasoning_content")))
+    (is (some? usage))
+    (is (= 15 (get usage "prompt_tokens")))
+    (is (= 9 (get usage "completion_tokens")))
+    (is (= 24 (get usage "total_tokens")))))
+
+(deftest anthropic-thinking-content-is-extracted
+  (let [c (complete (anthropic "msg_02Example"
+                               [{"type" "thinking" "thinking" "Let me analyze this step by step..."}
+                                {"type" "text" "text" "The answer is 42."}]
+                               "end_turn" {"input_tokens" 20 "output_tokens" 50}
+                               {"model" "claude-opus-4-20251101"})
+                    "claude-opus-4")
+        message (message-of c)]
+    (is (= "The answer is 42." (get message "content")))
+    (is (= "Let me analyze this step by step..." (get message "reasoning_content")))))
+
+(deftest anthropic-tool-use-produces-tool-calls-and-null-content
+  (let [c (complete (anthropic "msg_03Example"
+                               [{"type" "tool_use" "id" "tu_01ABC123" "name" "get_weather"
+                                 "input" {"location" "San Francisco" "unit" "celsius"}}]
+                               "tool_use" {"input_tokens" 30 "output_tokens" 25})
+                    "claude-3-5-sonnet")
+        message (message-of c)
+        tool-calls (get message "tool_calls")
+        tool-call (first tool-calls)]
+    (is (contains? message "content"))
+    (is (nil? (get message "content")))
+    (is (= "tool_calls" (get (choice c) "finish_reason")))
+    (is (vector? tool-calls))
+    (is (= 1 (count tool-calls)))
+    (is (= "tu_01ABC123" (get tool-call "id")))
+    (is (= "function" (get tool-call "type")))
+    (is (= "get_weather" (get-in tool-call ["function" "name"])))
+    (is (= "{\"location\":\"San Francisco\",\"unit\":\"celsius\"}" (get-in tool-call ["function" "arguments"])))))
+
+(deftest anthropic-mixed-text-and-tool-use
+  (let [c (complete (anthropic "msg_04Example"
+                               [{"type" "text" "text" "I'll check the weather for you."}
+                                {"type" "tool_use" "id" "tu_02DEF456" "name" "get_weather" "input" {"location" "New York"}}]
+                               "tool_use" {"input_tokens" 25 "output_tokens" 30})
+                    "claude-3-5-sonnet")
+        message (message-of c)
+        tool-calls (get message "tool_calls")]
+    (is (= "I'll check the weather for you." (get message "content")))
+    (is (= "tool_calls" (get (choice c) "finish_reason")))
+    (is (vector? tool-calls))
+    (is (= 1 (count tool-calls)))
+    (is (= "tu_02DEF456" (get (first tool-calls) "id")))))
+
+(deftest anthropic-multiple-tool-uses
+  (let [c (complete (anthropic "msg_05Example"
+                               [{"type" "tool_use" "id" "tu_03GHI789" "name" "get_weather" "input" {"location" "SF"}}
+                                {"type" "tool_use" "id" "tu_04JKL012" "name" "get_time" "input" {"timezone" "PST"}}]
+                               "tool_use" {"input_tokens" 40 "output_tokens" 50})
+                    "claude-3-5-sonnet")
+        tool-calls (get (message-of c) "tool_calls")]
+    (is (= 2 (count tool-calls)))
+    (is (= "tu_03GHI789" (get (nth tool-calls 0) "id")))
+    (is (= "tu_04JKL012" (get (nth tool-calls 1) "id")))
+    (is (= "get_weather" (get-in (nth tool-calls 0) ["function" "name"])))
+    (is (= "get_time" (get-in (nth tool-calls 1) ["function" "name"])))))
+
+(deftest anthropic-empty-content-array
+  (let [c (complete (anthropic "msg_06Example" [] "end_turn" {"input_tokens" 10 "output_tokens" 0}) "claude-3-5-sonnet")
+        message (message-of c)]
+    (is (= "" (get message "content")))
+    (is (= "stop" (get (choice c) "finish_reason")))
+    (is (not (get message "tool_calls")))))
+
+(deftest anthropic-string-content-edge-case
+  (let [c (complete (anthropic "msg_07Example" "Plain string response" "end_turn" {"input_tokens" 5 "output_tokens" 3})
+                    "claude-3-5-sonnet")]
+    (is (= "Plain string response" (get (message-of c) "content")))))
+
+(deftest anthropic-cached-token-details
+  (let [c (complete (anthropic "msg_08Example" [{"type" "text" "text" "Cached response"}] "end_turn"
+                               {"input_tokens" 1000 "output_tokens" 50 "cache_read_input_tokens" 900})
+                    "claude-3-5-sonnet")
+        usage (usage-of c)
+        details (get usage "prompt_tokens_details")]
+    (is (some? usage))
+    (is (= 1000 (get usage "prompt_tokens")))
+    (is (= 50 (get usage "completion_tokens")))
+    (is (= 1050 (get usage "total_tokens")))
+    (is (some? details))
+    (is (= 900 (get details "cached_tokens")))))
+
+(deftest anthropic-model-field-fallback
+  (let [c (complete {"id" "msg_09Example" "type" "message" "role" "assistant"
+                     "content" [{"type" "text" "text" "test"}] "stop_reason" "end_turn"
+                     "usage" {"input_tokens" 1 "output_tokens" 1}}
+                    "claude-opus-4-6")]
+    (is (= "claude-opus-4-6" (get c "model")))))
+
+(deftest anthropic-reasoning-with-text-field-instead-of-thinking-field
+  (let [c (complete (anthropic "msg_10Example"
+                               [{"type" "reasoning" "text" "Analyzing..."} {"type" "text" "text" "Done!"}]
+                               "end_turn" {"input_tokens" 10 "output_tokens" 20})
+                    "claude-3-5-sonnet")]
+    (is (= "Analyzing..." (get (message-of c) "reasoning_content")))))
+
+(deftest anthropic-text-with-thought-flag
+  (let [message (message-of (complete (anthropic "msg_11Example"
+                                                 [{"type" "text" "text" "Internal thought" "thought" true}
+                                                  {"type" "text" "text" "External response"}]
+                                                 "end_turn" {"input_tokens" 10 "output_tokens" 15})
+                                      "claude-3-5-sonnet"))]
+    (is (= "Internal thought" (get message "reasoning_content")))
+    (is (= "Internal thoughtExternal response" (get message "content"))
+        "thought=true text appears in both reasoning_content and content")))
+
+(deftest anthropic-tool-use-with-string-input
+  (let [message (message-of (complete (anthropic "msg_12Example"
+                                                 [{"type" "tool_use" "id" "tu_05MNO345" "name" "query_db"
+                                                   "input" "SELECT * FROM users"}]
+                                                 "tool_use" {"input_tokens" 10 "output_tokens" 10})
+                                      "claude-3-5-sonnet"))]
+    (is (= "SELECT * FROM users" (get-in (first (get message "tool_calls")) ["function" "arguments"])))))
+
+(deftest anthropic-content-is-never-undefined-for-non-tool-responses
+  (let [message (message-of (complete (anthropic "msg_13Example" [] "end_turn" {"input_tokens" 1 "output_tokens" 0})
+                                      "claude-3-5-sonnet"))]
+    (is (contains? message "content"))
+    (is (= "" (get message "content")))
+    (is (some? (get message "content")))))
+
+(deftest anthropic-complex-multi-part-response
+  (let [message (message-of (complete (anthropic "msg_14Example"
+                                                 [{"type" "thinking" "thinking" "Step 1: understand the problem"}
+                                                  {"type" "thinking" "thinking" "Step 2: formulate answer"}
+                                                  {"type" "text" "text" "First part."}
+                                                  {"type" "text" "text" "Second part."}]
+                                                 "end_turn" {"input_tokens" 50 "output_tokens" 100})
+                                      "claude-3-5-sonnet"))]
+    (is (= "First part.Second part." (get message "content")))
+    (is (= "Step 1: understand the problemStep 2: formulate answer" (get message "reasoning_content")))))
+
+(deftest anthropic-throws-on-non-record-body
+  (is (thrown-with-msg? js/Error #"Invalid /v1/messages response payload"
+                        (rt/messages-to-chat-completion-js nil "claude-3-5-sonnet"))))
+
+(deftest anthropic-handles-missing-usage-gracefully
+  (is (not (usage-of (complete (anthropic "msg_15Example" [{"type" "text" "text" "No usage"}] "end_turn" nil)
+                               "claude-3-5-sonnet")))))
+
+(deftest anthropic-handles-partial-usage-only-input-tokens
+  (is (not (usage-of (complete (anthropic "msg_16Example" [{"type" "text" "text" "Partial"}] "end_turn" {"input_tokens" 10})
+                               "claude-3-5-sonnet")))
+      "no usage unless both token counts are present"))
+
+(deftest anthropic-preserves-system-fingerprint-field
+  (let [c (complete (anthropic "msg_17Example" [{"type" "text" "text" "test"}] "end_turn" {"input_tokens" 1 "output_tokens" 1})
+                    "claude-3-5-sonnet")]
+    (is (= "" (get c "system_fingerprint")))))
+
+(deftest anthropic-generates-id-when-missing
+  (let [c (complete {"type" "message" "role" "assistant" "model" sonnet
+                     "content" [{"type" "text" "text" "test"}] "stop_reason" "end_turn"
+                     "usage" {"input_tokens" 1 "output_tokens" 1}}
+                    "claude-3-5-sonnet")]
+    (is (string? (get c "id")))
+    (is (.startsWith (get c "id") "chatcmpl_"))))
