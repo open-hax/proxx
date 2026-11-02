@@ -1223,30 +1223,6 @@
       "removalCondition": "test coverage runs from CLJS/node-test or an accepted non-TS harness"
     },
     {
-      "path": "src/tests/factory-config.test.ts",
-      "owner": "T4-test-harness-cljs-migration",
-      "disposition": "port-test-to-cljs",
-      "removalCondition": "test coverage runs from CLJS/node-test or an accepted non-TS harness"
-    },
-    {
-      "path": "src/tests/factory-oauth-refresh.test.ts",
-      "owner": "T4-test-harness-cljs-migration",
-      "disposition": "port-test-to-cljs",
-      "removalCondition": "test coverage runs from CLJS/node-test or an accepted non-TS harness"
-    },
-    {
-      "path": "src/tests/factory-oauth.test.ts",
-      "owner": "T4-test-harness-cljs-migration",
-      "disposition": "port-test-to-cljs",
-      "removalCondition": "test coverage runs from CLJS/node-test or an accepted non-TS harness"
-    },
-    {
-      "path": "src/tests/factory-strategy.test.ts",
-      "owner": "T4-test-harness-cljs-migration",
-      "disposition": "port-test-to-cljs",
-      "removalCondition": "test coverage runs from CLJS/node-test or an accepted non-TS harness"
-    },
-    {
       "path": "src/tests/federation-bridge-agent.test.ts",
       "owner": "T4-test-harness-cljs-migration",
       "disposition": "port-test-to-cljs",
@@ -1302,12 +1278,6 @@
     },
     {
       "path": "src/tests/host-dashboard.test.ts",
-      "owner": "T4-test-harness-cljs-migration",
-      "disposition": "port-test-to-cljs",
-      "removalCondition": "test coverage runs from CLJS/node-test or an accepted non-TS harness"
-    },
-    {
-      "path": "src/tests/key-pool.test.ts",
       "owner": "T4-test-harness-cljs-migration",
       "disposition": "port-test-to-cljs",
       "removalCondition": "test coverage runs from CLJS/node-test or an accepted non-TS harness"
