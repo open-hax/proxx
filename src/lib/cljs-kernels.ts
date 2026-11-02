@@ -1061,6 +1061,7 @@ export interface CljsKernels {
   readonly createProviderRoutePheromoneStore: (filePath: string, persistIntervalMs: number) => unknown;
   readonly createSqlAuthPersistence: (sql: unknown) => unknown;
   readonly createSqlTenantProviderPolicyStore: (sql: unknown) => unknown;
+  readonly createSqlRequestUsageStore: (sql: unknown) => unknown;
 }
 
 export interface ChromaSearchRow {
