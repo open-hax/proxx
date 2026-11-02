@@ -46,6 +46,8 @@ import type {
 import type { BridgeSendChannel } from "./federation/bridge-send-channel.js";
 import type { FederationBridgeAgentOptions } from "./federation/bridge-agent.js";
 import type { BridgeMessage } from "./federation/bridge-protocol.js";
+import type { BridgeRequestHandlerResult } from "./federation/bridge-agent.js";
+import type { LightMyRequestResponse } from "fastify";
 import type { BridgeLeaseAccountSummary, BridgeLeaseExportedAccount } from "../routes/federation/bridge-lease-parsers.js";
 import type { ProviderCredential } from "./key-pool.js";
 import type { FederationOwnerCredential } from "./federation/owner-credential.js";
@@ -93,47 +95,6 @@ export interface StrategySelectionFacts {
 
 /** Method bag returned by the CLJS OAuth manager factories (typed per manager by its TS class). */
 export type OAuthManagerFacade = Record<string, (...args: never[]) => unknown>;
-
-type RequestAuthLike = { readonly kind?: string; readonly subject?: string; readonly tenantId?: string } | undefined;
-
-/** Decisions behind bridge and federated routing (proxx.federation.routing). */
-export interface FederationRoutingKernel {
-  readonly bridgeTenantId: (requestAuth: RequestAuthLike) => string | undefined;
-  readonly subjectDid: (requestAuth: RequestAuthLike) => string | undefined;
-  readonly hopLimitExceeded: (hopCount: number) => boolean;
-  readonly normalizedPath: (upstreamPath: string) => string;
-  readonly allowedProviderIds: (providerIds: readonly string[]) => string[];
-  readonly sessionEligible: (session: object, ownerSubject: string, tenantId: string) => boolean;
-  readonly capabilityAdmissible: (capability: object, allowedProviderIds: readonly string[]) => boolean;
-  readonly eventStreamContentType: (contentType: unknown) => boolean;
-  readonly jsonContentType: (contentType: unknown) => boolean;
-  readonly responseContentType: (headers: Readonly<Record<string, string>>) => string;
-  readonly routedPeerLabel: (clusterId: string, agentId: string) => string;
-  readonly bridgePathAllowed: (path: string) => boolean;
-  readonly bridgeForbiddenBody: () => Record<string, unknown>;
-  readonly bridgeRequestHeaders: (input: {
-    readonly accept?: string;
-    readonly contentType?: string;
-    readonly ownerSubject: string;
-    readonly tenantId?: string;
-  }) => Record<string, string>;
-  readonly utf8ChunkEncoding: (contentType: string | undefined) => boolean;
-  readonly localProviderIds: (providerIds: readonly string[]) => string[];
-  readonly localAccountKey: (providerId: string, accountId: string) => string;
-  readonly isActivePeer: (peer: object) => boolean;
-  readonly forwardedRequestOverrides: (credential: string, hopCount: number, ownerSubject: string, projectedAccount: object) => Record<string, string>;
-  readonly copyableResponseHeader: (name: string) => boolean;
-  readonly routedResponseHeaders: (ownerSubject: string, peerId: string, projectedAccount: object, imported: boolean) => Record<string, string>;
-  readonly warmImportAllowed: (policyPresent: boolean, policyAuthorizes: boolean) => boolean;
-  readonly exportUrls: (peer: object) => [string, string];
-  readonly routedDiffEvent: (projectedAccount: object, imported: boolean) => {
-    readonly ownerSubject: string;
-    readonly entityType: string;
-    readonly entityKey: string;
-    readonly op: string;
-    readonly payload: Record<string, unknown>;
-  };
-}
 
 export interface CljsKernels {
   // errors/classification
@@ -625,18 +586,6 @@ export interface CljsKernels {
   readonly normalizeAtDid: (value: string) => string;
   readonly fingerprintAdminKey: (value: string) => string;
   readonly parseFederationOwnerCredential: (raw: string | undefined) => FederationOwnerCredential | undefined;
-  readonly federationHeaders: {
-    readonly hop: string;
-    readonly ownerSubject: string;
-    readonly bridgeTenant: string;
-    readonly forcedProvider: string;
-    readonly forcedAccountId: string;
-    readonly routedPeer: string;
-    readonly routedProvider: string;
-    readonly routedAccount: string;
-    readonly imported: string;
-    readonly blockedResponseHeaders: readonly string[];
-  };
   readonly extractPeerCredential: (auth: Record<string, unknown>) => string | undefined;
   readonly resolveFederationHopCount: (headers: Record<string, unknown>) => number;
   readonly resolveFederationOwnerSubject: (
@@ -661,7 +610,27 @@ export interface CljsKernels {
   readonly createBridgeAgent: (options: unknown) => unknown;
   readonly ensureFederationProjectedAccountsFresh: (input: unknown, deps: unknown) => Promise<{ readonly pulledPeerIds: readonly string[] } | undefined>;
   readonly resolveOnDemandPullTtlMs: (raw: string | undefined) => number;
-  readonly federationRouting: FederationRoutingKernel;
+  /** Bridged and federated request routing (proxx.runtime.federation-routing); `deps` are the host stores, relay and app. */
+  readonly executeBridgeRequestRouting: (deps: Record<string, unknown>, input: Record<string, unknown>) => Promise<boolean>;
+  readonly handleBridgeRequest: (deps: Record<string, unknown>, input: Record<string, unknown>) => Promise<BridgeRequestHandlerResult>;
+  readonly injectNativeBridge: (
+    deps: Record<string, unknown>,
+    url: string,
+    payload: Record<string, unknown>,
+    requestHeaders: Record<string, unknown>,
+  ) => Promise<LightMyRequestResponse>;
+  readonly executeFederatedRequestRouting: (
+    deps: Record<string, unknown>,
+    input: Record<string, unknown>,
+    collaborators: { readonly resolveFederationRoutePath: (suffix: string, options?: { readonly prefix: string }) => string },
+  ) => Promise<boolean>;
+  readonly fetchFederationJson: (input: {
+    readonly url: string;
+    readonly credential?: string;
+    readonly timeoutMs: number;
+    readonly method?: "GET" | "POST";
+    readonly body?: Record<string, unknown>;
+  }) => Promise<unknown>;
   readonly createEnvFederationBridgeAgentOptions: (deps: unknown) => FederationBridgeAgentOptions | undefined;
   // provider-strategy (proxx.strategy.*)
   readonly normalizeGeminiReasoningEffort: (value: unknown) => string | undefined;

@@ -259,7 +259,6 @@
                                            normalizeAtDid proxx.runtime.federation/normalize-at-did-js
                                            fingerprintAdminKey proxx.runtime.federation/fingerprint-admin-key-js
                                            parseFederationOwnerCredential proxx.runtime.federation/parse-federation-owner-credential-js
-                                           federationHeaders proxx.runtime.federation/federation-headers
                                            extractPeerCredential proxx.runtime.federation/extract-peer-credential-js
                                            resolveFederationHopCount proxx.runtime.federation/resolve-federation-hop-count-js
                                            resolveFederationOwnerSubject proxx.runtime.federation/resolve-federation-owner-subject-js
@@ -275,7 +274,11 @@
                                            createEnvFederationBridgeAgentOptions proxx.runtime.federation-autostart/create-env-agent-options-js
                                            ensureFederationProjectedAccountsFresh proxx.runtime.federation-projections/ensure-projected-accounts-fresh-js
                                            resolveOnDemandPullTtlMs proxx.runtime.federation-projections/resolve-on-demand-pull-ttl-ms-js
-                                           federationRouting proxx.runtime.federation/federation-routing
+                                           executeBridgeRequestRouting proxx.runtime.federation-routing/execute-bridge-request-routing
+                                           handleBridgeRequest proxx.runtime.federation-routing/handle-bridge-request
+                                           injectNativeBridge proxx.runtime.federation-routing/inject-native-bridge
+                                           executeFederatedRequestRouting proxx.runtime.federation-routing/execute-federated-request-routing
+                                           fetchFederationJson proxx.runtime.federation-routing/fetch-federation-json
                                            normalizeGeminiReasoningEffort proxx.runtime.strategy/normalize-gemini-reasoning-effort-js
                                            openAiMessagesToGeminiContents proxx.runtime.strategy/open-ai-messages-to-gemini-contents-js
                                            extractSystemInstructions proxx.runtime.strategy/extract-system-instructions-js
