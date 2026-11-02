@@ -103,21 +103,9 @@ export function selectExecutionStrategyForProviderRoutes(
   providerIds: readonly string[],
   policyPreferredStrategyMode?: UpstreamMode,
 ): ProviderStrategy {
-  if (providerIds.length === 0) {
-    return defaultStrategy;
-  }
-
-  const normalizedProviderIds = providerIds
-    .map((providerId) => providerId.trim().toLowerCase())
-    .filter((providerId) => providerId.length > 0);
-  if (normalizedProviderIds.length === 0) {
-    return defaultStrategy;
-  }
-
-  const localOllamaOnly = normalizedProviderIds.every((providerId) => providerId === "ollama" || providerId === "ollama-local");
-  if (localOllamaOnly) {
-    return defaultStrategy;
-  }
-
-  return selectRemoteProviderStrategyForRoute(context, normalizedProviderIds[0]!, policyPreferredStrategyMode);
+  // Which provider's strategy executes the plan is decided by proxx.strategy.select/execution-provider.
+  const providerId = kernels.executionProvider(providerIds);
+  return providerId === undefined
+    ? defaultStrategy
+    : selectRemoteProviderStrategyForRoute(context, providerId, policyPreferredStrategyMode);
 }

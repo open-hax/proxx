@@ -82,6 +82,7 @@
                                            normalizeRequestedModel proxx.runtime.http/normalize-requested-model-js
                                            isTrustedLocalBridgeAddress proxx.runtime.http/is-trusted-local-bridge-address-js
                                            hasBearerToken proxx.runtime.http/has-bearer-token-js
+                                           executionProvider proxx.runtime.strategy/execution-provider-js
                                            extractPromptCacheKey proxx.runtime.http/extract-prompt-cache-key-js
                                            hashPromptCacheKey proxx.runtime.http/hash-prompt-cache-key-js
                                            appendCsvHeaderValue proxx.runtime.http/append-csv-header-value-js

@@ -238,6 +238,7 @@ export interface CljsKernels {
     readonly code: string;
     readonly retryAfterSeconds?: number;
   } | undefined;
+  readonly executionProvider: (providerIds: readonly string[]) => string | undefined;
   // request facts (proxx.http.request-facts)
   readonly extractPromptCacheKey: (body: JsRecord) => string | undefined;
   readonly hashPromptCacheKey: (promptCacheKey: string) => string;

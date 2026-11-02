@@ -590,6 +590,11 @@
     (name (select/select (registry manifest-path) f
                          {:remote-only? true :preferred-mode (:policy-preferred-mode f)}))))
 
+(defn execution-provider-js
+  "The provider id whose strategy runs a plan over `provider-ids`, or undefined to keep the default."
+  [provider-ids]
+  (undefined-if-nil (select/execution-provider (vec (array-seq provider-ids)))))
+
 (defn is-compat-embedding-provider-js [provider-id manifest-path]
   (select/compat-embedding-provider? (registry manifest-path) provider-id))
 

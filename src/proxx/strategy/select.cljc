@@ -99,3 +99,14 @@
   [registry id]
   (or (some #(when (= id (:strategy/id %)) %) (:registry/entries registry))
       (throw (ex-info "Unknown strategy" {:error/type :strategy/unknown :strategy/id id}))))
+
+(def local-ollama-provider-ids #{"ollama" "ollama-local"})
+
+(defn execution-provider
+  "The provider whose strategy executes a plan over `provider-ids`: the first
+  (trimmed, lower-cased) one, unless the plan is empty or every route is a local
+  Ollama, which the default strategy already serves. Nil means: keep the default."
+  [provider-ids]
+  (let [ids (into [] (comp (map norm) (remove empty?)) provider-ids)]
+    (when-not (or (empty? ids) (every? local-ollama-provider-ids ids))
+      (first ids))))
