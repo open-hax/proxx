@@ -65,7 +65,7 @@
   (let [dir (.mkdtempSync fs (str (.tmpdir os) "/models-test-"))
         write! (fn [name text] (let [p (str dir "/" name)] (.writeFileSync fs p text) p))
         prefs (await (edge/load-model-preferences-js
-                      (write! "p.json" "{"preferred":["a"],"aliases":{"z":"1","y":"2","x":"3","w":"4","v":"5","u":"6","t":"7","s":"8","r":"9","q":"10"}}")
+                      (write! "p.json" "{\"preferred\":[\"a\"],\"aliases\":{\"z\":\"1\",\"y\":\"2\",\"x\":\"3\",\"w\":\"4\",\"v\":\"5\",\"u\":\"6\",\"t\":\"7\",\"s\":\"8\",\"r\":\"9\",\"q\":\"10\"}}")
                       #js []))]
     (is (= ["z" "y" "x" "w" "v" "u" "t" "s" "r" "q"] (vec (js/Object.keys (.-aliases prefs)))))
     (is (= ["f"] (vec (await (edge/load-models-js (str dir "/missing.json") #js ["f"])))))
@@ -74,7 +74,7 @@
            (let [p (await (edge/load-model-preferences-js (str dir "/missing.json") #js ["f"]))]
              {:preferred (vec (.-preferred p)) :aliases (vec (js/Object.keys (.-aliases p)))})))
     (let [e (await (-> (edge/load-models-js (write! "n.json" "null") #js []) (.then (fn [_] nil)) (.catch identity)))]
-      (is (= "Invalid model JSON: expected an array or {"models": []}" (.-message e)))
+      (is (= "Invalid model JSON: expected an array or {\"models\": []}" (.-message e)))
       (is (nil? (ex-data e)) "a plain Error, not ex-info"))
     (let [e (await (-> (edge/load-declared-models-js dir) (.then (fn [_] nil)) (.catch identity)))]
       (is (= "EISDIR" (.-code e)) "read errors other than ENOENT propagate unchanged"))

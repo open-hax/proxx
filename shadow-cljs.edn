@@ -91,6 +91,8 @@
                                            requestWantsReasoningTrace proxx.runtime.ollama/request-wants-reasoning-trace-js
                                            ollamaContextLengthFromShow proxx.runtime.ollama-context/ollama-context-length-from-show-js
                                            ollamaContextBudget proxx.runtime.ollama-context/ollama-context-budget-js
+                                           fetchOllamaModelContextLength proxx.runtime.ollama-context/fetch-ollama-model-context-length-js
+                                           ensureOllamaContextFits proxx.runtime.ollama-context/ensure-ollama-context-fits-js
                                            requestyModelProvider proxx.runtime.requesty/requesty-model-provider-js
                                            registerHealthRoutes proxx.runtime.routes/register-health-routes-js
                                            registerApiV1IndexRoute proxx.runtime.routes/register-api-v1-index-route-js
@@ -128,6 +130,8 @@
                                            ollamaBuildConfig proxx.runtime.chroma/ollama-build-config-js
                                            chromaConnectionOptions proxx.runtime.chroma/chroma-connection-options-js
                                            chromaSearchResults proxx.runtime.chroma/chroma-search-results-js
+                                           ollamaGenerate proxx.runtime.chroma/ollama-generate-js
+                                           createChromaSessionIndex proxx.runtime.chroma/create-chroma-session-index-js
                                            eventLabelerApplies proxx.runtime.events/event-labeler-applies-js
                                            eventLabelerLabel proxx.runtime.events/event-labeler-label-js
                                            eventDdl proxx.runtime.events/event-ddl-js
@@ -475,6 +479,16 @@
    :compiler-options {:output-feature-set :es-next
                       :infer-externs :auto
                       :source-map true}}
+
+  ;; Operator tooling: `pnpm import:oauth:bulk` (compile + run). Plain `require`
+  ;; so playwright/imapflow resolve from node_modules like any Node script.
+  :bulk-oauth-import
+  {:target     :node-script
+   :main       proxx.tools.bulk-oauth-import/main
+   :output-to  "target/bulk-oauth-import.cjs"
+   :js-options {:js-provider :require}
+   :compiler-options {:infer-externs :auto
+                      :source-map false}}
 
   :node-test
   {:target      :node-test

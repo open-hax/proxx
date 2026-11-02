@@ -217,6 +217,29 @@ export interface CljsKernels {
     readonly availableContextTokens: number;
     readonly recommendedNumCtx: number;
   } | null | undefined;
+  readonly fetchOllamaModelContextLength: (
+    manifestPath: string,
+    baseUrl: string,
+    model: string,
+    timeoutMs: number,
+    signal?: AbortSignal,
+  ) => Promise<number | null>;
+  readonly ensureOllamaContextFits: (
+    manifestPath: string,
+    kind: "chat" | "nativeChat" | "embed",
+    baseUrl: string,
+    requestBody: JsRecord,
+    timeoutMs: number,
+    signal?: AbortSignal,
+  ) => Promise<{
+    readonly model: string;
+    readonly contextLength: number;
+    readonly estimatedInputTokens: number;
+    readonly requestedOutputTokens: number;
+    readonly requiredContextTokens: number;
+    readonly availableContextTokens: number;
+    readonly recommendedNumCtx: number;
+  } | null | undefined>;
   // requesty
   readonly requestyModelProvider: (manifestPath: string, model: string) => string;
   // http routes (Ring-style handlers registered on Fastify)
@@ -313,6 +336,21 @@ export interface CljsKernels {
     distances: readonly unknown[],
     now: number,
   ) => ChromaSearchRow[];
+  readonly queueErrorResponse: (error: unknown) => {
+    readonly statusCode: number;
+    readonly message: string;
+    readonly type: string;
+    readonly code: string;
+    readonly retryAfterSeconds?: number;
+  } | undefined;
+  readonly ollamaGenerate: (baseUrl: string, model: string, texts: readonly string[]) => Promise<number[][]>;
+  readonly createChromaSessionIndex: (
+    config: { readonly url: string; readonly collectionName: string },
+    deps: { readonly ChromaClient: unknown; readonly IncludeEnum: unknown; readonly embeddingFunction: unknown },
+  ) => {
+    readonly indexMessage: (message: object) => Promise<void>;
+    readonly search: (query: string, limit: number) => Promise<ChromaSearchRow[]>;
+  };
   readonly eventLabelerApplies: (id: string, event: object) => boolean;
   readonly eventLabelerLabel: (id: string, event: object) => string[];
   readonly eventDdl: () => string[];

@@ -1,5 +1,5 @@
 (ns proxx.compat.ollama-context-test
-  (:require [cljs.test :refer [deftest is testing]]
+  (:require [cljs.test :refer [deftest is testing async]]
             [proxx.compat.ollama-context :as c]
             [proxx.runtime.ollama-context :as edge]))
 
@@ -68,3 +68,65 @@
     (is (= 4096 (.-recommendedNumCtx b))))
   (is (nil? (edge/ollama-context-budget-js "embed" #js {} 8192)))
   (is (thrown? js/Error (edge/ollama-context-budget-js "bogus" #js {"model" "m"} 1))))
+
+(deftest context-cache
+  (let [k (c/cache-key "http://h" "m")
+        cache (c/remember {} k 4096 1000)]
+    (is (= "http://h::m" k))
+    (is (= "http://h/api/show" (c/show-url "http://h///")))
+    (is (= 4096 (c/cached-length cache k (+ 1000 c/cache-ttl-ms -1) false)) "fresh inside the TTL")
+    (is (nil? (c/cached-length cache k (+ 1000 c/cache-ttl-ms) false)) "stale at exactly the TTL")
+    (is (= 4096 (c/cached-length cache k (+ 1000 c/cache-ttl-ms 1) true)) "stale entries still answer after a failure")
+    (is (nil? (c/cached-length cache (c/cache-key "http://h" "other") 1000 true)))))
+
+(defn- with-show-server
+  "Run `f` with a base URL whose /api/show answers `(respond n)`; resolves to
+  [result request-count]."
+  [respond f]
+  (let [http (js/require "node:http")
+        n (atom 0)
+        server (.createServer http
+                              (fn [^js req ^js res]
+                                (.on req "data" (fn [_]))
+                                (.on req "end"
+                                     (fn []
+                                       (let [[status body] (respond (swap! n inc))]
+                                         (.writeHead res status #js {"content-type" "application/json"})
+                                         (.end res body))))))]
+    (js/Promise.
+     (fn [resolve reject]
+       (.listen server 0 "127.0.0.1"
+                (fn []
+                  (let [base (str "http://127.0.0.1:" (.-port (.address server)))]
+                    (-> (f base)
+                        (.then (fn [r] (.close server) (resolve [r @n])))
+                        (.catch (fn [e] (.close server) (reject e)))))))))))
+
+(deftest edge-fetch-and-cache
+  (async done
+    (-> (with-show-server
+          (fn [n] (if (= n 1) [200 "{\"context_length\":4096}"] [500 "{}"]))
+          (fn [base]
+            (-> (edge/fetch-ollama-model-context-length-js manifest base "m" 500 js/undefined)
+                (.then (fn [a]
+                         (-> (edge/fetch-ollama-model-context-length-js manifest base "m" 500 js/undefined)
+                             (.then (fn [b] [a b]))))))))
+        (.then (fn [[[a b] requests]]
+                 (is (= [4096 4096] [a b]))
+                 (is (= 1 requests) "the second answer is cached")
+                 (done))))))
+
+(deftest edge-failures
+  (async done
+    (-> (with-show-server
+          (fn [_] [200 "[1]"])
+          (fn [base]
+            (-> (edge/ensure-ollama-context-fits-js manifest "chat" base #js {"model" "m"} 500 js/undefined)
+                (.then (fn [budget]
+                         (-> (edge/ensure-ollama-context-fits-js manifest "chat" base #js {"model" 5} 500 js/undefined)
+                             (.then (fn [no-model] [budget no-model]))))))))
+        (.then (fn [[[budget no-model] requests]]
+                 (is (nil? budget) "an array body names no length")
+                 (is (nil? no-model))
+                 (is (= 1 requests) "no model, no request")
+                 (done))))))

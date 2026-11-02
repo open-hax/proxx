@@ -5,7 +5,8 @@
   length, estimating how many tokens a request needs and what `num_ctx` to
   recommend is arithmetic over the request body. Where Ollama reports the length
   (`context-length-keys`) is declared in 75-provider-wire-profiles.edn."
-  (:require [proxx.json :as json]))
+  (:require [clojure.string :as str]
+            [proxx.json :as json]))
 
 (def ^:private default-output-tokens 2048)
 (def ^:private tool-call-tokens 64)
@@ -79,6 +80,30 @@
   (cond (string? input) (estimate-text-tokens input)
         (sequential? input) (transduce (comp (filter string?) (map estimate-text-tokens)) + 0 input)
         :else 0))
+
+;; ---------------------------------------------------------------------------
+;; The context-length cache: an immutable map the edge keeps in an atom
+;; ---------------------------------------------------------------------------
+
+(def cache-ttl-ms (* 5 60 1000))
+
+(defn cache-key [base-url model] (str base-url "::" model))
+
+(defn show-url
+  "Where /api/show lives for a base URL (trailing slashes ignored)."
+  [base-url]
+  (str (str/replace base-url #"/+$" "") "/api/show"))
+
+(defn cached-length
+  "The remembered length for `k`, or nil. A *fresh* entry short-circuits the
+  fetch; a stale one is still the answer when the fetch fails (`stale-ok?`)."
+  [cache k now-ms stale-ok?]
+  (when-let [{:keys [length fetched-at]} (get cache k)]
+    (when (or stale-ok? (< (- now-ms fetched-at) cache-ttl-ms))
+      length)))
+
+(defn remember [cache k length now-ms]
+  (assoc cache k {:length length :fetched-at now-ms}))
 
 ;; ---------------------------------------------------------------------------
 ;; Context length (from /api/show) and the budget
