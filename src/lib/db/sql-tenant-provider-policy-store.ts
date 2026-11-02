@@ -1,12 +1,5 @@
 import type { Sql } from "./index.js";
 import { kernels } from "../cljs-kernels.js";
-import {
-  CREATE_TENANT_PROVIDER_POLICIES_OWNER_INDEX,
-  CREATE_TENANT_PROVIDER_POLICIES_TABLE,
-  SELECT_TENANT_PROVIDER_POLICIES,
-  SELECT_TENANT_PROVIDER_POLICY,
-  UPSERT_TENANT_PROVIDER_POLICY,
-} from "./schema.js";
 export const TENANT_PROVIDER_KINDS = ["local_upstream", "peer_proxx"] as const;
 export type TenantProviderKind = typeof TENANT_PROVIDER_KINDS[number];
 
@@ -60,79 +53,42 @@ export function normalizeTenantProviderTrustTier(value: string | undefined): Ten
   return kernels.tenantPolicyTrustTier(value) as TenantProviderTrustTier;
 }
 
-function normalizeTenantProviderPolicyInput(input: TenantProviderPolicyUpsertInput): Omit<TenantProviderPolicyRecord, "createdAt" | "updatedAt"> {
-  return kernels.tenantPolicyNormalizeInput(input) as unknown as Omit<TenantProviderPolicyRecord, "createdAt" | "updatedAt">;
-}
-
-interface TenantProviderPolicyRow {
-  subject_did: string;
-  provider_id: string;
-  provider_kind: TenantProviderKind;
-  owner_subject: string;
-  share_mode: TenantProviderShareMode;
-  trust_tier: TenantProviderTrustTier;
-  allowed_models: string[] | string | null;
-  max_requests_per_minute: number | null;
-  max_concurrent_requests: number | null;
-  encrypted_channel_required: boolean;
-  warm_import_threshold: number | null;
-  notes: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-function toPolicyRecord(row: TenantProviderPolicyRow): TenantProviderPolicyRecord {
-  return kernels.tenantPolicyRecord(row) as unknown as TenantProviderPolicyRecord;
-}
-
+/**
+ * Tenant provider policies in Postgres. Normalization, statement parameters and
+ * the listing query are proxx.credentials.tenant-policy; the statements run in
+ * proxx.runtime.tenant-policy-store. This class keeps the names and types
+ * callers already use.
+ */
 export class SqlTenantProviderPolicyStore {
-  public constructor(private readonly sql: Sql) {}
+  private readonly impl: SqlTenantProviderPolicyStoreKernel;
 
-  public async init(): Promise<void> {
-    await this.sql.unsafe(CREATE_TENANT_PROVIDER_POLICIES_TABLE);
-    await this.sql.unsafe(CREATE_TENANT_PROVIDER_POLICIES_OWNER_INDEX);
+  public constructor(sql: Sql) {
+    this.impl = kernels.createSqlTenantProviderPolicyStore(sql) as SqlTenantProviderPolicyStoreKernel;
   }
 
-  public async upsertPolicy(input: TenantProviderPolicyUpsertInput): Promise<TenantProviderPolicyRecord> {
-    const normalized = normalizeTenantProviderPolicyInput(input);
-    const params = kernels.tenantPolicyUpsertParams(normalized);
-    params[6] = JSON.stringify(normalized.allowedModels);
-    const rows = await this.sql.unsafe<TenantProviderPolicyRow[]>(UPSERT_TENANT_PROVIDER_POLICY, params as never[]);
-
-    const row = rows[0];
-    if (!row) {
-      throw new Error("failed to upsert tenant provider policy");
-    }
-
-    return toPolicyRecord(row);
+  public init(): Promise<void> {
+    return this.impl.init();
   }
 
-  public async getPolicy(subjectDid: string, providerId: string): Promise<TenantProviderPolicyRecord | undefined> {
-    const normalized = normalizeTenantProviderPolicyInput({
-      subjectDid,
-      providerId,
-      ownerSubject: "placeholder",
-    });
-
-    const rows = await this.sql.unsafe<TenantProviderPolicyRow[]>(SELECT_TENANT_PROVIDER_POLICY, [
-      normalized.subjectDid,
-      normalized.providerId,
-    ]);
-
-    return rows[0] ? toPolicyRecord(rows[0]) : undefined;
+  public upsertPolicy(input: TenantProviderPolicyUpsertInput): Promise<TenantProviderPolicyRecord> {
+    return this.impl.upsertPolicy(input);
   }
 
-  public async listPolicies(filters: {
+  public getPolicy(subjectDid: string, providerId: string): Promise<TenantProviderPolicyRecord | undefined> {
+    return this.impl.getPolicy(subjectDid, providerId);
+  }
+
+  public listPolicies(filters: {
     readonly subjectDid?: string;
     readonly ownerSubject?: string;
   } = {}): Promise<TenantProviderPolicyRecord[]> {
-    const { clauses, values } = kernels.tenantPolicyListFilters(filters);
-
-    const query = clauses.length > 0
-      ? `${SELECT_TENANT_PROVIDER_POLICIES.replace(/;$/, "")} WHERE ${clauses.join(" AND ")} ORDER BY owner_subject, subject_did, provider_id`
-      : SELECT_TENANT_PROVIDER_POLICIES;
-
-    const rows = await this.sql.unsafe<TenantProviderPolicyRow[]>(query, values);
-    return rows.map(toPolicyRecord);
+    return this.impl.listPolicies(filters);
   }
+}
+
+interface SqlTenantProviderPolicyStoreKernel {
+  init(): Promise<void>;
+  upsertPolicy(input: TenantProviderPolicyUpsertInput): Promise<TenantProviderPolicyRecord>;
+  getPolicy(subjectDid: string, providerId: string): Promise<TenantProviderPolicyRecord | undefined>;
+  listPolicies(filters: { readonly subjectDid?: string; readonly ownerSubject?: string }): Promise<TenantProviderPolicyRecord[]>;
 }

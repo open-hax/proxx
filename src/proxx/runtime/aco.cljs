@@ -4,8 +4,9 @@
 
   The edge reads the environment, asks the stores what they know, draws the random
   numbers, and hands plain data to proxx.routing.aco / proxx.routing.pheromone. The
-  pheromone store's persistence (file, write scheduling) stays in TypeScript; it
-  keeps its records as a JS array and replaces it with what these kernels return."
+  pheromone store's persistence (file, write scheduling) is
+  proxx.runtime.pheromone-store; the kernels below remain for callers that hold
+  records as JS arrays."
   (:require [proxx.routing.aco :as aco]
             [proxx.routing.pheromone :as pheromone]
             [proxx.runtime.interop :as interop]
@@ -119,7 +120,9 @@
     (doseq [k ["providerId" "model" "pheromone" "successCount" "failureCount" "updatedAt"]] (aset o k (get r k)))
     o))
 
-(defn- records->js [records] (to-array (map record->js records)))
+(defn records->js
+  "Pheromone records as the persisted array of objects."
+  [records] (to-array (map record->js records)))
 
 (defn pheromone-hydrate-db-js [raw]
   (records->js (pheromone/hydrate-db (interop/js->data raw) (js/Date.now))))

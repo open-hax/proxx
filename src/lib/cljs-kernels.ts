@@ -1076,6 +1076,14 @@ export interface CljsKernels {
   readonly inspectProviderAvailability: (
     keyPool: unknown, providerRoutes: unknown, promptCacheKey: string | undefined,
   ) => Promise<import("./provider-strategy/shared.js").ProviderAvailabilitySummary>;
+  // w6 stores (stateful edges; each returns the facade its TS class forwards to)
+  readonly createProviderRoutePheromoneStore: (filePath: string, persistIntervalMs: number) => unknown;
+  readonly createSqlAuthPersistence: (sql: unknown) => unknown;
+  readonly createSqlTenantProviderPolicyStore: (sql: unknown) => unknown;
+  readonly createSqlRequestUsageStore: (sql: unknown) => unknown;
+  readonly createSqlFederationStore: (sql: unknown) => unknown;
+  readonly createSqlCredentialStore: (sql: unknown, options: object) => unknown;
+  readonly createEventStore: (sql: unknown, flushIntervalMs: number, maxBufferSize: number) => unknown;
 }
 
 export interface ChromaSearchRow {

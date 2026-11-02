@@ -164,3 +164,54 @@
           (sequential? input) (assoc "_inputCount" (count input))
           (seq urls) (assoc "_urls" urls)))
       (strip-invalid-json-chars payload))))
+
+;; ---------------------------------------------------------------------------
+;; Write path: buffering decisions and the statements the edge runs
+
+(def write-batch-size
+  "Events written per chunk; a failing chunk is dropped, the next one still runs."
+  50)
+
+(defn merged-tags
+  "The tags an emitted event is buffered with: its own followed by the labelers'
+  `auto-tags`, or nil when no labeler tagged it (the event is buffered as given)."
+  [own-tags auto-tags]
+  (when (seq auto-tags) (into (vec own-tags) auto-tags)))
+
+(defn full?
+  "Has the buffer reached the size that triggers an early flush?"
+  [buffered max-buffer-size]
+  (>= buffered max-buffer-size))
+
+(defn chunks [events] (partition-all write-batch-size events))
+
+(def insert-event-strings
+  "The INSERT's literal parts (a tagged template); the holes are
+  kind, entry id, provider, account, model, status, tags, meta, payload, payload bytes."
+  ["\n        INSERT INTO events (id, ts, kind, entry_id, provider_id, account_id, model, status, tags, meta, payload, payload_bytes)\n        VALUES (\n          gen_random_uuid(), NOW(),\n          "
+   ",\n          " ",\n          " ",\n          " ",\n          " ",\n          " ",\n          " ",\n          " ",\n          " ",\n          " "\n        )\n      "])
+
+(defn insert-event-values
+  "The hole values for one event. `ev` is a shallow string-keyed map whose
+  \"tags\", \"meta\" and \"payload\" are already copied host values (opaque here:
+  payloads are never converted); `wrap-json` marks a value as JSON for the
+  driver; `payload-bytes` is the UTF-8 size of the serialized payload (nil when
+  there is none). Absent optional fields are null."
+  [ev wrap-json payload-bytes]
+  (let [nn (fn [k] (let [v (get ev k)] (if (nil? v) nil v)))]
+    [(get ev "kind") (get ev "entryId") (nn "providerId") (nn "accountId") (nn "model") (nn "status")
+     (wrap-json (get ev "tags")) (wrap-json (get ev "meta"))
+     (when (some? (get ev "payload")) (wrap-json (get ev "payload")))
+     payload-bytes]))
+
+(def get-by-id-text "SELECT * FROM events WHERE id = $1::uuid LIMIT 1")
+
+(defn add-tag-statement
+  "Tagged template: append `tag` unless present."
+  [event-id tag-json tag]
+  {"strings" ["UPDATE events SET tags = tags || " "::jsonb WHERE id = " "::uuid AND NOT tags ? " ""]
+   "values" [tag-json event-id tag]})
+
+(defn remove-tag-statement [event-id tag]
+  {"strings" ["UPDATE events SET tags = tags - " " WHERE id = " "::uuid"]
+   "values" [tag event-id]})

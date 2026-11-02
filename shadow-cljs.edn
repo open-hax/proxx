@@ -481,7 +481,15 @@
                                            runMigrations proxx.runtime.db-schema/run-migrations-js
                                            createSqlConnection proxx.runtime.db-schema/create-sql-connection-js
                                            closeSqlConnection proxx.runtime.db-schema/close-connection-js
-                                           createGithubAllowlist proxx.runtime.github-allowlist/create-github-allowlist-js}}
+                                           createGithubAllowlist proxx.runtime.github-allowlist/create-github-allowlist-js
+                                           ;; w6-stores exports
+                                           createProviderRoutePheromoneStore proxx.runtime.pheromone-store/create-provider-route-pheromone-store-js
+                                           createSqlAuthPersistence proxx.runtime.auth-persistence/create-sql-auth-persistence-js
+                                           createSqlTenantProviderPolicyStore proxx.runtime.tenant-policy-store/create-sql-tenant-provider-policy-store-js
+                                           createSqlRequestUsageStore proxx.runtime.usage-store/create-sql-request-usage-store-js
+                                           createEventStore proxx.runtime.event-store/create-event-store-js
+                                           createSqlFederationStore proxx.runtime.federation-store/create-sql-federation-store-js
+                                           createSqlCredentialStore proxx.runtime.sql-credential-store/create-sql-credential-store-js}}
               ;; The Node entry (`node dist/cljs/main.js`): shares the runtime module's code.
               :main {:depends-on #{:proxx-runtime}
                      :init-fn proxx.app.entry/start!}}

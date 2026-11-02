@@ -1,6 +1,3 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
-
 import { kernels } from "./cljs-kernels.js";
 
 export interface ProviderRoutePheromoneRecord {
@@ -12,131 +9,44 @@ export interface ProviderRoutePheromoneRecord {
   readonly updatedAt: number;
 }
 
-interface ProviderRoutePheromoneDb {
-  records: ProviderRoutePheromoneRecord[];
+interface ProviderRoutePheromoneStoreKernel {
+  warmup(): Promise<void>;
+  getPheromone(providerId: string, model: string): number;
+  noteSuccess(providerId: string, model: string, quality: number): Promise<void>;
+  noteFailure(providerId: string, model: string): Promise<void>;
+  close(): Promise<void>;
 }
 
+/**
+ * Pheromone records persisted as one JSON file. The records and their updates
+ * are proxx.routing.pheromone; the cache, the mutation queue and the
+ * write-behind are proxx.runtime.pheromone-store. This class keeps the names
+ * and types callers already use.
+ */
 export class ProviderRoutePheromoneStore {
-  private dbCache: ProviderRoutePheromoneDb | null = null;
-  private mutationChain: Promise<void> = Promise.resolve();
-  private persistChain: Promise<void> = Promise.resolve();
-  private persistTimer: ReturnType<typeof setTimeout> | null = null;
-  private persistPending = false;
-  private closed = false;
+  private readonly impl: ProviderRoutePheromoneStoreKernel;
 
-  public constructor(
-    private readonly filePath: string,
-    private readonly persistIntervalMs: number = 250,
-  ) {}
+  public constructor(filePath: string, persistIntervalMs: number = 250) {
+    this.impl = kernels.createProviderRoutePheromoneStore(filePath, persistIntervalMs) as ProviderRoutePheromoneStoreKernel;
+  }
 
-  public async warmup(): Promise<void> {
-    await this.readDb();
+  public warmup(): Promise<void> {
+    return this.impl.warmup();
   }
 
   public getPheromone(providerId: string, model: string): number {
-    return kernels.pheromoneGet(this.dbCache?.records ?? [], providerId, model);
+    return this.impl.getPheromone(providerId, model);
   }
 
-  public async noteSuccess(providerId: string, model: string, quality: number): Promise<void> {
-    if (!kernels.pheromoneKeyValid(providerId, model)) {
-      return;
-    }
-
-    await this.mutate((db) => {
-      db.records = kernels.pheromoneNoteSuccess(db.records, providerId, model, quality) as ProviderRoutePheromoneRecord[];
-    });
+  public noteSuccess(providerId: string, model: string, quality: number): Promise<void> {
+    return this.impl.noteSuccess(providerId, model, quality);
   }
 
-  public async noteFailure(providerId: string, model: string): Promise<void> {
-    if (!kernels.pheromoneKeyValid(providerId, model)) {
-      return;
-    }
-
-    await this.mutate((db) => {
-      db.records = kernels.pheromoneNoteFailure(db.records, providerId, model) as ProviderRoutePheromoneRecord[];
-    });
+  public noteFailure(providerId: string, model: string): Promise<void> {
+    return this.impl.noteFailure(providerId, model);
   }
 
-  public async close(): Promise<void> {
-    this.closed = true;
-    if (this.persistTimer) {
-      clearTimeout(this.persistTimer);
-      this.persistTimer = null;
-    }
-    await this.mutationChain;
-    try {
-      if (this.persistPending) {
-        await this.queuePersist(true);
-      }
-      await this.persistChain;
-    } catch {
-      // Best-effort persist on close — don't block shutdown.
-    }
-  }
-
-  private async readDb(): Promise<ProviderRoutePheromoneDb> {
-    if (this.dbCache) {
-      return this.dbCache;
-    }
-
-    try {
-      const raw = await readFile(this.filePath, "utf8");
-      this.dbCache = { records: kernels.pheromoneHydrateDb(JSON.parse(raw) as unknown) as ProviderRoutePheromoneRecord[] };
-    } catch {
-      this.dbCache = { records: [] };
-    }
-
-    return this.dbCache;
-  }
-
-  private async mutate(mutator: (db: ProviderRoutePheromoneDb) => void): Promise<void> {
-    this.mutationChain = this.mutationChain.then(async () => {
-      const db = await this.readDb();
-      mutator(db);
-      this.schedulePersist();
-    });
-    await this.mutationChain;
-  }
-
-  private schedulePersist(): void {
-    if (this.closed) {
-      return;
-    }
-
-    this.persistPending = true;
-    if (this.persistTimer) {
-      return;
-    }
-
-    if (this.persistIntervalMs === 0) {
-      void this.queuePersist();
-      return;
-    }
-
-    this.persistTimer = setTimeout(() => {
-      this.persistTimer = null;
-      void this.queuePersist();
-    }, this.persistIntervalMs);
-    this.persistTimer.unref?.();
-  }
-
-  private async queuePersist(force = false): Promise<void> {
-    if (!this.persistPending && !force) {
-      return;
-    }
-
-    this.persistPending = false;
-    this.persistChain = this.persistChain.then(async () => {
-      try {
-        const db = await this.readDb();
-        await mkdir(dirname(this.filePath), { recursive: true });
-        const tempPath = `${this.filePath}.tmp`;
-        await writeFile(tempPath, `${JSON.stringify(db, null, 2)}\n`, "utf8");
-        await rename(tempPath, this.filePath);
-      } catch {
-        // Best-effort — corrupt/inaccessible filesystem should not crash the proxy.
-      }
-    });
-    await this.persistChain;
+  public close(): Promise<void> {
+    return this.impl.close();
   }
 }
