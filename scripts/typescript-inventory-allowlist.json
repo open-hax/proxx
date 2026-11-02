@@ -1152,8 +1152,9 @@
     {
       "path": "src/tests/account-health-store.test.ts",
       "owner": "T4-test-harness-cljs-migration",
-      "disposition": "port-test-to-cljs",
-      "removalCondition": "test coverage runs from CLJS/node-test or an accepted non-TS harness"
+      "disposition": "removed",
+      "removalCondition": "Removed: ported to cljs.test as proxx.runtime.account-health-test.",
+      "removed": true
     },
     {
       "path": "src/tests/account-identity.test.ts",
@@ -1363,8 +1364,9 @@
     {
       "path": "src/tests/prompt-affinity-store.test.ts",
       "owner": "T4-test-harness-cljs-migration",
-      "disposition": "port-test-to-cljs",
-      "removalCondition": "test coverage runs from CLJS/node-test or an accepted non-TS harness"
+      "disposition": "removed",
+      "removalCondition": "Removed: ported to cljs.test as proxx.runtime.prompt-affinity-test.",
+      "removed": true
     },
     {
       "path": "src/tests/provider-catalog.test.ts",
@@ -1381,8 +1383,9 @@
     {
       "path": "src/tests/provider-route-pheromone-store.test.ts",
       "owner": "T4-test-harness-cljs-migration",
-      "disposition": "port-test-to-cljs",
-      "removalCondition": "test coverage runs from CLJS/node-test or an accepted non-TS harness"
+      "disposition": "removed",
+      "removalCondition": "Removed: ported to cljs.test as proxx.runtime.pheromone-store-test.",
+      "removed": true
     },
     {
       "path": "src/tests/provider-routing.test.ts",
@@ -1405,8 +1408,9 @@
     {
       "path": "src/tests/proxy-settings-store.test.ts",
       "owner": "T4-test-harness-cljs-migration",
-      "disposition": "port-test-to-cljs",
-      "removalCondition": "test coverage runs from CLJS/node-test or an accepted non-TS harness"
+      "disposition": "removed",
+      "removalCondition": "Removed: ported to cljs.test as proxx.runtime.settings-test.",
+      "removed": true
     },
     {
       "path": "src/tests/proxy.test.ts",
@@ -1417,8 +1421,9 @@
     {
       "path": "src/tests/quota-monitor.test.ts",
       "owner": "T4-test-harness-cljs-migration",
-      "disposition": "port-test-to-cljs",
-      "removalCondition": "test coverage runs from CLJS/node-test or an accepted non-TS harness"
+      "disposition": "removed",
+      "removalCondition": "Removed: ported to cljs.test as proxx.runtime.quota-monitor-test.",
+      "removed": true
     },
     {
       "path": "src/tests/rate-limit-classify.test.ts",
@@ -1441,8 +1446,9 @@
     {
       "path": "src/tests/request-log-store.test.ts",
       "owner": "T4-test-harness-cljs-migration",
-      "disposition": "port-test-to-cljs",
-      "removalCondition": "test coverage runs from CLJS/node-test or an accepted non-TS harness"
+      "disposition": "removed",
+      "removalCondition": "Removed: ported to cljs.test as proxx.runtime.request-log-store-test.",
+      "removed": true
     },
     {
       "path": "src/tests/schema-migration.test.ts",

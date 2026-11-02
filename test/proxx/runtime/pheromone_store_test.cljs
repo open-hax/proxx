@@ -58,3 +58,30 @@
           (.then (fn [_]
                    (is (.existsSync fs file) "close persists what is pending")
                    (done)))))))
+
+(deftest persists-success-and-failure-updates
+  ;; src/tests/provider-route-pheromone-store.test.ts
+  (async done
+    (let [file (tmp-file)
+          ^js store (ps/create-provider-route-pheromone-store-js file 0)
+          boosted (atom nil)
+          reduced (atom nil)]
+      (-> (.warmup store)
+          (.then (fn [_]
+                   (is (= 0.5 (.getPheromone store "ollama-a" "qwen3.5:2b-bf16")))
+                   (.noteSuccess store "ollama-a" "qwen3.5:2b-bf16" 0.9)))
+          (.then (fn [_]
+                   (reset! boosted (.getPheromone store "ollama-a" "qwen3.5:2b-bf16"))
+                   (is (> @boosted 0.5))
+                   (.noteFailure store "ollama-a" "qwen3.5:2b-bf16")))
+          (.then (fn [_]
+                   (reset! reduced (.getPheromone store "ollama-a" "qwen3.5:2b-bf16"))
+                   (is (< @reduced @boosted))
+                   (.close store)))
+          (.then (fn [_]
+                   (let [^js reopened (ps/create-provider-route-pheromone-store-js file 0)]
+                     (-> (.warmup reopened)
+                         (.then (fn [_]
+                                  (is (= @reduced (.getPheromone reopened "ollama-a" "qwen3.5:2b-bf16")))
+                                  (.close reopened)))
+                         (.then (fn [_] (done)))))))))))
