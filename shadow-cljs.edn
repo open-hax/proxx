@@ -470,7 +470,8 @@
                                            createSqlTenantProviderPolicyStore proxx.runtime.tenant-policy-store/create-sql-tenant-provider-policy-store-js
                                            createSqlRequestUsageStore proxx.runtime.usage-store/create-sql-request-usage-store-js
                                            createEventStore proxx.runtime.event-store/create-event-store-js
-                                           createSqlFederationStore proxx.runtime.federation-store/create-sql-federation-store-js}}
+                                           createSqlFederationStore proxx.runtime.federation-store/create-sql-federation-store-js
+                                           createSqlCredentialStore proxx.runtime.sql-credential-store/create-sql-credential-store-js}}
               ;; The Node entry (`node dist/cljs/main.js`): shares the runtime module's code.
               :main {:depends-on #{:proxx-runtime}
                      :init-fn proxx.app.entry/start!}}

@@ -198,3 +198,55 @@
                  (when (flow/finite-number? until)
                    [(get row "provider_id") (get row "account_id") until])))
              rows)))
+
+;; ---------------------------------------------------------------------------
+;; Statements and keys the store composes (texts that are not in the schema)
+;; ---------------------------------------------------------------------------
+
+(def delete-cooldown-text "DELETE FROM account_cooldown WHERE provider_id = $1 AND account_id = $2")
+(def delete-account-returning-text "DELETE FROM accounts WHERE id = $1 AND provider_id = $2 RETURNING id")
+(def delete-health-text "DELETE FROM account_health WHERE provider_id = $1 AND account_id = $2")
+
+(def delete-legacy-openai-texts
+  "Run in one transaction, in this order, each with the ids as `$1::text[]`."
+  ["DELETE FROM account_cooldown WHERE provider_id = 'openai' AND account_id = ANY($1::text[])"
+   "DELETE FROM account_health WHERE provider_id = 'openai' AND account_id = ANY($1::text[])"
+   "DELETE FROM accounts WHERE provider_id = 'openai' AND id = ANY($1::text[])"])
+
+(def providers-by-prefix-text
+  "SELECT id, auth_type, base_url FROM providers WHERE id LIKE $1 AND base_url IS NOT NULL AND base_url != ''")
+
+(defn openai-accounts-query
+  "{\"text\" \"values\"} selecting the OpenAI accounts, narrowed to one ChatGPT
+  account when `chatgpt-account-id` is non-empty. `select-by-provider` is the
+  provider-accounts statement (`... ORDER BY id;`)."
+  [select-by-provider chatgpt-account-id]
+  (if (seq chatgpt-account-id)
+    {"text" (str/replace select-by-provider "ORDER BY id;" "AND chatgpt_account_id = $2 ORDER BY id;")
+     "values" ["openai" chatgpt-account-id]}
+    {"text" select-by-provider "values" ["openai"]}))
+
+(defn cooldown-key
+  "Key of the in-process cooldown cache."
+  [provider-id account-id]
+  (str provider-id ":" account-id))
+
+(defn cooldown-pair-key
+  "Key of the maps `loadCooldowns` / `loadDisabledAccounts` return."
+  [provider-id account-id]
+  (str provider-id "\u0000" account-id))
+
+(defn account-insert-params
+  "Parameters of INSERT_ACCOUNT for a credential (string-keyed, camelCase); absent optionals are null."
+  [account]
+  (let [nn (fn [k] (let [v (get account k)] (if (nil? v) nil v)))]
+    [(get account "accountId") (get account "providerId") (get account "token")
+     (nn "refreshToken") (nn "expiresAt") (nn "chatgptAccountId") (nn "planType")]))
+
+(defn provider-by-id
+  "The provider row as the store returns it (`baseUrl` null when unset)."
+  [row]
+  {"id" (get row "id") "authType" (normalize-auth-type (get row "auth_type")) "baseUrl" (get row "base_url")})
+
+(defn provider-with-base-url [row]
+  {"id" (get row "id") "baseUrl" (get row "base_url")})
