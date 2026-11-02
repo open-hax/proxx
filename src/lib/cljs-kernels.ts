@@ -1062,6 +1062,7 @@ export interface CljsKernels {
   readonly createSqlAuthPersistence: (sql: unknown) => unknown;
   readonly createSqlTenantProviderPolicyStore: (sql: unknown) => unknown;
   readonly createSqlRequestUsageStore: (sql: unknown) => unknown;
+  readonly createSqlFederationStore: (sql: unknown) => unknown;
   readonly createEventStore: (sql: unknown, flushIntervalMs: number, maxBufferSize: number) => unknown;
 }
 

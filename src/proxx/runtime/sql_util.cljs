@@ -26,3 +26,14 @@
   "JavaScript truthiness (0, \"\", NaN, null, undefined are false). Persisted
   columns were written under this rule, so Clojure's rule must not replace it."
   [x] (js* "!!(~{})" x))
+
+(defn shallow
+  "A host object as a string-keyed map of its own defined properties; values stay
+  host values (opaque), `null` becomes nil and `undefined` is absent."
+  [^js o]
+  (reduce (fn [m k] (let [v (aget o k)] (if (undefined? v) m (assoc m k v)))) {} (js-keys o)))
+
+(defn rethrow-as-error
+  "Domain failures (ex-info) reach callers as plain Errors with the same message."
+  [e]
+  (throw (if (some? (ex-data e)) (js/Error. (ex-message e)) e)))
