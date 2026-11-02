@@ -290,19 +290,7 @@
       "removed": true
     },
     {
-      "path": "src/lib/federation/bridge-routing.ts",
-      "owner": "T1-provider-routing-federation-cljs-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "provider routing and federation runtime are implemented in CLJS policy modules"
-    },
-    {
       "path": "src/lib/federation/bridge-send-channel.ts",
-      "owner": "T1-provider-routing-federation-cljs-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "provider routing and federation runtime are implemented in CLJS policy modules"
-    },
-    {
-      "path": "src/lib/federation/federated-routing.ts",
       "owner": "T1-provider-routing-federation-cljs-runtime",
       "disposition": "port-to-cljs",
       "removalCondition": "provider routing and federation runtime are implemented in CLJS policy modules"
@@ -394,12 +382,6 @@
     },
     {
       "path": "src/lib/models.ts",
-      "owner": "T1-core-proxx-cljs-runtime",
-      "disposition": "port-to-cljs",
-      "removalCondition": "core Proxx runtime starts and serves from CLJS with TS shims removed"
-    },
-    {
-      "path": "src/lib/native-auth.ts",
       "owner": "T1-core-proxx-cljs-runtime",
       "disposition": "port-to-cljs",
       "removalCondition": "core Proxx runtime starts and serves from CLJS with TS shims removed"

@@ -46,8 +46,7 @@ import { RuntimeCredentialStore } from "./lib/runtime-credential-store.js";
 import { createTokenRefreshRuntime } from "./lib/token-refresh-handlers.js";
 import { DEFAULT_TENANT_ID } from "./lib/tenant-api-key.js";
 import { createEnvFederationBridgeAgent } from "./lib/federation/bridge-agent-autostart.js";
-import { executeFederatedRequestRouting } from "./lib/federation/federated-routing.js";
-import { handleBridgeRequest, injectNativeBridge } from "./lib/federation/bridge-routing.js";
+import { resolveFederationRoutePath } from "./routes/federation/prefix.js";
 import { v1RouteCollaborators } from "./routes/chat.js";
 import { embeddingsRouteCollaborators } from "./routes/embeddings.js";
 import { mediaRouteCollaborators } from "./routes/media-generations.js";
@@ -84,9 +83,10 @@ export const host = {
   proxySettingsStore: (...args: Args<typeof ProxySettingsStore>) => new ProxySettingsStore(...args),
   createTokenRefreshRuntime,
   createEnvFederationBridgeAgent,
-  handleBridgeRequest,
-  injectNativeBridge,
-  executeFederatedRequestRouting,
+  handleBridgeRequest: kernels.handleBridgeRequest,
+  injectNativeBridge: kernels.injectNativeBridge,
+  executeFederatedRequestRouting: (deps: Record<string, unknown>, input: Record<string, unknown>) =>
+    kernels.executeFederatedRequestRouting(deps, input, { resolveFederationRoutePath }),
   getDeclaredProviderRoutes,
   buildOllamaCatalogRoutes,
   modelIdsToNativeTags,
