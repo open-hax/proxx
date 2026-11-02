@@ -127,3 +127,89 @@
   (testing "empty envelope strings are legal on the wire: relay error frames use them before a session exists"
     (is (string? (p/encode-frame (frame "error" "sessionId" "" "ownerSubject" "" "clusterId" "" "agentId" ""
                                         "code" "c" "message" "m" "retryable" false))))))
+
+;; ---- src/tests/federation-bridge-protocol.test.ts --------------------------------------
+
+(deftest ts-parses-a-cluster-agent-hello-with-advertised-topology
+  (let [m (p/parse-message
+           {"type" "hello" "protocolVersion" "bridge-ws-v0" "sentAt" "2026-03-23T05:00:00.000Z"
+            "traceId" "trace-hello-1" "ownerSubject" "did:plc:z72i7hdynmk6r22z27h6tvur"
+            "clusterId" "local-dev" "agentId" "cluster-agent-1" "peerDid" "did:web:local.promethean.rest"
+            "environment" "local" "bridgeAgentVersion" "0.1.0" "authMode" "at_did" "capabilitiesHash" "abc123"
+            "labels" ["laptop" "oauth-enclave"]
+            "topology" {"groups" [{"groupId" "group-a" "nodeIds" ["a1" "a2"]}
+                                  {"groupId" "group-b" "nodeIds" ["b1" "b2"]}]
+                        "nodes" [{"groupId" "group-a" "nodeId" "a1" "labels" ["default"]}
+                                 {"groupId" "group-a" "nodeId" "a2" "labels" ["spillover"]}]
+                        "defaultExecutionPolicy" "group_affinity"}})]
+    (is (= "hello" (get m "type")))
+    (is (= "cluster-agent-1" (get m "agentId")))
+    (is (= 2 (count (get-in m ["topology" "groups"]))))
+    (is (= "a1" (get-in m ["topology" "nodes" 0 "nodeId"])))
+    (is (= "group_affinity" (get-in m ["topology" "defaultExecutionPolicy"])))))
+
+(deftest ts-parses-capabilities-with-topology-targets
+  (let [paths ["/v1/models" "/v1/chat/completions" "/v1/responses"]
+        m (p/parse-message
+           {"type" "capabilities" "protocolVersion" "bridge-ws-v0" "sessionId" "session-1"
+            "sentAt" "2026-03-23T05:00:01.000Z" "traceId" "trace-cap-1"
+            "ownerSubject" "did:plc:z72i7hdynmk6r22z27h6tvur" "clusterId" "local-dev" "agentId" "cluster-agent-1"
+            "capabilities" [{"providerId" "openai" "modelPrefixes" ["gpt-"] "models" ["gpt-5.4-mini" "gpt-5.4-mini"]
+                             "paths" paths "routes" paths "authType" "oauth_bearer"
+                             "accountCount" 12 "availableAccountCount" 9
+                             "supportsModelsList" true "supportsChatCompletions" true "supportsResponses" true
+                             "supportsStreaming" true "supportsWarmImport" false
+                             "credentialMobility" "access_token_only" "credentialOrigin" "localhost_oauth"
+                             "lastHealthyAt" "2026-03-23T04:59:59.000Z"
+                             "topologyTargets" [{"groupId" "group-a" "nodeId" "a1"}
+                                                {"groupId" "group-a" "nodeId" "a2"}]}]})]
+    (is (= "capabilities" (get m "type")))
+    (is (= 1 (count (get m "capabilities"))))
+    (is (= "openai" (get-in m ["capabilities" 0 "providerId"])))
+    (is (= paths (get-in m ["capabilities" 0 "paths"])))
+    (is (= [{"groupId" "group-a" "nodeId" "a1"} {"groupId" "group-a" "nodeId" "a2"}]
+           (get-in m ["capabilities" 0 "topologyTargets"])))))
+
+(deftest ts-parses-response-chunk-provenance-from-json
+  (let [m (p/parse-message-json
+           (json/write {"type" "response_chunk" "protocolVersion" "bridge-ws-v0" "sessionId" "session-1"
+                        "streamId" "stream-1" "sentAt" "2026-03-23T05:00:02.500Z" "traceId" "trace-resp-chunk-1"
+                        "ownerSubject" "did:plc:z72i7hdynmk6r22z27h6tvur" "clusterId" "staging"
+                        "agentId" "cluster-agent-1" "chunk" "data: hello\n\n" "encoding" "utf8"
+                        "servedByClusterId" "local-dev" "servedByGroupId" "group-a" "servedByNodeId" "a2"
+                        "providerId" "openai" "accountId" "acct-2"}))]
+    (is (= "response_chunk" (get m "type")))
+    (is (= "a2" (get m "servedByNodeId")))
+    (is (= "openai" (get m "providerId")))))
+
+(deftest ts-parses-response-head-messages-from-json
+  (let [m (p/parse-message-json
+           (json/write {"type" "response_head" "protocolVersion" "bridge-ws-v0" "sessionId" "session-1"
+                        "streamId" "stream-1" "sentAt" "2026-03-23T05:00:02.000Z" "traceId" "trace-resp-1"
+                        "ownerSubject" "did:plc:z72i7hdynmk6r22z27h6tvur" "clusterId" "staging"
+                        "agentId" "cluster-agent-1" "status" 200
+                        "headers" {"content-type" "application/json" "x-open-hax-upstream-provider" "openai"}
+                        "servedByClusterId" "local-dev" "servedByGroupId" "group-a" "servedByNodeId" "a1"
+                        "providerId" "openai" "accountId" "acct-1"}))]
+    (is (= "response_head" (get m "type")))
+    (is (= 200 (get m "status")))
+    (is (= "a1" (get m "servedByNodeId")))
+    (is (= "application/json" (get-in m ["headers" "content-type"])))))
+
+(deftest ts-rejects-hello-frames-that-identify-the-socket-as-a-node
+  (let [msg (thrown-message
+             #(p/parse-message {"type" "hello" "protocolVersion" "bridge-ws-v0" "sentAt" "2026-03-23T05:00:00.000Z"
+                                "traceId" "trace-hello-2" "ownerSubject" "did:plc:z72i7hdynmk6r22z27h6tvur"
+                                "clusterId" "local-dev" "peerDid" "did:web:local.promethean.rest"
+                                "groupId" "group-a" "nodeId" "a1" "environment" "local"
+                                "bridgeAgentVersion" "0.1.0" "authMode" "admin_key"}))]
+    (is (some? msg) "must throw")
+    (is (re-find #"agentId" (str msg)))))
+
+(deftest ts-rejects-unsupported-protocol-versions
+  (let [msg (thrown-message
+             #(p/parse-message {"type" "heartbeat" "protocolVersion" "bridge-ws-v1" "sentAt" "2026-03-23T05:00:03.000Z"
+                                "traceId" "trace-heartbeat-1" "ownerSubject" "did:plc:z72i7hdynmk6r22z27h6tvur"
+                                "clusterId" "local-dev" "agentId" "cluster-agent-1" "sequence" 1}))]
+    (is (some? msg) "must throw")
+    (is (re-find #"protocolVersion" (str msg)))))
