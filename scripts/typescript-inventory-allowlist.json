@@ -19,13 +19,6 @@
   },
   "entries": [
     {
-      "path": "scripts/bulk-oauth-import.ts",
-      "owner": "T5-tooling-scripts-cljs-or-js-disposition",
-      "disposition": "removed",
-      "removalCondition": "Removed: the script is CLJS (proxx.tools.bulk-oauth-import, pure planning in proxx.tools.bulk-oauth); run with pnpm import:oauth:bulk.",
-      "removed": true
-    },
-    {
       "path": "src/app.ts",
       "owner": "T1-core-proxx-cljs-runtime",
       "disposition": "port-to-cljs",
@@ -36,27 +29,6 @@
       "owner": "T1-core-proxx-cljs-runtime",
       "disposition": "port-to-cljs",
       "removalCondition": "core Proxx runtime starts and serves from CLJS with TS shims removed"
-    },
-    {
-      "path": "src/lib/app-deps.ts",
-      "owner": "T1-core-proxx-cljs-runtime",
-      "disposition": "removed",
-      "removalCondition": "Removed: nothing imports it; its behaviour is CLJS (proxx.*).",
-      "removed": true
-    },
-    {
-      "path": "src/lib/auth/github-allowlist.ts",
-      "owner": "T1-storage-auth-cljs-runtime",
-      "disposition": "removed",
-      "removalCondition": "Removed: the server entry is CLJS (proxx.app.entry, dist/cljs/main.js).",
-      "removed": true
-    },
-    {
-      "path": "src/lib/auth/index.ts",
-      "owner": "T1-storage-auth-cljs-runtime",
-      "disposition": "removed",
-      "removalCondition": "Removed: the server entry is CLJS (proxx.app.entry, dist/cljs/main.js).",
-      "removed": true
     },
     {
       "path": "src/lib/auth/sql-persistence.ts",
@@ -131,12 +103,6 @@
       "removalCondition": "core Proxx runtime starts and serves from CLJS with TS shims removed"
     },
     {
-      "path": "src/lib/data/models-dev-pricing-data.ts",
-      "owner": "T1-core-proxx-cljs-runtime",
-      "disposition": "removed",
-      "removalCondition": "core Proxx runtime starts and serves from CLJS with TS shims removed"
-    },
-    {
       "path": "src/lib/db/account-health-store.ts",
       "owner": "T1-storage-auth-cljs-runtime",
       "disposition": "port-to-cljs",
@@ -197,31 +163,10 @@
       "removalCondition": "storage/auth runtime is implemented in CLJS with existing DB semantics preserved"
     },
     {
-      "path": "src/lib/dynamic-ollama-routes.ts",
-      "owner": "T1-core-proxx-cljs-runtime",
-      "disposition": "removed",
-      "removalCondition": "Removed because dynamic Ollama routing/provider rules are policy DSL concerns, not TypeScript helpers.",
-      "removed": true
-    },
-    {
-      "path": "src/lib/embeddings-providers/index.ts",
-      "owner": "T1-core-proxx-cljs-runtime",
-      "disposition": "removed",
-      "removalCondition": "Removed: nothing imports it; its behaviour is CLJS (proxx.*).",
-      "removed": true
-    },
-    {
       "path": "src/lib/embeddings-strategy.ts",
       "owner": "T1-core-proxx-cljs-runtime",
       "disposition": "port-to-cljs",
       "removalCondition": "core Proxx runtime starts and serves from CLJS with TS shims removed"
-    },
-    {
-      "path": "src/lib/epoch.ts",
-      "owner": "T1-core-proxx-cljs-runtime",
-      "disposition": "removed",
-      "removalCondition": "Removed: nothing imports it; its behaviour is CLJS (proxx.*).",
-      "removed": true
     },
     {
       "path": "src/lib/errors/classification.ts",
@@ -284,13 +229,6 @@
       "removalCondition": "provider routing and federation runtime are implemented in CLJS policy modules"
     },
     {
-      "path": "src/lib/federation/bridge-request-helpers.ts",
-      "owner": "T1-provider-routing-federation-cljs-runtime",
-      "disposition": "removed",
-      "removalCondition": "Removed: nothing imports it; its behaviour is CLJS (proxx.*).",
-      "removed": true
-    },
-    {
       "path": "src/lib/federation/bridge-send-channel.ts",
       "owner": "T1-provider-routing-federation-cljs-runtime",
       "disposition": "port-to-cljs",
@@ -313,13 +251,6 @@
       "owner": "T1-provider-routing-federation-cljs-runtime",
       "disposition": "port-to-cljs",
       "removalCondition": "provider routing and federation runtime are implemented in CLJS policy modules"
-    },
-    {
-      "path": "src/lib/federation/sse-bridge-channel.ts",
-      "owner": "T1-provider-routing-federation-cljs-runtime",
-      "disposition": "removed",
-      "removalCondition": "Removed: nothing imports it; its behaviour is CLJS (proxx.*).",
-      "removed": true
     },
     {
       "path": "src/lib/glm-compat.ts",
@@ -386,13 +317,6 @@
       "owner": "T1-core-proxx-cljs-runtime",
       "disposition": "port-to-cljs",
       "removalCondition": "core Proxx runtime starts and serves from CLJS with TS shims removed"
-    },
-    {
-      "path": "src/lib/oauth-routes.ts",
-      "owner": "T1-core-proxx-cljs-runtime",
-      "disposition": "removed",
-      "removalCondition": "Removed: nothing imports it; its behaviour is CLJS (proxx.*).",
-      "removed": true
     },
     {
       "path": "src/lib/observability/request-log-sse-hub.ts",
@@ -515,13 +439,6 @@
       "removalCondition": "provider routing and federation runtime are implemented in CLJS policy modules"
     },
     {
-      "path": "src/lib/provider-strategy/routing/candidate-builder.ts",
-      "owner": "T1-provider-routing-federation-cljs-runtime",
-      "disposition": "removed",
-      "removalCondition": "Removed: the routing loop and its candidate builder are CLJS (proxx.runtime.attempt-executor).",
-      "removed": true
-    },
-    {
       "path": "src/lib/provider-strategy/routing/credential-selector.ts",
       "owner": "T1-provider-routing-federation-cljs-runtime",
       "disposition": "port-to-cljs",
@@ -532,20 +449,6 @@
       "owner": "T1-provider-routing-federation-cljs-runtime",
       "disposition": "port-to-cljs",
       "removalCondition": "provider routing and federation runtime are implemented in CLJS policy modules"
-    },
-    {
-      "path": "src/lib/provider-strategy/routing/index.ts",
-      "owner": "T1-provider-routing-federation-cljs-runtime",
-      "disposition": "removed",
-      "removalCondition": "Removed: the routing loop and its candidate builder are CLJS (proxx.runtime.attempt-executor).",
-      "removed": true
-    },
-    {
-      "path": "src/lib/provider-strategy/routing/types.ts",
-      "owner": "T1-provider-routing-federation-cljs-runtime",
-      "disposition": "removed",
-      "removalCondition": "Removed: the routing loop and its candidate builder are CLJS (proxx.runtime.attempt-executor).",
-      "removed": true
     },
     {
       "path": "src/lib/provider-strategy/shared.ts",
@@ -582,13 +485,6 @@
       "owner": "T1-provider-routing-federation-cljs-runtime",
       "disposition": "port-to-cljs",
       "removalCondition": "provider routing and federation runtime are implemented in CLJS policy modules"
-    },
-    {
-      "path": "src/lib/provider-strategy/strategies/responses-event-stream.ts",
-      "owner": "T1-provider-routing-federation-cljs-runtime",
-      "disposition": "removed",
-      "removalCondition": "Removed: the provider reply plumbing is CLJS (proxx.runtime.provider-reply).",
-      "removed": true
     },
     {
       "path": "src/lib/provider-strategy/strategies/vision.ts",
@@ -637,13 +533,6 @@
       "owner": "T1-core-proxx-cljs-runtime",
       "disposition": "port-to-cljs",
       "removalCondition": "core Proxx runtime starts and serves from CLJS with TS shims removed"
-    },
-    {
-      "path": "src/lib/response-utils.ts",
-      "owner": "T1-core-proxx-cljs-runtime",
-      "disposition": "removed",
-      "removalCondition": "Removed: nothing imports it; its behaviour is CLJS (proxx.*).",
-      "removed": true
     },
     {
       "path": "src/lib/responses-compat.ts",
@@ -712,52 +601,10 @@
       "removalCondition": "core Proxx runtime starts and serves from CLJS with TS shims removed"
     },
     {
-      "path": "src/main.ts",
-      "owner": "T1-core-proxx-cljs-runtime",
-      "disposition": "removed",
-      "removalCondition": "Removed: the server entry is CLJS (proxx.app.entry, dist/cljs/main.js).",
-      "removed": true
-    },
-    {
-      "path": "src/routes/api/ui/analytics/usage.ts",
-      "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "removed",
-      "removalCondition": "Removed: observability routes, scoping decisions and usage data sourcing are CLJS (proxx.runtime.routes.observability, proxx.http.observability); observability/index.ts is the shim.",
-      "removed": true
-    },
-    {
-      "path": "src/routes/api/ui/assets.ts",
-      "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "removed",
-      "removalCondition": "Removed: nothing imports it (dead legacy /api/ui registration; the live surface is registered through routes/api/v1/index.ts).",
-      "removed": true
-    },
-    {
       "path": "src/routes/api/ui/bridge-sse.ts",
       "owner": "T2-route-surface-cljs-policy-runtime",
       "disposition": "port-to-cljs",
       "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed"
-    },
-    {
-      "path": "src/routes/api/ui/events/index.ts",
-      "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "removed",
-      "removalCondition": "Removed: nothing imports it (dead legacy /api/ui registration; the live surface is registered through routes/api/v1/index.ts).",
-      "removed": true
-    },
-    {
-      "path": "src/routes/api/ui/hosts/index.ts",
-      "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "removed",
-      "removalCondition": "Removed: nothing imports it (dead legacy /api/ui registration; the live surface is registered through routes/api/v1/index.ts).",
-      "removed": true
-    },
-    {
-      "path": "src/routes/api/ui/mcp/index.ts",
-      "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "removed",
-      "removalCondition": "Removed: nothing imports it (dead legacy /api/ui registration; the live surface is registered through routes/api/v1/index.ts).",
-      "removed": true
     },
     {
       "path": "src/routes/api/ui/request-log-sse.ts",
@@ -778,24 +625,10 @@
       "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed"
     },
     {
-      "path": "src/routes/bridge/lease.ts",
-      "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "removed",
-      "removalCondition": "Removed: nothing imports it (dead legacy /api/ui registration; the live surface is registered through routes/api/v1/index.ts).",
-      "removed": true
-    },
-    {
       "path": "src/routes/chat.ts",
       "owner": "T2-route-surface-cljs-policy-runtime",
       "disposition": "port-to-cljs",
       "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed"
-    },
-    {
-      "path": "src/routes/credentials/account-management-ui.ts",
-      "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "removed",
-      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed",
-      "removed": true
     },
     {
       "path": "src/routes/credentials/context.ts",
@@ -804,80 +637,10 @@
       "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed"
     },
     {
-      "path": "src/routes/credentials/factory-browser-oauth-ui.ts",
-      "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "removed",
-      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed",
-      "removed": true
-    },
-    {
-      "path": "src/routes/credentials/factory-device-oauth-ui.ts",
-      "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "removed",
-      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed",
-      "removed": true
-    },
-    {
-      "path": "src/routes/credentials/get-credentials-ui.ts",
-      "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "removed",
-      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed",
-      "removed": true
-    },
-    {
       "path": "src/routes/credentials/index.ts",
       "owner": "T2-route-surface-cljs-policy-runtime",
       "disposition": "port-to-cljs",
       "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed"
-    },
-    {
-      "path": "src/routes/credentials/ollama-cloud-probe-ui.ts",
-      "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "removed",
-      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed",
-      "removed": true
-    },
-    {
-      "path": "src/routes/credentials/openai-browser-oauth-ui.ts",
-      "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "removed",
-      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed",
-      "removed": true
-    },
-    {
-      "path": "src/routes/credentials/openai-device-oauth-ui.ts",
-      "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "removed",
-      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed",
-      "removed": true
-    },
-    {
-      "path": "src/routes/credentials/openai-probe-ui.ts",
-      "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "removed",
-      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed",
-      "removed": true
-    },
-    {
-      "path": "src/routes/credentials/openai-prompt-cache-audit-ui.ts",
-      "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "removed",
-      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed",
-      "removed": true
-    },
-    {
-      "path": "src/routes/credentials/openai-quota-ui.ts",
-      "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "removed",
-      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed",
-      "removed": true
-    },
-    {
-      "path": "src/routes/credentials/openai-refresh-ui.ts",
-      "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "removed",
-      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed",
-      "removed": true
     },
     {
       "path": "src/routes/credentials/prefix.ts",
@@ -890,13 +653,6 @@
       "owner": "T2-route-surface-cljs-policy-runtime",
       "disposition": "port-to-cljs",
       "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed"
-    },
-    {
-      "path": "src/routes/credentials/visible-accounts.ts",
-      "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "removed",
-      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed",
-      "removed": true
     },
     {
       "path": "src/routes/embeddings.ts",
@@ -935,24 +691,10 @@
       "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed"
     },
     {
-      "path": "src/routes/federation/remote.ts",
-      "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "removed",
-      "removalCondition": "Removed: federation routes and decisions are CLJS (proxx.runtime.routes.federation, proxx.http.federation); the peer fetch lives in the CLJS edge.",
-      "removed": true
-    },
-    {
       "path": "src/routes/federation/ui.ts",
       "owner": "T2-route-surface-cljs-policy-runtime",
       "disposition": "port-to-cljs",
       "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed"
-    },
-    {
-      "path": "src/routes/health.ts",
-      "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "removed",
-      "removalCondition": "Removed: the server entry is CLJS (proxx.app.entry, dist/cljs/main.js).",
-      "removed": true
     },
     {
       "path": "src/routes/hosts/index.ts",
@@ -961,65 +703,16 @@
       "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed"
     },
     {
-      "path": "src/routes/images.ts",
-      "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "removed",
-      "removalCondition": "Removed: the server entry is CLJS (proxx.app.entry, dist/cljs/main.js).",
-      "removed": true
-    },
-    {
-      "path": "src/routes/index.ts",
-      "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "removed",
-      "removalCondition": "Removed: nothing imports it (dead legacy /api/ui registration; the live surface is registered through routes/api/v1/index.ts).",
-      "removed": true
-    },
-    {
-      "path": "src/routes/mcp/index.ts",
-      "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "removed",
-      "removalCondition": "Removed: registerMcpRoutes registered nothing (empty body); the /mcp-servers route lives in observability.",
-      "removed": true
-    },
-    {
       "path": "src/routes/media-generations.ts",
       "owner": "T2-route-surface-cljs-policy-runtime",
       "disposition": "port-to-cljs",
       "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed"
     },
     {
-      "path": "src/routes/models.ts",
-      "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "removed",
-      "removalCondition": "Removed: the server entry is CLJS (proxx.app.entry, dist/cljs/main.js).",
-      "removed": true
-    },
-    {
-      "path": "src/routes/native-ollama.ts",
-      "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "removed",
-      "removalCondition": "Removed: the server entry is CLJS (proxx.app.entry, dist/cljs/main.js).",
-      "removed": true
-    },
-    {
       "path": "src/routes/observability/index.ts",
       "owner": "T2-route-surface-cljs-policy-runtime",
       "disposition": "port-to-cljs",
       "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed"
-    },
-    {
-      "path": "src/routes/observability/prefix.ts",
-      "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "removed",
-      "removalCondition": "Removed: observability routes, scoping decisions and usage data sourcing are CLJS (proxx.runtime.routes.observability, proxx.http.observability); observability/index.ts is the shim.",
-      "removed": true
-    },
-    {
-      "path": "src/routes/responses.ts",
-      "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "removed",
-      "removalCondition": "Removed: the server entry is CLJS (proxx.app.entry, dist/cljs/main.js).",
-      "removed": true
     },
     {
       "path": "src/routes/sessions/context.ts",
@@ -1034,87 +727,10 @@
       "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed"
     },
     {
-      "path": "src/routes/sessions/prefix.ts",
-      "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "removed",
-      "removalCondition": "Removed: session routes, message validation and search decisions are CLJS (proxx.runtime.routes.sessions, proxx.http.sessions); sessions/index.ts is the shim.",
-      "removed": true
-    },
-    {
-      "path": "src/routes/sessions/ui.ts",
-      "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "removed",
-      "removalCondition": "Removed: session routes, message validation and search decisions are CLJS (proxx.runtime.routes.sessions, proxx.http.sessions); sessions/index.ts is the shim.",
-      "removed": true
-    },
-    {
-      "path": "src/routes/settings/delete-tenant-api-key-ui.ts",
-      "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "removed",
-      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed",
-      "removed": true
-    },
-    {
-      "path": "src/routes/settings/get-me-ui.ts",
-      "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "removed",
-      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed",
-      "removed": true
-    },
-    {
-      "path": "src/routes/settings/get-settings-ui.ts",
-      "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "removed",
-      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed",
-      "removed": true
-    },
-    {
-      "path": "src/routes/settings/get-tenant-api-keys-ui.ts",
-      "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "removed",
-      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed",
-      "removed": true
-    },
-    {
-      "path": "src/routes/settings/get-tenants-ui.ts",
-      "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "removed",
-      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed",
-      "removed": true
-    },
-    {
       "path": "src/routes/settings/index.ts",
       "owner": "T2-route-surface-cljs-policy-runtime",
       "disposition": "port-to-cljs",
       "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed"
-    },
-    {
-      "path": "src/routes/settings/post-settings-ui.ts",
-      "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "removed",
-      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed",
-      "removed": true
-    },
-    {
-      "path": "src/routes/settings/post-tenant-api-keys-ui.ts",
-      "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "removed",
-      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed",
-      "removed": true
-    },
-    {
-      "path": "src/routes/settings/post-tenant-select-ui.ts",
-      "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "removed",
-      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed",
-      "removed": true
-    },
-    {
-      "path": "src/routes/settings/prefix.ts",
-      "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "removed",
-      "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed",
-      "removed": true
     },
     {
       "path": "src/routes/settings/ui.ts",
@@ -1123,287 +739,10 @@
       "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed"
     },
     {
-      "path": "src/routes/shared/ui-auth.ts",
-      "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "removed",
-      "removalCondition": "Removed: nothing imports it; its behaviour is CLJS (proxx.*).",
-      "removed": true
-    },
-    {
       "path": "src/routes/types.ts",
       "owner": "T2-route-surface-cljs-policy-runtime",
       "disposition": "port-to-cljs",
       "removalCondition": "HTTP route surface is implemented in CLJS and policy-backed"
-    },
-    {
-      "path": "src/routes/ui/index.ts",
-      "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "removed",
-      "removalCondition": "Removed: nothing imports it (dead legacy /api/ui registration; the live surface is registered through routes/api/v1/index.ts).",
-      "removed": true
-    },
-    {
-      "path": "src/routes/websearch.ts",
-      "owner": "T2-route-surface-cljs-policy-runtime",
-      "disposition": "removed",
-      "removalCondition": "Removed: the server entry is CLJS (proxx.app.entry, dist/cljs/main.js).",
-      "removed": true
-    },
-    {
-      "path": "src/tests/big-ussy-bootstrap-contract.test.ts",
-      "owner": "T4-test-harness-cljs-migration",
-      "disposition": "port-test-to-cljs",
-      "removalCondition": "test coverage runs from CLJS/node-test or an accepted non-TS harness"
-    },
-    {
-      "path": "src/tests/cljs-policy-preview.test.ts",
-      "owner": "T4-test-harness-cljs-migration",
-      "disposition": "port-test-to-cljs",
-      "removalCondition": "test coverage runs from CLJS/node-test or an accepted non-TS harness"
-    },
-    {
-      "path": "src/tests/config.test.ts",
-      "owner": "T4-test-harness-cljs-migration",
-      "disposition": "port-test-to-cljs",
-      "removalCondition": "test coverage runs from CLJS/node-test or an accepted non-TS harness"
-    },
-    {
-      "path": "src/tests/dynamic-ollama-routes.test.ts",
-      "owner": "T4-test-harness-cljs-migration",
-      "disposition": "removed",
-      "removalCondition": "Removed because dynamic Ollama routing/provider rules are policy DSL concerns, not TypeScript helpers.",
-      "removed": true
-    },
-    {
-      "path": "src/tests/federation-bridge-agent.test.ts",
-      "owner": "T4-test-harness-cljs-migration",
-      "disposition": "port-test-to-cljs",
-      "removalCondition": "test coverage runs from CLJS/node-test or an accepted non-TS harness"
-    },
-    {
-      "path": "src/tests/federation-bridge-autostart.test.ts",
-      "owner": "T4-test-harness-cljs-migration",
-      "disposition": "port-test-to-cljs",
-      "removalCondition": "test coverage runs from CLJS/node-test or an accepted non-TS harness"
-    },
-    {
-      "path": "src/tests/federation-bridge-protocol.test.ts",
-      "owner": "T4-test-harness-cljs-migration",
-      "disposition": "port-test-to-cljs",
-      "removalCondition": "test coverage runs from CLJS/node-test or an accepted non-TS harness"
-    },
-    {
-      "path": "src/tests/federation-bridge-relay.test.ts",
-      "owner": "T4-test-harness-cljs-migration",
-      "disposition": "port-test-to-cljs",
-      "removalCondition": "test coverage runs from CLJS/node-test or an accepted non-TS harness"
-    },
-    {
-      "path": "src/tests/host-dashboard.test.ts",
-      "owner": "T4-test-harness-cljs-migration",
-      "disposition": "port-test-to-cljs",
-      "removalCondition": "test coverage runs from CLJS/node-test or an accepted non-TS harness"
-    },
-    {
-      "path": "src/tests/observability-routes.test.ts",
-      "owner": "T4-test-harness-cljs-migration",
-      "disposition": "port-test-to-cljs",
-      "removalCondition": "test coverage runs from CLJS/node-test or an accepted non-TS harness"
-    },
-    {
-      "path": "src/tests/on-demand-projections.test.ts",
-      "owner": "T4-test-harness-cljs-migration",
-      "disposition": "port-test-to-cljs",
-      "removalCondition": "test coverage runs from CLJS/node-test or an accepted non-TS harness"
-    },
-    {
-      "path": "src/tests/prompt-affinity-store.test.ts",
-      "owner": "T4-test-harness-cljs-migration",
-      "disposition": "port-test-to-cljs",
-      "removalCondition": "test coverage runs from CLJS/node-test or an accepted non-TS harness"
-    },
-    {
-      "path": "src/tests/provider-route-aco.test.ts",
-      "owner": "T4-test-harness-cljs-migration",
-      "disposition": "port-test-to-cljs",
-      "removalCondition": "test coverage runs from CLJS/node-test or an accepted non-TS harness"
-    },
-    {
-      "path": "src/tests/provider-route-pheromone-store.test.ts",
-      "owner": "T4-test-harness-cljs-migration",
-      "disposition": "port-test-to-cljs",
-      "removalCondition": "test coverage runs from CLJS/node-test or an accepted non-TS harness"
-    },
-    {
-      "path": "src/tests/proxy-settings-store.test.ts",
-      "owner": "T4-test-harness-cljs-migration",
-      "disposition": "port-test-to-cljs",
-      "removalCondition": "test coverage runs from CLJS/node-test or an accepted non-TS harness"
-    },
-    {
-      "path": "src/tests/proxy.test.ts",
-      "owner": "T4-test-harness-cljs-migration",
-      "disposition": "port-test-to-cljs",
-      "removalCondition": "test coverage runs from CLJS/node-test or an accepted non-TS harness"
-    },
-    {
-      "path": "src/tests/quota-monitor.test.ts",
-      "owner": "T4-test-harness-cljs-migration",
-      "disposition": "port-test-to-cljs",
-      "removalCondition": "test coverage runs from CLJS/node-test or an accepted non-TS harness"
-    },
-    {
-      "path": "src/tests/request-log-store.test.ts",
-      "owner": "T4-test-harness-cljs-migration",
-      "disposition": "port-test-to-cljs",
-      "removalCondition": "test coverage runs from CLJS/node-test or an accepted non-TS harness"
-    },
-    {
-      "path": "web/src/App.tsx",
-      "owner": "T3-web-ui-tsx-retirement",
-      "disposition": "removed",
-      "removalCondition": "Removed: ported to ClojureScript (proxx.web.* shell, runtime, storage; smoke tests in test/proxx/web).",
-      "removed": true
-    },
-    {
-      "path": "web/src/__tests__/app.test.tsx",
-      "owner": "T3-web-ui-tsx-retirement",
-      "disposition": "removed",
-      "removalCondition": "Removed: ported to ClojureScript (proxx.web.* shell, runtime, storage; smoke tests in test/proxx/web).",
-      "removed": true
-    },
-    {
-      "path": "web/src/components/index.ts",
-      "owner": "T3-web-ui-tsx-retirement",
-      "disposition": "removed",
-      "removalCondition": "Removed: ported to ClojureScript (proxx.web.* shell, runtime, storage; smoke tests in test/proxx/web).",
-      "removed": true
-    },
-    {
-      "path": "web/src/lib/api.ts",
-      "owner": "T3-web-ui-tsx-retirement",
-      "disposition": "removed",
-      "removalCondition": "Removed: ported to ClojureScript (proxx.web.api request descriptions, proxx.web.format).",
-      "removed": true
-    },
-    {
-      "path": "web/src/lib/format.ts",
-      "owner": "T3-web-ui-tsx-retirement",
-      "disposition": "removed",
-      "removalCondition": "Removed: ported to ClojureScript (proxx.web.api request descriptions, proxx.web.format).",
-      "removed": true
-    },
-    {
-      "path": "web/src/lib/local-storage.ts",
-      "owner": "T3-web-ui-tsx-retirement",
-      "disposition": "removed",
-      "removalCondition": "Removed: ported to ClojureScript (proxx.web.* shell, runtime, storage; smoke tests in test/proxx/web).",
-      "removed": true
-    },
-    {
-      "path": "web/src/lib/use-stored-state.ts",
-      "owner": "T3-web-ui-tsx-retirement",
-      "disposition": "removed",
-      "removalCondition": "Removed: ported to ClojureScript (proxx.web.* shell, runtime, storage; smoke tests in test/proxx/web).",
-      "removed": true
-    },
-    {
-      "path": "web/src/main.tsx",
-      "owner": "T3-web-ui-tsx-retirement",
-      "disposition": "removed",
-      "removalCondition": "Removed: ported to ClojureScript (proxx.web.* shell, runtime, storage; smoke tests in test/proxx/web).",
-      "removed": true
-    },
-    {
-      "path": "web/src/pages/AnalyticsPage.tsx",
-      "owner": "T3-web-ui-tsx-retirement",
-      "disposition": "removed",
-      "removalCondition": "Removed: ported to ClojureScript (proxx.web.pages.analytics, proxx.web.views.analytics).",
-      "removed": true
-    },
-    {
-      "path": "web/src/pages/ChatPage.tsx",
-      "owner": "T3-web-ui-tsx-retirement",
-      "disposition": "removed",
-      "removalCondition": "Removed: ported to ClojureScript (proxx.web.pages.chat, proxx.web.views.chat).",
-      "removed": true
-    },
-    {
-      "path": "web/src/pages/CredentialsPage.tsx",
-      "owner": "T3-web-ui-tsx-retirement",
-      "disposition": "removed",
-      "removalCondition": "Removed: ported to ClojureScript (proxx.web.credentials, proxx.web.pages.credentials, proxx.web.views.credentials).",
-      "removed": true
-    },
-    {
-      "path": "web/src/pages/DashboardPage.tsx",
-      "owner": "T3-web-ui-tsx-retirement",
-      "disposition": "removed",
-      "removalCondition": "Removed: ported to ClojureScript (proxx.web.pages.dashboard, proxx.web.views.dashboard).",
-      "removed": true
-    },
-    {
-      "path": "web/src/pages/EventsPage.tsx",
-      "owner": "T3-web-ui-tsx-retirement",
-      "disposition": "removed",
-      "removalCondition": "Removed: ported to ClojureScript (proxx.web.pages.events, proxx.web.views.events).",
-      "removed": true
-    },
-    {
-      "path": "web/src/pages/FederationPage.tsx",
-      "owner": "T3-web-ui-tsx-retirement",
-      "disposition": "removed",
-      "removalCondition": "Removed: ported to ClojureScript (proxx.web.pages.federation, proxx.web.views.federation).",
-      "removed": true
-    },
-    {
-      "path": "web/src/pages/HostsPage.tsx",
-      "owner": "T3-web-ui-tsx-retirement",
-      "disposition": "removed",
-      "removalCondition": "Removed: ported to ClojureScript (proxx.web.pages.hosts, proxx.web.views.hosts).",
-      "removed": true
-    },
-    {
-      "path": "web/src/pages/ImagesPage.tsx",
-      "owner": "T3-web-ui-tsx-retirement",
-      "disposition": "removed",
-      "removalCondition": "Removed: ported to ClojureScript (proxx.web.pages.images, proxx.web.views.images).",
-      "removed": true
-    },
-    {
-      "path": "web/src/pages/ToolsPage.tsx",
-      "owner": "T3-web-ui-tsx-retirement",
-      "disposition": "removed",
-      "removalCondition": "Removed: ported to ClojureScript (proxx.web.pages.tools, proxx.web.views.tools).",
-      "removed": true
-    },
-    {
-      "path": "web/src/test/setup.ts",
-      "owner": "T3-web-ui-tsx-retirement",
-      "disposition": "removed",
-      "removalCondition": "Removed: ported to ClojureScript (proxx.web.* shell, runtime, storage; smoke tests in test/proxx/web).",
-      "removed": true
-    },
-    {
-      "path": "web/test/ToolsPage.smoke.test.tsx",
-      "owner": "T3-web-ui-tsx-retirement",
-      "disposition": "removed",
-      "removalCondition": "Removed: ported to ClojureScript (proxx.web.pages.tools, proxx.web.views.tools).",
-      "removed": true
-    },
-    {
-      "path": "web/test/e2e/tools.smoke.ts",
-      "owner": "T3-web-ui-tsx-retirement",
-      "disposition": "removed",
-      "removalCondition": "Removed: now plain ESM (web/test/e2e/tools.smoke.mjs), no TypeScript dependency; run with `node` (pnpm web:test:e2e).",
-      "removed": true
-    },
-    {
-      "path": "web/vite.config.ts",
-      "owner": "T3-web-ui-tsx-retirement",
-      "disposition": "removed",
-      "removalCondition": "Removed: the Vite config is plain ESM (web/vite.config.mjs).",
-      "removed": true
     },
     {
       "path": "src/lib/cljs-kernels-core.ts",

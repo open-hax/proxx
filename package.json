@@ -33,7 +33,7 @@
     "check:no-new-typescript": "node scripts/check-no-new-typescript.mjs && node scripts/check-policy-boundary.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "start": "node --env-file-if-exists=.env dist/cljs/main.js",
-    "test": "pnpm run build && node --test --test-concurrency=1 'dist/tests/**/*.test.js'",
+    "test": "pnpm run build && NODE_OPTIONS=--max-old-space-size=4096 pnpm run test:cljs",
     "test:coverage": "pnpm run build && c8 --reporter=text --reporter=json-summary --exclude 'src/**/*.test.ts' --exclude 'src/**/*.d.ts' --exclude 'src/**/types.ts' --exclude 'src/data/**' --exclude 'src/routes/**' --exclude 'src/lib/oauth-routes.ts' --exclude 'src/lib/native-auth.ts' --exclude 'src/lib/telemetry/**' --exclude 'src/lib/observability/**' --exclude 'src/lib/chroma-*.ts' node --test --test-concurrency=1 'dist/tests/**/*.test.js'",
     "test:cljs": "npx shadow-cljs compile node-test && node target/node-test.cjs",
     "test:cljs:coverage": "npx shadow-cljs compile node-test && c8 node target/node-test.cjs",

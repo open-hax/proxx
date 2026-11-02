@@ -122,3 +122,13 @@ intentional divergence with a named test. **Exception: persisted identity**
      (baseline: 649 tests, 647 pass, 0 fail, 2 skipped, plus anything added).
 4. One commit per module, message ending with
    `Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>`.
+
+## Known gap carried over from the TypeScript tests
+
+`src/tests/proxy.test.ts` held one `test.skip`: "CLJS policy normalizes xhigh
+reasoning effort to max for ollama-cloud provider" (POST `/v1/chat/completions`,
+model `glm-4.7`, `reasoning_effort: "xhigh"`, provider `ollama-cloud` with one
+key, expecting 200 and `x-open-hax-upstream-provider: ollama-cloud`). It was
+skipped in TypeScript and, run against the CLJS runtime, answers with upstream
+provider `ollama` instead. It was not ported (nothing to assert yet); whoever owns
+the ollama-cloud routing contract should either fix the behaviour or retire the case.
