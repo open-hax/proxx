@@ -131,3 +131,41 @@
       (is (= (+ n 2) (count @calls)))
       (is (= (mapv :sql (schema/migrations resource)) (mapv first (take n @calls))))
       (is (= [(schema/statement resource "INSERT_VERSION") [8]] (last @calls))))))
+
+;; --- Ported from src/tests/schema-migration.test.ts ----------------------------
+;; Over the migrations the TypeScript module exports (`ALL_MIGRATIONS`,
+;; `SCHEMA_VERSION`), i.e. the edge accessors the shim wraps.
+
+(defn- all-migrations [] (array-seq (edge/all-migrations-js)))
+
+(deftest schema-version-matches-the-highest-version-in-all-migrations
+  (let [max-version (apply max (map #(.-version %) (all-migrations)))]
+    (is (= max-version (edge/schema-version-js))
+        (str "SCHEMA_VERSION (" (edge/schema-version-js) ") must equal the highest migration version (" max-version
+             "). If you added a new migration, bump the schema version to match."))))
+
+(deftest all-migrations-versions-are-non-decreasing
+  (reduce (fn [previous ^js migration]
+            (is (>= (.-version migration) previous)
+                (str "Migration versions must be non-decreasing: version " (.-version migration) " came after " previous))
+            (.-version migration))
+          0 (all-migrations)))
+
+(deftest all-migrations-entries-are-non-empty-sql-strings
+  (doseq [^js migration (all-migrations)]
+    (is (and (string? (.-sql migration)) (pos? (count (.trim (.-sql migration)))))
+        (str "Migration version " (.-version migration) " must have a non-empty SQL string"))))
+
+(deftest alter-table-migrations-use-if-not-exists-for-safety
+  (doseq [^js migration (all-migrations)
+          :let [sql (.toUpperCase (.-sql migration))]
+          :when (and (.includes sql "ALTER TABLE") (.includes sql "ADD COLUMN"))]
+    (is (.includes sql "IF NOT EXISTS")
+        (str "ADD COLUMN migration version " (.-version migration) " should use IF NOT EXISTS for idempotency"))))
+
+(deftest create-table-migrations-use-if-not-exists-for-safety
+  (doseq [^js migration (all-migrations)
+          :let [sql (.toUpperCase (.-sql migration))]
+          :when (.includes sql "CREATE TABLE")]
+    (is (.includes sql "IF NOT EXISTS")
+        (str "CREATE TABLE migration version " (.-version migration) " should use IF NOT EXISTS for idempotency"))))

@@ -38,3 +38,30 @@
   (let [k (edge/generate-tenant-api-key-js)]
     (is (re-matches #"ohpk_[A-Za-z0-9_-]{32}" k))
     (is (not= k (edge/generate-tenant-api-key-js)))))
+
+;; --- Ported from src/tests/tenant-api-key.test.ts ------------------------------
+
+(deftest default-tenant-id-remains-stable
+  (is (= "default" (.-defaultTenantId (edge/tenant-api-key-constants-js)))))
+
+(deftest normalize-tenant-id-trims-and-lowercases
+  (is (= "open-hax" (edge/normalize-tenant-id-js "  Open-Hax  "))))
+
+(deftest generate-tenant-api-key-returns-prefixed-secret
+  (let [prefix (.-apiKeyPrefix (edge/tenant-api-key-constants-js))
+        token (edge/generate-tenant-api-key-js)]
+    (is (= "ohpk_" prefix))
+    (is (.startsWith token prefix))
+    (is (> (count token) (+ (count prefix) 16)))))
+
+(deftest build-tenant-api-key-prefix-exposes-only-visible-prefix
+  (is (= "ohpk_abcdefg" (edge/build-tenant-api-key-prefix-js "ohpk_abcdefghijklmnopqrstuvwxyz"))))
+
+(deftest hash-tenant-api-key-is-deterministic-and-pepper-sensitive
+  (let [token "ohpk_example_secret"
+        first-hash (edge/hash-tenant-api-key-js token "pepper-a")
+        second-hash (edge/hash-tenant-api-key-js token "pepper-a")
+        third-hash (edge/hash-tenant-api-key-js token "pepper-b")]
+    (is (= first-hash second-hash))
+    (is (not= first-hash third-hash))
+    (is (= 64 (count first-hash)))))

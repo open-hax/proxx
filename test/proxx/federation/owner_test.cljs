@@ -1,6 +1,8 @@
 (ns proxx.federation.owner-test
   (:require [cljs.test :refer [deftest is testing]]
-            [proxx.federation.owner :as owner]))
+            [proxx.federation.owner :as owner]
+            [proxx.runtime.federation :as fed]
+            [proxx.runtime.sql :as sql]))
 
 (def plc "did:plc:z72i7hdynmk6r22z27h6tvur")
 (defn- fake-sha [s] (str (apply str (repeat 8 "0123456789abcdef")) "-" s))
@@ -40,3 +42,42 @@
           "the fingerprint is the first 32 hex characters of the injected digest")))
   (is (nil? (owner/parse-owner-credential fake-sha nil)))
   (is (nil? (owner/parse-owner-credential fake-sha "   "))))
+
+;; --- Ported from src/tests/federation-owner-credential.test.ts -----------------
+;; These run through the kernel entry points the TypeScript shim calls.
+
+(deftest is-at-did-accepts-did-plc-and-did-web-subjects
+  (is (true? (fed/is-at-did-js "did:plc:z72i7hdynmk6r22z27h6tvur")))
+  (is (true? (fed/is-at-did-js "did:web:proxx.promethean.rest")))
+  (is (true? (fed/is-at-did-js "did:web:proxx.promethean.rest:peer:local"))))
+
+(deftest is-at-did-rejects-non-atproto-subjects
+  (is (false? (fed/is-at-did-js js/undefined)))
+  (is (false? (fed/is-at-did-js "")))
+  (is (false? (fed/is-at-did-js "not-a-did")))
+  (is (false? (fed/is-at-did-js "did:key:z6Mkabc"))))
+
+(deftest normalize-at-did-lowercases-did-web-hosts-while-preserving-path-case
+  (is (= "did:web:proxx.promethean.rest" (fed/normalize-at-did-js "DID:WEB:PROXX.PROMETHEAN.REST")))
+  (is (= "did:web:proxx.promethean.rest:Peer:Local" (fed/normalize-at-did-js "did:web:Proxx.Promethean.Rest:Peer:Local")))
+  (is (= "did:web:proxx.promethean.rest/Peer/Local" (fed/normalize-at-did-js "did:web:Proxx.Promethean.Rest/Peer/Local")))
+  (is (thrown? js/Error (fed/normalize-at-did-js "did:key:z6Mkabc"))))
+
+(deftest parse-federation-owner-credential-treats-at-dids-as-canonical-owner-subjects
+  (is (= {"kind" "at_did" "value" plc "ownerSubject" plc}
+         (js->clj (fed/parse-federation-owner-credential-js plc)))))
+
+(deftest parse-federation-owner-credential-fingerprints-admin-keys-into-stable-owner-subjects
+  (let [parsed (fed/parse-federation-owner-credential-js "super-secret-admin-key")]
+    (is (some? parsed))
+    (is (= "admin_key" (.-kind parsed)))
+    (is (= "super-secret-admin-key" (.-value parsed)))
+    (is (= (str "legacy_admin_key:" (fed/fingerprint-admin-key-js "super-secret-admin-key"))
+           (.-ownerSubject parsed)))))
+
+(deftest should-warm-import-projected-account-flips-true-at-the-warm-threshold
+  (let [threshold (sql/federation-warm-import-threshold-js
+                   (aget js/process.env "FEDERATION_WARM_IMPORT_REQUEST_THRESHOLD"))]
+    (is (false? (sql/federation-should-warm-import-js (dec threshold) threshold)))
+    (is (true? (sql/federation-should-warm-import-js threshold threshold)))
+    (is (true? (sql/federation-should-warm-import-js (+ threshold 2) threshold)))))

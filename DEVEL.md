@@ -240,7 +240,7 @@ Schema changes use a version-tracked, idempotent migration system. **All migrati
 2. **Append to `:migrations`** with your SQL (`{:version n :sql "..."}`). Every statement must be idempotent:
    - `CREATE TABLE IF NOT EXISTS ...`
    - `ALTER TABLE ... ADD COLUMN IF NOT EXISTS ...`
-3. **Run the schema migration tests**: `pnpm test:cljs` and `npx tsx --test src/tests/schema-migration.test.ts`
+3. **Run the schema migration tests**: `pnpm test:cljs` (`test/proxx/db/schema_test.cljs`)
 4. **Build**: `pnpm build`
 5. **Apply to running instances**: run the `ALTER TABLE` / `CREATE TABLE` SQL directly against the database before restarting the container. The migration runner re-runs all entries idempotently on boot, but a fresh column must exist before the app queries it.
 
