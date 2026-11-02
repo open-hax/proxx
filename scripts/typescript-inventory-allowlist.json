@@ -21,8 +21,9 @@
     {
       "path": "scripts/bulk-oauth-import.ts",
       "owner": "T5-tooling-scripts-cljs-or-js-disposition",
-      "disposition": "port-to-cljs-or-plain-js",
-      "removalCondition": "tooling is CLJS or plain JS with no TypeScript dependency"
+      "disposition": "removed",
+      "removalCondition": "Removed: the script is CLJS (proxx.tools.bulk-oauth-import, pure planning in proxx.tools.bulk-oauth); run with pnpm import:oauth:bulk.",
+      "removed": true
     },
     {
       "path": "src/app.ts",

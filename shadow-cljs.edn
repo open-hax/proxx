@@ -477,6 +477,16 @@
                       :infer-externs :auto
                       :source-map true}}
 
+  ;; Operator tooling: `pnpm import:oauth:bulk` (compile + run). Plain `require`
+  ;; so playwright/imapflow resolve from node_modules like any Node script.
+  :bulk-oauth-import
+  {:target     :node-script
+   :main       proxx.tools.bulk-oauth-import/main
+   :output-to  "target/bulk-oauth-import.cjs"
+   :js-options {:js-provider :require}
+   :compiler-options {:infer-externs :auto
+                      :source-map false}}
+
   :node-test
   {:target      :node-test
    :output-to   "target/node-test.cjs"
