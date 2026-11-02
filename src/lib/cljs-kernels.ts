@@ -375,6 +375,13 @@ export interface CljsKernels {
     distances: readonly unknown[],
     now: number,
   ) => ChromaSearchRow[];
+  readonly queueErrorResponse: (error: unknown) => {
+    readonly statusCode: number;
+    readonly message: string;
+    readonly type: string;
+    readonly code: string;
+    readonly retryAfterSeconds?: number;
+  } | undefined;
   readonly ollamaGenerate: (baseUrl: string, model: string, texts: readonly string[]) => Promise<number[][]>;
   readonly createChromaSessionIndex: (
     config: { readonly url: string; readonly collectionName: string },
