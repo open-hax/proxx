@@ -8,10 +8,12 @@
   (store/normalize-credentials (assoc ctx :provider-keys provider-keys) raw "openai"))
 
 (deftest masking
-  (is (= "ab***yz" (store/mask-secret "abcdwxyz")))
-  (is (= "a***a" (store/mask-secret "a")))
+  (is (= "a***z" (store/mask-secret "abcdwxyz")))
+  (is (= "****" (store/mask-secret "a")))
+  (is (= "****" (store/mask-secret "abcd")))
+  (is (= "a***e" (store/mask-secret "abcde")))
   (is (= "abcd...wxyz" (store/mask-secret "abcdefghwxyz")))
-  (is (= "***" (store/mask-secret ""))))
+  (is (= "****" (store/mask-secret ""))))
 
 (deftest document-shapes
   (is (= ["k1"] (map :token (get-in (norm ["k1" "k1" " " nil]) [:providers "openai" :accounts])))

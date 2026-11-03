@@ -58,12 +58,14 @@
   (case auth-type :oauth-bearer "oauth_bearer" "api_key"))
 
 (defn mask-secret
-  "A display preview of a secret: 2+2 characters for short ones, 4+4 otherwise."
+  "A display preview of a secret that never reveals most of it: secrets of 4 or
+  fewer characters are fully masked, up to 8 show 1+1 characters, longer ones 4+4."
   [secret]
   (let [n (count secret)]
-    (if (<= n 8)
-      (str (subs secret 0 (min 2 n)) "***" (subs secret (max 0 (- n 2))))
-      (str (subs secret 0 4) "..." (subs secret (- n 4))))))
+    (cond
+      (<= n 4) "****"
+      (<= n 8) (str (subs secret 0 1) "***" (subs secret (dec n)))
+      :else (str (subs secret 0 4) "..." (subs secret (- n 4))))))
 
 (defn display-name
   "email, else ChatGPT account id, else the account id."
