@@ -74,7 +74,7 @@
                  (or (string? raw) (number? raw)) (.getTime (js/Date. raw)))]
     (when (and (number? ms) (js/Number.isFinite ms)) ms)))
 
-(defn- ^:async search-uids [^js client] (or (await (.search client #js {:subject "ChatGPT code"})) #js []))
+(defn- ^:async search-uids [^js client] (or (await (.search client #js {:subject "ChatGPT"})) #js []))
 
 (defn- ^:async baseline-uid
   "The newest matching message strictly older than `since-ms`: anything at or
@@ -133,7 +133,7 @@
 ;; The proxy
 
 (defn- ^:async proxy-start-browser-oauth [{:keys [proxy-base proxy-token]}]
-  (let [^js res (await (js/fetch (str proxy-base "/api/ui/credentials/openai/oauth/browser/start")
+  (let [^js res (await (js/fetch (str proxy-base "/api/v1/credentials/openai/oauth/browser/start")
                                  #js {:method "POST"
                                       :headers (clj->js (cond-> {"content-type" "application/json"}
                                                           (seq proxy-token) (assoc "authorization" (str "Bearer " proxy-token))))
@@ -143,7 +143,7 @@
     (await (.json res))))
 
 (defn- ^:async proxy-complete-callback [{:keys [proxy-base]} code state]
-  (let [^js res (await (js/fetch (str proxy-base "/auth/callback?code=" (js/encodeURIComponent code)
+  (let [^js res (await (js/fetch (str proxy-base "/api/v1/credentials/openai/oauth/browser/callback?code=" (js/encodeURIComponent code)
                                       "&state=" (js/encodeURIComponent state))))
         body (await (.text res))]
     (when-not (str/includes? body "Successful")
@@ -243,7 +243,7 @@
     (loop []
       (when (>= (js/Date.now) deadline) (throw ::timed-out))
       (let [text (await (body-text page))]
-        (when-let [message (bo/waiting-failure text)] (fail! message))
+        (when-let [message (bo/waiting-failure text (.url page))] (fail! message))
         (or (captured get-capture)
             (do
               (when (bo/authorize-or-consent-url? (.url page))
