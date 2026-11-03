@@ -29,3 +29,11 @@
           "_urls" ["https://a" "http://b"]}
          (s/sanitize-payload {"model" "m" "messages" [{"c" "https://a"}] "z" ["ftp://x" "http://b"]}
                              (constantly 3000000)))))
+
+(deftest sanitising-leaves-non-plain-values-untouched
+  ;; Only plain maps/vectors/strings are rebuilt; host objects (Date, byte arrays) pass through.
+  (let [d (js/Date. 0) b (js/Uint8Array. #js [0 31])
+        out (s/sanitize-payload {"when" d "bytes" b "s" "a\u0000b"} (constantly 10))]
+    (is (identical? d (get out "when")))
+    (is (identical? b (get out "bytes")))
+    (is (= "ab" (get out "s")))))
