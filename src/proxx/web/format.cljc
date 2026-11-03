@@ -75,6 +75,7 @@
 ;; ---------------------------------------------------------------------------
 ;; Numbers (en-US, as the console has always shown them)
 
+#_{:clj-kondo/ignore [:unused-binding]} ; the JVM branch ignores its argument
 (defn- intl [opts v]
   #?(:cljs (.format (js/Intl.NumberFormat. "en-US" (clj->js opts)) v)
      :clj (str v)))
@@ -110,6 +111,7 @@
   #?(:cljs (let [d (js/Date. ts)] (if (js/isNaN (.getTime d)) (str ts) (.toLocaleTimeString d)))
      :clj (str ts)))
 
+#_{:clj-kondo/ignore [:unused-binding]} ; the JVM branch ignores its argument
 (defn parse-time-ms
   "Epoch ms of an ISO string, nil when unparsable."
   [s]

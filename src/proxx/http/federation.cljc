@@ -7,6 +7,7 @@
 
   Request bodies and store records arrive as string-keyed data (see
   proxx.http.params for the JavaScript coercions kept on purpose)."
+  (:refer-clojure :exclude [num])
   (:require [clojure.string :as str]
             [proxx.http.guard :as guard]
             [proxx.http.ui-auth :as ui-auth]))
