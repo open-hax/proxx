@@ -145,9 +145,9 @@ Custom logic is handled via **contract kinds** registered in `proxx.policy` (e.g
 
 **Before rebuilding or restarting after any schema change**, you must:
 
-1. Add the migration SQL to `ALL_MIGRATIONS` in `src/lib/db/schema.ts` (the single source of truth).
-2. Bump `SCHEMA_VERSION` to match the new highest version in `ALL_MIGRATIONS`.
-3. Run `npx tsx --test src/tests/schema-migration.test.ts` — this catches version drift, missing `IF NOT EXISTS`, and ordering errors.
+1. Add the migration SQL to `:migrations` in `resources/db/schema.edn` (the single source of truth; `src/lib/db/schema.ts` only re-exports it). Never edit an existing statement: `test/proxx/db/schema_test.cljs` pins every text by digest.
+2. Bump `:schema-version` to match the new highest version in `:migrations`.
+3. Run `pnpm test:cljs` — it catches version drift, missing `IF NOT EXISTS`, and ordering errors.
 4. Build with `pnpm build`.
 5. Apply the SQL directly to any running database before restarting the container.
 
@@ -163,7 +163,7 @@ See `DEVEL.md` > "Database Migrations" for full details.
 Run these for any backend, route, auth, routing, or data-path change:
 
 1. `pnpm build`
-2. `PROXY_AUTH_TOKEN=$(grep PROXY_AUTH_TOKEN /home/err/devel/services/proxx/.env | cut -d= -f2) npx tsx --test src/tests/proxy.test.ts`
+2. `NODE_OPTIONS=--max-old-space-size=4096 pnpm test:cljs` (includes the end-to-end proxy tests under `test/proxx/proxy/`)
 
 ### Minimum frontend validation
 Run these for any `web/` change:
@@ -175,7 +175,7 @@ Run these for any `web/` change:
 ### Migrations
 For schema changes, also run:
 
-1. `npx tsx --test src/tests/schema-migration.test.ts`
+1. `pnpm test:cljs` (migration invariants live in `test/proxx/db/schema_test.cljs`)
 2. Rebuild/recreate the container after applying SQL to the running DB
 
 ### Container / packaging changes
@@ -195,7 +195,7 @@ For any CLJS change:
 2. Verify the compiled output in `dist/` or `target/`
 
 ### Notes
-- `pnpm web:test` is the fast render-smoke layer.
+- `pnpm web:test` is the fast render-smoke layer (cljs.test over jsdom; pure console logic is tested by `pnpm test:cljs`).
 - `pnpm web:test:e2e` is the browser smoke layer that locks the frontend surfaces being migrated to `@open-hax/uxx`.
 - If a touched surface has no test yet, add at least a smoke test before calling the work complete.
 

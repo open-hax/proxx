@@ -46,7 +46,7 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm run typecheck
+      - run: pnpm run check:no-new-typescript
 
   main-unit-tests:
     name: main-unit-tests
@@ -102,19 +102,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Run tests with coverage
         run: pnpm run test:coverage
-      - name: Enforce coverage threshold (80% statements on lib/)
-        run: |
-          TOTAL=$(node -e "
-            const s = require('./coverage/coverage-summary.json').total;
-            process.stdout.write(String(s.lines.pct));
-          ")
-          THRESHOLD=80
-          if awk "BEGIN { exit !($TOTAL >= $THRESHOLD) }"; then
-            echo "✅ Coverage ${TOTAL}% meets threshold ${THRESHOLD}%"
-          else
-            echo "❌ Coverage ${TOTAL}% is below threshold ${THRESHOLD}%"
-            exit 1
-          fi
+      - name: Enforce coverage threshold (80% lines over proxx namespaces)
+        run: node scripts/check-coverage-threshold.mjs 80
       - name: Upload coverage artifact
         if: always()
         uses: actions/upload-artifact@v4
@@ -163,6 +152,12 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
+      # shadow-cljs (the web console build) needs a Java 21 runtime; the runner's
+      # default JDK is older and fails with UnsupportedClassVersionError.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
       - run: pnpm install --frozen-lockfile
       - run: pnpm run web:build
 

@@ -1,0 +1,93 @@
+{
+  "capture": {
+    "runtimeVersion": "1.18.34",
+    "archiveSha256": "0f22479647226d1d2dd99595d20082ee7bda3870b62dc6a90b41efc1a71d7e9a",
+    "binarySha256": "9ca0b9953d49997601655e54f846a3efa464f237e47c6f1b04716d0f2e64c4c2",
+    "probe": "GET /provider only; no session, generation, GitHub publication or Discord",
+    "isolation": {
+      "pure": true,
+      "freshHome": true,
+      "freshXdgRoots": true,
+      "projectConfigDisabled": true,
+      "globalConfigCopied": false,
+      "providerOverride": false
+    },
+    "bounds": {
+      "startupSeconds": 20,
+      "requestSeconds": 10,
+      "responseBytes": 12582912
+    },
+    "reviewConfigSha256": "957bd48aa132eb09d663485b8fb8d828db3a339f6f7db6631256efb9fef4fc11",
+    "reviewConfig": {
+      "share": "disabled",
+      "permission": {
+        "*": "deny",
+        "read": {
+          "*": "allow",
+          "**/.env": "deny",
+          "**/.env.*": "deny",
+          "**/*.pem": "deny",
+          "**/*.key": "deny"
+        },
+        "glob": "allow",
+        "grep": "allow",
+        "StructuredOutput": "allow",
+        "external_directory": "deny"
+      },
+      "agent": {
+        "kimi-reviewer": {
+          "mode": "primary",
+          "steps": 24,
+          "permission": {
+            "*": "deny",
+            "read": {
+              "*": "allow",
+              "**/.env": "deny",
+              "**/.env.*": "deny",
+              "**/*.pem": "deny",
+              "**/*.key": "deny"
+            },
+            "glob": "allow",
+            "grep": "allow",
+            "StructuredOutput": "allow",
+            "external_directory": "deny"
+          }
+        }
+      }
+    },
+    "upstreamTagCommit": "aec0b9a6d8898f68f923aaf08b7306d931fd9d76"
+  },
+  "catalog": {
+    "connected": [
+      "kimi-code-plan-global"
+    ],
+    "all": [
+      {
+        "id": "kimi-code-plan-global",
+        "models": {
+          "kimi-for-coding": {
+            "id": "kimi-for-coding",
+            "api": {
+              "id": "kimi-for-coding",
+              "npm": "@ai-sdk/openai-compatible"
+            },
+            "capabilities": {
+              "reasoning": true
+            },
+            "variants": {
+              "low": {
+                "reasoningEffort": "low"
+              },
+              "high": {
+                "reasoningEffort": "high"
+              },
+              "max": {
+                "reasoningEffort": "max"
+              }
+            }
+          }
+        }
+      }
+    ]
+  }
+}

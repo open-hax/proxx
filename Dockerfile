@@ -14,7 +14,7 @@ WORKDIR /app
 # Dependency resolution is a build-time operation. Copy the committed lock
 # contract before source files so the image is reproducible and later source
 # changes cannot make pnpm repair node_modules when the container starts.
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json shadow-cljs.edn ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml shadow-cljs.edn ./
 
 RUN pnpm install --frozen-lockfile
 
@@ -23,7 +23,7 @@ COPY web ./web
 COPY resources ./resources
 COPY ecosystem.container.config.cjs ./ecosystem.container.config.cjs
 
-RUN pnpm build:runtime && pnpm web:build
+RUN pnpm build:cljs && pnpm web:build
 
 # Never run containers as root.
 # Use the pre-created `node` user in the base image.

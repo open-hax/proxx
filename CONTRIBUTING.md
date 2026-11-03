@@ -53,7 +53,7 @@ PROXY_AUTH_TOKEN=...
 
 ### Core development
 ```bash
-pnpm run typecheck
+pnpm run check:no-new-typescript
 pnpm test
 pnpm run build
 pnpm run web:build
@@ -115,7 +115,7 @@ Production deployment and live verification run from a reviewed
 Before opening a PR to `staging`, try to ensure:
 
 - the branch was created from current `staging`
-- `pnpm run typecheck` passes
+- `pnpm run check:no-new-typescript` passes
 - `pnpm test` passes
 - docs are updated if behavior changed
 - no secrets were committed

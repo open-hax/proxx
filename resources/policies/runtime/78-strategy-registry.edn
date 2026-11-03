@@ -1,0 +1,83 @@
+;; Which upstream strategy handles a request, in priority order (first match wins;
+;; a remote-route lookup skips `:local? true` entries; a strategy preferred by the
+;; policy router wins among the matches). Consumed by proxx.strategy.select; the
+;; TypeScript registry only maps `:strategy/id` to its implementation class.
+;;
+;; Predicates over request facts (see proxx.strategy.select/facts):
+;;   [:true k]        k is exactly true          [:not-true k]   k is anything else
+;;   [:eq k v]        k equals v                 [:not-eq k v]
+;;   [:in k #{..}]    k is one of the values     [:fn p]  named predicate (`:compat-embed-provider`,
+;;                                                         `:looks-like-embedding`)
+;;   [:not [:fn p]]
+[{:contract/id :strategy-registry/default
+  :contract/kind :strategy-registry
+  :registry/entries
+  [{:strategy/id :hf-embeddings :strategy/path {:template "/pipeline/feature-extraction/{model}" :model-default "Qwen/Qwen3-Embedding-4B"} :strategy/mode "hf_embeddings"
+    :strategy/match [[:fn :looks-like-embedding] [:in :embedding-provider #{"huggingface" "hf" "hf_embeddings"}]]}
+   {:strategy/id :tei-embeddings :strategy/path {:static "/embed"} :strategy/mode "tei_embeddings"
+    :strategy/match [[:fn :looks-like-embedding] [:in :embedding-provider #{"tei" "tei_embeddings"}]]}
+   {:strategy/id :ovm-embeddings :strategy/path {:static "/v3/embeddings"} :strategy/mode "ovm_embeddings"
+    :strategy/match [[:fn :looks-like-embedding] [:in :embedding-provider #{"ovm" "ovm-npu" "ovm_embeddings"}]]}
+   {:strategy/id :blaze-images :strategy/path {:static "/images/generations"} :strategy/mode "images"
+    :strategy/match [[:eq :route-provider-id "blaze"] [:true :images-passthrough]]}
+   {:strategy/id :images-passthrough :strategy/path {:config-key "imagesGenerationsPath" :provider-path-key "images-generations"} :strategy/mode "images"
+    :strategy/match [[:true :images-passthrough]]}
+   {:strategy/id :openai-responses-passthrough :strategy/path {:config-key "openaiResponsesPath"} :strategy/mode "openai_responses_passthrough"
+    :strategy/match [[:true :responses-passthrough] [:true :open-ai-prefixed]]}
+   {:strategy/id :factory-responses-passthrough :strategy/mode "responses_passthrough"
+    :strategy/match [[:true :responses-passthrough] [:true :factory-prefixed] [:eq :factory-model-type "openai"]]}
+   {:strategy/id :responses-passthrough :strategy/path {:config-key "responsesPath" :provider-path-key "responses"} :strategy/mode "responses_passthrough"
+    :strategy/match [[:true :responses-passthrough] [:not-true :open-ai-prefixed]]}
+   {:strategy/id :gemini-chat :strategy/mode "gemini_chat"
+    :strategy/match [[:eq :route-provider-id "gemini"] [:not-true :responses-passthrough] [:not-true :images-passthrough]]}
+   {:strategy/id :zai-chat :strategy/path {:static "/chat/completions"} :strategy/mode "chat_completions"
+    :strategy/match [[:eq :route-provider-id "zai"] [:not-true :responses-passthrough] [:not-true :images-passthrough]]}
+   {:strategy/id :blaze-chat :strategy/path {:static "/chat/completions"} :strategy/mode "chat_completions"
+    :strategy/match [[:eq :route-provider-id "blaze"] [:not-true :responses-passthrough] [:not-true :images-passthrough]]}
+   {:strategy/id :openai-compat-embeddings :strategy/path {:static "/v1/embeddings"} :strategy/mode "embeddings"
+    :strategy/match [[:true :embeddings-passthrough] [:fn :compat-embed-provider]]}
+   {:strategy/id :ollama-embeddings :strategy/path {:static "/api/embed"} :strategy/mode "embeddings"
+    :strategy/match [[:true :embeddings-passthrough] [:not [:fn :compat-embed-provider]]]}
+   {:strategy/id :llamacpp-chat :strategy/path {:config-key "chatCompletionsPath" :provider-path-key "chat-completions"} :strategy/mode "chat_completions"
+    :strategy/match [[:eq :route-provider-id "llamacpp"] [:not-true :responses-passthrough] [:not-true :images-passthrough]]}
+   {:strategy/id :responses-via-chat :strategy/path {:config-key "chatCompletionsPath" :provider-path-key "chat-completions"} :strategy/mode "chat_completions"
+    :strategy/match [[:true :responses-passthrough] [:not-true :open-ai-prefixed]]}
+   {:strategy/id :ollama-cloud :strategy/path {:static "/api/chat"} :strategy/mode "ollama_chat"
+    :strategy/match [[:eq :route-provider-id "ollama-cloud"] [:not-true :responses-passthrough] [:not-true :images-passthrough]]}
+   {:strategy/id :remote-ollama :strategy/path {:config-key "ollamaChatPath"} :strategy/mode "ollama_chat"
+    :strategy/match [[:eq :policy-preferred-mode "ollama_chat"] [:not-true :responses-passthrough] [:not-true :images-passthrough]]}
+   {:strategy/id :ollama :strategy/path {:config-key "ollamaChatPath"} :strategy/mode "ollama_chat" :strategy/local? true
+    :strategy/match [[:true :explicit-ollama]]}
+   {:strategy/id :local-ollama :strategy/path {:config-key "ollamaV1ChatPath"} :strategy/mode "local_ollama_chat" :strategy/local? true
+    :strategy/match [[:true :local-ollama] [:not-true :explicit-ollama]]}
+   {:strategy/id :factory-messages :strategy/mode "messages"
+    :strategy/match [[:true :factory-prefixed] [:eq :factory-model-type "anthropic"]]}
+   {:strategy/id :factory-responses :strategy/mode "responses"
+    :strategy/match [[:true :factory-prefixed] [:eq :factory-model-type "openai"]]}
+   {:strategy/id :factory-chat :strategy/mode "chat_completions"
+    :strategy/match [[:true :factory-prefixed] [:eq :factory-model-type "common"]]}
+   {:strategy/id :openai-responses :strategy/path {:config-key "openaiResponsesPath"} :strategy/mode "openai_responses"
+    :strategy/match [[:true :open-ai-prefixed] [:not-true :responses-passthrough] [:not-true :images-passthrough]]}
+   {:strategy/id :openai-chat :strategy/path {:config-key "openaiResponsesPath"} :strategy/mode "openai_chat_completions"
+    :strategy/match [[:true :open-ai-prefixed] [:not-true :responses-passthrough] [:not-true :images-passthrough]]}
+   {:strategy/id :messages :strategy/path {:config-key "messagesPath" :provider-path-key "messages"} :strategy/mode "messages"
+    :strategy/match [[:not-true :local-ollama] [:not-true :explicit-ollama] [:not-true :open-ai-prefixed]
+                     [:not-true :factory-prefixed] [:not-true :responses-passthrough] [:not-true :images-passthrough]]}
+   {:strategy/id :responses :strategy/path {:config-key "responsesPath" :provider-path-key "responses"} :strategy/mode "responses"
+    :strategy/match [[:not-true :local-ollama] [:not-true :explicit-ollama] [:not-true :open-ai-prefixed]
+                     [:not-true :factory-prefixed] [:not-true :responses-passthrough] [:not-true :images-passthrough]]}
+   {:strategy/id :chat-completions :strategy/path {:config-key "chatCompletionsPath" :provider-path-key "chat-completions"} :strategy/mode "chat_completions"
+    :strategy/match [[:not-true :responses-passthrough] [:not-true :images-passthrough] [:not-true :factory-prefixed]
+                     [:not-true :local-ollama] [:not-true :explicit-ollama] [:not-eq :route-provider-id "zai"]]}]
+
+  ;; Facts the payload recipes read (proxx.strategy.build). Factory and Gemini paths
+  ;; come from their wire profiles / model aliases, not from here.
+  :registry/payload-rules
+  {;; Parameters the ChatGPT Codex backend rejects with HTTP 400.
+   :codex-unsupported-params ["max_output_tokens" "prompt_cache_retention" "temperature" "top_p"
+                              "presence_penalty" "frequency_penalty" "seed" "service_tier" "user"]
+   :factory-default-max-tokens 4096
+   :ovm-default-model "OpenVINO/Qwen3-Embedding-0.6B-int8-ov"}
+
+  ;; Providers whose embeddings speak OpenAI /v1/embeddings natively.
+  :registry/compat-embedding-providers #{"llamacpp-embed" "llamacpp"}}]

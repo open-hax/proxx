@@ -1,0 +1,60 @@
+;; How one upstream attempt is judged and what it costs the credential.
+;; Consumed by proxx.strategy.attempt / proxx.strategy.routing; never restated in
+;; TypeScript. Statuses are HTTP status codes; durations are milliseconds.
+[{:contract/id :attempt-policy/default
+  :contract/kind :upstream-attempt-policy
+
+  ;; The same credential is tried again after a short wait.
+  :attempt/retry-same-credential
+  {:statuses #{502 503 504}
+   ;; Factory intermittently answers 403 while rotating auth tokens.
+   :by-provider {"factory" #{403}}}
+
+  ;; A 401/403 says this credential is bad: it cools down for `:cap-ms` at most.
+  :attempt/auth-cooldown
+  {:statuses #{401 403}
+   ;; Factory 403 usually rejects the request/prompt, not the credential.
+   :except-by-provider {"factory" #{403}}
+   :cap-ms 10000}
+
+  ;; On a static API key, 402/403 means disabled or suspended: it will not recover
+  ;; without manual intervention. OAuth accounts are excluded (they refresh).
+  :attempt/permanent-disable
+  {:auth-types #{:api-key}
+   :statuses #{402 403}
+   ;; Requesty also uses 403 for model/provider policy rejections.
+   :except-by-provider {"requesty" #{403}}
+   :cooldown-ms 31536000000}
+
+  ;; Cooldown ceilings by failure kind (the configured key cooldown is capped).
+  :attempt/cooldown-caps
+  {:quota-ms 60000
+   :payment-required-ms 86400000
+   :server-error-ms 5000
+   :model-unsupported-ms 60000
+   :stream-empty-ms 10000
+   :refresh-failed-ms 10000
+   :concurrency-wait-ms 10000
+   :concurrency-cooldown-ms 15000}
+
+  ;; Candidate ordering within the first `:window-size` accounts of a provider.
+  :attempt/latency-ordering
+  {:ttft-grace-ms 120
+   :window-size 6}
+
+  ;; Cheaper plans first when latency is indistinguishable; unlisted plans rank 1.
+  :attempt/plan-cost-tier
+  {"free" 0 "team" 1 "plus" 2 "pro" 2 "business" 2 "enterprise" 2 "unknown" 1}
+
+  ;; For these providers and model prefixes, free-plan accounts are tried first.
+  :attempt/free-plan-first
+  [{:provider-id "openai" :model-prefix "gpt-"}]
+
+  ;; After this many transport failures on a sticky (prompt-cache) route, give up.
+  :attempt/max-sticky-transport-failures 4
+
+  ;; Route quality fed back to the pheromone store: linear in latency between the bounds.
+  :attempt/route-quality
+  {:min-latency-ms 250
+   :max-latency-ms 30000
+   :floor 0.05}}]

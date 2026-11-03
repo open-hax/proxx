@@ -3,7 +3,7 @@ module.exports = {
     {
       name: "open-hax-openai-proxy",
       script: "node",
-      args: ["dist/main.js"],
+      args: ["dist/cljs/main.js"],
       cwd: "/app",
       env: {
         NODE_ENV: "production",
@@ -24,7 +24,7 @@ module.exports = {
       // `pnpm exec` here makes pnpm reconcile dependencies in production,
       // so a package policy or registry change can take down a built image.
       script: "node",
-      args: ["node_modules/vite/bin/vite.js", "preview", "--config", "web/vite.config.ts", "--host", "0.0.0.0", "--port", "5174"],
+      args: ["node_modules/vite/bin/vite.js", "preview", "--config", "web/vite.config.mjs", "--host", "0.0.0.0", "--port", "5174"],
       cwd: "/app",
       env: {
         NODE_ENV: "production",
