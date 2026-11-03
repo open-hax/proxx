@@ -30,6 +30,8 @@
   (is (= "concurrency_throttle" (p/classify-rate-limit-kind "xyz" 5000)))
   (is (= "quota_exhausted" (p/classify-rate-limit-kind "xyz" 31000)))
   (is (= "quota_exhausted" (p/classify-rate-limit-kind nil nil)) "default falls over")
+  (is (= "quota_exhausted" (p/classify-rate-limit-kind "Please slow down" 5000 30000 :rate-limit/volume)) "provider verdict beats wording")
+  (is (= "concurrency_throttle" (p/classify-rate-limit-kind "quota exceeded" 90000 30000 :rate-limit/concurrency)))
   (is (= "weekly" (p/ollama-limit-kind {"error" "You have reached your weekly usage limit"}))))
 
 (deftest wait-times
