@@ -4,6 +4,8 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
+node scripts/check-container-runtime.mjs
+
 if ! command -v shellcheck >/dev/null 2>&1; then
   echo "shellcheck is required" >&2
   exit 1

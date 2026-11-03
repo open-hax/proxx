@@ -91,3 +91,16 @@
         cooldowns (await (.loadCooldowns s))]
     (is (= 1780632049684 (.get cooldowns "openai\u0000acct-1")))
     (is (= 1780632049684 (.getCooldown s "openai" "acct-1")))))
+
+(deftest ^:async init-runs-schema-changing-sql-only-through-all-migrations
+  ;; Ported from sql-credential-store.test.ts (staging): the store's own statements
+  ;; never alter or create tables/indexes; only the declared migrations do.
+  (let [calls (atom [])
+        ^js s (store/create-sql-credential-store-js
+               (fake-sql calls (fn [text]
+                                 (cond (.includes text "SELECT 1 FROM schema_version") [#js {"?column?" 1}]
+                                       (.includes text "SELECT COUNT(*)::BIGINT AS count") [#js {"count" "1"}]
+                                       :else []))))]
+    (await (.init s))
+    (let [schema-changes (->> @calls (map second) (filter #(re-find #"(?i)\b(?:ALTER|CREATE)\s+(?:TABLE|INDEX)\b" %)))]
+      (is (= (mapv #(.-sql ^js %) (array-seq (schema/all-migrations-js))) (vec schema-changes))))))

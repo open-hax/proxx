@@ -9,7 +9,6 @@
             [proxx.web.state :as st]
             [proxx.web.storage :as storage]))
 
-(def ls-reveal "open-hax-proxy.ui.credentials.revealSecrets")
 (def ls-grouping "open-hax-proxy.ui.credentials.grouping")
 (def ls-search "open-hax-proxy.ui.credentials.accountSearch")
 (def ls-log-provider "open-hax-proxy.ui.credentials.logProvider")
@@ -24,20 +23,15 @@
    ["zen" "Zen/ZenMux"] ["openrouter" "OpenRouter"] ["gemini" "Gemini"] ["zai" "Z.ai (GLM)"]
    ["xiaomi" "Xiaomi MiMo"] ["mistral" "Mistral"] ["factory" "Factory"] ["ob1" "OB1"]])
 
-(defn validate-boolean
-  "Booleans, and the string forms older versions stored."
-  [v]
-  (cond
-    (boolean? v) v
-    (string? v) (case (str/lower-case (str/trim v))
-                  ("true" "1" "yes" "on") true
-                  ("false" "0" "no" "off") false
-                  nil)
-    :else nil))
-
 (defn validate-grouping [v] (#{"provider" "plan" "domain"} v))
 
-(defn reveal? [db] (st/stored db ls-reveal false validate-boolean))
+(defn- slice [db] (st/page-slice db :credentials))
+
+(defn reveal?
+  "Whether secrets are shown. Deliberately session state, never persisted: a
+  stored preference would auto-reveal tokens on refresh on a shared machine."
+  [db]
+  (boolean (:reveal? (slice db))))
 (defn grouping [db] (st/stored db ls-grouping "provider" validate-grouping))
 (defn search [db] (st/stored db ls-search "" storage/validate-string))
 (defn log-provider [db] (st/stored db ls-log-provider "" storage/validate-string))
@@ -48,9 +42,9 @@
    :api-key {:provider "vivgrid" :account "" :value ""}
    :device-auth nil :device-polling? false :reauth-only? false
    :quota nil :quota-loading? false :quota-error nil :audit nil :quota-requested? false
-   :probe-results {} :probe-loading {} :disabled #{} :copied nil :status nil :error nil})
+   :probe-results {} :probe-loading {} :disabled #{} :copied nil :status nil :error nil
+   :reveal? false})
 
-(defn- slice [db] (st/page-slice db :credentials))
 (defn- put [db & kvs] (apply st/update-page db :credentials assoc kvs))
 (defn- ok [db] [db []])
 
@@ -107,8 +101,8 @@
 ;; Preferences and filters
 
 (defn- set-reveal [db [_ v]]
-  (let [[db' f] (st/set-stored db ls-reveal (boolean v))]
-    [db' (into f [(creds-fx db') (disabled-fx)])]))
+  (let [db' (put db :reveal? (boolean v))]
+    [db' [(creds-fx db') (disabled-fx)]]))
 (defn- set-search [db [_ v]] (st/set-stored db ls-search v))
 (defn- set-grouping [db [_ v]] (st/set-stored db ls-grouping (or (validate-grouping v) "provider")))
 (defn- toggle-reauth-only [db _] [(update-in db [:pages :credentials :reauth-only?] not) []])

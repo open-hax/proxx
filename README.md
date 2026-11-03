@@ -66,7 +66,7 @@ That means:
 - provider credentials, OAuth refresh tokens, API keys, and secret keys must stay local to the instance that owns them
 - cross-instance provider access should use federation peer projection or the WebSocket bridge instead of shared credential tables
 
-Promethean branch promotion + federated environment mapping is documented in [`docs/promethean-federated-deployments.md`](docs/promethean-federated-deployments.md).
+Deployment ownership (Services is the only production deployment authority) is documented in [`docs/deployment-ownership.md`](docs/deployment-ownership.md).
 
 Current boundary:
 - shared in v1: operator/admin state, tenant API keys and proxy settings, analytics, non-secret control-plane runtime state

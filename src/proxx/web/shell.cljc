@@ -34,8 +34,21 @@
 
 (defn- hide-saved [db _] [(shell-assoc db :show-saved? false) []])
 
+;; Fast-mode messages are transient: they clear themselves after this long.
+(def fast-message-ms 3000)
+
+(defn- show-fast-message
+  "Set the message and schedule its clearing. The clear event names the message
+  it was scheduled for, so a newer message is never wiped by an older timer."
+  [db message & kvs]
+  (let [db' (apply shell-assoc db :fast-message message kvs)]
+    [db' (if (some? message) [(fx/dispatch-later fast-message-ms [:shell/fast-message-clear message])] [])]))
+
+(defn- fast-message-clear [db [_ message]]
+  [(cond-> db (= message (get-in db [:shell :fast-message])) (shell-assoc :fast-message nil)) []])
+
 (defn- settings-loaded [db [_ settings]] [(shell-assoc db :fast-mode? (boolean (:fastMode settings))) []])
-(defn- settings-failed [db [_ message]] [(shell-assoc db :fast-message message) []])
+(defn- settings-failed [db [_ message]] (show-fast-message db message))
 
 (defn- fast-toggle [db [_ next-value]]
   [(shell-assoc db :fast-mode? next-value :fast-saving? true :fast-message nil)
@@ -44,14 +57,14 @@
 
 (defn- fast-saved [db [_ saved]]
   (let [on? (boolean (:fastMode saved))]
-    [(shell-assoc db :fast-mode? on? :fast-saving? false
-                  :fast-message (if on?
-                                  "Fast mode enabled for the current tenant."
-                                  "Fast mode disabled for the current tenant."))
-     []]))
+    (show-fast-message db
+                       (if on?
+                         "Fast mode enabled for the current tenant."
+                         "Fast mode disabled for the current tenant.")
+                       :fast-mode? on? :fast-saving? false)))
 
 (defn- fast-failed [db [_ attempted message]]
-  [(shell-assoc db :fast-mode? (not attempted) :fast-saving? false :fast-message message) []])
+  (show-fast-message db message :fast-mode? (not attempted) :fast-saving? false))
 
 (defn- set-theme [db [_ v]]
   (st/set-stored db storage/ls-theme (or (storage/validate-theme v) "monokai")))
@@ -75,6 +88,7 @@
    :shell/fast-toggle fast-toggle
    :shell/fast-saved fast-saved
    :shell/fast-failed fast-failed
+   :shell/fast-message-clear fast-message-clear
    :shell/set-theme set-theme
    :shell/dismiss-onboarding dismiss-onboarding
    :shell/close-onboarding close-onboarding})

@@ -57,6 +57,25 @@
   (is (nil? (bo/verification-code "Your ChatGPT code is 123456" "someone@else.com")) "must be addressed to the recipient")
   (is (nil? (bo/verification-code "me@x.com code is 12345" "me@x.com")) "six digits exactly"))
 
+(deftest verification-code-2026-06-format
+  (is (= "269944" (bo/verification-code "to me@x.com Enter this temporary verification code to continue: 269944." "me@x.com")))
+  (is (= "269944" (bo/verification-code "me@x.com\r\nTemporary code: 269944" "me@x.com")) "temporary-code phrasing")
+  (is (= "555555" (bo/verification-code "me@x.com use this code 555555 now" "me@x.com")) "this-code fallback")
+  (is (= "777777" (bo/verification-code "me@x.com code\n777777" "me@x.com")) "last resort: code then digits")
+  (is (nil? (bo/verification-code "Enter this temporary verification code to continue: 269944" "other@x.com"))
+      "still must be addressed to the recipient")
+  (is (= "269944" (bo/verification-code "me@x.com Your ChatGPT code is 111111 ... Enter this temporary verification code to continue: 269944" "me@x.com"))
+      "the newer format outranks the legacy subject"))
+
+(deftest phone-number-required-is-a-terminal-verdict
+  (is (= "Phone number required" (bo/post-password-failure "Add your phone number")))
+  (is (= "Phone number required" (bo/post-password-failure "We need a phone number to continue")))
+  (is (= "Phone number required" (bo/waiting-failure "welcome" "https://auth.openai.com/add-phone")))
+  (is (= "Phone number required" (bo/waiting-failure "Add your phone number")))
+  (is (true? (bo/phone-required? "x" "https://auth.openai.com/add-phone")))
+  (is (false? (bo/phone-required? "all good" "https://auth.openai.com/consent")))
+  (is (nil? (bo/waiting-failure "fine"))))
+
 (deftest config
   (let [c (bo/config {"PROXY_AUTH_TOKEN" "t" "HEADLESS" "true" "OAUTH_CALLBACK_MODE" "capture"
                       "OPENAI_OAUTH_CALLBACK_PORT" "0" "GMAIL_APP_EMAIL" " me@gmail.com "} "/w")]

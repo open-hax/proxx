@@ -105,3 +105,18 @@
            (first (:servers vm))))
     (is (= "running" (:badge-text (second (:servers vm)))))
     (is (nil? (:port-line (second (:servers vm)))))))
+
+(deftest fast-mode-messages-clear-themselves-after-three-seconds
+  (let [[db fx*] (step (boot) [:shell/fast-saved {:fastMode true}])
+        msg (get-in db [:shell :fast-message])]
+    (is (= "Fast mode enabled for the current tenant." msg))
+    (is (= [[:dispatch-later 3000 [:shell/fast-message-clear msg]]] fx*))
+    (let [[db' _] (step db [:shell/fast-message-clear msg])]
+      (is (nil? (get-in db' [:shell :fast-message]))))
+    (testing "a stale timer does not wipe a newer message"
+      (let [[db2 _] (step db [:shell/fast-failed false "boom"])
+            [db3 _] (step db2 [:shell/fast-message-clear msg])]
+        (is (= "boom" (get-in db3 [:shell :fast-message])))))
+    (testing "failures clear too"
+      (let [[_ fx2] (step (boot) [:shell/fast-failed true "nope"])]
+        (is (= [[:dispatch-later 3000 [:shell/fast-message-clear "nope"]]] fx2))))))

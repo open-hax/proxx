@@ -22,9 +22,20 @@
 (deftest enter-loads-credentials-disabled-and-logs
   (let [[_ fx*] (u/handle (boot) [:route/changed "/credentials"])]
     (is (= ["/api/v1/credentials" "/api/v1/credentials/accounts/disabled" "/api/v1/request-logs?limit=250"] (paths fx*))))
-  (let [[_ fx*] (u/handle (boot {p/ls-reveal "yes" p/ls-log-provider "openai"}) [:route/changed "/credentials"])]
-    (is (= ["/api/v1/credentials?reveal=1" "/api/v1/credentials/accounts/disabled" "/api/v1/request-logs?providerId=openai&limit=250"] (paths fx*))
-        "legacy string booleans are honoured; filters apply")))
+  (let [[_ fx*] (u/handle (boot {p/ls-log-provider "openai"}) [:route/changed "/credentials"])]
+    (is (= ["/api/v1/credentials" "/api/v1/credentials/accounts/disabled" "/api/v1/request-logs?providerId=openai&limit=250"] (paths fx*))
+        "filters apply")))
+
+(deftest reveal-secrets-is-never-persisted-or-restored
+  ;; A stored revealSecrets (written by older versions) must not auto-reveal tokens on load.
+  (let [legacy-key "open-hax-proxy.ui.credentials.revealSecrets"
+        [_ fx*] (u/handle (boot {legacy-key true}) [:route/changed "/credentials"])]
+    (is (= ["/api/v1/credentials" "/api/v1/credentials/accounts/disabled" "/api/v1/request-logs?limit=250"] (paths fx*))
+        "a legacy stored value is ignored"))
+  (let [[db1 fx1] (step (entered) [:credentials/set-reveal true])]
+    (is (true? (p/reveal? db1)) "revealing works for the session")
+    (is (empty? (filter #(#{:storage/write :storage/write-raw} (first %)) fx1)) "and writes nothing to storage")
+    (is (not (contains? (:stored db1) "open-hax-proxy.ui.credentials.revealSecrets")))))
 
 (deftest first-credentials-load-requests-quota-once
   (let [db (entered)
@@ -40,7 +51,6 @@
   (let [db (entered)
         [db1 fx1] (step db [:credentials/set-reveal true])]
     (is (true? (p/reveal? db1)))
-    (is (= [[:storage/write p/ls-reveal true]] (filter #(= :storage/write (first %)) fx1)))
     (is (= ["/api/v1/credentials?reveal=1" "/api/v1/credentials/accounts/disabled"] (paths fx1))))
   (let [[db1 _] (step (entered) [:credentials/set-grouping "bogus"])]
     (is (= "provider" (p/grouping db1))))
@@ -48,11 +58,7 @@
     (is (= "a1" (p/log-account db1)))
     (is (= ["/api/v1/request-logs?accountId=a1&limit=250"] (paths fx1))))
   (let [[db1 _] (step (entered) [:credentials/toggle-reauth-only])]
-    (is (true? (:reauth-only? (slice db1)))))
-  (is (= true (p/validate-boolean "ON")))
-  (is (= false (p/validate-boolean "0")))
-  (is (nil? (p/validate-boolean "maybe")))
-  (is (nil? (p/validate-boolean 3))))
+    (is (true? (:reauth-only? (slice db1))))))
 
 (deftest api-key-form
   (let [db (entered)

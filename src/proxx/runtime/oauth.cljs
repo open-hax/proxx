@@ -328,11 +328,15 @@
                :in-flight (await (get @browser-in-flight state))
                :unknown (throw (js/Error. "Unknown or expired OAuth state"))
                :exchange
-               (do (swap! flows flow/take-browser-pending state)
-                   (let [p (-> (exchange-code code)
+               ;; The pending entry is consumed only once the exchange succeeds, so a failed
+               ;; exchange (network blip, bad code) can be retried with the same state.
+               (do (let [p (-> (exchange-code code)
                                (.then (fn [tokens]
-                                        (swap! flows flow/record-browser-completion state tokens (now)
-                                               (:browser-completion-ttl-ms ttls))
+                                        (swap! flows (fn [f]
+                                                       (-> f
+                                                           (flow/take-browser-pending state)
+                                                           (flow/record-browser-completion state tokens (now)
+                                                                                           (:browser-completion-ttl-ms ttls)))))
                                         tokens))
                                (.finally (fn [] (swap! browser-in-flight dissoc state))))]
                      (swap! browser-in-flight assoc state p)

@@ -169,13 +169,22 @@
 
 (defn- includes-any? [s needles] (some #(str/includes? s %) needles))
 
+(defn phone-required?
+  "OpenAI is asking for a phone number: the login cannot complete unattended.
+  `url` is optional; an add-phone page counts even when its text is unfamiliar."
+  ([body] (phone-required? body ""))
+  ([body url]
+   (boolean (or (includes-any? body ["Add your phone number" "phone number to continue"])
+                (str/includes? url "add-phone")))))
+
 (defn post-password-failure
   "Why the page after submitting the password is a dead end, or nil."
   [body]
   (cond
     (str/includes? body "Incorrect email address or password") "Wrong password"
     (str/includes? body "Too many login attempts") "Rate limited"
-    (includes-any? body ["account has been locked" "Account locked"]) "Account locked"))
+    (includes-any? body ["account has been locked" "Account locked"]) "Account locked"
+    (phone-required? body) "Phone number required"))
 
 (defn account-gone? [text]
   (boolean (includes-any? text ["deleted or deactivated" "do not have an account"])))
@@ -189,9 +198,10 @@
   (or (str/includes? url "consent") (str/includes? url "authorize")))
 
 (defn waiting-failure
-  "While waiting for the OAuth callback: the page text that ends the wait with a
-  failure message, or nil."
-  [body]
+  "While waiting for the OAuth callback: the page text (and optionally the page
+  `url`) that ends the wait with a failure message, or nil."
+  ([body] (waiting-failure body ""))
+  ([body url]
   (cond
     (includes-any? body ["Incorrect" "invalid code" "expired"])
     (str "Verification failed: " (subs body 0 (min 100 (count body))))
@@ -202,7 +212,9 @@
     (str "OpenAI error page: " (excerpt body 200))
 
     (str/includes? body "Authentication Error")
-    (str "OpenAI authentication error: " (excerpt body 240))))
+    (str "OpenAI authentication error: " (excerpt body 240))
+
+    (phone-required? body url) "Phone number required")))
 
 (defn callback-landed?
   "True when the browser reached the local callback port (or a Chrome error
@@ -225,13 +237,21 @@
 ;; ---------------------------------------------------------------------------
 ;; The verification email
 
+(def ^:private code-patterns
+  "In priority order: the 2026-06 mail (\"Enter this temporary verification code
+  to continue: 269944\"), the legacy subject line, a loose mention, then any
+  \"code\" followed within a few non-letters by six digits."
+  [#"(?i)(?:enter this|temporary) (?:verification )?code(?: to continue)?[:\s]+(\d{6})"
+   #"(?i)Your ChatGPT code is (\d{6})"
+   #"(?i)(?:verification code|code is|your code|this code)[:\s]*(\d{6})"
+   #"(?i)code[^a-z]{1,20}(\d{6})"])
+
 (defn verification-code
   "The six-digit code in a message source addressed to `recipient`, or nil.
-  The subject line wins over a loose \"code is\" mention."
+  Earlier patterns in `code-patterns` win over later, looser ones."
   [source recipient]
   (when (str/includes? (str/lower-case source) (str/lower-case recipient))
-    (or (second (re-find #"(?i)Your ChatGPT code is (\d{6})" source))
-        (second (re-find #"(?i)(?:verification code|code is|your code)[:\s]*(\d{6})" source)))))
+    (some #(second (re-find % source)) code-patterns)))
 
 ;; ---------------------------------------------------------------------------
 ;; Retries and the final report

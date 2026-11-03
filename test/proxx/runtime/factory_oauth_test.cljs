@@ -237,6 +237,29 @@
         ^js started (.startBrowserFlow manager callback)]
     (is (true? (await (rejects-with (.completeBrowserFlow manager (.-state started) "bad-code") "401"))))))
 
+(deftest ^:async browser-flow-keeps-pending-state-until-the-code-exchange-succeeds
+  (let [calls (atom 0)
+        token (make-jwt {"sub" "user_retry" "exp" (+ (now-s) 3600)})
+        ^js manager (create-manager
+                     #js {}
+                     (fn ^:async f [input _init]
+                       (let [url (str input)]
+                         (if (authenticate? url)
+                           (if (= 1 (swap! calls inc))
+                             (js/Response. "Bad Gateway" #js {:status 502})
+                             (json-response {"access_token" token "refresh_token" "rt-retry"
+                                             "user" {"id" "user_retry" "email" "retry@factory.ai"}}))
+                           (unexpected-url url))))
+                     nil)
+        ^js started (.startBrowserFlow manager callback)]
+    (is (true? (await (rejects-with (.completeBrowserFlow manager (.-state started) "code-1") "502"))))
+    (let [^js tokens (await (.completeBrowserFlow manager (.-state started) "code-2"))]
+      (is (= token (.-accessToken tokens)) "the same state still works after a failed exchange")
+      (is (= 2 @calls)))
+    (is (= (.-accessToken ^js (await (.completeBrowserFlow manager (.-state started) "code-2"))) token)
+        "success is cached, not re-exchanged")
+    (is (= 2 @calls))))
+
 ;; --- Token extraction ------------------------------------------------------
 
 (defn- browser-tokens

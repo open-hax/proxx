@@ -11,6 +11,15 @@
 (def authenticate-url (str base-url "/user_management/authenticate"))
 (def authorize-url (str base-url "/user_management/authorize"))
 
+(def refresh-timeout-ms
+  "A WorkOS token refresh that has not answered by now is aborted, so a hung
+  upstream cannot stall the request that needed the token."
+  15000)
+
+(def auth-v2-file-mode
+  "auth.v2 holds encrypted OAuth tokens: owner read/write only (octal 0600)."
+  384)
+
 (def refresh-buffer-ms
   "How long before JWT expiry a Factory token is proactively refreshed (30 minutes)."
   (* 30 60 1000))
