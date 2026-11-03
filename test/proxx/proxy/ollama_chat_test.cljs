@@ -212,3 +212,29 @@
            (is (some? first-event))
            (is (= "chat.completion.chunk" (get first-chunk "object")))
            (is (= "ollama-" (get-in first-chunk ["choices" 0 "delta" "content"])))))))))
+
+;; Successor of the TypeScript `test.skip("CLJS policy normalizes xhigh reasoning effort
+;; to max for ollama-cloud provider")`. That test expected the ollama-cloud account to
+;; answer, but the TS baseline fails it the same way: with a local Ollama URL configured
+;; (as the fixtures do), the free local `ollama` route ranks ahead of an ollama-cloud
+;; account, so the provider header is `ollama`. What the case could always honestly
+;; assert, and what is pinned here, is the normalisation: glm-4.7 with
+;; reasoning_effort "xhigh" reaches the upstream as "max" with thinking enabled.
+(deftest ^:async normalizes-xhigh-reasoning-effort-to-max-for-glm-models
+  (let [seen (atom nil)]
+    (await
+     (with-proxy-app
+       {:keys []
+        :keys-payload {:providers {"ollama-cloud" ["ollama-cloud-key"]}}
+        :upstream-handler (fn [_ body]
+                            (reset! seen (fx/parse-json body))
+                            (fx/json-reply {:id "chatcmpl-ollama-xhigh" :object "chat.completion" :model "glm-4.7"
+                                            :choices [{:index 0 :message {:role "assistant" :content "ok"}
+                                                       :finish_reason "stop"}]}))}
+       (^:async fn [{:keys [app]}]
+         (let [response (await (post-json app "/v1/chat/completions"
+                                          (user-chat "glm-4.7" {:reasoning_effort "xhigh"})))]
+           (is (= 200 (:status response)))
+           (is (= "ollama" (get-in response [:headers "x-open-hax-upstream-provider"])))
+           (is (= "max" (get @seen "reasoning_effort")))
+           (is (true? (get @seen "enable_thinking")))))))))

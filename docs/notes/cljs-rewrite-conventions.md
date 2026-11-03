@@ -126,12 +126,18 @@ intentional divergence with a named test. **Exception: persisted identity**
 4. One commit per module, message ending with
    `Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>`.
 
-## Known gap carried over from the TypeScript tests
+## The skipped ollama-cloud `xhigh` test
 
-`src/tests/proxy.test.ts` held one `test.skip`: "CLJS policy normalizes xhigh
-reasoning effort to max for ollama-cloud provider" (POST `/v1/chat/completions`,
-model `glm-4.7`, `reasoning_effort: "xhigh"`, provider `ollama-cloud` with one
-key, expecting 200 and `x-open-hax-upstream-provider: ollama-cloud`). It was
-skipped in TypeScript and, run against the CLJS runtime, answers with upstream
-provider `ollama` instead. It was not ported (nothing to assert yet); whoever owns
-the ollama-cloud routing contract should either fix the behaviour or retire the case.
+`src/tests/proxy.test.ts` held a `test.skip` ("CLJS policy normalizes xhigh reasoning
+effort to max for ollama-cloud provider") that expected provider `ollama-cloud`. Run
+un-skipped against the TypeScript baseline it fails the same way the CLJS does: with a
+local Ollama URL configured, the free local `ollama` route ranks ahead of an
+ollama-cloud account, so the provider header is `ollama`. The rewrite therefore matches
+the baseline; the skipped expectation was stale. The normalisation it was named for is
+pinned in `test/proxx/proxy/ollama_chat_test.cljs`
+(`normalizes-xhigh-reasoning-effort-to-max-for-glm-models`).
+
+Not covered: with the local Ollama URL cleared (`:config-overrides {:ollamaBaseUrl ""}`)
+the ollama-cloud account is used and its key is sent, but a fake upstream's OpenAI-shaped
+reply to that route produced a 502 ("network/transport errors"). The baseline's behaviour
+for that variant was not measured, so it is recorded here and not asserted.
