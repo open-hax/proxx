@@ -620,8 +620,8 @@ FEDERATION_WARM_IMPORT_REQUEST_THRESHOLD=3
 curl https://proxx.promethean.rest/health | jq '.ok'
 ```
 
-`main` is the single trunk and runs application preflight checks; it does not
-name shared runtime slots. Production deployment and live verification are
+The `testing` and `staging` branches run application preflight checks; they do
+not name shared runtime slots. Production deployment and live verification are
 owned by `open-hax/services`.
 
 ## OpenAPI Contract
@@ -731,7 +731,7 @@ pnpm duplication:check
 
 Reports are written to `reports/jscpd/` and are ignored as regenerable artifacts. The default gate focuses on executable and policy code in `src`, `test`, `web/src`, `web/test`, `scripts`, `resources`, `deploy`, `examples`, and `pseudo`, while excluding generated output, vendored dependencies, local runtime data, worktrees, lockfiles, sourcemaps, and other noisy artifacts.
 
-The GitHub Actions workflow at `.github/workflows/code-quality.yml` runs the duplication gate on pull requests and pushes to `main`.
+The GitHub Actions workflow at `.github/workflows/code-quality.yml` runs the duplication gate on pull requests and pushes to `main`/`staging`.
 
 See [`docs/code-quality.md`](docs/code-quality.md) for scanner scope, thresholds, ignored paths, and triage guidance.
 
@@ -741,13 +741,13 @@ See [`docs/code-quality.md`](docs/code-quality.md) for scanner scope, thresholds
 2. Create a feature branch: `git checkout -b feature/your-feature`
 3. Make changes and add tests
 4. Run validation: `pnpm validate:required`
-5. Submit a PR into `main`
+5. Submit a PR into `staging` branch
 
 See [`DEVEL.md`](DEVEL.md) for development workflow details.
 
 ## Deployment ownership
 
-Proxx does not deploy a shared testing or staging slot. This repository
+Proxx labels do not deploy a shared testing or staging slot. This repository
 owns validation and portable packaging; `open-hax/services` owns production
 image builds, host placement, deployment, and live verification. See
 [`docs/deployment-ownership.md`](docs/deployment-ownership.md).

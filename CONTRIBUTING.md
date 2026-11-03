@@ -2,23 +2,31 @@
 
 Thanks for contributing.
 
-This repository has a **single trunk: `main`**. There is no `staging` branch and no promotion flow.
+This repository uses a **staging-first promotion flow**. The most important rule is simple:
 
-- **Branch from `main` and open your PR against `main`.**
-- Merge into `main` once the PR gate is green and review is settled.
-- Deployment is not done from this repository. `open-hax/services` (the `services` repo in the Foresight workspace) builds Proxx from a ref of this repository using the root `Dockerfile`, and deploys the whole stack so the services are integration-tested together. See [`docs/deployment-ownership.md`](docs/deployment-ownership.md).
+- **Normal work lands in `staging` first.**
+- **`main` only accepts promotion PRs from the canonical `staging` branch.**
+- **Do not open feature, fix, or experimental PRs directly against `main`.**
 
 ## Branch and PR policy
 
+### Normal changes
 For features, fixes, refactors, docs, and workflow changes:
 
-1. Branch from current `main`
-2. Open your PR against `main`
-3. Let the PR gate pass (below) and settle review
-4. Merge into `main`
-5. To ship a revision, open a reviewed `open-hax/services` PR that bumps its Proxx ref
+1. Branch from `staging`
+2. Open your PR against `staging`
+3. Merge into `staging`
+4. Let `staging-preflight` validate the exact staging revision
+5. Promote `staging` into `main` with a dedicated promotion PR
+6. Let `open-hax/services` deploy the reviewed main revision and run live production verification
 
-Changes that make the root `Dockerfile` unbuildable, change how the container starts (`dist/cljs/main.js`), or change the `/health` contract affect `open-hax/services` and should say so in the PR description.
+### Promotion to main
+The only allowed PR shape into `main` is:
+
+- base: `main`
+- head: the canonical `open-hax/proxx:staging` branch
+
+If a PR targets `main` from any other branch, it is out of policy and may be automatically retargeted back to `staging`.
 
 ## Local setup
 
@@ -73,39 +81,53 @@ These hit a real running proxy and are usually most relevant for deploy, auth, t
 
 ## What CI expects
 
+### PRs into `staging`
+Lightweight PR gate:
+
+- `staging-typecheck`
+- `staging-unit-tests`
+
+### Pushes to `staging`
+Promotion-prep application validation:
+
+- `staging-preflight`
+
 ### PRs into `main`
+Only valid for canonical `staging -> main` promotion PRs. These run the heavier gate:
+
 - `main-lint`
-- `main-typecheck` (runs `pnpm run check:no-new-typescript`; the runtime is ClojureScript and the repo carries no TypeScript)
+- `main-typecheck`
 - `main-unit-tests`
-- `main-coverage`
 - `main-build`
 - `main-web-build`
+- `staging-promotion-gate`
 
 ### Pushes to `main`
-Application validation only:
+Production application validation:
 
-- `production-preflight` (packaging checks; it contains no deployment job)
+- `production-preflight`
 
 Production deployment and live verification run from a reviewed
 `open-hax/services` pull request carrying `deploy` at merge time.
 
 ## Contributor checklist
 
-Before opening a PR, try to ensure:
+Before opening a PR to `staging`, try to ensure:
 
-- the branch was created from current `main`
+- the branch was created from current `staging`
 - `pnpm run check:no-new-typescript` passes
 - `pnpm test` passes
 - docs are updated if behavior changed
 - no secrets were committed
 - workflow changes were checked with `actionlint`
-- container/runtime changes include the smallest realistic verification path (build the image, check `/health`)
+- deploy/runtime changes include the smallest realistic verification path
 
 ## Workflow changes
 
 If you change anything under `.github/workflows/`:
 
-- keep deployment out of this repository (it belongs to `open-hax/services`)
+- keep the `staging -> main` promotion contract intact
+- prefer safe metadata-only automation for PR retargeting/policy
 - do **not** check out untrusted fork code from `pull_request_target`
 - validate with `actionlint`
 

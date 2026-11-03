@@ -1,0 +1,52 @@
+name: Staging Release Preflight
+
+# The retired VPS lane had a shared staging slot. Keep the application gate,
+# but do not imply that a passing run deploys or probes a host. Production
+# deployment is centralized in open-hax/services on the declared DigitalOcean
+# host.
+
+on:
+  push:
+    branches:
+      - staging
+  workflow_dispatch:
+
+concurrency:
+  group: proxx-staging-preflight
+  cancel-in-progress: true
+
+jobs:
+  staging-preflight:
+    name: staging-preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: actions/cache@v4
+        with:
+          path: |
+            .shadow-cljs
+            ~/.m2/repository
+          key: shadow-cljs-${{ runner.os }}-${{ hashFiles('shadow-cljs.edn') }}
+          restore-keys: shadow-cljs-${{ runner.os }}-
+      - run: sudo apt-get update && sudo apt-get install -y shellcheck
+      - run: go install github.com/rhysd/actionlint/cmd/actionlint@latest
+      - run: chmod +x scripts/*.sh
+      - run: ./scripts/ci-lint.sh
+      - run: /home/runner/go/bin/actionlint
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run check:no-new-typescript
+      - run: pnpm run build
+      - run: NODE_OPTIONS=--max-old-space-size=4096 pnpm run test:cljs
+      - run: pnpm run web:build
