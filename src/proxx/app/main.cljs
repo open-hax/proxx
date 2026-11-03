@@ -8,10 +8,9 @@
   it builds the app, constructs the stores and pools the plan names, wires the
   hooks and registers every route in the original order.
 
-  Stores, pools and managers are still host classes (TypeScript: SQL, files,
-  OAuth, quota, the federation relay). They are constructed through `host`, one
-  JS object of factory functions and route-registration bundles supplied by
-  src/app.ts; nothing here knows how they are implemented. `host` shape:
+  Stores, pools and managers are constructed through `host`, one JS object of
+  factory functions and route-registration bundles (`proxx.host` builds it);
+  nothing here knows how they are implemented. `host` shape:
     isOpenAiHttpError(error)            defaultTenantId   proxyAuthCookieName
     createSqlConnection(config)         closeConnection(sql)
     createDefaultLabelers()             sql: {credential, accountHealth, event, requestUsage,

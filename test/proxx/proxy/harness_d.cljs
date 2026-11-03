@@ -3,12 +3,9 @@
 
    `with-proxy-app` mirrors the TS `withProxyApp`: a real loopback upstream
    (node:http), a temp directory with keys.json, and the application built by
-   `createApp` over the host (`src/app.ts`, which `kernels.createApp`s the CLJS
-   application). The host is still TypeScript, so the first use registers the
-   `tsx` loader in-process and imports it; the compiled CLJS runtime comes from
-   `dist/cljs/proxx-runtime.js` (run `pnpm build:cljs` first, as the TS suite
-   requires too). A missing build fails the tests loudly; it never skips them."
-  (:require [clojure.string :as str]))
+   `proxx.host/create-app-js`, the same CLJS host the server runs."
+  (:require [clojure.string :as str]
+            [proxx.host :as host]))
 
 (def ^:private fs (js/require "node:fs/promises"))
 (def ^:private http (js/require "node:http"))
@@ -87,25 +84,6 @@
                         "FACTORY_AUTH_V2_KEY" (or (aget js/process.env "FACTORY_AUTH_V2_KEY") "/tmp/nonexistent-auth-v2-key")}
                        ambient-provider-env-names)]
     (await (with-env values f))))
-
-;; ------------------------------------------------------------ host (TS) access
-
-(defonce ^:private host-modules
-  (delay
-    (let [^js loader (js/require (.resolve path (js/process.cwd) "test/proxx/proxy/ts_host.cjs"))]
-      (let [href (fn [rel] (.pathToFileURL url-mod (.resolve path (js/process.cwd) rel)))
-            imp (fn [rel] (.importModule loader (str (href rel))))]
-        (.then (js/Promise.all #js [(imp "src/app.ts") (imp "src/lib/cljs-runtime.ts")])
-               (fn [mods]
-                 (let [^js app-mod (aget mods 0) ^js rt-mod (aget mods 1)]
-                   (.then (.loadCljsRuntime ^js rt-mod #js {:required true})
-                          (fn [^js result]
-                            (when-not (.-loaded result)
-                              (throw (js/Error. (str "CLJS runtime not built: " (.-reason result)))))
-                            #js {:createApp (.-createApp app-mod)
-                                 :runtime (.-runtime result)
-                                 :getActive (.-getActiveCljsRuntime rt-mod)
-                                 :setActive (.-setActiveCljsRuntime rt-mod)}))))))))) 
 
 ;; ------------------------------------------------------------------- the app
 
@@ -214,15 +192,12 @@
         (await
          (with-cleared-ambient-providers
            (fn ^:async run []
-            (let [^js host (await @host-modules)
-                  previous ((.-getActive host))]
-              ((.-setActive host) (.-runtime host))
-              (let [^js app (await ((.-createApp host) (clj->js config)))]
+            (let [_ nil]
+              (let [^js app (await (host/create-app-js (clj->js config)))]
                 (try
                   (await (f {:app app :upstream upstream :temp-dir temp-dir :upstream-port port}))
                   (finally
                     (await (.close app))
-                    ((.-setActive host) previous)
                     (await (js/Promise. (fn [resolve reject]
                                           (.close upstream (fn [err] (if err (reject err) (resolve nil))))))))))))))
         (await (.rm fs temp-dir #js {:recursive true :force true}))))))

@@ -3,6 +3,7 @@
   WebSocket and the /api/v1 session endpoints."
   (:require ["fastify" :as fastify]
             [cljs.test :refer [deftest is]]
+            [proxx.host :as host]
             [proxx.runtime.host-support :as hs]))
 
 (def ^:private admin "Bearer bridge-admin-token")
@@ -111,8 +112,7 @@
       (await
        (hs/with-ok-upstream
          (fn ^:async run [port]
-           (let [{:keys [^js app]} (await (hs/host))
-                 ^js host (.-host app)
+           (let [^js host host/host
                  ^js routes (.-routes host)
                  config (clj->js (hs/proxy-config port {:paths paths :auth-token "bridge-admin-token"}))
                  ^js server ((.-default fastify) #js {"logger" false})

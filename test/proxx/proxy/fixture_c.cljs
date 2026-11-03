@@ -2,11 +2,11 @@
   "Black-box fixture for the proxy integration tests ported from
   `src/tests/proxy.test.ts` (lines 6800-10200).
 
-  It builds the real application (`src/app.ts` `createApp`, i.e. the CLJS
-  application over the TS host stores) against a loopback upstream whose
+  It builds the real application (`proxx.host/create-app-js`) against a loopback upstream whose
   behaviour each test supplies, then drives it through Fastify `inject`.
-  Loads the host (`src/app.ts`) through tsx; needs `pnpm build:cljs` first."
-  (:require [clojure.string :as str]))
+"
+  (:require [clojure.string :as str]
+            [proxx.host :as host]))
 
 (def ^:private fs (js/require "node:fs/promises"))
 (def ^:private http (js/require "node:http"))
@@ -14,42 +14,6 @@
 (def ^:private path (js/require "node:path"))
 (def ^:private url (js/require "node:url"))
 (def ^:private events (js/require "node:events"))
-
-;; ---------------------------------------------------------------------------
-;; the compiled host
-;; ---------------------------------------------------------------------------
-
-(def ^:private import-module
-  "Dynamic `import()` through Node's main-context loader. The test bundle is
-  evaluated by shadow-cljs without an import callback, so a bare `import()`
-  throws ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING; a `vm.Script` that names the
-  default loader gets one."
-  (let [^js vm (js/require "node:vm")
-        script (vm.Script. "(specifier) => import(specifier)"
-                           #js {"importModuleDynamically" (.. vm -constants -USE_MAIN_CONTEXT_DEFAULT_LOADER)})]
-    (.runInThisContext script)))
-
-(defn- file-url [relative]
-  (.-href (.pathToFileURL url (.resolve path (js/process.cwd) relative))))
-
-(defonce ^:private modules (atom nil))
-
-(defn- ^:async load-host-modules []
-  (let [^js tsx (await (import-module (file-url "node_modules/tsx/dist/esm/api/index.mjs")))]
-    (.register tsx)
-    (let [^js app-mod (await (import-module (file-url "src/app.ts")))
-          ^js rt-mod (await (import-module (file-url "src/lib/cljs-runtime.ts")))
-          ^js loaded (await (.loadCljsRuntime rt-mod #js {"required" true}))]
-      (when-not (.-loaded loaded)
-        (throw (js/Error. (.-reason loaded))))
-      {:create-app (.-createApp app-mod)
-       :runtime (.-runtime loaded)
-       :get-runtime (.-getActiveCljsRuntime rt-mod)
-       :set-runtime (.-setActiveCljsRuntime rt-mod)})))
-
-(defn- ^:async host-modules []
-  (when-not @modules (reset! modules (load-host-modules)))
-  (await @modules))
 
 ;; ---------------------------------------------------------------------------
 ;; environment
@@ -255,18 +219,15 @@
           _ (await (.once events upstream "listening"))
           port (.-port (.address upstream))
           config (->config (default-config port keys-path models-path logs-path affinity-path settings-path opts) opts)
-          {:keys [create-app runtime get-runtime set-runtime]} (await (host-modules))]
+          ]
       (await
        (with-cleared-ambient-providers
          (^:async fn []
-           (let [previous (get-runtime)
-                 _ (set-runtime runtime)
-                 ^js app (await (create-app config))]
+           (let [^js app (await (host/create-app-js config))]
              (try
                (await (f {:app app :upstream upstream :temp-dir dir}))
                (finally
                  (await (.close app))
-                 (set-runtime previous)
                  (await (js/Promise. (fn [resolve reject]
                                        (.close upstream (fn [err] (if err (reject err) (resolve nil)))))))
                  (await (.rm fs dir #js {"recursive" true "force" true}))))))))))) 

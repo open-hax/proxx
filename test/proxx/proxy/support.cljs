@@ -4,47 +4,13 @@
   host module (`src/app.ts`, loaded through tsx) in front of a real local
   upstream HTTP server whose behaviour each test supplies as a function.
 
-  The application under test is the built CLJS runtime (`dist/cljs`, so run
-  `pnpm build:cljs` first) composed over the host's stores and pools; this
-  namespace only builds fixtures and never decides anything itself."
+  This namespace only builds fixtures and never decides anything itself."
   (:require ["node:fs/promises" :as fsp]
             ["node:http" :as http]
             ["node:os" :as os]
             ["node:path" :as path]
-            ["node:url" :as url]
-            [clojure.string :as str]))
-
-;; ---------------------------------------------------------------------------
-;; Host module (TypeScript through tsx), loaded once per process
-;; ---------------------------------------------------------------------------
-
-(def ^:private import-module
-  "Dynamic `import()` through Node's main-context loader. The test bundle is
-  evaluated by shadow-cljs without an import callback (so a bare `import()` or
-  `new Function` throws ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING); a `vm.Script`
-  that names the default loader gets one."
-  (let [^js vm (js/require "node:vm")
-        script (vm.Script. "(specifier) => import(specifier)"
-                           #js {"importModuleDynamically" (.. vm -constants -USE_MAIN_CONTEXT_DEFAULT_LOADER)})]
-    (.runInThisContext script)))
-
-(defn- file-url [relative]
-  (.-href (.pathToFileURL url (.resolve path (js/process.cwd) relative))))
-
-(defonce ^:private host-modules (atom nil))
-
-(defn- ^:async load-host-modules []
-  (let [^js tsx (await (import-module (file-url "node_modules/tsx/dist/esm/api/index.mjs")))]
-    (.register tsx)
-    (let [^js app-module (await (import-module (file-url "src/app.ts")))
-          ^js runtime-module (await (import-module (file-url "src/lib/cljs-runtime.ts")))]
-      (await (.prepare app-module))
-      {:app app-module :runtime runtime-module})))
-
-(defn- ^:async host []
-  (when-not @host-modules
-    (reset! host-modules (load-host-modules)))
-  (await @host-modules))
+            [clojure.string :as str]
+            [proxx.host :as host]))
 
 ;; ---------------------------------------------------------------------------
 ;; Small fixtures
@@ -298,16 +264,14 @@
                      (merge-config config-overrides))
           ;; undefined (not null) is how the host spells "unset"
           js-config (let [o (clj->js (into {} (remove (comp nil? val)) config))] o)
-          {:keys [^js app ^js runtime]} (await (host))]
+          ]
       (await
        (with-cleared-ambient-providers
          (fn ^:async run []
-           (let [previous (.getActiveCljsRuntime runtime)
-                 ^js application (await (.createApp app js-config))]
+           (let [^js application (await (host/create-app-js js-config))]
              (try (await (f {:app application :upstream upstream :temp-dir temp-dir}))
                   (finally
                     (await (.close application))
-                    (.setActiveCljsRuntime runtime previous)
                     (await (js/Promise. (fn [resolve reject]
                                           (.close upstream (fn [error] (if error (reject error) (resolve nil)))))))
                     (await (.rm fsp temp-dir #js {"recursive" true "force" true}))))))))
