@@ -38,3 +38,9 @@
 (deftest routes
   (is (= [{"providerId" "a"}] (e/select-routes [{"providerId" "a"} {"providerId" "b"}] "a")))
   (is (= 2 (count (e/select-routes [{"providerId" "a"} {"providerId" "b"}] nil)))))
+
+(deftest ollama-base-url-honours-the-route-declared-host
+  (is (= "http://192.168.12.68:11434" (e/ollama-base-url " http://192.168.12.68:11434 " "http://localhost:11434"))
+      "ollama-lan route declares its own host")
+  (doseq [blank [nil "" "   " 3]]
+    (is (= "http://localhost:11434" (e/ollama-base-url blank "http://localhost:11434")))))

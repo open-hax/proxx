@@ -32,6 +32,10 @@
     (is (= 8192 (c/context-length-from-show ks {"model_info" {"general.context_length" 1 "qwen3.context_length" 8192}}))
         "key order, not map order, decides")
     (is (= 1 (c/context-length-from-show ks {"model_info" {"qwen3.context_length" "x" "general.context_length" 1}})))
+    (is (= 8192 (c/context-length-from-show ks {"parameters" "stop \"<x>\"\nnum_ctx                        8192\ntemperature 0.7"
+                                                "model_info" {"general.context_length" 40960}}))
+        "a Modelfile num_ctx wins over the architecture maximum")
+    (is (= 40960 (c/context-length-from-show ks {"parameters" "temperature 0.7" "model_info" {"general.context_length" 40960}})))
     (is (nil? (c/context-length-from-show ks {"model_info" {}})))
     (is (nil? (c/context-length-from-show ks "x")))
     (is (= 7 (edge/ollama-context-length-from-show-js manifest #js {"model_info" #js {"gemma3.context_length" 7}})))))
