@@ -276,8 +276,8 @@ curl --request POST \
 ## Runtime audit curl playbook
 
 Audit the local development instance or the sole Services-owned production
-deployment by setting an explicit target. No testing or staging runtime is
-declared by this repository.
+deployment by setting an explicit target. This repository declares no testing
+or staging runtime.
 
 ```bash
 export PROXX_AUDIT_BASE_URL="http://localhost:8789" # or https://proxx.promethean.rest
