@@ -192,10 +192,10 @@
       (is (false? (.-aborted signal)) "extension replaced the original 300ms timer")
       (await (sleep-until 1100))
       (is (false? (.-aborted signal)) "the stream may run until the total deadline")
-      (let [err (await (within outcome 1000))]
+      (let [err (await (-> (within outcome 1000) (.catch (fn [e] e))))]
         (is (true? (.-aborted signal)) "extension remained capped by the total deadline")
-        (is (= :queue/attempt-timeout (:code (ex-data err))))
-        (is (re-find #"(?i)timed out" (ex-message err)))
+        (is (= :queue/attempt-timeout (:code (ex-data err))) "and the attempt rejects as timed out")
+        (is (re-find #"(?i)timed out" (str (ex-message err))))
         (is (<= (- (js/Date.now) t0) 1500) "aborted at the deadline, not at the 100s stream timeout")))))
 
 (deftest mimo-provider-gets-its-own-queue-policy
