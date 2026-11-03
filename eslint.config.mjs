@@ -1,7 +1,6 @@
 // The runtime is ClojureScript; ESLint only covers the JavaScript that remains
 // (scripts, web tooling config, test setup).
 import eslint from "@eslint/js";
-import sonarjs from "eslint-plugin-sonarjs";
 
 const nodeGlobals = {
   process: "readonly",
@@ -36,10 +35,8 @@ export default [
     ],
   },
   {
-    plugins: { sonarjs },
     rules: {
       "complexity": ["warn", 20],
-      "sonarjs/cognitive-complexity": ["warn", 30],
       "max-lines-per-function": ["warn", { max: 100, skipBlankLines: true, skipComments: true }],
       "max-lines": ["warn", { max: 500, skipBlankLines: true, skipComments: true }],
     },

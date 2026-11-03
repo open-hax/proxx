@@ -72,7 +72,6 @@
     "@vitejs/plugin-react": "^4.3.4",
     "c8": "^11.0.0",
     "eslint": "^9.39.1",
-    "eslint-plugin-sonarjs": "^3.0.6",
     "imapflow": "^1.2.13",
     "jsdom": "^22.1.0",
     "playwright": "^1.58.2",
