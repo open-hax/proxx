@@ -15,10 +15,15 @@ on:
         default: "false"
         type: boolean
 
+permissions:
+  contents: read
+  issues: write
+
 jobs:
   kanban-sync:
-    uses: open-hax/eta-mu/.github/workflows/kanban-sync.yml@main
+    uses: open-hax/eta-mu/.github/workflows/kanban-sync.yml@cd41fde12a5e6c820285bf00ddd9a214b4b23741
     with:
+      eta-mu-ref: cd41fde12a5e6c820285bf00ddd9a214b4b23741
       tasks-dir: kanban
       dry-run: ${{ github.event.inputs.dry_run == 'true' }}
       max-writes: 50
