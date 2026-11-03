@@ -123,10 +123,9 @@ More-specific clauses must precede catch-alls. EDN changes take effect on server
 
 ## Branch and PR Policy
 
-- **All work branches from `staging`** and PRs target `staging`.
-- `main` only accepts promotion PRs from `staging`. Do not open feature/fix PRs directly against `main`.
-- CI on `staging` PRs runs: `staging-typecheck`, `staging-unit-tests`.
-- CI on `main` PRs (promotion only) runs the full gate including build, web build, and `staging-promotion-gate`.
+- **`main` is the single trunk.** All work branches from `main` and PRs target `main`. There is no `staging` branch and no promotion PR.
+- CI on `main` PRs runs `main-lint`, `main-typecheck` (the no-new-TypeScript inventory gate), `main-unit-tests`, `main-coverage`, `main-build` and `main-web-build`.
+- Deployment is not done here: `open-hax/services` (a separate repo in the Foresight workspace) builds Proxx from a ref using the root `Dockerfile` and deploys the stack. Keep the `Dockerfile`, the `dist/cljs/main.js` start command and `/health` working.
 
 ## Rules for Adding Routing Behavior
 

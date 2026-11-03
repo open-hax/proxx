@@ -315,8 +315,8 @@ curl http://127.0.0.1:8789/health | jq '.'
 curl https://proxx.promethean.rest/health | jq '.'
 ```
 
-Testing and staging are source-validation branches, not deployed environments.
-Use the local health check while developing; Services owns the sole production
+`main` is the single trunk; there are no testing or staging branches or deployed
+environments in this repository. Use the local health check while developing; Services owns the sole production
 runtime and its live verification.
 
 ### Federation Status
@@ -377,7 +377,7 @@ After completing significant work, pay the fork tax:
 ```bash
 # In devel workspace
 ./scripts/fork-tax.sh  # Creates .ημ/ artifacts
-git tag -a v0.2.0 -m "Fork tax: staging promotion complete"
+git tag -a v0.2.0 -m "Fork tax: checkpoint"
 git push --tags
 ```
 

@@ -10,9 +10,10 @@ DigitalOcean host contract owns inventory, pinned SSH trust, image builds,
 runtime configuration, deployment order, and live verification. A reviewed
 Services pull request carrying `deploy` at merge time deploys the stack.
 
-The Proxx `staging` and `main` branches remain code-promotion boundaries. Their
-release workflows validate source but intentionally do not mutate a host. There
-is no replacement testing or staging target declared here.
+Proxx has a single trunk, `main`; there is no `staging` branch or promotion PR.
+Services builds Proxx from a ref of `main` using the root `Dockerfile`. Proxx's
+release workflow validates source but intentionally does not mutate a host. There
+is no testing or staging target declared here.
 
 The former Promethean deployment implementation is retired. Direct remote
 deployment scripts, checked-in host target files, and the label-triggered test
