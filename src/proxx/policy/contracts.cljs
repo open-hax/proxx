@@ -100,6 +100,11 @@
        (filter #(= :request-queue-instance (:contract/kind %)))
        vec))
 
+(defn rate-limit-classifications [idx]
+  (->> (:contracts idx)
+       (filter #(= :rate-limit-classification (:contract/kind %)))
+       vec))
+
 (defn- provider-route-provider-id [route]
   (or (:provider/id route)
       (:provider-id route)
@@ -236,7 +241,7 @@
         (some #(when (= :account-order/prefer-free (:contract/id %)) %)
               (:account-orderings compiled)))))
 
-(defn- normalized-keyword [value]
+(defn normalized-keyword [value]
   (cond
     (keyword? value) value
     (string? value) (keyword (str/replace value #"_" "-"))
@@ -303,7 +308,7 @@
     {:ordered (vec (order-accounts ordering quota-filtered))
      :applies-constraint (:applies-constraint constrained)}))
 
-(defn- strategy-mode [strategy]
+(defn strategy-mode [strategy]
   (normalized-keyword (or (:mode strategy)
                           (:strategy/mode strategy)
                           strategy)))
@@ -423,7 +428,9 @@
         (boolean (and (seq candidates)
                       (some allowed candidates)))))))
 
-(defn- normalize-provider-id [provider-id]
+(defn normalize-provider-id
+  "Normalize provider ids before policy comparisons."
+  [provider-id]
   (str/lower-case (str/trim (str provider-id))))
 
 (defn- dedupe-provider-id-values [provider-ids]
@@ -511,7 +518,7 @@
 
       :else true)))
 
-(defn- request-surface-provider-allowed?
+(defn request-surface-provider-allowed?
   "Return true when declarative request-surface defaults allow provider-id.
 
   Provider capability clauses tune strategy preference. Request-surface-default
@@ -810,7 +817,7 @@
       (lookup-provider-value by-provider provider-id [])
       (or (:accounts input) []))))
 
-(defn- strategies-for-provider [input provider-id]
+(defn strategies-for-provider [input provider-id]
   (let [by-provider (or (get-any input [:strategies-by-provider :strategiesByProvider]) {})]
     (if (seq by-provider)
       (lookup-provider-value by-provider provider-id [])
@@ -841,7 +848,7 @@
 (defn- dedupe-provider-ids [provider-ids]
   (dedupe-provider-id-values provider-ids))
 
-(defn- request-or-route-provider-ids [route input]
+(defn request-or-route-provider-ids [route input]
   (let [available-provider-ids (if-let [provider-ids (seq (or (get-any input [:provider-ids :providerIds]) []))]
                                  (dedupe-provider-ids provider-ids)
                                  (dedupe-provider-ids (route-default-provider-ids route)))
@@ -999,7 +1006,7 @@
   (let [by-id (provider-route-by-id compiled)]
     (filterv #(not (contains? by-id %)) provider-ids)))
 
-(defn- evidence-filtered-provider-ids [route input provider-ids model-id]
+(defn evidence-filtered-provider-ids [route input provider-ids model-id]
   (if (= :route/default (:contract/id route))
     (let [evidenced (filterv #(provider-model-evidenced? input % model-id) provider-ids)]
       (if (seq evidenced) evidenced provider-ids))

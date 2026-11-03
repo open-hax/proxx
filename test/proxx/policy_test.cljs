@@ -4,7 +4,8 @@
             [proxx.policy.contracts :as contracts]
             [proxx.policy.evidence :as evidence]
             [proxx.policy.loader :as loader]
-            [proxx.policy.router :as router]))
+            [proxx.policy.router :as router]
+            [proxx.policy.search :as policy-search]))
 
 (defn strategy [id outcome strategy-symbol]
   {:contract/id id
@@ -547,6 +548,14 @@
     (is (some #{:route/gpt-free-blocked} ids))
     (is (some #{:tenant/provider-share-policy} ids))
     (is (every? #(and (:contract/id %) (:contract/kind %)) contracts))))
+
+(deftest provider-route-lookup-normalizes-provider-ids
+  (let [route {:provider/id "xiaomi"
+               :provider/base-url "https://api.xiaomimimo.com/v1"}]
+    (is (= route
+           (policy-search/provider-route-for-id
+            {:provider-routes [route]}
+            "  XiAoMi  ")))))
 
 (deftest compiler-derives-runtime-contract-phases
   (let [loaded (loader/load-policy-contracts! "resources/policies/runtime/00-manifest.edn")

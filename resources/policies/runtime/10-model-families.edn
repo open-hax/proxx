@@ -106,6 +106,12 @@
   :match/provider-pattern "^ollama-lan$"
   :alias/model-id "gemma4:e4b-128k"}
 
+ {:contract/id :model-alias/qwen3-embedding-8k
+  :contract/kind :model-alias
+  :match/model-pattern "(?i)^qwen3-embedding:0\\.6b$"
+  :match/provider-pattern "^ollama-lan$"
+  :alias/model-id "qwen3-embedding:0.6b-8k"}
+
  {:contract/id :model-family/blaze-text
   :contract/kind :model-family
   :match/model-pattern "(?i)^(?:DeepSeek-V4-Flash-TEST|MiniMax-M2\\.[157]-highspeed|claude-opus-4\\.[567]|openai/gpt-4o|qwen/qwen3\\.5-397b|qwen3\\.[56]-(?:omni|plus|max).*|x-ai/grok-4\\.20-fast|z-ai/glm4\\.7)$"

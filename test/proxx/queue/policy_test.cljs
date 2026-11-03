@@ -50,3 +50,13 @@
         compiled {:index (contracts/index-contracts [template instance])}]
     (is (= 1 (:queue/concurrency-limit
               (queue-policy/resolve-queue-policy compiled {:provider-id "openai"}))))))
+
+(deftest classify-rate-limit-normalizes-provider-ids
+  (let [classification {:contract/id :rate-limit/xiaomi
+                        :contract/kind :rate-limit-classification
+                        :match/provider-id "xiaomi"
+                        :classify/status 429
+                        :classify/result :rate-limit/volume}
+        compiled {:index (contracts/index-contracts [classification])}]
+    (is (= :rate-limit/volume
+           (queue-policy/classify-rate-limit compiled "  XiAoMi  " 429 nil)))))
