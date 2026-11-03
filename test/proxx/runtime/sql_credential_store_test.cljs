@@ -1,5 +1,5 @@
 (ns proxx.runtime.sql-credential-store-test
-  (:require [cljs.test :refer [deftest is async]]
+  (:require [cljs.test :refer [deftest is]]
             [proxx.credentials.sql :as sql]
             [proxx.runtime.db-schema :as schema]
             [proxx.runtime.sql :as sql-edge]
@@ -25,46 +25,40 @@
   (is (= ["a" "p" "t" nil nil nil nil] (sql/account-insert-params {"accountId" "a" "providerId" "p" "token" "t"})))
   (is (= {"id" "p" "authType" "oauth_bearer" "baseUrl" nil} (sql/provider-by-id {"id" "p" "auth_type" " OAuth " "base_url" nil}))))
 
-(deftest cooldown-cache-follows-persistence
-  (async done
-    (let [calls (atom [])
-          ^js s (store/create-sql-credential-store-js (fake-sql calls (fn [_] [])))]
-      (is (undefined? (.getCooldown s "p" "a")))
-      (.setCooldown s "p" "a" 5)
-      (is (= 5 (.getCooldown s "p" "a")))
-      (-> (.clearCooldown s "p" "a")
-          (.then (fn [_]
-                   (is (undefined? (.getCooldown s "p" "a")))
-                   (is (= [[:sql "DELETE FROM account_cooldown WHERE provider_id = $1 AND account_id = $2" ["p" "a"]]] @calls))
-                   (.persistCooldown s "p" "a" 9)))
-          (.then (fn [_] (is (= 9 (.getCooldown s "p" "a"))) (done)))))))
+(deftest ^:async cooldown-cache-follows-persistence
+  (let [calls (atom [])
+        ^js s (store/create-sql-credential-store-js (fake-sql calls (fn [_] [])))]
+    (is (undefined? (.getCooldown s "p" "a")))
+    (.setCooldown s "p" "a" 5)
+    (is (= 5 (.getCooldown s "p" "a")))
+    (await (.clearCooldown s "p" "a"))
+    (is (undefined? (.getCooldown s "p" "a")))
+    (is (= [[:sql "DELETE FROM account_cooldown WHERE provider_id = $1 AND account_id = $2" ["p" "a"]]] @calls))
+    (await (.persistCooldown s "p" "a" 9))
+    (is (= 9 (.getCooldown s "p" "a")))))
 
-(deftest remove-account-is-one-transaction
-  (async done
-    (let [calls (atom [])
-          ^js s (store/create-sql-credential-store-js (fake-sql calls (fn [text] (if (.includes text "RETURNING id") [#js {"id" "a"}] []))))]
-      (.setCooldown s "p" "a" 5)
-      (-> (.removeAccount s "p" "a")
-          (.then (fn [removed?]
-                   (is (true? removed?))
-                   (is (= [[:tx "DELETE FROM accounts WHERE id = $1 AND provider_id = $2 RETURNING id" ["a" "p"]]
-                           [:tx "DELETE FROM account_cooldown WHERE provider_id = $1 AND account_id = $2" ["p" "a"]]
-                           [:tx "DELETE FROM account_health WHERE provider_id = $1 AND account_id = $2" ["p" "a"]]]
-                          @calls))
-                   (is (undefined? (.getCooldown s "p" "a")) "cache cleared only after the commit")
-                   (done)))))))
+(deftest ^:async remove-account-is-one-transaction
+  (let [calls (atom [])
+        ^js s (store/create-sql-credential-store-js (fake-sql calls (fn [text] (if (.includes text "RETURNING id") [#js {"id" "a"}] []))))]
+    (.setCooldown s "p" "a" 5)
+    (let [removed? (await (.removeAccount s "p" "a"))]
+      (is (true? removed?))
+      (is (= [[:tx "DELETE FROM accounts WHERE id = $1 AND provider_id = $2 RETURNING id" ["a" "p"]]
+              [:tx "DELETE FROM account_cooldown WHERE provider_id = $1 AND account_id = $2" ["p" "a"]]
+              [:tx "DELETE FROM account_health WHERE provider_id = $1 AND account_id = $2" ["p" "a"]]]
+             @calls))
+      (is (undefined? (.getCooldown s "p" "a")) "cache cleared only after the commit"))))
 
-(deftest api-keys-and-users-reject-blank-input-as-plain-errors
-  (async done
-    (let [calls (atom [])
-          ^js s (store/create-sql-credential-store-js (fake-sql calls (fn [_] [])))]
-      (-> (.createTenantApiKey s "t" "  " #js [] "pepper")
-          (.then (fn [_] (is false) (done))
-                 (fn [e]
-                   (is (= "tenant api key label must not be empty" (.-message e)))
-                   (is (nil? (ex-data e)))
-                   (is (empty? @calls) "nothing was written")
-                   (done)))))))
+(deftest ^:async api-keys-and-users-reject-blank-input-as-plain-errors
+  (let [calls (atom [])
+        ^js s (store/create-sql-credential-store-js (fake-sql calls (fn [_] [])))]
+    (try
+      (await (.createTenantApiKey s "t" "  " #js [] "pepper"))
+      (is false "expected rejection")
+      (catch :default e
+        (is (= "tenant api key label must not be empty" (.-message e)))
+        (is (nil? (ex-data e)))
+        (is (empty? @calls) "nothing was written")))))
 
 ;; --- Ported from src/tests/sql-credential-store.test.ts ------------------------
 
