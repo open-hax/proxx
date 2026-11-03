@@ -60,7 +60,10 @@
   conversion (an object with `code` / `retry-after-ms` / `retryAfterMs`)."
   [error]
   (let [raw (when error (aget error "data"))
-        data (when (and (some? raw) (= "object" (js* "typeof ~{}" raw)))
+        data (cond
+               ;; what the queue runtime throws: an ex-info whose data is a Clojure map
+               (map? raw) raw
+               (and (some? raw) (= "object" (js* "typeof ~{}" raw)))
                {"code" (js->clj (aget raw "code"))
                 "retry-after-ms" (aget raw "retry-after-ms")
                 "retryAfterMs" (aget raw "retryAfterMs")})
