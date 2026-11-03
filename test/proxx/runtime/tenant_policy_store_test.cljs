@@ -1,5 +1,5 @@
 (ns proxx.runtime.tenant-policy-store-test
-  (:require [cljs.test :refer [deftest is async]]
+  (:require [cljs.test :refer [deftest is]]
             [proxx.credentials.tenant-policy :as tp]
             [proxx.runtime.tenant-policy-store :as store]))
 
@@ -22,34 +22,29 @@
                                "encryptedChannelRequired" false}
                               #(js/JSON.stringify (to-array %))))))
 
-(deftest upsert-and-list-run-the-statements
-  (async done
-    (let [calls (atom [])
-          ^js s (store/create-sql-tenant-provider-policy-store-js
-                 (fake-sql calls [#js {"subject_did" "d" "provider_id" "p" "provider_kind" "peer_proxx" "owner_subject" "o"
-                                       "share_mode" "deny" "trust_tier" "less_trusted" "allowed_models" "[\"a\"]"
-                                       "encrypted_channel_required" false "created_at" "c" "updated_at" "u"}]))]
-      (-> (.upsertPolicy s #js {"subjectDid" " d " "providerId" "P" "ownerSubject" "o" "allowedModels" #js ["a" " a "]})
-          (.then (fn [^js record]
-                   (is (= ["a"] (vec (.-allowedModels record))))
-                   (let [[_ params] (first @calls)]
-                     (is (= ["d" "p" "local_upstream" "o" "deny" "less_trusted" "[\"a\"]"] (subvec params 0 7))))
-                   (.listPolicies s #js {"ownerSubject" " o "})))
-          (.then (fn [_]
-                   (let [[text values] (second @calls)]
-                     (is (.endsWith text " WHERE owner_subject = $1 ORDER BY owner_subject, subject_did, provider_id"))
-                     (is (= ["o"] values)))
-                   (done)))))))
+(deftest ^:async upsert-and-list-run-the-statements
+  (let [calls (atom [])
+        ^js s (store/create-sql-tenant-provider-policy-store-js
+               (fake-sql calls [#js {"subject_did" "d" "provider_id" "p" "provider_kind" "peer_proxx" "owner_subject" "o"
+                                     "share_mode" "deny" "trust_tier" "less_trusted" "allowed_models" "[\"a\"]"
+                                     "encrypted_channel_required" false "created_at" "c" "updated_at" "u"}]))
+        ^js record (await (.upsertPolicy s #js {"subjectDid" " d " "providerId" "P" "ownerSubject" "o" "allowedModels" #js ["a" " a "]}))]
+    (is (= ["a"] (vec (.-allowedModels record))))
+    (let [[_ params] (first @calls)]
+      (is (= ["d" "p" "local_upstream" "o" "deny" "less_trusted" "[\"a\"]"] (subvec params 0 7))))
+    (await (.listPolicies s #js {"ownerSubject" " o "}))
+    (let [[text values] (second @calls)]
+      (is (.endsWith text " WHERE owner_subject = $1 ORDER BY owner_subject, subject_did, provider_id"))
+      (is (= ["o"] values)))))
 
-(deftest invalid-input-is-a-plain-error
-  (async done
-    (let [^js s (store/create-sql-tenant-provider-policy-store-js (fake-sql (atom []) []))]
-      (-> (.upsertPolicy s #js {"subjectDid" "" "providerId" "p" "ownerSubject" "o"})
-          (.then (fn [_] (is false "should reject") (done))
-                 (fn [e]
-                   (is (instance? js/Error e))
-                   (is (nil? (ex-data e)))
-                   (done)))))))
+(deftest ^:async invalid-input-is-a-plain-error
+  (let [^js s (store/create-sql-tenant-provider-policy-store-js (fake-sql (atom []) []))]
+    (try
+      (await (.upsertPolicy s #js {"subjectDid" "" "providerId" "p" "ownerSubject" "o"}))
+      (is false "should reject")
+      (catch :default e
+        (is (instance? js/Error e))
+        (is (nil? (ex-data e)))))))
 
 ;; --- Ported from src/tests/sql-tenant-provider-policy-store.test.ts ------------
 

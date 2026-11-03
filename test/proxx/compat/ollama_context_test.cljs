@@ -1,5 +1,5 @@
 (ns proxx.compat.ollama-context-test
-  (:require [cljs.test :refer [deftest is testing async]]
+  (:require [cljs.test :refer [deftest is testing]]
             [proxx.compat.ollama-context :as c]
             [proxx.runtime.ollama-context :as edge]))
 
@@ -106,31 +106,25 @@
                         (.then (fn [r] (.close server) (resolve [r @n])))
                         (.catch (fn [e] (.close server) (reject e)))))))))))
 
-(deftest edge-fetch-and-cache
-  (async done
-    (-> (with-show-server
-          (fn [n] (if (= n 1) [200 "{\"context_length\":4096}"] [500 "{}"]))
-          (fn [base]
-            (-> (edge/fetch-ollama-model-context-length-js manifest base "m" 500 js/undefined)
-                (.then (fn [a]
-                         (-> (edge/fetch-ollama-model-context-length-js manifest base "m" 500 js/undefined)
-                             (.then (fn [b] [a b]))))))))
-        (.then (fn [[[a b] requests]]
-                 (is (= [4096 4096] [a b]))
-                 (is (= 1 requests) "the second answer is cached")
-                 (done))))))
+(deftest ^:async edge-fetch-and-cache
+  (let [[[a b] requests]
+        (await (with-show-server
+                 (fn [n] (if (= n 1) [200 "{\"context_length\":4096}"] [500 "{}"]))
+                 (^:async fn [base]
+                  (let [a (await (edge/fetch-ollama-model-context-length-js manifest base "m" 500 js/undefined))
+                        b (await (edge/fetch-ollama-model-context-length-js manifest base "m" 500 js/undefined))]
+                    [a b]))))]
+    (is (= [4096 4096] [a b]))
+    (is (= 1 requests) "the second answer is cached")))
 
-(deftest edge-failures
-  (async done
-    (-> (with-show-server
-          (fn [_] [200 "[1]"])
-          (fn [base]
-            (-> (edge/ensure-ollama-context-fits-js manifest "chat" base #js {"model" "m"} 500 js/undefined)
-                (.then (fn [budget]
-                         (-> (edge/ensure-ollama-context-fits-js manifest "chat" base #js {"model" 5} 500 js/undefined)
-                             (.then (fn [no-model] [budget no-model]))))))))
-        (.then (fn [[[budget no-model] requests]]
-                 (is (nil? budget) "an array body names no length")
-                 (is (nil? no-model))
-                 (is (= 1 requests) "no model, no request")
-                 (done))))))
+(deftest ^:async edge-failures
+  (let [[[budget no-model] requests]
+        (await (with-show-server
+                 (fn [_] [200 "[1]"])
+                 (^:async fn [base]
+                  (let [budget (await (edge/ensure-ollama-context-fits-js manifest "chat" base #js {"model" "m"} 500 js/undefined))
+                        no-model (await (edge/ensure-ollama-context-fits-js manifest "chat" base #js {"model" 5} 500 js/undefined))]
+                    [budget no-model]))))]
+    (is (nil? budget) "an array body names no length")
+    (is (nil? no-model))
+    (is (= 1 requests) "no model, no request")))
