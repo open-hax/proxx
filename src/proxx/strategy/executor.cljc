@@ -347,7 +347,7 @@
 (defn transport-failed
   "fetch threw or timed out. A sticky route gives up the remaining candidates after
   too many such failures, rather than hammering a dead network."
-  [state policy {:keys [ctx]}]
+  [state policy _event]
   (let [state (flag state :saw-request-error)
         state (if (:sticky? state)
                 (update state :sticky-transport-failures inc)

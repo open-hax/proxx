@@ -15,7 +15,7 @@
   [ui/data-table-shell {:columns columns :rows rows :dense true :sticky-header false
                         :row-key (fn [^js row _] (.-key row))}])
 
-(defn- host-card [{:keys [id label self? pill subtitle stats last-error routes routes-meta containers containers-meta]}]
+(defn- host-card [{:keys [label self? pill subtitle stats last-error routes routes-meta containers containers-meta]}]
   [:article.hosts-card.panel-sheen
    [:header.hosts-card-header
     [:div

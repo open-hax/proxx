@@ -398,12 +398,12 @@
    "crossSuccessfulAccountHashCount" "rows" "watchRows"])
 
 (defn- last-seen-ms [row]
-  (if-let [s (get row "lastSeenAt")] #?(:cljs (js/Date.parse s) :clj 0) 0))
+  (if (get row "lastSeenAt") #?(:cljs (js/Date.parse (get row "lastSeenAt")) :clj 0) 0))
 
 (defn- compare-rows [left right]
   (let [desc (fn [f] (compare (f right) (f left)))
-        by #(fn [row] (get row %))]
-    (let [r (desc (by "successfulAccountCount"))]
+        by #(fn [row] (get row %))
+r (desc (by "successfulAccountCount"))]
       (if-not (zero? r) r
               (let [r (desc (by "accountCount"))]
                 (if-not (zero? r) r
@@ -411,7 +411,7 @@
                           (if-not (zero? r) r
                                   (let [r (desc (by "requestCount"))]
                                     (if-not (zero? r) r
-                                            (locale-compare (get left "promptCacheKeyHash") (get right "promptCacheKeyHash"))))))))))))
+                                            (locale-compare (get left "promptCacheKeyHash") (get right "promptCacheKeyHash")))))))))))
 
 (defn- cache-rate [row]
   (let [prompt (get row "promptTokens")]

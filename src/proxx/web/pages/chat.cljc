@@ -4,6 +4,7 @@
   is a chain of events, each step's effect naming the next; every failure lands
   in `:chat/send-failed`. Request-body construction and completion parsing are
   pure functions over wire data."
+  (:refer-clojure :exclude [send])
   (:require [clojure.string :as str]
             [proxx.web.api :as api]
             [proxx.web.fx :as fx]

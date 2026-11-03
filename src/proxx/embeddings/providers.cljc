@@ -5,8 +5,7 @@
 
   Configs and requests are string-keyed maps built with `omap`-style ordering
   (nil values dropped, like an `undefined` property)."
-  (:require [clojure.string :as str]
-            [proxx.jsval :as jv]))
+  (:require [proxx.jsval :as jv]))
 
 (defn- omap [& kvs]
   (apply array-map (into [] (comp (partition-all 2) (remove (fn [[_ v]] (nil? v))) cat) kvs)))

@@ -238,7 +238,7 @@
               #js {"kind" "handled"}))))))
 
 (defn- ^:async gemini-direct
-  [id apply! upstream-path-of handle-attempt ^js reply ^js ctx ^js payload]
+  [_id apply! upstream-path-of handle-attempt ^js reply ^js ctx ^js payload]
   (let [api-key (.-token ^js (.-account ctx))
         base-url (.-baseUrl ctx)]
     (cond

@@ -1,8 +1,7 @@
 (ns proxx.http.settings-routes-test
   (:require [cljs.test :refer [deftest is testing]]
             [proxx.http.settings :as settings]
-            [proxx.runtime.routes.settings :as routes]
-            [proxx.runtime.ring :as ring]))
+            [proxx.runtime.routes.settings :as routes]))
 
 (def admin #js {:kind "legacy_admin" :source "bearer" :tenantId "default" :role "owner"})
 (def session #js {:kind "ui_session" :role "owner" :tenantId "t1" :subject "sub-1"

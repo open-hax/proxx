@@ -330,7 +330,7 @@
                :exchange
                ;; The pending entry is consumed only once the exchange succeeds, so a failed
                ;; exchange (network blip, bad code) can be retried with the same state.
-               (do (let [p (-> (exchange-code code)
+               (let [p (-> (exchange-code code)
                                (.then (fn [tokens]
                                         (swap! flows (fn [f]
                                                        (-> f
@@ -340,4 +340,4 @@
                                         tokens))
                                (.finally (fn [] (swap! browser-in-flight dissoc state))))]
                      (swap! browser-in-flight assoc state p)
-                     (await p))))))}))
+                     (await p)))))}))

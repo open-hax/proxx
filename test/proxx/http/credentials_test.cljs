@@ -131,7 +131,7 @@
                        :enableAccount (fn [p a] (rec :enable p a))
                        :getDisabledAccounts (fn [] #js [#js {:providerId "p"}])}
          :credentialStore #js {:upsertApiKeyAccount (fn [p a k] (rec :upsert p a (count k)) (js/Promise.resolve nil))
-                               :removeAccount (fn [p a] (js/Promise.resolve (= a "known")))}
+                               :removeAccount (fn [_p a] (js/Promise.resolve (= a "known")))}
          :pendingOpenAiBrowserReauthTargets (js/Map.)
          :openAiOAuthManager #js {}
          :log #js {:info (fn [o msg] (rec :log (js->clj o) msg))}}))

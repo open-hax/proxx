@@ -14,6 +14,7 @@
 (defonce ^:private starts (atom {}))
 (defonce ^:private assertion-free (atom []))
 
+#_{:clj-kondo/ignore [:unused-private-var]} ; defonce kept for its side effect: registers the unhandledRejection hook once
 (defonce ^:private installed
   (.on js/process "unhandledRejection"
        (fn [reason _promise] (swap! rejections conj reason))))

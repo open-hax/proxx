@@ -7,8 +7,7 @@
   (:require ["node:fs/promises" :as fsp]
             ["node:http" :as http]
             ["node:path" :as path]
-            [proxx.dashboard.host :as host]
-            [proxx.json :as json]))
+            [proxx.dashboard.host :as host]))
 
 (def ^:private docker-timeout-ms 5000)
 

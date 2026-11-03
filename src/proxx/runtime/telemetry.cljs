@@ -4,8 +4,7 @@
   accounting and configuration are proxx.telemetry.otlp.
 
   The JS objects returned have the TelemetryClient / TelemetrySpan shapes."
-  (:require [proxx.jsval :as j]
-            [proxx.telemetry.otlp :as otlp]))
+  (:require [proxx.telemetry.otlp :as otlp]))
 
 (def ^:private flush-delay-ms 250)
 

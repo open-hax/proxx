@@ -2,7 +2,6 @@
   "Local-vs-cloud Ollama routing, ollama usage logging, provider option validation
   and the native `/api/*` surface (`tags`, `chat`, `generate`), through the real application."
   (:require [cljs.test :refer [deftest is]]
-            [clojure.string :as str]
             [proxx.proxy.fixture-c :as fx :refer [with-proxy-app post-json inject]]))
 
 (deftest ^:async routes-local-only-ollama-models-even-when-ollama-cloud-is-also-configured

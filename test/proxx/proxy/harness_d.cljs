@@ -11,7 +11,6 @@
 (def ^:private http (js/require "node:http"))
 (def ^:private os (js/require "node:os"))
 (def ^:private path (js/require "node:path"))
-(def ^:private url-mod (js/require "node:url"))
 
 ;; ---------------------------------------------------------------- small utils
 
@@ -192,14 +191,14 @@
         (await
          (with-cleared-ambient-providers
            (fn ^:async run []
-            (let [_ nil]
-              (let [^js app (await (host/create-app-js (clj->js config)))]
+            (let [_ nil
+^js app (await (host/create-app-js (clj->js config)))]
                 (try
                   (await (f {:app app :upstream upstream :temp-dir temp-dir :upstream-port port}))
                   (finally
                     (await (.close app))
                     (await (js/Promise. (fn [resolve reject]
-                                          (.close upstream (fn [err] (if err (reject err) (resolve nil))))))))))))))
+                                          (.close upstream (fn [err] (if err (reject err) (resolve nil)))))))))))))
         (await (.rm fs temp-dir #js {:recursive true :force true}))))))
 
 (defn ^:async with-zai-proxy-app

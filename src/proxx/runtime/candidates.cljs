@@ -3,8 +3,6 @@
   (:require [proxx.runtime.interop :as interop]
             [proxx.strategy.candidates :as candidates]))
 
-(defn- or-undef [x] (if (nil? x) js/undefined x))
-
 (defn forced-credential-selection-js [auth-kind headers]
   (let [{:keys [provider-id account-id]} (candidates/forced-selection auth-kind (interop/js->data headers))
         o #js {}]

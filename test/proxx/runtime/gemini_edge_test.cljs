@@ -3,7 +3,7 @@
   shim over proxx.runtime.strategy (translation) and the registry's strategy
   objects (proxx.runtime.strategies); both are driven here with JS values, as the
   shim passed them, and results are read back as data."
-  (:require [cljs.test :refer [deftest is testing]]
+  (:require [cljs.test :refer [deftest is]]
             [clojure.string :as str]
             [proxx.runtime.strategies :as strategies]
             [proxx.runtime.strategy :as s]))

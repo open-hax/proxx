@@ -5,7 +5,8 @@
   semantics of the TypeScript guards they replace (`typeof x === \"string\"`,
   `Number.isFinite`, `??` skipping only null/undefined, `String.prototype.trim`,
   `Math.round`), so ported parsers agree with the originals on degenerate input.
-  JVM branches exist only for completeness; the runtime is ClojureScript.")
+  JVM branches exist only for completeness; the runtime is ClojureScript."
+  #?(:clj (:require [clojure.string])))
 
 (defn trim "String.prototype.trim." [s] #?(:cljs (.trim s) :clj (clojure.string/trim s)))
 (defn lower "String.prototype.toLowerCase." [s] #?(:cljs (.toLowerCase s) :clj (clojure.string/lower-case s)))
@@ -44,12 +45,14 @@
 
 (defn js-number "Number(x) for a string." [s] #?(:cljs (js/Number s) :clj (try (Double/parseDouble s) (catch Exception _ ##NaN))))
 
+#_{:clj-kondo/ignore [:unused-binding]} ; JVM branch is a stub that ignores its argument
 (defn iso-string
   "new Date(ms).toISOString(); throws RangeError for out-of-range input like the original."
   [ms]
   #?(:cljs (.toISOString (js/Date. ms))
      :clj (throw (UnsupportedOperationException. "proxx.jsval/iso-string requires the ClojureScript runtime"))))
 
+#_{:clj-kondo/ignore [:unused-binding]} ; JVM branch is a stub that ignores its argument
 (defn parse-date-ms
   "new Date(s).getTime(), or nil when it is NaN."
   [s]

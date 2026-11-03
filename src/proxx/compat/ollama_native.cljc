@@ -6,8 +6,7 @@
   Output objects are built with `omap`, which keeps field order (a JSON body's
   field order is visible to clients) and drops nil values (a TypeScript
   `undefined` property is absent on the wire, never `null`)."
-  (:require [clojure.string :as str]
-            [proxx.jsval :as jv]))
+  (:require [proxx.jsval :as jv]))
 
 (defn- omap
   "Insertion-ordered map of the non-nil values among `kvs`."

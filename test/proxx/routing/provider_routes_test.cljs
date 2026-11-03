@@ -1,5 +1,5 @@
 (ns proxx.routing.provider-routes-test
-  (:require [cljs.test :refer [deftest is async]]
+  (:require [cljs.test :refer [deftest is]]
             [proxx.policy.contracts :as contracts]
             [proxx.policy.loader :as loader]
             [proxx.routing.model-ids :as ids]

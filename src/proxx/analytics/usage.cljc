@@ -547,7 +547,7 @@
                 (num-or (- (or (get r "suitabilityScore") -1) (or (get l "suitabilityScore") -1)) (tok l r) (fallback l r))))]
     (vec (sort-by identity (fn [l r] (comparator-result (cmp l r))) rows))))
 
-(defn- finish-analytics [pairs window sort now window-start coverage-block*]
+(defn- finish-analytics [pairs window sort now _window-start coverage-block*]
   (let [{:keys [models providers model-cov provider-cov]}
         (reduce (fn [acc pair]
                   (let [model-id (if (nil? (get pair "model")) "unknown" (get pair "model"))

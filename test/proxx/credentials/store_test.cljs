@@ -1,5 +1,5 @@
 (ns proxx.credentials.store-test
-  (:require [cljs.test :refer [deftest is testing]]
+  (:require [cljs.test :refer [deftest is]]
             [proxx.credentials.store :as store]))
 
 (def ctx {:derive-metadata (fn [t] (if (= t "jwt") {:email "d@x.y" :plan-type "plus"} {}))})

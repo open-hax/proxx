@@ -17,8 +17,6 @@
 
 (defn- guarded [f] (try (f) (catch :default e (u/rethrow-as-error e))))
 
-(defn- ->array [xs] (to-array xs))
-
 (defn create-sql-credential-store-js
   "The facade `SqlCredentialStore` forwards to. `options`: {defaultTenantId?}."
   ([sql] (create-sql-credential-store-js sql nil))
@@ -30,8 +28,8 @@
          run-id (fn [id values] (run (statement id) values))
          first-row (fn [rows] (aget rows 0))
          optional (fn [view rows] (let [row (first-row rows)] (if row (view row) js/undefined)))
-         normalize-tenant (fn [t] (tenant-key/normalize-tenant-id-js t))]
-     (let [list-user-memberships (fn [user-id]
+         normalize-tenant (fn [t] (tenant-key/normalize-tenant-id-js t))
+list-user-memberships (fn [user-id]
                (.then (run-id "SELECT_TENANT_MEMBERSHIPS_BY_USER" [user-id])
                       (fn [rows] (.map rows (fn [row] (views/membership-view-js row))))))
 
@@ -306,4 +304,4 @@
                 (.forEach by-provider
                           (fn [accounts provider-id]
                             (.forEach accounts (fn [account] (.updateAccountCredential key-pool provider-id account account)))))
-                js/undefined))}))))
+                js/undefined))})))

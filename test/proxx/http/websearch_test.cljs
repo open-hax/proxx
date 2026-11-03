@@ -47,7 +47,7 @@
 (deftest exa
   (is (= {:output "x [L](https://l.example)" :sources [{"url" "https://l.example" "title" "L"}]}
          (ws/exa-parse-event-stream
-          (str "event: m\ndata: {\"result\":{\"content\":[{\"text\":\"x [L](https://l.example)\"}]}}\n")
+          "event: m\ndata: {\"result\":{\"content\":[{\"text\":\"x [L](https://l.example)\"}]}}\n"
           #(js->clj (js/JSON.parse %)))))
   (is (= "No search results found. Please try a different query." (:output (ws/exa-parse-event-stream "" js->clj))))
   (testing "an MCP error aborts"

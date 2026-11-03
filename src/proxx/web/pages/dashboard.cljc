@@ -164,7 +164,7 @@
                  :width (str (max pct (if (pos? v) 6 0)) "%")}))
             tiers))))
 
-(defn- tiles [{:keys [summary trends]} loading? wl]
+(defn- tiles [{:keys [summary trends]} _loading? wl]
   (let [s summary
         num (fn [k] (or (get s k) 0))
         routing (:routingRequests24h s)

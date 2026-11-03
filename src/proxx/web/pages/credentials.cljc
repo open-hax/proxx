@@ -364,8 +364,8 @@
                               (cred/quota-group-view "Code review rate limit" (:codeReviewRateLimit quota) nil nil now-ms)]))
              :error (or (:error quota) "Quota unavailable")
              :note (if quota-loading? "Loading current Codex quota…" "Refresh Codex quotas to load live 5h and weekly usage.")}
-     :details [(let [] {:label "Internal ID" :value (:id account) :copy {:value (:id account) :key internal-key
-                                                                          :text (if (= copied internal-key) "Copied" "Copy")}})
+     :details [{:label "Internal ID" :value (:id account) :copy {:value (:id account) :key internal-key
+                                                                          :text (if (= copied internal-key) "Copied" "Copy")}}
                (when (:chatgptAccountId account)
                  {:label "Workspace" :value (:chatgptAccountId account) :copy {:value (:chatgptAccountId account) :key workspace-key
                                                                                 :text (if (= copied workspace-key) "Copied" "Copy")}})

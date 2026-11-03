@@ -14,8 +14,6 @@
   [xs]
   (->> xs (filter string?) (map str/trim) (remove str/blank?) distinct vec))
 
-(defn- sequence-of [x] (if (sequential? x) x []))
-
 (defn normalize-model-ids
   "Model ids from an array, {\"models\": [...]} or OpenAI-style {\"data\": [{\"id\"}]}.
   Anything else cannot be honoured and is rejected."

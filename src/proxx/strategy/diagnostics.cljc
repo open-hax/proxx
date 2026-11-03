@@ -6,7 +6,6 @@
   never its text. The hash is injected (`sha256-hex`) so this stays pure; the
   digest of the text blocks is the SHA-256 of their normalised concatenation."
   (:require [clojure.string :as str]
-            [proxx.compat.wire :as wire]
             [proxx.json :as json]))
 
 (defn normalize-text

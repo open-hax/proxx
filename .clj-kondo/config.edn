@@ -2,6 +2,4 @@
            proxx.macros/defn-async clojure.core/defn
            proxx.macros/p-let     clojure.core/let
            proxx.macros/p->       clojure.core/->}
- :linters {;; `number` is a ClojureScript type hint (^number x) that kondo's Clojure reader
-           ;; cannot resolve inside .cljc files.
-           :unresolved-symbol {:exclude [await number]}}}
+ :linters {:unresolved-symbol {:exclude [await number]}}}

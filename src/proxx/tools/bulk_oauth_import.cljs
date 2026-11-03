@@ -241,9 +241,7 @@
   [^js page {:keys [callback-port callback-mode]} get-capture]
   (let [deadline (+ (js/Date.now) 30000)]
     (loop []
-      ;; ::timed-out is a sentinel the caller catches; ClojureScript may throw any value.
-      #_{:clj-kondo/ignore [:type-mismatch]}
-      (when (>= (js/Date.now) deadline) (throw ::timed-out))
+      (when (>= (js/Date.now) deadline) (throw ^{:clj-kondo/ignore [:type-mismatch]} ::timed-out))
       (let [text (await (body-text page))]
         (when-let [message (bo/waiting-failure text (.url page))] (fail! message))
         (or (captured get-capture)

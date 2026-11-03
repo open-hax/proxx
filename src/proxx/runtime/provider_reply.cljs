@@ -9,8 +9,7 @@
   `reply` is the Fastify reply, `response` the upstream fetch Response, `ctx` a
   ProviderAttemptContext / LocalAttemptContext. Handlers resolve to an attempt
   outcome: {kind:\"handled\"} or a `continue` outcome the router reads."
-  (:require [clojure.string :as str]
-            [proxx.http.reply :as frames]
+  (:require [proxx.http.reply :as frames]
             [proxx.runtime :as runtime]
             [proxx.runtime.http :as http]
             [proxx.runtime.ollama :as ollama]
@@ -170,7 +169,7 @@
 
 (defn ^:async handle-standard-local-attempt-js
   "The default local answer: copy status and headers, relay a stream, send the rest."
-  [^js reply ^js response ^js ctx]
+  [^js reply ^js response ^js _ctx]
   (edge/play! reply (into [[:code (.-status response)]] (frames/copy-upstream-frames (header-pairs response))))
   (case (plan/local-standard-plan {:ct (ct-of response) :has-body? (has-body? response)})
     :text (.send reply (await (.text response)))

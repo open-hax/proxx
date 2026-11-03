@@ -73,8 +73,6 @@
                          (aget exported "subject") (aget exported "planType"))
     (.upsertApiKeyAccount credential-store provider-id account-id (aget exported "secret"))))
 
-(defn- append-diff! [^js store event] (.appendDiffEvent store (clj->js event)))
-
 (defn- session-facts [^js s]
   {:session-id (.-sessionId s) :agent-id (.-agentId s) :tenant-id (.-tenantId s) :state (.-state s) :js s})
 

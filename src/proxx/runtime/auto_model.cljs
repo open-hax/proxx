@@ -6,8 +6,7 @@
   the pure ranking. Signatures differ from TS in two deliberate ways: policy
   functions take the manifest path first, and `getModelPricing` (a TS module the
   CLJS runtime cannot import) is passed in as the last argument."
-  (:require [proxx.policy.contracts :as contracts]
-            [proxx.policy.loader :as loader]
+  (:require [proxx.policy.loader :as loader]
             [proxx.routing.auto-model :as auto]))
 
 (defonce ^:private profiles (atom {}))

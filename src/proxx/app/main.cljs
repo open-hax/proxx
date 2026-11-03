@@ -30,7 +30,6 @@
             ["@fastify/swagger-ui" :as swagger-ui]
             ["fastify" :as fastify]
             ["node:path" :as path]
-            [proxx.app.wiring :as wiring]
             [proxx.runtime :as runtime]
             [proxx.runtime.app :as app-edge]
             [proxx.runtime.models :as models]

@@ -7,7 +7,6 @@
   `register-credential-routes-js`); nothing here constructs a store or a manager."
   (:require [proxx.http.credentials :as creds]
             [proxx.http.guard :as guard]
-            [proxx.http.request :as http-request]
             [proxx.http.route-path :as route-path]
             [proxx.http.ui-auth :as ui-auth]
             [proxx.runtime.interop :as interop]

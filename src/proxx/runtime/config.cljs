@@ -34,8 +34,6 @@
 (defn- rethrow-as-error [e]
   (throw (if (ex-data e) (js/Error. (ex-message e)) e)))
 
-(defn- undef [x] (if (nil? x) js/undefined x))
-
 (defn- config->js
   "The ProxyConfig object; absent optional settings are present-but-undefined."
   [m]

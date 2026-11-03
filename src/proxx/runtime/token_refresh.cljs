@@ -12,7 +12,6 @@
 
 (defn- now [] (js/Date.now))
 (defn- undef [x] (if (nil? x) js/undefined x))
-(defn- nullish-or [v default] (if (nil? v) default v))
 
 (defn- credential->js
   "A credential object; nil fields are present-but-undefined, as the TypeScript literals were."

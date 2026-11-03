@@ -38,7 +38,7 @@
 (defn prune
   "Drop expired entries. A device flow with a poll in flight (its id is in
   `in-flight-device-ids`) is never pruned."
-  [flows now-ms {:keys [browser-state-ttl-ms browser-completion-ttl-ms device-state-ttl-ms]}
+  [flows now-ms {:keys [browser-state-ttl-ms device-state-ttl-ms]}
    in-flight-device-ids]
   (let [browser-cutoff (- now-ms browser-state-ttl-ms)
         device-cutoff (- now-ms device-state-ttl-ms)

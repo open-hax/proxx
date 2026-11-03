@@ -130,6 +130,7 @@
                                                   "attributes" (otlp-attributes attributes)}]}})
                        records)}]}]})
 
+#_{:clj-kondo/ignore [:unused-binding]} ; JVM branch is a stub that ignores its argument
 (defn signal-endpoint
   "`<base>/v1/<signal>`, resolving relative to the base as a URL does."
   [base-endpoint signal]

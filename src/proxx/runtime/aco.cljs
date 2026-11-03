@@ -5,7 +5,6 @@
   The edge reads the environment, asks the stores what they know, draws the random
   numbers, and hands plain data to proxx.routing.aco."
   (:require [proxx.routing.aco :as aco]
-            [proxx.runtime.interop :as interop]
             [proxx.runtime.routing :as routing]))
 
 ;; ---------------------------------------------------------------------------
