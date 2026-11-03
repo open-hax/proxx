@@ -139,8 +139,8 @@
                               (reset! timer-ref (arm-abort-timer! controller timeout-ms)))))
         abort-p    (make-abort-promise (.-signal controller) attempt)]
     ;; Attach extendTimeout as a JS property for TS interop
-    (set! (.-extendTimeout controller) extend-timeout!)
-    (set! (.-extendTimeout (.-signal controller)) extend-timeout!)
+    (aset controller "extendTimeout" extend-timeout!)
+    (aset (.-signal controller) "extendTimeout" extend-timeout!)
     (try
       (await (js/Promise.race #js [(task controller) abort-p]))
       (finally

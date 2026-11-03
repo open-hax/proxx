@@ -1,4 +1,9 @@
-[{:contract/id :provider-seed/blaze
+[{:contract/id :provider-seed/factory
+  :contract/kind :provider-seed
+  :provider-id-fallback "factory"
+  :key-env-names ["FACTORY_API_KEY"]}
+
+ {:contract/id :provider-seed/blaze
   :contract/kind :provider-seed
   :provider-id-env-names ["BLAZE_PROVIDER_ID" "BLAZEAI_PROVIDER_ID"]
   :provider-id-fallback "blaze"

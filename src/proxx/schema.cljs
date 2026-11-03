@@ -332,6 +332,161 @@
     [:require/plans {:optional true} [:or :keyword KeywordVector]]
     [:exclude/plans {:optional true} KeywordVector]]])
 
+(def ProviderWireProfileContract
+  "How a provider's non-standard upstream is addressed: which endpoint and
+  `x-api-provider` a model uses (first matching route wins; the last route is a
+  catch-all), the static headers it requires, and prompt rewrites it demands."
+  [:and
+   ContractBase
+   [:map
+    [:contract/kind [:enum :provider-wire-profile]]
+    [:wire/provider-id [:string {:min 1}]]
+    [:wire/context-length-keys {:optional true} [:vector [:string {:min 1}]]]
+    [:wire/model-routes
+     {:optional true}
+     [:vector {:min 1}
+      [:map
+       [:match/model-pattern [:string {:min 1}]]
+       [:wire/api-provider [:string {:min 1}]]
+       [:wire/model-type {:optional true} :keyword]
+       [:wire/endpoint-path {:optional true} [:string {:min 1}]]]]]
+    [:wire/static-headers {:optional true} [:map-of :string :string]]
+    [:wire/anthropic-headers {:optional true} [:map-of :string :string]]
+    [:wire/thinking-beta-header {:optional true} [:string {:min 1}]]
+    [:wire/static-key-prefix {:optional true} [:string {:min 1}]]
+    [:wire/prompt-rewrites
+     {:optional true}
+     [:vector [:map
+               [:match/system-contains [:string {:min 1}]]
+               [:wire/replace-with [:string {:min 1}]]]]]]])
+
+(def ProviderSurfaceFactsContract
+  "Facts about which provider/model surfaces exist: which providers speak the
+  OpenAI-compatible and Responses APIs, how hosted-OpenAI model ids look, which
+  provider ids are dedicated Ollama hosts, where a provider's model catalog
+  lives, and which bridge paths a capability-less bridge may serve. Interpreted
+  by `proxx.routing.surface`; never restated in TypeScript."
+  [:and
+   ContractBase
+   [:map
+    [:contract/kind [:enum :provider-surface-facts]]
+    [:surface/openai-compatible-providers NonEmptyStringVector]
+    [:surface/responses-providers NonEmptyStringVector]
+    [:surface/hosted-openai-model-patterns NonEmptyStringVector]
+    [:surface/dedicated-ollama-provider-pattern [:string {:min 1}]]
+    [:surface/ollama-base-url-provider [:string {:min 1}]]
+    [:surface/local-ollama-provider-id [:string {:min 1}]]
+    [:surface/ollama-provider-id-pattern [:string {:min 1}]]
+    [:surface/explicit-ollama-prefixes NonEmptyStringVector]
+    [:surface/legacy-bridge-path-prefixes NonEmptyStringVector]
+    [:catalog/source-paths
+     [:vector {:min 1}
+      [:map
+       [:match/provider-pattern [:string {:min 1}]]
+       [:catalog/paths NonEmptyStringVector]]]]
+    [:catalog/codex-markers
+     [:map
+      [:openai-base-url-contains NonEmptyStringVector]
+      [:openai-path-contains NonEmptyStringVector]]]
+    [:catalog/ollama-paths NonEmptyStringVector]]])
+
+(def AutoModelProfileContract
+  "Facts behind auto:* model selection: default candidate list, and per model an
+  intelligence rank and the optional capabilities it supports."
+  [:and
+   ContractBase
+   [:map
+    [:contract/kind [:enum :auto-model-profile]]
+    [:auto/default-intelligence [:int {:min 0}]]
+    [:auto/default-candidates [:vector [:string {:min 1}]]]
+    [:auto/models
+     [:map-of [:string {:min 1}]
+      [:map
+       [:intelligence {:optional true} [:int {:min 0}]]
+       [:capabilities {:optional true} [:set [:enum :vision :tools :thinking]]]]]]]])
+
+(def UpstreamAttemptPolicyContract
+  "How an upstream attempt is judged: which statuses retry the same credential,
+  cool it down or disable it for good (with per-provider exceptions), the
+  cooldown ceilings by failure kind, and the ordering/route-quality constants."
+  (let [Statuses [:set [:int {:min 100 :max 599}]]
+        ByProvider [:map-of [:string {:min 1}] Statuses]
+        Ms [:int {:min 0}]]
+    [:and
+     ContractBase
+     [:map
+      [:contract/kind [:enum :upstream-attempt-policy]]
+      [:attempt/retry-same-credential [:map [:statuses Statuses] [:by-provider ByProvider]]]
+      [:attempt/auth-cooldown [:map [:statuses Statuses] [:except-by-provider ByProvider] [:cap-ms Ms]]]
+      [:attempt/permanent-disable
+       [:map [:auth-types [:set :keyword]] [:statuses Statuses] [:except-by-provider ByProvider] [:cooldown-ms Ms]]]
+      [:attempt/cooldown-caps [:map-of :keyword Ms]]
+      [:attempt/latency-ordering [:map [:ttft-grace-ms Ms] [:window-size [:int {:min 1}]]]]
+      [:attempt/plan-cost-tier [:map-of [:string {:min 1}] [:int {:min 0}]]]
+      [:attempt/free-plan-first
+       [:vector [:map [:provider-id [:string {:min 1}]] [:model-prefix [:string {:min 1}]]]]]
+      [:attempt/max-sticky-transport-failures [:int {:min 1}]]
+      [:attempt/route-quality
+       [:map [:min-latency-ms Ms] [:max-latency-ms Ms] [:floor [:and number? [:fn pos?]]]]]]]))
+
+(def StrategyRegistryContract
+  "Ordered strategy descriptors with data predicates over request facts; first
+  match wins. See 78-strategy-registry.edn for the predicate forms."
+  (let [Pred [:or
+              [:tuple [:enum :true :not-true] :keyword]
+              [:tuple [:enum :eq :not-eq] :keyword [:or :string :keyword]]
+              [:tuple [:enum :in] :keyword [:set :string]]
+              [:tuple [:enum :fn] :keyword]
+              [:tuple [:enum :not] [:tuple [:enum :fn] :keyword]]]]
+    [:and
+     ContractBase
+     [:map
+      [:contract/kind [:enum :strategy-registry]]
+      [:registry/entries
+       [:vector {:min 1}
+        [:map
+         [:strategy/id :keyword]
+         [:strategy/mode [:string {:min 1}]]
+         [:strategy/local? {:optional true} :boolean]
+         [:strategy/path {:optional true}
+          [:map
+           [:static {:optional true} [:string {:min 1}]]
+           [:config-key {:optional true} [:string {:min 1}]]
+           [:provider-path-key {:optional true} [:string {:min 1}]]
+           [:template {:optional true} [:string {:min 1}]]
+           [:model-default {:optional true} [:string {:min 1}]]]]
+         [:strategy/match [:vector Pred]]]]]
+      [:registry/payload-rules
+       [:map
+        [:codex-unsupported-params [:vector [:string {:min 1}]]]
+        [:factory-default-max-tokens [:int {:min 1}]]
+        [:ovm-default-model [:string {:min 1}]]]]
+      [:registry/compat-embedding-providers [:set [:string {:min 1}]]]]]))
+
+(def AutoModelChainsContract
+  "Fallback-chain auto models (vision, cephalon) and the shared advance rule."
+  (let [Models [:vector [:string {:min 1}]]]
+    [:and
+     ContractBase
+     [:map
+      [:contract/kind [:enum :auto-model-chains]]
+      [:chains/max-candidates [:map [:default [:int {:min 1}]] [:ceiling [:int {:min 1}]]]]
+      [:chains/advance-on [:vector :keyword]]
+      [:chains/vision
+       [:map
+        [:model-chain Models]
+        [:route-priority
+         [:vector [:map
+                   [:models {:optional true} [:set [:string {:min 1}]]]
+                   [:model-prefix {:optional true} [:string {:min 1}]]
+                   [:model-contains {:optional true} [:string {:min 1}]]
+                   [:provider-ids {:optional true} [:set [:string {:min 1}]]]
+                   [:provider-prefix {:optional true} [:string {:min 1}]]]]]]]
+      [:chains/cephalon
+       [:map
+        [:preferred-models Models] [:ollama-preferred Models] [:ollama-fast-order Models]
+        [:ollama-smart-order Models] [:empty-ranking-fallback [:string {:min 1}]]]]]]))
+
 (def FederationRoutingClauseContract
   [:and
    ContractBase
@@ -355,6 +510,153 @@
    [:map
     [:contract/kind [:enum :model-pricing-override]]
     [:match/model-pattern [:string {:min 1}]]]])
+
+(def ModelPricingSnapshotContract
+  "Locates the models.dev price table (EDN) relative to the contract file."
+  [:and
+   ContractBase
+   [:map
+    [:contract/kind [:enum :model-pricing-snapshot]]
+    [:snapshot/path [:string {:min 1}]]]])
+
+(def ModelPricingProviderRuleContract
+  "A routed provider id either maps onto a models.dev provider or is local (free)."
+  [:and
+   ContractBase
+   [:map
+    [:contract/kind [:enum :model-pricing-provider-rule]]
+    [:match/provider-id [:string {:min 1}]]
+    [:pricing/models-dev-provider {:optional true} [:string {:min 1}]]
+    [:pricing/local {:optional true} :boolean]]
+   [:fn {:error/message "provider rule requires :pricing/models-dev-provider or :pricing/local"}
+    (fn [m] (boolean (or (:pricing/models-dev-provider m) (:pricing/local m))))]])
+
+(def ModelPricingVendorFallbackContract
+  "Canonical vendor providers to consult for a model whose id starts with one of the prefixes."
+  [:and
+   ContractBase
+   [:map
+    [:contract/kind [:enum :model-pricing-vendor-fallback]]
+    [:match/model-prefixes [:vector {:min 1} [:string {:min 1}]]]
+    [:pricing/vendor-providers [:vector {:min 1} [:string {:min 1}]]]]])
+
+(def ModelEnergyProfileContract
+  "Joules per token for models matching a pattern; a profile without a pattern is the default."
+  [:and
+   ContractBase
+   [:map
+    [:contract/kind [:enum :model-energy-profile]]
+    [:match/model-pattern {:optional true} [:string {:min 1}]]
+    [:energy/joules-per-input-token number?]
+    [:energy/joules-per-output-token number?]]])
+
+(def ModelsDevPricingSnapshot
+  "The models.dev price table: per provider an ordered vector of [model-id cost].
+  Order is data (it decides lookup ties), hence vectors rather than maps."
+  [:map
+   [:generated-at :string]
+   [:source-url :string]
+   [:providers
+    [:map-of :string
+     [:vector [:tuple :string
+               [:map-of [:enum :input :output :reasoning :cache-read :cache-write] number?]]]]]])
+
+(def ProviderQuotaProfileContract
+  "Endpoints, client id, timeouts and probe settings for reading a provider account's quota."
+  [:and
+   ContractBase
+   [:map
+    [:contract/kind [:enum :provider-quota-profile]]
+    [:quota/token-url [:string {:min 1}]]
+    [:quota/usage-url [:string {:min 1}]]
+    [:quota/client-id [:string {:min 1}]]
+    [:quota/refresh-buffer-ms [:int {:min 0}]]
+    [:quota/usage-timeout-ms [:int {:min 1}]]
+    [:quota/probe-timeout-ms [:int {:min 1}]]
+    [:quota/probe-model [:string {:min 1}]]
+    [:quota/probe-expected-text [:string {:min 1}]]]])
+
+(def ProxyConfigDefaultsContract
+  "Fall-back values for proxy configuration (environment variables win)."
+  (vec
+   (concat
+    [:and ContractBase
+         [:map
+          [:contract/kind [:enum :proxy-config-defaults]]
+          [:defaults/openai-base-url [:string {:min 1}]]
+          [:defaults/openai-api-base-url [:string {:min 1}]]
+          [:defaults/openai-provider-id [:string {:min 1}]]
+          [:defaults/ollama-base-url [:string {:min 1}]]
+          [:defaults/openai-oauth-scopes [:string {:min 1}]]
+          [:defaults/openai-oauth-client-id [:string {:min 1}]]
+          [:defaults/openai-oauth-issuer [:string {:min 1}]]
+          [:defaults/session-secret [:string {:min 1}]]
+          [:defaults/policy-manifest [:string {:min 1}]]
+          [:defaults/messages-interleaved-thinking-beta [:string {:min 1}]]
+          [:defaults/github-oauth-callback-path [:string {:min 1}]]
+          [:defaults/models [:vector {:min 1} [:string {:min 1}]]]]]
+        (map (fn [k] [:map [k [:string {:min 1}]]])
+             [:defaults/chat-completions-path :defaults/openai-chat-completions-path :defaults/messages-path
+              :defaults/responses-path :defaults/openai-responses-path :defaults/ollama-chat-path
+              :defaults/ollama-v1-chat-path :defaults/images-generations-path])
+        (map (fn [k] [:map [k [:vector [:string {:min 1}]]]])
+             [:defaults/openai-images-generations-paths :defaults/messages-model-prefixes
+              :defaults/responses-model-prefixes :defaults/factory-model-prefixes :defaults/openai-model-prefixes
+              :defaults/ollama-model-prefixes :defaults/llamacpp-model-prefixes :defaults/local-ollama-model-patterns]))))
+
+(def ProviderBaseUrlContract
+  "An upstream provider's default base URL and the environment variables that override it."
+  [:and
+   ContractBase
+   [:map
+    [:contract/kind [:enum :provider-base-url]]
+    [:provider/id [:string {:min 1}]]
+    [:provider/base-url-env-names [:vector [:string {:min 1}]]]
+    [:provider/default-base-url [:string {:min 1}]]]])
+
+(def ProxyConfig
+  "The configuration the proxy runs with, as built by proxx.config.proxy (string-keyed).
+  Optional settings may be nil."
+  (let [str* [:string]
+        strs [:vector :string]
+        num number?
+        bool :boolean
+        req (fn [fields] (mapv (fn [[k t]] [k t]) fields))
+        opt (fn [fields] (mapv (fn [[k t]] [k {:optional true} [:maybe t]]) fields))]
+    (into [:map {:closed false}]
+          (concat
+           (req [["host" str*] ["port" num] ["upstreamProviderId" str*] ["disabledProviderIds" strs]
+                 ["upstreamProviderBaseUrls" [:map-of :string :string]] ["upstreamBaseUrl" str*]
+                 ["openaiProviderId" [:string {:min 1}]] ["openaiBaseUrl" str*] ["openaiApiBaseUrl" str*]
+                 ["openaiImagesUpstreamMode" [:enum "platform" "chatgpt" "auto"]] ["ollamaBaseUrl" str*]
+                 ["localOllamaEnabled" bool] ["localOllamaModelPatterns" strs]
+                 ["chatCompletionsPath" str*] ["openaiChatCompletionsPath" str*] ["messagesPath" str*]
+                 ["messagesModelPrefixes" strs] ["responsesPath" str*] ["openaiResponsesPath" str*]
+                 ["openaiImagesGenerationsPaths" strs] ["imageCostUsdDefault" [:and num [:>= 0]]]
+                 ["imageCostUsdByProvider" [:map-of :string num]] ["imagesGenerationsPath" str*]
+                 ["responsesModelPrefixes" strs] ["ollamaChatPath" str*] ["ollamaV1ChatPath" str*]
+                 ["factoryModelPrefixes" strs] ["openaiModelPrefixes" strs] ["ollamaModelPrefixes" strs]
+                 ["llamacppModelPrefixes" strs] ["keysFilePath" str*] ["modelsFilePath" str*]
+                 ["requestLogsFilePath" str*] ["requestLogsMaxEntries" [:and num [:> 0]]]
+                 ["requestLogsFlushMs" [:and num [:>= 0]]] ["promptAffinityFilePath" str*]
+                 ["promptAffinityFlushMs" [:and num [:>= 0]]] ["settingsFilePath" str*]
+                 ["keyReloadMs" [:and num [:> 0]]] ["keyCooldownMs" [:and num [:> 0]]]
+                 ["keyCooldownJitterFactor" [:and num [:> 0]]] ["enableKeyRandomWalk" bool]
+                 ["ollamaWeeklyCooldownMultiplier" [:and num [:> 0]]] ["requestTimeoutMs" [:and num [:> 0]]]
+                 ["streamBootstrapTimeoutMs" [:and num [:> 0]]] ["embedMaxContextTokens" [:and num [:> 0]]]
+                 ["embedMaxBatchItems" [:and num [:> 0]]] ["embedMaxInputChars" [:and num [:> 0]]]
+                 ["upstreamTransientRetryCount" [:and num [:>= 0]]] ["upstreamTransientRetryBackoffMs" [:and num [:> 0]]]
+                 ["concurrencyThrottleMaxRetries" [:and num [:>= 0]]] ["concurrencyThrottleThresholdMs" [:and num [:> 0]]]
+                 ["proxyTokenPepper" str*] ["allowUnauthenticated" bool] ["cljsPolicyManifestPath" str*]
+                 ["cljsPolicyShadowMode" bool] ["cljsPolicyAuthoritative" bool]
+                 ["githubOAuthCallbackPath" str*] ["githubAllowedUsers" strs] ["sessionSecret" str*]
+                 ["openaiOauthScopes" [:string {:min 1}]] ["openaiOauthClientId" [:string {:min 1}]]
+                 ["openaiOauthIssuer" str*] ["openaiOauthAllowHostRoutedCallbacks" bool]
+                 ["oauthRefreshMaxConcurrency" [:and num [:> 0]]] ["oauthRefreshBackgroundIntervalMs" [:and num [:> 0]]]
+                 ["oauthRefreshProactiveWindowMs" [:and num [:> 0]]]])
+           (opt [["ollamaApiKey" str*] ["messagesInterleavedThinkingBeta" str*] ["proxyAuthToken" str*]
+                 ["policyConfigPath" str*] ["databaseUrl" str*] ["githubOAuthClientId" str*]
+                 ["githubOAuthClientSecret" str*] ["openaiOauthClientSecret" str*]])))))
 
 (def ModelAliasContract
   [:and
@@ -491,8 +793,21 @@
     [:account-ordering AccountOrderingContract]
     [:account-constraint AccountConstraintContract]
     [:federation-routing-clause FederationRoutingClauseContract]
+    [:provider-wire-profile ProviderWireProfileContract]
+    [:provider-surface-facts ProviderSurfaceFactsContract]
+    [:auto-model-profile AutoModelProfileContract]
+    [:upstream-attempt-policy UpstreamAttemptPolicyContract]
+    [:strategy-registry StrategyRegistryContract]
+    [:auto-model-chains AutoModelChainsContract]
     [:authorization-clause AuthorizationClauseContract]
     [:model-pricing-override ModelPricingOverrideContract]
+    [:model-pricing-snapshot ModelPricingSnapshotContract]
+    [:model-pricing-provider-rule ModelPricingProviderRuleContract]
+    [:model-pricing-vendor-fallback ModelPricingVendorFallbackContract]
+    [:model-energy-profile ModelEnergyProfileContract]
+    [:proxy-config-defaults ProxyConfigDefaultsContract]
+    [:provider-base-url ProviderBaseUrlContract]
+    [:provider-quota-profile ProviderQuotaProfileContract]
     [:model-alias ModelAliasContract]
     [:reasoning-normalization ReasoningNormalizationContract]
    [:request-queue-template RequestQueueTemplateContract]
@@ -524,6 +839,8 @@
    :proxx/trace-entry     TraceEntry
    :proxx/policy          Policy
    :proxx/policy-manifest PolicyManifest
+   :proxx/models-dev-pricing-snapshot ModelsDevPricingSnapshot
+   :proxx/proxy-config ProxyConfig
    :proxx/contract-base ContractBase
    :proxx/contract-enum DomainEnumContract
    :proxx/contract-set DomainSetContract
@@ -540,8 +857,21 @@
     :proxx/contract-account-ordering AccountOrderingContract
     :proxx/contract-account-constraint AccountConstraintContract
     :proxx/contract-federation-routing-clause FederationRoutingClauseContract
+    :proxx/contract-provider-wire-profile ProviderWireProfileContract
+    :proxx/contract-provider-surface-facts ProviderSurfaceFactsContract
+    :proxx/contract-auto-model-profile AutoModelProfileContract
+    :proxx/contract-upstream-attempt-policy UpstreamAttemptPolicyContract
+    :proxx/contract-strategy-registry StrategyRegistryContract
+    :proxx/contract-auto-model-chains AutoModelChainsContract
    :proxx/contract-authorization-clause AuthorizationClauseContract
     :proxx/contract-model-pricing-override ModelPricingOverrideContract
+    :proxx/contract-model-pricing-snapshot ModelPricingSnapshotContract
+    :proxx/contract-model-pricing-provider-rule ModelPricingProviderRuleContract
+    :proxx/contract-model-pricing-vendor-fallback ModelPricingVendorFallbackContract
+    :proxx/contract-model-energy-profile ModelEnergyProfileContract
+    :proxx/contract-proxy-config-defaults ProxyConfigDefaultsContract
+    :proxx/contract-provider-base-url ProviderBaseUrlContract
+    :proxx/contract-provider-quota-profile ProviderQuotaProfileContract
     :proxx/contract-model-alias ModelAliasContract
     :proxx/contract-reasoning-normalization ReasoningNormalizationContract
    :proxx/retry-backoff RetryBackoff

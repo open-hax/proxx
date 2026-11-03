@@ -1,6 +1,8 @@
 (ns proxx.runtime
   (:require [clojure.string]
             [proxx.policy :as policy]
+            [proxx.compat.messages :as messages-compat]
+            [proxx.errors.classification :as classification]
             [proxx.policy.contracts :as policy-contracts]
             [proxx.policy.evidence :as policy-evidence]
             [proxx.policy.loader :as policy-loader]
@@ -10,6 +12,7 @@
             [proxx.queue.policy :as queue-policy]
             [proxx.queue.runtime :as queue-runtime]
             [proxx.schema :as schema]
+            [proxx.sse :as sse]
             [proxx.strategies.anthropic :as anthropic]
             [proxx.strategies.openai :as openai]))
 
@@ -111,7 +114,11 @@
   (let [contracts (policy-loader/load-policy-contracts! manifest-path)
         idx (policy-contracts/index-contracts contracts)
         specs (policy-contracts/provider-seed-specs idx)]
-    (clj->js specs)))
+    (clj->js (mapv (fn [{:keys [provider-id-env-names provider-id-fallback key-env-names]}]
+                     {:providerIdEnvNames provider-id-env-names
+                      :providerIdFallback provider-id-fallback
+                      :keyEnvNames key-env-names})
+                   specs))))
 
 (defn preview-policy-decision-js
   "Load declarative policy contracts from manifest-path and return a pure decision preview."
@@ -353,3 +360,122 @@
        :resolveQueuePolicy resolve-queue-policy-js
        :runQueued run-queued-js
        :classifyRateLimit classify-rate-limit-js})
+
+;; ---------------------------------------------------------------------------
+;; Upstream error classification (edge: reads the Response once, then applies
+;; the pure verdicts in proxx.errors.classification to the same facts)
+;; ---------------------------------------------------------------------------
+
+(defn- parse-json [text]
+  (js->clj (js/JSON.parse text)))
+
+(defn- ^:async read-payload
+  "Body of a cloned response as parsed JSON, falling back to raw text, else nil."
+  [response]
+  (try
+    (parse-json (await (.text (.clone response))))
+    (catch :default _
+      (try (await (.text (.clone response)))
+           (catch :default _ nil)))))
+
+(defn- response-head [response]
+  {:status (.-status response)
+   :content-type (.get (.-headers response) "content-type")})
+
+(defn- ^:async with-payload [response head]
+  (assoc head :payload (await (read-payload response))))
+
+(defn ^:async response-indicates-quota-error-js
+  "Resolve true when a provider Response reports quota/credit exhaustion.
+  The body is read only when the head leaves the question open."
+  [response]
+  (let [head (response-head response)]
+    (classification/quota-error?
+     (if (classification/quota-body-needed? head)
+       (await (with-payload response head))
+       head))))
+
+(defn ^:async response-indicates-missing-model-js
+  [response requested-model]
+  (classification/missing-model? (await (with-payload response (response-head response)))
+                                 requested-model))
+
+(defn ^:async response-indicates-model-not-supported-js
+  [response requested-model]
+  (classification/model-not-supported-for-account?
+   (await (with-payload response (response-head response)))
+   requested-model))
+
+(defn ^:async summarize-upstream-error-js
+  "Resolve to {upstreamErrorCode?, upstreamErrorType?, upstreamErrorMessage?}."
+  [response]
+  (let [summary (classification/summarize-upstream-error (:payload (await (with-payload response {}))))]
+    (clj->js (cond-> {}
+               (:upstream-error-code summary) (assoc :upstreamErrorCode (:upstream-error-code summary))
+               (:upstream-error-type summary) (assoc :upstreamErrorType (:upstream-error-type summary))
+               (:upstream-error-message summary) (assoc :upstreamErrorMessage (:upstream-error-message summary))))))
+
+(defn stream-payload-indicates-quota-error-js
+  "True when any SSE event in `body` reports a quota failure."
+  [body]
+  (classification/stream-quota-error? parse-json body))
+
+(defn truncate-for-log-js
+  "Collapse whitespace and cap at `max-length` (default 240) characters."
+  [value max-length]
+  (classification/truncate-for-log value (if (some? max-length) max-length 240)))
+
+(defn message-indicates-quota-error-js [message]
+  (classification/quota-message? message))
+
+(defn payload-looks-like-error-js [payload]
+  (classification/error-like-payload? (js->clj payload)))
+
+(defn extract-error-message-js
+  "Message text of a parsed JSON error payload, or undefined."
+  [payload]
+  (clj->js (classification/extract-error-message (js->clj payload))))
+
+;; ---------------------------------------------------------------------------
+;; SSE inspection (sync, string in / boolean out)
+;; ---------------------------------------------------------------------------
+
+(defn extract-sse-data-lines-js [body] (to-array (sse/data-lines body)))
+
+(defn strip-sse-comment-lines-js [body] (sse/strip-comment-lines body))
+
+(defn stream-payload-has-reasoning-trace-js [body]
+  (sse/stream-has-reasoning-trace? parse-json body))
+
+(defn stream-payload-has-substantive-chunks-js [body]
+  (sse/stream-has-substantive-chunks? parse-json body))
+
+(defn chat-completion-has-reasoning-content-js [completion]
+  (sse/chat-completion-has-reasoning? (js->clj completion)))
+
+;; ---------------------------------------------------------------------------
+;; Anthropic /v1/messages compatibility (JS in, JS out; domain errors rethrown
+;; as plain Errors so the HTTP edge keeps its existing handling)
+;; ---------------------------------------------------------------------------
+
+(defn- rethrow-as-error [e]
+  (throw (if (ex-data e) (js/Error. (ex-message e)) e)))
+
+(defn- translate-js [f & args]
+  (try
+    (clj->js (apply f (map js->clj args)))
+    (catch :default e (rethrow-as-error e))))
+
+(defn chat-request-to-messages-request-js [body]
+  (translate-js messages-compat/chat-request->messages-request body))
+
+(defn normalize-messages-thinking-budget-js [payload]
+  (translate-js messages-compat/normalize-messages-thinking-budget payload))
+
+(defn messages-to-chat-completion-js [body fallback-model]
+  (try
+    (clj->js (messages-compat/messages->chat-completion (js->clj body) fallback-model (js/Date.now)))
+    (catch :default e (rethrow-as-error e))))
+
+(defn should-use-messages-upstream-js [model prefixes]
+  (messages-compat/should-use-messages-upstream? model (js->clj prefixes)))
