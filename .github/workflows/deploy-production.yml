@@ -44,7 +44,7 @@ jobs:
       - run: ./scripts/ci-lint.sh
       - run: /home/runner/go/bin/actionlint
       - run: pnpm install --frozen-lockfile
-      - run: pnpm run typecheck
+      - run: pnpm run check:no-new-typescript
       - run: pnpm test
       - run: pnpm run build
       - run: pnpm run web:build

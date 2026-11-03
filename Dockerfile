@@ -11,7 +11,7 @@ RUN pnpm add -g pm2
 
 WORKDIR /app
 
-COPY package.json tsconfig.json shadow-cljs.edn ./
+COPY package.json shadow-cljs.edn ./
 
 RUN pnpm install --no-frozen-lockfile
 
@@ -20,7 +20,7 @@ COPY web ./web
 COPY resources ./resources
 COPY ecosystem.container.config.cjs ./ecosystem.container.config.cjs
 
-RUN pnpm build:runtime && pnpm web:build
+RUN pnpm build:cljs && pnpm web:build
 
 # Never run containers as root.
 # Use the pre-created `node` user in the base image.

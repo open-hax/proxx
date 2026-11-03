@@ -163,7 +163,7 @@ See `DEVEL.md` > "Database Migrations" for full details.
 Run these for any backend, route, auth, routing, or data-path change:
 
 1. `pnpm build`
-2. `PROXY_AUTH_TOKEN=$(grep PROXY_AUTH_TOKEN /home/err/devel/services/proxx/.env | cut -d= -f2) npx tsx --test src/tests/proxy.test.ts`
+2. `NODE_OPTIONS=--max-old-space-size=4096 pnpm test:cljs` (includes the end-to-end proxy tests under `test/proxx/proxy/`)
 
 ### Minimum frontend validation
 Run these for any `web/` change:

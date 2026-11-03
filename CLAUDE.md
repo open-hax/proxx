@@ -10,22 +10,21 @@ Proxx is an OpenAI-compatible proxy server (`@open-hax/proxx`) with provider-sco
 
 ### Development
 ```bash
-pnpm dev                    # build CLJS then run TypeScript server via tsx
+pnpm dev                    # build CLJS then run the server (node dist/cljs/main.js)
 pnpm web:dev                # build the CLJS bundle, then Vite dev server for the web console
 pnpm web:watch              # shadow-cljs watch for the web console (:web build)
 ```
 
 ### Build
 ```bash
-pnpm build                  # full build: TS + CLJS
-pnpm build:ts               # TypeScript only
-pnpm build:cljs             # shadow-cljs only
+pnpm build                  # full build (shadow-cljs release :runtime)
+pnpm build:cljs             # shadow-cljs release :runtime
 pnpm web:build              # shadow-cljs release (:web) + Vite (CSS, index.html) -> web/dist
 ```
 
-### Type checking and linting
+### Inventory gate and linting
 ```bash
-pnpm typecheck              # tsc --noEmit
+pnpm check:no-new-typescript  # no TypeScript-family files; policy boundary check
 pnpm lint                   # eslint
 pnpm lint:errors            # eslint --quiet (errors only)
 ./scripts/ci-lint.sh        # full lint + actionlint on workflows
@@ -33,13 +32,11 @@ pnpm lint:errors            # eslint --quiet (errors only)
 
 ### Tests
 ```bash
-pnpm test                             # build then run all unit tests
-npx tsx --test src/tests/<file>.test.ts  # run a single TS test file
+pnpm test                             # build then run all CLJS unit tests
 pnpm test:cljs                        # compile and run CLJS unit tests
 npx shadow-cljs compile node-test && node target/node-test.cjs  # includes the migration tests (test/proxx/db/schema_test.cljs)
 pnpm web:test                         # shadow-cljs :web-test (cljs.test view smoke tests under jsdom)
 pnpm web:test:e2e                     # frontend browser smoke tests
-PROXY_AUTH_TOKEN=<token> npx tsx --test src/tests/proxy.test.ts  # live proxy test (requires running instance)
 ```
 
 ### E2E and load
@@ -68,10 +65,9 @@ HTTP Edge (TypeScript) → CLJS Runtime Boundary → Declarative Policy Engine (
 | What | Where |
 |------|-------|
 | HTTP routes, request parsing, response serialization | `src/proxx/runtime/routes/`, `src/proxx/http/` (Ring on Fastify) |
-| Application composition, server entry (`node dist/cljs/main.js`), shutdown | `src/proxx/app/main.cljs`, `src/proxx/app/entry.cljs`; host factories in `src/app.ts` |
-| Database queries (postgres.js) | `src/lib/db/` |
+| Application composition, server entry (`node dist/cljs/main.js`), shutdown | `src/proxx/app/main.cljs`, `src/proxx/app/entry.cljs`; host in `src/proxx/host.cljs` |
+| Database queries (postgres.js) | `src/proxx/runtime/sql*.cljs`, `src/proxx/credentials/sql.cljc` |
 | Routing decisions, provider selection, account ordering | `resources/policies/runtime/*.edn` + `src/proxx/**/*.cljs` |
-| CLJS→TypeScript interop boundary | `src/lib/cljs-runtime.ts` (loads `dist/cljs/proxx-runtime.js`) |
 | Model pricing overrides | `resources/policies/runtime/15-model-pricing-overrides.edn` only |
 
 ### Policy files (loaded in order via `00-manifest.edn`)
@@ -108,7 +104,7 @@ More-specific clauses must precede catch-alls. EDN changes take effect on server
 
 ### Backend changes (routes, auth, routing, data path)
 1. `pnpm build`
-2. `PROXY_AUTH_TOKEN=$(grep PROXY_AUTH_TOKEN /home/err/devel/services/proxx/.env | cut -d= -f2) npx tsx --test src/tests/proxy.test.ts`
+2. `NODE_OPTIONS=--max-old-space-size=4096 pnpm test:cljs` (includes the end-to-end proxy tests under `test/proxx/proxy/`)
 
 ### Frontend changes (`web/`)
 1. `pnpm web:build`
