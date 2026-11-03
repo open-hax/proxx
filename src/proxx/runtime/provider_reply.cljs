@@ -12,6 +12,7 @@
   (:require [clojure.string :as str]
             [proxx.http.reply :as frames]
             [proxx.runtime :as runtime]
+            [proxx.runtime.http :as http]
             [proxx.runtime.ollama :as ollama]
             [proxx.runtime.proxy :as proxy]
             [proxx.runtime.reply :as edge]
@@ -121,10 +122,14 @@
                                        {:status (.-status response)
                                         :lead (frames/identity-frames (identity-of ctx))
                                         :upstream-headers (header-pairs response)}))]
-            (await (edge/pump-reader! raw (.-reader bootstrap) (fn [^js reader] (.read reader))
-                                      (fn [^js raw]
-                                        (doseq [chunk (array-seq (.-bufferedChunks bootstrap))]
-                                          (.write raw chunk)))))
+            (await (edge/with-queue-lifecycle
+                     (.-queueSignal ctx) raw
+                     (fn []
+                       (edge/pump-reader! raw (.-reader bootstrap) (fn [^js reader] (.read reader))
+                                          (fn [^js raw]
+                                            (doseq [chunk (array-seq (.-bufferedChunks bootstrap))]
+                                              (when-not (.-writableEnded raw)
+                                                (.write raw chunk))))))))
             (handled))))
 
       :else
@@ -220,6 +225,7 @@
                                                                       (responses/responses-output-has-reasoning-js json))})
                 :reasoning-stream
                 (let [raw (edge/play! reply (frames/translated-stream-head {}))]
+                  (edge/extend-queue-timeout! (.-queueSignal ctx))
                   (await (responses/write-interleaved-responses-sse-js json (.-routedModel ctx) (fn [data] (.write ^js raw data))))
                   (.end ^js raw)
                   (handled))
@@ -252,17 +258,21 @@
   strategies differ in how loudly they report it)."
   [^js reply ^js response ^js ctx on-error-event on-read-error]
   (let [raw (edge/play! reply (frames/translated-stream-head {:before (frames/provider-frames (.-providerId ctx))}))
-        done (try
-               (let [^js result (await (responses/stream-responses-sse-to-chat-completion-chunks-js
-                                        (.-body response)
-                                        #js {"fallbackModel" (.-routedModel ctx)
-                                             "writeFn" (fn [data] (.write ^js raw data))}))]
-                 (when (.-sawError result)
-                   (on-error-event ctx raw)
-                   ::done))
-               (catch :default err
-                 (on-read-error ctx response err)
-                 nil))]
+        done (await
+              (edge/with-queue-lifecycle
+                (.-queueSignal ctx) raw
+                (fn ^:async stream! []
+                  (try
+                    (let [^js result (await (responses/stream-responses-sse-to-chat-completion-chunks-js
+                                             (.-body response)
+                                             #js {"fallbackModel" (.-routedModel ctx)
+                                                  "writeFn" (fn [data] (.write ^js raw data))}))]
+                      (when (.-sawError result)
+                        (on-error-event ctx raw)
+                        ::done))
+                    (catch :default err
+                      (on-read-error ctx response err)
+                      nil)))))]
     (when-not (= ::done done)
       (edge/end-quietly! raw))
     (handled)))
@@ -320,7 +330,8 @@
           verdict (plan/passthrough-plan {:ct (ct-of response) :has-body? (has-body? response)})]
       (case verdict
         :stream (let [raw (edge/play! reply (frames/relayed-stream-head prefix))]
-                  (edge/pipe-web-stream! raw (.-body response))
+                  (edge/extend-queue-timeout! (.-queueSignal ctx))
+                  (edge/pipe-web-stream! raw (.-body response) (.-queueSignal ctx))
                   (handled))
         :no-body (do (edge/play! reply (frames/relay-prefix prefix)) (request-error))
         (do (edge/play! reply (frames/relay-prefix prefix))
@@ -328,6 +339,12 @@
               (.send reply (await (.text response)))
               (.send reply (js/Buffer.from (await (.arrayBuffer response)))))
             (handled))))))
+
+(defn- abort-stalled-stream!
+  "A body that stalled: abort the transport behind it, then drop the reader."
+  [^js response ^js reader]
+  (http/abort-fetch-response! response (js/DOMException. "The response body stalled" "TimeoutError"))
+  (edge/cancel-quietly reader))
 
 (defn- ^:async relay-responses-stream
   "OpenAI Responses SSE relayed to the client with a bootstrap and an idle timeout."
@@ -337,7 +354,7 @@
     (let [^js reader (.getReader (.-body response))
           first-chunk (try (await (edge/read-with-timeout reader (.-streamBootstrapTimeoutMs ^js (.-config ctx))
                                                           "responses stream timeout"))
-                           (catch :default _ (await (edge/cancel-quietly reader)) ::bad))]
+                           (catch :default _ (await (abort-stalled-stream! response reader)) ::bad))]
       (cond
         (= ::bad first-chunk) (request-error)
         (.-done ^js first-chunk) (do (await (edge/cancel-quietly reader)) (request-error))
@@ -346,14 +363,18 @@
                                      {:status (.-status response)
                                       :lead (frames/provider-frames (.-providerId ctx))
                                       :upstream-headers (header-pairs response)}))
-              timeout-ms (.-requestTimeoutMs ^js (.-config ctx))]
+              timeout-ms (.-requestTimeoutMs ^js (.-config ctx))
+              signal (.-queueSignal ctx)
+              _ (edge/extend-queue-timeout! signal)
+              cleanup-abort (edge/register-queue-abort! signal raw)]
           (try
             (let [value (.-value ^js first-chunk)]
-              (when (and value (pos? (.-byteLength value))) (.write ^js raw value)))
+              (when (and (not (.-writableEnded ^js raw)) value (pos? (.-byteLength value)))
+                (.write ^js raw value)))
             (loop []
               (when-not (.-writableEnded ^js raw)
                 (let [next-chunk (try (await (edge/read-with-timeout reader timeout-ms "responses stream timeout"))
-                                      (catch :default _ (await (edge/cancel-quietly reader)) ::bad))]
+                                      (catch :default _ (await (abort-stalled-stream! response reader)) ::bad))]
                   (when-not (= ::bad next-chunk)
                     (when-not (.-done ^js next-chunk)
                       (let [value (.-value ^js next-chunk)]
@@ -361,7 +382,8 @@
                       (recur))))))
             (finally
               (try (.releaseLock reader) (catch :default _ nil))
-              (edge/end-quietly! raw)))
+              (try (edge/end-quietly! raw)
+                   (finally (cleanup-abort)))))
           (handled))))))
 
 (defn- ^:async answer-error-event-stream
@@ -435,14 +457,18 @@
   "Translate an Ollama NDJSON body into SSE on the hijacked response; a failure
   mid-stream is written as an error frame and the response is closed."
   [^js raw ^js response ^js ctx]
-  (try
-    (await (ollama/stream-ollama-ndjson-to-chat-completion-sse-js
-            (.-body response) (.-routedModel ctx)
-            (fn [data] (edge/write-flushing! raw data))))
-    (catch :default error
-      (when-not (.-writableEnded raw)
-        (.write raw (plan/sse-error-frame (error-message error))))))
-  (edge/end-quietly! raw))
+  (await
+   (edge/with-queue-lifecycle
+     (.-queueSignal ctx) raw
+     (fn ^:async relay! []
+       (try
+         (await (ollama/stream-ollama-ndjson-to-chat-completion-sse-js
+                 (.-body response) (.-routedModel ctx)
+                 (fn [data] (edge/write-flushing! raw data))))
+         (catch :default error
+           (when-not (.-writableEnded raw)
+             (.write raw (plan/sse-error-frame (error-message error)))))
+         (finally (edge/end-quietly! raw)))))))
 
 (defn- ^:async handle-ollama-cloud [^js reply ^js response ^js ctx]
   (cond

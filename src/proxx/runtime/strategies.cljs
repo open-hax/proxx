@@ -191,27 +191,43 @@
   (let [^js raw (edge/play! reply (frames/translated-stream-head
                                {:after (frames/provider-frames (.-providerId ctx))}))
         accumulator (strategy/create-gemini-stream-accumulator-js)]
-    (try
-      (let [^js make-iterator (aget stream-result js/Symbol.asyncIterator)
-            ^js iterator (.call make-iterator stream-result)]
-        (loop []
-          (let [^js step (await (.next iterator))]
-            (when-not (.-done step)
-              (js-invoke accumulator "push" (.-value step))
-              (recur)))))
-      (.write raw (responses/chat-completion-to-sse-js (js-invoke accumulator "completion" (.-routedModel ctx))))
-      (catch :default e
-        (when-not (.-writableEnded raw)
-          (.write raw (str "data: " (js/JSON.stringify #js {"error" #js {"message" (js/String e)}}) "\n\n")))))
-    (edge/end-quietly! raw)
+    (await
+     (edge/with-queue-lifecycle
+       (.-queueSignal ctx) raw
+       (fn ^:async relay! []
+         (try
+           (let [^js make-iterator (aget stream-result js/Symbol.asyncIterator)
+                 ^js iterator (.call make-iterator stream-result)]
+             (loop []
+               (let [^js step (await (.next iterator))]
+                 (when-not (.-done step)
+                   (js-invoke accumulator "push" (.-value step))
+                   (recur)))))
+           (when-not (.-writableEnded raw)
+             (.write raw (responses/chat-completion-to-sse-js (js-invoke accumulator "completion" (.-routedModel ctx)))))
+           (catch :default e
+             (when-not (.-writableEnded raw)
+               (.write raw (str "data: " (js/JSON.stringify #js {"error" #js {"message" (js/String e)}}) "\n\n"))))
+           (finally (edge/end-quietly! raw))))))
     #js {"kind" "handled"}))
+
+;; Test seam: how the SDK client is built (the real one needs the network).
+(defonce ^:private genai-factory (atom (fn [options] (GoogleGenAI. options))))
+
+(defn set-genai-factory!
+  "Replace how the Gemini SDK client is constructed; returns the previous factory."
+  [f]
+  (let [previous @genai-factory] (reset! genai-factory f) previous))
 
 (defn- ^:async gemini-sdk-attempt
   [^js reply ^js ctx ^js sdk-payload model]
   (let [api-key (.-token ^js (.-account ctx))
         base-url (.-baseUrl ctx)
-        ^js client (GoogleGenAI. (js/Object.assign #js {"apiKey" api-key} (if (seq base-url) #js {"baseUrl" base-url} #js {})))
-        sdk-request (strategy/gemini-payload-to-sdk-request-js model sdk-payload)]
+        ^js client (@genai-factory (js/Object.assign #js {"apiKey" api-key} (if (seq base-url) #js {"baseUrl" base-url} #js {})))
+        ^js sdk-request (strategy/gemini-payload-to-sdk-request-js model sdk-payload)]
+    ;; A queue abort must cancel the SDK call, not just the reply.
+    (when-let [signal (.-queueSignal ctx)]
+      (aset (.-config sdk-request) "abortSignal" signal))
     (if (.-clientWantsStream ctx)
       (await (stream-gemini! reply ctx (await (.generateContentStream (.-models client) sdk-request))))
       (let [response (await (.generateContent (.-models client) sdk-request))
@@ -238,13 +254,9 @@
 
       :else
       (let [model (or (model-alias ctx (gemini-provider-id ctx)) (.-routedModel ctx))]
-        ;; Policy should keep non-Gemini models away; if it did not, do not poison the
-        ;; routing summary with an invalid-request verdict.
-        (if-not (strategy/is-gemini-sdk-model-js model)
-          #js {"kind" "continue" "modelNotFound" true}
-          (try
-            (await (gemini-sdk-attempt reply ctx payload model))
-            (catch :default e (strategy/classify-gemini-sdk-error-js (js/String e)))))))))
+        (try
+          (await (gemini-sdk-attempt reply ctx payload model))
+          (catch :default e (strategy/classify-gemini-sdk-error-js (js/String e))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The strategy objects

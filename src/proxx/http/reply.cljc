@@ -31,6 +31,14 @@
    ["x-accel-buffering" "no"]
    ["content-type" "text/event-stream; charset=utf-8"]])
 
+(def queue-abort-message "Provider stream aborted by request queue timeout")
+
+(defn queue-abort-chunk
+  "The SSE data frame a client sees when the request queue aborts a stream that
+  has already started (so it gets an error, not a silent EOF)."
+  []
+  (str "data: {\"error\":{\"message\":\"" queue-abort-message "\"}}\n\n"))
+
 (def provider-header "x-open-hax-upstream-provider")
 
 (defn headers

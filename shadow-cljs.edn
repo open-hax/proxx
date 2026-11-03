@@ -301,7 +301,6 @@
                                            geminiPayloadToSdkRequest proxx.runtime.strategy/gemini-payload-to-sdk-request-js
                                            geminiUpstreamPath proxx.runtime.strategy/gemini-upstream-path-js
                                            isLocalGeminiBaseUrl proxx.runtime.strategy/is-local-gemini-base-url-js
-                                           isGeminiSdkModel proxx.runtime.strategy/is-gemini-sdk-model-js
                                            classifyGeminiSdkError proxx.runtime.strategy/classify-gemini-sdk-error-js
                                            createGeminiStreamAccumulator proxx.runtime.strategy/create-gemini-stream-accumulator-js
                                            extractUsageCountsFromSseText proxx.runtime.strategy/extract-usage-counts-from-sse-text-js

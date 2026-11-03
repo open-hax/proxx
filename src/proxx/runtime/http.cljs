@@ -70,6 +70,19 @@
                  retry-after-seconds (assoc :retryAfterSeconds retry-after-seconds)))
       js/undefined)))
 
+;; The transport behind a response, so a body that stalls after the headers can
+;; still be torn down (`abort-fetch-response!`).
+(defonce ^:private response-controllers (js/WeakMap.))
+
+(defn abort-fetch-response!
+  "Abort the transport that produced `response` (a `fetch-with-response-timeout-js`
+  result) after its headers were received. No-op for any other response."
+  [^js response reason]
+  (let [^js controller (.get response-controllers response)]
+    (when (and controller (not (.. controller -signal -aborted)))
+      (.abort controller reason))
+    nil))
+
 (defn ^:async fetch-with-response-timeout-js
   "`fetch` that aborts with a TimeoutError when no response arrives within
   `timeout-ms` (src/lib/http/fetch-utils.ts). A caller's own signal also aborts it."
@@ -82,5 +95,7 @@
                  (.any js/AbortSignal #js [(.-signal init) (.-signal controller)])
                  (.-signal controller))]
     (try
-      (await (js/fetch url (js/Object.assign #js {} init #js {:signal signal})))
+      (let [^js response (await (js/fetch url (js/Object.assign #js {} init #js {:signal signal})))]
+        (.set response-controllers response controller)
+        response)
       (finally (js/clearTimeout handle)))))

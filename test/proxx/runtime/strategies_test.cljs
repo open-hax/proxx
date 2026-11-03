@@ -113,3 +113,49 @@
     (is (= ["zai" "vivgrid" "rotussy" "ollama-cloud" "ollama-stealth"] (vision-route-order routes "glm-5v-turbo")))
     (is (= ["zai" "vivgrid" "rotussy" "ollama-cloud" "ollama-stealth"] (vision-route-order routes "glm-4.6v")))
     (is (= ["ollama-cloud" "ollama-stealth" "vivgrid" "zai" "rotussy"] (vision-route-order routes "qwen3.5:4b-q8_0")))))
+
+;; ---- Gemini SDK attempt under the request queue (staging: d21e1ce) ----------
+
+(defn- gemini-attempt
+  "Run the gemini-chat direct strategy for `model` with a fake SDK; resolves to
+  [outcome sdk-requests-seen]."
+  [model queue-signal error]
+  (let [seen (atom [])
+        fake (fn [_options]
+               #js {:models #js {:generateContent (fn [req]
+                                                    (swap! seen conj req)
+                                                    (if error (js/Promise.reject (js/Error. error))
+                                                        (js/Promise.resolve
+                                                         #js {:candidates #js [#js {:content #js {:parts #js [#js {:text "ok"}]}
+                                                                                    :finishReason "STOP"}]})))}})
+        previous (strategies/set-genai-factory! fake)
+        ^js s (strategies/strategy-for-id-js "gemini-chat")
+        sent (atom nil)
+        ^js reply #js {:header (fn [& _] nil)
+                       :code (fn [_] #js {:send (fn [b] (reset! sent b))})
+                       :send (fn [b] (reset! sent b))}
+        context (ctx #js {"routeProviderId" "gemini" "providerId" "gemini" "routedModel" model
+                          "requestedModelInput" model "clientWantsStream" false
+                          "hasMoreCandidates" false "queueSignal" queue-signal
+                          "baseUrl" "https://generativelanguage.googleapis.com"})]
+    (-> (js/Promise.resolve (.executeDirect s reply context #js {"model" model "messages" #js [#js {"role" "user" "content" "hi"}]}))
+        (.finally (fn [] (strategies/set-genai-factory! previous)))
+        (.then (fn [outcome] [outcome @seen])))))
+
+(deftest ^:async gemini-sdk-call-carries-the-queue-abort-signal
+  (let [controller (js/AbortController.)
+        [_outcome seen] (await (gemini-attempt "gemini-2.5-pro" (.-signal controller) nil))]
+    (is (= 1 (count seen)))
+    (is (identical? (.-signal controller) (.. ^js (first seen) -config -abortSignal))
+        "a queue abort cancels the SDK call")))
+
+(deftest ^:async gemini-sdk-does-not-gate-on-the-model-name
+  ;; staging removed the name guard: an aliased/custom model still reaches the SDK.
+  (let [[outcome seen] (await (gemini-attempt "my-tuned-model" js/undefined nil))]
+    (is (= 1 (count seen)))
+    (is (= "handled" (.-kind ^js outcome)))))
+
+(deftest ^:async gemini-sdk-overload-is-a-rate-limit-outcome
+  (let [[^js outcome _] (await (gemini-attempt "gemini-2.5-pro" js/undefined "503 UNAVAILABLE"))]
+    (is (= "continue" (.-kind outcome)))
+    (is (true? (.-rateLimit outcome)))))

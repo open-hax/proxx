@@ -145,7 +145,7 @@
 (defn- classify
   ([body retry-after-ms] (classify body retry-after-ms 30000))
   ([body retry-after-ms threshold]
-   (edge/classify-rate-limit-kind-js (some-> body clj->js) retry-after-ms threshold)))
+   (edge/classify-rate-limit-kind-js 429 (some-> body clj->js) retry-after-ms threshold js/undefined js/undefined)))
 
 (defn- msg [m] {"error" {"message" m}})
 
@@ -178,7 +178,7 @@
   (is (= "quota_exhausted" (classify nil 120000 30000)) "safe default"))
 
 (deftest classify-no-body-no-retry-after-is-quota-exhausted
-  (is (= "quota_exhausted" (edge/classify-rate-limit-kind-js js/undefined js/undefined js/undefined)) "safe default"))
+  (is (= "quota_exhausted" (edge/classify-rate-limit-kind-js 429 js/undefined js/undefined js/undefined js/undefined js/undefined)) "safe default"))
 
 (deftest classify-zai-style-too-many-requests
   (is (= "concurrency_throttle"
@@ -200,3 +200,13 @@
   (is (= "session" (edge/detect-ollama-limit-kind-js #js {:error "Session usage limit reached"})))
   (is (= "weekly" (edge/detect-ollama-limit-kind-js #js {:error "Weekly usage limit reached"})))
   (is (= "unknown" (edge/detect-ollama-limit-kind-js #js {:error "Something else"}))))
+
+(deftest classify-xiaomi-short-429-is-volume-by-edn-contract
+  ;; resources/policies/runtime/80-rate-limit-classification.edn: xiaomi 429 with
+  ;; retry-after <= 30s is a volume limit, not a concurrency throttle.
+  (let [k (fn [provider status retry]
+            (edge/classify-rate-limit-kind-js status (clj->js (msg "slow down")) retry 30000 provider
+                                              "resources/policies/runtime/00-manifest.edn"))]
+    (is (= "quota_exhausted" (k "xiaomi" 429 5000)))
+    (is (= "concurrency_throttle" (k "other" 429 5000)) "no contract: generic heuristics")
+    (is (= "concurrency_throttle" (k "xiaomi" 429 60000)) "contract bounded by :max; wording still wins")))

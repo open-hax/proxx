@@ -109,13 +109,22 @@
 ;; Context length (from /api/show) and the budget
 ;; ---------------------------------------------------------------------------
 
+(defn- num-ctx-from-parameters
+  "The `num_ctx` a Modelfile pinned, from the /api/show `parameters` text."
+  [parameters]
+  (when (string? parameters)
+    (when-let [[_ digits] (re-find #"num_ctx\s+(\d+)" parameters)]
+      (finite-number #?(:cljs (js/Number digits) :clj (Double/parseDouble digits))))))
+
 (defn context-length-from-show
-  "The model's context window from an /api/show payload, or nil: top-level
-  `context_length`, else the first finite value among `context-length-keys` in
-  `model_info`."
+  "The model's context window from an /api/show payload, or nil: a Modelfile
+  `num_ctx` parameter wins (it is what Ollama will actually allocate), then
+  top-level `context_length`, else the first finite value among
+  `context-length-keys` in `model_info`."
   [context-length-keys payload]
   (when (map? payload)
-    (or (finite-number (get payload "context_length"))
+    (or (num-ctx-from-parameters (get payload "parameters"))
+        (finite-number (get payload "context_length"))
         (let [info (get payload "model_info")]
           (when (map? info)
             (some #(finite-number (get info %)) context-length-keys))))))

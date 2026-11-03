@@ -58,6 +58,15 @@
     (filterv #(= explicit-provider-id (get % "providerId")) routes)
     routes))
 
+(defn ollama-base-url
+  "Where an ollama-family candidate's native endpoints live: the base URL its
+  route declares in policy (ollama-lan -> its LAN host), else the global
+  `fallback` (the bare \"ollama\" provider). Using the global URL for every
+  ollama-family candidate sent ollama-lan traffic to a down local ollama."
+  [candidate-base-url fallback]
+  (let [declared (when (string? candidate-base-url) (str/trim candidate-base-url))]
+    (if (seq declared) declared fallback)))
+
 (defn no-provider-error [routed explicit-provider-id]
   (err 403 "No allowed embedding provider is available for this model." "invalid_request_error"
        "provider_not_allowed" (cond-> {"routedModel" routed}

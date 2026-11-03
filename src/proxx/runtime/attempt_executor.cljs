@@ -440,7 +440,7 @@
         step (nth steps step-index)
         upstream-path (:path step)
         attempt (.-attempts (advance! env #js {"type" "attempt-started"}))
-        ^js provider-context (js/Object.assign #js {} base-context #js {"baseUrl" (:base-url step) "attempt" attempt})
+        ^js provider-context (js/Object.assign #js {} base-context #js {"baseUrl" (:base-url step) "attempt" attempt "queueSignal" (:queue-signal env)})
         provider-id (.-providerId candidate)
         mode (.-mode candidate-strategy)
         upstream-url (url/join-url (.-baseUrl provider-context) upstream-path)
@@ -573,7 +573,7 @@
                     (when-not (truthy? @response-body)
                       (vreset! response-body (await (json-or-nil upstream-response))))
                     (let [cooldown-ms @cooldown
-                          kind (proxy/classify-rate-limit-kind-js @response-body cooldown-ms (.-concurrencyThrottleThresholdMs config))]
+                          kind (proxy/classify-rate-limit-kind-js (.-status upstream-response) @response-body cooldown-ms (.-concurrencyThrottleThresholdMs config) provider-id manifest)]
                       (if (= "concurrency_throttle" kind)
                         (let [max-retries (.-concurrencyThrottleMaxRetries config)
                               ^js throttle (strat/throttle-plan-js cooldown-ms manifest)]
@@ -619,7 +619,7 @@
                                                 retry-cooldown (let [c (await (proxy/extract-rate-limit-cooldown-ms-js rr))]
                                                                  (if (truthy? c) c cooldown-ms))
                                                 retry-body (await (json-or-nil rr))
-                                                retry-kind (proxy/classify-rate-limit-kind-js retry-body retry-cooldown (.-concurrencyThrottleThresholdMs config))]
+                                                retry-kind (proxy/classify-rate-limit-kind-js (.-status rr) retry-body retry-cooldown (.-concurrencyThrottleThresholdMs config) provider-id manifest)]
                                             (try (await (.arrayBuffer rr)) (catch :default _ nil))
                                             (if (= "escalated" (strat/throttle-retry-verdict-js #js {"rateLimited" true "ok" false "retryKind" retry-kind}))
                                               (do (.markRateLimited key-pool account (js/Math.round (* retry-cooldown @multiplier)))
@@ -848,7 +848,7 @@
                                   "proxy.model" (.-routedModel context) "proxy.requested_model" (.-requestedModelInput context)})
         _ (.setAttributes span #js {"proxy.service_tier" (.-serviceTier payload)
                                     "proxy.service_tier_source" (.-serviceTierSource payload)})
-        attempt-context (js/Object.assign #js {} context #js {"baseUrl" (.-ollamaBaseUrl config)})
+        attempt-context (js/Object.assign #js {} context #js {"baseUrl" (.-ollamaBaseUrl config) "queueSignal" queue-signal})
         record! (fn [status latency error]
                   (let [^js v #js {"providerId" "ollama" "accountId" "local" "authType" "local" "upstreamPath" upstream-path
                                    "status" status "latencyMs" latency

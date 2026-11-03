@@ -73,6 +73,7 @@
                 (let [^js candidate (first candidates)
                       candidate-id (.-providerId candidate)
                       ollama? (not ((.-isOpenAiCompatEmbedProvider c) candidate-id))
+                      ollama-base-url (emb/ollama-base-url (.-baseUrl candidate) (.-ollamaBaseUrl config))
                       candidate-model (if ollama? routed ((.-normalizeLlamacppModelName c) routed))
                       with-model (doto (js/Object.assign #js {} body) (aset "model" candidate-model))
                       embed-body (native/native-embed->openai-request (interop/js->data with-model))
@@ -85,7 +86,7 @@
                                   (await (queued candidate-id
                                                  (fn ^:async budget [^js controller]
                                                    (await ((.-ensureNativeOllamaEmbedContextFits c)
-                                                           (.-ollamaBaseUrl config)
+                                                           ollama-base-url
                                                            #js {:model candidate-model :input (clj->js input)}
                                                            (min timeout 30000) (.-signal controller)))))))) 
                         verdict (emb/context-verdict budget (.-embedMaxContextTokens config))
@@ -100,7 +101,7 @@
                                     (await (queued candidate-id
                                                    (fn ^:async fetch-ollama [^js controller]
                                                      (await ((.-fetchWithResponseTimeout c)
-                                                             ((.-joinUrl c) (.-ollamaBaseUrl config) "/api/embed")
+                                                             ((.-joinUrl c) ollama-base-url "/api/embed")
                                                              #js {:method "POST" :headers (forward-headers)
                                                                   :body (js/JSON.stringify (clj->js upstream-body))
                                                                   :signal (.-signal controller)}

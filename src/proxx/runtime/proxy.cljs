@@ -2,6 +2,9 @@
   "JS edge for src/lib/proxy.ts. Headers cross as plain objects (the TS shim wraps
   them in `Headers`); decisions live in proxx.http.proxy."
   (:require [proxx.http.proxy :as proxy]
+            [proxx.policy.contracts :as policy-contracts]
+            [proxx.policy.loader :as policy-loader]
+            [proxx.queue.policy :as queue-policy]
             [proxx.runtime.http :as http]
             [proxx.runtime.interop :as interop]))
 
@@ -30,10 +33,33 @@
 (defn parse-retry-after-ms-js [value]
   (or-undefined (proxy/parse-retry-after-ms value (js/Date.now) #(js/Date.parse %))))
 
-(defn classify-rate-limit-kind-js [error-body retry-after-ms threshold-ms]
-  (proxy/classify-rate-limit-kind (interop/js->data error-body)
-                                  (when (number? retry-after-ms) retry-after-ms)
-                                  (if (number? threshold-ms) threshold-ms 30000)))
+(defonce ^:private compiled-policies (atom {}))
+
+(def ^:private default-manifest "resources/policies/runtime/00-manifest.edn")
+
+(defn- compiled-policy [manifest-path]
+  (let [manifest-path (or manifest-path default-manifest)]
+    (or (get @compiled-policies manifest-path)
+        (let [compiled (policy-contracts/compile-contracts
+                        (policy-loader/load-policy-contracts! manifest-path))]
+          (swap! compiled-policies assoc manifest-path compiled)
+          compiled))))
+
+(defn- provider-verdict
+  "Provider-specific EDN verdict for this response, or nil (also when the policy
+  cannot be loaded: generic heuristics still apply)."
+  [status retry-after-ms provider-id manifest-path]
+  (when (and (string? provider-id) (seq provider-id))
+    (try (queue-policy/classify-rate-limit (compiled-policy manifest-path) provider-id status retry-after-ms)
+         (catch :default _ nil))))
+
+(defn classify-rate-limit-kind-js
+  [status error-body retry-after-ms threshold-ms provider-id manifest-path]
+  (let [retry-after-ms (when (number? retry-after-ms) retry-after-ms)]
+    (proxy/classify-rate-limit-kind (interop/js->data error-body)
+                                    retry-after-ms
+                                    (if (number? threshold-ms) threshold-ms 30000)
+                                    (provider-verdict status retry-after-ms provider-id manifest-path))))
 
 (defn detect-ollama-limit-kind-js [error-body]
   (proxy/ollama-limit-kind (interop/js->data error-body)))

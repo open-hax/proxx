@@ -128,14 +128,19 @@
 
 (defn classify-rate-limit-kind
   "\"quota_exhausted\" (fall over to another account) or \"concurrency_throttle\"
-  (wait and retry the same credential). Quota keywords win over concurrency
-  wording; a short positive retry-after with neither is a throttle; the default
-  is quota."
+  (wait and retry the same credential). A provider contract verdict
+  (`:rate-limit/volume` | `:rate-limit/concurrency`, from the
+  :rate-limit-classification EDN contracts) decides first. Otherwise quota keywords
+  win over concurrency wording; a short positive retry-after with neither is a
+  throttle; the default is quota."
   ([body retry-after-ms] (classify-rate-limit-kind body retry-after-ms 30000))
-  ([body retry-after-ms threshold-ms]
+  ([body retry-after-ms threshold-ms] (classify-rate-limit-kind body retry-after-ms threshold-ms nil))
+  ([body retry-after-ms threshold-ms provider-verdict]
    (let [lowered (some-> (error-message body) str/lower-case)
          mentions? (fn [needles] (some #(str/includes? lowered %) needles))]
      (cond
+       (= :rate-limit/volume provider-verdict) "quota_exhausted"
+       (= :rate-limit/concurrency provider-verdict) "concurrency_throttle"
        (contains? #{"session" "weekly"} (ollama-limit-kind body)) "quota_exhausted"
        (and lowered (mentions? quota-keywords)) "quota_exhausted"
        (and lowered (mentions? concurrency-indicators)) "concurrency_throttle"

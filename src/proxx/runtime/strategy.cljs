@@ -66,8 +66,6 @@
 
 (defn is-local-gemini-base-url-js [base-url] (gemini/local-base-url? base-url))
 
-(defn is-gemini-sdk-model-js [model] (gemini/sdk-eligible-model? model))
-
 (defn- flags->js [flags]
   (let [o #js {"kind" "continue"}]
     (doseq [[k v] flags]
