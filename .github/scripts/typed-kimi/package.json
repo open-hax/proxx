@@ -1,0 +1,13 @@
+{
+  "name": "proxx-typed-kimi-protocol",
+  "version": "0.1.0",
+  "private": true,
+  "license": "GPL-3.0-or-later",
+  "scripts": {
+    "test": "node --test bridge.test.cjs",
+    "test:owner": "nbb -cp src test/test_kimi_verdict.cljs"
+  },
+  "dependencies": {
+    "nbb": "1.5.211"
+  }
+}

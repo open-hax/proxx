@@ -1,4 +1,9 @@
-name: deploy-production
+name: Production Release Preflight
+
+# Application validation stays with Proxx. Production deployment is centrally
+# authorized by a reviewed open-hax/services PR carrying the `deploy` label and
+# runs only through the DigitalOcean stack workflow. This workflow intentionally
+# contains no deployment or live-host job.
 
 on:
   push:
@@ -10,7 +15,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: proxx-production
+  group: proxx-production-preflight
   cancel-in-progress: false
 
 jobs:
@@ -48,52 +53,3 @@ jobs:
       - run: pnpm test
       - run: pnpm run build
       - run: pnpm run web:build
-
-  deploy-production:
-    name: deploy-production
-    needs:
-      - production-preflight
-    uses: open-hax/services/.github/workflows/deploy-promethean.yml@main
-    with:
-      environment: production
-      service: proxx
-      source_repository: ${{ github.repository }}
-      source_ref: ${{ github.sha }}
-    secrets: inherit
-
-  verify-production:
-    name: verify-production
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    needs:
-      - deploy-production
-    environment: production
-    steps:
-      - run: |
-          curl_args=()
-          if [[ -n "${PRODUCTION_RESOLVE_ADDRESS}" ]]; then
-            curl_args+=(--resolve "${PRODUCTION_PUBLIC_HOST}:443:${PRODUCTION_RESOLVE_ADDRESS}")
-          fi
-          for attempt in $(seq 1 30); do
-            echo "health-check attempt ${attempt}" >/dev/null
-            if curl -fsS "${curl_args[@]}" -H "Authorization: Bearer ${PRODUCTION_AUTH_TOKEN}" "${PRODUCTION_BASE_URL}/health" >/dev/null; then
-              exit 0
-            fi
-            sleep 10
-          done
-          exit 1
-        env:
-          PRODUCTION_BASE_URL: ${{ vars.PRODUCTION_BASE_URL || 'https://prod.proxx.ussy.promethean.rest' }}
-          PRODUCTION_AUTH_TOKEN: ${{ secrets.PRODUCTION_PROXY_AUTH_TOKEN }}
-          PRODUCTION_PUBLIC_HOST: ${{ vars.PRODUCTION_PUBLIC_HOST || 'prod.proxx.ussy.promethean.rest' }}
-          PRODUCTION_RESOLVE_ADDRESS: ${{ vars.PRODUCTION_VERIFY_RESOLVE_ADDRESS || '' }}
-      - run: |
-          curl_args=()
-          if [[ -n "${PRODUCTION_RESOLVE_ADDRESS}" ]]; then
-            curl_args+=(--resolve "${PRODUCTION_PUBLIC_HOST}:443:${PRODUCTION_RESOLVE_ADDRESS}")
-          fi
-          curl -fsS "${curl_args[@]}" "${PRODUCTION_BASE_URL}" >/dev/null
-        env:
-          PRODUCTION_BASE_URL: ${{ vars.PRODUCTION_BASE_URL || 'https://prod.proxx.ussy.promethean.rest' }}
-          PRODUCTION_PUBLIC_HOST: ${{ vars.PRODUCTION_PUBLIC_HOST || 'prod.proxx.ussy.promethean.rest' }}
-          PRODUCTION_RESOLVE_ADDRESS: ${{ vars.PRODUCTION_VERIFY_RESOLVE_ADDRESS || '' }}

@@ -34,14 +34,14 @@ policy tree.
 
 - Both policy files referenced by the README exist in
   `resources/policies/runtime/` (60-tenant-enforcement, 65-federation-routing).
+- `pnpm run lint` (workspace, including `orgs/**`) passed.
 - Docs-only change; build/test gates deferred to PR CI (staging-typecheck,
   staging-unit-tests).
 
-## Follow-up
+## Superseded deployment follow-up
 
-- PR `devops/promethean-service-module-deploy` → `staging`.
-- Add `testing` label → label-gated test deploy via
-  `.github/workflows/deploy-testing.yml` (direct ssh slot, ussy2).
-- Staging push deploy routes through
-  `open-hax/services/.github/workflows/deploy-promethean.yml@main`
-  (service: proxx).
+- The original policy-tree branch was merged into `staging`.
+- Its shared testing slot and staging host mutation path are retired; the
+  branches now run application preflight checks only.
+- Production image build, deployment, and live verification are owned by the
+  declared DigitalOcean contract in `open-hax/services`.

@@ -1,0 +1,26 @@
+name: Kanban Sync to GitHub Issues
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'kanban/**'
+  schedule:
+    - cron: "0 */6 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (do not create/update issues)"
+        required: false
+        default: "false"
+        type: boolean
+
+jobs:
+  kanban-sync:
+    uses: open-hax/eta-mu/.github/workflows/kanban-sync.yml@main
+    with:
+      tasks-dir: kanban
+      dry-run: ${{ github.event.inputs.dry_run == 'true' }}
+      max-writes: 50
+      write-delay-ms: 1000
+    secrets: inherit

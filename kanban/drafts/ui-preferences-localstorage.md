@@ -30,7 +30,7 @@ Add localStorage-backed state for:
 - Server-side persistence of preferences.
 
 ## Design
-- Add a small helper hook `useStoredState()` in `web/src/lib/local-storage.ts`.
+- Add a small helper hook `useStoredState()` in `web/src/lib/use-stored-state.ts`.
 - Each page uses that hook for relevant `useState` values.
 - Validation is applied for enum-like values to avoid breaking on old/invalid stored values.
 
