@@ -22,12 +22,11 @@
     "registry": "https://registry.npmjs.org"
   },
   "scripts": {
-    "dev": "pnpm build:cljs && PROXX_HOST_MODULE=src/app.ts node --env-file-if-exists=.env --import tsx dist/cljs/main.js",
+    "dev": "pnpm build:cljs && node --env-file-if-exists=.env dist/cljs/main.js",
     "clean": "rm -rf dist",
-    "build:ts": "tsc -p tsconfig.json",
     "build:cljs": "npx shadow-cljs release runtime",
-    "build": "pnpm clean && pnpm build:ts && pnpm build:cljs",
-    "build:runtime": "rm -rf dist && pnpm build:cljs && tsc -p tsconfig.json",
+    "build": "pnpm clean && pnpm build:cljs",
+    "build:runtime": "rm -rf dist && pnpm build:cljs",
     "import:oauth:bulk": "npx shadow-cljs compile bulk-oauth-import && node target/bulk-oauth-import.cjs",
     "pricing:update": "node scripts/update-models-dev-pricing.mjs",
     "check:no-new-typescript": "node scripts/check-no-new-typescript.mjs && node scripts/check-policy-boundary.mjs",
