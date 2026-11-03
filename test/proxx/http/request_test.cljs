@@ -54,9 +54,12 @@
          (r/queue-error-response {"code" ":queue/full" "retry-after-ms" 2100})))
   (is (= 1 (:retry-after-seconds (r/queue-error-response {:code :queue/full :retryAfterMs 5}))))
   (is (not (contains? (r/queue-error-response {:code "queue/full" "retry-after-ms" "soon"}) :retry-after-seconds)))
-  (doseq [code ["queue/dropped" "queue/total-timeout" ":queue/exhausted"]]
-    (is (= {:status 503 :message "Request queue dropped or timed out" :type "server_error" :code "queue_dropped"}
-           (r/queue-error-response {"code" code}))))
+  (doseq [code ["queue/dropped" "queue/total-timeout" "queue/attempt-timeout" ":queue/exhausted"]]
+    (is (= {:status 429 :message "Request queue dropped or timed out" :type "server_error" :code "queue_dropped"}
+           (r/queue-error-response {"code" code}))
+        "queue timeouts are back-pressure (429), not 503")
+    (is (= 5 (:retry-after-seconds (r/queue-error-response {"code" code "retry-after-ms" 4200})))
+        "and carry Retry-After"))
   (is (= 429 (:status (r/queue-error-response {"code" {"ns" "queue" "name" "full"}}))) "serialized keyword object")
   (is (nil? (r/queue-error-response {"code" "other"})))
   (is (nil? (r/queue-error-response nil))))

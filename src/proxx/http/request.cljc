@@ -102,11 +102,14 @@
   (let [code (keyword-name (get data :code (get data "code")))
         retry-ms (first (remove nil? [(get data :retry-after-ms (get data "retry-after-ms"))
                                       (get data :retryAfterMs (get data "retryAfterMs"))]))]
-    (cond
-      (= "queue/full" code)
-      (cond-> {:status 429 :message "Request queue full" :type "server_error" :code "queue_full"}
-        (finite-number? retry-ms)
-        (assoc :retry-after-seconds (max 1 (long (Math/ceil (/ retry-ms 1000))))))
+    (when-let [response
+               (cond
+                 (= "queue/full" code)
+                 {:status 429 :message "Request queue full" :type "server_error" :code "queue_full"}
 
-      (contains? #{"queue/dropped" "queue/total-timeout" "queue/exhausted"} code)
-      {:status 503 :message "Request queue dropped or timed out" :type "server_error" :code "queue_dropped"})))
+                 ;; A timed-out/dropped queue slot is a retryable back-pressure signal.
+                 (contains? #{"queue/dropped" "queue/total-timeout" "queue/attempt-timeout" "queue/exhausted"} code)
+                 {:status 429 :message "Request queue dropped or timed out" :type "server_error" :code "queue_dropped"})]
+      (cond-> response
+        (finite-number? retry-ms)
+        (assoc :retry-after-seconds (max 1 (long (Math/ceil (/ retry-ms 1000)))))))))

@@ -132,6 +132,16 @@
     (is (= 1 (.-length messages)))
     (is (= "System instruction 1\nSystem instruction 2\n\nHello" (.-content (aget messages 0))))))
 
+(deftest inline-system-prompt-keeps-system-text-when-messages-empty
+  (doseq [payload [#js {:model "m" :system "Be brief." :messages #js []}
+                   #js {:model "m" :system "Be brief."}]]
+    (let [result (factory/inline-system-prompt-js payload)
+          messages (aget result "messages")]
+      (is (undefined? (aget result "system")))
+      (is (= 1 (.-length messages)))
+      (is (= "user" (.-role (aget messages 0))))
+      (is (= "Be brief." (.-content (aget messages 0)))))))
+
 (deftest inline-system-prompt-passes-through-payload-without-system
   (let [result (factory/inline-system-prompt-js
                 #js {:model "claude-opus-4-5" :messages #js [#js {:role "user" :content "Hello"}]})

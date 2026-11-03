@@ -95,5 +95,4 @@
                 idx (first (keep-indexed #(when (and (map? %2) (= "user" (get %2 "role"))) %1) messages))]
             (assoc payload' "messages"
                    (cond idx (update messages idx merge-into-user text)
-                         (seq messages) (into [{"role" "user" "content" text}] messages)
-                         :else messages))))))))
+                         :else (into [{"role" "user" "content" text}] messages)))))))))

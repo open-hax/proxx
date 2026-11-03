@@ -69,10 +69,11 @@
                                                        "messages" [{"role" "user" "content" ""}]})
                              ["messages" 0 "content"]))
         "empty user string: system text followed by blank separator"))
-  (testing "no user message: leading user message, or nothing to attach to"
+  (testing "no user message: leading user message (also when there are no messages: system text is never dropped)"
     (is (= [{"role" "user" "content" "S"} {"role" "assistant" "content" "a"}]
            (get (f/inline-system-prompt {"system" "S" "messages" [{"role" "assistant" "content" "a"}]}) "messages")))
-    (is (= {"messages" []} (f/inline-system-prompt {"system" "S"})))))
+    (is (= {"messages" [{"role" "user" "content" "S"}]} (f/inline-system-prompt {"system" "S"})))
+    (is (= {"messages" [{"role" "user" "content" "S"}]} (f/inline-system-prompt {"system" "S" "messages" []})))))
 
 (deftest missing-profile-is-an-error
   (is (= :policy/missing-wire-profile
