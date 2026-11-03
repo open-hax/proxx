@@ -468,7 +468,8 @@
                                            executeProviderRoutingPlan proxx.runtime.attempt-executor/execute-provider-routing-plan-js
                                            inspectProviderAvailability proxx.runtime.attempt-executor/inspect-provider-availability-js
                                            executeLocalStrategy proxx.runtime.attempt-executor/execute-local-strategy-js
-                                           createApp proxx.app.main/create-app-js
+                                           createApp proxx.host/create-app-js
+                                           prepare proxx.host/prepare
                                            sqlStatement proxx.runtime.db-schema/sql-statement-js
                                            schemaVersion proxx.runtime.db-schema/schema-version-js
                                            allMigrations proxx.runtime.db-schema/all-migrations-js

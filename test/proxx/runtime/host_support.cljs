@@ -1,49 +1,14 @@
 (ns proxx.runtime.host-support
   "Fixtures for the tests that run the whole application (formerly the helpers duplicated
-  at the top of the federation bridge and observability TypeScript tests): the host
-  module (`src/app.ts`, loaded through tsx) composes the CLJS application over the
-  host's stores and pools, in front of a local upstream HTTP server.
-
-  The application under test is the built CLJS runtime (`dist/cljs`, so run
-  `pnpm build:cljs` first). This namespace builds fixtures and never decides anything."
+  at the top of the federation bridge and observability TypeScript tests): the CLJS
+  host (`proxx.host`) composes the application over its stores and pools, in front of a
+  local upstream HTTP server. This namespace builds fixtures and never decides anything."
   (:require ["node:fs/promises" :as fsp]
             ["node:http" :as http]
             ["node:os" :as os]
             ["node:path" :as path]
-            ["node:url" :as url]
-            ["ws" :as ws]))
-
-;; ---------------------------------------------------------------------------
-;; The host module (TypeScript through tsx), loaded once per process
-;; ---------------------------------------------------------------------------
-
-(def ^:private import-module
-  "Dynamic `import()` through Node's main-context loader (the test bundle is evaluated
-  without an import callback, so a bare `import()` throws ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING)."
-  (let [^js vm (js/require "node:vm")
-        script (vm.Script. "(specifier) => import(specifier)"
-                           #js {"importModuleDynamically" (.. vm -constants -USE_MAIN_CONTEXT_DEFAULT_LOADER)})]
-    (.runInThisContext script)))
-
-(defn- file-url [relative]
-  (.-href (.pathToFileURL url (.resolve path (js/process.cwd) relative))))
-
-(defonce ^:private host-modules (atom nil))
-
-(defn- ^:async load-host-modules []
-  (let [^js tsx (await (import-module (file-url "node_modules/tsx/dist/esm/api/index.mjs")))]
-    (.register tsx)
-    (let [^js app-module (await (import-module (file-url "src/app.ts")))
-          ^js runtime-module (await (import-module (file-url "src/lib/cljs-runtime.ts")))]
-      (await (.prepare app-module))
-      {:app app-module :runtime runtime-module})))
-
-(defn ^:async host
-  "{:app <src/app.ts module> :runtime <src/lib/cljs-runtime.ts module>}"
-  []
-  (when-not @host-modules
-    (reset! host-modules (load-host-modules)))
-  (await @host-modules))
+            ["ws" :as ws]
+            [proxx.host :as host]))
 
 ;; ---------------------------------------------------------------------------
 ;; Small helpers
@@ -201,10 +166,9 @@
      overrides)))
 
 (defn ^:async create-app
-  "`createApp(config)` of the host; `config` is a map from `proxy-config` (nil values are left unset)."
+  "`createApp(config)` of `proxx.host`; `config` is a map from `proxy-config` (nil values are left unset)."
   [config]
-  (let [{:keys [^js app]} (await (host))]
-    (await (.createApp app (clj->js (into {} (remove (comp nil? val)) config))))))
+  (await (host/create-app-js (clj->js (into {} (remove (comp nil? val)) config)))))
 
 (defn app-port [^js app] (.-port ^js (.address (.-server app))))
 

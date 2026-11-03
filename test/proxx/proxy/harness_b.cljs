@@ -1,11 +1,8 @@
 (ns proxx.proxy.harness-b
   "Harness for the end-to-end proxy tests (formerly `withProxyApp` and friends in
   src/tests/proxy.test.ts): a real in-process Fastify application (`proxx.app.main`
-  over the TypeScript host's stores, loaded through tsx) in front of a real local
+  over the CLJS host `proxx.host`) in front of a real local
   HTTP server standing in for the upstream providers.
-
-  Requires the release runtime (`pnpm build:cljs`): the host's stores call the
-  built kernels.
 
   The upstream handler is `(fn [request body])` -> `{:status :headers :body}` or
   `{:status :headers :stream-body (fn [response])}`, possibly returning a Promise;
@@ -14,9 +11,8 @@
             ["node:http" :as http]
             ["node:os" :as os]
             ["node:path" :as path]
-            ["node:url" :as url]
             [clojure.string :as str]
-            [proxx.app.main :as app-main]))
+            [proxx.host :as host]))
 
 (def ^:private ambient-provider-env-names
   ["ROTUSSY_API_KEY" "ROTUSSY_PROVIDER_ID" "FACTORY_API_KEY" "GEMINI_API_KEY" "ZAI_API_KEY" "ZHIPU_API_KEY"
@@ -24,23 +20,6 @@
 
 (def ^:private ambient-provider-env
   (into {} (map (fn [k] [k (aget js/process.env k)])) ambient-provider-env-names))
-
-(def ^:private import-module
-  "Dynamic `import()` hidden from Closure, as in proxx.app.entry."
-  (js/Function. "specifier" "return import(specifier)"))
-
-(defonce ^:private host-module (atom nil))
-
-(defn- ^:async load-host
-  "The TypeScript host (src/app.ts) through tsx, with the built CLJS runtime made active."
-  []
-  (or @host-module
-      (let [^js tsx (js/require "tsx/esm/api")
-            cwd (js/process.cwd)
-            ^js module (await (.tsImport tsx (.resolve path cwd "src/app.ts")
-                                         (.-href (.pathToFileURL url (str cwd "/")))))]
-        (await (.prepare module))
-        (reset! host-module module))))
 
 (defn with-env
   "Run async `f` with env vars set (nil deletes), restoring them afterwards."
@@ -213,8 +192,7 @@
                                             (file "proxy-settings.json") opts))]
         (await (with-cleared-ambient-providers
                  (fn ^:async run []
-                   (let [^js host-mod (await (load-host))
-                         ^js app (await (app-main/create-app-js config (.-host host-mod)))]
+                   (let [^js app (await (host/create-app-js config))]
                      (try
                        (await (f {:app app :upstream upstream :temp-dir temp-dir}))
                        (finally

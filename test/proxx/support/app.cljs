@@ -3,45 +3,14 @@
   server whose behaviour each test supplies as a function (the fixture the
   TypeScript `withProxyApp` helpers built).
 
-  The application is `proxx.app.main/create-app-js` over the host module
-  (`src/app.ts`, loaded through tsx: the stores and route collaborators are
-  still TypeScript classes); the decisions run in the built CLJS runtime
-  (`dist/cljs`, so run `pnpm build:cljs` before the tests that use this)."
+  The application is `proxx.host/create-app-js`, the same CLJS host the server runs."
   (:require ["node:fs/promises" :as fsp]
             ["node:http" :as http]
             ["node:os" :as os]
             ["node:path" :as path]
-            ["node:url" :as url]
-            [proxx.app.main :as app-main]))
+            [proxx.host :as host]))
 
 (set! *warn-on-infer* false)
-
-(def ^:private import-module
-  "Dynamic `import()` through Node's main-context loader. The test bundle is
-  evaluated by shadow-cljs without an import callback (so a bare `import()` throws
-  ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING); a `vm.Script` naming the default loader gets one."
-  (let [^js vm (js/require "node:vm")
-        script (vm.Script. "(specifier) => import(specifier)"
-                           #js {"importModuleDynamically" (.. vm -constants -USE_MAIN_CONTEXT_DEFAULT_LOADER)})]
-    (.runInThisContext script)))
-
-(defn- file-url [relative]
-  (.-href (.pathToFileURL url (.resolve path (js/process.cwd) relative))))
-
-(defonce ^:private host-modules (atom nil))
-
-(defn- ^:async load-host-modules []
-  (let [^js tsx (await (import-module (file-url "node_modules/tsx/dist/esm/api/index.mjs")))]
-    (.register tsx)
-    (let [^js app-module (await (import-module (file-url "src/app.ts")))
-          ^js runtime-module (await (import-module (file-url "src/lib/cljs-runtime.ts")))]
-      (await (.prepare app-module))
-      {:app app-module :runtime runtime-module})))
-
-(defn- ^:async host []
-  (when-not @host-modules
-    (reset! host-modules (load-host-modules)))
-  (await @host-modules))
 
 (defn- read-request-body [^js request]
   (js/Promise. (fn [resolve reject]
@@ -131,14 +100,10 @@
                               :prompt-affinity-path (.join path temp-dir "prompt-affinity.json")
                               :settings-path (.join path temp-dir "proxy-settings.json")
                               :overrides config-overrides})
-        {:keys [app runtime]} (await (host))
-        ^js runtime-module runtime
-        previous-runtime (.getActiveCljsRuntime runtime-module)
-        ^js application (await (app-main/create-app-js config (.-host ^js app)))]
+        ^js application (await (host/create-app-js config))]
     (try
       (await (f {:app application :upstream upstream :temp-dir temp-dir}))
       (finally
         (await (.close application))
-        (.setActiveCljsRuntime runtime-module previous-runtime)
         (await (js/Promise. (fn [resolve reject] (.close upstream (fn [error] (if error (reject error) (resolve nil)))))))
         (await (.rm fsp temp-dir #js {:recursive true :force true}))))))

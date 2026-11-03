@@ -24,8 +24,11 @@ Worked examples to read first (all verified differentially against the TS):
 2. **Edge, `.cljs`** under `src/proxx/runtime/<area>.cljs` (or `proxx.runtime`):
    converts JS ⇄ CLJ, owns atoms/timers/streams/fetch/fs/db, sequences effects
    around pure decisions, and exports through `shadow-cljs.edn` `:exports`.
-3. **TypeScript** keeps its exported signatures and becomes a thin entry point
-   that calls `kernels.*` from `src/lib/cljs-kernels.ts`. TS callers do not change.
+3. **Host (`proxx.host`, `.cljs`)** assembles the stores, managers, route registrars and
+   collaborator bundles the application composes, directly from the edge functions
+   above. There is no TypeScript left in the runtime (`pnpm check:no-new-typescript`
+   keeps it that way); a host object that third-party code type-checks (e.g. chromadb's
+   embedding function) is built in `proxx.host.objects`.
 
 Split the *decision* from the *effect*. If a function fetches then decides,
 port the decision over already-fetched facts and leave the fetch at the edge
@@ -70,8 +73,8 @@ Routes are data and handlers are pure-ish functions of plain maps — see
 * Signal HTTP failures with `(throw (ex-info msg {:http/status 403}))`; the
   adapter renders `{"error": {"message": …}}`. Other throws propagate to the
   application's Fastify error handler unchanged.
-* The TS route file becomes a shim that calls `kernels.registerXRoutes(app, deps)`
-  with the host collaborators (stores etc.) as a plain object. Parsers must
+* The registrar in `proxx.host.routes` calls `register-x-routes-js app deps` with the host
+  collaborators (stores etc.) as a plain object. Parsers must
   distinguish *absent* from `null` (`::absent` sentinel): `js->clj` conflates
   `undefined` and `null`, and several routes give them different meanings.
 * Streaming/SSE/WebSocket bodies are effects: keep the byte plumbing at the edge
