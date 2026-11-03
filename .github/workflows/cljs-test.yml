@@ -31,9 +31,14 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
       - uses: actions/setup-node@v5
         with:
           node-version: 22
+          cache: pnpm
 
       - uses: actions/setup-java@v4
         with:
@@ -48,14 +53,13 @@ jobs:
           key: shadow-cljs-${{ runner.os }}-${{ hashFiles('shadow-cljs.edn') }}
           restore-keys: shadow-cljs-${{ runner.os }}-
 
-      - name: Install shadow-cljs
-        run: npm install -g shadow-cljs
+      # The ported suite boots the real application, so it needs the project's
+      # dependencies (fastify, swagger, ...) and the locked shadow-cljs.
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
 
-      - name: Compile CLJS tests
-        run: shadow-cljs compile node-test
-
-      - name: Run CLJS tests
-        run: node target/node-test.cjs
+      - name: Compile and run CLJS tests
+        run: NODE_OPTIONS=--max-old-space-size=4096 pnpm test:cljs
 
   cljs-lint:
     name: cljs-lint
