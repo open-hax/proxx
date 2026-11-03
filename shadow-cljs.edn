@@ -542,7 +542,11 @@
    :js-options {:js-provider :shadow
                 :js-package-dirs ["node_modules" "node_modules/.pnpm/node_modules"]}
    :compiler-options {:infer-externs :auto
-                      :output-feature-set :es-next}}
+                      :output-feature-set :es-next
+                      ;; A console served separately from its API is built with
+                      ;; VITE_API_BASE_URL=<origin>; unset means same-origin.
+                      :closure-defines {proxx.web.runtime/API_BASE_URL
+                                        #shadow/env ["VITE_API_BASE_URL" :default ""]}}}
 
   ;; View smoke tests (need react + a DOM): namespaces named `*-smoke` so the
   ;; plain `node-test` regexp does not load them.
