@@ -63,7 +63,9 @@
       (let [key-content (await (.readFile fsp key-file "utf-8"))
             encrypted (encrypt-auth-v2-js (str/trim key-content)
                                           #js {"access_token" access-token "refresh_token" refresh-token})]
-        (await (.writeFile fsp file encrypted "utf-8")))
+        (await (.writeFile fsp file encrypted #js {"encoding" "utf-8" "mode" factory/auth-v2-file-mode}))
+        ;; `mode` only applies when the file is created; tighten one that already exists.
+        (await (.chmod fsp file factory/auth-v2-file-mode)))
       (catch :default e
         (js/console.warn (str "[factory-auth] Failed to persist refreshed tokens to " file ": " (message-of e)))))))
 
@@ -78,17 +80,26 @@
                           (parse-jwt-expiry-js (.-token credential))
                           (js/Date.now)))
 
-(defn ^:async refresh-factory-oauth-token-js [refresh-token fetch-fn]
-  (let [^js response (await (fetch-fn factory/authenticate-url
-                                      #js {"method" "POST"
-                                           "headers" #js {"content-type" "application/x-www-form-urlencoded"}
-                                           "body" (.toString (js/URLSearchParams. (clj->js (factory/refresh-params refresh-token))))}))]
-    (when-not (.-ok response)
-      (throw (js/Error. (str "WorkOS token refresh failed: " (.-status response) " " (await (.text response))))))
-    (try
-      (let [{:keys [access-token refresh-token]} (factory/refreshed-tokens (js->clj (await (.json response))))
-            o #js {"accessToken" access-token "refreshToken" refresh-token}
-            expires (parse-jwt-expiry-js access-token)]
-        (when (some? expires) (aset o "expiresAt" expires))
-        o)
-      (catch :default e (throw (as-js-error e))))))
+(defn ^:async refresh-factory-oauth-token-js
+  "Exchange `refresh-token` at WorkOS. The call is aborted after `timeout-ms`
+  (default `factory/refresh-timeout-ms`); the timer is always cleared."
+  ([refresh-token fetch-fn] (refresh-factory-oauth-token-js refresh-token fetch-fn factory/refresh-timeout-ms))
+  ([refresh-token fetch-fn timeout-ms]
+   (let [controller (js/AbortController.)
+         timer (js/setTimeout (fn [] (.abort controller)) timeout-ms)]
+     (try
+       (let [^js response (await (fetch-fn factory/authenticate-url
+                                           #js {"method" "POST"
+                                                "headers" #js {"content-type" "application/x-www-form-urlencoded"}
+                                                "body" (.toString (js/URLSearchParams. (clj->js (factory/refresh-params refresh-token))))
+                                                "signal" (.-signal controller)}))]
+         (when-not (.-ok response)
+           (throw (js/Error. (str "WorkOS token refresh failed: " (.-status response) " " (await (.text response))))))
+         (try
+           (let [{:keys [access-token refresh-token]} (factory/refreshed-tokens (js->clj (await (.json response))))
+                 o #js {"accessToken" access-token "refreshToken" refresh-token}
+                 expires (parse-jwt-expiry-js access-token)]
+             (when (some? expires) (aset o "expiresAt" expires))
+             o)
+           (catch :default e (throw (as-js-error e)))))
+       (finally (js/clearTimeout timer))))))

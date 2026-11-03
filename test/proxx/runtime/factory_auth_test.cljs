@@ -158,6 +158,30 @@
     (is (thrown-with-msg? js/Error #"missing refresh_token"
                           (await (fa/refresh-factory-oauth-token-js "rt-test" mock-fetch))))))
 
+;; WorkOS refresh timeout: a hung upstream is aborted instead of stalling forever.
+
+(deftest ^:async refresh-passes-an-abort-signal-that-is-clear-after-a-prompt-answer
+  (let [seen (atom nil)
+        mock-fetch (fn [_ init]
+                     (reset! seen (.-signal init))
+                     (js/Promise.resolve
+                      (js/Response. (js/JSON.stringify (clj->js {"access_token" (fresh-jwt 60) "refresh_token" "rt"}))
+                                    #js {"status" 200 "headers" #js {"content-type" "application/json"}})))]
+    (await (fa/refresh-factory-oauth-token-js "rt-old" mock-fetch))
+    (is (instance? js/AbortSignal @seen))
+    (is (false? (.-aborted ^js @seen)) "a prompt answer is not aborted; the timer is cleared")))
+
+(deftest ^:async refresh-aborts-a-hung-workos-call-after-the-timeout
+  (let [hung-fetch (fn [_ init]
+                     (js/Promise. (fn [_ reject]
+                                    (.addEventListener (.-signal init) "abort"
+                                                       (fn [] (reject (js/Error. "aborted by timeout")))))))]
+    (is (thrown-with-msg? js/Error #"aborted by timeout"
+                          (await (fa/refresh-factory-oauth-token-js "rt-hung" hung-fetch 20))))))
+
+(deftest default-refresh-timeout-is-fifteen-seconds
+  (is (= 15000 factory/refresh-timeout-ms)))
+
 ;; ─── encryptAuthV2 / decryptAuthV2 ──────────────────────────────────────────
 
 (deftest encrypt-auth-v2-round-trips-through-decrypt
@@ -193,6 +217,22 @@
                           (let [decrypted (fa/decrypt-auth-v2-js key (await (.readFile fsp auth-file "utf8")))]
                             (is (= access-token (.-accessToken decrypted)))
                             (is (= refresh-token (.-refreshToken decrypted))))))))))))
+
+(deftest ^:async persist-writes-the-auth-file-owner-only
+  (await (with-tmp-dir "factory-persist-mode-test-"
+           (fn ^:async cb [dir]
+             (let [auth-file (.join path dir "auth.v2.file")
+                   key-file (.join path dir "auth.v2.key")
+                   mode-of (fn ^:async mode-of [] (bit-and 511 (.-mode (await (.stat fsp auth-file)))))]
+               (await (.writeFile fsp key-file (random-key) "utf8"))
+               (await (with-env {"FACTORY_AUTH_V2_FILE" auth-file "FACTORY_AUTH_V2_KEY" key-file}
+                        (fn ^:async cb []
+                          (await (fa/persist-factory-auth-v2-js "a" "r"))
+                          (is (= 384 (await (mode-of))) "new file is 0600")
+                          ;; an auth file left world-readable by an older run is tightened too
+                          (await (.chmod fsp auth-file 420))
+                          (await (fa/persist-factory-auth-v2-js "a2" "r2"))
+                          (is (= 384 (await (mode-of))) "existing file is tightened to 0600")))))))))
 
 (deftest ^:async persist-does-not-throw-when-the-key-file-is-missing
   (let [warnings (atom [])
