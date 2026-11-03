@@ -19,8 +19,6 @@
 
 (defn- as-number [x] (wire/finite-number x))
 
-(defn- as-string [x] (when (string? x) x))
-
 (defn- record [x] (when (or (map? x) (sequential? x)) x))
 
 (defn- get-num [m k] (as-number (when (map? m) (get m k))))

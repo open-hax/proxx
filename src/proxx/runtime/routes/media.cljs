@@ -9,8 +9,6 @@
             [proxx.runtime.interop :as interop]
             [proxx.runtime.ring :as ring]))
 
-(defn- or-undef [x] (if (nil? x) js/undefined x))
-
 (defn- js-record? [x] (and (some? x) (= "object" (js* "typeof ~{}" x))))
 
 (defn- fields

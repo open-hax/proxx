@@ -116,7 +116,7 @@
   meta which become the platform's `empties` (\"tags\" and \"meta\" values)."
   [row parse-json empties]
   (let [decode (fn [v] (if (string? v) (parse-json v) v))
-        opt (fn [m k out v] (if (nil? v) m (assoc m out v)))]
+        opt (fn [m _k out v] (if (nil? v) m (assoc m out v)))]
     (-> {"id" (get row "id")
          "ts" (get row "ts")
          "kind" (get row "kind")

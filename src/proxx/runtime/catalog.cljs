@@ -53,7 +53,7 @@
                    (-> (js/Promise.resolve (.arrayBuffer response)) (.catch (fn [_] nil)) (.then (fn [_] nil))))))
         (.catch (fn [_] nil)))))
 
-(defn- fetch-provider-catalog [^js deps ^js config ^js key-pool ^js route paths signal facts]
+(defn- fetch-provider-catalog [^js deps ^js config ^js key-pool ^js route paths signal _facts]
   (let [provider-id (.-providerId route)
         base-url (.-baseUrl route)
         join (.-joinUrl deps)

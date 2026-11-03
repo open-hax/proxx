@@ -30,7 +30,7 @@
      [:button {:type "button" :on-click #(dispatch! [:credentials/copy (:value copy) (:key copy)])} (:text copy)]]
     [:div.credentials-account-detail-item [:dt label] [:dd value]]))
 
-(defn- account-tile [dispatch! {:keys [key provider-id account-id display-name subtitle chips workspace-chip expiry-chip token-chip
+(defn- account-tile [dispatch! {:keys [provider-id account-id display-name subtitle chips workspace-chip expiry-chip token-chip
                                        can-reauth? reauth-label reauth-ctx can-probe? probe-loading? probe show-quota? quota details disabled?]}]
   [:article.credentials-account-tile
    [:header.credentials-account-header

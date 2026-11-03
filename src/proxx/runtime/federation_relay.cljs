@@ -121,8 +121,8 @@
                   (.on web-socket "message"
                        (fn [data binary?]
                          (if binary?
-                           (do (fail! "bridge_binary_frames_not_supported"
-                                      "binary websocket frames are not supported in bridge-ws-v0"))
+                           (fail! "bridge_binary_frames_not_supported"
+                                  "binary websocket frames are not supported in bridge-ws-v0")
                            (let [text (try (fed/ws-text data) (catch :default e (fail! "bridge_message_decode_failed" (str (ex-message e))) nil))]
                              (when text (on-text text))))))
                   (.on web-socket "close" (fn [] (handle-disconnect! (:session-id @conn)))))))

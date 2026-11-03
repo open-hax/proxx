@@ -1,7 +1,6 @@
 (ns proxx.web.pages.images
   "Images page: request construction, response shaping, state transitions."
   (:require [clojure.string :as str]
-            [proxx.json :as json]
             [proxx.web.api :as api]
             [proxx.web.fx :as fx]
             [proxx.web.state :as st]

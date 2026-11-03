@@ -1,7 +1,6 @@
 (ns proxx.web.main
   (:require [proxx.web.runtime :as rt]
             [proxx.web.views :as views]
-            [reagent.core :as r]
             [reagent.dom.client :as rdc]))
 
 (defonce ^:private root (atom nil))

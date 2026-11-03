@@ -321,7 +321,7 @@
              (journal/corrupt-metadata-warning mp corrupt (.-message error))
              (journal/vanished-metadata-warning mp (.-message error))))))
 
-(defn- ^:async quarantine-corrupt-lines! [ctx source lines]
+(defn- ^:async quarantine-corrupt-lines! [_ctx source lines]
   (when (seq lines)
     (let [corrupt (path-in source (journal/corrupt-name source (clock) (pid) (new-uuid)))]
       (await (fsp/writeFile corrupt (str (.join (to-array lines) "\n") "\n") "utf8"))

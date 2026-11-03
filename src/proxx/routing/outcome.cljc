@@ -1,8 +1,7 @@
 (ns proxx.routing.outcome
   "What to tell the client when every provider attempt failed (the decision half of
   src/lib/routing-outcome-handler.ts): classify the execution summary, then derive
-  the error response, retry hint and log line for that class."
-  (:require [clojure.string :as str]))
+  the error response, retry hint and log line for that class.")
 
 (defn classify
   "The outcome class of an execution: :keys-missing, :all-disabled, :all-rate-limited

@@ -79,9 +79,9 @@
           (do
             (await (.catch (.getAllStatuses key-pool) (fn [_] #js {})))
             (let [statuses (await (.catch (.getAllAccountStatuses key-pool) (fn [_] #js {})))
-                  providers (await (.catch (.listProviders credential-store false) (fn [_] #js [])))]
-              ;; evaluated in the order the TS object literal did (store calls are observable)
-              (let [model-buckets (.snapshotDailyModelBuckets log-store bucket-start)
+                  providers (await (.catch (.listProviders credential-store false) (fn [_] #js [])))
+                  ;; evaluated in the order the TS object literal did (store calls are observable)
+                  model-buckets (.snapshotDailyModelBuckets log-store bucket-start)
                     account-buckets (if (= window "daily") #js [] (.snapshotDailyAccountBuckets log-store bucket-start))
                     buckets (if (= window "daily")
                               (.snapshotHourlyBuckets log-store bucket-start)
@@ -93,7 +93,7 @@
                                ["entries" all] ["buckets" buckets] ["modelBuckets" model-buckets]
                                ["accountBuckets" account-buckets] ["coverage" coverage]]]
                   (aset input k v))
-                (usage/usage-overview-from-rollups-js input)))))))))
+                (usage/usage-overview-from-rollups-js input))))))))
 
 (defn- ^:async build-provider-model-analytics
   [^js log-store window sort scope ^js sql-usage-store]

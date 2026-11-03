@@ -629,7 +629,7 @@
 
 (defn- since-ms [v] (if (finite? v) v 0))
 
-(defn- sorted-buckets [okv kind since cmp]
+(defn- sorted-buckets [okv _kind since cmp]
   (->> (okv-values okv) (filter #(>= (get % "startMs") since)) (sort cmp) vec))
 
 (defn hourly-buckets [state since]

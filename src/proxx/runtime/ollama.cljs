@@ -42,8 +42,8 @@
         feed (fn [state line]
                (let [{:keys [state events]} (ollama/process-line state line (assoc ctx :now-ms (js/Date.now)))]
                  (run! write-fn events)
-                 state))]
-    (let [final
+                 state))
+final
           (try
             (loop [state ollama/initial-stream-state buffer ""]
               (let [result (await (js-invoke reader "read"))
@@ -56,4 +56,4 @@
                   (recur state remainder))))
             (finally (js-invoke reader "releaseLock")))]
       (when-not (:sent-done? final)
-        (write-fn ollama/done-event)))))
+        (write-fn ollama/done-event))))

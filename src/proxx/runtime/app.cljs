@@ -26,7 +26,7 @@
         (let [tenant (app/active-tenant-id (interop/js->data (aget access-token "extra")))]
           (await (.resolveUiSession sql-store (aget access-token "subject") (or tenant js/undefined))))))))
 
-(defn- auth-input [^js config ^js headers path ui-session? ^js sql-store ^js persistence cookie-name]
+(defn- auth-input [^js config ^js headers _path ui-session? ^js sql-store ^js persistence cookie-name]
   (let [cookie (aget headers "cookie")]
     #js {:allowUnauthenticated (aget config "allowUnauthenticated")
          :proxyAuthToken (aget config "proxyAuthToken")

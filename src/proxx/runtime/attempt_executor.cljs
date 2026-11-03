@@ -66,8 +66,6 @@
 
 (defn- finite-number [x] (when (and (number? x) (js/Number.isFinite x)) x))
 
-(defn- affinity-pair [^js a] [(.-providerId a) (.-accountId a)])
-
 (defn- reorder-for-affinities
   "`candidates` reordered so the given affinities come first (proxx.strategy.routing)."
   [candidates affinities]

@@ -27,7 +27,7 @@
    [:details [:summary "meta"] [:pre.events-json meta-json]]])
 
 (defn view [db dispatch!]
-  (let [{:keys [filters offset limit loading? error can-prev? can-next? tag-summary rows selected-id
+  (let [{:keys [filters limit loading? error can-prev? can-next? tag-summary rows selected-id
                 selected-loading? tag-input] :as vm} (events/view-model db)
         dm (:detail vm)]
     [:div.events-page

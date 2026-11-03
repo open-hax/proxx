@@ -31,8 +31,6 @@
 
 (defn- error-message [e] (if (instance? js/Error e) (.-message e) (js/String e)))
 
-(defn- or-undefined [x] (if (nil? x) js/undefined x))
-
 (defn- env-manifest-path
   "Absolute path of the policy manifest named by the PROXX_/PROXY_CLJS_POLICY_MANIFEST aliases
   (else the default). Same rule as proxx.app.entry/policy-manifest-path, which cannot be

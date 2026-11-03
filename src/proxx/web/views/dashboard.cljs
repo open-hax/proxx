@@ -61,7 +61,7 @@
                      [:option {:value "monthly"} "Monthly (30d)"]]])
 
 (defn view [db dispatch!]
-  (let [{:keys [window window-label account-sort provider-filter loading? error coverage-note tiles donut legend tier-bars
+  (let [{:keys [window account-sort provider-filter loading? error coverage-note tiles donut legend tier-bars
                 overview? trends providers logs loading-more? log-version provider-options accounts accounts-empty
                 more-health? has-filtered? health-version]} (dash/view-model db)]
     [:div.dashboard-layout
