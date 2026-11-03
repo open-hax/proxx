@@ -152,6 +152,12 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
+      # shadow-cljs (the web console build) needs a Java 21 runtime; the runner's
+      # default JDK is older and fails with UnsupportedClassVersionError.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
       - run: pnpm install --frozen-lockfile
       - run: pnpm run web:build
 
