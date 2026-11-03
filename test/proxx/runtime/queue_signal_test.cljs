@@ -26,6 +26,15 @@
     (-> (js/Promise.race #js [promise timeout])
         (.finally (fn [] (js/clearTimeout @timer))))))
 
+(defn ^:async guard
+  "Run an async test body. cljs.test drops a rejected body silently (the rest of
+  the test just never runs and nothing is reported), so a throw must be an
+  assertion failure."
+  [body]
+  (try (await (body))
+       (catch :default e
+         (is (nil? e) (str "async test body threw: " (some-> e .-message))))))
+
 ;; ---------------------------------------------------------------------------
 ;; queue-error-429.test.ts: sendQueueError answers 429 + retry-after, else false
 ;; ---------------------------------------------------------------------------
@@ -87,6 +96,8 @@
   ;; The TS cases above hand sendQueueError a plain {data: {...}} object. What the
   ;; host actually receives is the ex-info thrown by the queue runtime, whose data
   ;; is a Clojure map (this used to answer false, i.e. a 500 instead of a 429).
+  (await (guard
+   (fn ^:async body []
   (let [policy {:queue/status :active :queue/concurrency-limit 1 :queue/max-queue-size 0
                 :queue/overflow-policy :reject :queue/attempt-timeout-ms 20 :queue/max-retries 0
                 :queue/retry-backoff :immediate}
@@ -102,7 +113,7 @@
       (let [[reply state] (mock-reply)]
         (is (true? (proxy/send-queue-error-js reply err)))
         (is (= 429 (:status @state)))
-        (is (= retry-after (get-in @state [:headers "retry-after"])))))))
+        (is (= retry-after (get-in @state [:headers "retry-after"]))))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; queue-signal.test.ts
@@ -122,6 +133,8 @@
   (js/Promise. (fn [resolve] (.once stream "finish" resolve))))
 
 (deftest ^:async pipe-detaches-queue-abort-listeners-on-end-and-error
+  (await (guard
+   (fn ^:async body []
   (let [encoder (js/TextEncoder.)
         listeners (fn [^js c] (alength (listener-count (.-signal c))))
         run (fn [^js body-init]
@@ -142,33 +155,39 @@
     (let [[c done] (run #js {:start (fn [^js s] (.error s (js/Error. "upstream read failed")))})]
       (is (= 1 (listeners c)) "registered while piping")
       (await done)
-      (is (= 0 (listeners c)) "detached on error"))))
+      (is (= 0 (listeners c)) "detached on error")))))))
 
 (defn- run-queued [context task]
   (runtime/run-queued-js manifest (clj->js context) task))
 
 (deftest ^:async run-queued-attaches-extend-timeout-to-the-signal
+  (await (guard
+   (fn ^:async body []
   (let [captured (atom nil)]
     (await (run-queued {"request-kind" "chat"}
                        (fn ^:async task [^js controller]
                          (reset! captured (.-signal controller))
                          "ok")))
     (is (some? @captured) "signal should be captured")
-    (is (fn? (aget @captured "extendTimeout")) "signal has extendTimeout")))
+    (is (fn? (aget @captured "extendTimeout")) "signal has extendTimeout"))))))
 
 (deftest ^:async run-queued-extend-timeout-is-callable
+  (await (guard
+   (fn ^:async body []
   (let [captured (atom nil)]
     (await (run-queued {"request-kind" "chat"}
                        (fn ^:async task [^js controller]
                          (reset! captured (.-signal controller))
                          "ok")))
     (is (some? @captured))
-    (.extendTimeout ^js @captured)))
+    (.extendTimeout ^js @captured))))))
 
 (deftest ^:async extend-timeout-resets-the-attempt-timer-without-exceeding-the-total-deadline
   ;; TS scale is 30s attempt / 120s total, ticks 20s, 10s, 89.999s, 0.001s; here
   ;; the same shape at 1/100: 300ms attempt, 1200ms total (stream timeout longer
   ;; than the total, so only the deadline can cap the extension).
+  (await (guard
+   (fn ^:async body []
   (let [t0 (js/Date.now)
         policy {:queue/attempt-timeout-ms 300 :queue/stream-timeout-ms 100000
                 :queue/max-retries 0 :queue/retry-backoff :immediate
@@ -196,7 +215,7 @@
         (is (true? (.-aborted signal)) "extension remained capped by the total deadline")
         (is (= :queue/attempt-timeout (:code (ex-data err))) "and the attempt rejects as timed out")
         (is (re-find #"(?i)timed out" (str (ex-message err))))
-        (is (<= (- (js/Date.now) t0) 1500) "aborted at the deadline, not at the 100s stream timeout")))))
+        (is (<= (- (js/Date.now) t0) 1500) "aborted at the deadline, not at the 100s stream timeout"))))))))
 
 (deftest mimo-provider-gets-its-own-queue-policy
   (let [^js result (runtime/resolve-queue-policy-js manifest #js {"provider-id" "xiaomi" "request-kind" "chat"})]
@@ -248,6 +267,8 @@
    overrides))
 
 (deftest ^:async openai-passthrough-skips-its-first-chunk-when-the-queue-signal-already-ended-the-response
+  (await (guard
+   (fn ^:async body []
   (let [controller (js/AbortController.)
         _ (.abort controller)
         [reply writes ended] (mock-stream-reply nil)
@@ -262,9 +283,11 @@
     (is (true? @ended))
     (is (= 1 (count @writes)) "only the abort frame; the first upstream chunk was skipped")
     (is (string? (first @writes)))
-    (is (re-find #"Provider stream aborted by request queue timeout" (first @writes)))))
+    (is (re-find #"Provider stream aborted by request queue timeout" (first @writes))))))))
 
 (deftest ^:async gemini-pending-stream-read-is-cancelled-by-the-queue-signal-and-cleans-up-promptly
+  (await (guard
+   (fn ^:async body []
   (let [controller (js/AbortController.)
         captured (atom nil)
         flushed (js/Promise. (fn [resolve]
@@ -313,4 +336,4 @@
         (is (true? @ended))
         (is (= 1 (count @writes)))
         (is (re-find #"Provider stream aborted by request queue timeout" (str (first @writes)))))
-      (finally (strategies/set-genai-factory! previous)))))
+      (finally (strategies/set-genai-factory! previous))))))))
