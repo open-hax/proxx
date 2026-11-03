@@ -5,7 +5,8 @@
   Handlers build frames (pure) and call `play!`; the only places a reply or a raw
   response is touched for a provider answer are here. `reply` is the Fastify
   reply, `raw` the Node response after a hijack."
-  (:require ["node:stream" :as node-stream]))
+  (:require ["node:stream" :as node-stream]
+            [proxx.http.reply :as frames]))
 
 (defn hijack!
   "Take over the response: set the status, copy every header set so far onto
@@ -57,6 +58,41 @@
   (when-let [flush (aget raw "flush")]
     (.call flush raw)))
 
+;; ---------------------------------------------------------------------------
+;; Request-queue lifecycle of a streamed reply
+;; ---------------------------------------------------------------------------
+
+(defn extend-queue-timeout!
+  "Streaming has started: ask the request queue (whose AbortSignal carries
+  `extendTimeout`) to swap the attempt timeout for the longer stream timeout."
+  [^js signal]
+  (when (and signal (fn? (aget signal "extendTimeout")))
+    (.extendTimeout signal))
+  nil)
+
+(defn register-queue-abort!
+  "Answer a queue abort mid-stream with an SSE error frame and end the response.
+  Returns the cleanup fn, which every terminal path of the stream must call."
+  [^js signal ^js raw]
+  (if-not signal
+    (fn [] nil)
+    (let [on-abort (fn []
+                     (when-not (.-writableEnded raw)
+                       (.write raw (frames/queue-abort-chunk))
+                       (.end raw)))]
+      (.addEventListener signal "abort" on-abort #js {"once" true})
+      (when (.-aborted signal) (on-abort))
+      (fn [] (.removeEventListener signal "abort" on-abort)))))
+
+(defn ^:async with-queue-lifecycle
+  "Run `(body)` (a promise-returning fn) as the streaming phase of a reply:
+  extend the queue timeout, honour a queue abort, and always unregister."
+  [^js signal ^js raw body]
+  (extend-queue-timeout! signal)
+  (let [cleanup (register-queue-abort! signal raw)]
+    (try (await (body))
+         (finally (cleanup)))))
+
 (defn- release-quietly [^js reader]
   (try (.releaseLock reader) (catch :default _ nil)))
 
@@ -100,10 +136,32 @@
     (.fromWeb readable-class body)))
 
 (defn pipe-web-stream!
-  "Pipe a web ReadableStream into the hijacked response; the response ends
-  with the stream, or immediately if the stream errors."
-  [^js raw body]
-  (let [^js readable (readable-from-web body)]
-    (.on readable "error" (fn [] (end-quietly! raw)))
-    (.pipe readable raw)
-    nil))
+  "Pipe a web ReadableStream into the hijacked response. The response ends with
+  the stream (immediately if it errors), the stream is destroyed when the client
+  goes away, and a queue abort (`signal`) answers with an SSE error. Every
+  terminal path unregisters every listener."
+  ([^js raw body] (pipe-web-stream! raw body nil))
+  ([^js raw body ^js signal]
+   (let [^js readable (readable-from-web body)
+         cleanup-abort (register-queue-abort! signal raw)
+         cleaned? (atom false)]
+     (letfn [(cleanup []
+               (when-not @cleaned?
+                 (reset! cleaned? true)
+                 (cleanup-abort)
+                 (.off readable "error" on-stream-error)
+                 (.off readable "close" cleanup)
+                 (.off raw "finish" on-response-done)
+                 (.off raw "close" on-response-done)))
+             (on-stream-error []
+               (end-quietly! raw)
+               (cleanup))
+             (on-response-done []
+               (when-not (.-destroyed readable) (.destroy readable))
+               (cleanup))]
+       (.once readable "error" on-stream-error)
+       (.once readable "close" cleanup)
+       (.once raw "finish" on-response-done)
+       (.once raw "close" on-response-done)
+       (.pipe readable raw))
+     nil)))

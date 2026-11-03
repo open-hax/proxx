@@ -404,20 +404,12 @@
   [base-url]
   (boolean (re-find #"^https?://(127\.0\.0\.1|localhost)(?::\d+)?(?:/|$)" (or base-url ""))))
 
-(defn sdk-eligible-model?
-  "The SDK is only called for Gemini-family models; anything else would poison
-  the routing accumulator with an invalid-request outcome."
-  [model]
-  (or (str/starts-with? model "gemini-")
-      (str/starts-with? model "models/")
-      (str/includes? model "gemma")))
-
 (defn classify-sdk-error
   "Attempt-outcome flags for a failure message thrown by the SDK, first match wins."
   [message]
   (let [has? (fn [& needles] (some #(str/includes? message %) needles))]
     (cond
-      (has? "rate limit" "RATE_LIMIT") {:rate-limit true}
+      (has? "rate limit" "RATE_LIMIT" "UNAVAILABLE" "503") {:rate-limit true}
       (has? "model not found" "MODEL_NOT_FOUND") {:model-not-found true}
       (has? "not supported" "NOT_SUPPORTED") {:model-not-supported-for-account true :request-error true}
       (has? "invalid request" "INVALID_ARGUMENT") {:request-error true :upstream-invalid-request true}

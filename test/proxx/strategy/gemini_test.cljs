@@ -218,6 +218,7 @@
 (deftest sdk-error-classification
   (is (= {:rate-limit true} (g/classify-sdk-error "429 RATE_LIMIT exceeded")))
   (is (= {:rate-limit true} (g/classify-sdk-error "hit the rate limit")))
+  (is (= {:rate-limit true} (g/classify-sdk-error "503 UNAVAILABLE: model is overloaded")) "overload is back-pressure, not a request error")
   (is (= {:model-not-found true} (g/classify-sdk-error "MODEL_NOT_FOUND")))
   (is (= {:model-not-supported-for-account true :request-error true} (g/classify-sdk-error "model not supported")))
   (is (= {:request-error true :upstream-invalid-request true} (g/classify-sdk-error "INVALID_ARGUMENT: bad")))
@@ -229,10 +230,6 @@
   (is (g/local-base-url? "https://localhost"))
   (is (not (g/local-base-url? "https://generativelanguage.googleapis.com/v1beta")))
   (is (not (g/local-base-url? "http://localhost.evil.com")))
-  (is (g/sdk-eligible-model? "gemini-2.5-pro"))
-  (is (g/sdk-eligible-model? "models/gemini-pro"))
-  (is (g/sdk-eligible-model? "gemma-4-31b-it"))
-  (is (not (g/sdk-eligible-model? "gpt-5")))
   (is (= "/models/gemini-2.5-pro:generateContent" (g/upstream-path nil "gemini-2.5-pro")))
   (is (= "/models/alias%2Fx:generateContent" (g/upstream-path "alias/x" "gemini-2.5-pro"))))
 
