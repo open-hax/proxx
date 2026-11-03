@@ -1,25 +1,45 @@
 FROM node:22-alpine AS builder
 
+ENV PNPM_HOME=/pnpm
+ENV PATH=/pnpm:${PATH}
+
+# The runtime is ClojureScript: shadow-cljs needs a JVM to compile it.
+RUN corepack enable && corepack prepare pnpm@10.14.0 --activate \
+  && apk add --no-cache openjdk21-jre-headless
+
 WORKDIR /app
 
-COPY package.json pnpm-lock.yaml ./
+# Dependency resolution is a build-time operation; install from the committed lock.
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml shadow-cljs.edn ./
+RUN pnpm install --frozen-lockfile
+
 COPY src ./src
-RUN npm install -g pnpm && pnpm install && pnpm run build
+COPY resources ./resources
+RUN pnpm build:cljs
 
 FROM node:22-alpine
 
+ENV PNPM_HOME=/pnpm
+ENV PATH=/pnpm:${PATH}
+
+RUN corepack enable && corepack prepare pnpm@10.14.0 --activate
+
 WORKDIR /app
 
-COPY package.json pnpm-lock.yaml ./
-RUN npm install -g pnpm && pnpm install --prod
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+RUN pnpm install --prod --frozen-lockfile
 
 COPY --from=builder /app/dist ./dist
+COPY resources ./resources
 
-RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup && chown -R appuser:appgroup /app
 USER appuser
 
 ENV NODE_ENV=production
 ENV PROXY_HOST=0.0.0.0
+ENV PROXY_PORT=8789
+ENV PROXX_CLJS_RUNTIME_REQUIRED=true
+ENV PROXX_CLJS_POLICY_AUTHORITATIVE=true
 
 EXPOSE 8789
 
