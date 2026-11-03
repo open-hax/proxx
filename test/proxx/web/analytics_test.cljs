@@ -1,5 +1,5 @@
 (ns proxx.web.analytics-test
-  (:require [cljs.test :refer [deftest is testing]]
+  (:require [cljs.test :refer [deftest is]]
             [proxx.web.format :as fmt]
             [proxx.web.pages.analytics :as an]
             [proxx.web.update :as u]))
@@ -64,7 +64,7 @@
                (assoc-in [:pages :analytics :analytics] payload)
                (assoc-in [:pages :analytics :loading?] false))
         vm (an/view-model db)
-        [models providers pairs] (:tabs vm)]
+        [models _ pairs] (:tabs vm)]
     (is (= ["models" "providers" "pairs"] (mapv :id (:tabs vm))) "no duplicate tabs")
     (is (= ["2" "1" "1"] (mapv :badge (:tabs vm))) "pairs filtered by provider focus")
     (is (= ["gpt-5.3-codex" "other"] (:model-options vm)))

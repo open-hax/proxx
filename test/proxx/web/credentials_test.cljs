@@ -1,5 +1,6 @@
 (ns proxx.web.credentials-test
   (:require [cljs.test :refer [deftest is testing]]
+            [proxx.web.format :as fmt]
             [proxx.web.pages.credentials :as p]
             [proxx.web.update :as u]))
 
@@ -178,7 +179,7 @@
       (is (false? (get-in (slice db2) [:probe-loading "openai:a"])))
       (is (= {:ok true :message "fine"} (get-in (slice db2) [:probe-results "openai:a"])))
       (is (= ["/api/v1/credentials/openai/quota" "/api/v1/credentials/openai/prompt-cache-audit?limit=40"] (paths fx2))))
-    (let [[db2 fx2] (step db1 [:credentials/probed "openai:a" "ollama-cloud" {:ok true}])]
+    (let [[_ fx2] (step db1 [:credentials/probed "openai:a" "ollama-cloud" {:ok true}])]
       (is (empty? fx2) "only openai refreshes quota"))
     (let [[db2] (step db1 [:credentials/probe-failed "openai:a" "openai" "a" "boom"])
           r (get-in (slice db2) [:probe-results "openai:a"])]
@@ -216,7 +217,7 @@
       (is (= "token tok" (:token-chip t)))
       (is (= ["Internal ID" "Provider" "Email" "Access token"] (mapv :label (remove nil? (:details t)))))
       (is (= "Copy" (get-in (first (:details t)) [:copy :text]))))
-    (is (= [{:id "openai" :recent "Recent logs: 3" :last (str "Last request: " (proxx.web.format/format-datetime 0))
+    (is (= [{:id "openai" :recent "Recent logs: 3" :last (str "Last request: " (fmt/format-datetime 0))
              :pool ["Accounts ready: 1/1" "Cooldown accounts: 0"]}]
            (:provider-health vm)))
     (is (= [{:id "r1" :title "openai/a" :status-line "200 · 420ms" :error "oops"

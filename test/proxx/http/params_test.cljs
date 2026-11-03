@@ -1,5 +1,5 @@
 (ns proxx.http.params-test
-  (:require [cljs.test :refer [deftest is testing]]
+  (:require [cljs.test :refer [deftest is]]
             [proxx.http.params :as p]))
 
 (deftest parse-int-is-parseint

@@ -1,5 +1,6 @@
 (ns proxx.compat.factory-test
-  (:require [cljs.test :refer [deftest is testing]]
+  (:require [clojure.string :as str]
+            [cljs.test :refer [deftest is testing]]
             [proxx.compat.factory :as f]
             [proxx.policy.contracts :as contracts]
             [proxx.policy.loader :as loader]))
@@ -48,7 +49,7 @@
 (deftest prompt-sanitizing
   (let [safe (f/sanitize-system-prompt profile "x You Are OpenCode, the best coding agent on the planet y")]
     (is (re-find #"^You are a software engineering assistant" safe))
-    (is (= 7 (count (clojure.string/split-lines safe)))))
+    (is (= 7 (count (str/split-lines safe)))))
   (is (= "plain" (f/sanitize-system-prompt profile "plain"))))
 
 (deftest inline-system-prompt

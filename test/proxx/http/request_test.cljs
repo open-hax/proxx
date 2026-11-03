@@ -1,5 +1,5 @@
 (ns proxx.http.request-test
-  (:require [cljs.test :refer [deftest is testing]]
+  (:require [cljs.test :refer [deftest is]]
             [clojure.string :as str]
             [proxx.http.request :as r]
             [proxx.runtime.http :as edge]))

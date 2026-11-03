@@ -2,7 +2,7 @@
   "Health, landing page and the models surface of the proxy: preferred ordering, declared and
    alias models, auto:cheapest ranking and disabled models. Ported from src/tests/proxy.test.ts."
   (:require [cljs.test :refer [deftest is]]
-            [proxx.proxy.harness-d :as h :refer [with-proxy-app includes? bearer-key]]))
+            [proxx.proxy.harness-d :as h :refer [with-proxy-app bearer-key]]))
 
 (defn- json-ok [body] {:status 200 :headers {"content-type" "application/json"} :body (h/json-str body)})
 (defn- json-reply [status body] {:status status :headers {"content-type" "application/json"} :body (h/json-str body)})

@@ -1,5 +1,5 @@
 (ns proxx.http.media-test
-  (:require [cljs.test :refer [deftest is testing]]
+  (:require [cljs.test :refer [deftest is]]
             [proxx.http.media :as m]))
 
 (def parse #(js->clj (js/JSON.parse %)))

@@ -3,7 +3,6 @@
    empty/stalled/quota streams, early start and content-type normalisation.
    Ported from src/tests/proxy.test.ts."
   (:require [cljs.test :refer [deftest is]]
-            [clojure.string :as str]
             [proxx.proxy.harness-d :as h :refer [with-proxy-app chat-chunk sse-done includes? bearer-key]]))
 
 (def ^:private user-hello [{"role" "user" "content" "hello"}])

@@ -1,5 +1,5 @@
 (ns proxx.quota.openai-test
-  (:require [cljs.test :refer [deftest is testing async]]
+  (:require [cljs.test :refer [deftest is testing]]
             [proxx.json :as json]
             [proxx.quota.openai :as q]
             [proxx.runtime.quota :as edge]))

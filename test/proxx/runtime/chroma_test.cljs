@@ -14,7 +14,7 @@
                            (fn [_] (if create-fails? (js/Promise.reject (js/Error. "nope")) (js/Promise.resolve collection)))})]
     #js {:ChromaClient client-ctor
          :IncludeEnum #js {"documents" "documents" "metadatas" "metadatas" "distances" "distances"}
-         :embeddingFunction #js {:generate (fn [texts] (js/Promise.resolve #js [#js [1 2 3]]))}}))
+         :embeddingFunction #js {:generate (fn [_texts] (js/Promise.resolve #js [#js [1 2 3]]))}}))
 
 (def config #js {:url "https://chroma.example:8443/" :collectionName "c"})
 

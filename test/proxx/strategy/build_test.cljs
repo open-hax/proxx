@@ -1,5 +1,5 @@
 (ns proxx.strategy.build-test
-  (:require [cljs.test :refer [deftest is testing]]
+  (:require [cljs.test :refer [deftest is]]
             [proxx.policy.loader :as loader]
             [proxx.schema :as schema]
             [proxx.strategy.build :as build]

@@ -1,5 +1,5 @@
 (ns proxx.runtime.keypool-test
-  (:require [cljs.test :refer [deftest is async]]
+  (:require [cljs.test :refer [deftest is]]
             [proxx.runtime.keypool :as kp]))
 
 (defn- credential [pid aid extra]

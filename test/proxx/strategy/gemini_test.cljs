@@ -1,6 +1,5 @@
 (ns proxx.strategy.gemini-test
   (:require [cljs.test :refer [deftest is testing]]
-            [proxx.json :as json]
             [proxx.runtime.strategy :as edge]
             [proxx.strategy.gemini :as g]))
 

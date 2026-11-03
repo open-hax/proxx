@@ -12,7 +12,6 @@
 (def ^:private http (js/require "node:http"))
 (def ^:private os (js/require "node:os"))
 (def ^:private path (js/require "node:path"))
-(def ^:private url (js/require "node:url"))
 (def ^:private events (js/require "node:events"))
 
 ;; ---------------------------------------------------------------------------

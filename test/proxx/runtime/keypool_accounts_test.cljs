@@ -1,7 +1,7 @@
 (ns proxx.runtime.keypool-accounts-test
   "Key pool sources, ordering, cooldown and disable behaviour through the CLJS
   edge (`proxx.runtime.keypool`), ported from the TypeScript key-pool tests."
-  (:require [cljs.test :refer [deftest is async]]
+  (:require [cljs.test :refer [deftest is]]
             [proxx.support.keypool :as sk :refer [make-pool ids]]
             [proxx.support.tmp :as tmp :refer [with-json-file with-now with-captured-console]]))
 

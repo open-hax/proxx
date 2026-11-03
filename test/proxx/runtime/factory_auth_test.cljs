@@ -7,7 +7,7 @@
             [cljs.test :refer [deftest is]]
             [proxx.oauth.factory :as factory]
             [proxx.runtime.factory-auth :as fa]
-            [proxx.support.keypool :as sk :refer [make-pool make-jwt ids]]
+            [proxx.support.keypool :as sk :refer [make-pool make-jwt]]
             [proxx.support.tmp :as tmp :refer [with-json-file with-env with-tmp-dir]]))
 
 (set! *warn-on-infer* false)

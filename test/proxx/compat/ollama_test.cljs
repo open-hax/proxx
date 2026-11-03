@@ -1,5 +1,5 @@
 (ns proxx.compat.ollama-test
-  (:require [cljs.test :refer [deftest is testing async]]
+  (:require [cljs.test :refer [deftest is testing]]
             [clojure.string :as str]
             [proxx.compat.ollama :as o]
             [proxx.compat.reasoning :as r]

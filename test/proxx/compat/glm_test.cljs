@@ -1,5 +1,5 @@
 (ns proxx.compat.glm-test
-  (:require [cljs.test :refer [deftest is testing]]
+  (:require [cljs.test :refer [deftest is]]
             [proxx.compat.glm :as glm]
             [proxx.runtime.glm :as edge]))
 

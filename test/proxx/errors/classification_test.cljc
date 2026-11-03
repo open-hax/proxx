@@ -93,13 +93,14 @@
       "top-level code/type are the fallback when error is not an object"))
 
 (deftest sse-and-stream-quota
-  (let [parse (fn [s] #?(:cljs (js->clj (js/JSON.parse s)) :clj (throw (ex-info "no json" {}))))
-        body "event: x\r\ndata: {\"type\":\"error\",\"error\":{\"message\":\"quota exceeded\"}}\n\ndata: [DONE]\n"]
+  (do
     #?(:cljs
-       (testing "parsed error events"
-         (is (c/stream-quota-error? parse body))
-         (is (not (c/stream-quota-error? parse "data: {\"type\":\"message\",\"text\":\"quota exceeded\"}\n")))
-         (is (not (c/stream-quota-error? parse "data: [DONE]\n")))))
+       (let [parse (fn [s] (js->clj (js/JSON.parse s)))
+             body "event: x\r\ndata: {\"type\":\"error\",\"error\":{\"message\":\"quota exceeded\"}}\n\ndata: [DONE]\n"]
+         (testing "parsed error events"
+           (is (c/stream-quota-error? parse body))
+           (is (not (c/stream-quota-error? parse "data: {\"type\":\"message\",\"text\":\"quota exceeded\"}\n")))
+           (is (not (c/stream-quota-error? parse "data: [DONE]\n"))))))
     (testing "unparseable events are judged as text"
       (is (c/stream-quota-error? (fn [_] (throw (ex-info "bad" {}))) "data: payment required\n"))
       (is (not (c/stream-quota-error? (fn [_] (throw (ex-info "bad" {}))) "data: hello\n"))))))
