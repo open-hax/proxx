@@ -34,3 +34,25 @@ npm test --prefix .github/scripts/typed-kimi
 The owner suite verifies the normative decision law. Boundary tests exercise
 actual JS-to-Clojure calls, explicit decisions, malformed/source-changing
 responses, fresh-process source corruption and legacy v1 compatibility.
+
+## Candidate v2 native submission boundary
+
+`structuredRequest(expected, prompt)` creates a JSON-schema request using the
+existing explicit low Kimi SDK route and the owner schema. It does not start
+OpenCode or contact a provider.
+
+`parseSubmission(expected, {sessionID, assistantID}, response)` requires the
+exact caller-bound assistant/session, observed route and low variant, a positive
+completed timestamp, and exactly one completed `StructuredOutput` part. That
+part must belong to the same native session/message and its input must equal
+the assistant's structured value. Missing, pending, duplicate, errored or
+mismatched submissions refuse. The owner then validates immutable source and
+explicit decision fields; prose and v1 output never acquire a v2 verdict.
+
+The part coordinates follow the pinned [OpenCode 1.18.34 SDK types](https://github.com/anomalyco/opencode/blob/v1.18.34/packages/sdk/js/src/v2/gen/types.gen.ts).
+Returned `observed` fields describe supplied native data. They do not prove
+that a process ran, authenticate its transport or provide helper-owned
+execution provenance. The protected executor must supply the real SDK response,
+bind fresh immutable input and authenticate the process/session; the separately
+reviewed publisher and canonical reader still own their independent custody.
+No workflow or publisher invokes these candidate methods in this component.
