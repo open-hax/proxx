@@ -21,9 +21,9 @@ permissions:
 
 jobs:
   kanban-sync:
-    uses: open-hax/eta-mu/.github/workflows/kanban-sync.yml@cd41fde12a5e6c820285bf00ddd9a214b4b23741
+    uses: open-hax/eta-mu/.github/workflows/kanban-sync.yml@f4ac84be690fb6cfc7bf8fbd27b62d1befaaaee8
     with:
-      eta-mu-ref: cd41fde12a5e6c820285bf00ddd9a214b4b23741
+      eta-mu-ref: f4ac84be690fb6cfc7bf8fbd27b62d1befaaaee8
       tasks-dir: kanban
       dry-run: ${{ github.event.inputs.dry_run == 'true' }}
       max-writes: 50
