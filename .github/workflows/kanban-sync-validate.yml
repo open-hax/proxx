@@ -1,0 +1,208 @@
+# Validation steps mirror Eta-mu f4ac84be690fb6cfc7bf8fbd27b62d1befaaaee8; keep the implementation pinned.
+# The reusable workflow requests issues: write, so this read-only lane executes its steps directly.
+name: Validate Kanban Sync
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/kanban-sync.yml'
+      - '.github/workflows/kanban-sync-validate.yml'
+      - 'kanban/**'
+
+permissions:
+  contents: read
+  issues: read
+
+jobs:
+  validate-kanban-sync:
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout target repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Checkout matching eta-mu implementation
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: open-hax/eta-mu
+          ref: f4ac84be690fb6cfc7bf8fbd27b62d1befaaaee8
+          path: .eta-mu
+          persist-credentials: false
+
+      - name: Verify eta-mu checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f .eta-mu/packages/rheos/package.json
+          echo "eta-mu ref: f4ac84be690fb6cfc7bf8fbd27b62d1befaaaee8"
+          echo "eta-mu commit: $(git -C .eta-mu rev-parse HEAD)"
+
+      - name: Setup Java
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 10.14.0
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+          cache: pnpm
+          cache-dependency-path: .eta-mu/pnpm-lock.yaml
+
+      - name: Install eta-mu workspace
+        run: pnpm --dir .eta-mu install --frozen-lockfile
+
+      - name: Install Clojure CLI
+        uses: DeLaGuardo/setup-clojure@3fe9b3ae632c6758d0b7757b0838606ef4287b08 # v13.4
+        with:
+          cli: 1.12.5.1654
+
+      - name: Verify Clojure CLI
+        run: clojure -Sdescribe
+
+      - name: Build Rheos projection executables
+        run: pnpm --dir .eta-mu/packages/rheos exec shadow-cljs release cli github-sync
+
+      - name: Resolve board path
+        id: board
+        shell: bash
+        env:
+          TASKS_DIR: kanban
+        run: |
+          set -euo pipefail
+          if [[ -z "$TASKS_DIR" || "$TASKS_DIR" = /* ]]; then
+            echo "::error::tasks-dir must be a non-empty path relative to the calling repository"
+            exit 1
+          fi
+
+          workspace="$(realpath "$GITHUB_WORKSPACE")"
+          candidate="$GITHUB_WORKSPACE/$TASKS_DIR"
+          if [[ ! -d "$candidate" ]]; then
+            echo "::error::Rheos board directory does not exist: $candidate"
+            exit 1
+          fi
+          tasks_path="$(realpath "$candidate")"
+          case "$tasks_path" in
+            "$workspace"/*) ;;
+            *)
+              echo "::error::tasks-dir escapes the calling repository: $TASKS_DIR"
+              exit 1
+              ;;
+          esac
+
+          if [[ "$tasks_path" == "$workspace/.eta-mu"* ]]; then
+            echo "::error::tasks-dir must target the calling repository"
+            exit 1
+          fi
+
+          echo "tasks-path=$tasks_path" >> "$GITHUB_OUTPUT"
+
+      - name: Generate canonical Rheos snapshot
+        env:
+          TASKS_PATH: ${{ steps.board.outputs.tasks-path }}
+          SNAPSHOT_PATH: ${{ runner.temp }}/rheos-github-sync/board.json
+        run: |
+          set -euo pipefail
+          mkdir -p "$(dirname "$SNAPSHOT_PATH")"
+          node .eta-mu/packages/rheos/dist/cli.cjs board snapshot \
+            --tasks-dir "$TASKS_PATH" \
+            --out "$SNAPSHOT_PATH"
+
+      - name: Refuse duplicate UUIDs or noncanonical aliases
+        env:
+          SNAPSHOT_PATH: ${{ runner.temp }}/rheos-github-sync/board.json
+        run: |
+          node <<'NODE'
+          const snapshot = require(process.env.SNAPSHOT_PATH);
+          const tasks = snapshot.columns.flatMap((column) => column.tasks);
+          const seen = new Map();
+          const errors = [];
+
+          for (const task of tasks) {
+            const prior = seen.get(task.uuid);
+            if (prior) errors.push(`duplicate task uuid ${task.uuid}: ${prior} and ${task['source-path']}`);
+            else seen.set(task.uuid, task['source-path']);
+            if (task.status === 'pending' || task.status === 'completed') {
+              errors.push(`noncanonical status ${task.status} survived normalization for ${task.uuid}`);
+            }
+          }
+
+          if (errors.length) {
+            for (const error of errors) console.error(`::error::${error}`);
+            process.exit(1);
+          }
+          console.log(`Validated ${tasks.length} canonical Rheos tasks`);
+          NODE
+
+      - name: Record Rheos drift history
+        env:
+          TASKS_PATH: ${{ steps.board.outputs.tasks-path }}
+          DRIFT_PATH: ${{ runner.temp }}/rheos-github-sync/drift.txt
+        run: |
+          set -euo pipefail
+          node .eta-mu/packages/rheos/dist/cli.cjs drift \
+            --tasks-dir "$TASKS_PATH" | tee "$DRIFT_PATH"
+
+      - name: Project Rheos tasks to GitHub Issues
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TARGET_REPO: ${{ github.repository }}
+          TASKS_PATH: ${{ steps.board.outputs.tasks-path }}
+          DRY_RUN: "true"
+          MAX_WRITES: "50"
+          WRITE_DELAY_MS: "1000"
+          CLOSE_DONE: "true"
+          CLOSE_REJECTED: "true"
+          SYNC_PATH: ${{ runner.temp }}/rheos-github-sync/sync.txt
+        run: |
+          set -euo pipefail
+          node .eta-mu/packages/rheos/dist/github-sync.cjs \
+            --repo "$TARGET_REPO" \
+            --tasks-dir "$TASKS_PATH" \
+            --cwd "$GITHUB_WORKSPACE" \
+            --dry-run "$DRY_RUN" \
+            --max-writes "$MAX_WRITES" \
+            --write-delay-ms "$WRITE_DELAY_MS" \
+            --close-done "$CLOSE_DONE" \
+            --close-rejected "$CLOSE_REJECTED" | tee "$SYNC_PATH"
+
+      - name: Publish sync summary
+        if: always()
+        env:
+          TARGET_REPO: ${{ github.repository }}
+          DRY_RUN: "true"
+          SYNC_PATH: ${{ runner.temp }}/rheos-github-sync/sync.txt
+          DRIFT_PATH: ${{ runner.temp }}/rheos-github-sync/drift.txt
+        run: |
+          {
+            echo "## Rheos GitHub Issue sync"
+            echo
+            echo "- repository: \`$TARGET_REPO\`"
+            echo "- dry run: \`$DRY_RUN\`"
+            echo "- canonical aliases: \`pending → incoming\`, \`completed → done\`"
+            echo "- historical drift events: \`$(grep -c ' DRIFT ' "$DRIFT_PATH" 2>/dev/null || true)\`"
+            if [[ -f "$SYNC_PATH" ]]; then
+              echo
+              echo '```text'
+              cat "$SYNC_PATH"
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload Rheos sync evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rheos-github-issue-sync
+          path: ${{ runner.temp }}/rheos-github-sync/
+          if-no-files-found: warn
+          retention-days: 14
