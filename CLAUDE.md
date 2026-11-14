@@ -1,143 +1,15 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+@AGENTS.md
 
-## What This Is
+<!--
+AGENTS.md is the single source of truth for every agent harness. Claude Code
+imports it here so it loads even when a parent directory has its own CLAUDE.md.
+Anything below this comment must be true only for Claude Code.
+-->
 
-Proxx is an OpenAI-compatible proxy server (`@open-hax/proxx`) with provider-scoped account rotation, multi-provider routing, federation, and a WebSocket bridge. It exposes `POST /v1/chat/completions`, `/v1/responses`, `/v1/models`, and a ClojureScript (Reagent) web console bundled with Vite.
+## Claude Code
 
-## Commands
-
-### Development
-```bash
-pnpm dev                    # build CLJS then run the server (node dist/cljs/main.js)
-pnpm web:dev                # build the CLJS bundle, then Vite dev server for the web console
-pnpm web:watch              # shadow-cljs watch for the web console (:web build)
-```
-
-### Build
-```bash
-pnpm build                  # full build (shadow-cljs release :runtime)
-pnpm build:cljs             # shadow-cljs release :runtime
-pnpm web:build              # shadow-cljs release (:web) + Vite (CSS, index.html) -> web/dist
-```
-
-### Inventory gate and linting
-```bash
-pnpm check:no-new-typescript  # no TypeScript-family files; policy boundary check
-pnpm lint                   # eslint
-pnpm lint:errors            # eslint --quiet (errors only)
-./scripts/ci-lint.sh        # full lint + actionlint on workflows
-```
-
-### Tests
-```bash
-pnpm test                             # build then run all CLJS unit tests
-pnpm test:cljs                        # compile and run CLJS unit tests
-npx shadow-cljs compile node-test && node target/node-test.cjs  # includes the migration tests (test/proxx/db/schema_test.cljs)
-pnpm web:test                         # shadow-cljs :web-test (cljs.test view smoke tests under jsdom)
-pnpm web:test:e2e                     # frontend browser smoke tests
-```
-
-### E2E and load
-```bash
-pnpm test:e2e               # end-to-end smoke
-pnpm test:e2e:multitenancy  # multi-tenancy smoke
-pnpm test:e2e:federation    # federation cluster test
-pnpm test:load              # load test
-```
-
-### Full pre-PR validation
-```bash
-pnpm validate:required      # build + web build + web tests + proxy test (requires PROXY_AUTH_TOKEN)
-```
-
-## Architecture: The Critical Mental Model
-
-**This is a polyglot codebase. Routing logic is NOT in TypeScript.**
-
-```
-HTTP Edge (TypeScript) → CLJS Runtime Boundary → Declarative Policy Engine (EDN + CLJS)
-```
-
-### Where to look for what
-
-| What | Where |
-|------|-------|
-| HTTP routes, request parsing, response serialization | `src/proxx/runtime/routes/`, `src/proxx/http/` (Ring on Fastify) |
-| Application composition, server entry (`node dist/cljs/main.js`), shutdown | `src/proxx/app/main.cljs`, `src/proxx/app/entry.cljs`; host in `src/proxx/host.cljs` |
-| Database queries (postgres.js) | `src/proxx/runtime/sql*.cljs`, `src/proxx/credentials/sql.cljc` |
-| Routing decisions, provider selection, account ordering | `resources/policies/runtime/*.edn` + `src/proxx/**/*.cljs` |
-| Model pricing overrides | `resources/policies/runtime/15-model-pricing-overrides.edn` only |
-
-### Policy files (loaded in order via `00-manifest.edn`)
-
-| File | Purpose |
-|------|---------|
-| `00-domain.edn` | Enums, scoring tables, defaults |
-| `05-provider-seed.edn` | Provider env var specs |
-| `10-model-families.edn` | Model-family pattern matching |
-| `15-model-pricing-overrides.edn` | Token price overrides (EDN only — no JSON blobs or TS tables) |
-| `20-provider-capabilities.edn` | Per-provider strategy preferences |
-| `30-model-routing.edn` | Core routing clauses (family → provider → strategy) |
-| `40-strategy-selection.edn` | Strategy selection rules |
-| `50-account-selection.edn` | Account ordering constraints |
-| `60-tenant-enforcement.edn` | Tenant authorization |
-| `65-federation-routing.edn` | Federation relay admission |
-| `70-request-queue-templates.edn` | Queue concurrency/timeout/backoff |
-| `90-router.edn` | Root policy program and strategy bindings |
-
-More-specific clauses must precede catch-alls. EDN changes take effect on server restart (no CLJS rebuild needed unless interpreter code changes).
-
-### Key CLJS namespaces
-
-`proxx.runtime` is the JS interop boundary. TypeScript calls it for: `routePolicy`, `runQueued`, `resolveQueuePolicy`, `resolveModelAlias`, `normalizeReasoningRequest`, `previewPolicyDecision`, and related functions. Do not add routing or queue logic to TypeScript — it belongs in CLJS/EDN.
-
-### shadow-cljs builds
-
-- `:runtime` — ESM module output to `dist/cljs/proxx-runtime.js`, consumed by the TypeScript server
-- `:node-test` — CJS test runner to `target/node-test.cjs`
-- `:web` — browser bundle for the console, `web/public/js/main.js` (Vite copies `public/` into `web/dist`)
-- `:web-test` — view smoke tests (`proxx.web.*-smoke`), run with `web/test/jsdom-setup.cjs` preloaded
-
-## Mandatory Completion Checks
-
-### Backend changes (routes, auth, routing, data path)
-1. `pnpm build`
-2. `NODE_OPTIONS=--max-old-space-size=4096 pnpm test:cljs` (includes the end-to-end proxy tests under `test/proxx/proxy/`)
-
-### Frontend changes (`web/`)
-1. `pnpm web:build`
-2. `pnpm web:test`
-3. `pnpm web:test:e2e`
-
-### Schema migrations
-1. Add SQL to `:migrations` in `resources/db/schema.edn` (single source of truth; planned by `proxx.db.schema`). Use `IF NOT EXISTS`. Never edit an existing statement (`pnpm test:cljs` pins digests).
-2. Bump `:schema-version`.
-3. `pnpm test:cljs` (migration invariants: `test/proxx/db/schema_test.cljs`)
-4. Apply SQL directly to the running DB before restarting.
-
-### CLJS changes
-1. `pnpm build` (triggers shadow-cljs compilation)
-2. Verify output in `dist/`
-
-## Branch and PR Policy
-
-- **`main` is the single trunk.** All work branches from `main` and PRs target `main`. There is no `staging` branch and no promotion PR.
-- CI on `main` PRs runs `main-lint`, `main-typecheck` (the no-new-TypeScript inventory gate), `main-unit-tests`, `main-coverage`, `main-build` and `main-web-build`.
-- Deployment is not done here: `open-hax/services` (a separate repo in the Foresight workspace) builds Proxx from a ref using the root `Dockerfile` and deploys the stack. Keep the `Dockerfile`, the `dist/cljs/main.js` start command and `/health` working.
-
-## Rules for Adding Routing Behavior
-
-1. Add/extend a `:model-family` contract in `10-model-families.edn`
-2. Add a `:routing-clause` in `30-model-routing.edn`
-3. Add provider capabilities if needed in `20-provider-capabilities.edn`
-4. Add strategy binding if needed in `90-router.edn`
-5. Do not add routing switches to `.env`, Compose files, or TypeScript conditionals.
-6. `models.json` is preference metadata only — not a routing source of truth.
-
-## ClojureScript Style
-
-- New async CLJS code uses `defn ^:async` / `deftest ^:async` with bare `(await ...)`.
-- Do not use `shadow.cljs.modern/js-await` in new code.
-- New queue logic belongs in `src/proxx/queue/*` and `resources/policies/runtime/*.edn`, not TypeScript.
+- Every Proxx rule, command and completion check is in `@AGENTS.md` above. Do
+  not restate it here, and do not let `/init` append a second copy; if it does,
+  replace the copy with the import.
