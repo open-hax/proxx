@@ -1,44 +1,52 @@
-# Agent Skills Context
+# Proxx: OpenAI-compatible proxy with a declarative EDN/CLJS policy engine
 
-## CRITICAL: How to Read This Codebase
+This file is the single source of truth for every agent harness (Codex, OpenCode, and Claude Code through the `@AGENTS.md` import in `CLAUDE.md`). Keep shared rules here.
 
-**This is a Clojure shop. The preferred source of governance is ClojureScript (CLJS).**
+Proxx (`@open-hax/proxx`) is an OpenAI-compatible proxy server with provider-scoped account rotation, multi-provider routing, federation and a WebSocket bridge. It serves `POST /v1/chat/completions`, `/v1/responses`, `/v1/models`, and a ClojureScript (Reagent) web console bundled with Vite.
 
-If you are looking for routing logic, queue policy, provider selection, account ordering, or model-family classification, **do not look in TypeScript**. The TypeScript layer is the HTTP edge and database adapter only. All semantic decisions live in:
+## Read this first: where decisions live
+
+This is a Clojure shop. The runtime is ClojureScript; no TypeScript remains. Routing, queue policy, provider selection, account ordering and model-family classification are never imperative edge code. They live in:
 
 1. **Declarative EDN contracts** in `resources/policies/runtime/*.edn`
-2. **ClojureScript interpreters** in `src/proxx/**/*.cljs`
+2. **ClojureScript interpreters** in `src/proxx/**/*.clj[cs]`
 
-### Why agents get lost
+The system uses a data-as-interpreter pattern, so grepping for "if model starts with gpt- then…" finds nothing:
 
-Agents often search for imperative logic ("if model starts with gpt- then...") and fail to find it because the system uses a **data-as-interpreter pattern**:
+- **Facts**: EDN declares what is true (model families, provider capabilities, routing preferences).
+- **Rules**: EDN declares what should happen (routing clauses, strategy selection, account ordering).
+- **Interpreter**: CLJS (`proxx.policy`, `proxx.policy.contracts`, `proxx.policy.router`) evaluates them against runtime context.
 
-- **Facts**: EDN contracts declare what is true (model families, provider capabilities, routing preferences)
-- **Rules**: EDN contracts declare what should happen (routing clauses, strategy selection, account ordering)
-- **Interpreter**: ClojureScript code (`proxx.policy`, `proxx.policy.contracts`, `proxx.policy.router`) evaluates these declarations against runtime context
+Routing if/then chains are in `resources/policies/runtime/30-model-routing.edn`, not in edge code. Data over code; declaration over implementation; new logic belongs in EDN or CLJS.
 
-**You will not find routing if/then chains in TypeScript. You will find them in `resources/policies/runtime/30-model-routing.edn`.**
+## ABSOLUTE POLICY BOUNDARY: EDN DSL or CLJS interpreter only
 
-### Design Philosophy
+Provider/model facts and rules are forbidden outside EDN contracts and the CLJS policy interpreter. That covers TypeScript, the HTTP edge (`src/proxx/http/`, `src/proxx/runtime/routes/`), `.env`, Compose files and ad-hoc conditionals. Forbidden concepts include:
 
-- **Data over code**: Behavior is declared, not implemented
-- **Declaration over implementation**: The EDN files are the source of truth; CLJS is the execution engine
-- **ClojureScript over TypeScript**: New logic belongs in CLJS or EDN, not TS
+- model-family or provider-family classification
+- model-to-provider routing; provider ordering or filtering
+- strategy preference by provider/model
+- dynamic/local/Ollama/cloud special cases
+- booleans like `wantsDynamicOllamaRoutes`
+- helpers like `discoverDynamicOllamaRoutes`, `prependDynamicOllamaRoutes`, `filterDedicatedOllamaRoutes`, `resolveProviderRoutesForModel`, `providerIdLooksLikeOllama`
 
-## Architecture Overview
+The EDN runtime policy files are a declarative programming language and CLJS interprets it. No other layer may re-create fragments of the interpreter or make shadow routing decisions. Model pricing overrides live only in `15-model-pricing-overrides.edn` (no JSON blobs or code tables). `models.json` is preference metadata only, not a routing source of truth.
+
+Mechanical enforcement: `pnpm run check:no-new-typescript` fails on any TypeScript-family file (`scripts/typescript-inventory-allowlist.json` is empty) and runs `scripts/check-policy-boundary.mjs`, which scans only `.ts`/`.tsx`/`.cts`/`.mts` files under `src/` and `test/` for forbidden routing helpers. Review, not the gate, enforces the CLJS HTTP edge, `.env` and Compose parts of this boundary: a green gate is not proof those are clean. If a change needs one of these concepts, change EDN contracts and CLJS interpreter behavior instead of weakening the gate.
+
+## Architecture
 
 ```
-HTTP Edge (TypeScript) → CLJS Runtime Boundary → Declarative Policy Engine (EDN + CLJS)
+HTTP edge (CLJS: Ring on Fastify) → proxx.runtime boundary → Declarative policy engine (EDN + CLJS)
 ```
 
-### TypeScript Layer (`src/lib/`, `src/routes/`)
-
-- Fastify routes, request parsing, response serialization
-- Database queries via `postgres.js`
-- Calls into CLJS runtime for: routing, queueing, policy preview, model alias resolution
-- **Does not contain**: routing rules, strategy selection logic, account ordering, retry policy
-
-### ClojureScript Runtime (`src/proxx/`)
+| What | Where |
+|------|-------|
+| HTTP routes, request parsing, response serialization | `src/proxx/runtime/routes/`, `src/proxx/http/` |
+| Composition, server entry (`node dist/cljs/main.js`), shutdown | `src/proxx/app/main.cljs`, `src/proxx/app/entry.cljs`; host in `src/proxx/host.cljs` |
+| Database queries (postgres.js) | `src/proxx/runtime/sql*.cljs`, `src/proxx/credentials/sql.cljc` |
+| Routing decisions, provider selection, account ordering | `resources/policies/runtime/*.edn` interpreted by `src/proxx/**` |
+| Web console | `src/proxx/web/` (CLJS); Vite shell, styles and tests in `web/` |
 
 | Namespace | Responsibility |
 |-----------|---------------|
@@ -49,86 +57,58 @@ HTTP Edge (TypeScript) → CLJS Runtime Boundary → Declarative Policy Engine (
 | `proxx.processor` | Key normalization, provenance stamping, affinity state machine, pheromone scoring |
 | `proxx.schema` | Malli schemas for all entities and policy contracts |
 | `proxx.policy.loader` | Load and validate EDN policy manifests and contracts |
-| `proxx.policy` | Core policy engine: contract registries, eval forms, node evaluation, strategy dispatch |
-| `proxx.policy.eval` | Pure form evaluator for policy conditions (`=`, `and`, `or`, `get-in`, `contract/apply`) |
-| `proxx.policy.contracts` | Compile declarative contracts into runtime indexes (routing clauses, provider routes, etc.) |
-| `proxx.policy.router` | Route request through compiled policy tree |
+| `proxx.policy` | Contract registries, eval forms, node evaluation, strategy dispatch |
+| `proxx.policy.eval` | Pure form evaluator for policy conditions |
+| `proxx.policy.contracts` | Compile contracts into runtime indexes (routing clauses, provider routes, …) |
+| `proxx.policy.router` | Route a request through the compiled policy tree |
 | `proxx.policy.evidence` | Load external evidence (models.dev, provider snapshots) for policy context |
-| `proxx.queue.policy` | Pure queue policy functions (backoff, timeout, retry classification) |
+| `proxx.queue.policy` | Pure queue policy (backoff, timeout, retry classification) |
 | `proxx.queue.runtime` | Mutable queue runtime (concurrency slots, waiters, retry loop) |
 | `proxx.strategies.*` | Strategy implementations (OpenAI passthrough, Anthropic messages) |
-| `proxx.runtime` | JS interop boundary: all TypeScript calls enter CLJS through this namespace |
+| `proxx.runtime` | JS-interop boundary: `routePolicy`, `runQueued`, `resolveQueuePolicy`, `resolveModelAlias`, `normalizeReasoningRequest`, `previewPolicyDecision`, … |
 
-### Declarative Policy Layer (`resources/policies/runtime/`)
+The host and route edge call the policy engine and queue through `proxx.runtime`.
 
-Loaded in order via `00-manifest.edn`:
+## Declarative policy layer (`resources/policies/runtime/`)
+
+Loaded in the order declared by `00-manifest.edn`:
 
 | File | Content |
 |------|---------|
 | `00-domain.edn` | Enums, scoring tables, default strategy order, provider sets |
 | `05-provider-seed.edn` | Provider seed specs (env var names, fallback IDs) |
+| `06-proxy-config-defaults.edn` | Proxy config fall-backs (upstream URLs, prefixes, paths, OAuth defaults, `/v1/models` catalogue); env vars win |
 | `10-model-families.edn` | Model-family patterns and reasoning controls |
 | `15-model-pricing-overrides.edn` | Token pricing overrides |
+| `16-model-pricing-resolution.edn` | Pricing snapshot location, provider/vendor fallbacks, energy profiles |
+| `17-provider-quota-profiles.edn` | Where and how provider account quota/liveness is read |
+| `18-auto-model-profile.edn` | `auto:cheapest\|fastest\|smartest\|healthiest` selection facts |
 | `20-provider-capabilities.edn` | Provider capability clauses (strategy preferences/exclusions) |
-| `30-model-routing.edn` | **Routing clauses**: which providers/strategies/accounts for which model families |
+| `30-model-routing.edn` | **Routing clauses**: providers/strategies/accounts per model family |
 | `40-strategy-selection.edn` | Strategy selection rules |
 | `50-account-selection.edn` | Account ordering constraints (plan weights, free-tier preference) |
 | `60-tenant-enforcement.edn` | Authorization clauses (model allow-lists, provider disabled lists) |
+| `65-federation-routing.edn` | Federation relay admission and projected-account order |
 | `70-request-queue-templates.edn` | Queue templates and instances (concurrency, timeout, backoff) |
+| `75-provider-wire-profiles.edn` | How non-standard upstreams are addressed |
+| `76-provider-surface-facts.edn` | Which providers speak which API, catalog locations, bridge paths |
+| `77-upstream-attempt-policy.edn` | How one upstream attempt is judged and what it costs the credential |
+| `78-strategy-registry.edn` | Upstream strategy priority (first match wins) |
+| `79-auto-model-chains.edn` | Fallback-chain auto models (`auto:vision`, `auto:cephalon…`) |
+| `80-rate-limit-classification.edn` | Provider rate-limit classification |
 | `90-router.edn` | Root policy program and strategy bindings |
 
-**Invariant**: Files append/override in order. Facts first, derived rules next, root router last. More-specific clauses precede catch-all clauses.
+**Invariant**: files append/override in order. Facts first, derived rules next, root router last. More-specific clauses precede catch-all clauses.
 
-## ABSOLUTE POLICY BOUNDARY: EDN DSL or CLJS Interpreter Only
+Policy EDN is runtime data read at process start: an EDN-only change needs a server restart, not a CLJS rebuild (interpreter changes do need one). The running process must be able to read `resources/`; never strip it from container builds. `PROXX_CLJS_POLICY_MANIFEST` / `PROXY_CLJS_POLICY_MANIFEST` override the manifest path.
 
-Provider/model facts and rules are forbidden in TypeScript. This includes:
+## The policy DSL
 
-- model-family classification
-- provider-family classification
-- model-to-provider routing
-- provider ordering or filtering
-- strategy preference by provider/model
-- dynamic/local/Ollama/cloud special cases
-- booleans like `wantsDynamicOllamaRoutes`
-- helper names like `discoverDynamicOllamaRoutes`, `prependDynamicOllamaRoutes`, `filterDedicatedOllamaRoutes`, `resolveProviderRoutesForModel`, or `providerIdLooksLikeOllama`
+Contracts are EDN maps with `:contract/id` and `:contract/kind`. Common kinds: `:model-family` (pattern classification, e.g. `:match/model-pattern "^gpt-"`), `:model`, `:provider-route`, `:provider-capability`, `:routing-clause` (family → preferred providers → strategies → account ordering), `:request-queue-template` / `:request-queue-instance`, `:policy-program` and `:strategy-binding`. Custom logic is a contract kind registered in `proxx.policy` (e.g. `:model-family`, `:provider-capability`, `:authorization-clause`).
 
-The EDN runtime policy files are a declarative programming language. CLJS interprets that language. TypeScript must not re-create fragments of the interpreter or make shadow routing decisions.
+Routing, declared in EDN and evaluated by CLJS: derive request facts (model ID, tenant settings) → enforce tenant authorization (`:authorization-clause`) → derive the model family → choose the first matching `:routing-clause` → filter provider candidates (exclusions, tenant allow-lists, catalog availability) → order them (preferred first, then original order) → choose the provider strategy (capabilities ∩ route preferences) → filter accounts (plan constraints, quota exhaustion) → order accounts (free-tier preference, plan scoring) → execute the strategy through its bound CLJS function.
 
-Mechanical enforcement: `pnpm run check:no-new-typescript` also runs `scripts/check-policy-boundary.mjs`, which fails if forbidden TypeScript provider/model routing helpers reappear. If a future change needs one of these concepts, add/modify EDN contracts and CLJS interpreter behavior instead of weakening the gate.
-
-## The Policy DSL
-
-### Contract Kinds
-
-Contracts are EDN maps with `:contract/id` and `:contract/kind`. Common kinds:
-
-- `:model-family` — Pattern-based model classification (`:match/model-pattern "^gpt-"`)
-- `:model` — Exact model declaration
-- `:provider-route` — Base URL and path configuration for a provider
-- `:provider-capability` — Which strategies a provider supports
-- `:routing-clause` — The core routing decision: family → preferred providers → strategies → account ordering
-- `:request-queue-template` / `:request-queue-instance` — Queue configuration
-- `:policy-program` — The root program declaring evaluation phases
-- `:strategy-binding` — Maps strategy keywords to CLJS functions
-
-### How Routing Works
-
-1. **Derive request facts** from the incoming request (model ID, tenant settings, etc.)
-2. **Enforce tenant authorization** via `:authorization-clause` contracts
-3. **Derive model family** by matching `:model-family` patterns against the model ID
-4. **Choose routing clause** — first matching `:routing-clause` for that family
-5. **Filter provider candidates** — apply exclusions, tenant allow-lists, catalog availability
-6. **Order provider candidates** — preferred providers first, then original order
-7. **Choose provider strategy** — intersect provider capabilities with route preferences
-8. **Filter account candidates** — apply plan constraints, quota exhaustion
-9. **Order account candidates** — by declared ordering (free-tier preference, plan scoring)
-10. **Execute selected strategy** — dispatch to bound CLJS function
-
-All of this is **declared in EDN** and **evaluated by CLJS**. No TypeScript involved in the decision.
-
-### Eval Forms
-
-Policy conditions use a restricted eval language (not arbitrary CLJS):
+Conditions use a restricted eval language, not arbitrary CLJS:
 
 ```clojure
 {:eval/op :all               ; :all :some :none :not :assert
@@ -137,277 +117,90 @@ Policy conditions use a restricted eval language (not arbitrary CLJS):
  :eval/target :providers}    ; optional: evaluate against each item in ctx target
 ```
 
-Available ops: `=`, `not`, `and`, `or`, `get`, `get-in`, `first`, `second`, `keyword`, `str`, `some?`, `nil?`, `clojure.string/includes?`, `clojure.string/split`, `clojure.string/starts-with?`
+Available ops: `=`, `not`, `and`, `or`, `get`, `get-in`, `first`, `second`, `keyword`, `str`, `some?`, `nil?`, `clojure.string/includes?`, `clojure.string/split`, `clojure.string/starts-with?`.
 
-Custom logic is handled via **contract kinds** registered in `proxx.policy` (e.g. `:model-family`, `:provider-capability`, `:authorization-clause`).
+### Adding routing behavior
 
-## CRITICAL: Database Migration Workflow
+1. Add or extend a `:model-family` contract in `10-model-families.edn`.
+2. Add a `:routing-clause` in `30-model-routing.edn` (more specific before catch-alls).
+3. Add provider capabilities if needed in `20-provider-capabilities.edn`.
+4. Add a strategy binding if needed in `90-router.edn`.
+5. Never add routing switches to `.env`, Compose files or code conditionals.
+6. Test: `pnpm build` and `pnpm test:cljs` (proxy suite under `test/proxx/proxy/`).
+7. Validate decisions with `proxx.policy.contracts/preview-policy-decision` (`previewPolicyDecision` in `proxx.runtime`).
 
-**Before rebuilding or restarting after any schema change**, you must:
+### Request queue
 
-1. Add the migration SQL to `:migrations` in `resources/db/schema.edn` (the single source of truth; `src/lib/db/schema.ts` only re-exports it). Never edit an existing statement: `test/proxx/db/schema_test.cljs` pins every text by digest.
-2. Bump `:schema-version` to match the new highest version in `:migrations`.
-3. Run `pnpm test:cljs` — it catches version drift, missing `IF NOT EXISTS`, and ordering errors.
-4. Build with `pnpm build`.
-5. Apply the SQL directly to any running database before restarting the container.
+The queue runtime lives in `src/proxx/queue/*` and is exposed through `proxx.runtime`. New queue semantics belong there, never in route code: routes call `runQueued` / `resolveQueuePolicy` and keep only minimal HTTP response mapping. Queue policies belong in `resources/policies/runtime/*.edn`, loaded through `00-manifest.edn`.
 
-**Never hardcode migration SQL in `runMigrations()` or anywhere outside `ALL_MIGRATIONS`.** The runner iterates `ALL_MIGRATIONS` — adding SQL only to the runner without updating `ALL_MIGRATIONS` will cause the schema version to be recorded without the migration being applied.
+## ClojureScript style
 
-See `DEVEL.md` > "Database Migrations" for full details.
-
-## CRITICAL: Completion Requires Testing
-
-**Do not mark work complete without running the relevant tests/builds for the surfaces you changed.**
-
-### Minimum backend validation
-Run these for any backend, route, auth, routing, or data-path change:
-
-1. `pnpm build`
-2. `NODE_OPTIONS=--max-old-space-size=4096 pnpm test:cljs` (includes the end-to-end proxy tests under `test/proxx/proxy/`)
-
-### Minimum frontend validation
-Run these for any `web/` change:
-
-1. `pnpm web:build`
-2. `pnpm web:test`
-3. `pnpm web:test:e2e`
-
-### Migrations
-For schema changes, also run:
-
-1. `pnpm test:cljs` (migration invariants live in `test/proxx/db/schema_test.cljs`)
-2. Rebuild/recreate the container after applying SQL to the running DB
-
-### Container / packaging changes
-For changes to `Dockerfile`, `docker-compose.yml`, frontend package deps, or build context:
-
-1. `docker compose build proxx`
-2. `docker compose up -d --force-recreate proxx`
-3. Validate:
-   - `docker compose ps proxx`
-   - `curl http://localhost:8789/health`
-   - `curl -I http://localhost:5174`
-
-### ClojureScript compilation
-For any CLJS change:
-
-1. `pnpm build` (triggers shadow-cljs compilation)
-2. Verify the compiled output in `dist/` or `target/`
-
-### Notes
-- `pnpm web:test` is the fast render-smoke layer (cljs.test over jsdom; pure console logic is tested by `pnpm test:cljs`).
-- `pnpm web:test:e2e` is the browser smoke layer that locks the frontend surfaces being migrated to `@open-hax/uxx`.
-- If a touched surface has no test yet, add at least a smoke test before calling the work complete.
-
-## ClojureScript async style
-
-- New ClojureScript async code uses `defn ^:async` / `deftest ^:async` with bare `(await ...)`.
+- New async code uses `defn ^:async` / `deftest ^:async` with bare `(await ...)`.
 - Do not add `shadow.cljs.modern/js-await` to new code.
-- Tests should prefer `deftest ^:async` over `cljs.test/async` callback style for Promise flows.
-- Compile immediately after changing CLJS async code; do not rewrite working `^:async` code into TypeScript or Promise-chain helpers.
+- Tests prefer `deftest ^:async` over `cljs.test/async` callbacks for Promise flows.
+- Compile immediately after changing async CLJS; never rewrite working `^:async` code into Promise-chain helpers or another language.
 
-## Request queue integration
-
-- The request queue runtime lives in ClojureScript (`src/proxx/queue/*`) and is exposed through the compiled CLJS runtime.
-- Do not add new TypeScript queue modules for queue semantics; TypeScript route code should call the CLJS runtime boundary (`runQueued` / `resolveQueuePolicy`) and keep only minimal HTTP response mapping at the route edge.
-- Queue policies belong in `resources/policies/runtime/*.edn` and must be loaded through `00-manifest.edn`.
-
-## Adding New Routing Behavior
-
-1. **Identify the model family**: Add or extend a `:model-family` contract in `10-model-families.edn`
-2. **Add routing clause**: Add a `:routing-clause` in `30-model-routing.edn` (more specific clauses before catch-alls)
-3. **Add provider capabilities** if needed: `20-provider-capabilities.edn`
-4. **Add strategy binding** if needed: `90-router.edn`
-5. **Test**: Run `pnpm build` and the proxy test suite
-6. **Validate**: Use the policy preview API or `proxx.policy.contracts/preview-policy-decision` to verify decisions
-
-## RELEVANT SKILLS
-These skills are configured for this directory's technology stack and workflow.
-
-### testing-general
-Apply testing best practices, choose appropriate test types, and establish reliable test coverage across the codebase
-
-### workspace-code-standards
-Apply workspace TypeScript and ESLint standards, including functional style and strict typing rules
-
-### workspace-lint
-Lint all TypeScript and markdown files across the entire workspace, including all submodules under orgs/**
-
-### workspace-typecheck
-Type check all TypeScript files across the entire workspace, including all submodules under orgs/**, using strict TypeScript settings
-
-## Federation Modes
-
-### Mode A: Isolated Local
-
-No federation config needed. Just set `PROXY_AUTH_TOKEN` and run.
+## Commands
 
 ```bash
-cp .env.example .env
-# Edit: PROXY_AUTH_TOKEN=your-secret
-pnpm dev
+pnpm dev                     # build CLJS, then run node dist/cljs/main.js (.env if present)
+pnpm web:dev                 # build the :web bundle, then the Vite dev server
+pnpm web:watch               # shadow-cljs watch :web
+pnpm build                   # clean dist/, then build:cljs
+pnpm build:cljs              # shadow-cljs release :runtime
+pnpm web:build               # shadow-cljs release :web + Vite -> web/dist
+pnpm check:no-new-typescript # TypeScript inventory + policy boundary gates
+pnpm lint:errors             # eslint, errors only (pnpm lint for warnings too)
+./scripts/ci-lint.sh         # deployment-boundary and container-runtime checks, shellcheck
+pnpm test                    # build, then test:cljs with a 4 GB heap
+pnpm test:cljs               # compile :node-test, run target/node-test.cjs
+pnpm test:coverage           # c8 coverage over :node-test
+pnpm web:test                # :web-test view smoke tests under jsdom
+pnpm web:test:e2e            # Playwright browser smoke (web/test/e2e/tools.smoke.mjs)
+pnpm test:e2e                # live end-to-end smoke (also :multitenancy, :federation, :federation:audit)
+pnpm test:load               # load test
+pnpm validate:required       # build + web:build + web:test + web:test:e2e (no test:cljs)
 ```
 
-### Mode B: Multi-Tenant Local
+shadow-cljs builds: `:runtime` (ESM to `dist/cljs/`: the `proxx-runtime` module plus the `main` Node entry, `proxx.app.entry/start!`), `:node-test` (`target/node-test.cjs`, namespaces `proxx.*-test`), `:node-e2e` (`target/node-e2e.cjs`, no package script), `:web` (`web/public/js/main.js`; Vite copies `public/` into `web/dist`), `:web-test` (`proxx.web.*-smoke`, run with `web/test/jsdom-setup.cjs`) and `:bulk-oauth-import` (`pnpm import:oauth:bulk`).
 
-Set `DATABASE_URL` to PostgreSQL. Tenants are isolated by API key.
+## CRITICAL: database migration workflow
 
-```bash
-DATABASE_URL=postgresql://user:pass@localhost:5432/proxx pnpm dev
+Before rebuilding or restarting after any schema change:
 
-# Create tenant
-curl -X POST http://127.0.0.1:8789/api/v1/tenants \
-  -H "Authorization: Bearer $PROXY_AUTH_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"label": "team-alpha", "scopes": ["proxy:use"]}'
-```
+1. Add the migration to `:migrations` in `resources/db/schema.edn`, the single source of truth (read by `proxx.db.schema` and `proxx.runtime.db-schema`). Every statement must be idempotent (use `IF NOT EXISTS`: `CREATE TABLE IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`). Never edit an existing statement: `test/proxx/db/schema_test.cljs` pins every text by digest.
+2. Bump `:schema-version` to the new highest version in `:migrations`.
+3. Run `pnpm test:cljs`: it catches version drift, missing `IF NOT EXISTS` and ordering errors.
+4. Build with `pnpm build`.
+5. Apply the SQL directly to any running database, then rebuild/recreate the container.
 
-### Mode C: Federated Cloud
+Never hardcode migration SQL in the runner (`proxx.runtime.db-schema/run-migrations-js`) or anywhere outside `:migrations`: SQL that bypasses the list records a schema version without applying the migration. `DEVEL.md` > "Database Migrations" explains the design; its `src/lib/db/schema.ts` references predate the CLJS rewrite.
 
-1. All instances share the same `DATABASE_URL`
-2. Set instance identity:
-   ```bash
-   FEDERATION_SELF_CLUSTER_ID=production
-   FEDERATION_SELF_GROUP_ID=group-a
-   FEDERATION_SELF_NODE_ID=a1
-   ```
-3. Register peers via `/api/v1/federation/peers`
-4. Use routing prefixes: `/cluster/`, `/group-a/`, `/a1.node.host/`
+## CRITICAL: completion requires testing
 
-See `docs/deployment-ownership.md` for the packaging and deployment boundary.
+Do not mark work complete without running the relevant tests/builds for every surface you changed.
 
-### Mode D: WebSocket Bridge
+- **Backend** (routes, auth, routing, data path, CLJS): `pnpm build`, then `NODE_OPTIONS=--max-old-space-size=4096 pnpm test:cljs` (includes the end-to-end proxy tests under `test/proxx/proxy/`). Check the compiled output in `dist/cljs/` or `target/`.
+- **Frontend** (`src/proxx/web/`, `web/`): `pnpm web:build`, `pnpm web:test`, `pnpm web:test:e2e`.
+- **Schema migrations**: the migration workflow above, including `pnpm test:cljs`.
+- **Container/packaging** (`Dockerfile`, `ecosystem.container.config.cjs`, Compose files, frontend deps, build context): `./scripts/ci-lint.sh`; build the root `Dockerfile` (the image Services deploys) with `docker build -t proxx:local .`; recreate the container with `docker rm -f proxx-local; docker run -d --name proxx-local --env-file .env -p 8789:8789 -p 5174:5174 proxx:local`; check status with `docker ps --filter name=proxx-local`; then `curl http://localhost:8789/health` and `curl -I http://localhost:5174`.
+- `pnpm web:test` is the fast render-smoke layer; pure console logic is tested by `pnpm test:cljs`. `pnpm web:test:e2e` locks the frontend surfaces being migrated to `@open-hax/uxx`.
+- If a touched surface has no test yet, add at least a smoke test first.
 
-Connect local to cloud without inbound ports.
+## Branches, PRs, CI and deployment
 
-**Local side config:**
-```bash
-FEDERATION_BRIDGE_RELAY_URL=wss://cloud.promethean.rest/api/ui/federation/bridge/ws
-FEDERATION_BRIDGE_AUTHORIZATION=Bearer <bridge-token>
-FEDERATION_SELF_CLUSTER_ID=local
-FEDERATION_SELF_GROUP_ID=enclave
-FEDERATION_SELF_NODE_ID=local-node
-```
+- **`main` is the single trunk.** Branch from `main` and target PRs at `main`. There is no `staging` branch, promotion PR or deployed test environment.
+- CI on PRs to `main` (`.github/workflows/main-pr-gate.yml`): `main-lint` (`ci-lint.sh`, actionlint, `lint:errors`), `main-typecheck` (`check:no-new-typescript`), `main-unit-tests` (`pnpm test`), `main-coverage` (80% line threshold), `main-build`, `main-web-build`.
+- Deployment is not done here. `open-hax/services` builds Proxx from a ref using the root `Dockerfile` and deploys the stack. Keep the `Dockerfile`, the `dist/cljs/main.js` start command and `/health` working, and say so in the PR when a change affects them. See `docs/deployment-ownership.md`.
+- Kanban sync, Kimi/CodeRabbit review and review-gate rules: `docs/agent-workflows.md`.
+- Version bumps in `package.json` follow semver (MAJOR breaking API, MINOR new feature/endpoint, PATCH fix). Release steps: `docs/operator-reference.md`.
+- Receipt River: append to `.ημ/receipts.edn`. Never rewrite it or the older root `receipts.edn` / `receipts.log`.
 
-**Cloud side:**
-- Bridge relay auto-starts with federation UI
-- Check sessions: `GET /api/v1/federation/bridges`
-- Health: `GET /api/v1/federation/bridges/{sessionId}`
+## Credentials and secrets
 
-**Bridge agent autostart:**
-The bridge agent starts automatically when `FEDERATION_BRIDGE_RELAY_URL` is set. It:
-- Initiates outbound WebSocket connection
-- Advertises local capabilities (models, providers)
-- Routes cloud requests to local accounts
-- Reconnects with exponential backoff on disconnect
+- Provider credentials stay local to the instance that owns them. Never copy OAuth refresh tokens or credential-bearing tables to another host; share access through federation projection or the WebSocket bridge.
+- Never print or copy webhook URLs, bot/GitHub tokens, provider keys or other secrets into logs, issues, PR comments or commits.
 
-See `specs/drafts/federation-bridge-ws-v0.md` for protocol details.
+## Operator reference
 
-## Health Checks
-
-### Local
-```bash
-curl http://127.0.0.1:8789/health | jq '.'
-```
-
-### Production
-```bash
-curl https://proxx.promethean.rest/health | jq '.'
-```
-
-`main` is the single trunk; there are no testing or staging branches or deployed
-environments in this repository. Use the local health check while developing; Services owns the sole production
-runtime and its live verification.
-
-### Federation Status
-```bash
-# List bridges
-curl -H "Authorization: Bearer $PROXY_AUTH_TOKEN" \
-  https://proxx.promethean.rest/api/v1/federation/bridges | jq '.'
-
-# List peers
-curl -H "Authorization: Bearer $PROXY_AUTH_TOKEN" \
-  https://proxx.promethean.rest/api/v1/federation/peers | jq '.'
-```
-
-## OpenAPI Contract
-
-```bash
-# Fetch spec
-curl https://proxx.promethean.rest/api/v1/openapi.json > openapi.json
-
-# Validate
-npx @apidevtools/swagger-cli validate openapi.json
-
-# Check covered paths
-cat openapi.json | jq '.paths | keys[]'
-```
-
-The contract is auto-generated from Fastify route schemas via `@fastify/swagger`.
-
-## Semantic Versioning
-
-When updating `package.json`:
-
-| Change Type | Version Bump | Command |
-|-------------|--------------|---------|
-| Breaking API change | MAJOR (X.0.0) | Update manually, document breaking changes |
-| New feature/endpoint | MINOR (0.Y.0) | Increment minor version |
-| Bug fix/improvement | PATCH (0.0.Z) | Increment patch version |
-
-### Release Process
-
-```bash
-# 1. Update version in package.json
-# 2. Update README.md version history table
-# 3. Commit and tag
-git add package.json README.md
-git commit -m "release: v0.2.0"
-git tag -a v0.2.0 -m "Release v0.2.0: federation bridge and capacity-aware e2e"
-git push origin main --tags
-
-# 4. Publish to npm (requires NPM_TOKEN)
-npm publish --access public
-```
-
-### Fork Tax Releases
-
-After completing significant work, pay the fork tax:
-
-```bash
-# In devel workspace
-./scripts/fork-tax.sh  # Creates .ημ/ artifacts
-git tag -a v0.2.0 -m "Fork tax: checkpoint"
-git push --tags
-```
-
-## Troubleshooting
-
-### Bridge Not Connecting
-
-1. Check relay URL is correct: `FEDERATION_BRIDGE_RELAY_URL=wss://...`
-2. Verify auth token: `FEDERATION_BRIDGE_AUTHORIZATION=Bearer <valid-token>`
-3. Check cloud relay is running: `curl https://cloud.host/api/v1/federation/bridges`
-4. Review local logs for WebSocket errors
-
-### Federation Sync Failing
-
-1. Verify peer is registered: `GET /api/v1/federation/peers`
-2. Check peer reachability: `curl https://peer.host/health`
-3. Verify credentials have federation scope
-4. Check diff endpoint: `GET https://peer.host/api/v1/federation/diff`
-
-### Rate Limit Cascades
-
-1. Check `all_keys_rate_limited` in health response
-2. Review key pool status: `GET /api/v1/credentials`
-3. Wait for cooldown or add more accounts
-4. Live e2e tests skip automatically when capacity is exhausted
-
-### Policy Changes Not Taking Effect
-
-1. Verify EDN syntax: `cljs.reader/read-string` on the file contents
-2. Check manifest order: more-specific clauses must precede catch-alls
-3. Validate contracts: run `schema/assert!` on the contract map
-4. **Restart the server process** — policy EDN files are runtime data read from `resources/policies/runtime/` at startup. They do not require a CLJS build; changes take effect on the next process restart
-5. Verify the running process can access the `resources/` directory (not stripped in Docker/container builds)
+Federation modes A–D, health and federation-status checks, the OpenAPI contract, release steps and troubleshooting: `docs/operator-reference.md`.
