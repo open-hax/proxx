@@ -32,7 +32,7 @@ Provider/model facts and rules are forbidden outside EDN contracts and the CLJS 
 
 The EDN runtime policy files are a declarative programming language and CLJS interprets it. No other layer may re-create fragments of the interpreter or make shadow routing decisions. Model pricing overrides live only in `15-model-pricing-overrides.edn` (no JSON blobs or code tables). `models.json` is preference metadata only, not a routing source of truth.
 
-Mechanical enforcement: `pnpm run check:no-new-typescript` fails on any TypeScript-family file (`scripts/typescript-inventory-allowlist.json` is empty) and runs `scripts/check-policy-boundary.mjs` against forbidden routing helpers. If a change needs one of these concepts, change EDN contracts and CLJS interpreter behavior instead of weakening the gate.
+Mechanical enforcement: `pnpm run check:no-new-typescript` fails on any TypeScript-family file (`scripts/typescript-inventory-allowlist.json` is empty) and runs `scripts/check-policy-boundary.mjs`, which scans only `.ts`/`.tsx`/`.cts`/`.mts` files under `src/` and `test/` for forbidden routing helpers. Review, not the gate, enforces the CLJS HTTP edge, `.env` and Compose parts of this boundary: a green gate is not proof those are clean. If a change needs one of these concepts, change EDN contracts and CLJS interpreter behavior instead of weakening the gate.
 
 ## Architecture
 
@@ -146,7 +146,8 @@ The queue runtime lives in `src/proxx/queue/*` and is exposed through `proxx.run
 pnpm dev                     # build CLJS, then run node dist/cljs/main.js (.env if present)
 pnpm web:dev                 # build the :web bundle, then the Vite dev server
 pnpm web:watch               # shadow-cljs watch :web
-pnpm build                   # clean dist/, shadow-cljs release :runtime
+pnpm build                   # clean dist/, then build:cljs
+pnpm build:cljs              # shadow-cljs release :runtime
 pnpm web:build               # shadow-cljs release :web + Vite -> web/dist
 pnpm check:no-new-typescript # TypeScript inventory + policy boundary gates
 pnpm lint:errors             # eslint, errors only (pnpm lint for warnings too)
@@ -167,7 +168,7 @@ shadow-cljs builds: `:runtime` (ESM to `dist/cljs/`: the `proxx-runtime` module 
 
 Before rebuilding or restarting after any schema change:
 
-1. Add the migration to `:migrations` in `resources/db/schema.edn`, the single source of truth (read by `proxx.db.schema` and `proxx.runtime.db-schema`). Every statement is idempotent (`CREATE TABLE IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`). Never edit an existing statement: `test/proxx/db/schema_test.cljs` pins every text by digest.
+1. Add the migration to `:migrations` in `resources/db/schema.edn`, the single source of truth (read by `proxx.db.schema` and `proxx.runtime.db-schema`). Every statement must be idempotent (use `IF NOT EXISTS`: `CREATE TABLE IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`). Never edit an existing statement: `test/proxx/db/schema_test.cljs` pins every text by digest.
 2. Bump `:schema-version` to the new highest version in `:migrations`.
 3. Run `pnpm test:cljs`: it catches version drift, missing `IF NOT EXISTS` and ordering errors.
 4. Build with `pnpm build`.
@@ -182,8 +183,8 @@ Do not mark work complete without running the relevant tests/builds for every su
 - **Backend** (routes, auth, routing, data path, CLJS): `pnpm build`, then `NODE_OPTIONS=--max-old-space-size=4096 pnpm test:cljs` (includes the end-to-end proxy tests under `test/proxx/proxy/`). Check the compiled output in `dist/cljs/` or `target/`.
 - **Frontend** (`src/proxx/web/`, `web/`): `pnpm web:build`, `pnpm web:test`, `pnpm web:test:e2e`.
 - **Schema migrations**: the migration workflow above, including `pnpm test:cljs`.
-- **Container/packaging** (`Dockerfile`, `ecosystem.container.config.cjs`, Compose files, frontend deps, build context): `./scripts/ci-lint.sh`, build the root `Dockerfile` (the image Services deploys), recreate the container, then check `curl http://localhost:8789/health` and `curl -I http://localhost:5174`.
-- `pnpm web:test` is the fast render-smoke layer; pure console logic is tested by `pnpm test:cljs`. `pnpm web:test:e2e` locks the console surfaces built on `@open-hax/uxx`.
+- **Container/packaging** (`Dockerfile`, `ecosystem.container.config.cjs`, Compose files, frontend deps, build context): `./scripts/ci-lint.sh`; build the root `Dockerfile` (the image Services deploys) with `docker build -t proxx:local .`; recreate the container with `docker rm -f proxx-local; docker run -d --name proxx-local --env-file .env -p 8789:8789 -p 5174:5174 proxx:local`; check status with `docker ps --filter name=proxx-local`; then `curl http://localhost:8789/health` and `curl -I http://localhost:5174`.
+- `pnpm web:test` is the fast render-smoke layer; pure console logic is tested by `pnpm test:cljs`. `pnpm web:test:e2e` locks the frontend surfaces being migrated to `@open-hax/uxx`.
 - If a touched surface has no test yet, add at least a smoke test first.
 
 ## Branches, PRs, CI and deployment

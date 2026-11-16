@@ -160,7 +160,9 @@ belongs in the workflow.
 
 ### Rate-limit cascades
 
-1. Check `all_keys_rate_limited` in the health response.
+1. Check the health response's `keyPool` (`availableKeys`, `cooldownKeys`,
+   `nextReadyInMs`) and per-provider `keyPoolProviders`. `all_keys_rate_limited`
+   is a proxy error code on request replies, not a health field.
 2. Review key pool status: `GET /api/v1/credentials`.
 3. Wait for cooldown or add accounts.
 4. `pnpm test:e2e` treats capacity-limited replies (`all_keys_rate_limited`,
