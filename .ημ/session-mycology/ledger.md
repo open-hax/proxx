@@ -96,3 +96,8 @@
   spore: none
   receipt-refs: typed-kimi-owner-bridge;6544696
   note: NBB loadFile did not honor the assumed classpath option. Actual JS boundary tests exposed missing namespace loading; the documented addClassPath API repaired it. Exact accepted owner bytes and normative tests remain unchanged. Hash checks detect drift relative to trusted reviewed source, not arbitrary manifest authenticity. This component is proposal-only and does not qualify model execution, publication or approval.
+
+## MiMo consumer retirement 2026-11-17
+- Scoped pin-only migration to merged eta-mu#388. Gate/auth bytes preserved.
+- Friction: source inventory can drift; compare fresh default, not cached caller content.
+- Local actionlint and exact-delta checks passed; hosted verification pending. No spore promoted.
