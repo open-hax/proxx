@@ -1069,3 +1069,20 @@
                                          {:credentials credentials}
                                          (atom []))]
       (is (<= (count (:credentials narrowed)) (count credentials))))))
+
+(deftest credential-failure-clauses-match-in-manifest-order
+  (let [specific {:contract/id :credential-failure/monthly
+                  :contract/kind :credential-failure-classification
+                  :match/provider-pattern "^test-pool$"
+                  :match/status 403
+                  :match/message-pattern "monthly"
+                  :classify/result :credential/quota-exhausted
+                  :classify/cooldown-ms 86400000}
+        generic (-> specific
+                    (assoc :contract/id :credential-failure/generic :classify/cooldown-ms 1800000)
+                    (dissoc :match/message-pattern))
+        idx (contracts/index-contracts [specific generic])]
+    (is (= specific (contracts/credential-failure-classification idx "test-pool" 403 "monthly limit")))
+    (is (= generic (contracts/credential-failure-classification idx "test-pool" 403 "daily limit")))
+    (is (nil? (contracts/credential-failure-classification idx "another-pool" 403 "monthly limit")))
+    (is (nil? (contracts/credential-failure-classification idx "test-pool" 401 "monthly limit")))))

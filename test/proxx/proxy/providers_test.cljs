@@ -1,7 +1,11 @@
 (ns proxx.proxy.providers-test
   "Provider-specific upstream routing through the whole application: OpenRouter,
   Requesty, OB1, Gemini, z.ai and Mistral."
-  (:require [cljs.test :refer [deftest is]]
+  (:require ["node:fs/promises" :as fsp]
+            ["node:os" :as os]
+            ["node:path" :as path]
+            [cljs.test :refer [deftest is]]
+            [proxx.policy.loader :as loader]
             [proxx.proxy.support :as s]))
 
 (def ^:private no-other-gateways
@@ -375,3 +379,89 @@
          (is (= "mistral" (get-in response [:headers "x-open-hax-upstream-provider"])))
          (is (map? (:json response)))
          (is (= "mistral-ok" (get-in (:json response) ["choices" 0 "message" "content"]))))))))
+
+
+(deftest ^:async concurrency-retry-keeps-model-restrictions-local-to-the-model
+  (doseq [json-error? [true false]]
+    (let [directory (await (.mkdtemp fsp (.join path (.tmpdir os) "proxx-retry-policy-")))
+          manifest (.join path directory "00-manifest.edn")
+          calls (atom 0)
+          paths (atom [])
+          source (loader/load-policy-contracts! "resources/policies/runtime/00-manifest.edn")
+          contracts (mapv (fn [clause]
+                            (if (= :model-pricing-snapshot (:contract/kind clause))
+                              (assoc clause :snapshot/path
+                                     (.resolve path "resources/data/models-dev-pricing.edn"))
+                              clause))
+                          source)
+          rule {:contract/id :credential-failure/test-model-limit
+                :contract/kind :credential-failure-classification
+                :match/provider-pattern "^vivgrid$"
+                :match/status 403
+                :match/message-pattern "^fixture model unavailable$"
+                :classify/result :credential/model-unavailable
+                :classify/cooldown-ms 60000}]
+      (try
+        (await (.writeFile fsp (.join path directory "rules.edn")
+                           (pr-str
+                            (into [{:contract/id :model-family/retry-fixture
+                                    :contract/kind :model-family
+                                    :match/model-pattern "^fixture-[ab]$"}
+                                   {:contract/id :provider-order/retry-fixture
+                                    :contract/kind :preference-order
+                                    :preference/items ["vivgrid"]}
+                                   {:contract/id :route/retry-fixture
+                                    :contract/kind :routing-clause
+                                    :match/family :model-family/retry-fixture
+                                    :prefer/providers :provider-order/retry-fixture
+                                    :prefer/providers-strict? true
+                                    :prefer/strategies [:chat-completions]
+                                    :account/order :account-order/prefer-free}]
+                                  (conj contracts rule)))))
+        (await (.writeFile fsp manifest
+                          (pr-str {:contract/id :proxx.policy.runtime/manifest
+                                   :contract/kind :policy-manifest
+                                   :policy.dsl/version 0
+                                   :policy.dsl/status :target-contract
+                                   :policy.loader/order ["rules.edn"]})))
+        (await
+         (s/with-env-proxy-app
+           {}
+           {:keys-payload {"providers" {"vivgrid" {"auth" "api_key" "accounts" ["fixture-retry-key"]}}}
+            :models ["fixture-a" "fixture-b"]
+            ;; Coverage instrumentation makes initial policy compilation slower.
+            :config-overrides {:cljsPolicyManifestPath manifest :keyCooldownMs 1
+                               :requestTimeoutMs 30000 :localOllamaEnabled false}
+            ;; Isolate policy assertions from catalog-probe socket reuse.
+            :upstream-response-headers {"connection" "close"}
+            :upstream-handler
+            (upstream
+             (fn [request _]
+               (swap! paths conj (.-url request))
+               (case (swap! calls inc)
+                 1 (s/json-response 429 {"retry-after" "0.001"}
+                                    {"error" {"message" "Too many concurrent requests"}})
+                 2 (if json-error?
+                     (s/json-response 403 {"error" {"message" "fixture model unavailable"}})
+                     {:status 403 :headers {"content-type" "text/plain"}
+                      :body "fixture model unavailable"})
+                 (s/json-response 200 (s/chat-completion "fixture-ready" "fixture-b" "ready")))))}
+           (fn ^:async check-retry [{:keys [app temp-dir]}]
+             (let [request (fn [model]
+                             (s/post-json app "/v1/chat/completions"
+                                          {"model" model "messages" [{"role" "user" "content" "hello"}]}
+                                          s/local-auth))
+                   first-result (await (request "fixture-a"))]
+               (is (= 403 (:status first-result))
+                   (when (not= 403 (:status first-result))
+                     (pr-str {:result first-result
+                              :journal (try
+                                         (await (.readFile fsp (.join path temp-dir "request-logs.jsonl") "utf8"))
+                                         (catch :default error (str error)))})))
+               (is (= 2 @calls) (pr-str @paths))
+               (is (= 403 (:status (await (request "fixture-a")))))
+               (is (= 2 @calls) "The unavailable model stays cached")
+               (is (= 200 (:status (await (request "fixture-b")))))
+               (is (= 3 @calls) "The credential remains usable for another model")))))
+        (finally
+          (await (.rm fsp directory #js {:recursive true :force true})))))))

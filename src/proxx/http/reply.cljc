@@ -60,9 +60,9 @@
           [:header "x-open-hax-upstream-auth-type" auth-type])))
 
 (defn copy-upstream-frames
-  "Upstream response headers worth relaying (hop-by-hop ones dropped)."
+  "Headers worth relaying alongside a body decoded by Node fetch."
   [header-pairs]
-  (headers (proxy/forwardable-response-headers header-pairs)))
+  (headers (proxy/forwardable-response-headers header-pairs true)))
 
 (defn json-frames
   "A buffered JSON reply."

@@ -53,7 +53,7 @@
        (fn ^:async run []
          (await
           (s/with-proxy-app
-            {:keys [] :models ["gpt-5.4-mini"]
+            {:keys [] :models ["gpt-5.4-mini"] :proxy-auth-token "test-credential-operator"
              :keys-payload
              {"providers"
               {"openai"
@@ -72,7 +72,8 @@
                                 :openaiResponsesPath "/codex/responses"}
              :upstream-handler (fn [_ _] (s/json-response 404 {"error" "not_used"}))}
             (fn ^:async run [{:keys [app temp-dir]}]
-              (let [response (await (s/inject app {:method "GET" :url "/api/v1/credentials/openai/quota"}))
+              (let [response (await (s/inject app {:method "GET" :url "/api/v1/credentials/openai/quota"
+                                                   :headers {"authorization" "Bearer test-credential-operator"}}))
                     payload (:json response)
                     account (get-in payload ["accounts" 0])
                     persisted (await (read-keys temp-dir))
@@ -131,6 +132,7 @@
          (await
           (s/with-proxy-app
             {:keys []
+             :proxy-auth-token "test-credential-operator"
              :keys-payload
              {"providers"
               {"openai"
@@ -145,6 +147,7 @@
              :upstream-handler (fn [_ _] (s/json-response 404 {"error" "not_used"}))}
             (fn ^:async run [{:keys [app]}]
               (let [response (await (s/inject app {:method "POST" :url "/api/v1/credentials/openai/probe"
+                                                   :headers {"authorization" "Bearer test-credential-operator"}
                                                    :payload {"accountId" "openai-probe-a"}}))
                     payload (:json response)]
                 (is (= 200 (:status response)))
@@ -167,6 +170,7 @@
   (await
    (s/with-proxy-app
      {:keys []
+      :proxy-auth-token "test-credential-operator"
       :keys-payload {"providers" {"ollama-cloud" {"auth" "api_key"
                                                   "accounts" [{"id" "ollama-probe-a" "api_key" "ollama-cloud-key"}]}}}
       :upstream-handler
@@ -187,6 +191,7 @@
                               "done" true "done_reason" "stop"}))}
      (fn ^:async run [{:keys [app]}]
        (let [response (await (s/inject app {:method "POST" :url "/api/v1/credentials/ollama-cloud/probe"
+                                                   :headers {"authorization" "Bearer test-credential-operator"}
                                             :payload {"accountId" "ollama-probe-a"}}))
              payload (:json response)]
          (is (= 200 (:status response)))

@@ -1,6 +1,7 @@
 (ns proxx.strategy.executor-test
   (:require [cljs.test :refer [deftest is testing]]
             [proxx.policy.loader :as loader]
+            [proxx.routing.outcome :as outcome]
             [proxx.runtime.strategy :as edge]
             [proxx.schema :as schema]
             [proxx.strategy.attempt :as attempt]
@@ -103,6 +104,49 @@
     (is (= :next-candidate (:next r)))
     (is (true? (:reassignment-allowed? (:state r))))))
 
+(deftest retry-quota-uses-monotonic-cooldown-through-the-js-boundary
+  (let [result (run fresh {:type :retry-quota-exhausted :ctx ctx :cooldown-ms 60000})
+        ^js state (edge/create-executor-state-js #js {:reassignmentAllowed true :sticky false})
+        ^js js-result (edge/executor-step-js state
+                                            #js {:type "retry-quota-exhausted"
+                                                 :ctx #js {:providerId "vivgrid" :health true}
+                                                 :cooldownMs 60000}
+                                            "resources/policies/runtime/00-manifest.edn")]
+    (is (= [[:mark-rate-limited-at-least 60000] [:health :failure "quota_exhausted"] [:pheromone :failure]]
+           (:effects result)))
+    (is (= :next-candidate (:next result)))
+    (is (true? (get-in result [:state :accumulator :saw-rate-limit])))
+    (is (= [["mark-rate-limited-at-least" 60000] ["health" "failure" "quota_exhausted"] ["pheromone" "failure"]]
+           (js->clj (.-effects js-result))))))
+
+(deftest classified-model-unavailable-retains-account-and-final-response
+  (let [state (assoc fresh :reassignment-allowed? false)
+        candidate (assoc ctx :matches-preferred? true)
+        result (run state {:type :credential-model-unavailable
+                           :ctx candidate
+                           :cooldown-ms 21600000})
+        summary (get-in result [:state :accumulator])
+        native (run state {:type :declined
+                           :ctx candidate
+                           :status 404
+                           :ok? false
+                           :outcome {:model-not-supported-for-account true :request-error true}})]
+    (is (= :next-candidate (:next result)))
+    (is (= [[:mark-model-unsupported 21600000] [:pheromone :failure]]
+           (:effects result)))
+    (is (true? (:reassignment-allowed? (:state result))))
+    (is (true? (:saw-model-not-supported-for-account summary)))
+    (is (true? (:saw-request-error summary)))
+    (is (false? (:saw-rate-limit summary)))
+    (is (= :model-not-supported
+           (outcome/classify {:candidate-count 1 :summary summary} {})))
+    (is (= (outcome/classify {:candidate-count 1
+                             :summary (get-in native [:state :accumulator])} {})
+           (outcome/classify {:candidate-count 1 :summary summary} {})))
+    (is (= :model-not-supported
+           (outcome/classify {:candidate-count 2
+                              :summary (assoc summary :saw-model-not-found true)} {})))))
+
 (deftest status-only-failures
   (is (= :transient-provider (ex/transient-status policy {:status 403 :provider-id "factory" :has-retry-remaining? true})))
   (is (nil? (ex/transient-status policy {:status 403 :provider-id "factory" :has-retry-remaining? false})) "no retries left: falls through to the strategy")
@@ -125,6 +169,13 @@
           allowed (run fresh {:type :handled :ctx c :ok? true :latency-ms 250})]
       (is (not (some #{[:note-affinity-success]} (:effects blocked))))
       (is (some #{[:note-affinity-success]} (:effects allowed))))))
+
+(deftest throttle-retry-success-does-not-release-another-requests-cooldown
+  (let [result (run fresh {:type :handled :variant :throttle-retry
+                          :ctx (assoc ctx :ollama-cloud? true) :ok? true :latency-ms 250})]
+    (is (= :handled (:next result)))
+    (is (= [[:health :success] [:pheromone :success 1]] (:effects result))
+        "The retry already released its own claim before fetching; later quotas survive success")))
 
 (deftest declined-outcomes
   (testing "a 401 on an OAuth token with a refresh token asks for a refresh"

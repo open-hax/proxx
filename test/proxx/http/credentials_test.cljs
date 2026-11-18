@@ -129,9 +129,16 @@
          :keyPool #js {:warmup (fn [] (rec :warmup) (js/Promise.reject (js/Error. "ignored")))
                        :disableAccount (fn [p a] (rec :disable p a))
                        :enableAccount (fn [p a] (rec :enable p a))
-                       :getDisabledAccounts (fn [] #js [#js {:providerId "p"}])}
+                       :getDisabledAccounts (fn [] #js [#js {:providerId "p"}])
+                       :getAllStatuses (constantly #js {})}
+         :requestLogStore #js {:providerSummary (constantly #js {})}
          :credentialStore #js {:upsertApiKeyAccount (fn [p a k] (rec :upsert p a (count k)) (js/Promise.resolve nil))
-                               :removeAccount (fn [_p a] (js/Promise.resolve (= a "known")))}
+                               :removeAccount (fn [_p a] (js/Promise.resolve (= a "known")))
+                               :listProviders (fn [reveal?]
+                                                (rec :list reveal?)
+                                                (clj->js [{"id" "p"
+                                                           "accounts" [(cond-> {"id" "a" "secretPreview" "****"}
+                                                                         reveal? (assoc "secret" "fixture-only"))]}]))}
          :pendingOpenAiBrowserReauthTargets (js/Map.)
          :openAiOAuthManager #js {}
          :log #js {:info (fn [o msg] (rec :log (js->clj o) msg))}}))
@@ -141,9 +148,17 @@
     {:status (.-statusCode res) :json (try (js->clj (.json res)) (catch :default _ nil)) :text (.-payload res)
      :type (aget (.-headers res) "content-type")}))
 
+(defn- test-app [auth]
+  (let [app ((js/require "fastify"))]
+    (.decorateRequest app "openHaxAuth" nil)
+    (.addHook app "onRequest" (fn [^js request _reply done]
+                                (set! (.-openHaxAuth request) auth)
+                                (done)))
+    app))
+
 (deftest ^:async credential-routes
   (let [calls (atom [])
-        app ((js/require "fastify"))]
+        app (test-app #js {:kind "legacy_admin"})]
     (routes/register-credential-routes-js app (fake-deps calls) "/api/v1" true)
     (testing "account management validates, persists and survives a failing warmup"
       (is (= {:status 400 :json {"error" "api_key_required"}}
@@ -166,6 +181,11 @@
              (select-keys (await (call app {:method "GET" :url "/api/v1/credentials/provider/x"})) [:status :json])))
       (is (= {:status 501 :json {"error" "oauth_refresh_not_supported"}}
              (select-keys (await (call app {:method "POST" :url "/api/v1/credentials/openai/oauth/refresh" :payload #js {}})) [:status :json]))))
+    (testing "the global operator can reveal a credential"
+      (let [res (await (call app {:method "GET" :url "/api/v1/credentials?reveal=true"}))]
+        (is (= 200 (:status res)))
+        (is (= "fixture-only" (get-in (:json res) ["providers" 0 "accounts" 0 "secret"])))
+        (is (some #{[:list true]} @calls))))
     (testing "OAuth callback pages are 200 text/html, escaped, on both the prefixed and shared paths"
       (doseq [url ["/api/v1/credentials/openai/oauth/browser/callback" "/auth/callback"]]
         (let [res (await (call app {:method "GET" :url (str url "?error=denied&error_description=%3Cb%3E")}))]
@@ -174,6 +194,37 @@
           (is (str/includes? (:text res) "&lt;b&gt;"))))
       (is (str/includes? (:text (await (call app {:method "GET" :url "/auth/factory/callback"}))) "Missing OAuth callback state or code.")))
     (await (.close app))))
+
+(deftest ^:async global-credential-controls-require-the-operator
+  (doseq [[auth refusal reason] [[nil 401 "unauthorized"]
+                                 [#js {:kind "tenant_api_key" :role "member"} 403 "forbidden"]
+                                 [#js {:kind "ui_session" :role "owner"} 403 "forbidden"]
+                                 [#js {:kind "unauthenticated"} 403 "forbidden"]]]
+    (let [calls (atom [])
+          app (test-app auth)]
+      (routes/register-credential-routes-js app (fake-deps calls) "/api/v1" true)
+      (doseq [[method suffix] [["GET" "?reveal=true"]
+                               ["GET" "/openai/quota"]
+                               ["POST" "/api-key"]
+                               ["POST" "/provider"]
+                               ["POST" "/account/enable"]
+                               ["POST" "/account/disable"]
+                               ["DELETE" "/account"]
+                               ["POST" "/openai/probe"]
+                               ["POST" "/openai/oauth/refresh"]
+                               ["POST" "/openai/oauth/browser/start"]
+                               ["POST" "/openai/oauth/device/poll"]
+                               ["POST" "/factory/oauth/browser/start"]
+                               ["POST" "/factory/oauth/device/poll"]]]
+        (let [res (await (call app {:method method :url (str "/api/v1/credentials" suffix)}))]
+          (is (= [refusal {"error" reason}] [(:status res) (:json res)]) suffix)))
+      (is (empty? @calls))
+      (let [res (await (call app {:method "GET" :url "/api/v1/credentials"}))]
+        (is (= 200 (:status res)))
+        (is (= {"id" "a" "secretPreview" "****"}
+               (get-in (:json res) ["providers" 0 "accounts" 0])))
+        (is (= [[:list false]] @calls)))
+      (await (.close app)))))
 
 (deftest ^:async shared-callbacks-are-optional
   (let [app ((js/require "fastify"))]

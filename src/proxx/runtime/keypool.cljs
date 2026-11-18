@@ -197,15 +197,28 @@
         metric (fn [name attrs]
                  (when-let [^js t (:telemetry deps)] (.recordMetric t name 1 (clj->js attrs))))
         provider-id-or-default #(or % (:default-provider-id cfg))
+        cooldown-writes (atom {})
+        queue-cooldown-write! (fn [provider-id account-id write!]
+                               ;; Keep persisted clear/set operations in the same
+                               ;; order as the synchronous state transitions.
+                               (let [k [provider-id account-id]
+                                     previous (get @cooldown-writes k (js/Promise.resolve))
+                                     pending (.catch (.then previous (fn [] (write!))) (fn [_] nil))]
+                                 (swap! cooldown-writes assoc k pending)
+                                 (.then pending (fn []
+                                                  (when (identical? pending (get @cooldown-writes k))
+                                                    (swap! cooldown-writes dissoc k))))
+                                 nil))
         persist-cooldown (fn [provider-id account-id until]
                            (when-let [^js store (:cooldown-store cfg)]
-                             (fire-and-forget
-                              (if (<= (or (js/Number until) 0) (now))
-                                (.clearCooldown store provider-id account-id)
-                                (.persistCooldown store provider-id account-id until)))))
+                             (queue-cooldown-write! provider-id account-id
+                                                    (fn []
+                                                      (if (<= (or (js/Number until) 0) (now))
+                                                        (.clearCooldown store provider-id account-id)
+                                                        (.persistCooldown store provider-id account-id until))))))
         clear-persisted (fn [provider-id account-id]
                           (when-let [^js store (:cooldown-store cfg)]
-                            (fire-and-forget (.clearCooldown store provider-id account-id))))
+                            (queue-cooldown-write! provider-id account-id #(.clearCooldown store provider-id account-id))))
         reload! (fn []
                   (reset! last-reload (now))
                   (-> (load-providers {:cfg cfg :ctx ctx :deps deps})
@@ -287,6 +300,22 @@
              (metric "proxy.key_pool.rate_limited" {"proxy.provider_id" (:provider-id c) "proxy.account_id" (:account-id c)})
              (persist-cooldown (:provider-id c) (:account-id c) until)
              nil))
+
+         :markRateLimitedAtLeast
+         (fn [credential retry-after-ms]
+           (let [c (js->credential credential)
+                 claim (step! pool/mark-rate-limited-at-least c retry-after-ms (now) (opts))]
+             (when claim
+               (metric "proxy.key_pool.rate_limited" {"proxy.provider_id" (:provider-id c) "proxy.account_id" (:account-id c)})
+               (persist-cooldown (:provider-id c) (:account-id c) (:until claim)))
+             (when claim (clj->js claim))))
+
+         :clearAccountCooldownIfUnchanged
+         (fn [provider-id account-id claim]
+           (let [cleared? (step! pool/clear-account-cooldown-if-unchanged provider-id account-id
+                                 (js->clj claim :keywordize-keys true))]
+             (when cleared? (clear-persisted provider-id account-id))
+             cleared?))
 
          :markModelUnsupported
          (fn [credential model-id retry-after-ms]

@@ -151,6 +151,19 @@
                          (aget tokens "expiresAt") (aget tokens "chatgptAccountId") (aget tokens "email")
                          (aget tokens "subject") (aget tokens "planType"))))
 
+(defn- require-credential-operator [{:keys [auth] :as request}]
+  (or (guard/require-auth request)
+      (guard/forbid-unless (= "legacy_admin" (get auth "kind")))))
+
+(defn- guard-provider-control [{:keys [method] :as route}]
+  (if (= :get method)
+    route
+    (update route :handler
+            (fn [handler]
+              (fn [request]
+                (or (require-credential-operator request)
+                    (handler request)))))))
+
 (defn routes
   "deps: {:config :key-pool :credential-store :request-log-store :sql-credential-store
           :sql-request-usage-store :refresh-openai-oauth-accounts :openai-oauth-manager
@@ -227,26 +240,29 @@
                   (text-reply (creds/html-error (error-message oauth-error))))))))]
     (cond->
      [{:method :get :path (at "/credentials")
-       :handler (fn ^:async get-credentials [{:keys [query]}]
-                  (let [reveal? (ui-auth/parse-boolean (get query "reveal"))
-                        providers (await (settle (.listProviders credential-store reveal?) #js []))
-                        summary (.providerSummary request-log-store)
-                        statuses (await (settle (.getAllStatuses key-pool) #js {}))]
-                    {:body {"providers" providers "keyPoolStatuses" statuses "requestLogSummary" summary}}))}
+       :handler (fn ^:async get-credentials [{:keys [query] :as request}]
+                  (let [reveal? (ui-auth/parse-boolean (get query "reveal"))]
+                    (or (when reveal? (require-credential-operator request))
+                        (let [providers (await (settle (.listProviders credential-store reveal?) #js []))
+                              summary (.providerSummary request-log-store)
+                              statuses (await (settle (.getAllStatuses key-pool) #js {}))]
+                          {:body {"providers" providers "keyPoolStatuses" statuses "requestLogSummary" summary}}))))}
 
       {:method :get :path (at "/credentials/openai/quota")
-       :handler (fn ^:async openai-quota [{:keys [query]}]
-                  (let [requested (creds/trimmed-string (get query "accountId"))
-                        visible (creds/visible-openai-accounts (await (visible-providers credential-store key-pool true)) openai-provider)
-                        visible-ids (set (map #(get % "id") visible))
-                        ^js overview (await (fetch-openai-quota credential-store
-                                                                #js {:providerId openai-provider
-                                                                     :accountId (or requested js/undefined)
-                                                                     :accounts (accounts->js visible)
-                                                                     :logger log}))
-                        out (js/Object.assign #js {} overview)]
-                    (aset out "accounts" (.filter (aget overview "accounts") (fn [a] (contains? visible-ids (aget a "accountId")))))
-                    {:body out}))}
+       :handler (fn ^:async openai-quota [{:keys [query] :as request}]
+                  ;; A quota check can refresh and persist upstream credentials.
+                  (or (require-credential-operator request)
+                      (let [requested (creds/trimmed-string (get query "accountId"))
+                            visible (creds/visible-openai-accounts (await (visible-providers credential-store key-pool true)) openai-provider)
+                            visible-ids (set (map #(get % "id") visible))
+                            ^js overview (await (fetch-openai-quota credential-store
+                                                                    #js {:providerId openai-provider
+                                                                         :accountId (or requested js/undefined)
+                                                                         :accounts (accounts->js visible)
+                                                                         :logger log}))
+                            out (js/Object.assign #js {} overview)]
+                        (aset out "accounts" (.filter (aget overview "accounts") (fn [a] (contains? visible-ids (aget a "accountId")))))
+                        {:body out})))}
 
       {:method :get :path (at "/credentials/openai/prompt-cache-audit")
        :handler (fn ^:async prompt-cache-audit [{:keys [query]}]
@@ -433,19 +449,20 @@
   [app ^js deps prefix shared-callbacks?]
   (ring/register!
    app
-   (routes {:config (aget deps "config")
-            :key-pool (aget deps "keyPool")
-            :credential-store (aget deps "credentialStore")
-            :request-log-store (aget deps "requestLogStore")
-            :sql-credential-store (aget deps "sqlCredentialStore")
-            :sql-request-usage-store (aget deps "sqlRequestUsageStore")
-            :refresh-openai-oauth-accounts (aget deps "refreshOpenAiOauthAccounts")
-            :openai-oauth-manager (aget deps "openAiOAuthManager")
-            :factory-oauth-manager (aget deps "factoryOAuthManager")
-            :pending-reauth-targets (aget deps "pendingOpenAiBrowserReauthTargets")
-            :fetch-openai-quota (aget deps "fetchOpenAiQuotaSnapshots")
-            :probe-openai-account (aget deps "probeOpenAiAccount")
-            :probe-ollama-cloud-account (aget deps "probeOllamaCloudAccount")
-            :log (aget deps "log")}
-           prefix
-           shared-callbacks?)))
+   (map guard-provider-control
+        (routes {:config (aget deps "config")
+                 :key-pool (aget deps "keyPool")
+                 :credential-store (aget deps "credentialStore")
+                 :request-log-store (aget deps "requestLogStore")
+                 :sql-credential-store (aget deps "sqlCredentialStore")
+                 :sql-request-usage-store (aget deps "sqlRequestUsageStore")
+                 :refresh-openai-oauth-accounts (aget deps "refreshOpenAiOauthAccounts")
+                 :openai-oauth-manager (aget deps "openAiOAuthManager")
+                 :factory-oauth-manager (aget deps "factoryOAuthManager")
+                 :pending-reauth-targets (aget deps "pendingOpenAiBrowserReauthTargets")
+                 :fetch-openai-quota (aget deps "fetchOpenAiQuotaSnapshots")
+                 :probe-openai-account (aget deps "probeOpenAiAccount")
+                 :probe-ollama-cloud-account (aget deps "probeOllamaCloudAccount")
+                 :log (aget deps "log")}
+                prefix
+                shared-callbacks?))))

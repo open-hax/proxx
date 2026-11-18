@@ -101,6 +101,25 @@
                                  :queue/stream-timeout-ms 2000
                                  :queue/provider-id "openai"})))))
 
+(deftest credential-failure-patterns-compile-during-validation
+  (let [clause {:contract/id :credential-failure/test-quota
+                :contract/kind :credential-failure-classification
+                :match/provider-pattern "^provider$"
+                :match/status 403
+                :classify/result :credential/quota-exhausted
+                :classify/cooldown-ms 60000}]
+    (is (= :ok (first (s/validate :proxx/policy-contract clause))))
+    (is (= :ok (first (s/validate :proxx/policy-contract
+                                (assoc clause :match/message-pattern "(?i)^monthly limit$")))))
+    (is (= :ok (first (s/validate :proxx/policy-contract
+                                (assoc clause :match/provider-pattern "" :match/message-pattern "")))))
+    (doseq [field [:match/provider-pattern :match/message-pattern]
+            pattern ["[" "("]]
+      (let [invalid (assoc clause field pattern)]
+        (is (= :error (first (s/validate :proxx/policy-contract invalid))))
+        (is (thrown-with-msg? js/Error #"Schema assertion failed"
+                             (s/assert! :proxx/policy-contract invalid)))))))
+
 ;; ── Red: invalid records fail with humanized errors ──────────────────────────
 
 (deftest provenance-bad-source

@@ -12,6 +12,8 @@
      :unsupported {[provider-id account-id model] until-ms}
      :in-flight   {[provider-id account-id] n}
      :streaks     {[provider-id account-id] consecutive-failures}
+     :cooldown-versions {[provider-id account-id] revision}
+     :cooldown-sequence monotonically-increasing-revision
      :disabled    #{[provider-id account-id] ...}
      :rng         seed-number | tape-vector}
 
@@ -24,7 +26,7 @@
             [proxx.keypool.credentials :as credentials]))
 
 (def empty-state
-  {:providers {} :cooldowns {} :unsupported {} :in-flight {} :streaks {} :disabled #{} :rng 1})
+  {:providers {} :cooldowns {} :unsupported {} :in-flight {} :streaks {} :disabled #{} :rng 1 :cooldown-versions {} :cooldown-sequence 0})
 
 (def default-expiry-buffer-ms 60000)
 (def default-jitter-factor 0.4)
@@ -141,6 +143,13 @@
 ;; Loading
 ;; ---------------------------------------------------------------------------
 
+(defn- record-cooldown [state k until]
+  (let [version (inc (get state :cooldown-sequence 0))]
+    (-> state
+        (assoc :cooldown-sequence version)
+        (assoc-in [:cooldowns k] until)
+        (assoc-in [:cooldown-versions k] version))))
+
 (defn replace-providers
   "Install freshly loaded provider states. Round-robin offsets carry over per
   provider (wrapped to the new account count), and per-account state for
@@ -157,6 +166,7 @@
     (-> state
         (assoc :providers providers)
         (update :cooldowns keep-active)
+        (update :cooldown-versions keep-active)
         (update :in-flight keep-active)
         (update :streaks keep-active)
         (update :unsupported #(into {} (filter (fn [[[pid aid _] until]] (and (contains? active [pid aid]) (> until now)))) %)))))
@@ -166,7 +176,7 @@
   [state persisted now]
   (reduce-kv (fn [s key-string until]
                (if-let [k (and (> until now) (string->key key-string))]
-                 (assoc-in s [:cooldowns k] until)
+                 (record-cooldown s k until)
                  s))
              state persisted))
 
@@ -261,7 +271,18 @@
   (let [[until state] (cooldown-deadline state now retry-after-ms opts)
         k (account-key credential)]
     [until
-     (-> state (assoc-in [:cooldowns k] until) (update-in [:streaks k] (fnil inc 0)))]))
+     (-> state (record-cooldown k until) (update-in [:streaks k] (fnil inc 0)))]))
+
+(defn mark-rate-limited-at-least
+  "[claim state']: install a cooldown only when it extends the current one.
+  A claim identifies this exact write, including equal-deadline renewals through
+  the ordinary API. A refused shorter write returns [nil state]."
+  [state credential retry-after-ms now opts]
+  (let [k (account-key credential)
+        [until next-state] (mark-rate-limited state credential retry-after-ms now opts)]
+    (if (> until (get-in state [:cooldowns k] 0))
+      [{:until until :version (get-in next-state [:cooldown-versions k])} next-state]
+      [nil state])))
 
 (defn mark-model-unsupported
   "[until state'] ([nil state] for a blank model): remember that this account
@@ -290,12 +311,23 @@
   (let [k [(credentials/normalize-provider-id provider-id) account-id]
         normalized (or (epoch/normalize-epoch-ms until) 0)]
     (if (<= normalized now)
-      [0 (update state :cooldowns dissoc k)]
-      [normalized (assoc-in state [:cooldowns k] normalized)])))
+      [0 (-> state (update :cooldowns dissoc k) (update :cooldown-versions dissoc k))]
+      [normalized (record-cooldown state k normalized)])))
 
 (defn clear-account-cooldown [state provider-id account-id]
   (let [k [(credentials/normalize-provider-id provider-id) account-id]]
-    (-> state (update :cooldowns dissoc k) (update :streaks dissoc k))))
+    (-> state (update :cooldowns dissoc k) (update :cooldown-versions dissoc k) (update :streaks dissoc k))))
+
+(defn clear-account-cooldown-if-unchanged
+  "[cleared? state']: release only the exact cooldown write named by claim.
+  A later quota, explicit renewal or clear/recreate can never be erased."
+  [state provider-id account-id {:keys [until version]}]
+  (let [k [(credentials/normalize-provider-id provider-id) account-id]]
+    (if (and (some? version)
+             (= version (get-in state [:cooldown-versions k]))
+             (= until (get-in state [:cooldowns k])))
+      [true (clear-account-cooldown state provider-id account-id)]
+      [false state])))
 
 (defn clear-provider-cooldowns
   "[account-ids state']: end every cooldown of a provider, reporting which
@@ -304,7 +336,7 @@
   (let [pid (credentials/normalize-provider-id provider-id)
         cleared (filterv (fn [[p _]] (= p pid)) (keys (:cooldowns state)))]
     [(mapv second cleared)
-     (reduce (fn [s k] (-> s (update :cooldowns dissoc k) (update :streaks dissoc k))) state cleared)]))
+     (reduce (fn [s k] (-> s (update :cooldowns dissoc k) (update :cooldown-versions dissoc k) (update :streaks dissoc k))) state cleared)]))
 
 (defn disable-account [state provider-id account-id]
   (update state :disabled conj [(credentials/normalize-provider-id provider-id) account-id]))

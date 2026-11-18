@@ -60,6 +60,13 @@
       {:owner-credential oc :label label :base-url base}
       {:response (guard/error 400 "owner_credential_label_and_base_url_required")})))
 
+(defn public-peer
+  "The public peer metadata. Authentication stays in the internal store record;
+  absent fields remain absent and newly added private fields are not exposed."
+  [peer]
+  (select-keys peer ["id" "ownerSubject" "peerDid" "label" "baseUrl" "controlBaseUrl"
+                     "authMode" "status" "capabilities" "lastSeenAt" "createdAt" "updatedAt"]))
+
 (defn peer-diff-payload [peer]
   {"peerDid" (get peer "peerDid") "label" (get peer "label") "baseUrl" (get peer "baseUrl")
    "controlBaseUrl" (get peer "controlBaseUrl") "authMode" (get peer "authMode") "status" (get peer "status")})

@@ -16,7 +16,7 @@
   credential again), `:next-step` (try the next base URL), `:next-candidate`, or
   `:refresh-token` (refresh the OAuth token and repeat), or `:stop-candidates`.
 
-  Effects: `[:mark-rate-limited ms]` `[:disable-account]` `[:mark-model-unsupported ms]`
+  Effects: `[:mark-rate-limited ms]` `[:mark-rate-limited-at-least ms]` `[:disable-account]` `[:mark-model-unsupported ms]`
   `[:clear-model-unsupported]` `[:clear-account-cooldown]` `[:pheromone :success|:failure]`
   `[:health :success|:failure reason?]` `[:delete-affinity]` `[:note-affinity-success]`
   `[:log-upstream-error code message]` `[:sleep :transient]` `[:summarize-error]`.
@@ -141,10 +141,11 @@
 
 (defn quota-exhausted
   "200/4xx whose body reports quota exhaustion: cool the credential for `cooldown-ms`."
-  [state {:keys [ctx cooldown-ms]}]
-  (let [state (sticky-affinity-reassignment (flag state :saw-rate-limit) ctx)]
+  [state {:keys [ctx cooldown-ms preserve-existing-cooldown?]}]
+  (let [state (sticky-affinity-reassignment (flag state :saw-rate-limit) ctx)
+        mark (if preserve-existing-cooldown? :mark-rate-limited-at-least :mark-rate-limited)]
     (result state
-            (cond-> [[:mark-rate-limited cooldown-ms]]
+            (cond-> [[mark cooldown-ms]]
               (:health? ctx) (conj [:health :failure "quota_exhausted"])
               :always (conj [:pheromone :failure]))
             :next-candidate)))
@@ -202,9 +203,10 @@
      state
      (case (or variant :strategy)
        :direct [quality]
+       ;; The retry released its owned short cooldown before fetching. Any
+       ;; cooldown present now belongs to another response and must survive.
        :throttle-retry (cond-> []
                          health? (conj [:health :success])
-                         clear-cooldown? (conj [:clear-account-cooldown])
                          :always (conj quality))
        :codex (cond-> []
                 health? (conj [:health :success])
@@ -396,6 +398,14 @@
     :direct-declined (direct-declined state event)
     :rate-limited (rate-limited state event)
     :quota-exhausted (quota-exhausted state event)
+    :retry-quota-exhausted (quota-exhausted state (assoc event :preserve-existing-cooldown? true))
+    :credential-model-unavailable
+    (result (-> state
+                (flag :saw-model-not-supported-for-account)
+                (flag :saw-request-error)
+                (sticky-affinity-reassignment (:ctx event)))
+            [[:mark-model-unsupported (:cooldown-ms event)] [:pheromone :failure]]
+            :next-candidate)
     :transient-provider (transient-provider-retry state event)
     :server-error (server-error state policy event)
     :handled (handled state policy event)
