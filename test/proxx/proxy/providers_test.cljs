@@ -429,8 +429,9 @@
            {}
            {:keys-payload {"providers" {"vivgrid" {"auth" "api_key" "accounts" ["fixture-retry-key"]}}}
             :models ["fixture-a" "fixture-b"]
+            ;; Coverage instrumentation makes initial policy compilation slower.
             :config-overrides {:cljsPolicyManifestPath manifest :keyCooldownMs 1
-                               :localOllamaEnabled false}
+                               :requestTimeoutMs 30000 :localOllamaEnabled false}
             :upstream-handler
             (upstream
              (fn [request _]
