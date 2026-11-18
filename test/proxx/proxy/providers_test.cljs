@@ -432,6 +432,8 @@
             ;; Coverage instrumentation makes initial policy compilation slower.
             :config-overrides {:cljsPolicyManifestPath manifest :keyCooldownMs 1
                                :requestTimeoutMs 30000 :localOllamaEnabled false}
+            ;; Isolate policy assertions from catalog-probe socket reuse.
+            :upstream-response-headers {"connection" "close"}
             :upstream-handler
             (upstream
              (fn [request _]

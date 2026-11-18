@@ -104,6 +104,21 @@
     (is (= :next-candidate (:next r)))
     (is (true? (:reassignment-allowed? (:state r))))))
 
+(deftest retry-quota-uses-monotonic-cooldown-through-the-js-boundary
+  (let [result (run fresh {:type :retry-quota-exhausted :ctx ctx :cooldown-ms 60000})
+        ^js state (edge/create-executor-state-js #js {:reassignmentAllowed true :sticky false})
+        ^js js-result (edge/executor-step-js state
+                                            #js {:type "retry-quota-exhausted"
+                                                 :ctx #js {:providerId "vivgrid" :health true}
+                                                 :cooldownMs 60000}
+                                            "resources/policies/runtime/00-manifest.edn")]
+    (is (= [[:mark-rate-limited-at-least 60000] [:health :failure "quota_exhausted"] [:pheromone :failure]]
+           (:effects result)))
+    (is (= :next-candidate (:next result)))
+    (is (true? (get-in result [:state :accumulator :saw-rate-limit])))
+    (is (= [["mark-rate-limited-at-least" 60000] ["health" "failure" "quota_exhausted"] ["pheromone" "failure"]]
+           (js->clj (.-effects js-result))))))
+
 (deftest classified-model-unavailable-retains-account-and-final-response
   (let [state (assoc fresh :reassignment-allowed? false)
         candidate (assoc ctx :matches-preferred? true)
@@ -154,6 +169,13 @@
           allowed (run fresh {:type :handled :ctx c :ok? true :latency-ms 250})]
       (is (not (some #{[:note-affinity-success]} (:effects blocked))))
       (is (some #{[:note-affinity-success]} (:effects allowed))))))
+
+(deftest throttle-retry-success-does-not-release-another-requests-cooldown
+  (let [result (run fresh {:type :handled :variant :throttle-retry
+                          :ctx (assoc ctx :ollama-cloud? true) :ok? true :latency-ms 250})]
+    (is (= :handled (:next result)))
+    (is (= [[:health :success] [:pheromone :success 1]] (:effects result))
+        "The retry already released its own claim before fetching; later quotas survive success")))
 
 (deftest declined-outcomes
   (testing "a 401 on an OAuth token with a refresh token asks for a refresh"

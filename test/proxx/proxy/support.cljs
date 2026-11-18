@@ -128,10 +128,11 @@
        (.on request "end" (fn [] (resolve (.toString (js/Buffer.concat chunks) "utf8"))))
        (.on request "error" reject)))))
 
-(defn- make-upstream [{:keys [upstream-handler handle-model-catalog]}]
+(defn- make-upstream [{:keys [upstream-handler handle-model-catalog upstream-response-headers]}]
   (.createServer
    http
    (fn ^:async serve [^js request ^js response]
+     (doseq [[k v] upstream-response-headers] (.setHeader response k v))
      (let [body (await (read-request-body request))
            catalog? (or (and (= "GET" (.-method request)) (= "/v1/models" (.-url request)))
                         (and (= "GET" (.-method request)) (= "/api/tags" (.-url request))))]
@@ -241,7 +242,8 @@
   down. `:upstream-handler` is `(fn [request body])` returning (a Promise of)
   `{:status :headers :body}` or `{:status :headers :stream-body (fn [response])}`.
   Options: `:keys`, `:keys-payload`, `:request-logs-payload`, `:models`,
-  `:handle-model-catalog`, `:proxy-auth-token`, `:allow-unauthenticated`,
+  `:handle-model-catalog`, `:upstream-response-headers` (initial headers on every mock response),
+  `:proxy-auth-token`, `:allow-unauthenticated`,
   `:config-overrides` (camelCase keyword -> value, merged over the defaults)."
   [{:keys [keys keys-payload request-logs-payload models config-overrides] :as options} f]
   (let [temp-dir (await (.mkdtemp fsp (.join path (.tmpdir os) "open-hax-proxy-test-")))

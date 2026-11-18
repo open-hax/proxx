@@ -276,6 +276,7 @@
       (let [kind (aget effect 0) a (aget effect 1) b (aget effect 2)]
         (case kind
           "mark-rate-limited" (.markRateLimited key-pool account (not-nil a))
+          "mark-rate-limited-at-least" (.markRateLimitedAtLeast key-pool account (not-nil a))
           "disable-account" (when (.-disableAccount key-pool) (.disableAccount key-pool (.-providerId account) (.-accountId account)))
           "mark-model-unsupported" (when (.-markModelUnsupported key-pool) (.markModelUnsupported key-pool account (.-routedModel context) a))
           "clear-model-unsupported" (when (.-clearModelUnsupported key-pool)
@@ -335,7 +336,7 @@
       (runtime/classify-credential-failure
        (:manifest-path env) (.-providerId ^js (:candidate env)) (.-status response) message))))
 
-(defn- ^:async handle-credential-failure! [env ^js account ctx ^js response ^js span failure]
+(defn- ^:async handle-credential-failure! [env ^js account ctx ^js response ^js span failure preserve-existing-cooldown?]
   (let [{:keys [result cooldown-ms]} failure
         ^js health (:health-store env)
         provider-id (.-providerId ^js (:candidate env))
@@ -345,7 +346,9 @@
                    (or (await (proxy/extract-rate-limit-cooldown-ms-js response))
                        (when health (.getGrowingCooldown health provider-id (.-accountId account) cooldown-ms))
                        cooldown-ms))
-        event #js {"type" (if model-unavailable? "credential-model-unavailable" "quota-exhausted")
+        event #js {"type" (cond model-unavailable? "credential-model-unavailable"
+                                preserve-existing-cooldown? "retry-quota-exhausted"
+                                :else "quota-exhausted")
                    "ctx" ctx "cooldownMs" cooldown}]
     (await (run-effects! env (.-effects (advance! env event)) account (at "status" (.-status response))))
     (await (drain-quietly response))
@@ -576,7 +579,7 @@
                 credential-failure (await (classify-credential-response env upstream-response))]
             (cond
               credential-failure
-              (await (handle-credential-failure! env account ctx upstream-response span credential-failure))
+              (await (handle-credential-failure! env account ctx upstream-response span credential-failure false))
 
               ;; --- rate limited ------------------------------------------------
               (= 429 status)
@@ -641,7 +644,7 @@
                                                                              (at "status" (.-status ^js retry-response)
                                                                                  "latencyMs" (- (js/Date.now) started)) cache-key)
                                                              mode host)
-                                            (await (handle-credential-failure! env account ctx retry-response span retry-failure))
+                                            (await (handle-credential-failure! env account ctx retry-response span retry-failure true))
                                             :credential-failure)
                                           (not= 429 (.-status ^js retry-response))
                                           (let [^js rr retry-response
