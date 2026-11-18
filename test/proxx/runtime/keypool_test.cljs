@@ -71,3 +71,49 @@
       (is (= "fresh" (.-token (nth (array-seq order) 1)))))
     (let [order (await (.getRequestOrderWithRefresh pool "p" (fn [_] (js/Promise.reject (js/Error. "boom")))))]
       (is (= ["a"] (mapv #(.-accountId %) (array-seq order))) "failed refreshes are skipped, not fatal"))))
+
+(deftest ^:async owned-short-cooldown-does-not-clear-or-shorten-newer-quota
+  (let [calls (atom []) pool (make-pool calls (atom []))
+        account (credential "p" "a" {})]
+    (await (.warmup pool))
+    (let [^js claim (.markRateLimitedAtLeast pool account 1000)]
+      (is (number? (.-version claim)))
+      (.markRateLimited pool account 60000)
+      (is (false? (.clearAccountCooldownIfUnchanged pool "p" "a" claim)))
+      (is (nil? (.markRateLimitedAtLeast pool account 1000)))
+      (is (= 0 (alength (await (.getRequestOrder pool "p")))))
+      (await (js/Promise. (fn [resolve] (js/setTimeout resolve 0))))
+      (is (empty? (filter #(= :clear (first %)) @calls))
+          "A superseded short-cooldown claim cannot issue a persistent clear")
+      (.clearAccountCooldown pool "p" "a")
+      (let [next-claim (.markRateLimitedAtLeast pool account 1000)]
+        (is (true? (.clearAccountCooldownIfUnchanged pool "p" "a" next-claim)))
+        (is (= ["a"] (mapv #(.-accountId ^js %) (array-seq (await (.getRequestOrder pool "p"))))))))))
+
+(deftest ^:async cooldown-persistence-keeps-clear-before-later-quota
+  (let [calls (atom []) release (atom nil)
+        first-write (js/Promise. (fn [resolve] (reset! release resolve)))
+        writes (atom 0)
+        store (fake-store [(credential "p" "a" {})] calls)
+        _ (aset store "persistCooldown"
+                (fn [_ _ until]
+                  (swap! calls conj [:set until])
+                  (if (= 1 (swap! writes inc)) first-write (js/Promise.resolve))))
+        _ (aset store "clearCooldown" (fn [_ _] (swap! calls conj [:clear]) (js/Promise.resolve)))
+        pool (kp/create-key-pool-js
+              #js {:keysFilePath "/nonexistent" :defaultProviderId "p" :accountStore store
+                   :cooldownStore store :preferAccountStoreProviders true :cooldownJitterFactor 0}
+              #js {:env #js {} :seedSpecs #js [] :sha256Hex (fn [_] "") :rng (fn [] 0.5)})
+        account (credential "p" "a" {})]
+    (await (.warmup pool))
+    (let [^js claim (.markRateLimitedAtLeast pool account 1000)]
+      (is (true? (.clearAccountCooldownIfUnchanged pool "p" "a" claim)))
+      (.markRateLimited pool account 60000)
+      (await (js/Promise.resolve))
+      (is (= [:set] (mapv first @calls)) "Clear waits for the pending short-cooldown write")
+      (@release)
+      (await (js/Promise. (fn [resolve] (js/setTimeout resolve 0))))
+      (is (= [:set :clear :set] (mapv first @calls)))
+      (is (> (second (last @calls)) (.-until claim)))
+      (is (= 0 (alength (await (.getRequestOrder pool "p")))))
+      (is (false? (.clearAccountCooldownIfUnchanged pool "p" "a" claim))))))

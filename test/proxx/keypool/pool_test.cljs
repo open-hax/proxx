@@ -201,3 +201,30 @@
              (by-id "cool")))
       (is (true? (:expired? (by-id "expired"))))
       (is (true? (:disabled? (by-id "disabled")))))))
+
+(deftest owned-cooldowns-preserve-newer-quota-and-renewals
+  (let [opts {:jitter-factor 0}
+        [claim short] (pool/mark-rate-limited-at-least pool/empty-state a 1000 now opts)
+        [cleared? cleared] (pool/clear-account-cooldown-if-unchanged short " p " "a" claim)
+        [quota-until quota] (pool/mark-rate-limited short a 60000 now opts)
+        [refused? unchanged] (pool/clear-account-cooldown-if-unchanged quota "p" "a" claim)
+        [replacement quota'] (pool/mark-rate-limited-at-least quota a 1000 (+ now 1) opts)]
+    (is cleared?)
+    (is (= {} (:cooldowns cleared)))
+    (is (false? refused?))
+    (is (= quota unchanged))
+    (is (= (+ now 60000) quota-until))
+    (is (nil? replacement) "Retry exhaustion cannot shorten another request's quota cooldown")
+    (is (= quota quota'))
+    (let [[_ renewed] (pool/set-account-cooldown-until short "p" "a" (:until claim) now)]
+      (is (= [false renewed] (pool/clear-account-cooldown-if-unchanged renewed "p" "a" claim))
+          "An equal-deadline explicit renewal is a different cooldown write"))
+    (let [[new-claim recreated] (pool/mark-rate-limited-at-least cleared a 1000 now opts)]
+      (is (= (:until claim) (:until new-claim)))
+      (is (not= (:version claim) (:version new-claim)))
+      (is (= [false recreated] (pool/clear-account-cooldown-if-unchanged recreated "p" "a" claim))
+          "A clear followed by an equal-deadline recreate cannot revive an old claim"))
+    (let [restored (pool/restore-cooldowns short {"p\u0000a" (:until claim)} now)]
+      (is (= [false restored] (pool/clear-account-cooldown-if-unchanged restored "p" "a" claim))))
+    (is (= {} (:cooldown-versions (pool/replace-providers short {} now)))
+        "Removed account ownership is pruned with its cooldown")))

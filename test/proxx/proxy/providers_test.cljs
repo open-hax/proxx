@@ -444,13 +444,18 @@
                      {:status 403 :headers {"content-type" "text/plain"}
                       :body "fixture model unavailable"})
                  (s/json-response 200 (s/chat-completion "fixture-ready" "fixture-b" "ready")))))}
-           (fn ^:async check-retry [{:keys [app]}]
+           (fn ^:async check-retry [{:keys [app temp-dir]}]
              (let [request (fn [model]
                              (s/post-json app "/v1/chat/completions"
                                           {"model" model "messages" [{"role" "user" "content" "hello"}]}
                                           s/local-auth))
                    first-result (await (request "fixture-a"))]
-               (is (= 403 (:status first-result)))
+               (is (= 403 (:status first-result))
+                   (when (not= 403 (:status first-result))
+                     (pr-str {:result first-result
+                              :journal (try
+                                         (await (.readFile fsp (.join path temp-dir "request-logs.jsonl") "utf8"))
+                                         (catch :default error (str error)))})))
                (is (= 2 @calls) (pr-str @paths))
                (is (= 403 (:status (await (request "fixture-a")))))
                (is (= 2 @calls) "The unavailable model stays cached")

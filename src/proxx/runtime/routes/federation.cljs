@@ -5,8 +5,8 @@
 
   Stores, the bridge relay and peer HTTP are JS collaborators read here; every
   decision (validation, visibility, import planning, sanitizing, merging) is
-  proxx.http.federation. Responses reuse the store's own JS records where the
-  TypeScript did, so absent/undefined fields stay absent."
+  proxx.http.federation. Public peer responses omit authentication material;
+  internal store records retain credentials for authorized peer requests."
   (:require [proxx.http.federation :as fed]
             [proxx.http.guard :as guard]
             [proxx.http.params :as params]
@@ -73,6 +73,9 @@
                          (aget exported "subject") (aget exported "planType"))
     (.upsertApiKeyAccount credential-store provider-id account-id (aget exported "secret"))))
 
+(defn- public-peer [peer]
+  (clj->js (fed/public-peer (interop/js->data peer))))
+
 (defn- session-facts [^js s]
   {:session-id (.-sessionId s) :agent-id (.-agentId s) :tenant-id (.-tenantId s) :state (.-state s) :js s})
 
@@ -136,7 +139,8 @@
     [{:method :get :path (p "/federation/peers")
       :handler (fn ^:async list-peers [{:keys [auth query]}]
                  (or (gate auth) (need-federation-store)
-                     {:body #js {:peers (await (.listPeers sql-federation-store (or-undefined (fed/trimmed-nes (get query "ownerSubject")))))}}))}
+                     {:body #js {:peers (.map (await (.listPeers sql-federation-store (or-undefined (fed/trimmed-nes (get query "ownerSubject")))))
+                                            public-peer)}}))}
 
      {:method :get :path (p "/federation/self")
       :handler (fn ^:async federation-self [{:keys [auth]}]
@@ -149,7 +153,7 @@
 
      {:method :post :path (p "/federation/peers")
       :handler (fn ^:async upsert-peer [{:keys [auth body raw]}]
-                 (or (gate auth) (need-federation-store)
+                 (or (credential-gate auth) (need-federation-store)
                      (let [{:keys [response owner-credential label base-url]} (fed/peer-input body)
                            ^js rb (.-body raw)]
                        (or response
@@ -164,7 +168,7 @@
                                                            :payload #js {:peerDid (.-peerDid peer) :label (.-label peer) :baseUrl (.-baseUrl peer)
                                                                          :controlBaseUrl (.-controlBaseUrl peer) :authMode (.-authMode peer)
                                                                          :status (.-status peer)}}))
-                             {:status 201 :body #js {:peer peer}})))))}
+                             {:status 201 :body #js {:peer (public-peer peer)}})))))}
 
      {:method :get :path (p "/federation/bridge/ws")
       :handler (fn [{:keys [auth]}]
@@ -536,7 +540,7 @@
                                     highest (.reduce ^js events (fn [cur ^js ev] (js/Math.max cur (.-seq ev))) after-seq)
                                     ^js next-state (await (.upsertSyncState sql-federation-store
                                                                             #js {:peerId peer-id :lastPulledSeq highest :lastPullAt true :lastError nil}))]
-                                {:body #js {:peer peer :ownerSubject owner-subject
+                                {:body #js {:peer (public-peer peer) :ownerSubject owner-subject
                                             :importedProjectedAccountsCount (count @imported) :importedUsageCount imported-usage
                                             :remoteDiffCount (.-length events) :syncState next-state}}))
                             (catch :default e
@@ -556,7 +560,8 @@
                       ^js account (await (.noteProjectedAccountRouted sql-federation-store key))]
                   (if-not account
                     (guard/error 404 "projected_account_not_found")
-                    (let [allow-import? (fed/projected-allows-credential-import? (interop/js->data account))
+                    (let [allow-import? (and (nil? (credential-gate auth))
+                                             (fed/projected-allows-credential-import? (interop/js->data account)))
                           [^js acct imported?]
                           (if (and allow-import? (should-warm-import (.-warmRequestCount account)))
                             (let [^js result (await (warm-import! deps-map key))]

@@ -449,13 +449,21 @@
                             :break)))))))
           (finally (refreshed-release)))))))
 
+(defn- image-next-base? [mode provider-id ^js config step steps step-index status]
+  (when (and (= "images" mode) (= provider-id (.-openaiProviderId config)))
+    (let [next-step (nth steps (inc step-index) nil)]
+      (strat/images-next-base-js
+       #js {"status" status
+            "tryNextBaseOnStatuses" (some-> (:try-next-base-on step) to-array)
+            "nextBaseDiffers" (and (some? next-step) (not= (:base-url next-step) (:base-url step)))}))))
+
 (defn- ^:async attempt-step!
   "One upstream request for the current candidate. Resolves to one of
   :handled (the client was answered; in-flight released), :next-step (try the
   next upstream base), :break (stop this credential), :break-transient (stop,
   then retry the same credential)."
   [^js env ^js reply step-index steps ^js base-context ^js candidate-strategy ^js candidate-payload
-   primary-path ^js release-in-flight! retry-index has-retry-remaining?]
+   ^js release-in-flight! retry-index has-retry-remaining?]
   (let [^js candidate (:candidate env) ^js account (.-account candidate) ^js context (:context env)
         ^js config (.-config context) ^js host (:host env) manifest (:manifest-path env)
         ^js request-log-store (:request-log-store env) ^js event-store (:event-store env)
@@ -558,12 +566,7 @@
                 nil
                 (await usage))
             _ (await diagnostics)
-            next-base? (when (and (= "images" mode) (= provider-id (.-openaiProviderId config)))
-                         (let [next-step (nth steps (inc step-index) nil)]
-                           (strat/images-next-base-js
-                            #js {"status" status
-                                 "tryNextBaseOnStatuses" (some-> (:try-next-base-on step) to-array)
-                                 "nextBaseDiffers" (and (some? next-step) (not= (:base-url next-step) (:base-url step)))})))]
+            next-base? (image-next-base? mode provider-id config step steps step-index status)]
         (if next-base?
           (do (try (await (.arrayBuffer upstream-response)) (catch :default _ nil))
               (.setStatus span "error" "openai_images_try_next_base")
@@ -605,23 +608,32 @@
                               ^js throttle (strat/throttle-plan-js cooldown-ms manifest)]
                           (.setAttribute span "proxy.rate_limit_kind" "concurrency_throttle")
                           (.setAttribute span "proxy.concurrency_retry_wait_ms" (.-waitMs throttle))
-                          (.markRateLimited key-pool account (.-shortCooldownMs throttle))
-                          (let [outcome
-                                (loop [n 0]
-                                  (if (>= n max-retries)
-                                    :exhausted
+                          (let [cooldown-claim (.markRateLimitedAtLeast key-pool account (.-shortCooldownMs throttle))
+                                outcome
+                                (loop [n 0 claim cooldown-claim]
+                                  (cond
+                                    (nil? claim) :superseded
+                                    (>= n max-retries) :exhausted
+                                    :else
                                     (do
                                       (await (sleep (.-waitMs throttle)))
-                                      (when (.-clearAccountCooldown key-pool)
-                                        (.clearAccountCooldown key-pool (.-providerId account) (.-accountId account)))
-                                      (let [retry-url (url/join-url (.-baseUrl provider-context) primary-path)
-                                            retry-headers (upstream-headers env account provider-context candidate-strategy candidate-payload)
-                                            retry-response (try (await (fetch-upstream env retry-url retry-headers effective-body))
+                                      (if-not (.clearAccountCooldownIfUnchanged key-pool (.-providerId account) (.-accountId account) claim)
+                                        :superseded
+                                        (let [retry-headers (upstream-headers env account provider-context candidate-strategy candidate-payload)
+                                            retry-response (try (await (fetch-upstream env upstream-url retry-headers effective-body))
                                                                 (catch :default _ ::transport))
-                                            retry-failure (when-not (= ::transport retry-response)
+                                            retry-next-base? (when-not (= ::transport retry-response)
+                                                               (image-next-base? mode provider-id config step steps step-index (.-status ^js retry-response)))
+                                            retry-failure (when (and (not= ::transport retry-response) (not retry-next-base?))
                                                             (await (classify-credential-response env retry-response)))]
                                         (cond
                                           (= ::transport retry-response) :exhausted
+                                          retry-next-base?
+                                          (do
+                                            (try (await (.arrayBuffer ^js retry-response)) (catch :default _ nil))
+                                            (.setStatus span "error" "openai_images_try_next_base")
+                                            (.end span)
+                                            :next-step)
                                           retry-failure
                                           (do
                                             (record-attempt! request-log-store provider-context
@@ -642,12 +654,21 @@
                                                              request-log-store retry-log-id rr mode (.-routedModel context) provider-id config started
                                                              (.-estimateRequestCost host))]
                                             (if (.-ok rr)
-                                              (do (await retry-usage)
-                                                  (await (run-effects! env (.-effects (advance! env #js {"type" "handled" "variant" "throttle-retry" "ctx" ctx "latencyMs" retry-latency}))
-                                                                       account (at "status" (.-status rr))))
-                                                  (.setStatus span "ok") (.end span)
-                                                  (release-in-flight!)
-                                                  :handled)
+                                              (let [handled? (if codex-images?
+                                                               (= :handled (await (codex-images-reply env reply provider-context rr span)))
+                                                               (do
+                                                                 (.header reply "x-open-hax-upstream-mode" mode)
+                                                                 (= "handled" (.-kind ^js (await (.handleProviderAttempt candidate-strategy reply rr provider-context))))))]
+                                                (when-not (and (strat/response-looks-like-event-stream-js rr mode) (.-clientWantsStream context))
+                                                  (await retry-usage))
+                                                (if handled?
+                                                  (do
+                                                    (await (run-effects! env (.-effects (advance! env #js {"type" "handled" "variant" (if codex-images? "codex" "throttle-retry") "ctx" ctx "latencyMs" retry-latency}))
+                                                                         account (at "status" (.-status rr))))
+                                                    (.setStatus span "ok") (.end span)
+                                                    (release-in-flight!)
+                                                    :handled)
+                                                  :exhausted))
                                               (do (advance! env #js {"type" "throttle-error" "status" (.-status rr)})
                                                   (try (await (.arrayBuffer rr)) (catch :default _ nil))
                                                   :exhausted)))
@@ -659,14 +680,20 @@
                                                 retry-kind (proxy/classify-rate-limit-kind-js (.-status rr) retry-body retry-cooldown (.-concurrencyThrottleThresholdMs config) provider-id manifest)]
                                             (try (await (.arrayBuffer rr)) (catch :default _ nil))
                                             (if (= "escalated" (strat/throttle-retry-verdict-js #js {"rateLimited" true "ok" false "retryKind" retry-kind}))
-                                              (do (.markRateLimited key-pool account (js/Math.round (* retry-cooldown @multiplier)))
+                                              (do (.markRateLimitedAtLeast key-pool account (js/Math.round (* retry-cooldown @multiplier)))
                                                   :exhausted)
-                                              (do (.markRateLimited key-pool account (.-shortCooldownMs ^js (strat/throttle-plan-js retry-cooldown manifest)))
-                                                  (recur (inc n))))))))))]
+                                              (recur (inc n) (.markRateLimitedAtLeast key-pool account (.-shortCooldownMs ^js (strat/throttle-plan-js retry-cooldown manifest))))))))))))]
                             (case outcome
                               :handled :handled
+                              :next-step :next-step
                               :credential-failure :break
-                              (do (.markRateLimited key-pool account cooldown-ms)
+                              :superseded
+                              (do
+                                (await (run-effects! env (.-effects (advance! env #js {"type" "rate-limited" "ctx" ctx "limitKind" @limit-kind})) account (at)))
+                                (.setStatus span "error" "concurrency_cooldown_superseded")
+                                (.end span)
+                                :break)
+                              (do (.markRateLimitedAtLeast key-pool account cooldown-ms)
                                   (await (run-effects! env (.-effects (advance! env #js {"type" "rate-limited" "ctx" ctx "limitKind" @limit-kind})) account (at)))
                                   (.setStatus span "error" "concurrency_throttle")
                                   (.end span)
@@ -790,7 +817,7 @@
                      (if (>= i (count steps))
                        :break
                        (let [r (await (attempt-step! env reply i steps base-context candidate-strategy candidate-payload
-                                                     primary-path release-in-flight! retry-index has-retry-remaining?))]
+                                                     release-in-flight! retry-index has-retry-remaining?))]
                          (if (= :next-step r) (recur (inc i)) r))))]
         (cond
           (= :handled result) :handled
