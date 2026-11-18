@@ -1,5 +1,6 @@
 (ns proxx.strategy.reply-test
   (:require [cljs.test :refer [deftest is testing]]
+            [proxx.http.proxy :as proxy]
             [proxx.http.reply :as frames]
             [proxx.strategy.reply :as plan]))
 
@@ -45,13 +46,19 @@
             [:header "x-open-hax-upstream-account" "a"]
             [:header "x-open-hax-upstream-auth-type" "api_key"]]
            (frames/identity-frames {:provider-id "p" :auth-kind "legacy_admin" :account-id "a" :auth-type "api_key"}))))
-  (testing "a relayed stream drops content-length after copying upstream headers"
+  (testing "a relayed fetch stream drops stale compression and transport headers"
     (let [f (frames/relayed-stream-head {:status 200 :lead [[:header "x-p" "1"]]
-                                         :upstream-headers [["x-up" "v"] ["transfer-encoding" "chunked"]]})]
+                                         :upstream-headers [["x-up" "v"] ["transfer-encoding" "chunked"]
+                                                            ["Content-Encoding" "GZIP, br"] ["content-length" "88"]]})]
       (is (= [[:header "x-p" "1"] [:code 200] [:header "x-up" "v"] [:remove-header "content-length"]
               [:header "cache-control" "no-cache"] [:header "x-accel-buffering" "no"]
               [:header "content-type" "text/event-stream; charset=utf-8"] [:hijack 200]]
              f))))
+  (testing "a raw response or an unsupported coding chain keeps its encoding"
+    (is (= [[:header "content-encoding" "gzip, unknown"]]
+           (frames/copy-upstream-frames [["content-encoding" "gzip, unknown"]])))
+    (is (= [["content-encoding" "gzip"]]
+           (proxy/forwardable-response-headers [["content-encoding" "gzip"]]))))
   (testing "a translated stream head"
     (is (= [[:header "x-p" "1"] [:code 200] [:header "content-type" "text/event-stream; charset=utf-8"]
             [:header "cache-control" "no-cache"] [:header "x-accel-buffering" "no"] [:hijack 200]]

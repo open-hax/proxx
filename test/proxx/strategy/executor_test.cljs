@@ -1,6 +1,7 @@
 (ns proxx.strategy.executor-test
   (:require [cljs.test :refer [deftest is testing]]
             [proxx.policy.loader :as loader]
+            [proxx.routing.outcome :as outcome]
             [proxx.runtime.strategy :as edge]
             [proxx.schema :as schema]
             [proxx.strategy.attempt :as attempt]
@@ -102,6 +103,34 @@
     (is (= [[:mark-rate-limited 777] [:health :failure "quota_exhausted"] [:pheromone :failure]] (:effects r)))
     (is (= :next-candidate (:next r)))
     (is (true? (:reassignment-allowed? (:state r))))))
+
+(deftest classified-model-unavailable-retains-account-and-final-response
+  (let [state (assoc fresh :reassignment-allowed? false)
+        candidate (assoc ctx :matches-preferred? true)
+        result (run state {:type :credential-model-unavailable
+                           :ctx candidate
+                           :cooldown-ms 21600000})
+        summary (get-in result [:state :accumulator])
+        native (run state {:type :declined
+                           :ctx candidate
+                           :status 404
+                           :ok? false
+                           :outcome {:model-not-supported-for-account true :request-error true}})]
+    (is (= :next-candidate (:next result)))
+    (is (= [[:mark-model-unsupported 21600000] [:pheromone :failure]]
+           (:effects result)))
+    (is (true? (:reassignment-allowed? (:state result))))
+    (is (true? (:saw-model-not-supported-for-account summary)))
+    (is (true? (:saw-request-error summary)))
+    (is (false? (:saw-rate-limit summary)))
+    (is (= :model-not-supported
+           (outcome/classify {:candidate-count 1 :summary summary} {})))
+    (is (= (outcome/classify {:candidate-count 1
+                             :summary (get-in native [:state :accumulator])} {})
+           (outcome/classify {:candidate-count 1 :summary summary} {})))
+    (is (= :model-not-supported
+           (outcome/classify {:candidate-count 2
+                              :summary (assoc summary :saw-model-not-found true)} {})))))
 
 (deftest status-only-failures
   (is (= :transient-provider (ex/transient-status policy {:status 403 :provider-id "factory" :has-retry-remaining? true})))

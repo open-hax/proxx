@@ -66,3 +66,13 @@
     (is (nil? (:last-success-at row)))
     (is (= 123 (:last-failure-at row)))
     (is (= 429 (:last-status row)))))
+
+(deftest row-parsing-preserves-postgres-numeric-values
+  (doseq [status [200 401 429 500]]
+    (let [row (h/parse-health-row {"provider_id" "p" "account_id" "a"
+                                   "success_count" "2" "failure_count" "1"
+                                   "last_success_at" 0 "last_failure_at" 1700000000000
+                                   "last_status" status})]
+      (is (= status (:last-status row)))
+      (is (= 0 (:last-success-at row)))
+      (is (= 1700000000000 (:last-failure-at row))))))

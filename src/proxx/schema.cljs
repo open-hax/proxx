@@ -758,6 +758,16 @@
      [:map [:max [:int {:min 0}]]]]
      [:classify/result [:enum :rate-limit/volume :rate-limit/concurrency]]]])
 
+(def CredentialFailureClassificationContract
+  [:and ContractBase
+   [:map
+    [:contract/kind [:enum :credential-failure-classification]]
+    [:match/provider-pattern :string]
+    [:match/status [:int {:min 400 :max 599}]]
+    [:match/message-pattern {:optional true} :string]
+    [:classify/result [:enum :credential/quota-exhausted :credential/model-unavailable]]
+    [:classify/cooldown-ms [:int {:min 1}]]]])
+
 (def PolicyProgramContract
   [:and
    ContractBase
@@ -813,6 +823,7 @@
    [:request-queue-template RequestQueueTemplateContract]
     [:request-queue-instance RequestQueueInstanceContract]
     [:rate-limit-classification RateLimitClassificationContract]
+    [:credential-failure-classification CredentialFailureClassificationContract]
     [:policy-program PolicyProgramContract]
    [:strategy-binding StrategyBindingContract]
    [:policy Policy]

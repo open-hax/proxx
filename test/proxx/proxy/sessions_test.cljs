@@ -101,13 +101,15 @@
       (await
        (with-proxy-app
          {:keys []
+          :proxy-auth-token "test-credential-operator"
           :keys-payload {"providers" {"vivgrid" {"auth" "api_key" "accounts" [{"id" "viv-a" "api_key" "viv-secret-a"}]} ; pragma: allowlist secret
                                       "openai" {"auth" "oauth_bearer"
                                                 "accounts" [{"id" "openai-a" "access_token" "openai-secret-a" ; pragma: allowlist secret
                                                              "refresh_token" "refresh-a"}]}}}
           :upstream-handler (fn [_ _] (json-ok {"ok" true}))}
          (fn ^:async run [{:keys [app]}]
-          (let [hidden (await (h/inject app {:method "GET" :url "/api/v1/credentials"}))
+          (let [hidden (await (h/inject app {:method "GET" :url "/api/v1/credentials"
+                                               :headers {"authorization" "Bearer test-credential-operator"}}))
                 payload (:json hidden)
                 first-account (get-in payload ["providers" 0 "accounts" 0])]
             (is (= 200 (:status hidden)))
@@ -121,7 +123,8 @@
             (is (string? (get first-account "secretPreview")))
             (is (map? (get payload "keyPoolStatuses")))
             (is (map? (get payload "requestLogSummary")))
-            (let [revealed (await (h/inject app {:method "GET" :url "/api/v1/credentials?reveal=1"}))
+            (let [revealed (await (h/inject app {:method "GET" :url "/api/v1/credentials?reveal=1"
+                                               :headers {"authorization" "Bearer test-credential-operator"}}))
                   rp (:json revealed)
                   vivgrid (first (filter #(= "vivgrid" (get % "id")) (get rp "providers")))]
               (is (= 200 (:status revealed)))

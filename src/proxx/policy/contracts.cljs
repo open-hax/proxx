@@ -105,6 +105,18 @@
        (filter #(= :rate-limit-classification (:contract/kind %)))
        vec))
 
+(defn credential-failure-classification
+  "Return the first policy clause matching a provider failure."
+  [idx provider-id status message]
+  (some (fn [clause]
+          (when (and (= :credential-failure-classification (:contract/kind clause))
+                     (= status (:match/status clause))
+                     (pattern-matches? (:match/provider-pattern clause) provider-id)
+                     (or (nil? (:match/message-pattern clause))
+                         (pattern-matches? (:match/message-pattern clause) message)))
+            clause))
+        (:contracts idx)))
+
 (defn- provider-route-provider-id [route]
   (or (:provider/id route)
       (:provider-id route)

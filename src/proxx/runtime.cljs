@@ -103,6 +103,12 @@
         (swap! compiled-policy-cache assoc manifest-path compiled)
         compiled)))
 
+(defn classify-credential-failure [manifest-path provider-id status message]
+  (let [compiled (compiled-policy-for-manifest (or manifest-path "resources/policies/runtime/00-manifest.edn"))]
+    (when-let [clause (policy-contracts/credential-failure-classification (:index compiled) provider-id status message)]
+      {:result (:classify/result clause)
+       :cooldown-ms (:classify/cooldown-ms clause)})))
+
 (defn load-provider-seed-specs-js
   "Load provider seed specs from :provider-seed contracts in the manifest.
 

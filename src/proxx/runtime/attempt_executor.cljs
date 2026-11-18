@@ -543,8 +543,29 @@
               (.setStatus span "error" "openai_images_try_next_base")
               (.end span)
               :next-step)
-          (let [ctx (exec-ctx env account)]
+          (let [ctx (exec-ctx env account)
+                credential-failure (when-not (.-ok upstream-response)
+                                     (runtime/classify-credential-failure
+                                      manifest provider-id status
+                                      (try (await (.text (.clone upstream-response)))
+                                           (catch :default _ ""))))]
             (cond
+              credential-failure
+              (let [{:keys [result cooldown-ms]} credential-failure
+                    model-unavailable? (= result :credential/model-unavailable)
+                    cooldown (if model-unavailable?
+                               cooldown-ms
+                               (or (await (proxy/extract-rate-limit-cooldown-ms-js upstream-response))
+                                   (when health (.getGrowingCooldown health provider-id (.-accountId account) cooldown-ms))
+                                   cooldown-ms))
+                    event #js {"type" (if model-unavailable? "credential-model-unavailable" "quota-exhausted")
+                               "ctx" ctx "cooldownMs" cooldown}]
+                (await (run-effects! env (.-effects (advance! env event)) account (at "status" status)))
+                (await (drain-quietly upstream-response))
+                (.setStatus span "error" (name result))
+                (.end span)
+                :break)
+
               ;; --- rate limited ------------------------------------------------
               (= 429 status)
               (do

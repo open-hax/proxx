@@ -22,7 +22,7 @@
 
 (defn- int-or-zero [raw] (let [n (flow/parse-int raw)] (if (and n (not (zero? n))) n 0)))
 
-(defn- int-or-nil [raw] (when (seq raw) (flow/parse-int raw)))
+(defn- int-or-nil [raw] (when (some? raw) (flow/parse-int raw)))
 
 (defn parse-health-row
   "A health value from an `account_health` row (counts arrive as bigint strings)."

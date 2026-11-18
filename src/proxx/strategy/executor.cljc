@@ -396,6 +396,13 @@
     :direct-declined (direct-declined state event)
     :rate-limited (rate-limited state event)
     :quota-exhausted (quota-exhausted state event)
+    :credential-model-unavailable
+    (result (-> state
+                (flag :saw-model-not-supported-for-account)
+                (flag :saw-request-error)
+                (sticky-affinity-reassignment (:ctx event)))
+            [[:mark-model-unsupported (:cooldown-ms event)] [:pheromone :failure]]
+            :next-candidate)
     :transient-provider (transient-provider-retry state event)
     :server-error (server-error state policy event)
     :handled (handled state policy event)

@@ -64,9 +64,18 @@
       with-account)))
 
 (defn forwardable-response-headers
-  "The `[name value]` pairs of an upstream response worth copying to the client."
-  [pairs]
-  (into [] (remove (fn [[name _]] (contains? hop-by-hop-headers (str/lower-case name)))) pairs))
+  "Header pairs worth copying. When Node fetch decoded the body, remove an
+  encoding header only if every listed coding is decoded by fetch."
+  ([pairs] (forwardable-response-headers pairs false))
+  ([pairs decoded-body?]
+   (into []
+         (remove (fn [[name value]]
+                   (let [name (str/lower-case name)]
+                     (or (contains? hop-by-hop-headers name)
+                         (and decoded-body? (= "content-encoding" name)
+                              (every? #{"gzip" "x-gzip" "deflate" "br"}
+                                      (map str/trim (str/split (str/lower-case value) #"," -1))))))))
+         pairs)))
 
 ;; ---------------------------------------------------------------------------
 ;; Retry-After
