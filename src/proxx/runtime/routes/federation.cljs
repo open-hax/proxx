@@ -129,7 +129,10 @@
         deps-map {:sql-federation-store sql-federation-store :credential-store credential-store :log log
                   :timeout timeout :prefix prefix}
         need-federation-store (fn [] (guard/require-present sql-federation-store 503 "federation_store_not_supported"))
-        gate (fn [auth] (fed/authorize auth))]
+        gate (fn [auth] (fed/authorize auth))
+        credential-gate (fn [auth]
+                          (or (gate auth)
+                              (guard/forbid-unless (= "legacy_admin" (get auth "kind")))))]
     [{:method :get :path (p "/federation/peers")
       :handler (fn ^:async list-peers [{:keys [auth query]}]
                  (or (gate auth) (need-federation-store)
@@ -186,7 +189,7 @@
      {:method :post :path (p "/federation/bridges/lease/import")
       :handler
       (fn ^:async lease-import [{:keys [auth body]}]
-        (or (gate auth)
+        (or (credential-gate auth)
             (guard/require-present bridge-relay 503 "federation_bridge_not_supported")
             (let [{:keys [response provider-id limit refresh-buffer-ms force-api-keys? session-id agent-id]} (fed/lease-import-request body)]
               (or response
@@ -292,7 +295,7 @@
      {:method :post :path (p "/federation/accounts/export")
       :handler
       (fn ^:async export-account [{:keys [auth body]}]
-        (or (gate auth)
+        (or (credential-gate auth)
             (let [provider-id (fed/trimmed (fed/field body "providerId"))
                   account-id (fed/trimmed (fed/field body "accountId"))
                   find-credential (fn ^:async find-credential []
@@ -354,7 +357,7 @@
      {:method :post :path (p "/federation/projected-accounts/import-all")
       :handler
       (fn ^:async import-all [{:keys [auth body]}]
-        (or (gate auth)
+        (or (credential-gate auth)
             (when-not (and sql-federation-store credential-store) (guard/error 503 "federation_store_not_supported"))
             (let [source-peer-id (fed/trimmed (fed/field body "sourcePeerId"))
                   provider-id (fed/trimmed (fed/field body "providerId"))]

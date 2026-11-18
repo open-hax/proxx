@@ -15,6 +15,14 @@
 (def PromptHash  [:string {:min 8}])   ;; sha-prefix, never empty
 (def EpochMs     [:int    {:min 0}])
 
+(def RegexPattern
+  [:and :string
+   [:fn {:error/message "must be a valid regular expression"}
+    (fn [pattern]
+      (try
+        (boolean (re-pattern pattern))
+        (catch :default _ false)))]])
+
 ;; ══════════════════════════════════════════════════════════════
 ;; Provenance — every record carries this
 ;; ══════════════════════════════════════════════════════════════
@@ -762,9 +770,9 @@
   [:and ContractBase
    [:map
     [:contract/kind [:enum :credential-failure-classification]]
-    [:match/provider-pattern :string]
+    [:match/provider-pattern RegexPattern]
     [:match/status [:int {:min 400 :max 599}]]
-    [:match/message-pattern {:optional true} :string]
+    [:match/message-pattern {:optional true} RegexPattern]
     [:classify/result [:enum :credential/quota-exhausted :credential/model-unavailable]]
     [:classify/cooldown-ms [:int {:min 1}]]]])
 

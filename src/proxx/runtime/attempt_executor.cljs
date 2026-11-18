@@ -327,6 +327,32 @@
     (vreset! (:exec env) (.-state result))
     result))
 
+(defn- ^:async classify-credential-response [env ^js response]
+  (when-not (.-ok response)
+    (let [text (try (await (.text (.clone response))) (catch :default _ ""))
+          message (try (or (runtime/extract-error-message-js (js/JSON.parse text)) text)
+                       (catch :default _ text))]
+      (runtime/classify-credential-failure
+       (:manifest-path env) (.-providerId ^js (:candidate env)) (.-status response) message))))
+
+(defn- ^:async handle-credential-failure! [env ^js account ctx ^js response ^js span failure]
+  (let [{:keys [result cooldown-ms]} failure
+        ^js health (:health-store env)
+        provider-id (.-providerId ^js (:candidate env))
+        model-unavailable? (= result :credential/model-unavailable)
+        cooldown (if model-unavailable?
+                   cooldown-ms
+                   (or (await (proxy/extract-rate-limit-cooldown-ms-js response))
+                       (when health (.getGrowingCooldown health provider-id (.-accountId account) cooldown-ms))
+                       cooldown-ms))
+        event #js {"type" (if model-unavailable? "credential-model-unavailable" "quota-exhausted")
+                   "ctx" ctx "cooldownMs" cooldown}]
+    (await (run-effects! env (.-effects (advance! env event)) account (at "status" (.-status response))))
+    (await (drain-quietly response))
+    (.setStatus span "error" (name result))
+    (.end span)
+    :break))
+
 (defn- ^:async codex-images-reply
   "Translate a Codex Responses reply into an Images API reply. Resolves to
   :handled (answered the client), or :failed (the stream carried an error / no image)."
@@ -544,33 +570,14 @@
               (.end span)
               :next-step)
           (let [ctx (exec-ctx env account)
-                credential-failure (when-not (.-ok upstream-response)
-                                     (runtime/classify-credential-failure
-                                      manifest provider-id status
-                                      (try (await (.text (.clone upstream-response)))
-                                           (catch :default _ ""))))]
+                credential-failure (await (classify-credential-response env upstream-response))]
             (cond
               credential-failure
-              (let [{:keys [result cooldown-ms]} credential-failure
-                    model-unavailable? (= result :credential/model-unavailable)
-                    cooldown (if model-unavailable?
-                               cooldown-ms
-                               (or (await (proxy/extract-rate-limit-cooldown-ms-js upstream-response))
-                                   (when health (.getGrowingCooldown health provider-id (.-accountId account) cooldown-ms))
-                                   cooldown-ms))
-                    event #js {"type" (if model-unavailable? "credential-model-unavailable" "quota-exhausted")
-                               "ctx" ctx "cooldownMs" cooldown}]
-                (await (run-effects! env (.-effects (advance! env event)) account (at "status" status)))
-                (await (drain-quietly upstream-response))
-                (.setStatus span "error" (name result))
-                (.end span)
-                :break)
+              (await (handle-credential-failure! env account ctx upstream-response span credential-failure))
 
               ;; --- rate limited ------------------------------------------------
               (= 429 status)
-              (do
-                (advance! env #js {"type" "rate-limit-seen"})
-                (let [multiplier (volatile! 1)
+              (let [multiplier (volatile! 1)
                       limit-kind (volatile! "unknown")
                       response-body (volatile! nil)]
                   (when (= "ollama-cloud" (.-providerId account))
@@ -610,9 +617,20 @@
                                       (let [retry-url (url/join-url (.-baseUrl provider-context) primary-path)
                                             retry-headers (upstream-headers env account provider-context candidate-strategy candidate-payload)
                                             retry-response (try (await (fetch-upstream env retry-url retry-headers effective-body))
-                                                                (catch :default _ ::transport))]
+                                                                (catch :default _ ::transport))
+                                            retry-failure (when-not (= ::transport retry-response)
+                                                            (await (classify-credential-response env retry-response)))]
                                         (cond
                                           (= ::transport retry-response) :exhausted
+                                          retry-failure
+                                          (do
+                                            (record-attempt! request-log-store provider-context
+                                                             (attempt-values candidate account upstream-path candidate-payload
+                                                                             (at "status" (.-status ^js retry-response)
+                                                                                 "latencyMs" (- (js/Date.now) started)) cache-key)
+                                                             mode host)
+                                            (await (handle-credential-failure! env account ctx retry-response span retry-failure))
+                                            :credential-failure)
                                           (not= 429 (.-status ^js retry-response))
                                           (let [^js rr retry-response
                                                 retry-latency (- (js/Date.now) started)
@@ -645,8 +663,9 @@
                                                   :exhausted)
                                               (do (.markRateLimited key-pool account (.-shortCooldownMs ^js (strat/throttle-plan-js retry-cooldown manifest)))
                                                   (recur (inc n))))))))))]
-                            (if (= :handled outcome)
-                              :handled
+                            (case outcome
+                              :handled :handled
+                              :credential-failure :break
                               (do (.markRateLimited key-pool account cooldown-ms)
                                   (await (run-effects! env (.-effects (advance! env #js {"type" "rate-limited" "ctx" ctx "limitKind" @limit-kind})) account (at)))
                                   (.setStatus span "error" "concurrency_throttle")
@@ -656,7 +675,7 @@
                             (await (run-effects! env (.-effects (advance! env #js {"type" "rate-limited" "ctx" ctx "limitKind" @limit-kind})) account (at)))
                             (.setStatus span "error" "rate_limited")
                             (.end span)
-                            :break))))))
+                            :break)))))
 
               ;; --- hidden quota exhaustion ---------------------------------------
               (await (runtime/response-indicates-quota-error-js upstream-response))
