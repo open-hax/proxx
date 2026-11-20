@@ -66,12 +66,14 @@
 
 (deftest warmup-verdicts
   (is (j/looks-like-legacy-json? {:entries [] :malformed ["{"]}))
+  (is (j/looks-like-legacy-json? {:entries [] :malformed-count 1}))
   (is (not (j/looks-like-legacy-json? {:entries [] :malformed []})))
   (is (not (j/looks-like-legacy-json? {:entries [1] :malformed ["{"]})))
   (is (j/legacy-payload? {:array? true}))
   (is (j/legacy-payload? {:entries-array? true}))
   (is (not (j/legacy-payload? {})))
   (is (= [:quarantine-lines :persist] (j/post-load-steps {:malformed ["x"]} true)))
+  (is (= [:quarantine-lines :persist] (j/post-load-steps {:malformed-count 1} false)))
   (is (= [:persist] (j/post-load-steps {:malformed []} true)))
   (is (= [] (j/post-load-steps {:malformed []} false))))
 

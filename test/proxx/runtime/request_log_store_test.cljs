@@ -25,22 +25,67 @@
 
 (deftest ^:async journal-roundtrip-and-corrupt-lines
   (let [dir (tmp-dir) file (path/join dir "r.jsonl")
-        _ (.writeFileSync fs file (str (js/JSON.stringify (entry "a")) "\n{broken\n" (js/JSON.stringify (entry "b")) "\n"))
+        first-bad "  {broken café  "
+        second-bad "  null "
+        _ (.writeFileSync fs file
+                          (str (js/JSON.stringify (entry "a")) "\r\n" first-bad "\r\n  \r\n"
+                               (js/JSON.stringify (entry "b")) "\r\n" second-bad))
         [warnings restore] (capture! "warn")
         ^js s (store file)]
     (try
       (await (.warmup s))
       (is (= ["a" "b"] (ids s)))
-      (is (= 1 (count (filter #(re-find #"Ignored 1 malformed" %) @warnings))))
+      (is (= 1 (count (filter #(re-find #"Ignored 2 malformed" %) @warnings))))
       (let [corrupt (first (filter #(re-find #"^r\.jsonl\.corrupt-" %) (ls dir)))]
         (is (some? corrupt) "malformed lines are quarantined")
-        (is (= "{broken\n" (.readFileSync fs (path/join dir corrupt) "utf8"))))
+        (is (= (str first-bad "\n" second-bad "\n")
+               (.readFileSync fs (path/join dir corrupt) "utf8")))
+        (is (zero? (bit-and 8r077 (.-mode (.statSync fs (path/join dir corrupt)))))))
       (is (= 2 (count (lines file))) "the warmup rewrote the journal without the broken line")
       (.record s (entry "c"))
       (await (.close s))
       (is (= 3 (count (lines file))) "close flushes")
       (is (every? #(not (re-find #"\.tmp$" %)) (ls dir)) "no temp files left behind")
       (finally (restore) (cleanup dir)))))
+
+(deftest ^:async failed-warmup-leaves-the-journal-intact
+  (let [dir (tmp-dir) file (path/join dir "r.jsonl") meta (path/join dir "r.meta.json")
+        source (str (js/JSON.stringify (entry "a")) "\n{broken\n")
+        ^js s (store file)]
+    (try
+      (.writeFileSync fs file source "utf8")
+      (.mkdirSync fs meta)
+      (let [error (try (await (.warmup s)) nil (catch :default e e))]
+        (is (= "EISDIR" (some-> error (aget "code")))))
+      (is (= source (.readFileSync fs file "utf8")))
+      (is (= ["r.jsonl" "r.meta.json"] (ls dir)) "no partial quarantine or spool is left behind")
+      (finally (cleanup dir)))))
+
+(deftest ^:async warmup-preserves-clean-journal-and-historical-rollups
+  (let [dir (tmp-dir) file (path/join dir "r.jsonl") meta (path/join dir "r.meta.json")
+        tenant-id (.repeat "x" 119)
+        updated-c (entry "c")
+        _ (aset updated-c "status" 503)
+        _ (aset updated-c "tenantId" (str tenant-id " remainders"))
+        source (str (.join (to-array (map js/JSON.stringify
+                                          [(entry "a") (entry "b") (entry "a") (entry "c")
+                                           (entry "d") updated-c (entry "a")])) "\n") "\n")
+        historic (js/JSON.stringify #js {:dailyBuckets #js [#js {:startMs 1699920000000 :totalTokens 42}]})
+        ^js s (store file :max 3)]
+    (try
+      (.writeFileSync fs file source "utf8")
+      (.writeFileSync fs meta historic "utf8")
+      (await (.warmup s))
+      (is (= ["c" "d" "a"] (ids s)) "a reenters after eviction and an update to c keeps its original position")
+      (is (= 503 (aget (first (.snapshot s)) "status")))
+      (is (= tenant-id (aget (first (.snapshot s)) "tenantId"))
+          "loading the retained rows removes trailing whitespace exposed by the original length limit")
+      (is (= [[1699920000000 42]]
+             (mapv (fn [bucket] [(aget bucket "startMs") (aget bucket "totalTokens")]) (.dailyBuckets s))))
+      (is (= source (.readFileSync fs file "utf8")))
+      (is (= historic (.readFileSync fs meta "utf8")))
+      (is (= ["r.jsonl" "r.meta.json"] (ls dir)))
+      (finally (cleanup dir)))))
 
 (deftest ^:async closed-store-and-subscribers
   (let [dir (tmp-dir) file (path/join dir "r.jsonl")
@@ -81,18 +126,34 @@
 
 (deftest ^:async legacy-document-is-migrated
   (let [dir (tmp-dir) file (path/join dir "r.jsonl") legacy (path/join dir "r.json")
-        _ (.writeFileSync fs legacy (js/JSON.stringify #js {:entries #js [(entry "a") (entry "b")]}))
+        source (js/JSON.stringify #js {:entries #js [(entry "a") (entry "b")]
+                                       :dailyBuckets #js [#js {:startMs 1699920000000 :totalTokens 42}]} nil 2)
+        _ (.writeFileSync fs legacy source "utf8")
         [infos restore] (capture! "info")
         ^js s (store file)]
     (try
       (await (.warmup s))
       (is (= ["a" "b"] (ids s)))
       (is (not (.existsSync fs legacy)))
-      (is (some #(re-find #"^r\.json\.migrated-" %) (ls dir)))
+      (let [archived (first (filter #(re-find #"^r\.json\.migrated-" %) (ls dir)))]
+        (is (= source (.readFileSync fs (path/join dir archived) "utf8"))))
+      (is (= 42 (aget (first (.dailyBuckets s)) "totalTokens")))
       (is (= 2 (count (lines file))))
       (is (= 1 (count @infos)))
+      (is (not-any? #(.endsWith % ".tmp") (ls dir)))
       (await (.close s))
       (finally (restore) (cleanup dir)))))
+
+(deftest ^:async inline-legacy-array-is-loaded
+  (let [dir (tmp-dir) file (path/join dir "r.jsonl")
+        ^js s (store file)]
+    (try
+      (.writeFileSync fs file (js/JSON.stringify #js [(entry "a") (entry "b")] nil 2) "utf8")
+      (await (.warmup s))
+      (is (= ["a" "b"] (ids s)))
+      (is (= ["r.jsonl" "r.meta.json"] (ls dir)))
+      (is (= 2 (count (lines file))))
+      (finally (cleanup dir)))))
 
 (deftest ^:async unparseable-legacy-document-is-quarantined
   (let [dir (tmp-dir) file (path/join dir "r.jsonl")
