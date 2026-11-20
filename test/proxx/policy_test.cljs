@@ -5,7 +5,8 @@
             [proxx.policy.evidence :as evidence]
             [proxx.policy.loader :as loader]
             [proxx.policy.router :as router]
-            [proxx.policy.search :as policy-search]))
+            [proxx.policy.search :as policy-search]
+            [proxx.runtime :as runtime]))
 
 (defn strategy [id outcome strategy-symbol]
   {:contract/id id
@@ -947,6 +948,26 @@
     (is (= ["embeddinggemma-stealth"]
            (:providers (preview (assoc input :tenant-settings
                                        {:allowed-provider-ids ["embeddinggemma-stealth"]})))))))
+
+(deftest ^:async embeddinggemma2-strict-policy-tree-normalizes-request-kind-and-exhausts
+  (let [manifest "resources/policies/runtime/00-manifest.edn"
+        provider-ids ["ollama" "embeddinggemma-stealth" "embeddinggemma-yoga"]
+        input {:modelId "embeddinggemma-2"
+               :providerIds provider-ids
+               :accountsByProvider (into {} (map (fn [id] [id [{:accountId id}]]) provider-ids))
+               :strategiesByProvider (into {} (map (fn [id] [id [{:mode "embeddings" :priority 0}]])
+                                                   provider-ids))}]
+    (doseq [request-kind-key [:requestKind :request-kind]]
+      (let [attempted (atom [])
+            ^js result (await
+                        (runtime/execute-policy-tree-js
+                         manifest
+                         (clj->js (assoc input request-kind-key "embeddings"))
+                         (fn [^js candidate]
+                           (swap! attempted conj (aget candidate "provider-id"))
+                           (js/Promise.resolve #js {:status "failure" :reason "fixture-unavailable"}))))]
+        (is (= "exhausted" (.-status result)))
+        (is (= ["embeddinggemma-yoga" "embeddinggemma-stealth"] @attempted))))))
 
 (deftest compiler-previews-embedding-policy-decision
   (let [compiled (contracts/compile-contracts

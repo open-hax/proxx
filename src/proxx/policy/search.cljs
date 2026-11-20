@@ -80,13 +80,13 @@
                                 :applies-account-constraint (:applies-constraint account-result)}}))
           ordered-accounts)))
 
+(defn- request-kind-for [input]
+  (contracts/normalized-keyword (or (:request-kind input) (:requestKind input) :chat)))
+
 (defn- build-strategy-children
   "Build strategy branch nodes for a provider."
   [compiled route provider-id input base-url paths]
-  (let [request-kind (contracts/normalized-keyword
-                      (or (get input :request-kind)
-                          (get input :requestKind)
-                          :chat))
+  (let [request-kind (request-kind-for input)
         strategy-modes (strategies-for-provider-input compiled route provider-id request-kind input)]
     (mapv (fn [mode]
             (branch-node
@@ -102,8 +102,9 @@
   [compiled route input]
   (let [provider-ids (contracts/request-or-route-provider-ids route input)
         model-id (or (:model-id input) (:modelId input) "")
+        request-kind (request-kind-for input)
         surface-providers (filterv #(contracts/request-surface-provider-allowed?
-                                     compiled % (:request-kind input) model-id)
+                                     compiled % request-kind model-id)
                                    provider-ids)
         evidenced-providers (contracts/evidence-filtered-provider-ids
                               route input surface-providers model-id)
@@ -133,14 +134,16 @@
                      (get input :modelId)
                      "")
         clauses (:routing-clauses compiled)
-        matching (filterv #(contracts/routing-clause-matches-model? % model-id) clauses)]
+        matching (filterv #(contracts/routing-clause-matches-model? % model-id) clauses)
+        first-match (first matching)
+        admitted (if (:prefer/providers-strict? first-match) [first-match] matching)]
     (mapv (fn [clause]
             (branch-node
              :routing-clause
              {:clause-id (:contract/id clause)}
              (fn [] (build-provider-children compiled clause input))
              {:routing-clause clause}))
-          matching)))
+          admitted)))
 
 (defn compile-policy-tree
   "Compile compiled policy contracts into a lazy search tree.
