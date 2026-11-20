@@ -29,6 +29,43 @@
     (is (= 1 (get (first (rl/hourly-buckets s 0)) "errorCount")) "errors count status >= 400")
     (is (= [2] (mapv #(get % "standardRequestCount") (take 1 (rl/hourly-buckets s 0)))) "tier split")))
 
+(deftest load-db-restores-each-persisted-rollup-independently
+  (let [history (record-all [(input {"timestamp" 1699000000000})
+                             (input {}) (input {})] 1)
+        rollups {"hourlyBuckets" rl/hourly-buckets
+                 "dailyBuckets" rl/daily-buckets
+                 "dailyModelBuckets" rl/model-buckets
+                 "dailyAccountBuckets" rl/account-buckets}
+        stored (into {} (map (fn [[field buckets]] [field (buckets history 0)])) rollups)
+        raw {"entries" sample}
+        entries (:entries (rl/hydrate-db raw 100 (env)))
+        estimates {"costUsd" 1.5 "energyJoules" 23 "waterEvaporatedMl" 4}
+        repaired (merge (first entries) estimates)
+        expected-entries (assoc entries 0 repaired)
+        rebuilt (rl/rebuild-indexes (assoc rl/empty-state :entries expected-entries))]
+    (doseq [[metadata retained-fields]
+            [[stored (set (keys rollups))]
+             [{"hourlyBuckets" (get stored "hourlyBuckets")
+               "dailyBuckets" []
+               "dailyModelBuckets" [{"startMs" 1699000000000 "model" "missing-provider"}]}
+              #{"hourlyBuckets"}]
+             [{"dailyAccountBuckets" (get stored "dailyAccountBuckets")} #{"dailyAccountBuckets"}]
+             [{} #{}]]]
+      (testing (str "restored fields " retained-fields)
+        (let [hydrated (rl/hydrate-db (merge raw metadata) 100 (env))
+              [loaded fixes] (rl/load-db hydrated (constantly estimates))]
+          (is (= expected-entries (:entries loaded)))
+          (is (= [repaired] fixes))
+          (is (= (rl/accumulators rebuilt) (rl/accumulators loaded)))
+          (is (= (rl/perf-summary rebuilt "p" "a" "m" "chat")
+                 (rl/perf-summary loaded "p" "a" "m" "chat")))
+          (doseq [[field buckets] rollups]
+            (is (= (if (contains? retained-fields field)
+                     (get stored field)
+                     (buckets rebuilt 0))
+                   (buckets loaded 0))
+                field)))))))
+
 (deftest corrections-apply-as-deltas
   (let [e (env)
         s0 (record-all [(input {"promptTokens" 10 "id" "x"})] 100)
