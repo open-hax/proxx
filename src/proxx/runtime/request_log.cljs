@@ -97,8 +97,9 @@
         cache (atom #js [])
         trim! (fn [] (let [n (.-length @cache)] (when (> n max-entries) (.splice @cache 0 (- n max-entries)))))
         reset-cache! (fn [entries] (reset! cache (to-array (map entry->js entries))))
-        load-wire! (fn [wire estimate-fn]
-                     (let [hydrated (rl/hydrate-db wire max-entries env)
+        load-wire! (fn [wire estimate-fn journal-entries]
+                     (let [hydrated (cond-> (rl/hydrate-db wire max-entries env)
+                                      (some? journal-entries) (assoc :entries journal-entries))
                            [s repaired] (rl/load-db hydrated (estimator estimate-fn))]
                        (reset! state s)
                        (reset-cache! (:entries s))
@@ -136,7 +137,7 @@
              (count pairs)))
 
          :load
-         (fn [raw estimate-fn] (load-wire! (->wire raw) estimate-fn))
+         (fn [raw estimate-fn] (load-wire! (->wire raw) estimate-fn nil))
 
          :hydrateEntry
          (fn [raw] (if-let [e (rl/hydrate-entry (->wire raw) env)] (entry->js e) nil))
@@ -292,9 +293,9 @@
   (.reset ^js (:core ctx))
   (reset! (:journal ctx) journal/empty-journal))
 
-(defn- ^:async apply-loaded-db! [ctx wire]
+(defn- ^:async apply-loaded-db! [ctx wire journal-entries]
   (reset-state! ctx)
-  (let [repaired ((:load-wire! ctx) wire (:estimate ctx))
+  (let [repaired ((:load-wire! ctx) wire (:estimate ctx) journal-entries)
         n (.-length repaired)]
     ;; Sync repaired entries to the SQL mirror so analytics see corrected costs.
     (when-let [m (:mirror ctx)]
@@ -371,9 +372,21 @@
           (do (await (quarantine-corrupt-metadata! ctx parsed))
               (empty-metadata)))))))
 
+(defn- array-backed-map [m]
+  (apply array-map (mapcat identity m)))
+
+(defn- hydrate-journal-entry [raw env]
+  ;; Complete both historical normalization passes before retaining a row.
+  (when-let [entry (rl/hydrate-entry raw env)]
+    (let [entry (rl/hydrate-entry entry env)
+          diagnostics (get entry "factoryDiagnostics")]
+      ;; These fixed field sets fit in flat immutable maps.
+      (array-backed-map (cond-> entry diagnostics
+                          (assoc "factoryDiagnostics" (array-backed-map diagnostics)))))))
+
 (defn- ^:async load-entries-from-jsonl! [ctx source spool]
   (let [env {:now clock :uuid new-uuid}
-        hydrate #(rl/hydrate-entry % env)
+        hydrate #(hydrate-journal-entry % env)
         max-entries (:max ctx)
         input (fs/createReadStream source #js {:encoding "utf8"})
         ^js reader (readline/createInterface #js {:input input :crlfDelay js/Infinity})
@@ -403,7 +416,7 @@
       (let [doc (aget parsed 0)]
         (if (journal/legacy-payload? {:array? (array? doc)
                                       :entries-array? (and (object? doc) (array? (aget doc "entries")))})
-          (do (await (apply-loaded-db! ctx (->wire doc)))
+          (do (await (apply-loaded-db! ctx (->wire doc) nil))
               (swap! (:journal ctx) assoc :lines (.entryCount ^js (:core ctx)))
               true)
           (do (await (quarantine-corrupt-file! ctx source (js/SyntaxError. journal/not-a-legacy-database)))
@@ -424,8 +437,8 @@
                 (await (persist-now! ctx true))
                 (await (archive-migrated! ctx source)))
               (let [meta (->wire (await (load-metadata-from-disk! ctx)))
-                    wire (assoc meta "entries" (:entries loaded))]
-                (await (apply-loaded-db! ctx wire))
+                    wire (assoc meta "entries" [])]
+                (await (apply-loaded-db! ctx wire (:entries loaded)))
                 (swap! (:journal ctx) assoc :lines (:line-count loaded))
                 (loop [steps (journal/post-load-steps loaded (not= source file))]
                   (when-let [step (first steps)]
