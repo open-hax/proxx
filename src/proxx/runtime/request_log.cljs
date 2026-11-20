@@ -89,15 +89,23 @@
 (defn- cursor->wire [^js after]
   (when after {"timestampMs" (.-timestampMs after) "id" (.-id after)}))
 
-(defn create-request-log-core-js
+(defn- create-request-log-core
   [max-entries ^js deps]
   (let [env {:now (if (and deps (.-now deps)) (.-now deps) (fn [] (js/Date.now)))
              :uuid (if (and deps (.-uuid deps)) (.-uuid deps) (fn [] (js/crypto.randomUUID)))}
         state (atom rl/empty-state)
         cache (atom #js [])
         trim! (fn [] (let [n (.-length @cache)] (when (> n max-entries) (.splice @cache 0 (- n max-entries)))))
-        reset-cache! (fn [entries] (reset! cache (to-array (map entry->js entries))))]
-    #js {:record
+        reset-cache! (fn [entries] (reset! cache (to-array (map entry->js entries))))
+        load-wire! (fn [wire estimate-fn]
+                     (let [hydrated (rl/hydrate-db wire max-entries env)
+                           [s repaired] (rl/load-db hydrated (estimator estimate-fn))]
+                       (reset! state s)
+                       (reset-cache! (:entries s))
+                       (to-array (map entry->js repaired))))]
+    {:load-wire! load-wire!
+     :core
+     #js {:record
          (fn [input]
            (let [e (rl/new-entry (->wire input) env)
                  [_ s overflowed?] (rl/record @state e max-entries)
@@ -128,12 +136,7 @@
              (count pairs)))
 
          :load
-         (fn [raw estimate-fn]
-           (let [hydrated (rl/hydrate-db (->wire raw) max-entries env)
-                 [s repaired] (rl/load-db hydrated (estimator estimate-fn))]
-             (reset! state s)
-             (reset-cache! (:entries s))
-             (to-array (map entry->js repaired))))
+         (fn [raw estimate-fn] (load-wire! (->wire raw) estimate-fn))
 
          :hydrateEntry
          (fn [raw] (if-let [e (rl/hydrate-entry (->wire raw) env)] (entry->js e) nil))
@@ -171,7 +174,10 @@
                                      (aset o p #js {:count (get s "count") :lastTimestamp (get s "lastTimestamp")}))
                                    o))
          :shouldCompactJournal (fn [force? needs? lines pending]
-                                 (rl/journal-should-compact? force? needs? lines pending max-entries (.-length @cache)))}))
+                                 (rl/journal-should-compact? force? needs? lines pending max-entries (.-length @cache)))}}))
+
+(defn create-request-log-core-js [max-entries deps]
+  (:core (create-request-log-core max-entries deps)))
 
 (defn request-log-hydrate-entry-js [raw]
   (let [env {:now (fn [] (js/Date.now)) :uuid (fn [] (js/crypto.randomUUID))}]
@@ -286,9 +292,9 @@
   (.reset ^js (:core ctx))
   (reset! (:journal ctx) journal/empty-journal))
 
-(defn- ^:async apply-loaded-db! [ctx raw]
+(defn- ^:async apply-loaded-db! [ctx wire]
   (reset-state! ctx)
-  (let [repaired (.load ^js (:core ctx) raw (:estimate ctx))
+  (let [repaired ((:load-wire! ctx) wire (:estimate ctx))
         n (.-length repaired)]
     ;; Sync repaired entries to the SQL mirror so analytics see corrected costs.
     (when-let [m (:mirror ctx)]
@@ -321,11 +327,18 @@
              (journal/corrupt-metadata-warning mp corrupt (.-message error))
              (journal/vanished-metadata-warning mp (.-message error))))))
 
-(defn- ^:async quarantine-corrupt-lines! [_ctx source lines]
-  (when (seq lines)
-    (let [corrupt (path-in source (journal/corrupt-name source (clock) (pid) (new-uuid)))]
-      (await (fsp/writeFile corrupt (str (.join (to-array lines) "\n") "\n") "utf8"))
-      (warn! (journal/corrupt-lines-warning (count lines) source corrupt)))))
+(defn- ^:async append-malformed! [spool source raw]
+  (let [handle (or (:handle @spool)
+                   (let [tmp (path-in source (journal/temp-name source (pid) (new-uuid)))
+                         handle (await (fsp/open tmp "ax" 8r600))]
+                     (vreset! spool {:path tmp :handle handle})
+                     handle))]
+    (await (.appendFile ^js handle (str raw "\n") "utf8"))))
+
+(defn- ^:async quarantine-corrupt-lines! [source tmp line-count]
+  (let [corrupt (path-in source (journal/corrupt-name source (clock) (pid) (new-uuid)))]
+    (await (fsp/rename tmp corrupt))
+    (warn! (journal/corrupt-lines-warning line-count source corrupt))))
 
 (defn- ^:async archive-migrated! [ctx source]
   (when-not (= source (:file ctx))
@@ -358,22 +371,28 @@
           (do (await (quarantine-corrupt-metadata! ctx parsed))
               (empty-metadata)))))))
 
-(defn- ^:async read-lines [p]
-  (let [input (fs/createReadStream p #js {:encoding "utf8"})
+(defn- ^:async load-entries-from-jsonl! [ctx source spool]
+  (let [env {:now clock :uuid new-uuid}
+        hydrate #(rl/hydrate-entry % env)
+        max-entries (:max ctx)
+        input (fs/createReadStream source #js {:encoding "utf8"})
         ^js reader (readline/createInterface #js {:input input :crlfDelay js/Infinity})
         it (.call (aget reader js/Symbol.asyncIterator) reader)]
     (try
-      (loop [acc (transient [])]
+      (loop [state journal/empty-ingestion]
         (let [^js r (await (.next ^js it))]
-          (if (.-done r) (persistent! acc) (recur (conj! acc (.-value r))))))
+          (if (.-done r)
+            (journal/finish-ingestion state)
+            (let [raw (.-value r)
+                  next-state (journal/ingest-line state raw max-entries json/parse hydrate)]
+              (when (> (:malformed-count next-state) (:malformed-count state))
+                (await (append-malformed! spool source raw)))
+              (recur next-state)))))
       (finally
         (.close reader)
-        (.close ^js input)))))
-
-(defn- ^:async load-entries-from-jsonl! [ctx source]
-  (let [lines (await (read-lines source))
-        env {:now clock :uuid new-uuid}]
-    (journal/ingest-lines lines (:max ctx) json/parse #(rl/hydrate-entry % env))))
+        (.close ^js input)
+        (when-let [handle (:handle @spool)]
+          (await (.close ^js handle)))))))
 
 (defn- ^:async load-legacy-db! [ctx source]
   (let [contents (await (fsp/readFile source "utf8"))
@@ -384,7 +403,7 @@
       (let [doc (aget parsed 0)]
         (if (journal/legacy-payload? {:array? (array? doc)
                                       :entries-array? (and (object? doc) (array? (aget doc "entries")))})
-          (do (await (apply-loaded-db! ctx doc))
+          (do (await (apply-loaded-db! ctx (->wire doc)))
               (swap! (:journal ctx) assoc :lines (.entryCount ^js (:core ctx)))
               true)
           (do (await (quarantine-corrupt-file! ctx source (js/SyntaxError. journal/not-a-legacy-database)))
@@ -397,23 +416,26 @@
       (do (await (fsp/mkdir (path/dirname file) #js {:recursive true}))
           (await (fsp/writeFile file "" "utf8"))
           (await (persist-metadata-now! ctx)))
-      (let [loaded (await (load-entries-from-jsonl! ctx source))]
-        (if (journal/looks-like-legacy-json? loaded)
-          (when (await (load-legacy-db! ctx source))
-            (await (persist-now! ctx true))
-            (await (archive-migrated! ctx source)))
-          (let [^js meta (await (load-metadata-from-disk! ctx))
-                raw (clj->js {"entries" (:entries loaded)})]
-            (doseq [k ["hourlyBuckets" "dailyBuckets" "dailyModelBuckets" "dailyAccountBuckets" "accountAccumulators"]]
-              (aset raw k (aget meta k)))
-            (await (apply-loaded-db! ctx raw))
-            (swap! (:journal ctx) assoc :lines (:line-count loaded))
-            (loop [steps (journal/post-load-steps loaded (not= source file))]
-              (when-let [step (first steps)]
-                (case step
-                  :quarantine-lines (await (quarantine-corrupt-lines! ctx source (:malformed loaded)))
-                  :persist (await (persist-now! ctx true)))
-                (recur (rest steps))))))))))
+      (let [spool (volatile! nil)]
+        (try
+          (let [loaded (await (load-entries-from-jsonl! ctx source spool))]
+            (if (journal/looks-like-legacy-json? loaded)
+              (when (await (load-legacy-db! ctx source))
+                (await (persist-now! ctx true))
+                (await (archive-migrated! ctx source)))
+              (let [meta (->wire (await (load-metadata-from-disk! ctx)))
+                    wire (assoc meta "entries" (:entries loaded))]
+                (await (apply-loaded-db! ctx wire))
+                (swap! (:journal ctx) assoc :lines (:line-count loaded))
+                (loop [steps (journal/post-load-steps loaded (not= source file))]
+                  (when-let [step (first steps)]
+                    (case step
+                      :quarantine-lines (await (quarantine-corrupt-lines! source (:path @spool) (:malformed-count loaded)))
+                      :persist (await (persist-now! ctx true)))
+                    (recur (rest steps)))))))
+          (finally
+            (when-let [tmp (:path @spool)]
+              (await (rm-quietly tmp)))))))))
 
 (defn- ^:async close! [ctx]
   (reset! (:closed ctx) true)
@@ -476,13 +498,14 @@
   [^js opts]
   (let [or-default (fn [v d] (if (some? v) v d))
         max-entries (or-default (aget opts "maxEntries") 1000)
-        core (create-request-log-core-js max-entries nil)
+        {:keys [core load-wire!]} (create-request-log-core max-entries nil)
         ctx {:file (aget opts "filePath")
              :max max-entries
              :interval (or-default (aget opts "persistIntervalMs") 1000)
              :mirror (aget opts "mirror")
              :estimate (aget opts "estimate")
              :core core
+             :load-wire! load-wire!
              :journal (atom journal/empty-journal)
              :mirror-state (atom {:count 0 :last-warning-at 0})
              :subs (atom [])

@@ -106,6 +106,25 @@
 
 (def ^:private empty-queue #?(:cljs cljs.core/PersistentQueue.EMPTY :clj clojure.lang.PersistentQueue/EMPTY))
 
+(def empty-ingestion {:by {} :order empty-queue :malformed-count 0 :line-count 0})
+
+(defn ingest-line
+  "Fold one raw journal line. Blanks do not count. Consumers can preserve a
+  rejected raw line when :malformed-count advances."
+  [state raw max-entries parse hydrate]
+  (let [line (str/trim raw)]
+    (if (empty? line)
+      state
+      (let [state (update state :line-count inc)
+            parsed (try-parse parse line)
+            entry (when-not (= ::unparseable parsed) (hydrate parsed))]
+        (if entry
+          (remember state (get entry "id") entry max-entries)
+          (update state :malformed-count inc))))))
+
+(defn finish-ingestion [{:keys [by order malformed-count line-count]}]
+  {:entries (mapv by order) :malformed-count malformed-count :line-count line-count})
+
 (defn ingest-lines
   "Fold raw journal lines into {:entries [oldest..newest] :malformed [raw lines]
   :line-count n}. Later lines for an id replace earlier ones in place; once more
@@ -113,31 +132,29 @@
   line to wire data (throwing when malformed); `hydrate` maps wire data to an
   entry or nil."
   [lines max-entries parse hydrate]
-  (let [{:keys [acc malformed n]}
-        (reduce (fn [st raw]
-                  (let [line (str/trim raw)]
-                    (if (zero? (count line))
-                      st
-                      (let [st (update st :n inc)
-                            parsed (try-parse parse line)
-                            entry (when-not (= ::unparseable parsed) (hydrate parsed))]
-                        (if entry
-                          (update st :acc remember (get entry "id") entry max-entries)
-                          (update st :malformed conj raw))))))
-                {:acc {:by {} :order empty-queue} :malformed [] :n 0}
+  (let [ingestion
+        (reduce (fn [state raw]
+                  (let [next-state (ingest-line state raw max-entries parse hydrate)]
+                    (cond-> next-state
+                      (> (:malformed-count next-state) (:malformed-count state))
+                      (update :malformed conj raw))))
+                (assoc empty-ingestion :malformed [])
                 lines)]
-    {:entries (mapv (:by acc) (:order acc))
-     :malformed malformed
-     :line-count n}))
+    (-> (finish-ingestion ingestion)
+        (dissoc :malformed-count)
+        (assoc :malformed (:malformed ingestion)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Warmup verdicts
 
+(defn- has-malformed? [{:keys [malformed malformed-count]}]
+  (if (some? malformed-count) (pos? malformed-count) (seq malformed)))
+
 (defn looks-like-legacy-json?
   "A file with no readable entry but unreadable lines is probably the old
   single-document format."
-  [{:keys [entries malformed]}]
-  (boolean (and (empty? entries) (seq malformed))))
+  [{:keys [entries] :as loaded}]
+  (boolean (and (empty? entries) (has-malformed? loaded))))
 
 (defn legacy-payload?
   "Parsed legacy documents are an entry array or an object whose `entries` is an
@@ -147,9 +164,9 @@
 
 (defn post-load-steps
   "What follows a successful load from a journal, in order."
-  [{:keys [malformed]} migrated-source?]
+  [loaded migrated-source?]
   (cond
-    (seq malformed) [:quarantine-lines :persist]
+    (has-malformed? loaded) [:quarantine-lines :persist]
     migrated-source? [:persist]
     :else []))
 
