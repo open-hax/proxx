@@ -530,20 +530,30 @@
 
       :else true)))
 
-(defn request-surface-provider-allowed?
-  "Return true when declarative request-surface defaults allow provider-id.
+(defn- provider-route-scope-allows? [compiled provider-id request-kind model-id]
+  (let [provider-id (normalize-provider-id provider-id)
+        scoped-routes (filter (fn [route]
+                                (and (= provider-id (normalize-provider-id
+                                                     (provider-route-id-from-input route)))
+                                     (or (:match/model-pattern route) (:match/request-kind route))))
+                              (:provider-routes compiled))]
+    (or (empty? scoped-routes)
+        (boolean
+         (some (fn [route]
+                 (let [{:match/keys [model-pattern] scoped-kind :match/request-kind} route]
+                   (and (or (nil? model-pattern) (pattern-matches? model-pattern model-id))
+                        (or (nil? scoped-kind) (= scoped-kind request-kind)))))
+               scoped-routes)))))
 
-  Provider capability clauses tune strategy preference. Request-surface-default
-  clauses define the provider universe for non-chat surfaces such as embeddings,
-  images, video, music, and TTS. If a surface has no default clause, preserve
-  legacy fail-open behavior for chat-like routes while the policy manifest grows.
-  "
-  [compiled provider-id request-kind]
+(defn request-surface-provider-allowed?
+  "Apply request-surface defaults and any exact provider route scope.
+  Unscoped routes preserve the existing provider availability rules."
+  [compiled provider-id request-kind model-id]
   (let [surface-clauses (filterv #(= request-kind (:match/request-kind %))
                                   (:request-surface-defaults compiled))]
-    (or (empty? surface-clauses)
-        (boolean (some #(pattern-matches? (:match/provider-pattern %) provider-id)
-                       surface-clauses)))))
+    (and (or (empty? surface-clauses)
+             (boolean (some #(pattern-matches? (:match/provider-pattern %) provider-id) surface-clauses)))
+         (provider-route-scope-allows? compiled provider-id request-kind model-id))))
 
 (defn- requested-provider-allowed? [input provider-id]
   (let [requested (set (map normalize-provider-id (requested-provider-ids input)))]
@@ -653,7 +663,7 @@
                     (filter #(provider-route-supports-model? config % model-id))
                     (filter #(request-surface-provider-allowed? _compiled
                                                                (provider-route-id-from-input %)
-                                                               request-kind))
+                                                               request-kind model-id))
                     (filter #(requested-provider-allowed? input
                                                            (provider-route-id-from-input %)))
                     (filter #(tenant-provider-allowed? tenant-settings
@@ -1048,8 +1058,12 @@
       {:status :denied
        :reason :tenant-model-not-allowed
        :model-id model-id}
-      (if-let [bound-account (and (model-scoped-affinity-matches? input model-id)
-                                  (affinity-bound-account input))]
+      (if-let [bound-account (when (model-scoped-affinity-matches? input model-id)
+                               (let [account (affinity-bound-account input)]
+                                 (when (and account
+                                            (provider-route-scope-allows?
+                                             compiled (:provider-id account) request-kind model-id))
+                                   account)))]
         (let [provider-id (:provider-id bound-account)]
           (if-let [missing-route (first (missing-provider-route-ids compiled [provider-id]))]
             {:status :exhausted
@@ -1086,7 +1100,7 @@
                                                   (strategies-for-provider input provider-id))}))
         (if-let [route (select-routing-clause compiled model-id)]
           (let [provider-ids (request-or-route-provider-ids route input)
-              surface-providers (filterv #(request-surface-provider-allowed? compiled % request-kind)
+              surface-providers (filterv #(request-surface-provider-allowed? compiled % request-kind model-id)
                                          provider-ids)
               evidenced-providers (evidence-filtered-provider-ids route input surface-providers model-id)
               tenant-allowed-providers (filterv #(tenant-provider-allowed? tenant-settings %) evidenced-providers)

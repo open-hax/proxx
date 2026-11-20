@@ -17,6 +17,60 @@
   (fx/json-reply {:object "list" :model "qwen3-embedding-0.6b"
                   :data [{:object "embedding" :index 0 :embedding embedding}]}))
 
+(deftest ^:async routes-exact-embeddinggemma2-model-to-yoga-with-stealth-fallback
+  (let [yoga-status (atom 200)
+        stealth-status (atom 200)
+        seen (atom [])
+        model "embeddinggemma-2"
+        response (fn [status embedding]
+                   (js/Response.
+                    (js/JSON.stringify
+                     (clj->js (if (= 200 status)
+                                {:object "list" :model model
+                                 :data [{:object "embedding" :index 0 :embedding embedding}]}
+                                {:error {:message "Fixture rejected the request"}})))
+                    #js {:status status :headers #js {"Content-Type" "application/json"}}))]
+    (await
+     (fx/with-patched-fetch
+       (fn [input ^js init _original]
+         (let [url (js/URL. (str input))
+               host (.-hostname url)]
+           (when (and (= "/v1/embeddings" (.-pathname url))
+                      (contains? #{"embeddinggemma-yoga" "embeddinggemma-stealth"} host))
+             (swap! seen conj [host (get (fx/parse-json (.-body init)) "model")])
+             (if (= "embeddinggemma-yoga" host)
+               (response @yoga-status [1 0])
+               (response @stealth-status [0 1])))))
+       (^:async fn []
+         (await
+          (with-proxy-app
+            {:keys [] :upstream-handler (fn [_ _] (throw (js/Error. "Unexpected EmbeddingGemma 2 fallback")))}
+            (^:async fn [{:keys [app]}]
+              (let [payload {:model model :input "Short EmbeddingGemma 2 routing fixture"}
+                    primary (await (embeddings app payload))]
+                (is (= 200 (:status primary)))
+                (is (= [1 0] (get-in primary [:json "data" 0 "embedding"])))
+                (is (= [["embeddinggemma-yoga" model]] @seen))
+
+                (reset! yoga-status 503)
+                (reset! seen [])
+                (let [fallback (await (embeddings app payload))]
+                  (is (= 200 (:status fallback)))
+                  (is (= [0 1] (get-in fallback [:json "data" 0 "embedding"])))
+                  (is (= [["embeddinggemma-yoga" model] ["embeddinggemma-stealth" model]] @seen)))
+
+                (reset! stealth-status 503)
+                (reset! seen [])
+                (let [unavailable (await (embeddings app payload))]
+                  (is (= 502 (:status unavailable)))
+                  (is (= [["embeddinggemma-yoga" model] ["embeddinggemma-stealth" model]] @seen)))
+
+                (reset! yoga-status 400)
+                (reset! seen [])
+                (let [rejected (await (embeddings app payload))]
+                  (is (= 400 (:status rejected)))
+                  (is (= [["embeddinggemma-yoga" model]] @seen))))))))))))
+
 (deftest ^:async routes-bare-qwen3-embeddings-through-declarative-cljs-policy-to-llama-cpp
   (let [seen (atom {})]
     (await

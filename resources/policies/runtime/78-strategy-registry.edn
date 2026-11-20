@@ -80,4 +80,4 @@
    :ovm-default-model "OpenVINO/Qwen3-Embedding-0.6B-int8-ov"}
 
   ;; Providers whose embeddings speak OpenAI /v1/embeddings natively.
-  :registry/compat-embedding-providers #{"llamacpp-embed" "llamacpp"}}]
+  :registry/compat-embedding-providers #{"llamacpp-embed" "llamacpp" "embeddinggemma-yoga" "embeddinggemma-stealth"}}]

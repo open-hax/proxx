@@ -5,7 +5,8 @@
             [proxx.policy.evidence :as evidence]
             [proxx.policy.loader :as loader]
             [proxx.policy.router :as router]
-            [proxx.policy.search :as policy-search]))
+            [proxx.policy.search :as policy-search]
+            [proxx.runtime :as runtime]))
 
 (defn strategy [id outcome strategy-symbol]
   {:contract/id id
@@ -577,6 +578,7 @@
             :route/mimo-v2-5-pro
             :route/mimo
             :route/mistral
+            :route/embeddinggemma-2
             :route/qwen3-embedding
             :route/kimi
             :route/blaze-text
@@ -602,7 +604,7 @@
     (is (= [:plus :pro :business :enterprise :team]
            (:require/plan-set gpt-paid)))
     (is (= 18 (count (:provider-capabilities compiled))))
-    (is (= 24 (count (:provider-routes compiled))))
+    (is (= 26 (count (:provider-routes compiled))))
     (is (= 7 (count (:request-surface-defaults compiled))))
     (is (= 4 (count (:tenant-authorization-clauses compiled))))
     (is (= :router/root (get-in compiled [:root-program :contract/id])))))
@@ -933,6 +935,39 @@
     (is (= :no-provider-candidates (:reason decision)))
     (is (= :route/default (:route-id decision)))
     (is (= [] (:providers decision)))))
+
+(deftest embeddinggemma2-workers-only-receive-their-model-and-surface
+  (let [compiled (contracts/compile-contracts
+                  (loader/load-policy-contracts! "resources/policies/runtime/00-manifest.edn"))
+        input {:model-id "embeddinggemma-2" :request-kind :embeddings
+               :provider-ids ["requesty" "embeddinggemma-stealth" "embeddinggemma-yoga"]}
+        preview #(contracts/preview-policy-decision compiled %)]
+    (is (= ["embeddinggemma-yoga" "embeddinggemma-stealth"] (:providers (preview input))))
+    (is (empty? (:providers (preview (assoc input :model-id "embeddinggemma")))))
+    (is (empty? (:providers (preview (assoc input :request-kind :chat)))))
+    (is (= ["embeddinggemma-stealth"]
+           (:providers (preview (assoc input :tenant-settings
+                                       {:allowed-provider-ids ["embeddinggemma-stealth"]})))))))
+
+(deftest ^:async embeddinggemma2-strict-policy-tree-normalizes-request-kind-and-exhausts
+  (let [manifest "resources/policies/runtime/00-manifest.edn"
+        provider-ids ["ollama" "embeddinggemma-stealth" "embeddinggemma-yoga"]
+        input {:modelId "embeddinggemma-2"
+               :providerIds provider-ids
+               :accountsByProvider (into {} (map (fn [id] [id [{:accountId id}]]) provider-ids))
+               :strategiesByProvider (into {} (map (fn [id] [id [{:mode "embeddings" :priority 0}]])
+                                                   provider-ids))}]
+    (doseq [request-kind-key [:requestKind :request-kind]]
+      (let [attempted (atom [])
+            ^js result (await
+                        (runtime/execute-policy-tree-js
+                         manifest
+                         (clj->js (assoc input request-kind-key "embeddings"))
+                         (fn [^js candidate]
+                           (swap! attempted conj (aget candidate "provider-id"))
+                           (js/Promise.resolve #js {:status "failure" :reason "fixture-unavailable"}))))]
+        (is (= "exhausted" (.-status result)))
+        (is (= ["embeddinggemma-yoga" "embeddinggemma-stealth"] @attempted))))))
 
 (deftest compiler-previews-embedding-policy-decision
   (let [compiled (contracts/compile-contracts
