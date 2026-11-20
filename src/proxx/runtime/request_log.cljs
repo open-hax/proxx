@@ -24,10 +24,15 @@
                         {} (js-keys x))
     :else x))
 
-(defn- ordered [m order]
-  (let [o #js {}]
-    (doseq [k order] (let [v (get m k)] (when (some? v) (aset o k v))))
-    o))
+(defn- ordered
+  ([m order] (ordered m order (fn [_ v] v)))
+  ([m order convert]
+   ;; Construct all properties together to keep wide V8 objects compact.
+   (let [pairs (array)]
+     (doseq [k order]
+       (when-some [v (get m k)]
+         (.push pairs #js [k (convert k v)])))
+     (js/Object.fromEntries pairs))))
 
 (defn- nullable-ordered [m order]
   (let [o #js {}]
@@ -50,12 +55,8 @@
    "factoryDiagnostics" "costUsd" "energyJoules" "waterEvaporatedMl"])
 
 (defn- entry->js [e]
-  (let [o #js {}]
-    (doseq [k entry-order]
-      (let [v (get e k)]
-        (when (some? v)
-          (aset o k (if (= k "factoryDiagnostics") (ordered v diagnostics-order) v)))))
-    o))
+  (ordered e entry-order
+           (fn [k v] (if (= k "factoryDiagnostics") (ordered v diagnostics-order) v))))
 
 (def ^:private counters
   ["requestCount" "errorCount" "totalTokens" "promptTokens" "completionTokens" "cachedPromptTokens" "imageCount"

@@ -477,14 +477,17 @@
 (def empty-state
   {:entries [] :hourly empty-okv :daily empty-okv :model empty-okv :account empty-okv :perf empty-okv :acc empty-okv})
 
+(defn- step-indexes [state e kinds]
+  (-> (reduce (fn [s kind] (with-bucket s kind e #(let [b (fold-core % e)]
+                                                    (if (#{:model :account} kind) (fold-perf b e) b))))
+              state kinds)
+      (step-accumulator e)
+      (step-perf e)))
+
 (defn step
   "Fold one *new* entry into every index (not into `:entries`)."
   [state e]
-  (-> (reduce (fn [s kind] (with-bucket s kind e #(let [b (fold-core % e)]
-                                                    (if (#{:model :account} kind) (fold-perf b e) b))))
-              state bucket-kinds)
-      (step-accumulator e)
-      (step-perf e)))
+  (step-indexes state e bucket-kinds))
 
 (defn delta-step
   "Fold a correction (`e` replaces `prev`, same entry) into the indexes."
@@ -521,8 +524,7 @@
           (:entries state)))
 
 (defn- install-persisted
-  "Persisted rollups outlive the entries they were built from: when present
-  they replace the rebuilt buckets."
+  "Restore available rollups, which may include entries outside retention."
   [state {:strs [hourlyBuckets dailyBuckets dailyModelBuckets dailyAccountBuckets]}]
   (let [install (fn [state kind buckets keyf]
                   (if (seq buckets)
@@ -589,16 +591,17 @@
             (reduce (fn [acc k] (assoc acc k (get est k))) e todo)))))))
 
 (defn load-db
-  "State from a hydrated db: repair estimates, fold, then let persisted
-  rollups win. Returns [state' repaired-entries]."
+  "State from a hydrated db: repair estimates, restore persisted rollups,
+  and rebuild missing indexes. Returns [state' repaired-entries]."
   [hydrated estimate]
   (let [[entries repaired] (reduce (fn [[out fixed] e]
                                      (if-let [r (repair-entry e estimate)]
                                        [(conj out r) (conj fixed r)]
                                        [(conj out e) fixed]))
                                    [[] []] (:entries hydrated))
-        state (rebuild-indexes (assoc empty-state :entries entries))]
-    [(install-persisted state hydrated) repaired]))
+        state (install-persisted (assoc empty-state :entries entries) hydrated)
+        missing-kinds (filterv #(empty? (:by (get state %))) bucket-kinds)]
+    [(reduce #(step-indexes %1 %2 missing-kinds) state entries) repaired]))
 
 (defn refresh-estimates
   "Entries whose derived cost/energy/water differ from `estimate`, as
