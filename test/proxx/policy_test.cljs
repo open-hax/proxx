@@ -577,6 +577,7 @@
             :route/mimo-v2-5-pro
             :route/mimo
             :route/mistral
+            :route/embeddinggemma-2
             :route/qwen3-embedding
             :route/kimi
             :route/blaze-text
@@ -602,7 +603,7 @@
     (is (= [:plus :pro :business :enterprise :team]
            (:require/plan-set gpt-paid)))
     (is (= 18 (count (:provider-capabilities compiled))))
-    (is (= 24 (count (:provider-routes compiled))))
+    (is (= 26 (count (:provider-routes compiled))))
     (is (= 7 (count (:request-surface-defaults compiled))))
     (is (= 4 (count (:tenant-authorization-clauses compiled))))
     (is (= :router/root (get-in compiled [:root-program :contract/id])))))
@@ -933,6 +934,19 @@
     (is (= :no-provider-candidates (:reason decision)))
     (is (= :route/default (:route-id decision)))
     (is (= [] (:providers decision)))))
+
+(deftest embeddinggemma2-workers-only-receive-their-model-and-surface
+  (let [compiled (contracts/compile-contracts
+                  (loader/load-policy-contracts! "resources/policies/runtime/00-manifest.edn"))
+        input {:model-id "embeddinggemma-2" :request-kind :embeddings
+               :provider-ids ["requesty" "embeddinggemma-stealth" "embeddinggemma-yoga"]}
+        preview #(contracts/preview-policy-decision compiled %)]
+    (is (= ["embeddinggemma-yoga" "embeddinggemma-stealth"] (:providers (preview input))))
+    (is (empty? (:providers (preview (assoc input :model-id "embeddinggemma")))))
+    (is (empty? (:providers (preview (assoc input :request-kind :chat)))))
+    (is (= ["embeddinggemma-stealth"]
+           (:providers (preview (assoc input :tenant-settings
+                                       {:allowed-provider-ids ["embeddinggemma-stealth"]})))))))
 
 (deftest compiler-previews-embedding-policy-decision
   (let [compiled (contracts/compile-contracts

@@ -101,12 +101,12 @@
   "Build provider branch nodes for a routing clause."
   [compiled route input]
   (let [provider-ids (contracts/request-or-route-provider-ids route input)
-        surface-providers (filterv #(contracts/request-surface-provider-allowed? compiled % (:request-kind input))
+        model-id (or (:model-id input) (:modelId input) "")
+        surface-providers (filterv #(contracts/request-surface-provider-allowed?
+                                     compiled % (:request-kind input) model-id)
                                    provider-ids)
-        evidenced-providers (contracts/evidence-filtered-provider-ids route input surface-providers
-                                                                      (or (get input :model-id)
-                                                                          (get input :modelId)
-                                                                          ""))
+        evidenced-providers (contracts/evidence-filtered-provider-ids
+                              route input surface-providers model-id)
         tenant-settings (or (get input :tenant-settings)
                             (get input :tenantSettings)
                             {})

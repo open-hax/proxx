@@ -116,6 +116,13 @@
   :prefer/strategies [:chat-completions]
   :account/order :account-order/prefer-free}
 
+ {:contract/id :route/embeddinggemma-2
+  :contract/kind :routing-clause
+  :match/family :model-family/embeddinggemma-2
+  :prefer/providers ["embeddinggemma-yoga" "embeddinggemma-stealth"]
+  :prefer/providers-strict? true
+  :prefer/strategies [:embeddings]}
+
  {:contract/id :route/qwen3-embedding
   :contract/kind :routing-clause
   :match/family :model-family/qwen3-embedding

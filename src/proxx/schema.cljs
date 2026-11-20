@@ -256,6 +256,8 @@
     [:provider/baseUrl {:optional true} [:string {:min 1}]]
     [:base-url {:optional true} [:string {:min 1}]]
     [:baseUrl {:optional true} [:string {:min 1}]]
+    [:match/model-pattern {:optional true} [:string {:min 1}]]
+    [:match/request-kind {:optional true} :keyword]
     [:paths {:optional true} [:map-of :keyword [:string {:min 1}]]]]
    [:fn {:error/message "provider-route requires a provider id"}
     (fn [m] (boolean (or (:provider/id m) (:provider-id m) (:providerId m))))]

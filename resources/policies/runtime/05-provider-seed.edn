@@ -160,6 +160,22 @@
   :provider/base-url "http://llamacpp-embed:8081"
   :paths {:chat-completions "/v1/chat/completions"}}
 
+ {:contract/id :provider-route/embeddinggemma-yoga
+  :contract/kind :provider-route
+  :provider/id "embeddinggemma-yoga"
+  :provider/base-url "http://embeddinggemma-yoga:8081"
+  :match/model-pattern "(?i)^embeddinggemma-2$"
+  :match/request-kind :embeddings
+  :paths {:embeddings "/v1/embeddings"}}
+
+ {:contract/id :provider-route/embeddinggemma-stealth
+  :contract/kind :provider-route
+  :provider/id "embeddinggemma-stealth"
+  :provider/base-url "http://embeddinggemma-stealth:8081"
+  :match/model-pattern "(?i)^embeddinggemma-2$"
+  :match/request-kind :embeddings
+  :paths {:embeddings "/v1/embeddings"}}
+
  {:contract/id :provider-seed/musicgen
   :contract/kind :provider-seed
   :provider-id-env-names ["MUSICGEN_PROVIDER_ID"]
