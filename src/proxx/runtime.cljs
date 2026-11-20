@@ -103,11 +103,29 @@
         (swap! compiled-policy-cache assoc manifest-path compiled)
         compiled)))
 
-(defn classify-credential-failure [manifest-path provider-id status message]
+(defn- credential-failure-clause [manifest-path provider-id status message]
   (let [compiled (compiled-policy-for-manifest (or manifest-path "resources/policies/runtime/00-manifest.edn"))]
-    (when-let [clause (policy-contracts/credential-failure-classification (:index compiled) provider-id status message)]
-      {:result (:classify/result clause)
-       :cooldown-ms (:classify/cooldown-ms clause)})))
+    (policy-contracts/credential-failure-classification (:index compiled) provider-id status message)))
+
+(defn classify-credential-failure [manifest-path provider-id status message]
+  (when-let [clause (credential-failure-clause manifest-path provider-id status message)]
+    {:result (:classify/result clause)
+     :cooldown-ms (:classify/cooldown-ms clause)}))
+
+(defn classify-credential-failure-js
+  "Expose the executor's credential-failure decision to the production image verifier."
+  [manifest-path provider-id status message]
+  (try
+    (let [clause (credential-failure-clause manifest-path provider-id status message)]
+      (clj->js {:status "ok"
+                :result (some-> (:classify/result clause) name)
+                :cooldownMs (:classify/cooldown-ms clause)
+                ;; Both supported verdicts preserve the underlying account.
+                :disable false
+                :contractId (some-> (:contract/id clause) str)}))
+    (catch :default e
+      (clj->js {:status "error"
+                :error (.-message e)}))))
 
 (defn load-provider-seed-specs-js
   "Load provider seed specs from :provider-seed contracts in the manifest.
@@ -365,7 +383,8 @@
         :runModelCandidates run-model-candidates-js
        :resolveQueuePolicy resolve-queue-policy-js
        :runQueued run-queued-js
-       :classifyRateLimit classify-rate-limit-js})
+       :classifyRateLimit classify-rate-limit-js
+       :classifyCredentialFailure classify-credential-failure-js})
 
 ;; ---------------------------------------------------------------------------
 ;; Upstream error classification (edge: reads the Response once, then applies
