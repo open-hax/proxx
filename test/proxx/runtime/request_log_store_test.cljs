@@ -64,9 +64,12 @@
 (deftest ^:async warmup-preserves-clean-journal-and-historical-rollups
   (let [dir (tmp-dir) file (path/join dir "r.jsonl") meta (path/join dir "r.meta.json")
         tenant-id (.repeat "x" 119)
+        fingerprint (.repeat "f" 79)
         updated-c (entry "c")
         _ (aset updated-c "status" 503)
         _ (aset updated-c "tenantId" (str tenant-id " remainders"))
+        _ (aset updated-c "factoryDiagnostics"
+                #js {:requestFormat "responses" :shapeFingerprint (str fingerprint " remainder")})
         source (str (.join (to-array (map js/JSON.stringify
                                           [(entry "a") (entry "b") (entry "a") (entry "c")
                                            (entry "d") updated-c (entry "a")])) "\n") "\n")
@@ -80,6 +83,7 @@
       (is (= 503 (aget (first (.snapshot s)) "status")))
       (is (= tenant-id (aget (first (.snapshot s)) "tenantId"))
           "loading the retained rows removes trailing whitespace exposed by the original length limit")
+      (is (= fingerprint (aget (aget (first (.snapshot s)) "factoryDiagnostics") "shapeFingerprint")))
       (is (= [[1699920000000 42]]
              (mapv (fn [bucket] [(aget bucket "startMs") (aget bucket "totalTokens")]) (.dailyBuckets s))))
       (is (= source (.readFileSync fs file "utf8")))
